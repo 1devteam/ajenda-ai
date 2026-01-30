@@ -1,0 +1,25 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+.pytest_cache
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# Documentation
+docs/
+
+# Environment
+.env
+.env.local
+
+# Tests
+tests/
