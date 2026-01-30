@@ -98,3 +98,4 @@ dump.rdb
 # Monitoring data
 prometheus_data/
 grafana_data/
+.env.backup
