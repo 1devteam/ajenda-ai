@@ -5,9 +5,18 @@ Manages credits, transactions, and resource allocation for agents
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
+from enum import Enum
 import uuid
 import asyncio
 
+class ResourceType(Enum):
+    """Types of resources that can be charged in the economy"""
+    LLM_CALL = "llm_call"
+    COMPUTE = "compute"
+    STORAGE = "storage"
+    MEMORY = "memory"
+    NETWORK = "network"
+    TOOL_USE = "tool_use"
 
 class ResourceMarketplace:
     """
