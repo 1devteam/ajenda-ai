@@ -12,7 +12,7 @@ import logging
 from backend.config.settings import Settings
 
 # Import API routes
-from backend.api.routes import economy, performance, metrics, missions_v45
+from backend.api.routes import economy, performance, metrics, missions_v45, meta_learning
 
 # Configure logging
 logging.basicConfig(
@@ -126,6 +126,7 @@ app.include_router(economy.router)
 app.include_router(performance.router)
 app.include_router(metrics.router)
 app.include_router(missions_v45.router)
+app.include_router(meta_learning.router)
 
 
 # Startup message
