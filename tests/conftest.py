@@ -12,6 +12,7 @@ from backend.main import app
 from backend.models.domain.user import User, UserRole
 from backend.middleware.auth.auth_middleware import create_access_token
 from backend.economy.resource_marketplace import ResourceMarketplace
+from backend.config.settings import Settings
 
 
 # ============================================================================
@@ -24,6 +25,18 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest.fixture(scope="session")
+def test_settings():
+    """
+    Shared settings instance for all tests
+    Uses a fixed JWT secret key to ensure token signing/verification works
+    """
+    import os
+    os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-tokens-do-not-use-in-production"
+    os.environ["SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
+    return Settings()
 
 
 # ============================================================================

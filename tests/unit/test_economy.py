@@ -57,7 +57,7 @@ class TestResourceMarketplace:
     async def test_reward_increases_balance(self, marketplace: ResourceMarketplace, mock_user: User):
         """Test that rewarding an agent increases their balance"""
         tenant_id = mock_user.tenant_id
-        agent_id = "test_agent"
+        agent_id = "reward_test_agent"
         
         # Get initial balance
         initial_balance = await marketplace.get_balance(tenant_id, agent_id)

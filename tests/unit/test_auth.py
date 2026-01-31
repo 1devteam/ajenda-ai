@@ -12,8 +12,11 @@ from backend.middleware.auth.auth_middleware import (
 )
 from backend.models.domain.user import User, UserRole, TokenData
 from backend.config.settings import Settings
+import os
 
-
+# Set fixed JWT secret for testing
+os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-tokens-do-not-use-in-production"
+os.environ["SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
 settings = Settings()
 
 
