@@ -46,7 +46,7 @@ async def get_agent_balances(
     current_user: User = Depends(get_current_user)
 ):
     """Get all agent balances for the current tenant"""
-    balances = await marketplace.get_all_balances(current_user.tenant_id)
+    balances = await marketplace.get_tenant_balances(current_user.tenant_id)
     return [
         AgentBalance(
             agent_id=agent_id,

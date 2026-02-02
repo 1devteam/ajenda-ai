@@ -3,6 +3,7 @@ OpenTelemetry Telemetry - Real Implementation for v5.0
 Distributed tracing and metrics with Prometheus integration
 """
 import logging
+import os
 from typing import Optional
 from contextlib import contextmanager
 
@@ -62,6 +63,13 @@ class TelemetryManager:
         1. Tracer for distributed tracing (sends to Jaeger)
         2. Meter for OpenTelemetry metrics (complementary to Prometheus)
         """
+        # Allow disabling OTLP for testing without infrastructure
+        if os.getenv("OTEL_SDK_DISABLED", "false").lower() == "true":
+            logger.info("OpenTelemetry disabled via OTEL_SDK_DISABLED environment variable")
+            self.enabled = False
+            self._initialized = True
+            return
+        
         if not self.enabled or not OTEL_AVAILABLE:
             logger.info("OpenTelemetry disabled - running without tracing")
             self._initialized = True
