@@ -1,0 +1,262 @@
+{
+  "dashboard": {
+    "title": "Agent Economy",
+    "tags": ["omnipath", "economy"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "5s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Total Credits Earned",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(omnipath_credits_earned_total)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 2,
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Total Credits Spent",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(omnipath_credits_spent_total)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 2,
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Net Economy",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(omnipath_credits_earned_total) - sum(omnipath_credits_spent_total)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 2,
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "red"},
+                {"value": 0, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Average Agent Balance",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "avg(omnipath_agent_balance)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 2
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Credits Flow Over Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(omnipath_credits_earned_total[5m])",
+            "legendFormat": "Earned/min",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(omnipath_credits_spent_total[5m])",
+            "legendFormat": "Spent/min",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "cpm",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Spent/min"},
+              "properties": [
+                {"id": "custom.transform", "value": "negative-Y"}
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 6,
+        "title": "Agent Balances",
+        "type": "bargauge",
+        "targets": [
+          {
+            "expr": "topk(10, omnipath_agent_balance)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 2,
+            "color": {"mode": "continuous-GrYlRd"}
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Top Earners",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "topk(10, omnipath_credits_earned_total)",
+            "refId": "A",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
+        "options": {
+          "showHeader": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto"
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Top Spenders",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "topk(10, omnipath_credits_spent_total)",
+            "refId": "A",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 12},
+        "options": {
+          "showHeader": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto"
+            }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Economy Health",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "(sum(omnipath_credits_earned_total) - sum(omnipath_credits_spent_total)) / sum(omnipath_credits_earned_total) * 100",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 12},
+        "options": {
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": -100,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": -100, "color": "red"},
+                {"value": -20, "color": "yellow"},
+                {"value": 0, "color": "green"}
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}
