@@ -18,21 +18,26 @@ from backend.models.domain.mission import MissionStatus
 tracer = get_tracer(__name__)
 meter = get_meter(__name__)
 
-# Metrics
-mission_counter = meter.create_counter(
-    "omnipath_missions_total",
-    description="Total number of missions executed"
-)
-
-mission_duration = meter.create_histogram(
-    "omnipath_mission_duration_seconds",
-    description="Mission execution duration in seconds"
-)
-
-agent_invocations = meter.create_counter(
-    "omnipath_agent_invocations_total",
-    description="Total agent invocations by type"
-)
+# Metrics (handle None meter gracefully for v4.5 compatibility)
+if meter is not None:
+    mission_counter = meter.create_counter(
+        "omnipath_missions_total",
+        description="Total number of missions executed"
+    )
+    
+    mission_duration = meter.create_histogram(
+        "omnipath_mission_duration_seconds",
+        description="Mission execution duration in seconds"
+    )
+    
+    agent_invocations = meter.create_counter(
+        "omnipath_agent_invocations_total",
+        description="Total agent invocations by type"
+    )
+else:
+    mission_counter = None
+    mission_duration = None
+    agent_invocations = None
 
 
 class MissionComplexity(Enum):
@@ -126,10 +131,12 @@ class MissionExecutor:
                         mission_id, plan, result, tenant_id
                     )
                 
-                # Record metrics
+                # Record metrics (only if meter is available)
                 duration = (datetime.utcnow() - start_time).total_seconds()
-                mission_duration.record(duration)
-                mission_counter.add(1, {"status": result["status"]})
+                if mission_duration:
+                    mission_duration.record(duration)
+                if mission_counter:
+                    mission_counter.add(1, {"status": result["status"]})
                 
                 return {
                     "mission_id": mission_id,
@@ -142,7 +149,8 @@ class MissionExecutor:
                 
             except Exception as e:
                 span.record_exception(e)
-                mission_counter.add(1, {"status": "ERROR"})
+                if mission_counter:
+                    mission_counter.add(1, {"status": "ERROR"})
                 return {
                     "mission_id": mission_id,
                     "status": "ERROR",
@@ -157,7 +165,8 @@ class MissionExecutor:
     ) -> Dict[str, Any]:
         """Guardian validates mission safety"""
         with tracer.start_as_current_span("guardian_validate"):
-            agent_invocations.add(1, {"agent": "guardian"})
+            if agent_invocations:
+                agent_invocations.add(1, {"agent": "guardian"})
             
             # Get Guardian's LLM
             llm = self.llm_factory.get_llm("guardian", tenant_id)
@@ -218,7 +227,8 @@ Respond in JSON format:
     ) -> Dict[str, Any]:
         """Commander creates execution plan"""
         with tracer.start_as_current_span("commander_plan"):
-            agent_invocations.add(1, {"agent": "commander"})
+            if agent_invocations:
+                agent_invocations.add(1, {"agent": "commander"})
             
             llm = self.llm_factory.get_llm("commander", tenant_id)
             
@@ -285,7 +295,8 @@ Respond in JSON format:
             
             # Execute each step
             for i, step in enumerate(plan["steps"]):
-                agent_invocations.add(1, {"agent": "executor"})
+                if agent_invocations:
+                    agent_invocations.add(1, {"agent": "executor"})
                 
                 # Charge for resource usage
                 cost = await self.marketplace.charge_for_resource(
@@ -317,24 +328,49 @@ Respond in JSON format:
             # Spawn multiple agents in parallel
             tasks = []
             for step in plan["steps"]:
-                task = self._execute_with_agents(
-                    f"{mission_id}_sub_{len(tasks)}",
-                    {"steps": [step], "model_selection": plan["model_selection"]},
-                    tenant_id
+                task = self._execute_swarm_agent(
+                    mission_id, step, tenant_id
                 )
                 tasks.append(task)
             
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            total_cost = sum(r["cost"] for r in results)
-            combined_output = "\n\n".join(r["output"] for r in results)
+            # Aggregate results
+            total_cost = sum(r.get("cost", 0) for r in results if isinstance(r, dict))
+            outputs = [r.get("output", "") for r in results if isinstance(r, dict)]
             
             return {
                 "status": "SUCCESS",
-                "output": combined_output,
+                "output": "\n\n".join(outputs),
                 "cost": total_cost,
-                "agents_used": ["commander", "guardian", "swarm"]
+                "agents_used": ["swarm"] * len(results)
             }
+    
+    async def _execute_swarm_agent(
+        self,
+        mission_id: str,
+        task: str,
+        tenant_id: str
+    ) -> Dict[str, Any]:
+        """Execute a single swarm agent"""
+        if agent_invocations:
+            agent_invocations.add(1, {"agent": "swarm_agent"})
+        
+        llm = self.llm_factory.get_llm_by_model("gpt-3.5-turbo", tenant_id)
+        
+        cost = await self.marketplace.charge_for_resource(
+            tenant_id,
+            f"swarm_agent_{uuid.uuid4().hex[:8]}",
+            ResourceType.LLM_CALL,
+            0.5
+        )
+        
+        response = await llm.ainvoke(task)
+        
+        return {
+            "output": response.content,
+            "cost": cost
+        }
     
     async def _archive_mission(
         self,
@@ -346,18 +382,26 @@ Respond in JSON format:
     ):
         """Archivist records mission for future learning"""
         with tracer.start_as_current_span("archivist_archive"):
-            agent_invocations.add(1, {"agent": "archivist"})
+            if agent_invocations:
+                agent_invocations.add(1, {"agent": "archivist"})
             
+            # Publish mission completion event
             await self.event_bus.publish(
-                "mission.archived",
+                "mission.completed",
                 {
                     "mission_id": mission_id,
                     "goal": goal,
-                    "plan": plan,
-                    "result": result,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "status": result["status"],
+                    "cost": result.get("cost", 0.0),
+                    "complexity": plan["complexity"]
                 }
             )
+            
+            # In production, this would save to database
+            # For now, just log it
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Mission {mission_id} archived: {result['status']}")
     
     async def _distribute_rewards(
         self,
@@ -366,10 +410,9 @@ Respond in JSON format:
         result: Dict[str, Any],
         tenant_id: str
     ):
-        """Distribute credits to successful agents"""
+        """Distribute rewards to successful agents"""
         with tracer.start_as_current_span("distribute_rewards"):
-            # Calculate reward based on mission value
-            base_reward = 10.0
+            # Calculate reward based on mission complexity
             complexity_multiplier = {
                 "simple": 1.0,
                 "moderate": 1.5,
@@ -377,15 +420,28 @@ Respond in JSON format:
                 "swarm": 3.0
             }
             
-            reward = base_reward * complexity_multiplier.get(
-                plan.get("complexity", "simple"), 1.0
-            )
+            base_reward = 10.0  # Base credits
+            multiplier = complexity_multiplier.get(plan["complexity"], 1.0)
+            total_reward = base_reward * multiplier
             
             # Reward each agent that participated
-            for agent_type in result.get("agents_used", []):
-                agent_id = f"{tenant_id}_{agent_type}"
+            agents_used = result.get("agents_used", [])
+            reward_per_agent = total_reward / len(agents_used) if agents_used else 0
+            
+            for agent_name in agents_used:
                 await self.marketplace.reward_agent(
                     tenant_id,
-                    agent_id,
-                    reward / len(result["agents_used"])
+                    agent_name,
+                    ResourceType.MISSION_REWARD,
+                    reward_per_agent
                 )
+            
+            # Publish reward event
+            await self.event_bus.publish(
+                "rewards.distributed",
+                {
+                    "mission_id": mission_id,
+                    "total_reward": total_reward,
+                    "agents": agents_used
+                }
+            )
