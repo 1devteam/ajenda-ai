@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "Omnipath"
-    APP_VERSION: str = "3.0.0"
+    APP_VERSION: str = "5.0.0"
     DEBUG: bool = False
     ENVIRONMENT: str = Field(default="development", pattern="^(development|staging|production)$")
     
@@ -78,9 +78,28 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
     CORS_ALLOW_CREDENTIALS: bool = True
     
-    # Monitoring
+    # Observability (v5.0)
+    # OpenTelemetry
+    OTEL_ENABLED: bool = True
+    OTEL_SERVICE_NAME: str = "omnipath"
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4317"
+    OTEL_EXPORTER_OTLP_INSECURE: bool = True
+    
+    # Prometheus Metrics
     PROMETHEUS_ENABLED: bool = True
     PROMETHEUS_PORT: int = 9090
+    METRICS_ENDPOINT: str = "/metrics"
+    
+    # NATS Event Bus
+    NATS_ENABLED: bool = True
+    NATS_URL: str = "nats://localhost:4222"
+    NATS_CLUSTER_ID: str = "omnipath-cluster"
+    NATS_CLIENT_ID: str = "omnipath-backend"
+    NATS_MAX_RECONNECT_ATTEMPTS: int = 10
+    
+    # Jaeger (for trace visualization)
+    JAEGER_AGENT_HOST: str = "localhost"
+    JAEGER_AGENT_PORT: int = 6831
     
     @validator("ENVIRONMENT")
     def validate_environment(cls, v):
