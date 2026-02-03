@@ -5,7 +5,7 @@ Handles user registration, login, logout, and token management
 Built with Pride for Obex Blackvault
 """
 from fastapi import APIRouter, HTTPException, status, Depends, Header
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 from datetime import datetime, timedelta
@@ -209,20 +209,15 @@ async def register(user_data: UserRegister):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(credentials: UserLogin):
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """
     User login
     
     Authenticates user and returns access and refresh tokens.
+    Uses OAuth2 form data (username/password).
     """
-    # Get email from either field
-    user_email = credentials.get_email()
-    
-    if not user_email:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Email or username is required"
-        )
+    # OAuth2 uses 'username' field for email
+    user_email = form_data.username
     
     # Find user by email
     user = None
@@ -238,7 +233,7 @@ async def login(credentials: UserLogin):
         )
     
     # Verify password
-    if not verify_password(credentials.password, user["password_hash"]):
+    if not verify_password(form_data.password, user["password_hash"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
