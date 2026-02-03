@@ -20,14 +20,21 @@ router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
 # ============================================================================
 
 class MissionCreate(BaseModel):
-    """Schema for creating a new mission"""
-    objective: str = Field(..., min_length=1, description="Mission objective")
+    """Schema for creating a new mission (supports both v4.5 and v5.0 formats)"""
+    # v5.0 fields
+    objective: Optional[str] = Field(None, min_length=1, description="Mission objective")
     agent_id: str = Field(..., description="Agent ID to execute the mission")
-    tenant_id: str = Field(..., description="Tenant ID")
+    tenant_id: Optional[str] = Field(None, description="Tenant ID")
     priority: MissionPriority = Field(default=MissionPriority.NORMAL, description="Mission priority")
     context: Dict[str, Any] = Field(default_factory=dict, description="Mission context")
     max_steps: int = Field(default=10, ge=1, le=100, description="Maximum execution steps")
     timeout_seconds: int = Field(default=300, ge=1, description="Execution timeout in seconds")
+    
+    # v4.5 backward compatibility fields
+    command: Optional[str] = Field(None, description="[v4.5] Mission command")
+    message: Optional[str] = Field(None, description="[v4.5] Mission message")
+    payload: Optional[str] = Field(None, description="[v4.5] Mission payload (JSON string)")
+    state: Optional[str] = Field(None, description="[v4.5] Initial state")
 
 
 class MissionUpdate(BaseModel):
@@ -124,20 +131,41 @@ async def create_mission(mission: MissionCreate):
     mission_id = f"mission_{uuid.uuid4().hex[:12]}"
     now = datetime.utcnow()
     
+    # Handle v4.5 backward compatibility
+    objective = mission.objective
+    context = mission.context
+    tenant_id = mission.tenant_id
+    
+    if not objective and mission.message:
+        # v4.5 format: use message as objective
+        objective = mission.message
+    
+    if mission.payload:
+        # v4.5 format: parse payload into context
+        try:
+            import json
+            context = json.loads(mission.payload) if isinstance(mission.payload, str) else mission.payload
+        except:
+            context = {"payload": mission.payload}
+    
+    if not tenant_id:
+        # Default tenant for backward compatibility
+        tenant_id = "default"
+    
     mission_data = {
         "id": mission_id,
-        "objective": mission.objective,
+        "objective": objective or "No objective specified",
         "status": MissionStatus.PENDING.value,
         "priority": mission.priority.value if isinstance(mission.priority, MissionPriority) else mission.priority,
         "agent_id": mission.agent_id,
-        "tenant_id": mission.tenant_id,
+        "tenant_id": tenant_id,
         "created_at": now,
         "started_at": None,
         "completed_at": None,
         "result": None,
         "error": None,
         "steps": [],
-        "context": mission.context,
+        "context": context,
         "max_steps": mission.max_steps,
         "timeout_seconds": mission.timeout_seconds,
         "execution_time": None,

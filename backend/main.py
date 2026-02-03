@@ -18,7 +18,7 @@ from backend.integrations.observability.telemetry import get_telemetry
 from backend.integrations.observability.prometheus_metrics import get_metrics, metrics_endpoint
 
 # Import API routes
-from backend.api.routes import economy, performance, metrics, missions_v45, meta_learning, tenants, agents, missions
+from backend.api.routes import economy, performance, metrics, missions_v45, meta_learning, tenants, agents, missions, auth
 
 # Configure logging
 logging.basicConfig(
@@ -218,6 +218,7 @@ async def root():
 
 
 # Include API routers
+app.include_router(auth.router)
 app.include_router(tenants.router)
 app.include_router(agents.router)
 app.include_router(missions.router)
