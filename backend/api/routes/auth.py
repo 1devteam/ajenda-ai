@@ -25,14 +25,24 @@ class UserRegister(BaseModel):
     """User registration schema"""
     email: EmailStr = Field(..., description="User email address")
     password: str = Field(..., min_length=8, description="User password (min 8 characters)")
-    name: str = Field(..., min_length=1, description="User full name")
+    name: Optional[str] = Field(None, min_length=1, description="User full name")
+    full_name: Optional[str] = Field(None, min_length=1, description="User full name (alias for name)")
     tenant_id: Optional[str] = Field(None, description="Tenant ID (optional, will create if not provided)")
+    
+    def get_name(self) -> str:
+        """Get name from either name or full_name field"""
+        return self.name or self.full_name or "User"
 
 
 class UserLogin(BaseModel):
-    """User login schema"""
-    email: EmailStr = Field(..., description="User email address")
+    """User login schema (supports both JSON and form data)"""
+    email: Optional[EmailStr] = Field(None, description="User email address")
+    username: Optional[EmailStr] = Field(None, description="User email (OAuth2 compatibility)")
     password: str = Field(..., description="User password")
+    
+    def get_email(self) -> str:
+        """Get email from either email or username field"""
+        return self.email or self.username
 
 
 class TokenResponse(BaseModel):
@@ -156,6 +166,9 @@ async def register(user_data: UserRegister):
                 detail="User with this email already exists"
             )
     
+    # Get name from either field
+    user_name = user_data.get_name()
+    
     # Create tenant if not provided
     tenant_id = user_data.tenant_id
     if not tenant_id:
@@ -163,7 +176,7 @@ async def register(user_data: UserRegister):
         tenant_id = f"tenant_{uuid.uuid4().hex[:12]}"
         _tenants_db[tenant_id] = {
             "id": tenant_id,
-            "name": f"{user_data.name}'s Organization",
+            "name": f"{user_name}'s Organization",
             "slug": f"org-{uuid.uuid4().hex[:8]}",
             "created_at": datetime.utcnow(),
             "settings": {}
@@ -177,7 +190,7 @@ async def register(user_data: UserRegister):
         "id": user_id,
         "email": user_data.email,
         "password_hash": hash_password(user_data.password),
-        "name": user_data.name,
+        "name": user_name,
         "tenant_id": tenant_id,
         "created_at": now,
         "last_login": None
@@ -202,10 +215,19 @@ async def login(credentials: UserLogin):
     
     Authenticates user and returns access and refresh tokens.
     """
+    # Get email from either field
+    user_email = credentials.get_email()
+    
+    if not user_email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Email or username is required"
+        )
+    
     # Find user by email
     user = None
     for u in _users_db.values():
-        if u["email"] == credentials.email:
+        if u["email"] == user_email:
             user = u
             break
     
