@@ -1,0 +1,105 @@
+# Grafana Alerting Configuration for Omnipath v5.0
+# Built with Pride for Obex Blackvault
+
+apiVersion: 1
+
+# Contact points for alert notifications
+contactPoints:
+  - orgId: 1
+    name: email
+    receivers:
+      - uid: email_receiver
+        type: email
+        settings:
+          addresses: admin@omnipath.local
+          singleEmail: false
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: slack
+    receivers:
+      - uid: slack_receiver
+        type: slack
+        settings:
+          url: ${SLACK_WEBHOOK_URL}
+          recipient: '#omnipath-alerts'
+          username: Omnipath Alerts
+          icon_emoji: ':robot_face:'
+          mentionChannel: 'here'
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: pagerduty
+    receivers:
+      - uid: pagerduty_receiver
+        type: pagerduty
+        settings:
+          integrationKey: ${PAGERDUTY_INTEGRATION_KEY}
+          severity: critical
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: webhook
+    receivers:
+      - uid: webhook_receiver
+        type: webhook
+        settings:
+          url: ${WEBHOOK_URL}
+          httpMethod: POST
+        disableResolveMessage: false
+
+# Notification policies
+policies:
+  - orgId: 1
+    receiver: email
+    group_by: ['alertname', 'severity']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      # Critical alerts go to all channels
+      - receiver: slack
+        matchers:
+          - severity = critical
+        continue: true
+        group_wait: 10s
+        repeat_interval: 1h
+
+      - receiver: pagerduty
+        matchers:
+          - severity = critical
+        continue: true
+        group_wait: 10s
+        repeat_interval: 30m
+
+      # High priority alerts go to Slack
+      - receiver: slack
+        matchers:
+          - severity = high
+        group_wait: 1m
+        repeat_interval: 2h
+
+      # Medium priority alerts go to email
+      - receiver: email
+        matchers:
+          - severity = medium
+        group_wait: 5m
+        repeat_interval: 6h
+
+      # Low priority alerts go to email only
+      - receiver: email
+        matchers:
+          - severity = low
+        group_wait: 10m
+        repeat_interval: 12h
+
+# Mute timings (optional - for maintenance windows)
+muteTim ings:
+  - orgId: 1
+    name: maintenance_window
+    time_intervals:
+      - times:
+          - start_time: '02:00'
+            end_time: '04:00'
+        weekdays: ['saturday', 'sunday']
+        months: ['january:december']

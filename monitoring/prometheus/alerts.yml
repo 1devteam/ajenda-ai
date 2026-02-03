@@ -1,0 +1,268 @@
+groups:
+  - name: omnipath_critical
+    interval: 30s
+    rules:
+      - alert: BackendDown
+        expr: up{job="omnipath-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "Omnipath backend is down"
+          description: "The Omnipath backend has been down for more than 1 minute."
+          runbook: "Check backend logs: docker logs omnipath-backend"
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(omnipath_http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(omnipath_http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          runbook: "Check backend logs and recent deployments"
+
+      - alert: DatabaseConnectionFailure
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "PostgreSQL database is unreachable"
+          description: "Cannot connect to PostgreSQL database"
+          runbook: "Check database container: docker logs omnipath-postgres"
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: cache
+        annotations:
+          summary: "Redis cache is down"
+          description: "Redis cache has been unavailable for more than 1 minute"
+          runbook: "Check Redis container: docker logs omnipath-redis"
+
+      - alert: NATSDisconnected
+        expr: up{job="nats"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: messaging
+        annotations:
+          summary: "NATS message bus is disconnected"
+          description: "NATS has been unavailable for more than 1 minute"
+          runbook: "Check NATS container: docker logs omnipath-nats"
+
+  - name: omnipath_high_priority
+    interval: 1m
+    rules:
+      - alert: HighMissionFailureRate
+        expr: |
+          (
+            sum(rate(omnipath_missions_total{status="failed"}[10m]))
+            /
+            sum(rate(omnipath_missions_total[10m]))
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: high
+          component: missions
+        annotations:
+          summary: "High mission failure rate"
+          description: "Mission failure rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+          runbook: "Check mission logs and agent configurations"
+
+      - alert: SlowAPIResponse
+        expr: |
+          histogram_quantile(0.95,
+            rate(omnipath_http_request_duration_seconds_bucket[5m])
+          ) > 1.0
+        for: 10m
+        labels:
+          severity: high
+          component: backend
+        annotations:
+          summary: "Slow API response times"
+          description: "P95 response time is {{ $value }}s (threshold: 1s)"
+          runbook: "Check database queries and system resources"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            container_memory_usage_bytes{name="omnipath-backend"}
+            /
+            container_spec_memory_limit_bytes{name="omnipath-backend"}
+          ) > 0.85
+        for: 5m
+        labels:
+          severity: high
+          component: backend
+        annotations:
+          summary: "High memory usage in backend"
+          description: "Backend memory usage is {{ $value | humanizePercentage }}"
+          runbook: "Check for memory leaks, consider increasing memory limit"
+
+      - alert: HighCPUUsage
+        expr: |
+          rate(container_cpu_usage_seconds_total{name="omnipath-backend"}[5m]) > 0.80
+        for: 10m
+        labels:
+          severity: high
+          component: backend
+        annotations:
+          summary: "High CPU usage in backend"
+          description: "Backend CPU usage is {{ $value | humanizePercentage }}"
+          runbook: "Check for CPU-intensive operations, consider scaling"
+
+      - alert: LowAgentBalance
+        expr: omnipath_agent_balance < 100
+        for: 5m
+        labels:
+          severity: high
+          component: economy
+        annotations:
+          summary: "Agent {{ $labels.agent_id }} has low credit balance"
+          description: "Agent balance is {{ $value }} credits (threshold: 100)"
+          runbook: "Check agent performance and credit allocation"
+
+  - name: omnipath_medium_priority
+    interval: 2m
+    rules:
+      - alert: IncreasedMissionDuration
+        expr: |
+          histogram_quantile(0.95,
+            rate(omnipath_mission_duration_seconds_bucket[10m])
+          ) > 300
+        for: 15m
+        labels:
+          severity: medium
+          component: missions
+        annotations:
+          summary: "Mission duration is increasing"
+          description: "P95 mission duration is {{ $value }}s (threshold: 300s)"
+          runbook: "Check LLM API latency and system performance"
+
+      - alert: HighLLMCost
+        expr: |
+          rate(omnipath_llm_cost_total[1h]) > 10.0
+        for: 1h
+        labels:
+          severity: medium
+          component: llm
+        annotations:
+          summary: "High LLM API costs"
+          description: "LLM costs are ${{ $value }}/hour (threshold: $10/hour)"
+          runbook: "Review agent configurations and mission complexity"
+
+      - alert: LowSuccessRate
+        expr: |
+          (
+            sum(rate(omnipath_missions_total{status="success"}[30m]))
+            /
+            sum(rate(omnipath_missions_total[30m]))
+          ) < 0.80
+        for: 30m
+        labels:
+          severity: medium
+          component: missions
+        annotations:
+          summary: "Mission success rate is low"
+          description: "Success rate is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook: "Review failed missions and agent performance"
+
+      - alert: HighDatabaseConnections
+        expr: pg_stat_database_numbackends > 80
+        for: 10m
+        labels:
+          severity: medium
+          component: database
+        annotations:
+          summary: "High number of database connections"
+          description: "{{ $value }} active connections (threshold: 80)"
+          runbook: "Check for connection leaks, consider connection pooling"
+
+      - alert: RedisMemoryHigh
+        expr: |
+          (
+            redis_memory_used_bytes
+            /
+            redis_memory_max_bytes
+          ) > 0.80
+        for: 10m
+        labels:
+          severity: medium
+          component: cache
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}"
+          runbook: "Review cache eviction policy and TTL settings"
+
+  - name: omnipath_low_priority
+    interval: 5m
+    rules:
+      - alert: NoRecentMissions
+        expr: |
+          rate(omnipath_missions_total[30m]) == 0
+        for: 1h
+        labels:
+          severity: low
+          component: missions
+        annotations:
+          summary: "No missions executed recently"
+          description: "No missions have been executed in the last hour"
+          runbook: "Check if this is expected downtime or investigate agent activity"
+
+      - alert: LowThroughput
+        expr: |
+          rate(omnipath_http_requests_total[5m]) < 1.0
+        for: 30m
+        labels:
+          severity: low
+          component: backend
+        annotations:
+          summary: "Low API throughput"
+          description: "API throughput is {{ $value }} req/sec (threshold: 1 req/sec)"
+          runbook: "Check if this is expected or if there are connectivity issues"
+
+      - alert: MetaLearningStale
+        expr: |
+          time() - omnipath_meta_learning_last_update_timestamp > 3600
+        for: 1h
+        labels:
+          severity: low
+          component: meta_learning
+        annotations:
+          summary: "Meta-learning data is stale"
+          description: "Meta-learning hasn't updated in {{ $value | humanizeDuration }}"
+          runbook: "Check meta-learning service and data pipeline"
+
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: low
+          component: monitoring
+        annotations:
+          summary: "Prometheus target {{ $labels.job }} is down"
+          description: "Target has been down for more than 5 minutes"
+          runbook: "Check target service and Prometheus configuration"
+
+      - alert: GrafanaDashboardErrors
+        expr: grafana_api_dashboard_get_errors_total > 10
+        for: 10m
+        labels:
+          severity: low
+          component: monitoring
+        annotations:
+          summary: "Grafana dashboard errors detected"
+          description: "{{ $value }} dashboard errors in the last 10 minutes"
+          runbook: "Check Grafana logs and dashboard configurations"
