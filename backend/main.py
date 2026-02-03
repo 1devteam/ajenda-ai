@@ -11,6 +11,7 @@ import time
 
 # Import configuration
 from backend.config.settings import Settings
+from backend.version import VERSION, VERSION_INFO
 
 # Import observability
 from backend.integrations.observability.telemetry import get_telemetry
@@ -101,7 +102,7 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI application
 app = FastAPI(
     title=settings.APP_NAME,
-    version=settings.APP_VERSION,
+    version=VERSION,
     description="Multi-agent AI system with observability, meta-learning, and agent economy",
     lifespan=lifespan,
     docs_url="/docs",
@@ -190,6 +191,15 @@ async def get_prometheus_metrics():
     return metrics_endpoint()
 
 
+# Version endpoint
+@app.get("/version", tags=["system"])
+async def get_version():
+    """
+    Get version information
+    """
+    return VERSION_INFO
+
+
 # Root endpoint
 @app.get("/", tags=["system"])
 async def root():
@@ -198,11 +208,12 @@ async def root():
     """
     return {
         "service": settings.APP_NAME,
-        "version": settings.APP_VERSION,
+        "version": VERSION,
         "description": "Multi-agent AI system with observability and meta-learning",
         "docs": "/docs",
         "health": "/health",
-        "metrics": settings.METRICS_ENDPOINT
+        "metrics": settings.METRICS_ENDPOINT,
+        "version_info": "/version"
     }
 
 
