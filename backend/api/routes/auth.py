@@ -146,6 +146,47 @@ def revoke_token(token: str):
     if token in _tokens_db:
         del _tokens_db[token]
 
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> dict:
+    """
+    Validate token and return current user info
+    
+    This dependency should be used on all protected endpoints to:
+    1. Validate the access token
+    2. Return user_id and tenant_id for authorization
+    3. Raise 401 if token is invalid or expired
+    
+    Usage:
+        @router.get("/protected")
+        async def protected_endpoint(current_user: dict = Depends(get_current_user)):
+            user_id = current_user["user_id"]
+            tenant_id = current_user["tenant_id"]
+            # ... endpoint logic
+    
+    Returns:
+        dict: {
+            "user_id": str,
+            "tenant_id": str
+        }
+    
+    Raises:
+        HTTPException: 401 if token is invalid or expired
+    """
+    token = credentials.credentials
+    token_data = verify_token(token)
+    
+    if not token_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    return {
+        "user_id": token_data["user_id"],
+        "tenant_id": token_data["tenant_id"]
+    }
 
 # ============================================================================
 # API Endpoints

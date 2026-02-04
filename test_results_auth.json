@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-02-03T06:00:48.983674",
+  "total_tests": 9,
+  "passed": 0,
+  "failed": 9,
+  "tests": [
+    {
+      "name": "User Registration",
+      "passed": false,
+      "details": "Status: 422, User ID: N/A",
+      "timestamp": "2026-02-03T06:00:48.969683"
+    },
+    {
+      "name": "User Login",
+      "passed": false,
+      "details": "Status: 401, Token Type: N/A, Has Token: False",
+      "timestamp": "2026-02-03T06:00:48.975921"
+    },
+    {
+      "name": "Access Protected Endpoint",
+      "passed": false,
+      "details": "No access token available",
+      "timestamp": "2026-02-03T06:00:48.975996"
+    },
+    {
+      "name": "Access Without Token (Should Fail)",
+      "passed": false,
+      "details": "Status: 200 (Expected 401/403)",
+      "timestamp": "2026-02-03T06:00:48.980007"
+    },
+    {
+      "name": "Access With Invalid Token (Should Fail)",
+      "passed": false,
+      "details": "Status: 200 (Expected 401/403)",
+      "timestamp": "2026-02-03T06:00:48.983499"
+    },
+    {
+      "name": "Refresh Token",
+      "passed": false,
+      "details": "No refresh token available",
+      "timestamp": "2026-02-03T06:00:48.983572"
+    },
+    {
+      "name": "Multi-Tenant Isolation",
+      "passed": false,
+      "details": "Missing token or tenant ID",
+      "timestamp": "2026-02-03T06:00:48.983584"
+    },
+    {
+      "name": "User Logout",
+      "passed": false,
+      "details": "No access token available",
+      "timestamp": "2026-02-03T06:00:48.983592"
+    },
+    {
+      "name": "Access After Logout",
+      "passed": false,
+      "details": "No access token available",
+      "timestamp": "2026-02-03T06:00:48.983599"
+    }
+  ]
+}

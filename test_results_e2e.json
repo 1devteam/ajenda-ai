@@ -1,0 +1,92 @@
+{
+  "timestamp": "2026-02-04T03:15:54.289433",
+  "total_tests": 14,
+  "passed": 9,
+  "failed": 5,
+  "tests": [
+    {
+      "name": "Health Check",
+      "passed": true,
+      "details": "Status: 200, Service: Omnipath",
+      "timestamp": "2026-02-04T03:15:54.174209"
+    },
+    {
+      "name": "Metrics Endpoint",
+      "passed": true,
+      "details": "Status: 200, Contains metrics: True",
+      "timestamp": "2026-02-04T03:15:54.179741"
+    },
+    {
+      "name": "API Documentation",
+      "passed": true,
+      "details": "Status: 200",
+      "timestamp": "2026-02-04T03:15:54.183814"
+    },
+    {
+      "name": "Create Tenant",
+      "passed": true,
+      "details": "Status: 201, Tenant ID: tenant_96cd2c79d9a0",
+      "timestamp": "2026-02-04T03:15:54.199937"
+    },
+    {
+      "name": "Register User",
+      "passed": true,
+      "details": "Status: 201, User ID: user_d1f0e60e3b81",
+      "timestamp": "2026-02-04T03:15:54.211037"
+    },
+    {
+      "name": "Login User",
+      "passed": true,
+      "details": "Status: 200, Has Token: True",
+      "timestamp": "2026-02-04T03:15:54.226732"
+    },
+    {
+      "name": "Create Agent",
+      "passed": false,
+      "details": "Status: 500, Error: {\"detail\": \"Internal server error\", \"error\": \"'UserResponse' object is not subscriptable\"}",
+      "timestamp": "2026-02-04T03:15:54.252089"
+    },
+    {
+      "name": "Get Agent",
+      "passed": false,
+      "details": "No agent ID available",
+      "timestamp": "2026-02-04T03:15:54.252181"
+    },
+    {
+      "name": "List Agents",
+      "passed": false,
+      "details": "Status: 500, Count: 0",
+      "timestamp": "2026-02-04T03:15:54.269845"
+    },
+    {
+      "name": "Create Mission",
+      "passed": false,
+      "details": "No agent ID available",
+      "timestamp": "2026-02-04T03:15:54.269923"
+    },
+    {
+      "name": "Get Mission",
+      "passed": false,
+      "details": "No mission ID available",
+      "timestamp": "2026-02-04T03:15:54.269934"
+    },
+    {
+      "name": "Economy Balance",
+      "passed": true,
+      "details": "Status: 403 (Auth may be required)",
+      "timestamp": "2026-02-04T03:15:54.277574"
+    },
+    {
+      "name": "Meta-Learning Leaderboard",
+      "passed": true,
+      "details": "Status: 200",
+      "timestamp": "2026-02-04T03:15:54.283666"
+    },
+    {
+      "name": "System Insights",
+      "passed": true,
+      "details": "Status: 200",
+      "timestamp": "2026-02-04T03:15:54.289274"
+    }
+  ]
+}
