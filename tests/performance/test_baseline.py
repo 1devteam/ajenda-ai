@@ -134,6 +134,7 @@ class OmnipathPerformanceTest:
             "mean": statistics.mean(latencies),
             "median": statistics.median(latencies),
             "p95": latencies[int(len(latencies) * 0.95)] if len(latencies) > 20 else max(latencies),
+            "p99": latencies[int(len(latencies) * 0.99)] if len(latencies) > 100 else max(latencies),
             "target_p95": 500.0
         }
         

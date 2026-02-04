@@ -198,12 +198,10 @@ class OmnipathAuthTest:
         try:
             headers = {"Authorization": f"Bearer {self.access_token}"}
             
-            # Create agent in user's tenant
+            # Create agent in user's tenant (tenant_id comes from auth token)
             agent_data = {
                 "name": f"Test Agent Tenant {int(time.time())}",
-                "agent_type": "commander",
-                "state": "idle",
-                "tenant_id": self.test_tenant_id
+                "type": "commander"
             }
             response = await self.client.post(
                 f"{self.base_url}/api/v1/agents",
@@ -213,21 +211,47 @@ class OmnipathAuthTest:
             
             if response.status_code in [200, 201]:
                 agent_id = response.json().get("id")
+                agent_tenant_id = response.json().get("tenant_id")
                 
-                # Try to access with different tenant ID (should fail or return empty)
-                fake_tenant_headers = headers.copy()
-                fake_tenant_headers["X-Tenant-ID"] = "fake-tenant-id"
+                # Verify agent was created in correct tenant
+                tenant_match = agent_tenant_id == self.test_tenant_id
                 
-                response2 = await self.client.get(
-                    f"{self.base_url}/api/v1/agents/{agent_id}",
-                    headers=fake_tenant_headers
+                # Register a second user to test cross-tenant access
+                user2_email = f"test_user2_{int(time.time())}@example.com"
+                user2_data = {
+                    "email": user2_email,
+                    "password": "TestPassword456!",
+                    "full_name": "Test User 2"
+                }
+                reg_response = await self.client.post(
+                    f"{self.base_url}/api/v1/auth/register",
+                    json=user2_data
                 )
                 
-                # Should either fail (403/404) or not return the agent
-                passed = response2.status_code in [403, 404] or (
-                    response2.status_code == 200 and 
-                    response2.json().get("id") != agent_id
-                )
+                if reg_response.status_code in [200, 201]:
+                    # Login as second user
+                    login_response = await self.client.post(
+                        f"{self.base_url}/api/v1/auth/login",
+                        data={"username": user2_email, "password": "TestPassword456!"}
+                    )
+                    
+                    if login_response.status_code == 200:
+                        user2_token = login_response.json().get("access_token")
+                        user2_headers = {"Authorization": f"Bearer {user2_token}"}
+                        
+                        # Try to access first user's agent (should fail)
+                        response2 = await self.client.get(
+                            f"{self.base_url}/api/v1/agents/{agent_id}",
+                            headers=user2_headers
+                        )
+                        
+                        # Should return 403 or 404 (tenant isolation enforced)
+                        isolation_works = response2.status_code in [403, 404]
+                        passed = tenant_match and isolation_works
+                    else:
+                        passed = False
+                else:
+                    passed = False
             else:
                 passed = False
             
