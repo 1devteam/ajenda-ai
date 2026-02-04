@@ -350,7 +350,7 @@ async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_me(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """
     Get current user information
     
