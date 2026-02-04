@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
-import jwt
+from jose import jwt
 import uuid
 
 from sqlalchemy.orm import Session
