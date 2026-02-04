@@ -84,7 +84,7 @@ def mock_user() -> User:
     """
     return User(
         id="test_user_123",
-        email="test@omnipath.ai",
+        email="test@example.com",
         username="testuser",
         tenant_id="test_tenant",
         role=UserRole.DEVELOPER,
@@ -97,7 +97,7 @@ def mock_admin_user() -> User:
     """Create a mock admin user for testing"""
     return User(
         id="admin_user_123",
-        email="admin@omnipath.ai",
+        email="admin@example.com",
         username="adminuser",
         tenant_id="test_tenant",
         role=UserRole.ADMIN,
@@ -110,7 +110,7 @@ def mock_viewer_user() -> User:
     """Create a mock viewer user for testing"""
     return User(
         id="viewer_user_123",
-        email="viewer@omnipath.ai",
+        email="viewer@example.com",
         username="vieweruser",
         tenant_id="test_tenant",
         role=UserRole.VIEWER,

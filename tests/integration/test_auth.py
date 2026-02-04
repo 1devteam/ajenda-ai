@@ -20,7 +20,7 @@ class OmnipathAuthTest:
         self.base_url = base_url
         self.client = httpx.AsyncClient(timeout=30.0)
         self.test_results = []
-        self.test_user_email = f"test_user_{int(time.time())}@omnipath.test"
+        self.test_user_email = f"test_user_{int(time.time())}@example.com"
         self.test_user_password = "TestPassword123!"
         self.access_token: Optional[str] = None
         self.refresh_token: Optional[str] = None
