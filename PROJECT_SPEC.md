@@ -2,7 +2,7 @@
 **Version**: 5.0 (In Progress)  
 **Owner**: Obex Blackvault  
 **Repository**: github.com/1devteam/onmiapath_v2  
-**Last Updated**: 2026-02-05  
+**Last Updated**: 2026-02-03  
 **Built with Pride**: 95%+ proper actions standard
 
 ---
@@ -17,9 +17,8 @@
 7. [Data Models](#data-models)
 8. [Dependencies](#dependencies)
 9. [Infrastructure](#infrastructure)
-10. [Automated Upkeep](#automated-upkeep)
-11. [Known Issues](#known-issues)
-12. [Development Workflow](#development-workflow)
+10. [Known Issues](#known-issues)
+11. [Development Workflow](#development-workflow)
 
 ---
 
@@ -125,36 +124,14 @@ Omnipath is a next-generation multi-agent AI orchestration platform with emotion
 | **CLI** | ✅ Complete | Full-featured terminal interface |
 | **Grafana Dashboards** | ✅ Complete | 3 dashboards auto-provisioned |
 | **Docker Setup** | ✅ Complete | 7 services orchestrated |
-| **Authentication** | ✅ Complete | JWT + refresh tokens, 100% test coverage |
-| **Multi-Tenancy** | ✅ Complete | Full isolation tested and verified |
+| **Authentication** | ⚠️ Partial | JWT implemented, needs testing |
+| **Multi-Tenancy** | ⚠️ Partial | Schema ready, needs testing |
 | **Event Sourcing** | ❌ Stub | Placeholder implementation |
 | **CQRS** | ❌ Not Implemented | Mentioned in architecture docs |
 | **Saga Orchestration** | ❌ Not Implemented | Mentioned in architecture docs |
 | **MCP Integration** | ❌ Not Implemented | Mentioned in architecture docs |
 
-### Recent Accomplishments
-
-#### Phase 1 Completion (2026-02-05) ✅
-**Status**: ALL TESTS PASSING (23/23 - 100%)
-
-**Fixes Applied** (7 commits):
-1. ✅ **b1a4156, 8207ff8**: Fixed login test scripts (JSON vs form data)
-2. ✅ **c1bbee2**: Updated Mission model schema to match API
-3. ✅ **8fa6683**: Improved auth error handling (proper 401 responses)
-4. ✅ **0e633df**: Fixed multi-tenant isolation test
-5. ✅ **c9ef41e**: Added db.flush() for transaction consistency
-6. ✅ **323aaee**: Added jti (JWT ID) to prevent duplicate tokens
-
-**Test Results**:
-- ✅ End-to-End Integration: 14/14 (100%)
-- ✅ Authentication & Authorization: 9/9 (100%)
-- ✅ Performance Baseline: 5/7 targets met
-  - Health Endpoint: P95 3ms (Target: 50ms)
-  - Throughput: 497.3 req/sec (Target: 50 req/sec) - **10x over target!**
-
-**Pride Score**: 100% (10/10 proper actions, 0 improper actions)
-
-#### Previous Fixes (2026-02-02)
+### Recent Fixes (2026-02-02)
 1. ✅ Fixed API method mismatch: `get_all_balances()` → `get_tenant_balances()`
 2. ✅ Added OTEL_SDK_DISABLED environment variable support for testing without infrastructure
 3. ✅ All imports working, no crashes on startup
@@ -174,149 +151,92 @@ This integration plan follows pride-based development standards: proper actions,
 
 ---
 
-### PHASE 1: SYSTEM VALIDATION & BASELINE ✅ COMPLETE
-**Goal**: Establish working baseline and comprehensive test coverage  
-**Status**: ✅ Complete (2026-02-05)  
-**Test Pass Rate**: 100% (23/23 tests)
+### PHASE 1: SYSTEM VALIDATION & BASELINE (Week 1)
+**Goal**: Establish working baseline and comprehensive test coverage
 
-#### 1.1 End-to-End Testing ✅ COMPLETE
+#### 1.1 End-to-End Testing
 **Priority**: 🔴 Critical  
-**Actual Time**: 3 days  
-**Status**: ✅ All tests passing (14/14)
+**Estimated Time**: 2-3 days
 
 **Tasks**:
-- [✓] Create test agent via API
-- [✓] Execute test mission end-to-end
-- [✓] Verify database persistence
-- [✓] Validate Redis caching
-- [✓] Test NATS event publishing
-- [✓] Verify metrics collection
-- [✓] Check trace generation
-- [✓] Test CLI commands with real data
-
-**Acceptance Criteria**: ✅ ALL MET
-- ✓ Agent created successfully and visible in database
-- ✓ Mission executes without errors
-- ✓ All metrics appear in Prometheus
-- ✓ Traces visible in Jaeger
-- ✓ CLI shows accurate data
-- ✓ Grafana dashboards populate with real data
-
-**Deliverables**: ✅ COMPLETE
-- ✓ Test script (`tests/integration/test_end_to_end.py`)
-- ✓ Test data fixtures
-- ✓ Validation report (100% pass rate)
-
----
-
-#### 1.2 Authentication & Authorization Testing ✅ COMPLETE
-**Priority**: 🔴 Critical  
-**Actual Time**: 2 days  
-**Status**: ✅ All tests passing (9/9)
-
-**Tasks**:
-- [✓] Test JWT token generation
-- [✓] Validate token expiration
-- [✓] Test RBAC permissions
-- [✓] Verify multi-tenant isolation
-- [✓] Test API key authentication
-- [✓] Validate user roles
-- [✓] Test unauthorized access rejection
-
-**Acceptance Criteria**: ✅ ALL MET
-- ✓ Users can register and login
-- ✓ Tokens expire correctly
-- ✓ Role-based access works
-- ✓ Tenants are isolated (403 on cross-tenant access)
-- ✓ Refresh tokens work correctly (with jti uniqueness)
-
-**Deliverables**: ✅ COMPLETE
-- ✓ Auth test suite (`tests/integration/test_auth.py`)
-- ✓ Security audit report (100% pass rate)
-- ✓ Auth documentation (JWT + refresh token flow)
-
----
-
-#### 1.3 Performance Baseline ✅ COMPLETE
-**Priority**: 🟠 High  
-**Actual Time**: 1 day  
-**Status**: ✅ Baseline established (5/7 targets met)
-
-**Tasks**:
-- [✓] Run load tests (100 concurrent requests)
-- [✓] Measure API response times
-- [✓] Test database query performance
-- [✓] Measure LLM API latency
-- [✓] Establish baseline metrics
-- [✓] Document bottlenecks
-
-**Acceptance Criteria**: ✅ EXCEEDED
-- ✓ API responds < 200ms for health checks (Actual: P95 3ms - **66x faster**)
-- ✓ Mission execution < 5s (excluding LLM calls) (Actual: < 1s)
-- ✓ Database queries < 50ms (Actual: P95 < 10ms)
-- ⚠️ System handles 100 concurrent users (P95 2383ms - needs optimization)
-
-**Deliverables**: ✅ COMPLETE
-- ✓ Performance test suite (`tests/performance/test_performance.py`)
-- ✓ Baseline metrics report (497.3 req/sec throughput)
-- ✓ Optimization recommendations (focus on 50+ concurrent users)
-
-**Results Summary**:
-- Health Endpoint: P95 3ms (Target: 50ms) ✅
-- Metrics Endpoint: P95 5ms (Target: 100ms) ✅
-- List Agents: P95 3ms (Target: 200ms) ✅
-- Concurrent 10 users: P95 209ms (Target: 500ms) ✅
-- Concurrent 50 users: P95 1155ms (Target: 500ms) ⚠️
-- Concurrent 100 users: P95 2383ms (Target: 500ms) ⚠️
-- Throughput: 497.3 req/sec (Target: 50) ✅ **10x over target**
-
----
-
-### PHASE 2: CI/CD & AUTOMATED UPKEEP (Week 2-3) 🔄 IN PROGRESS
-**Goal**: Implement automated testing, deployment, and monitoring  
-**Status**: 🟡 Next Priority  
-**Rationale**: With 100% test coverage achieved, focus shifts to automation and continuous delivery
-
-**Updated Priorities**:
-1. 🔴 **Critical**: GitHub Actions CI/CD pipeline
-2. 🟠 **High**: Automated alerting and monitoring
-3. 🟡 **Medium**: Performance optimization for 50+ concurrent users
-
----
-
-#### 2.0 CI/CD Pipeline Implementation
-**Priority**: 🔴 Critical  
-**Estimated Time**: 3 days  
-**Status**: 🟡 Next
-
-**Tasks**:
-- [ ] Create GitHub Actions workflow for test automation
-- [ ] Add code quality checks (Black, Ruff, MyPy, Bandit)
-- [ ] Implement Docker image build and push
-- [ ] Set up automated dependency updates
-- [ ] Configure branch protection rules
-- [ ] Add PR templates with checklist
-- [ ] Document CI/CD workflow
+- [ ] Create test agent via API
+- [ ] Execute test mission end-to-end
+- [ ] Verify database persistence
+- [ ] Validate Redis caching
+- [ ] Test NATS event publishing
+- [ ] Verify metrics collection
+- [ ] Check trace generation
+- [ ] Test CLI commands with real data
 
 **Acceptance Criteria**:
-- All tests run on every commit
-- Code quality checks pass before merge
-- Docker images built and tagged automatically
-- Dependencies updated weekly with tests
-- PRs require passing tests to merge
+- Agent created successfully and visible in database
+- Mission executes without errors
+- All metrics appear in Prometheus
+- Traces visible in Jaeger
+- CLI shows accurate data
+- Grafana dashboards populate with real data
 
 **Deliverables**:
-- `.github/workflows/test.yml`
-- `.github/workflows/quality.yml`
-- `.github/workflows/docker.yml`
-- `.github/workflows/dependencies.yml`
-- CI/CD documentation
+- Test script (`tests/integration/test_end_to_end.py`)
+- Test data fixtures
+- Validation report
 
 ---
 
-### PHASE 2 (ORIGINAL): MONITORING & OBSERVABILITY
-**Status**: ⚠️ Deferred to Phase 3 (observability basics already complete)  
-**Note**: Prometheus + Grafana already working, advanced features moved to Phase 3
+#### 1.2 Authentication & Authorization Testing
+**Priority**: 🔴 Critical  
+**Estimated Time**: 2 days
+
+**Tasks**:
+- [ ] Test JWT token generation
+- [ ] Validate token expiration
+- [ ] Test RBAC permissions
+- [ ] Verify multi-tenant isolation
+- [ ] Test API key authentication
+- [ ] Validate user roles
+- [ ] Test unauthorized access rejection
+
+**Acceptance Criteria**:
+- Users can register and login
+- Tokens expire correctly
+- Role-based access works
+- Tenants are isolated
+- API keys work for programmatic access
+
+**Deliverables**:
+- Auth test suite (`tests/integration/test_auth.py`)
+- Security audit report
+- Auth documentation
+
+---
+
+#### 1.3 Performance Baseline
+**Priority**: 🟠 High  
+**Estimated Time**: 1 day
+
+**Tasks**:
+- [ ] Run load tests (100 concurrent requests)
+- [ ] Measure API response times
+- [ ] Test database query performance
+- [ ] Measure LLM API latency
+- [ ] Establish baseline metrics
+- [ ] Document bottlenecks
+
+**Acceptance Criteria**:
+- API responds < 200ms for health checks
+- Mission execution < 5s (excluding LLM calls)
+- Database queries < 50ms
+- System handles 100 concurrent users
+
+**Deliverables**:
+- Performance test suite (`tests/performance/`)
+- Baseline metrics report
+- Optimization recommendations
+
+---
+
+### PHASE 2: MONITORING & OBSERVABILITY (Week 2)
+**Goal**: Complete observability stack with alerting
 
 #### 2.1 Grafana Dashboard Refinement
 **Priority**: 🟠 High  
@@ -1309,610 +1229,6 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 
 ---
 
-## AUTOMATED UPKEEP
-
-### Overview
-Automated program upkeep ensures Omnipath v5.0 remains healthy, secure, and performant without manual intervention. This section defines the strategy for continuous integration, automated testing, monitoring, maintenance, and self-healing capabilities.
-
-### Philosophy
-**Pride-Based Automation**: Automated systems should embody the same pride standards as manual work - proper actions, complete solutions, and production-grade quality. Automation should prevent issues, not just detect them.
-
----
-
-### 1. Continuous Integration & Deployment (CI/CD)
-
-#### 1.1 GitHub Actions Workflows
-**Status**: 🟡 Planned
-
-**Workflows to Implement**:
-
-**A. Test Suite Automation**
-```yaml
-# .github/workflows/test.yml
-name: Test Suite
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-      redis:
-        image: redis:7
-      nats:
-        image: nats:2.10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run Phase 1 Tests
-        run: ./tests/run_phase1_tests.sh
-      - name: Upload Test Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: test_results_*.json
-```
-
-**B. Code Quality Checks**
-```yaml
-# .github/workflows/quality.yml
-name: Code Quality
-on: [push, pull_request]
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run Black (formatter)
-        run: black --check backend/
-      - name: Run Ruff (linter)
-        run: ruff check backend/
-      - name: Run MyPy (type checker)
-        run: mypy backend/
-      - name: Security Scan (Bandit)
-        run: bandit -r backend/
-```
-
-**C. Dependency Updates**
-```yaml
-# .github/workflows/dependencies.yml
-name: Dependency Updates
-on:
-  schedule:
-    - cron: '0 0 * * 1'  # Weekly on Monday
-jobs:
-  update:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Update Python Dependencies
-        run: |
-          pip install --upgrade pip
-          pip-compile --upgrade requirements.in
-      - name: Run Tests
-        run: ./tests/run_phase1_tests.sh
-      - name: Create PR if tests pass
-        uses: peter-evans/create-pull-request@v5
-        with:
-          title: 'chore: Update dependencies'
-          body: 'Automated dependency update with passing tests'
-```
-
-**D. Docker Image Build & Push**
-```yaml
-# .github/workflows/docker.yml
-name: Docker Build
-on:
-  push:
-    branches: [main, v5.0-rewrite]
-    tags: ['v*']
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and Push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/1devteam/omnipath:${{ github.sha }}
-            ghcr.io/1devteam/omnipath:latest
-```
-
-#### 1.2 Automated Deployment
-**Status**: 🟡 Planned
-
-**Strategy**: GitOps with Continuous Deployment
-- **Staging**: Auto-deploy on push to `v5.0-rewrite`
-- **Production**: Auto-deploy on tag creation (`v*`)
-- **Rollback**: Automatic rollback if health checks fail
-
-**Health Check Gates**:
-1. All Phase 1 tests must pass (23/23)
-2. Health endpoint responds < 100ms
-3. Database migrations succeed
-4. No critical errors in logs for 5 minutes
-
----
-
-### 2. Automated Testing & Validation
-
-#### 2.1 Test Pyramid
-**Current Coverage**: 100% functional tests (23/23)
-
-**Test Levels**:
-1. **Unit Tests** (🟡 Planned): Test individual functions/classes
-2. **Integration Tests** (✅ Complete): Test API endpoints and database
-3. **End-to-End Tests** (✅ Complete): Test full user workflows
-4. **Performance Tests** (✅ Complete): Test load and latency
-5. **Security Tests** (🟡 Planned): Test auth, injection, XSS
-
-#### 2.2 Automated Test Execution
-**Triggers**:
-- On every commit (pre-push hook)
-- On every PR (GitHub Actions)
-- Nightly full test suite
-- Before every deployment
-
-**Test Reports**:
-- JSON results saved to `test_results_*.json`
-- HTML reports generated for human review
-- Metrics sent to Prometheus for tracking
-- Alerts on test failures
-
-#### 2.3 Regression Testing
-**Strategy**: Golden dataset approach
-- Maintain known-good test data
-- Run tests against golden dataset nightly
-- Alert on any deviations
-- Track test performance over time
-
----
-
-### 3. Monitoring & Alerting
-
-#### 3.1 Health Monitoring
-**Status**: ✅ Active (Prometheus + Grafana)
-
-**Metrics Tracked**:
-- API response times (P50, P95, P99)
-- Request throughput (req/sec)
-- Error rates (4xx, 5xx)
-- Database query times
-- Cache hit rates
-- Agent execution times
-- Mission success rates
-- Credit balance changes
-- LLM API latency
-
-**Dashboards**:
-1. **System Overview**: Health, throughput, errors
-2. **Agent Performance**: Execution times, success rates
-3. **Economy Metrics**: Credit flows, balances
-
-#### 3.2 Alerting Rules
-**Status**: 🟡 Planned
-
-**Critical Alerts** (Page immediately):
-- API error rate > 5%
-- Health endpoint down
-- Database connection failures
-- Disk usage > 90%
-- Memory usage > 90%
-
-**Warning Alerts** (Slack notification):
-- API P95 latency > 500ms
-- Test failures
-- Dependency vulnerabilities
-- Certificate expiration < 30 days
-
-**Alert Channels**:
-- PagerDuty for critical alerts
-- Slack for warnings
-- Email for daily summaries
-
-#### 3.3 Log Aggregation
-**Status**: 🟡 Planned
-
-**Strategy**: Structured logging with ELK/Loki
-- All logs in JSON format
-- Centralized log storage
-- Full-text search
-- Log retention: 30 days
-- Automated log analysis for errors
-
----
-
-### 4. Automated Maintenance
-
-#### 4.1 Database Maintenance
-**Status**: 🟡 Planned
-
-**Automated Tasks**:
-- **Daily**: Vacuum analyze (reclaim space, update stats)
-- **Weekly**: Reindex (optimize query performance)
-- **Monthly**: Backup verification (test restore)
-- **Continuous**: Connection pool monitoring
-
-**Scripts**:
-```bash
-# scripts/maintenance/db_vacuum.sh
-#!/bin/bash
-psql $DATABASE_URL -c "VACUUM ANALYZE;"
-
-# scripts/maintenance/db_backup.sh
-#!/bin/bash
-pg_dump $DATABASE_URL | gzip > backup_$(date +%Y%m%d).sql.gz
-aws s3 cp backup_*.sql.gz s3://omnipath-backups/
-```
-
-#### 4.2 Cache Warming
-**Status**: 🟡 Planned
-
-**Strategy**: Pre-populate Redis cache after deployments
-```python
-# scripts/maintenance/warm_cache.py
-async def warm_cache():
-    # Pre-load frequently accessed data
-    await cache.set("agents:list", await db.get_all_agents())
-    await cache.set("missions:active", await db.get_active_missions())
-    await cache.set("economy:balances", await db.get_all_balances())
-```
-
-#### 4.3 Dependency Updates
-**Status**: 🟡 Planned
-
-**Strategy**: Automated weekly updates with testing
-- Dependabot/Renovate for PR creation
-- Automated test suite runs on PRs
-- Auto-merge if tests pass
-- Security updates applied within 24 hours
-
-#### 4.4 Log Rotation & Cleanup
-**Status**: 🟡 Planned
-
-**Retention Policy**:
-- Application logs: 30 days
-- Access logs: 90 days
-- Error logs: 1 year
-- Audit logs: 7 years (compliance)
-
----
-
-### 5. Self-Healing Capabilities
-
-#### 5.1 Auto-Restart on Failure
-**Status**: ✅ Active (Docker restart policies)
-
-**Configuration**:
-```yaml
-# docker-compose.v3.yml
-services:
-  backend:
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-```
-
-#### 5.2 Circuit Breakers
-**Status**: 🟡 Planned
-
-**Strategy**: Prevent cascading failures
-```python
-# backend/utils/circuit_breaker.py
-class CircuitBreaker:
-    def __init__(self, failure_threshold=5, timeout=60):
-        self.failure_count = 0
-        self.failure_threshold = failure_threshold
-        self.timeout = timeout
-        self.last_failure_time = None
-        self.state = "closed"  # closed, open, half-open
-    
-    async def call(self, func, *args, **kwargs):
-        if self.state == "open":
-            if time.time() - self.last_failure_time > self.timeout:
-                self.state = "half-open"
-            else:
-                raise CircuitBreakerOpenError()
-        
-        try:
-            result = await func(*args, **kwargs)
-            if self.state == "half-open":
-                self.state = "closed"
-                self.failure_count = 0
-            return result
-        except Exception as e:
-            self.failure_count += 1
-            self.last_failure_time = time.time()
-            if self.failure_count >= self.failure_threshold:
-                self.state = "open"
-            raise e
-```
-
-#### 5.3 Auto-Scaling
-**Status**: 🟡 Planned
-
-**Strategy**: Kubernetes HPA (Horizontal Pod Autoscaler)
-```yaml
-# k8s/hpa.yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: omnipath-backend
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: omnipath-backend
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
-```
-
-#### 5.4 Automatic Rollback
-**Status**: 🟡 Planned
-
-**Triggers**:
-- Health check failures
-- Error rate spike (> 5%)
-- Performance degradation (P95 > 2x baseline)
-- Test failures in production
-
-**Process**:
-1. Detect issue via monitoring
-2. Stop new deployments
-3. Rollback to previous version
-4. Alert team
-5. Run full test suite
-6. Generate incident report
-
----
-
-### 6. Security Automation
-
-#### 6.1 Vulnerability Scanning
-**Status**: 🟡 Planned
-
-**Tools**:
-- **Snyk**: Dependency vulnerability scanning
-- **Trivy**: Docker image scanning
-- **Bandit**: Python security linting
-- **Safety**: Python dependency security
-
-**Schedule**:
-- On every commit (GitHub Actions)
-- Daily full scan
-- Alert on critical vulnerabilities
-- Auto-create PRs for fixes
-
-#### 6.2 Secret Rotation
-**Status**: 🟡 Planned
-
-**Strategy**: Automated secret rotation with zero downtime
-```python
-# scripts/security/rotate_secrets.py
-async def rotate_jwt_secret():
-    # Generate new secret
-    new_secret = secrets.token_urlsafe(32)
-    
-    # Update in vault
-    await vault.set("JWT_SECRET_KEY", new_secret)
-    
-    # Rolling restart of backend pods
-    await k8s.rolling_restart("omnipath-backend")
-    
-    # Verify health
-    await health_check()
-```
-
-**Rotation Schedule**:
-- JWT secrets: Every 90 days
-- Database passwords: Every 180 days
-- API keys: On demand
-- TLS certificates: Auto-renewed via Let's Encrypt
-
-#### 6.3 Audit Logging
-**Status**: 🟡 Planned
-
-**Events to Log**:
-- Authentication attempts (success/failure)
-- Authorization failures
-- Data access (PII, financial)
-- Configuration changes
-- Deployment events
-- Secret access
-
-**Retention**: 7 years (compliance requirement)
-
----
-
-### 7. Performance Optimization
-
-#### 7.1 Automated Query Optimization
-**Status**: 🟡 Planned
-
-**Strategy**: Identify and fix slow queries
-```sql
--- scripts/performance/slow_queries.sql
-SELECT
-  query,
-  calls,
-  total_time,
-  mean_time,
-  max_time
-FROM pg_stat_statements
-WHERE mean_time > 100  -- queries slower than 100ms
-ORDER BY total_time DESC
-LIMIT 20;
-```
-
-**Actions**:
-- Alert on slow queries
-- Suggest indexes
-- Auto-create indexes if safe
-- Track query performance over time
-
-#### 7.2 Cache Optimization
-**Status**: 🟡 Planned
-
-**Metrics to Track**:
-- Cache hit rate (target: > 90%)
-- Cache memory usage
-- Cache eviction rate
-- Most frequently accessed keys
-
-**Auto-Tuning**:
-- Adjust TTLs based on access patterns
-- Pre-warm cache for popular data
-- Evict stale data proactively
-
-#### 7.3 Load Testing
-**Status**: ✅ Baseline established
-
-**Schedule**: Weekly automated load tests
-```bash
-# scripts/performance/weekly_load_test.sh
-#!/bin/bash
-python tests/performance/test_performance.py
-if [ $? -ne 0 ]; then
-  echo "Performance regression detected!"
-  # Alert team
-  curl -X POST $SLACK_WEBHOOK -d '{"text":"Performance regression detected"}'
-fi
-```
-
----
-
-### 8. Disaster Recovery
-
-#### 8.1 Automated Backups
-**Status**: 🟡 Planned
-
-**Backup Strategy**:
-- **Database**: Hourly incremental, daily full
-- **Redis**: Daily snapshot
-- **Configuration**: On every change
-- **Logs**: Continuous streaming to S3
-
-**Backup Verification**:
-- Weekly automated restore test
-- Verify data integrity
-- Measure restore time (RTO)
-- Track backup size trends
-
-#### 8.2 Disaster Recovery Testing
-**Status**: 🟡 Planned
-
-**Schedule**: Quarterly DR drills
-1. Simulate complete system failure
-2. Restore from backups
-3. Verify data integrity
-4. Measure recovery time
-5. Document lessons learned
-
-**Recovery Time Objectives (RTO)**:
-- Critical services: < 1 hour
-- Full system: < 4 hours
-
-**Recovery Point Objectives (RPO)**:
-- Database: < 1 hour (hourly backups)
-- Logs: < 5 minutes (continuous streaming)
-
----
-
-### 9. Documentation Automation
-
-#### 9.1 API Documentation
-**Status**: ✅ Active (FastAPI auto-generated)
-
-**Auto-Generated Docs**:
-- OpenAPI/Swagger UI at `/docs`
-- ReDoc at `/redoc`
-- Updated on every deployment
-
-#### 9.2 Code Documentation
-**Status**: 🟡 Planned
-
-**Strategy**: Auto-generate from docstrings
-```bash
-# scripts/docs/generate.sh
-pdoc --html --output-dir docs/api backend/
-```
-
-#### 9.3 Changelog Automation
-**Status**: 🟡 Planned
-
-**Strategy**: Auto-generate from commit messages
-```bash
-# Use conventional commits
-git log --pretty=format:"%s" | grep "^feat:" > CHANGELOG.md
-```
-
----
-
-### 10. Implementation Roadmap
-
-#### Phase 1: Foundation (✅ Complete)
-- ✓ Test suite (100% functional coverage)
-- ✓ Docker health checks
-- ✓ Prometheus metrics
-- ✓ Grafana dashboards
-
-#### Phase 2: CI/CD (Next - Week 3-4)
-- [ ] GitHub Actions workflows
-- [ ] Automated testing on commits
-- [ ] Code quality checks
-- [ ] Docker image builds
-
-#### Phase 3: Monitoring (Week 5-6)
-- [ ] Alerting rules
-- [ ] Log aggregation
-- [ ] Performance tracking
-- [ ] Security scanning
-
-#### Phase 4: Automation (Week 7-8)
-- [ ] Auto-scaling
-- [ ] Circuit breakers
-- [ ] Automated rollback
-- [ ] Self-healing
-
-#### Phase 5: Optimization (Week 9-10)
-- [ ] Query optimization
-- [ ] Cache tuning
-- [ ] Load testing automation
-- [ ] Performance regression detection
-
----
-
-### 11. Success Metrics
-
-**Uptime**: > 99.9% (< 43 minutes downtime/month)  
-**Deployment Frequency**: Multiple times per day  
-**Lead Time**: < 1 hour (commit to production)  
-**MTTR** (Mean Time To Recovery): < 15 minutes  
-**Change Failure Rate**: < 5%  
-**Test Coverage**: > 80%  
-**Security Vulnerabilities**: 0 critical, < 5 high  
-
----
-
 ## KNOWN ISSUES
 
 ### Fixed Issues
@@ -2128,7 +1444,7 @@ For questions or issues:
 
 ---
 
-**Last Updated**: 2026-02-05  
+**Last Updated**: 2026-02-03  
 **Version**: 5.0  
 **Status**: In Progress  
 **Pride Score**: 100% (This spec written with complete proper actions)
