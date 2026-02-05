@@ -94,12 +94,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(user_id: str, tenant_id: str) -> tuple[str, datetime]:
     """Create JWT access token"""
+    import uuid
     expires_at = datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "user_id": user_id,
         "tenant_id": tenant_id,
         "exp": expires_at,
-        "type": "access"
+        "type": "access",
+        "jti": str(uuid.uuid4())  # Unique token ID to prevent duplicates
     }
     token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return token, expires_at
