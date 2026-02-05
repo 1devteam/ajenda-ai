@@ -89,10 +89,26 @@ class LLMService:
         # Create new LLM instance
         try:
             logger.info(f"Creating LLM: provider={provider}, model={model}, agent_type={agent_type}")
+            
+            # Set default max_tokens based on provider
+            # Anthropic requires max_tokens to be set
+            max_tokens = 4096  # Default for most providers
+            if provider == "anthropic":
+                max_tokens = 4096  # Claude's default
+            elif provider == "openai":
+                max_tokens = None  # OpenAI allows None (uses model default)
+            elif provider == "google":
+                max_tokens = 8192  # Gemini's default
+            elif provider == "xai":
+                max_tokens = None  # Grok uses OpenAI-compatible API
+            elif provider == "ollama":
+                max_tokens = 2048  # Local models default
+            
             llm = LLMFactory.create_llm(
                 provider=provider,
                 model=model,
                 temperature=temperature,
+                max_tokens=max_tokens,
                 api_key=api_key
             )
             
@@ -144,10 +160,25 @@ class LLMService:
         # Create new LLM instance
         try:
             logger.info(f"Creating custom LLM: provider={provider}, model={model_name}")
+            
+            # Set default max_tokens based on provider
+            max_tokens = 4096  # Default for most providers
+            if provider == "anthropic":
+                max_tokens = 4096  # Claude's default
+            elif provider == "openai":
+                max_tokens = None  # OpenAI allows None
+            elif provider == "google":
+                max_tokens = 8192  # Gemini's default
+            elif provider == "xai":
+                max_tokens = None  # Grok uses OpenAI-compatible API
+            elif provider == "ollama":
+                max_tokens = 2048  # Local models default
+            
             llm = LLMFactory.create_llm(
                 provider=provider,
                 model=model_name,
                 temperature=temperature,
+                max_tokens=max_tokens,
                 api_key=api_key
             )
             
