@@ -125,7 +125,10 @@ def verify_token(token: str) -> Optional[dict]:
         return payload
     except jwt.ExpiredSignatureError:
         return None
-    except jwt.InvalidTokenError:
+    except jwt.JWTError:
+        return None
+    except Exception:
+        # Catch any other exceptions (malformed tokens, etc.)
         return None
 
 
@@ -308,53 +311,63 @@ async def refresh_token_endpoint(refresh_data: TokenRefresh, db: Session = Depen
     
     Uses refresh token to get a new access token.
     """
-    refresh_token = refresh_data.refresh_token
-    
-    # Verify refresh token
-    token_data = verify_token(refresh_token)
-    if not token_data or token_data.get("type") != "refresh":
+    try:
+        refresh_token = refresh_data.refresh_token
+        
+        # Verify refresh token
+        token_data = verify_token(refresh_token)
+        if not token_data or token_data.get("type") != "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token"
+            )
+        
+        # Check if token exists and not revoked
+        db_token = db.query(Token).filter(
+            Token.token == refresh_token,
+            Token.token_type == "refresh",
+            Token.revoked == False
+        ).first()
+        
+        if not db_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token has been revoked or does not exist"
+            )
+        
+        # Create new access token
+        user_id = token_data["user_id"]
+        tenant_id = token_data["tenant_id"]
+        access_token, access_expires = create_access_token(user_id, tenant_id)
+        
+        # Store new access token
+        db_access_token = Token(
+            token=access_token,
+            token_type="access",
+            user_id=user_id,
+            expires_at=access_expires,
+            created_at=datetime.utcnow()
+        )
+        db.add(db_access_token)
+        db.commit()
+        
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+            expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            user_id=user_id,
+            tenant_id=tenant_id
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log unexpected errors and return 401
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token"
+            detail=f"Token refresh failed: {str(e)}"
         )
-    
-    # Check if token exists and not revoked
-    db_token = db.query(Token).filter(
-        Token.token == refresh_token,
-        Token.token_type == "refresh",
-        Token.revoked == False
-    ).first()
-    
-    if not db_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token has been revoked or does not exist"
-        )
-    
-    # Create new access token
-    user_id = token_data["user_id"]
-    tenant_id = token_data["tenant_id"]
-    access_token, access_expires = create_access_token(user_id, tenant_id)
-    
-    # Store new access token
-    db_access_token = Token(
-        token=access_token,
-        token_type="access",
-        user_id=user_id,
-        expires_at=access_expires,
-        created_at=datetime.utcnow()
-    )
-    db.add(db_access_token)
-    db.commit()
-    
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer",
-        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user_id=user_id,
-        tenant_id=tenant_id
-    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
