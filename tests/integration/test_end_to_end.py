@@ -181,7 +181,7 @@ class OmnipathE2ETest:
             }
             response = await self.client.post(
                 f"{self.base_url}/api/v1/auth/login",
-                data=login_data  # OAuth2 uses form data, not JSON
+                json=login_data  # Send JSON to match Pydantic model
             )
             passed = response.status_code == 200
             
