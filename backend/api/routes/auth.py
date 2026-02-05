@@ -292,6 +292,7 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     
     db.add(db_access_token)
     db.add(db_refresh_token)
+    db.flush()  # Ensure tokens are written to database before returning response
     db.commit()
     
     return TokenResponse(
