@@ -83,7 +83,7 @@ class OmnipathAuthTest:
             }
             response = await self.client.post(
                 f"{self.base_url}/api/v1/auth/login",
-                data=login_data  # Form data, not JSON
+                json=login_data  # Send JSON to match Pydantic model
             )
             passed = response.status_code == 200
             if passed:
