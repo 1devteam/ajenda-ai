@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from enum import Enum
 
-from backend.integrations.llm.llm_factory import LLMFactory
+from backend.integrations.llm.llm_service import LLMService
 from backend.economy.resource_marketplace import ResourceMarketplace, ResourceType
 from backend.core.event_bus.nats_bus import NATSEventBus
 from backend.integrations.observability.telemetry import get_tracer, get_meter
@@ -57,12 +57,37 @@ class MissionExecutor:
         self,
         marketplace: ResourceMarketplace,
         event_bus: NATSEventBus,
-        llm_factory: LLMFactory
+        llm_service: LLMService
     ):
         self.marketplace = marketplace
         self.event_bus = event_bus
-        self.llm_factory = llm_factory
+        self.llm_service = llm_service
         self.active_missions: Dict[str, Dict[str, Any]] = {}
+        self.status_callback = None
+    
+    def set_status_callback(self, callback):
+        """
+        Set callback for status updates
+        
+        Args:
+            callback: Async function(mission_id, status, **kwargs)
+        """
+        self.status_callback = callback
+    
+    async def _update_status(self, mission_id: str, status: str, **kwargs):
+        """
+        Update mission status via callback
+        
+        Args:
+            mission_id: Mission identifier
+            status: New status
+            **kwargs: Additional data (result, error, execution_time, etc.)
+        """
+        if self.status_callback:
+            try:
+                await self.status_callback(mission_id, status, **kwargs)
+            except Exception as e:
+                logger.error(f"Status callback failed: {e}")
         
     async def execute_mission(
         self,
@@ -92,12 +117,22 @@ class MissionExecutor:
             span.set_attribute("tenant_id", tenant_id)
             
             try:
+                # Update status to RUNNING
+                await self._update_status(mission_id, "RUNNING")
+                
                 # Phase 1: Guardian validates the mission
+                await self._update_status(mission_id, "RUNNING", step="validation")
                 validation_result = await self._validate_mission(
                     mission_id, goal, tenant_id
                 )
                 
                 if not validation_result["is_safe"]:
+                    await self._update_status(
+                        mission_id, 
+                        "REJECTED", 
+                        error=validation_result["reason"],
+                        risk_score=validation_result["risk_score"]
+                    )
                     return {
                         "mission_id": mission_id,
                         "status": "REJECTED",
@@ -106,11 +141,13 @@ class MissionExecutor:
                     }
                 
                 # Phase 2: Commander analyzes and plans
+                await self._update_status(mission_id, "RUNNING", step="planning")
                 plan = await self._create_execution_plan(
                     mission_id, goal, tenant_id, budget
                 )
                 
                 # Phase 3: Execute based on complexity
+                await self._update_status(mission_id, "RUNNING", step="executing")
                 if plan["complexity"] == MissionComplexity.SWARM.value:
                     result = await self._execute_with_swarm(
                         mission_id, plan, tenant_id
@@ -121,6 +158,7 @@ class MissionExecutor:
                     )
                 
                 # Phase 4: Archivist records everything
+                await self._update_status(mission_id, "RUNNING", step="archiving")
                 await self._archive_mission(
                     mission_id, goal, plan, result, tenant_id
                 )
@@ -138,6 +176,16 @@ class MissionExecutor:
                 if mission_counter:
                     mission_counter.add(1, {"status": result["status"]})
                 
+                # Update final status
+                final_status = "COMPLETED" if result["status"] == "SUCCESS" else "FAILED"
+                await self._update_status(
+                    mission_id,
+                    final_status,
+                    result=result.get("output"),
+                    cost=result.get("cost", 0.0),
+                    execution_time=duration
+                )
+                
                 return {
                     "mission_id": mission_id,
                     "status": result["status"],
@@ -151,6 +199,10 @@ class MissionExecutor:
                 span.record_exception(e)
                 if mission_counter:
                     mission_counter.add(1, {"status": "ERROR"})
+                
+                # Update status to FAILED
+                await self._update_status(mission_id, "FAILED", error=str(e))
+                
                 return {
                     "mission_id": mission_id,
                     "status": "ERROR",
@@ -169,7 +221,7 @@ class MissionExecutor:
                 agent_invocations.add(1, {"agent": "guardian"})
             
             # Get Guardian's LLM
-            llm = self.llm_factory.get_llm("guardian", tenant_id)
+            llm = self.llm_service.get_llm("guardian", tenant_id)
             
             prompt = f"""You are the Guardian, a safety validation agent.
             
@@ -230,7 +282,7 @@ Respond in JSON format:
             if agent_invocations:
                 agent_invocations.add(1, {"agent": "commander"})
             
-            llm = self.llm_factory.get_llm("commander", tenant_id)
+            llm = self.llm_service.get_llm("commander", tenant_id)
             
             prompt = f"""You are the Commander, a strategic planning agent.
 
@@ -291,7 +343,7 @@ Respond in JSON format:
             
             # Get LLM based on Commander's selection
             model_name = plan.get("model_selection", "gpt-3.5-turbo")
-            llm = self.llm_factory.get_llm_by_model(model_name, tenant_id)
+            llm = self.llm_service.get_llm_by_model(model_name, tenant_id)
             
             # Execute each step
             for i, step in enumerate(plan["steps"]):

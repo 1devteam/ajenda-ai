@@ -5,11 +5,12 @@ Migrated to SQLAlchemy database persistence
 
 Built with Pride for Obex Blackvault
 """
-from fastapi import APIRouter, HTTPException, status, Query, Depends
+from fastapi import APIRouter, HTTPException, status, Query, Depends, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import uuid
+import logging
 
 from sqlalchemy.orm import Session
 from backend.database import get_db
@@ -18,6 +19,11 @@ from backend.models.domain.mission import MissionStatus, MissionPriority
 
 # Import authentication dependency
 from backend.api.routes.auth import get_current_user
+
+# Import mission executor
+from backend.orchestration.mission_executor import MissionExecutor
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
 
@@ -97,6 +103,7 @@ def _update_agent_stats(db: Session, agent_id: str, success: bool):
 @router.post("", response_model=MissionResponse, status_code=status.HTTP_201_CREATED)
 async def create_mission(
     mission: MissionCreate,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -161,6 +168,96 @@ async def create_mission(
     db.add(mission_data)
     db.commit()
     db.refresh(mission_data)
+    
+    # Execute mission in background
+    async def execute_and_update():
+        """
+        Background task to execute mission and update database
+        
+        This runs asynchronously after the API returns the initial response.
+        It updates the mission status in the database as execution progresses.
+        """
+        # Import here to avoid circular dependency
+        from backend.main import get_mission_executor
+        from backend.database import SessionLocal
+        
+        # Get mission executor
+        try:
+            executor = get_mission_executor()
+        except Exception as e:
+            logger.error(f"Failed to get mission executor: {e}")
+            return
+        
+        # Create status update callback
+        async def update_status(mission_id: str, status: str, **kwargs):
+            """Update mission status in database"""
+            # Get new database session for background task
+            bg_db = SessionLocal()
+            try:
+                mission = bg_db.query(Mission).filter(Mission.id == mission_id).first()
+                if mission:
+                    mission.status = status
+                    
+                    # Update timestamps
+                    if status == "RUNNING":
+                        if not mission.started_at:
+                            mission.started_at = datetime.utcnow()
+                    elif status in ["COMPLETED", "FAILED", "REJECTED"]:
+                        mission.completed_at = datetime.utcnow()
+                    
+                    # Update result/error
+                    if "result" in kwargs:
+                        mission.result = {"output": kwargs["result"]}
+                    if "error" in kwargs:
+                        mission.error = kwargs["error"]
+                    if "execution_time" in kwargs:
+                        mission.execution_time = kwargs["execution_time"]
+                    if "cost" in kwargs:
+                        mission.cost = kwargs["cost"]
+                    
+                    bg_db.commit()
+                    logger.info(f"Mission {mission_id} status updated to {status}")
+            except Exception as e:
+                logger.error(f"Failed to update mission status: {e}")
+                bg_db.rollback()
+            finally:
+                bg_db.close()
+        
+        # Set callback
+        executor.set_status_callback(update_status)
+        
+        # Execute mission
+        try:
+            logger.info(f"Starting execution of mission {mission_data.id}")
+            result = await executor.execute_mission(
+                mission_id=mission_data.id,
+                goal=mission_data.objective,
+                tenant_id=mission_data.tenant_id,
+                user_id=current_user["user_id"],
+                budget=None  # TODO: Add budget support
+            )
+            
+            # Update agent stats
+            bg_db = SessionLocal()
+            try:
+                _update_agent_stats(
+                    bg_db,
+                    mission_data.agent_id,
+                    success=(result["status"] == "SUCCESS")
+                )
+            finally:
+                bg_db.close()
+            
+            logger.info(f"Mission {mission_data.id} execution completed: {result['status']}")
+            
+        except Exception as e:
+            logger.error(f"Mission execution failed: {e}", exc_info=True)
+            # Update mission to failed
+            await update_status(mission_data.id, "FAILED", error=str(e))
+    
+    # Add to background tasks
+    background_tasks.add_task(execute_and_update)
+    logger.info(f"Mission {mission_data.id} created and queued for execution")
 
     return MissionResponse(
         id=mission_data.id,

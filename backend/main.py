@@ -2,7 +2,7 @@
 Omnipath v5.0 - Main Application Entry Point
 Multi-agent AI system with observability, meta-learning, and agent economy
 """
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -20,6 +20,13 @@ from backend.integrations.observability.prometheus_metrics import get_metrics, m
 # Import API routes
 from backend.api.routes import economy, performance, metrics, missions_v45, meta_learning, tenants, agents, missions, auth
 
+# Import core services
+from backend.integrations.llm.llm_service import LLMService
+from backend.economy.resource_marketplace import ResourceMarketplace
+from backend.core.event_bus.nats_bus import NATSEventBus
+from backend.orchestration.mission_executor import MissionExecutor
+from typing import Optional
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +40,12 @@ settings = Settings()
 # Initialize observability
 telemetry = get_telemetry()
 prom_metrics = get_metrics()
+
+# Global service instances (initialized in lifespan)
+llm_service: Optional[LLMService] = None
+marketplace: Optional[ResourceMarketplace] = None
+event_bus: Optional[NATSEventBus] = None
+mission_executor: Optional[MissionExecutor] = None
 
 
 @asynccontextmanager
@@ -70,6 +83,14 @@ async def lifespan(app: FastAPI):
         logger.info("Prometheus metrics disabled")
         prom_metrics.enabled = False
     
+    # Initialize core services
+    global llm_service, marketplace, event_bus, mission_executor
+    
+    # Initialize LLM Service
+    logger.info("Initializing LLM Service...")
+    llm_service = LLMService(settings)
+    logger.info("✅ LLM Service initialized")
+    
     # Log LLM provider configuration
     logger.info("LLM Providers configured:")
     if settings.OPENAI_API_KEY:
@@ -82,6 +103,32 @@ async def lifespan(app: FastAPI):
         logger.info("  - xAI (Grok): ✓")
     if settings.OLLAMA_BASE_URL:
         logger.info(f"  - Ollama: ✓ ({settings.OLLAMA_BASE_URL})")
+    
+    # Initialize Resource Marketplace
+    logger.info("Initializing Resource Marketplace...")
+    marketplace = ResourceMarketplace()
+    logger.info("✅ Resource Marketplace initialized")
+    
+    # Initialize Event Bus
+    logger.info("Initializing NATS Event Bus...")
+    event_bus = NATSEventBus(settings.NATS_URL)
+    if settings.NATS_ENABLED:
+        try:
+            await event_bus.connect()
+            logger.info("✅ NATS Event Bus connected")
+        except Exception as e:
+            logger.warning(f"NATS connection failed, using stub mode: {e}")
+    else:
+        logger.info("NATS disabled, using stub mode")
+    
+    # Initialize Mission Executor
+    logger.info("Initializing Mission Executor...")
+    mission_executor = MissionExecutor(
+        marketplace=marketplace,
+        event_bus=event_bus,
+        llm_service=llm_service
+    )
+    logger.info("✅ Mission Executor initialized")
     
     logger.info("=" * 60)
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} is ready!")
@@ -96,7 +143,14 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info(f"Shutting down {settings.APP_NAME}")
+    
+    # Disconnect event bus
+    if event_bus:
+        logger.info("Disconnecting NATS Event Bus...")
+        await event_bus.disconnect()
+    
     telemetry.shutdown()
+    logger.info("✅ Shutdown complete")
 
 
 # Initialize FastAPI application
@@ -161,6 +215,22 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error": str(exc) if settings.DEBUG else "An unexpected error occurred"
         }
     )
+
+
+# Dependency function to get mission executor
+def get_mission_executor() -> MissionExecutor:
+    """
+    Dependency to get mission executor instance
+    
+    Raises:
+        HTTPException: If mission executor not initialized
+    """
+    if mission_executor is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Mission executor not initialized"
+        )
+    return mission_executor
 
 
 # Health check endpoint
