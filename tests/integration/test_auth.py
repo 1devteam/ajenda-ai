@@ -232,7 +232,7 @@ class OmnipathAuthTest:
                     # Login as second user
                     login_response = await self.client.post(
                         f"{self.base_url}/api/v1/auth/login",
-                        data={"username": user2_email, "password": "TestPassword456!"}
+                        json={"username": user2_email, "password": "TestPassword456!"}
                     )
                     
                     if login_response.status_code == 200:
