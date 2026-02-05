@@ -93,20 +93,23 @@ class Mission(Base):
     __tablename__ = "missions"
 
     id = Column(String(50), primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=False)
+    objective = Column(Text, nullable=False)
     status = Column(String(50), nullable=False, index=True)
     priority = Column(String(20), nullable=False, index=True)
     agent_id = Column(String(50), ForeignKey("agents.id"), nullable=False, index=True)
     tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
-    objective = Column(Text, nullable=False)
     context = Column(JSON, default=dict, nullable=False)
     result = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    steps = Column(JSON, default=list, nullable=False)
+    max_steps = Column(Integer, default=10, nullable=False)
+    timeout_seconds = Column(Integer, default=300, nullable=False)
+    execution_time = Column(Float, nullable=True)
+    tokens_used = Column(Integer, default=0, nullable=False)
+    cost = Column(Float, default=0.0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    estimated_cost = Column(Float, default=0.0, nullable=False)
-    actual_cost = Column(Float, default=0.0, nullable=False)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="missions")
