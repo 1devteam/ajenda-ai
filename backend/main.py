@@ -25,6 +25,7 @@ from backend.integrations.llm.llm_service import LLMService
 from backend.economy.resource_marketplace import ResourceMarketplace
 from backend.core.event_bus.nats_bus import NATSEventBus
 from backend.orchestration.mission_executor import MissionExecutor
+from backend.middleware.rate_limit import RateLimitMiddleware
 from typing import Optional
 
 # Configure logging
@@ -176,6 +177,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting middleware
+if settings.RATE_LIMIT_ENABLED:
+    logger.info(f"Rate limiting enabled: {settings.RATE_LIMIT_PER_MINUTE}/min, {settings.RATE_LIMIT_PER_HOUR}/hour")
+    app.add_middleware(RateLimitMiddleware)
 
 
 # Middleware for request metrics

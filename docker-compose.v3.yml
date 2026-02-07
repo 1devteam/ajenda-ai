@@ -130,7 +130,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app/backend
-    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4 --reload
 
 volumes:
   postgres_data:

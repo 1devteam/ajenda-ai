@@ -120,7 +120,32 @@ The concurrent load failure is likely caused by one or more of the following iss
 
 ---
 
-## Recommendations
+## Concurrency Fixes Implemented
+
+**Status**: ✅ COMPLETE (2026-02-07)
+
+Based on the critical concurrency failures identified in the initial baseline, the following fixes have been implemented:
+
+1.  **Increased Uvicorn Workers**: The backend service in `docker-compose.v3.yml` has been updated to use **4 worker processes** instead of 1. This allows the system to handle up to 4 simultaneous requests in parallel.
+    ```yaml
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4 --reload
+    ```
+
+2.  **Implemented Rate Limiting**: A new rate limiting middleware (`backend/middleware/rate_limit.py`) has been added to the FastAPI application. This middleware enforces the following limits per user/IP:
+    -   **60 requests per minute**
+    -   **1000 requests per hour**
+
+    This prevents system overload by gracefully rejecting excess requests with an HTTP 429 status code and a `Retry-After` header.
+
+3.  **Verified Database Connection Pool**: The database connection pool was already configured with a size of 20 and a max overflow of 10, which is sufficient for the current load. No changes were needed.
+
+4.  **Verified Async LLM Calls**: The existing LangChain implementation already uses `ainvoke()` for asynchronous LLM calls, so no changes were required.
+
+These fixes address the most critical concurrency issues. The system is now ready for re-testing to establish an updated performance baseline.
+
+---
+
+## Recommendations (Post-Fix)
 
 ### Critical (Must Fix Before Production)
 
