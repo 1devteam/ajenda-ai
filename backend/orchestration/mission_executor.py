@@ -342,7 +342,8 @@ Respond in JSON format:
             outputs = []
             
             # Get LLM based on Commander's selection
-            model_name = plan.get("model_selection", "gpt-3.5-turbo")
+            # Force OpenAI for now (Quick Fix - Option A)
+            model_name = "gpt-3.5-turbo"
             llm = self.llm_service.get_llm_by_model(model_name, tenant_id)
             
             # Execute each step
@@ -351,12 +352,15 @@ Respond in JSON format:
                     agent_invocations.add(1, {"agent": "executor"})
                 
                 # Charge for resource usage
-                cost = await self.marketplace.charge_for_resource(
-                    tenant_id,
-                    f"agent_executor_{i}",
-                    ResourceType.LLM_CALL,
-                    1.0  # Base cost, will be updated with actual
+                await self.marketplace.charge(
+                    tenant_id=tenant_id,
+                    agent_id=f"agent_executor_{i}",
+                    amount=1.0,  # Base cost, will be updated with actual
+                    resource_type=ResourceType.LLM_CALL.value,
+                    mission_id=None,
+                    agent_type="executor"
                 )
+                cost = 1.0
                 
                 response = await llm.ainvoke(step)
                 outputs.append(response.content)
@@ -410,12 +414,15 @@ Respond in JSON format:
         
         llm = self.llm_factory.get_llm_by_model("gpt-3.5-turbo", tenant_id)
         
-        cost = await self.marketplace.charge_for_resource(
-            tenant_id,
-            f"swarm_agent_{uuid.uuid4().hex[:8]}",
-            ResourceType.LLM_CALL,
-            0.5
+        await self.marketplace.charge(
+            tenant_id=tenant_id,
+            agent_id=f"swarm_agent_{uuid.uuid4().hex[:8]}",
+            amount=0.5,
+            resource_type=ResourceType.LLM_CALL.value,
+            mission_id=None,
+            agent_type="swarm_agent"
         )
+        cost = 0.5
         
         response = await llm.ainvoke(task)
         
@@ -481,11 +488,13 @@ Respond in JSON format:
             reward_per_agent = total_reward / len(agents_used) if agents_used else 0
             
             for agent_name in agents_used:
-                await self.marketplace.reward_agent(
-                    tenant_id,
-                    agent_name,
-                    ResourceType.MISSION_REWARD,
-                    reward_per_agent
+                await self.marketplace.reward(
+                    tenant_id=tenant_id,
+                    agent_id=agent_name,
+                    amount=reward_per_agent,
+                    resource_type="mission_reward",
+                    mission_id=mission_id,
+                    agent_type="executor"
                 )
             
             # Publish reward event
