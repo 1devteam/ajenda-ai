@@ -407,7 +407,7 @@ Respond in JSON format:
         task: str,
         tenant_id: str
     ) -> Dict[str, Any]:
-        \"\"\"Execute a single swarm agent\"\"\"
+        """Execute a single swarm agent"""
         get_metrics().record_agent_invocation("swarm_agent", "gpt-3.5-turbo")
         
         llm = self.llm_service.get_llm_by_model("gpt-3.5-turbo", tenant_id)
