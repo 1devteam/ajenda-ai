@@ -163,6 +163,10 @@ class NATSEventBus:
         # Serialize to JSON
         message = json.dumps(event).encode()
         
+        # Record metric
+        from backend.integrations.observability.prometheus_metrics import get_metrics
+        get_metrics().record_nats_message(subject, "pub")
+        
         if self.nc and self._connected and NATS_AVAILABLE:
             try:
                 # Publish to NATS
@@ -214,6 +218,10 @@ class NATSEventBus:
                     try:
                         # Decode and parse message
                         event = json.loads(msg.data.decode())
+                        
+                        # Record metric
+                        from backend.integrations.observability.prometheus_metrics import get_metrics
+                        get_metrics().record_nats_message(subject, "sub")
                         
                         # Call the callback
                         if asyncio.iscoroutinefunction(callback):

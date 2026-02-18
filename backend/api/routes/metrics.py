@@ -2,20 +2,17 @@
 Prometheus Metrics Endpoint
 Exposes metrics for monitoring and alerting
 """
-from fastapi import APIRouter, Response
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from fastapi import APIRouter
+from backend.integrations.observability.prometheus_metrics import metrics_endpoint
 
 router = APIRouter(tags=["metrics"])
 
 
 @router.get("/metrics")
-async def metrics():
+def metrics():
     """
     Prometheus metrics endpoint
     
-    Exposes all OpenTelemetry metrics in Prometheus format
+    Exposes all Prometheus metrics for scraping
     """
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+    return metrics_endpoint()

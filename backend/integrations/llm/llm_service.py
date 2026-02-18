@@ -112,6 +112,10 @@ class LLMService:
                 api_key=api_key
             )
             
+            # Record in Prometheus
+            from backend.integrations.observability.prometheus_metrics import get_metrics
+            get_metrics().record_agent_invocation(agent_type, model)
+            
             # Cache for reuse
             self._llm_cache[cache_key] = llm
             
@@ -181,6 +185,10 @@ class LLMService:
                 max_tokens=max_tokens,
                 api_key=api_key
             )
+            
+            # Record in Prometheus
+            from backend.integrations.observability.prometheus_metrics import get_metrics
+            get_metrics().record_agent_invocation("custom", model_name)
             
             # Cache for reuse
             self._llm_cache[cache_key] = llm

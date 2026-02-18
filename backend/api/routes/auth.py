@@ -272,6 +272,10 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     user.last_login = datetime.utcnow()
     db.commit()
     
+    # Record in Prometheus
+    from backend.integrations.observability.prometheus_metrics import get_metrics
+    get_metrics().record_user_login(user.tenant_id)
+    
     # Create tokens
     access_token, access_expires = create_access_token(user.id, user.tenant_id)
     refresh_token, refresh_expires = create_refresh_token(user.id, user.tenant_id)

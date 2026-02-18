@@ -257,14 +257,7 @@ async def health_check():
     }
 
 
-# Metrics endpoint
-@app.get(settings.METRICS_ENDPOINT, tags=["system"])
-async def get_prometheus_metrics():
-    """
-    Prometheus metrics endpoint
-    Returns metrics in Prometheus format
-    """
-    return metrics_endpoint()
+# Metrics endpoint is handled by backend.api.routes.metrics router
 
 
 # Version endpoint

@@ -4,40 +4,23 @@ Coordinates agents, manages economy, and executes missions end-to-end
 """
 import asyncio
 import uuid
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from enum import Enum
 
 from backend.integrations.llm.llm_service import LLMService
-from backend.economy.resource_marketplace import ResourceMarketplace, ResourceType
+from backend.economy.resource_marketplace import ResourceType, ResourceMarketplace
 from backend.core.event_bus.nats_bus import NATSEventBus
 from backend.integrations.observability.telemetry import get_tracer, get_meter
 from backend.models.domain.agent import AgentStatus
 from backend.models.domain.mission import MissionStatus
+from backend.integrations.observability.prometheus_metrics import get_metrics
 
+logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
 meter = get_meter(__name__)
-
-# Metrics (handle None meter gracefully for v4.5 compatibility)
-if meter is not None:
-    mission_counter = meter.create_counter(
-        "omnipath_missions_total",
-        description="Total number of missions executed"
-    )
-    
-    mission_duration = meter.create_histogram(
-        "omnipath_mission_duration_seconds",
-        description="Mission execution duration in seconds"
-    )
-    
-    agent_invocations = meter.create_counter(
-        "omnipath_agent_invocations_total",
-        description="Total agent invocations by type"
-    )
-else:
-    mission_counter = None
-    mission_duration = None
-    agent_invocations = None
+# Get metrics instance inside methods to avoid early initialization issues
 
 
 class MissionComplexity(Enum):
@@ -117,7 +100,7 @@ class MissionExecutor:
             span.set_attribute("tenant_id", tenant_id)
             
             try:
-                # Update status to RUNNING
+                # Initial status update
                 await self._update_status(mission_id, "RUNNING")
                 
                 # Phase 1: Guardian validates the mission
@@ -127,6 +110,13 @@ class MissionExecutor:
                 )
                 
                 if not validation_result["is_safe"]:
+                    # Record rejected metric
+                    get_metrics().record_mission_complete(
+                        status="REJECTED",
+                        complexity="unknown",
+                        duration_seconds=(datetime.utcnow() - start_time).total_seconds()
+                    )
+                    
                     await self._update_status(
                         mission_id, 
                         "REJECTED", 
@@ -145,6 +135,9 @@ class MissionExecutor:
                 plan = await self._create_execution_plan(
                     mission_id, goal, tenant_id, budget
                 )
+                
+                # Update status to RUNNING with complexity
+                get_metrics().record_mission_start(complexity=plan.get("complexity", "unknown"))
                 
                 # Phase 3: Execute based on complexity
                 await self._update_status(mission_id, "RUNNING", step="executing")
@@ -169,12 +162,13 @@ class MissionExecutor:
                         mission_id, plan, result, tenant_id
                     )
                 
-                # Record metrics (only if meter is available)
+                # Record metrics
                 duration = (datetime.utcnow() - start_time).total_seconds()
-                if mission_duration:
-                    mission_duration.record(duration)
-                if mission_counter:
-                    mission_counter.add(1, {"status": result["status"]})
+                get_metrics().record_mission_complete(
+                    status=result["status"],
+                    complexity=plan.get("complexity", "unknown"),
+                    duration_seconds=duration
+                )
                 
                 # Update final status
                 final_status = "COMPLETED" if result["status"] == "SUCCESS" else "FAILED"
@@ -197,8 +191,16 @@ class MissionExecutor:
                 
             except Exception as e:
                 span.record_exception(e)
-                if mission_counter:
-                    mission_counter.add(1, {"status": "ERROR"})
+                # Determine complexity for metric
+                comp = "unknown"
+                if 'plan' in locals() and isinstance(plan, dict):
+                    comp = plan.get("complexity", "unknown")
+                
+                get_metrics().record_mission_complete(
+                    status="FAILED",
+                    complexity=comp,
+                    duration_seconds=(datetime.utcnow() - start_time).total_seconds()
+                )
                 
                 # Update status to FAILED
                 await self._update_status(mission_id, "FAILED", error=str(e))
@@ -217,8 +219,7 @@ class MissionExecutor:
     ) -> Dict[str, Any]:
         """Guardian validates mission safety"""
         with tracer.start_as_current_span("guardian_validate"):
-            if agent_invocations:
-                agent_invocations.add(1, {"agent": "guardian"})
+            get_metrics().record_agent_invocation("guardian", "gpt-4-turbo")
             
             # Get Guardian's LLM
             llm = self.llm_service.get_llm("guardian", tenant_id)
@@ -279,8 +280,7 @@ Respond in JSON format:
     ) -> Dict[str, Any]:
         """Commander creates execution plan"""
         with tracer.start_as_current_span("commander_plan"):
-            if agent_invocations:
-                agent_invocations.add(1, {"agent": "commander"})
+            get_metrics().record_agent_invocation("commander", "gpt-4-turbo")
             
             llm = self.llm_service.get_llm("commander", tenant_id)
             
@@ -348,8 +348,7 @@ Respond in JSON format:
             
             # Execute each step
             for i, step in enumerate(plan["steps"]):
-                if agent_invocations:
-                    agent_invocations.add(1, {"agent": "executor"})
+                get_metrics().record_agent_invocation("executor", model_name)
                 
                 # Charge for resource usage
                 await self.marketplace.charge(
@@ -408,11 +407,10 @@ Respond in JSON format:
         task: str,
         tenant_id: str
     ) -> Dict[str, Any]:
-        """Execute a single swarm agent"""
-        if agent_invocations:
-            agent_invocations.add(1, {"agent": "swarm_agent"})
+        \"\"\"Execute a single swarm agent\"\"\"
+        get_metrics().record_agent_invocation("swarm_agent", "gpt-3.5-turbo")
         
-        llm = self.llm_factory.get_llm_by_model("gpt-3.5-turbo", tenant_id)
+        llm = self.llm_service.get_llm_by_model("gpt-3.5-turbo", tenant_id)
         
         await self.marketplace.charge(
             tenant_id=tenant_id,
@@ -439,10 +437,9 @@ Respond in JSON format:
         result: Dict[str, Any],
         tenant_id: str
     ):
-        """Archivist records mission for future learning"""
+        \"\"\"Archivist records mission for future learning\"\"\"
         with tracer.start_as_current_span("archivist_archive"):
-            if agent_invocations:
-                agent_invocations.add(1, {"agent": "archivist"})
+            get_metrics().record_agent_invocation("archivist", "gpt-4-turbo")
             
             # Publish mission completion event
             await self.event_bus.publish(

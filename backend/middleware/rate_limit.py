@@ -54,6 +54,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         is_allowed, retry_after = await self._check_rate_limit(identifier)
         
         if not is_allowed:
+            # Record rate limit event in Prometheus
+            from backend.integrations.observability.prometheus_metrics import get_metrics
+            get_metrics().record_rate_limit_exceeded(identifier)
+            
             return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={

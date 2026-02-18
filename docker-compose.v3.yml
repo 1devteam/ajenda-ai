@@ -48,6 +48,21 @@ services:
       timeout: 5s
       retries: 5
 
+  # NATS Prometheus Exporter
+  nats-exporter:
+    image: natsio/prometheus-nats-exporter:0.19.1
+    container_name: omnipath-nats-exporter
+    command: ["-port", "7777", "-nats.server", "nats:4222"]
+    ports:
+      - "7777:7777"
+    depends_on:
+      - nats
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:7777/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Jaeger (Distributed Tracing)
   jaeger:
     image: jaegertracing/all-in-one:1.53

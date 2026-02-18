@@ -258,7 +258,11 @@ async def update_agent(
     if agent.name is not None:
         agent_data.name = agent.name
     if agent.status is not None:
-        agent_data.status = agent.status.value if isinstance(agent.status, AgentStatus) else agent.status
+        new_status = agent.status.value if isinstance(agent.status, AgentStatus) else agent.status
+        agent_data.status = new_status
+        # Record in Prometheus
+        from backend.integrations.observability.prometheus_metrics import get_metrics
+        get_metrics().record_agent_status(agent_data.type, new_status)
     if agent.model is not None:
         agent_data.model = agent.model
     if agent.temperature is not None:

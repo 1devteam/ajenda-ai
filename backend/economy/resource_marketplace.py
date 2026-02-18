@@ -8,6 +8,9 @@ from collections import defaultdict
 from enum import Enum
 import uuid
 import asyncio
+from backend.integrations.observability.prometheus_metrics import get_metrics
+
+metrics = get_metrics()
 
 class ResourceType(Enum):
     """Types of resources that can be charged in the economy"""
@@ -118,6 +121,10 @@ class ResourceMarketplace:
             balance_data["balance"] -= amount
             balance_data["total_spent"] += amount
             balance_data["last_updated"] = datetime.utcnow()
+
+            # Record metrics
+            metrics.record_credits_spent(agent_id, resource_type, amount)
+            metrics.update_agent_balance(agent_id, balance_data["balance"])
             
             # Record transaction
             transaction = {
@@ -173,6 +180,10 @@ class ResourceMarketplace:
             balance_data["balance"] += amount
             balance_data["total_earned"] += amount
             balance_data["last_updated"] = datetime.utcnow()
+
+            # Record metrics
+            metrics.record_credits_earned(agent_id, resource_type, amount)
+            metrics.update_agent_balance(agent_id, balance_data["balance"])
             
             # Record transaction
             transaction = {

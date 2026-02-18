@@ -14,6 +14,7 @@ Supports easy model switching via configuration.
 from typing import Optional, Dict, Any
 from enum import Enum
 from langchain_core.language_models import BaseChatModel
+from backend.integrations.llm.llm_metrics_wrapper import LLMMetricsWrapper
 
 
 class LLMProvider(str, Enum):
@@ -69,22 +70,25 @@ class LLMFactory:
             model = LLMFactory.DEFAULT_MODELS.get(provider)
         
         if provider == LLMProvider.OPENAI:
-            return LLMFactory._create_openai(model, temperature, max_tokens, api_key, **kwargs)
+            llm = LLMFactory._create_openai(model, temperature, max_tokens, api_key, **kwargs)
         
         elif provider == LLMProvider.ANTHROPIC:
-            return LLMFactory._create_anthropic(model, temperature, max_tokens, api_key, **kwargs)
+            llm = LLMFactory._create_anthropic(model, temperature, max_tokens, api_key, **kwargs)
         
         elif provider == LLMProvider.GOOGLE:
-            return LLMFactory._create_google(model, temperature, max_tokens, api_key, **kwargs)
+            llm = LLMFactory._create_google(model, temperature, max_tokens, api_key, **kwargs)
         
         elif provider == LLMProvider.XAI:
-            return LLMFactory._create_xai(model, temperature, max_tokens, api_key, **kwargs)
+            llm = LLMFactory._create_xai(model, temperature, max_tokens, api_key, **kwargs)
         
         elif provider == LLMProvider.OLLAMA:
-            return LLMFactory._create_ollama(model, temperature, max_tokens, base_url, **kwargs)
+            llm = LLMFactory._create_ollama(model, temperature, max_tokens, base_url, **kwargs)
         
         else:
             raise ValueError(f"Unsupported provider: {provider}")
+            
+        # Wrap the LLM to record metrics
+        return LLMMetricsWrapper(llm=llm, provider=provider, model_name=model)
     
     @staticmethod
     def _create_openai(

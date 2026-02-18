@@ -169,6 +169,13 @@ async def create_mission(
     db.commit()
     db.refresh(mission_data)
     
+    # Record in Prometheus
+    from backend.integrations.observability.prometheus_metrics import get_metrics
+    get_metrics().record_mission_created(
+        complexity="unknown",  # Complexity determined during execution
+        priority=mission_data.priority
+    )
+    
     # Execute mission in background
     async def execute_and_update():
         """

@@ -364,7 +364,7 @@ async def record_mission_outcome(outcome: dict):
         tracker.record_outcome(mission_outcome)
         
         # Record in Prometheus metrics
-        metrics.record_mission_completed(
+        get_metrics().record_mission_complete(
             complexity=outcome["complexity"],
             status=outcome["outcome"],
             duration_seconds=outcome["duration_seconds"]

@@ -156,9 +156,13 @@ class BaseAgentV3(ABC):
         Execute the agent's mission.
         Implements the full state machine lifecycle.
         """
+        from backend.integrations.observability.prometheus_metrics import get_metrics
+        metrics = get_metrics()
+        
         try:
             # Validate
             self.state = AgentState.VALIDATING
+            metrics.record_agent_status(self.agent_type, "running")
             await self.validate()
             
             # Initialize
@@ -172,12 +176,15 @@ class BaseAgentV3(ABC):
             
             # Complete
             self.state = AgentState.COMPLETED
+            metrics.record_agent_status(self.agent_type, "idle")
             self.completed_at = datetime.utcnow()
             
             return result
             
         except Exception as e:
             self.state = AgentState.FAILED
+            metrics.record_agent_status(self.agent_type, "failed")
+            metrics.record_agent_error(self.agent_type, type(e).__name__)
             self.error_message = str(e)
             self.completed_at = datetime.utcnow()
             raise

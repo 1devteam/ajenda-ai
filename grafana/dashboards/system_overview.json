@@ -97,7 +97,7 @@
       "type": "gauge",
       "targets": [
         {
-          "expr": "sum(rate(omnipath_missions_total{status=\"success\"}[5m])) / sum(rate(omnipath_missions_total[5m])) * 100",
+          "expr": "sum(rate(omnipath_missions_total{status=\"COMPLETED\"}[5m])) / sum(rate(omnipath_missions_total[5m])) * 100",
           "refId": "A"
         }
       ],
