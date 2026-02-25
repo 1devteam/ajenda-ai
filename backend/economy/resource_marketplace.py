@@ -321,6 +321,14 @@ class ResourceMarketplace:
             balances = self._balances[tenant_id]
             
             if not balances:
+                # If no agents exist, create a default tenant agent to hold the credits
+                default_agent_id = f"{tenant_id}_default"
+                balances[default_agent_id] = {
+                    "balance": amount,
+                    "total_spent": 0.0,
+                    "total_earned": amount,
+                    "last_updated": datetime.utcnow()
+                }
                 return
             
             per_agent = amount / len(balances)

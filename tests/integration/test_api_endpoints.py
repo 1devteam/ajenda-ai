@@ -115,9 +115,11 @@ class TestEconomyEndpoints:
         
         assert response.status_code == 200
         data = response.json()
-        assert "tenant_id" in data
+        # Stats are scoped to authenticated user's tenant, no tenant_id in response
         assert "total_agents" in data
         assert "total_balance" in data
+        assert "total_transactions" in data
+        assert "avg_balance_per_agent" in data
         assert "total_spent_today" in data
         assert "total_earned_today" in data
     
