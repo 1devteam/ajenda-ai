@@ -16,6 +16,7 @@ from backend.integrations.observability.telemetry import get_tracer, get_meter
 from backend.models.domain.agent import AgentStatus
 from backend.models.domain.mission import MissionStatus
 from backend.integrations.observability.prometheus_metrics import get_metrics
+from backend.agents.factory.agent_factory import AgentFactory
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -45,6 +46,7 @@ class MissionExecutor:
         self.marketplace = marketplace
         self.event_bus = event_bus
         self.llm_service = llm_service
+        self.agent_factory = AgentFactory(llm_service)
         self.active_missions: Dict[str, Dict[str, Any]] = {}
         self.status_callback = None
     
@@ -146,8 +148,9 @@ class MissionExecutor:
                         mission_id, plan, tenant_id
                     )
                 else:
-                    result = await self._execute_with_agents(
-                        mission_id, plan, tenant_id
+                    # Use specialized agents with reasoning workflows
+                    result = await self._execute_with_specialized_agents(
+                        mission_id, goal, plan, tenant_id
                     )
                 
                 # Phase 4: Archivist records everything
@@ -329,6 +332,149 @@ Respond in JSON format:
             )
             
             return plan
+    
+    async def _execute_with_specialized_agents(
+        self,
+        mission_id: str,
+        goal: str,
+        plan: Dict[str, Any],
+        tenant_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute mission with specialized agents (Researcher, Analyst, Developer).
+        
+        This method intelligently selects the appropriate specialized agent based on
+        the mission goal and plan, then executes the mission using the agent's
+        reasoning workflow and tool-calling capabilities.
+        
+        Args:
+            mission_id: Mission identifier
+            goal: Mission objective
+            plan: Execution plan from Commander
+            tenant_id: Tenant ID
+            
+        Returns:
+            Mission execution result with outputs and costs
+        """
+        with tracer.start_as_current_span("execute_specialized_agents"):
+            try:
+                # Create appropriate specialized agent for this mission
+                agent = self.agent_factory.create_agent_for_mission(
+                    mission_goal=goal,
+                    plan=plan,
+                    tenant_id=tenant_id
+                )
+                
+                # If no specialized agent needed, fall back to simple execution
+                if agent is None:
+                    logger.info(f"Mission {mission_id}: Using simple execution (no specialized agent needed)")
+                    return await self._execute_with_agents(mission_id, plan, tenant_id)
+                
+                # Log agent selection
+                agent_type = agent.agent_type
+                logger.info(f"Mission {mission_id}: Using {agent_type} agent with reasoning workflow")
+                
+                # Charge initial cost for agent invocation
+                await self.marketplace.charge(
+                    tenant_id=tenant_id,
+                    agent_id=agent.agent_id,
+                    amount=2.0,  # Base cost for specialized agent
+                    resource_type=ResourceType.LLM_CALL.value,
+                    mission_id=mission_id,
+                    agent_type=agent_type
+                )
+                
+                # Prepare task based on agent type
+                if agent_type == "researcher":
+                    task = {
+                        "query": goal,
+                        "depth": "standard" if plan.get("complexity") != "complex" else "deep"
+                    }
+                elif agent_type == "analyst":
+                    task = {
+                        "data": plan.get("data", {}),
+                        "analysis_type": "descriptive"  # Could be inferred from goal
+                    }
+                elif agent_type == "developer":
+                    task = {
+                        "task_type": "generate",  # Could be: generate, debug, review, test
+                        "specification": goal
+                    }
+                else:
+                    task = {"query": goal}
+                
+                # Execute with specialized agent
+                result = await agent.execute(task)
+                
+                # Calculate total cost (base + reasoning steps + tool usage)
+                # For now, use a simple cost model
+                base_cost = 2.0
+                reasoning_cost = 1.0 * len(plan.get("steps", []))  # Cost per reasoning step
+                tool_cost = 0.5 * len(plan.get("requires_tools", []))  # Cost per tool
+                total_cost = base_cost + reasoning_cost + tool_cost
+                
+                # Charge additional costs if needed
+                if reasoning_cost + tool_cost > 0:
+                    await self.marketplace.charge(
+                        tenant_id=tenant_id,
+                        agent_id=agent.agent_id,
+                        amount=reasoning_cost + tool_cost,
+                        resource_type=ResourceType.LLM_CALL.value,
+                        mission_id=mission_id,
+                        agent_type=agent_type
+                    )
+                
+                # Format result
+                if result.get("success"):
+                    # Extract output based on agent type
+                    if agent_type == "researcher":
+                        output = result.get("synthesis", "")
+                        # Include sources in output
+                        sources = result.get("sources", [])
+                        if sources:
+                            output += "\n\nSources:\n"
+                            for i, source in enumerate(sources[:5], 1):
+                                output += f"{i}. {source.get('title', 'Unknown')} - {source.get('url', '')}\n"
+                    elif agent_type == "analyst":
+                        output = result.get("insights", "")
+                        # Include calculations
+                        calculations = result.get("calculations", {})
+                        if calculations:
+                            output += "\n\nKey Metrics:\n"
+                            for key, value in calculations.items():
+                                output += f"- {key}: {value}\n"
+                    elif agent_type == "developer":
+                        output = result.get("code", result.get("analysis", ""))
+                    else:
+                        output = str(result)
+                    
+                    return {
+                        "status": "SUCCESS",
+                        "output": output,
+                        "cost": total_cost,
+                        "agents_used": ["commander", "guardian", agent_type],
+                        "agent_type": agent_type,
+                        "reasoning_used": True,
+                        "tools_used": plan.get("requires_tools", [])
+                    }
+                else:
+                    # Agent execution failed, return error
+                    error_msg = result.get("error", "Unknown error")
+                    logger.error(f"Mission {mission_id}: {agent_type} agent failed: {error_msg}")
+                    
+                    return {
+                        "status": "FAILED",
+                        "output": f"Agent execution failed: {error_msg}",
+                        "cost": total_cost,
+                        "agents_used": ["commander", "guardian", agent_type],
+                        "error": error_msg
+                    }
+            
+            except Exception as e:
+                logger.error(f"Mission {mission_id}: Specialized agent execution failed: {e}")
+                # Fall back to simple execution on error
+                logger.info(f"Mission {mission_id}: Falling back to simple execution")
+                return await self._execute_with_agents(mission_id, plan, tenant_id)
     
     async def _execute_with_agents(
         self,

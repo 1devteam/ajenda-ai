@@ -12,7 +12,6 @@ import logging
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.language_models import BaseChatModel
 
-from backend.agents.base.base_agent_v3 import BaseAgentV3
 from backend.agents.workflows.reasoning_graph import ReasoningWorkflow
 from backend.agents.tools.tool_registry import get_tool_registry, ToolCategory
 from backend.integrations.observability.prometheus_metrics import get_metrics
@@ -20,7 +19,7 @@ from backend.integrations.observability.prometheus_metrics import get_metrics
 logger = logging.getLogger(__name__)
 
 
-class ResearcherAgent(BaseAgentV3):
+class ResearcherAgent:
     """
     Specialized agent for research tasks.
     
@@ -38,13 +37,10 @@ class ResearcherAgent(BaseAgentV3):
         tenant_id: str,
         **kwargs
     ):
-        super().__init__(
-            agent_id=agent_id,
-            agent_type="researcher",
-            llm=llm,
-            tenant_id=tenant_id,
-            **kwargs
-        )
+        self.agent_id = agent_id
+        self.agent_type = "researcher"
+        self.llm = llm
+        self.tenant_id = tenant_id
         
         # Initialize reasoning workflow
         self.reasoning_workflow = ReasoningWorkflow(llm=llm, max_iterations=7)
@@ -183,7 +179,7 @@ Task: Analyze these sources and provide a comprehensive answer to the research q
         return findings
 
 
-class AnalystAgent(BaseAgentV3):
+class AnalystAgent:
     """
     Specialized agent for data analysis and insights.
     
@@ -201,13 +197,10 @@ class AnalystAgent(BaseAgentV3):
         tenant_id: str,
         **kwargs
     ):
-        super().__init__(
-            agent_id=agent_id,
-            agent_type="analyst",
-            llm=llm,
-            tenant_id=tenant_id,
-            **kwargs
-        )
+        self.agent_id = agent_id
+        self.agent_type = "analyst"
+        self.llm = llm
+        self.tenant_id = tenant_id
         
         # Initialize reasoning workflow
         self.reasoning_workflow = ReasoningWorkflow(llm=llm, max_iterations=5)
@@ -310,15 +303,15 @@ Provide:
         return calculations
 
 
-class DeveloperAgent(BaseAgentV3):
+class DeveloperAgent:
     """
     Specialized agent for code generation and debugging.
     
     Capabilities:
     - Code generation
-    - Code review and debugging
+    - Debugging and error analysis
+    - Code review
     - Test generation
-    - Documentation writing
     """
     
     def __init__(
@@ -328,13 +321,10 @@ class DeveloperAgent(BaseAgentV3):
         tenant_id: str,
         **kwargs
     ):
-        super().__init__(
-            agent_id=agent_id,
-            agent_type="developer",
-            llm=llm,
-            tenant_id=tenant_id,
-            **kwargs
-        )
+        self.agent_id = agent_id
+        self.agent_type = "developer"
+        self.llm = llm
+        self.tenant_id = tenant_id
         
         # Initialize reasoning workflow
         self.reasoning_workflow = ReasoningWorkflow(llm=llm, max_iterations=5)
