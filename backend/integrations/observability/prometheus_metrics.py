@@ -173,6 +173,13 @@ class PrometheusMetrics:
             ['subject', 'direction'] # direction: pub, sub
         )
         
+        # Counter for reasoning workflow steps
+        self.reasoning_steps = Counter(
+            'omnipath_agent_reasoning_steps_total',
+            'Total reasoning workflow steps executed',
+            ['step_type']
+        )
+        
         # Gauge for application info
         self.app_info = Info(
             'omnipath_app',
@@ -301,6 +308,11 @@ class PrometheusMetrics:
         """Record NATS message throughput"""
         if self.enabled:
             self.nats_messages.labels(subject=subject, direction=direction).inc()
+    
+    def record_agent_reasoning_step(self, step_type: str):
+        """Record a reasoning workflow step."""
+        if self.enabled:
+            self.reasoning_steps.labels(step_type=step_type).inc()
     
     def set_app_info(self, version: str, environment: str):
         """Set application metadata info"""
