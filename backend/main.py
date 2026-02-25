@@ -62,6 +62,20 @@ async def lifespan(app: FastAPI):
     logger.info(f"Debug mode: {settings.DEBUG}")
     logger.info("=" * 60)
     
+    # Run database migrations
+    logger.info("Running database migrations...")
+    try:
+        from alembic.config import Config
+        from alembic import command
+        import os
+        
+        alembic_cfg = Config(os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini"))
+        command.upgrade(alembic_cfg, "head")
+        logger.info("✅ Database migrations completed")
+    except Exception as e:
+        logger.warning(f"Database migration failed: {e}")
+        logger.warning("Continuing startup without migrations...")
+    
     # Initialize OpenTelemetry
     if settings.OTEL_ENABLED:
         logger.info("Initializing OpenTelemetry...")

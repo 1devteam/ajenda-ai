@@ -437,7 +437,7 @@ Respond in JSON format:
         result: Dict[str, Any],
         tenant_id: str
     ):
-        \"\"\"Archivist records mission for future learning\"\"\"
+        """Archivist records mission for future learning"""
         with tracer.start_as_current_span("archivist_archive"):
             get_metrics().record_agent_invocation("archivist", "gpt-4-turbo")
             
