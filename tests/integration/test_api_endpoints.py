@@ -50,7 +50,7 @@ class TestEconomyEndpoints:
         """Test that economy endpoints require authentication"""
         response = client.get("/api/v1/economy/balance")
         
-        assert response.status_code == 401  # Unauthorized
+        assert response.status_code == 403  # Forbidden (no auth header)
     
     def test_get_agent_balances_with_auth(self, client: TestClient, auth_headers: dict):
         """Test retrieving agent balances with authentication"""
@@ -153,7 +153,7 @@ class TestPerformanceEndpoints:
         """Test that performance endpoints require authentication"""
         response = client.get("/api/v1/performance/agents")
         
-        assert response.status_code == 401
+        assert response.status_code == 403  # Forbidden (no auth header)
     
     def test_get_all_agent_performance(self, client: TestClient, auth_headers: dict):
         """Test retrieving performance metrics for all agents"""

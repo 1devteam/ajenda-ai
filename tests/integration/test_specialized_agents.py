@@ -26,8 +26,17 @@ from backend.config.settings import settings
 
 @pytest.fixture
 def llm_service():
-    """Create LLM service for testing"""
-    return LLMService(settings)
+    """Create MOCKED LLM service for testing"""
+    # Create a mock LLM that can be used by agents
+    mock_llm = MagicMock()
+    mock_llm.invoke = MagicMock(return_value="Mock LLM response")
+    mock_llm.ainvoke = AsyncMock(return_value="Mock LLM response")
+    
+    # Create a mock LLM service that returns the mock LLM
+    mock_service = MagicMock(spec=LLMService)
+    mock_service.get_llm = MagicMock(return_value=mock_llm)
+    
+    return mock_service
 
 
 @pytest.fixture
@@ -315,6 +324,7 @@ class TestMissionExecutorIntegration:
             tenant_id=tenant_id,
             agent_id="test_agent",
             amount=1000.0,
+            resource_type="test_credits",
             mission_id=mission_id,
             agent_type="test"
         )
@@ -351,6 +361,7 @@ class TestMissionExecutorIntegration:
             tenant_id=tenant_id,
             agent_id="test_agent",
             amount=1000.0,
+            resource_type="test_credits",
             mission_id=mission_id,
             agent_type="test"
         )
@@ -383,6 +394,7 @@ class TestMissionExecutorIntegration:
             tenant_id=tenant_id,
             agent_id="test_agent",
             amount=1000.0,
+            resource_type="test_credits",
             mission_id=mission_id,
             agent_type="test"
         )
@@ -415,6 +427,7 @@ class TestMissionExecutorIntegration:
             tenant_id=tenant_id,
             agent_id="test_agent",
             amount=1000.0,
+            resource_type="test_credits",
             mission_id=mission_id,
             agent_type="test"
         )
@@ -507,6 +520,7 @@ class TestEndToEndIntegration:
             tenant_id=tenant_id,
             agent_id="setup_agent",
             amount=1000.0,
+            resource_type="test_credits",
             mission_id=mission_id,
             agent_type="setup"
         )

@@ -39,6 +39,11 @@ class EconomyStats(BaseModel):
     total_transactions: int
     total_agents: int
     avg_balance_per_agent: float
+    total_spent_today: float = 0.0
+    total_earned_today: float = 0.0
+    average_cost_per_mission: float = 0.0
+    most_expensive_agent: Optional[str] = None
+    most_profitable_agent: Optional[str] = None
 
 
 @router.get("/balance", response_model=List[AgentBalance])

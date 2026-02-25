@@ -294,9 +294,15 @@ class ResourceMarketplace:
                 default=(None, {"total_earned": 0})
             )[0]
             
+            # Calculate additional stats
+            total_transactions = len(transactions)
+            avg_balance_per_agent = total_balance / total_agents if total_agents > 0 else 0.0
+            
             return {
                 "total_agents": total_agents,
                 "total_balance": total_balance,
+                "total_transactions": total_transactions,
+                "avg_balance_per_agent": avg_balance_per_agent,
                 "total_spent_today": total_spent_today,
                 "total_earned_today": total_earned_today,
                 "average_cost_per_mission": average_cost_per_mission,
