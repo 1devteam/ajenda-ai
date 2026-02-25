@@ -63,7 +63,8 @@ class ResourceMarketplace:
                     "last_updated": datetime.utcnow()
                 }
             
-            return self._balances[tenant_id][agent_id]
+            # Return a copy to prevent external mutation of internal state
+            return dict(self._balances[tenant_id][agent_id])
     
     async def get_tenant_balances(self, tenant_id: str) -> Dict[str, Dict]:
         """

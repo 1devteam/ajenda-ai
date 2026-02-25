@@ -17,7 +17,12 @@ import os
 # Set fixed JWT secret for testing
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-tokens-do-not-use-in-production"
 os.environ["SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
+
+# Force reload of settings after environment variables are set
+import importlib
+import backend.middleware.auth.auth_middleware as auth_module
 settings = Settings()
+auth_module.settings = settings  # Override the module-level settings instance
 
 
 @pytest.mark.unit

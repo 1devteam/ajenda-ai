@@ -175,13 +175,17 @@ def admin_auth_headers(admin_auth_token: str) -> dict:
 # ============================================================================
 
 @pytest.fixture
-def marketplace() -> ResourceMarketplace:
+async def marketplace() -> ResourceMarketplace:
     """
     Create a fresh ResourceMarketplace instance for testing
     
-    Each test gets its own isolated marketplace
+    Each test gets its own isolated marketplace with clean state
     """
-    return ResourceMarketplace()
+    mp = ResourceMarketplace()
+    # Explicitly clear any shared state to ensure isolation
+    mp._balances.clear()
+    mp._transactions.clear()
+    return mp
 
 
 @pytest.fixture
