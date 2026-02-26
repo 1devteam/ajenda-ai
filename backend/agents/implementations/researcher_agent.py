@@ -15,11 +15,12 @@ from langchain_core.language_models import BaseChatModel
 from backend.agents.workflows.reasoning_graph import ReasoningWorkflow
 from backend.agents.tools.tool_registry import get_tool_registry, ToolCategory
 from backend.integrations.observability.prometheus_metrics import get_metrics
+from backend.agents.implementations.compliance_wrapper import ComplianceAwareMixin
 
 logger = logging.getLogger(__name__)
 
 
-class ResearcherAgent:
+class ResearcherAgent(ComplianceAwareMixin):
     """
     Specialized agent for research tasks.
     
@@ -53,7 +54,10 @@ class ResearcherAgent:
         # Metrics
         self.metrics = get_metrics()
         
-        logger.info(f"Researcher agent {agent_id} initialized")
+        # Initialize compliance (baked in!)
+        self._init_compliance()
+        
+        logger.info(f"Researcher agent {agent_id} initialized with compliance")
     
     async def execute(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -81,10 +85,15 @@ class ResearcherAgent:
                 model=self.llm.model_name if hasattr(self.llm, 'model_name') else "unknown"
             )
             
-            # Step 1: Conduct initial web search
-            search_results = await self.web_search.execute(
-                query=query,
-                max_results=10 if depth == "deep" else 5
+            # Step 1: Conduct initial web search (with compliance)
+            search_results = await self._execute_tool_with_compliance(
+                tool_name="web_search",
+                tool_instance=self.web_search,
+                parameters={
+                    "query": query,
+                    "max_results": 10 if depth == "deep" else 5
+                },
+                mission_payload={"task": query, "depth": depth}
             )
             
             if not search_results.get("success"):
@@ -179,7 +188,7 @@ Task: Analyze these sources and provide a comprehensive answer to the research q
         return findings
 
 
-class AnalystAgent:
+class AnalystAgent(ComplianceAwareMixin):
     """
     Specialized agent for data analysis and insights.
     
@@ -213,7 +222,10 @@ class AnalystAgent:
         # Metrics
         self.metrics = get_metrics()
         
-        logger.info(f"Analyst agent {agent_id} initialized")
+        # Initialize compliance (baked in!)
+        self._init_compliance()
+        
+        logger.info(f"Analyst agent {agent_id} initialized with compliance")
     
     async def execute(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -303,7 +315,7 @@ Provide:
         return calculations
 
 
-class DeveloperAgent:
+class DeveloperAgent(ComplianceAwareMixin):
     """
     Specialized agent for code generation and debugging.
     
@@ -338,7 +350,10 @@ class DeveloperAgent:
         # Metrics
         self.metrics = get_metrics()
         
-        logger.info(f"Developer agent {agent_id} initialized")
+        # Initialize compliance (baked in!)
+        self._init_compliance()
+        
+        logger.info(f"Developer agent {agent_id} initialized with compliance")
     
     async def execute(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -408,8 +423,13 @@ Provide complete, runnable code with comments."""
         response = await self.llm.ainvoke(messages)
         generated_code = response.content
         
-        # Test the generated code
-        test_result = await self.python_executor.execute(generated_code)
+        # Test the generated code (with compliance)
+        test_result = await self._execute_tool_with_compliance(
+            tool_name="python_executor",
+            tool_instance=self.python_executor,
+            parameters={"code": generated_code},
+            mission_payload={"task_type": "generate", "specification": specification}
+        )
         
         return {
             "success": True,

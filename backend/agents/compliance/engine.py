@@ -6,8 +6,17 @@ Adapted from Syntara-clean's ComplianceEngine pattern.
 """
 
 from typing import Dict, Any, List
+import time
+
 from .models import ComplianceResult, ComplianceTrace, ComplianceEvaluation
 from .registry import ComplianceRegistry
+from backend.integrations.observability.prometheus_metrics import get_metrics
+
+try:
+    from opentelemetry import trace
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
 
 
 class ComplianceEngine:
@@ -71,6 +80,15 @@ class ComplianceEngine:
             ComplianceRegistry.register(ToolPermissionRule)
             ComplianceRegistry.register(DataAccessRule)
             ComplianceRegistry.register(RateLimitRule)
+        
+        # Initialize metrics
+        self.metrics = get_metrics()
+        
+        # Initialize tracer
+        if OTEL_AVAILABLE:
+            self.tracer = trace.get_tracer(__name__)
+        else:
+            self.tracer = None
     
     def evaluate(self, action: str, context: Dict[str, Any]) -> ComplianceEvaluation:
         """
@@ -113,15 +131,48 @@ class ComplianceEngine:
             else:
                 print(f"Passed {len(evaluation.traces)} rules")
         """
+        # Start span for compliance check
+        if self.tracer:
+            with self.tracer.start_as_current_span(
+                "compliance.evaluate",
+                attributes={
+                    "compliance.action": action,
+                    "compliance.agent_type": context.get("agent_type", "unknown"),
+                    "compliance.tool_name": action,
+                    "compliance.agent_id": context.get("agent_id", "unknown"),
+                }
+            ) as span:
+                return self._evaluate_with_span(action, context, span)
+        else:
+            return self._evaluate_with_span(action, context, None)
+    
+    def _evaluate_with_span(
+        self,
+        action: str,
+        context: Dict[str, Any],
+        span
+    ) -> ComplianceEvaluation:
+        """Internal evaluation with optional span."""
+        start_time = time.time()
         traces: List[ComplianceTrace] = []
         
         # Get all registered rules
         rules = ComplianceRegistry.get_rules()
         
+        # Add rule count to span
+        if span:
+            span.set_attribute("compliance.rules_count", len(rules))
+        
         # Evaluate each rule
         for rule_cls in rules:
             rule = rule_cls()
             result = rule.check(context)
+            
+            # Record rule evaluation metric
+            self.metrics.record_compliance_rule_evaluation(
+                rule_name=result.rule,
+                passed=result.allowed
+            )
             
             # Add trace
             traces.append(
@@ -134,13 +185,50 @@ class ComplianceEngine:
             
             # Stop at first blocking rule
             if not result.allowed:
+                # Record block metric
+                self.metrics.record_compliance_block(
+                    agent_type=context.get("agent_type", "unknown"),
+                    tool_name=action,
+                    rule_name=result.rule
+                )
+                
+                # Record overall check metric
+                duration = time.time() - start_time
+                self.metrics.record_compliance_check(
+                    agent_type=context.get("agent_type", "unknown"),
+                    tool_name=action,
+                    allowed=False,
+                    duration_seconds=duration
+                )
+                
+                # Add span attributes for blocked action
+                if span:
+                    span.set_attribute("compliance.result", "blocked")
+                    span.set_attribute("compliance.blocked_by", result.rule)
+                    span.set_attribute("compliance.reason", result.reason)
+                    span.set_attribute("compliance.duration_ms", duration * 1000)
+                
                 return ComplianceEvaluation(
                     allowed=False,
                     reason=result.reason,
                     traces=traces,
                 )
         
-        # All rules passed
+        # All rules passed - record success metric
+        duration = time.time() - start_time
+        self.metrics.record_compliance_check(
+            agent_type=context.get("agent_type", "unknown"),
+            tool_name=action,
+            allowed=True,
+            duration_seconds=duration
+        )
+        
+        # Add span attributes for allowed action
+        if span:
+            span.set_attribute("compliance.result", "allowed")
+            span.set_attribute("compliance.rules_passed", len(traces))
+            span.set_attribute("compliance.duration_ms", duration * 1000)
+        
         return ComplianceEvaluation(
             allowed=True,
             reason="",

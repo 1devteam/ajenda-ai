@@ -99,6 +99,36 @@ class PrometheusMetrics:
             ['agent_id']
         )
         
+        # --- Compliance Metrics ---
+        # Counter for compliance checks
+        self.compliance_checks_total = Counter(
+            'omnipath_compliance_checks_total',
+            'Total compliance checks performed',
+            ['agent_type', 'tool_name', 'result']  # result: allowed, blocked
+        )
+        
+        # Counter for compliance rule evaluations
+        self.compliance_rule_evaluations = Counter(
+            'omnipath_compliance_rule_evaluations_total',
+            'Total compliance rule evaluations',
+            ['rule_name', 'result']  # result: pass, fail
+        )
+        
+        # Histogram for compliance check duration
+        self.compliance_check_duration = Histogram(
+            'omnipath_compliance_check_duration_seconds',
+            'Compliance check duration in seconds',
+            ['agent_type'],
+            buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0)
+        )
+        
+        # Counter for blocked actions by rule
+        self.compliance_blocks = Counter(
+            'omnipath_compliance_blocks_total',
+            'Total actions blocked by compliance',
+            ['agent_type', 'tool_name', 'rule_name']
+        )
+        
         # --- LLM API Metrics ---
         # Counter for total LLM API calls
         self.llm_api_calls = Counter(
@@ -257,6 +287,50 @@ class PrometheusMetrics:
         """Update current agent credit balance"""
         if self.enabled:
             self.agent_balance.labels(agent_id=agent_id).set(balance)
+    
+    def record_compliance_check(
+        self,
+        agent_type: str,
+        tool_name: str,
+        allowed: bool,
+        duration_seconds: float
+    ):
+        """Record compliance check result and duration"""
+        if self.enabled:
+            result = "allowed" if allowed else "blocked"
+            self.compliance_checks_total.labels(
+                agent_type=agent_type,
+                tool_name=tool_name,
+                result=result
+            ).inc()
+            self.compliance_check_duration.labels(agent_type=agent_type).observe(duration_seconds)
+    
+    def record_compliance_rule_evaluation(
+        self,
+        rule_name: str,
+        passed: bool
+    ):
+        """Record individual rule evaluation"""
+        if self.enabled:
+            result = "pass" if passed else "fail"
+            self.compliance_rule_evaluations.labels(
+                rule_name=rule_name,
+                result=result
+            ).inc()
+    
+    def record_compliance_block(
+        self,
+        agent_type: str,
+        tool_name: str,
+        rule_name: str
+    ):
+        """Record action blocked by compliance rule"""
+        if self.enabled:
+            self.compliance_blocks.labels(
+                agent_type=agent_type,
+                tool_name=tool_name,
+                rule_name=rule_name
+            ).inc()
     
     def record_llm_call(
         self,
