@@ -40,7 +40,7 @@ langchain-anthropic==0.3.7
 langchain-google-genai==2.0.8
 langchain-ollama==0.2.2
 langgraph==0.2.55
-langgraph-prebuilt>=1.0.2
+# Note: langgraph-prebuilt excluded due to incompatible langchain-core requirement
 
 # Rate Limiting
 slowapi==0.1.9
