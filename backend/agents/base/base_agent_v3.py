@@ -10,6 +10,7 @@ from langchain_core.language_models import BaseChatModel
 
 from backend.config.settings import settings
 from backend.integrations.llm import LLMFactory
+from backend.agents.compliance import ComplianceEngine
 
 
 class AgentState(str, Enum):
@@ -57,6 +58,9 @@ class BaseAgentV3(ABC):
         
         # LLM instance (created lazily)
         self._llm: Optional[BaseChatModel] = None
+        
+        # Compliance engine (baked in, not bolted on)
+        self.compliance_engine = ComplianceEngine()
     
     @property
     def llm(self) -> BaseChatModel:
@@ -203,6 +207,91 @@ class BaseAgentV3(ABC):
     async def run(self) -> Dict[str, Any]:
         """Execute the agent's core logic"""
         pass
+    
+    def _build_compliance_context(self, tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Build compliance context for tool execution.
+        
+        Args:
+            tool_name: Name of the tool being executed
+            parameters: Tool parameters
+        
+        Returns:
+            Context dictionary for compliance evaluation
+        
+        Note:
+            Subclasses can override this to add custom context.
+        """
+        return {
+            "agent_id": self.agent_id,
+            "agent_type": self.agent_type,
+            "tenant_id": self.tenant_id,
+            "tool_name": tool_name,
+            "parameters": parameters,
+            "mission_payload": self.mission_payload,
+        }
+    
+    async def _execute_tool_with_compliance(
+        self,
+        tool_name: str,
+        tool_instance: Any,
+        parameters: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Execute tool with compliance checking.
+        
+        This method wraps tool execution with compliance checks,
+        ensuring all tool usage is authorized and auditable.
+        
+        Args:
+            tool_name: Name of the tool
+            tool_instance: Tool instance to execute
+            parameters: Tool parameters
+        
+        Returns:
+            Tool result with compliance traces
+        
+        Example:
+            result = await self._execute_tool_with_compliance(
+                tool_name="web_search",
+                tool_instance=self.web_search,
+                parameters={"query": "test", "max_results": 10}
+            )
+            
+            if not result.get("success"):
+                print(f"Blocked: {result.get('error')}")
+        """
+        # Build compliance context
+        context = self._build_compliance_context(tool_name, parameters)
+        
+        # Evaluate compliance
+        evaluation = self.compliance_engine.evaluate(tool_name, context)
+        
+        # Block if not allowed
+        if not evaluation.allowed:
+            return {
+                "success": False,
+                "error": f"Compliance denied: {evaluation.reason}",
+                "compliance_evaluation": evaluation.to_dict(),
+                "blocked_by": evaluation.blocked_by,
+            }
+        
+        # Execute tool
+        try:
+            result = await tool_instance.execute(**parameters)
+            
+            # Add compliance traces to result
+            if isinstance(result, dict):
+                result["compliance_evaluation"] = evaluation.to_dict()
+            
+            return result
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "compliance_evaluation": evaluation.to_dict(),
+            }
     
     async def shutdown(self):
         """Clean up agent resources"""
