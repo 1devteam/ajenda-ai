@@ -492,3 +492,386 @@ class TestComplianceIntegration:
         assert evaluation.allowed is False
         assert len(evaluation.blocked_by) == 1
         assert "tool_permission" in evaluation.blocked_by
+
+
+# Import new rules
+from backend.agents.compliance.rules import (
+    CostLimitRule,
+    DataPrivacyRule,
+    ApprovalRequiredRule,
+    TenantIsolationRule,
+)
+
+
+class TestCostLimitRule:
+    """Test CostLimitRule"""
+    
+    def test_under_limit(self):
+        """Test operation under cost limit"""
+        rule = CostLimitRule()
+        context = {
+            "agent_id": "agent_123",
+            "agent_type": "researcher",
+            "tool_name": "web_search",
+            "estimated_cost_usd": 0.05
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is True
+        assert result.rule == "cost_limit"
+    
+    def test_exceeds_limit(self):
+        """Test operation exceeding cost limit"""
+        rule = CostLimitRule()
+        context = {
+            "agent_id": "agent_123",
+            "agent_type": "researcher",
+            "tool_name": "web_search",
+            "estimated_cost_usd": 5.0
+        }
+        
+        # First two calls allowed (total $10)
+        rule.check(context)
+        result = rule.check(context)
+        assert result.allowed is True
+        
+        # Third call blocked (would be $15, limit is $10)
+        result = rule.check(context)
+        assert result.allowed is False
+        assert "Cost limit exceeded" in result.reason
+        assert result.rule == "cost_limit"
+    
+    def test_default_cost_estimate(self):
+        """Test using default cost estimate"""
+        rule = CostLimitRule()
+        context = {
+            "agent_id": "agent_123",
+            "agent_type": "researcher",
+            "tool_name": "web_search"
+            # No estimated_cost_usd provided
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is True
+        # Should use default $0.05 for web_search
+        assert rule.get_cost("agent_123") == 0.05
+    
+    def test_reset_all(self):
+        """Test resetting all cost counters"""
+        rule = CostLimitRule()
+        context = {
+            "agent_id": "agent_123",
+            "agent_type": "researcher",
+            "tool_name": "web_search",
+            "estimated_cost_usd": 5.0
+        }
+        
+        rule.check(context)
+        assert rule.get_cost("agent_123") == 5.0
+        
+        rule.reset()
+        assert rule.get_cost("agent_123") == 0.0
+    
+    def test_reset_specific_agent(self):
+        """Test resetting specific agent cost"""
+        rule = CostLimitRule()
+        
+        # Add costs for two agents
+        rule.check({
+            "agent_id": "agent_123",
+            "agent_type": "researcher",
+            "tool_name": "web_search",
+            "estimated_cost_usd": 5.0
+        })
+        rule.check({
+            "agent_id": "agent_456",
+            "agent_type": "analyst",
+            "tool_name": "python_executor",
+            "estimated_cost_usd": 3.0
+        })
+        
+        # Reset only agent_123
+        rule.reset(agent_id="agent_123")
+        
+        assert rule.get_cost("agent_123") == 0.0
+        assert rule.get_cost("agent_456") == 3.0
+    
+    def test_different_agent_types_different_limits(self):
+        """Test different cost limits for different agent types"""
+        rule = CostLimitRule()
+        
+        # Researcher has $10 limit
+        researcher_context = {
+            "agent_id": "researcher_1",
+            "agent_type": "researcher",
+            "tool_name": "web_search",
+            "estimated_cost_usd": 11.0
+        }
+        result = rule.check(researcher_context)
+        assert result.allowed is False
+        
+        # Analyst has $20 limit
+        analyst_context = {
+            "agent_id": "analyst_1",
+            "agent_type": "analyst",
+            "tool_name": "python_executor",
+            "estimated_cost_usd": 15.0
+        }
+        result = rule.check(analyst_context)
+        assert result.allowed is True
+
+
+class TestDataPrivacyRule:
+    """Test DataPrivacyRule"""
+    
+    def test_no_pii(self):
+        """Test parameters without PII"""
+        rule = DataPrivacyRule()
+        context = {
+            "tool_name": "web_search",
+            "parameters": {"query": "machine learning"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is True
+        assert result.rule == "data_privacy"
+    
+    def test_email_detected(self):
+        """Test email detection"""
+        rule = DataPrivacyRule()
+        context = {
+            "tool_name": "web_search",
+            "parameters": {"query": "john.doe@company.com"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "email" in result.reason
+        assert result.rule == "data_privacy"
+    
+    def test_credit_card_detected(self):
+        """Test credit card detection"""
+        rule = DataPrivacyRule()
+        context = {
+            "tool_name": "api_caller",
+            "parameters": {"card": "4532-1234-5678-9010"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "credit_card" in result.reason
+    
+    def test_ssn_detected(self):
+        """Test SSN detection"""
+        rule = DataPrivacyRule()
+        context = {
+            "tool_name": "database_query",
+            "parameters": {"ssn": "123-45-6789"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "ssn" in result.reason
+    
+    def test_phone_detected(self):
+        """Test phone number detection"""
+        rule = DataPrivacyRule()
+        context = {
+            "tool_name": "web_search",
+            "parameters": {"query": "Call 555-123-4567"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "phone" in result.reason
+    
+    def test_api_key_detected(self):
+        """Test API key detection"""
+        rule = DataPrivacyRule()
+        context = {
+            "tool_name": "api_caller",
+            "parameters": {"key": "sk_live_FAKE1234567890TESTKEY"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "api_key" in result.reason
+    
+    def test_empty_parameters(self):
+        """Test with empty parameters"""
+        rule = DataPrivacyRule()
+        context = {
+            "tool_name": "web_search",
+            "parameters": {}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is True
+
+
+class TestApprovalRequiredRule:
+    """Test ApprovalRequiredRule"""
+    
+    def test_tool_not_requiring_approval(self):
+        """Test tool that doesn't require approval"""
+        rule = ApprovalRequiredRule()
+        context = {
+            "tool_name": "web_search",
+            "parameters": {"query": "test"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is True
+        assert result.rule == "approval_required"
+    
+    def test_file_writer_requires_approval(self):
+        """Test file_writer requires approval"""
+        rule = ApprovalRequiredRule()
+        context = {
+            "tool_name": "file_writer",
+            "parameters": {"path": "/tmp/test.txt"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "requires approval" in result.reason
+        assert result.rule == "approval_required"
+    
+    def test_database_query_requires_approval(self):
+        """Test database_query requires approval"""
+        rule = ApprovalRequiredRule()
+        context = {
+            "tool_name": "database_query",
+            "parameters": {"query": "SELECT * FROM users"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "requires approval" in result.reason
+    
+    def test_sensitive_path_requires_approval(self):
+        """Test sensitive path requires approval"""
+        rule = ApprovalRequiredRule()
+        context = {
+            "tool_name": "file_writer",
+            "parameters": {"path": "/prod/config.yaml"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "Sensitive path" in result.reason
+        assert "/prod/config.yaml" in result.reason
+    
+    def test_env_file_requires_approval(self):
+        """Test .env file requires approval"""
+        rule = ApprovalRequiredRule()
+        context = {
+            "tool_name": "file_writer",
+            "parameters": {"path": "/app/.env"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "Sensitive path" in result.reason
+
+
+class TestTenantIsolationRule:
+    """Test TenantIsolationRule"""
+    
+    def test_tool_not_tenant_scoped(self):
+        """Test tool that doesn't access tenant data"""
+        rule = TenantIsolationRule()
+        context = {
+            "tenant_id": "tenant_456",
+            "tool_name": "web_search",
+            "parameters": {"query": "test"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is True
+        assert result.rule == "tenant_isolation"
+    
+    def test_same_tenant_access(self):
+        """Test accessing same tenant data"""
+        rule = TenantIsolationRule()
+        context = {
+            "tenant_id": "tenant_456",
+            "tool_name": "file_reader",
+            "parameters": {"path": "/tenant_456/data.json"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is True
+    
+    def test_cross_tenant_access_blocked(self):
+        """Test cross-tenant access is blocked"""
+        rule = TenantIsolationRule()
+        context = {
+            "tenant_id": "tenant_456",
+            "tool_name": "file_reader",
+            "parameters": {"path": "/tenant_789/data.json"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "Cross-tenant access denied" in result.reason
+        assert "tenant_456" in result.reason
+        assert "tenant_789" in result.reason
+        assert result.rule == "tenant_isolation"
+    
+    def test_cross_tenant_query_blocked(self):
+        """Test cross-tenant database query is blocked"""
+        rule = TenantIsolationRule()
+        context = {
+            "tenant_id": "tenant_456",
+            "tool_name": "database_query",
+            "parameters": {"query": "SELECT * FROM data WHERE tenant_id='tenant_789'"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is False
+        assert "Cross-tenant query detected" in result.reason
+    
+    def test_same_tenant_query_allowed(self):
+        """Test same-tenant database query is allowed"""
+        rule = TenantIsolationRule()
+        context = {
+            "tenant_id": "tenant_456",
+            "tool_name": "database_query",
+            "parameters": {"query": "SELECT * FROM data WHERE tenant_id='tenant_456'"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is True
+    
+    def test_path_without_tenant_id(self):
+        """Test path without tenant ID is allowed"""
+        rule = TenantIsolationRule()
+        context = {
+            "tenant_id": "tenant_456",
+            "tool_name": "file_reader",
+            "parameters": {"path": "/shared/public/data.json"}
+        }
+        
+        result = rule.check(context)
+        
+        assert result.allowed is True

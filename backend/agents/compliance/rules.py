@@ -243,3 +243,363 @@ class RateLimitRule:
             keys_to_remove = [k for k in self.usage_tracker if k.endswith(f":{tool_name}")]
             for key in keys_to_remove:
                 self.usage_tracker.pop(key)
+
+
+class CostLimitRule:
+    """
+    Check cost limits for expensive operations.
+    
+    Tracks cumulative costs and blocks when budget exceeded.
+    Prevents runaway spending from LLM/API calls.
+    
+    Note: This is a simple in-memory implementation.
+    For production, use Redis or database for persistence.
+    
+    Example:
+        rule = CostLimitRule()
+        context = {
+            "agent_id": "agent_123",
+            "tool_name": "web_search",
+            "estimated_cost_usd": 0.05,
+            "tenant_id": "tenant_456"
+        }
+        
+        # First $10 allowed
+        for i in range(200):  # 200 * $0.05 = $10
+            result = rule.check(context)
+            # result.allowed = True
+        
+        # Next call blocked
+        result = rule.check(context)
+        # result.allowed = False
+        # result.reason = "Cost limit exceeded for agent 'agent_123' ($10.00/$10.00)"
+    """
+    
+    name = "cost_limit"
+    description = "Enforce cost limits"
+    
+    # Cost limits per agent (USD)
+    AGENT_COST_LIMITS = {
+        "researcher": 10.0,  # $10/day
+        "analyst": 20.0,     # $20/day
+        "developer": 15.0,   # $15/day
+    }
+    
+    # Default cost estimates per tool (USD)
+    TOOL_COST_ESTIMATES = {
+        "web_search": 0.05,
+        "python_executor": 0.01,
+        "llm_call": 0.10,
+    }
+    
+    def __init__(self):
+        """Initialize cost tracker."""
+        self.cost_tracker: Dict[str, float] = {}
+    
+    def check(self, context: Dict[str, Any]) -> ComplianceResult:
+        """
+        Check if cost limit exceeded.
+        
+        Args:
+            context: Must contain:
+                - agent_id: str
+                - agent_type: str (optional, for limit lookup)
+                - tool_name: str
+                - estimated_cost_usd: float (optional, uses default if not provided)
+        
+        Returns:
+            ComplianceResult.allow() if under limit
+            ComplianceResult.block() if cost limit exceeded
+        """
+        agent_id = context.get("agent_id", "unknown")
+        agent_type = context.get("agent_type", "unknown")
+        tool_name = context.get("tool_name", "unknown")
+        
+        # Get cost estimate
+        estimated_cost = context.get(
+            "estimated_cost_usd",
+            self.TOOL_COST_ESTIMATES.get(tool_name, 0.0)
+        )
+        
+        # Get cost limit for agent type
+        cost_limit = self.AGENT_COST_LIMITS.get(agent_type, 5.0)  # Default $5
+        
+        # Check current cost
+        current_cost = self.cost_tracker.get(agent_id, 0.0)
+        new_cost = current_cost + estimated_cost
+        
+        if new_cost > cost_limit:
+            return ComplianceResult.block(
+                rule=self.name,
+                reason=f"Cost limit exceeded for agent '{agent_id}' (${new_cost:.2f}/${cost_limit:.2f})"
+            )
+        
+        # Increment cost
+        self.cost_tracker[agent_id] = new_cost
+        
+        return ComplianceResult.allow(self.name)
+    
+    def reset(self, agent_id: str = None) -> None:
+        """
+        Reset cost counters.
+        
+        Args:
+            agent_id: If provided, reset only for this agent
+        
+        Example:
+            # Reset all
+            rule.reset()
+            
+            # Reset for specific agent
+            rule.reset(agent_id="agent_123")
+        """
+        if agent_id is None:
+            # Reset all
+            self.cost_tracker.clear()
+        else:
+            # Reset specific agent
+            self.cost_tracker.pop(agent_id, None)
+    
+    def get_cost(self, agent_id: str) -> float:
+        """
+        Get current cost for agent.
+        
+        Args:
+            agent_id: Agent ID
+        
+        Returns:
+            Current cumulative cost in USD
+        """
+        return self.cost_tracker.get(agent_id, 0.0)
+
+
+class DataPrivacyRule:
+    """
+    Check for PII/sensitive data in parameters.
+    
+    Prevents accidental exposure of personally identifiable information
+    (PII) and sensitive data through tool parameters.
+    
+    Detects patterns for:
+    - Email addresses
+    - Credit card numbers
+    - Social Security Numbers (SSN)
+    - Phone numbers
+    - API keys/tokens
+    
+    Example:
+        rule = DataPrivacyRule()
+        context = {
+            "tool_name": "web_search",
+            "parameters": {"query": "john.doe@company.com"}
+        }
+        result = rule.check(context)
+        # result.allowed = False
+        # result.reason = "PII detected: email address in parameters"
+        
+        context["parameters"] = {"query": "machine learning"}
+        result = rule.check(context)
+        # result.allowed = True
+    """
+    
+    name = "data_privacy"
+    description = "Prevent PII exposure"
+    
+    # PII patterns (regex)
+    import re
+    
+    PII_PATTERNS = {
+        "email": re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
+        "credit_card": re.compile(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'),
+        "ssn": re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),
+        "phone": re.compile(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'),
+        "api_key": re.compile(r'\b(sk_live_|pk_live_|api_key_)[A-Za-z0-9]{20,}\b'),  # API key prefix pattern
+    }
+    
+    def check(self, context: Dict[str, Any]) -> ComplianceResult:
+        """
+        Check parameters for PII patterns.
+        
+        Args:
+            context: Must contain:
+                - parameters: Dict (tool parameters to check)
+        
+        Returns:
+            ComplianceResult.allow() if no PII detected
+            ComplianceResult.block() if PII detected
+        """
+        parameters = context.get("parameters", {})
+        
+        # Convert parameters to string for pattern matching
+        param_str = str(parameters)
+        
+        # Check each PII pattern
+        for pii_type, pattern in self.PII_PATTERNS.items():
+            if pattern.search(param_str):
+                return ComplianceResult.block(
+                    rule=self.name,
+                    reason=f"PII detected: {pii_type} in parameters"
+                )
+        
+        return ComplianceResult.allow(self.name)
+
+
+class ApprovalRequiredRule:
+    """
+    Require human approval for sensitive operations.
+    
+    Marks certain tools/operations as requiring explicit human approval
+    before execution. Supports approval workflows for compliance.
+    
+    Note: This rule returns a special "requires_approval" status.
+    The compliance engine should handle this appropriately.
+    
+    Example:
+        rule = ApprovalRequiredRule()
+        context = {
+            "tool_name": "file_writer",
+            "parameters": {"path": "/prod/config.yaml"}
+        }
+        result = rule.check(context)
+        # result.allowed = False
+        # result.reason = "Tool 'file_writer' requires approval"
+        
+        context["tool_name"] = "web_search"
+        result = rule.check(context)
+        # result.allowed = True
+    """
+    
+    name = "approval_required"
+    description = "Require approval for sensitive operations"
+    
+    # Tools requiring approval
+    APPROVAL_REQUIRED_TOOLS = [
+        "file_writer",
+        "database_query",
+        "api_caller",
+    ]
+    
+    # Sensitive paths requiring approval
+    SENSITIVE_PATH_PATTERNS = [
+        "/prod/",
+        "/production/",
+        "/config/",
+        ".env",
+    ]
+    
+    def check(self, context: Dict[str, Any]) -> ComplianceResult:
+        """
+        Check if operation requires approval.
+        
+        Args:
+            context: Must contain:
+                - tool_name: str
+                - parameters: Dict (optional, for path checking)
+        
+        Returns:
+            ComplianceResult.allow() if no approval required
+            ComplianceResult.block() with "requires_approval" reason if approval needed
+        """
+        tool_name = context.get("tool_name", "unknown")
+        parameters = context.get("parameters", {})
+        
+        # Check if tool requires approval
+        if tool_name in self.APPROVAL_REQUIRED_TOOLS:
+            # Check for sensitive paths
+            path = parameters.get("path", "")
+            if any(pattern in path for pattern in self.SENSITIVE_PATH_PATTERNS):
+                return ComplianceResult.block(
+                    rule=self.name,
+                    reason=f"Sensitive path '{path}' requires approval"
+                )
+            
+            return ComplianceResult.block(
+                rule=self.name,
+                reason=f"Tool '{tool_name}' requires approval"
+            )
+        
+        return ComplianceResult.allow(self.name)
+
+
+class TenantIsolationRule:
+    """
+    Enforce multi-tenant data isolation.
+    
+    Prevents agents from accessing data belonging to other tenants.
+    Critical for SaaS security and compliance.
+    
+    Example:
+        rule = TenantIsolationRule()
+        context = {
+            "agent_id": "agent_123",
+            "tenant_id": "tenant_456",
+            "tool_name": "file_reader",
+            "parameters": {"path": "/tenant_456/data.json"}
+        }
+        result = rule.check(context)
+        # result.allowed = True
+        
+        context["parameters"] = {"path": "/tenant_789/data.json"}
+        result = rule.check(context)
+        # result.allowed = False
+        # result.reason = "Cross-tenant access denied: agent belongs to 'tenant_456', accessing 'tenant_789'"
+    """
+    
+    name = "tenant_isolation"
+    description = "Enforce tenant isolation"
+    
+    # Tools that access tenant data
+    TENANT_DATA_TOOLS = [
+        "file_reader",
+        "file_writer",
+        "database_query",
+    ]
+    
+    def check(self, context: Dict[str, Any]) -> ComplianceResult:
+        """
+        Check tenant isolation.
+        
+        Args:
+            context: Must contain:
+                - tenant_id: str (agent's tenant)
+                - tool_name: str
+                - parameters: Dict (optional, for path/resource checking)
+        
+        Returns:
+            ComplianceResult.allow() if same tenant or not tenant-scoped
+            ComplianceResult.block() if cross-tenant access detected
+        """
+        tool_name = context.get("tool_name", "unknown")
+        
+        # Only check tenant data tools
+        if tool_name not in self.TENANT_DATA_TOOLS:
+            return ComplianceResult.allow(self.name)
+        
+        agent_tenant = context.get("tenant_id", "unknown")
+        parameters = context.get("parameters", {})
+        
+        # Check path for tenant ID
+        path = parameters.get("path", "")
+        if path:
+            # Extract tenant ID from path (assumes /tenant_<id>/ format)
+            import re
+            match = re.search(r'/(tenant_[^/]+)(?:/|$)', path)
+            if match:
+                resource_tenant = match.group(1)
+                if resource_tenant != agent_tenant:
+                    return ComplianceResult.block(
+                        rule=self.name,
+                        reason=f"Cross-tenant access denied: agent belongs to '{agent_tenant}', accessing '{resource_tenant}'"
+                    )
+        
+        # Check query for tenant_id parameter
+        query = parameters.get("query", "")
+        if "tenant_id" in query:
+            # Simple check - in production, parse SQL properly
+            if agent_tenant not in query:
+                return ComplianceResult.block(
+                    rule=self.name,
+                    reason=f"Cross-tenant query detected"
+                )
+        
+        return ComplianceResult.allow(self.name)
