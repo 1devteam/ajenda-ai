@@ -4,7 +4,7 @@
 # Web Framework
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
-python-multipart==0.0.6
+python-multipart==0.0.9
 
 # Database
 sqlalchemy==2.0.25
@@ -32,13 +32,15 @@ opentelemetry-instrumentation-fastapi==0.48b0
 langfuse==2.51.4
 
 # LLM & Agent Frameworks
+# LangChain packages with compatible versions
 langchain==0.3.17
-langchain-core==0.3.78
+langchain-core>=0.3.78,<0.4.0
 langchain-openai==0.3.35
 langchain-anthropic==0.3.7
 langchain-google-genai==2.0.8
 langchain-ollama==0.2.2
 langgraph==0.2.55
+langgraph-prebuilt>=1.0.2
 
 # Rate Limiting
 slowapi==0.1.9
@@ -58,6 +60,10 @@ black==24.1.1
 flake8==7.0.0
 mypy==1.8.0
 pytest-cov==4.1.0
+
+# Specialized Agent Dependencies
 email-validator==2.1.0
 duckduckgo-search==6.1.7
 numpy==1.26.4
+typer>=0.12.3
+fastapi-users==13.0.0
