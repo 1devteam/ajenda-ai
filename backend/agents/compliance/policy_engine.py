@@ -143,18 +143,23 @@ class Policy:
     policy_id: str
     name: str
     description: str
-    version: str
     status: PolicyStatus
     
     # Policy logic
     conditions: List[PolicyCondition]
     actions: List[PolicyAction]
     
-    # Metadata
-    created_at: datetime
-    created_by: str
-    updated_at: datetime
-    updated_by: str
+    # Audit fields — optional with sensible defaults so callers don't need
+    # to specify them for simple inline/test policy creation.
+    version: str = "1.0"
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_by: str = "system"
+    updated_at: datetime = field(default_factory=datetime.utcnow)
+    updated_by: str = "system"
+    
+    # Arbitrary key-value metadata (e.g. template_id, tags, custom attributes).
+    # Used by the compliance checker to match required policy templates.
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
     # Inheritance
     parent_policy_id: Optional[str] = None
@@ -182,6 +187,7 @@ class Policy:
             "created_by": self.created_by,
             "updated_at": self.updated_at.isoformat(),
             "updated_by": self.updated_by,
+            "metadata": self.metadata,
             "parent_policy_id": self.parent_policy_id,
             "override_parent": self.override_parent,
             "applies_to": self.applies_to,
@@ -197,14 +203,15 @@ class Policy:
             policy_id=data["policy_id"],
             name=data["name"],
             description=data["description"],
-            version=data["version"],
+            version=data.get("version", "1.0"),
             status=PolicyStatus(data["status"]),
             conditions=[PolicyCondition.from_dict(c) for c in data["conditions"]],
             actions=[PolicyAction.from_dict(a) for a in data["actions"]],
-            created_at=datetime.fromisoformat(data["created_at"]),
-            created_by=data["created_by"],
-            updated_at=datetime.fromisoformat(data["updated_at"]),
-            updated_by=data["updated_by"],
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.utcnow(),
+            created_by=data.get("created_by", "system"),
+            updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.utcnow(),
+            updated_by=data.get("updated_by", "system"),
+            metadata=data.get("metadata", {}),
             parent_policy_id=data.get("parent_policy_id"),
             override_parent=data.get("override_parent", False),
             applies_to=data.get("applies_to", []),

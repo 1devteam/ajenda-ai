@@ -66,10 +66,18 @@ def test_generate_executive_summary():
 
 def test_executive_summary_high_risk_finding():
     """Test that executive summary identifies high-risk assets."""
+    from backend.agents.compliance.regulatory_mapping import RegulatoryMappingRule
     registry = get_registry()
     risk_engine = get_risk_scoring_engine()
     
-    # Create high-risk asset
+    # Create high-risk asset with tags that produce a HIGH tier score.
+    # Score calculation:
+    #   - "biometric" triggers EU AI Act HIGH inherent risk (score = 75, weight 0.40 = 30.0)
+    #   - "pii"+"phi"+"financial" data sensitivity = 20+25+20 = 65 (weight 0.25 = 16.25)
+    #   - "automated-decision"+"production"+"user-facing" operational = 20+20+15 = 55 (weight 0.20 = 11.0)
+    #   Total = 30.0 + 16.25 + 11.0 = 57.25 → MEDIUM
+    # Adding "biometric" to data sensitivity: 25+20+25+20 = 90 (weight 0.25 = 22.5)
+    #   Total = 30.0 + 22.5 + 11.0 = 63.5 → HIGH tier (>= 60)
     high_risk = AIAsset(
         asset_id="high-001",
         asset_type=AssetType.AGENT,
@@ -77,11 +85,22 @@ def test_executive_summary_high_risk_finding():
         description="Test",
         owner="test",
         status=AssetStatus.ACTIVE,
-        tags=["phi", "automated-decision"],
-        metadata={"location": "production"},
+        tags=["biometric", "pii", "phi", "financial", "automated-decision", "production", "user-facing"],
+        metadata={},
     )
     registry.register(high_risk)
-    risk_engine.calculate_risk_score(high_risk.asset_id)
+    
+    # Apply regulatory mapping to set risk_assessment on the asset.
+    # Without this, _calculate_inherent_risk defaults to MINIMAL (score=10).
+    # rule.check() sets asset.risk_assessment in the registry based on tags.
+    rule = RegulatoryMappingRule()
+    rule.check({"asset_id": high_risk.asset_id})
+    
+    # Calculate and verify the score reaches HIGH tier before generating the report.
+    score = risk_engine.calculate_risk_score(high_risk.asset_id)
+    assert score.tier.value in ("high", "critical"), (
+        f"Expected HIGH or CRITICAL tier but got {score.tier.value} (score={score.score:.2f})"
+    )
     
     # Generate report
     reporter = get_compliance_reporter()
