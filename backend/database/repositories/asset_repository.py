@@ -37,7 +37,10 @@ class AssetRepository(BaseRepository[GovernanceAsset]):
         tags: Optional[List[str]] = None,
         asset_metadata: Optional[Dict[str, Any]] = None,
         dependencies: Optional[List[str]] = None,
-        status: AssetStatus = AssetStatus.ACTIVE
+        status: AssetStatus = AssetStatus.ACTIVE,
+        risk_tier: Optional[RiskTier] = None,
+        risk_score: Optional[float] = None,
+        compliance_status: Optional[ComplianceStatus] = None
     ) -> GovernanceAsset:
         """
         Create new governance asset
@@ -51,14 +54,17 @@ class AssetRepository(BaseRepository[GovernanceAsset]):
             description: Optional description
             version: Optional version string
             tags: Optional list of tags
-            metadata: Optional metadata dictionary
+            asset_metadata: Optional metadata dictionary
             dependencies: Optional list of dependency asset IDs
             status: Asset status (default: active)
+            risk_tier: Optional initial risk tier
+            risk_score: Optional initial risk score
+            compliance_status: Optional initial compliance status
             
         Returns:
             Created GovernanceAsset instance
         """
-        return self.create(
+        kwargs: Dict[str, Any] = dict(
             id=id,
             name=name,
             asset_type=asset_type,
@@ -71,6 +77,13 @@ class AssetRepository(BaseRepository[GovernanceAsset]):
             asset_metadata=asset_metadata or {},
             dependencies=dependencies or []
         )
+        if risk_tier is not None:
+            kwargs["risk_tier"] = risk_tier
+        if risk_score is not None:
+            kwargs["risk_score"] = risk_score
+        if compliance_status is not None:
+            kwargs["compliance_status"] = compliance_status
+        return self.create(**kwargs)
     
     def get_by_tenant(
         self,
@@ -287,7 +300,10 @@ class AssetRepository(BaseRepository[GovernanceAsset]):
     
     def add_tag(self, asset_id: str, tag: str) -> GovernanceAsset:
         """
-        Add tag to asset
+        Add tag to asset.
+        
+        Uses list replacement (not in-place mutation) so SQLAlchemy
+        detects the JSON column change and persists it correctly.
         
         Args:
             asset_id: Asset ID
@@ -298,14 +314,20 @@ class AssetRepository(BaseRepository[GovernanceAsset]):
         """
         asset = self.get_or_raise(asset_id)
         if tag not in asset.tags:
-            asset.tags.append(tag)
+            # Replace the list — do NOT mutate in-place.
+            # SQLAlchemy tracks JSON column changes by object identity;
+            # appending to the existing list doesn't mark it as dirty.
+            asset.tags = list(asset.tags) + [tag]
             self.db.commit()
             self.db.refresh(asset)
         return asset
     
     def remove_tag(self, asset_id: str, tag: str) -> GovernanceAsset:
         """
-        Remove tag from asset
+        Remove tag from asset.
+        
+        Uses list replacement (not in-place mutation) so SQLAlchemy
+        detects the JSON column change and persists it correctly.
         
         Args:
             asset_id: Asset ID
@@ -316,7 +338,8 @@ class AssetRepository(BaseRepository[GovernanceAsset]):
         """
         asset = self.get_or_raise(asset_id)
         if tag in asset.tags:
-            asset.tags.remove(tag)
+            # Replace the list — do NOT mutate in-place.
+            asset.tags = [t for t in asset.tags if t != tag]
             self.db.commit()
             self.db.refresh(asset)
         return asset
@@ -334,7 +357,8 @@ class AssetRepository(BaseRepository[GovernanceAsset]):
         """
         asset = self.get_or_raise(asset_id)
         if dependency_id not in asset.dependencies:
-            asset.dependencies.append(dependency_id)
+            # Replace the list — do NOT mutate in-place.
+            asset.dependencies = list(asset.dependencies) + [dependency_id]
             self.db.commit()
             self.db.refresh(asset)
         return asset

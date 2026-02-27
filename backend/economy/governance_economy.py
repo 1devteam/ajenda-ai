@@ -215,7 +215,8 @@ class GovernanceEconomy:
     @staticmethod
     def get_pricing_summary(
         agent_id: str,
-        tenant_id: str
+        tenant_id: str,
+        db=None
     ) -> Dict[str, Any]:
         """
         Get pricing summary for agent
@@ -223,6 +224,7 @@ class GovernanceEconomy:
         Args:
             agent_id: Agent ID
             tenant_id: Tenant ID
+            db: Optional database session (uses get_db() if not provided)
             
         Returns:
             Dictionary with pricing information
@@ -247,8 +249,12 @@ class GovernanceEconomy:
                 "compliance_status": asset.compliance_status.value if asset.compliance_status else "unknown",
                 "compliance_reward": GovernanceEconomy.COMPLIANCE_REWARDS.get(asset.compliance_status, 0.0),
                 "example_costs": {
-                    "base_mission_100_credits": GovernanceEconomy.calculate_mission_cost(100.0, agent_id, tenant_id)["final_cost"],
-                    "deployment_approval": GovernanceEconomy.calculate_approval_cost("deployment", asset.risk_tier) if asset.risk_tier else 50.0
+                    "base_mission_100_credits": GovernanceEconomy.calculate_mission_cost(
+                        100.0, agent_id, tenant_id, db=db
+                    )["final_cost"],
+                    "deployment_approval": GovernanceEconomy.calculate_approval_cost(
+                        "deployment", asset.risk_tier
+                    ) if asset.risk_tier else 50.0
                 }
             }
             

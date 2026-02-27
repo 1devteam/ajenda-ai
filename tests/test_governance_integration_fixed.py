@@ -76,7 +76,7 @@ async def test_agent_creation_hook(db_session):
     
     # Verify audit event created
     audit_repo = AuditRepository(db_session)
-    events = audit_repo.get_by_actor("tenant_1", "user_1")
+    events = audit_repo.get_by_actor("user_1", "tenant_1")
     assert len(events) > 0
     assert any(e.event_type == "agent_created" for e in events)
 
@@ -115,7 +115,7 @@ async def test_agent_update_hook(db_session):
     
     # Verify audit event
     audit_repo = AuditRepository(db_session)
-    events = audit_repo.get_by_actor("tenant_1", "user_1")
+    events = audit_repo.get_by_actor("user_1", "tenant_1")
     assert any(e.event_type == "agent_updated" for e in events)
 
 

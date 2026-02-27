@@ -233,18 +233,26 @@ class CacheManager:
     
     def invalidate_asset(self, asset_id: str) -> None:
         """
-        Invalidate asset cache
+        Invalidate asset cache and all related caches.
+        Gracefully handles Redis being unavailable.
         
         Args:
             asset_id: Asset ID
         """
-        key = self._make_key(self.PREFIX_ASSET, asset_id)
-        self.redis_client.delete(key)
-        
-        # Also invalidate related caches
-        self.invalidate_risk_score(asset_id)
-        self.invalidate_compliance_status(asset_id)
-        self.invalidate_policy_evaluations(asset_id=asset_id)
+        try:
+            key = self._make_key(self.PREFIX_ASSET, asset_id)
+            self.redis_client.delete(key)
+            
+            # Also invalidate related caches
+            self.invalidate_risk_score(asset_id)
+            self.invalidate_compliance_status(asset_id)
+            self.invalidate_policy_evaluations(asset_id=asset_id)
+        except Exception as e:
+            # Redis unavailable is non-fatal — log and continue
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Cache invalidation skipped for asset {asset_id}: {e}"
+            )
     
     # Compliance Status Caching
     

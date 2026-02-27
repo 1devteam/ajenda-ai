@@ -238,7 +238,8 @@ def test_pricing_summary(db_session):
     # Get pricing summary
     summary = GovernanceEconomy.get_pricing_summary(
         agent_id="summary_agent",
-        tenant_id="tenant_1"
+        tenant_id="tenant_1",
+        db=db_session
     )
     
     assert summary["registered"] is True
