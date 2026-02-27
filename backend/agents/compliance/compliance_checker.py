@@ -194,7 +194,7 @@ class ComplianceChecker:
     def _check_asset_compliance(self, check_id: str) -> ComplianceCheck:
         """Check if all assets are properly registered and maintained."""
         registry = get_registry()
-        assets = registry.list_assets()
+        assets = registry.list_all()
         
         findings = []
         recommendations = []
@@ -347,7 +347,7 @@ class ComplianceChecker:
     def _check_data_compliance(self, check_id: str) -> ComplianceCheck:
         """Check if sensitive data is properly protected."""
         registry = get_registry()
-        assets = registry.list_assets()
+        assets = registry.list_all()
         
         findings = []
         recommendations = []
@@ -431,7 +431,7 @@ class ComplianceChecker:
     def _check_risk_compliance(self, check_id: str) -> ComplianceCheck:
         """Check if risk assessments are current."""
         registry = get_registry()
-        assets = registry.list_assets()
+        assets = registry.list_all()
         scorer = get_risk_scoring_engine()
         
         findings = []
@@ -479,7 +479,7 @@ class ComplianceChecker:
     def _check_tag_compliance(self, check_id: str) -> ComplianceCheck:
         """Check if assets are properly tagged."""
         registry = get_registry()
-        assets = registry.list_assets()
+        assets = registry.list_all()
         
         findings = []
         recommendations = []
