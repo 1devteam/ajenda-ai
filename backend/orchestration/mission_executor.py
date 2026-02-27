@@ -17,6 +17,7 @@ from backend.models.domain.agent import AgentStatus
 from backend.models.domain.mission import MissionStatus
 from backend.integrations.observability.prometheus_metrics import get_metrics
 from backend.agents.factory.agent_factory import AgentFactory
+from backend.agents.integration.governance_hooks import governance_hooks
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -105,6 +106,10 @@ class MissionExecutor:
                 # Initial status update
                 await self._update_status(mission_id, "RUNNING")
                 
+                # Governance hook: Check if mission can proceed
+                # Note: agent_id would come from plan, using placeholder for now
+                # TODO: Get actual agent_id from plan after planning phase
+                
                 # Phase 1: Guardian validates the mission
                 await self._update_status(mission_id, "RUNNING", step="validation")
                 validation_result = await self._validate_mission(
@@ -182,6 +187,21 @@ class MissionExecutor:
                     cost=result.get("cost", 0.0),
                     execution_time=duration
                 )
+                
+                # Governance hook: Record mission completion
+                # TODO: Get actual agent_id from plan
+                try:
+                    asyncio.create_task(
+                        governance_hooks.on_mission_completed(
+                            mission_id=mission_id,
+                            agent_id="system",  # Placeholder
+                            tenant_id=tenant_id,
+                            status=result["status"],
+                            result=result
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"Governance hook failed (non-blocking): {e}")
                 
                 return {
                     "mission_id": mission_id,

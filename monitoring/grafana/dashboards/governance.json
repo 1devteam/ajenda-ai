@@ -1,0 +1,281 @@
+{
+  "dashboard": {
+    "title": "Omnipath Governance Dashboard",
+    "tags": ["governance", "compliance", "risk"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Asset Registry Overview",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "count(governance_assets_total)",
+            "legendFormat": "Total Assets"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Assets by Risk Tier",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "sum by (risk_tier) (governance_assets_by_risk_tier)",
+            "legendFormat": "{{risk_tier}}"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Compliance Status",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(governance_assets_compliant) / sum(governance_assets_total) * 100",
+            "legendFormat": "Compliance Rate %"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 70, "color": "yellow"},
+                {"value": 90, "color": "green"}
+              ]
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Pending Approvals",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(governance_approvals_pending)",
+            "legendFormat": "Pending"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 10, "color": "yellow"},
+                {"value": 50, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Risk Score Trend",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "avg(governance_risk_score)",
+            "legendFormat": "Average Risk Score"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "min": 0, "max": 1},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Policy Violations",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(governance_policy_violations_total[5m])",
+            "legendFormat": "Violations/sec"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Audit Events by Severity",
+        "type": "bargauge",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "sum by (severity) (increase(governance_audit_events_total[1h]))",
+            "legendFormat": "{{severity}}"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient"
+        }
+      },
+      {
+        "id": 8,
+        "title": "Approval Queue Depth",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "governance_approval_queue_depth",
+            "legendFormat": "{{risk_tier}}"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Cache Hit Rate",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "rate(governance_cache_hits_total[5m]) / (rate(governance_cache_hits_total[5m]) + rate(governance_cache_misses_total[5m])) * 100",
+            "legendFormat": "Hit Rate %"
+          }
+        ],
+        "options": {
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 70, "color": "yellow"},
+                {"value": 90, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Database Query Performance",
+        "type": "graph",
+        "gridPos": {"h": 6, "w": 6, "x": 6, "y": 24},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(governance_db_query_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(governance_db_query_duration_seconds_bucket[5m]))",
+            "legendFormat": "p99"
+          }
+        ],
+        "yaxes": [
+          {"format": "s"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Rate Limit Violations",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 12, "y": 24},
+        "targets": [
+          {
+            "expr": "sum(increase(governance_rate_limit_exceeded_total[1h]))",
+            "legendFormat": "Last Hour"
+          }
+        ],
+        "options": {
+          "colorMode": "background"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 100, "color": "yellow"},
+                {"value": 1000, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Mission Execution Status",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 6, "x": 18, "y": 24},
+        "targets": [
+          {
+            "expr": "rate(governance_missions_completed_total{status=\"success\"}[5m])",
+            "legendFormat": "Success"
+          },
+          {
+            "expr": "rate(governance_missions_completed_total{status=\"failure\"}[5m])",
+            "legendFormat": "Failure"
+          },
+          {
+            "expr": "rate(governance_missions_blocked_total[5m])",
+            "legendFormat": "Blocked"
+          }
+        ]
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "tenant",
+          "type": "query",
+          "query": "label_values(governance_assets_total, tenant_id)",
+          "multi": false,
+          "includeAll": true
+        },
+        {
+          "name": "risk_tier",
+          "type": "custom",
+          "query": "minimal,limited,high,unacceptable",
+          "multi": true,
+          "includeAll": true
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "Prometheus",
+          "expr": "changes(governance_version_info[5m]) > 0",
+          "tagKeys": "version",
+          "textFormat": "Deployment: {{version}}"
+        }
+      ]
+    }
+  }
+}

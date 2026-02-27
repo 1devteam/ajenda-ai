@@ -17,6 +17,8 @@ from backend.agents.implementations.researcher_agent import (
 )
 from backend.integrations.llm.llm_service import LLMService
 from backend.integrations.observability.prometheus_metrics import get_metrics
+from backend.agents.integration.governance_hooks import governance_hooks
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +114,23 @@ class AgentFactory:
             
             # Record agent creation metric
             self.metrics.record_agent_invocation(agent_type_lower, "created")
+            
+            # Governance hook: Register agent in governance system
+            try:
+                asyncio.create_task(
+                    governance_hooks.on_agent_created(
+                        agent_id=agent_id,
+                        agent_type=agent_type_lower,
+                        tenant_id=tenant_id,
+                        owner_id=kwargs.get("owner_id", "system"),
+                        name=kwargs.get("name", f"{agent_type_lower}_agent"),
+                        model=llm.model_name if hasattr(llm, "model_name") else "unknown",
+                        capabilities=kwargs.get("capabilities", []),
+                        config=kwargs
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Governance hook failed (non-blocking): {e}")
             
             return agent
             
