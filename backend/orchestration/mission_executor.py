@@ -106,15 +106,15 @@ class MissionExecutor:
                 # Initial status update
                 await self._update_status(mission_id, "RUNNING")
                 
-                # Governance hook: Check if mission can proceed
-                # Note: agent_id would come from plan, using placeholder for now
-                # TODO: Get actual agent_id from plan after planning phase
-                
+                # Governance hook: Check if mission can proceed.
+                # primary_agent_id is extracted from the plan after Phase 2 below.
+
                 # Phase 1: Guardian validates the mission
                 await self._update_status(mission_id, "RUNNING", step="validation")
                 validation_result = await self._validate_mission(
                     mission_id, goal, tenant_id
                 )
+                # Note: plan is created in Phase 2; agent_id is extracted below.
                 
                 if not validation_result["is_safe"]:
                     # Record rejected metric
@@ -188,13 +188,14 @@ class MissionExecutor:
                     execution_time=duration
                 )
                 
-                # Governance hook: Record mission completion
-                # TODO: Get actual agent_id from plan
+                # Governance hook: Record mission completion — use the
+                # primary_agent_id that was embedded in the plan during Phase 2.
+                primary_agent_id = plan.get("primary_agent_id", f"agent_{mission_id}")
                 try:
                     asyncio.create_task(
                         governance_hooks.on_mission_completed(
                             mission_id=mission_id,
-                            agent_id="system",  # Placeholder
+                            agent_id=primary_agent_id,
                             tenant_id=tenant_id,
                             status=result["status"],
                             result=result
@@ -341,6 +342,13 @@ Respond in JSON format:
                     "estimated_total_cost": 0.5,
                     "requires_tools": []
                 }
+
+            # Ensure a stable primary_agent_id is embedded in the plan so that
+            # governance hooks can reference a real agent identifier rather than
+            # a placeholder.  The id is deterministic for the mission so that
+            # repeated calls return the same value.
+            if "primary_agent_id" not in plan:
+                plan["primary_agent_id"] = f"agent_{mission_id}"
             
             await self.event_bus.publish(
                 "mission.planned",

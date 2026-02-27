@@ -25,15 +25,19 @@ def clear_state():
     """Clear all state before each test."""
     registry = get_registry()
     registry.clear()
-    
+
+    # Must clear both dicts together: clearing only _events leaves stale IDs
+    # in _events_by_asset, causing KeyError in get_events_for_asset().
     tracker = get_tracker()
     tracker._events.clear()
-    
+    tracker._events_by_asset.clear()
+
     yield
-    
+
     # Cleanup after test
     registry.clear()
     tracker._events.clear()
+    tracker._events_by_asset.clear()
 
 
 @pytest.fixture
@@ -100,16 +104,18 @@ def sample_critical_asset():
             "customers_affected": 50000,
         },
     )
-    
-    # Add risk assessment
+
+    # A "critical" asset must be UNACCEPTABLE under the EU AI Act so that
+    # the inherent risk factor scores 100 and the total score reaches the
+    # CRITICAL tier (>=80).  Using HIGH (75) only reaches the HIGH tier.
     asset.risk_assessment = RiskAssessment(
-        risk_level=RiskLevel.HIGH,
+        risk_level=RiskLevel.UNACCEPTABLE,
         regulation="EU AI Act",
         requirements=["human-oversight", "documentation", "testing"],
         assessed_at=datetime.utcnow(),
         assessed_by="test",
     )
-    
+
     return asset
 
 

@@ -329,16 +329,22 @@ class RiskMetricsAggregator:
         compliance_ready = 0
         
         for asset in assets:
-            # Check risk assessment
-            if hasattr(asset, 'risk_assessment') and asset.risk_assessment:
+            # An asset is considered "risk-assessed" when it has a calculated
+            # risk_score (set by RiskScoringEngine.calculate_risk_score()).  The
+            # legacy risk_assessment attribute (set by RegulatoryMapping) is a
+            # separate concern and may not be present on all assets.
+            has_risk_score = (
+                hasattr(asset, 'risk_score') and asset.risk_score is not None
+            )
+            if has_risk_score:
                 assets_with_risk_assessment += 1
-            
+
             # Check tags
             if asset.tags:
                 assets_with_tags += 1
-            
-            # Check if compliance ready (has both risk assessment and tags)
-            if (hasattr(asset, 'risk_assessment') and asset.risk_assessment and asset.tags):
+
+            # Check if compliance ready (has both risk score and tags)
+            if has_risk_score and asset.tags:
                 compliance_ready += 1
         
         coverage = (assets_with_risk_assessment / len(assets)) * 100

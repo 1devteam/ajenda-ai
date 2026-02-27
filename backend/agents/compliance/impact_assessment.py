@@ -498,30 +498,34 @@ class ImpactAssessor:
         
         # Count direct dependents
         blast_radius = len(dependents)
-        
-        # Recursively count indirect dependents
+
+        # Recursively count indirect dependents.
+        # get_dependents() returns List[AIAsset] — extract .asset_id for
+        # set membership checks and recursive calls.
         visited = {asset_id}
         for dependent in dependents:
-            if dependent not in visited:
-                visited.add(dependent)
-                blast_radius += self._count_recursive_dependents(dependent, visited)
-        
+            dep_id = dependent.asset_id
+            if dep_id not in visited:
+                visited.add(dep_id)
+                blast_radius += self._count_recursive_dependents(dep_id, visited)
+
         return blast_radius
-    
+
     def _count_recursive_dependents(self, asset_id: str, visited: set) -> int:
         """Recursively count dependents."""
         dependents = self.registry.get_dependents(asset_id)
-        
+
         if not dependents:
             return 0
-        
+
         count = 0
         for dependent in dependents:
-            if dependent not in visited:
-                visited.add(dependent)
+            dep_id = dependent.asset_id
+            if dep_id not in visited:
+                visited.add(dep_id)
                 count += 1
-                count += self._count_recursive_dependents(dependent, visited)
-        
+                count += self._count_recursive_dependents(dep_id, visited)
+
         return count
     
     def _get_affected_systems(self, asset) -> List[str]:
@@ -532,13 +536,12 @@ class ImpactAssessor:
         if hasattr(asset, "metadata") and asset.metadata:
             systems.extend(asset.metadata.get("affected_systems", []))
         
-        # Check dependencies
+        # Check dependencies.
+        # get_dependents() returns List[AIAsset] — iterate directly.
         dependents = self.registry.get_dependents(asset.asset_id)
         if dependents:
-            for dependent_id in dependents:
-                dependent = self.registry.get(dependent_id)
-                if dependent:
-                    systems.append(dependent.name)
+            for dependent in dependents:
+                systems.append(dependent.name)
         
         return list(set(systems))  # Remove duplicates
     

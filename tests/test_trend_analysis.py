@@ -338,11 +338,14 @@ def test_forecast_linear_trend():
     """Test forecasting with linear trend."""
     analyzer = get_trend_analyzer()
     
-    # Create linear increasing time series
+    # Create linear increasing time series.
+    # range(30, 0, -1) produces i=30,29,...,1 so (now-30d, 40), ..., (now-1d, 11)
+    # which is DECREASING.  We need an increasing series: oldest point has the
+    # lowest value and the most recent point has the highest value.
     now = datetime.utcnow()
     time_series = [
-        (now - timedelta(days=i), 10.0 + i)
-        for i in range(30, 0, -1)
+        (now - timedelta(days=30 - i), 10.0 + i)
+        for i in range(30)
     ]
     
     forecast_30d, forecast_60d, forecast_90d, confidence = analyzer._forecast(

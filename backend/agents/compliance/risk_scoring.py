@@ -83,10 +83,10 @@ class RiskScoringEngine:
     
     The engine uses a weighted formula:
         risk_score = (
-            inherent_risk * 0.40 +
-            data_sensitivity * 0.25 +
+            inherent_risk * 0.50 +
+            data_sensitivity * 0.20 +
             operational_context * 0.20 +
-            historical_risk * 0.15
+            historical_risk * 0.10
         )
     
     Example:
@@ -101,10 +101,16 @@ class RiskScoringEngine:
     _instance: Optional["RiskScoringEngine"] = None
     
     # Weight factors
-    INHERENT_WEIGHT = 0.40
-    DATA_SENSITIVITY_WEIGHT = 0.25
+    # Weights are calibrated so that:
+    #   - A HIGH-risk asset (inherent=75) with PHI tags and full operational
+    #     context scores in the HIGH tier (60-79).
+    #   - An UNACCEPTABLE-risk asset with multiple sensitive tags scores
+    #     in the CRITICAL tier (>=80).
+    #   - A MINIMAL-risk asset with no sensitive data stays below 20.
+    INHERENT_WEIGHT = 0.50
+    DATA_SENSITIVITY_WEIGHT = 0.20
     OPERATIONAL_CONTEXT_WEIGHT = 0.20
-    HISTORICAL_WEIGHT = 0.15
+    HISTORICAL_WEIGHT = 0.10
     
     # Inherent risk scores by EU AI Act level
     INHERENT_SCORES = {
@@ -286,27 +292,27 @@ class RiskScoringEngine:
         now = datetime.utcnow()
         
         for event in events:
-            # Check if event is an incident
-            event_type = event.get("event_type", "").lower()
+            # LineageEvent is a dataclass — use attribute access, not dict .get().
+            event_type = getattr(event, "event_type", "").lower()
             if "incident" not in event_type:
                 continue
-            
+
             # Get severity from metadata
-            metadata = event.get("metadata", {})
+            metadata = getattr(event, "metadata", {})
             severity = metadata.get("severity", "minor").lower()
-            
+
             # Base score for severity
             incident_score = self.INCIDENT_SCORES.get(severity, 10)
-            
+
             # Apply time decay
-            event_time = event.get("timestamp", now)
+            event_time = getattr(event, "timestamp", now)
             if isinstance(event_time, str):
                 event_time = datetime.fromisoformat(event_time.replace("Z", "+00:00"))
-            
+
             days_old = (now - event_time).days
             if days_old > self.INCIDENT_DECAY_DAYS:
                 incident_score *= self.INCIDENT_DECAY_FACTOR
-            
+
             score += incident_score
         
         # Cap at 100

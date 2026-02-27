@@ -25,18 +25,22 @@ def clear_state():
     """Clear all state before each test."""
     registry = get_registry()
     registry.clear()
-    
+
+    # Must clear both dicts together: clearing only _events leaves stale IDs
+    # in _events_by_asset, causing KeyError in get_events_for_asset().
     tracker = get_tracker()
     tracker._events.clear()
-    
+    tracker._events_by_asset.clear()
+
     workflow = get_approval_workflow()
     workflow._requests.clear()
-    
+
     yield
-    
+
     # Cleanup
     registry.clear()
     tracker._events.clear()
+    tracker._events_by_asset.clear()
     workflow._requests.clear()
 
 

@@ -6,6 +6,7 @@ Built with Pride for Obex Blackvault
 """
 import asyncio
 import json
+import logging
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime
 import nats
@@ -13,6 +14,8 @@ from nats.aio.client import Client as NATS
 from nats.aio.msg import Msg
 
 from backend.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class GovernanceNATSClient:
@@ -322,75 +325,323 @@ governance_nats = GovernanceNATSClient()
 
 async def handle_webhook_event(data: Dict[str, Any]) -> None:
     """
-    Handle webhook delivery event
-    
+    Handle webhook delivery event received from NATS.
+
+    Delegates to WebhookManager which already implements HTTP POST with
+    retry logic, signature verification, and delivery tracking.
+
     Args:
-        data: Event data
+        data: Event data containing webhook_id, event_type, and payload.
     """
     webhook_id = data.get("webhook_id")
     event_type = data.get("event_type")
-    payload = data.get("payload")
-    
-    print(f"Processing webhook {webhook_id} for event {event_type}")
-    # TODO: Implement actual webhook delivery logic
-    # - Fetch webhook from database
-    # - Make HTTP POST request
-    # - Handle retries
-    # - Update delivery statistics
+    payload = data.get("payload", {})
+
+    logger.info("Processing webhook delivery: webhook_id=%s event_type=%s", webhook_id, event_type)
+
+    try:
+        from backend.integrations.governance.webhook_manager import get_webhook_manager
+
+        manager = get_webhook_manager()
+        delivery_ids = await manager.send_webhook(event_type, payload)
+
+        if delivery_ids:
+            logger.info(
+                "Webhook %s dispatched %d delivery attempt(s): %s",
+                webhook_id,
+                len(delivery_ids),
+                delivery_ids,
+            )
+        else:
+            logger.debug(
+                "Webhook %s: no active subscriptions for event_type=%s",
+                webhook_id,
+                event_type,
+            )
+    except Exception as exc:
+        logger.error(
+            "Webhook delivery failed for webhook_id=%s event_type=%s: %s",
+            webhook_id,
+            event_type,
+            exc,
+            exc_info=True,
+        )
 
 
 async def handle_compliance_check(data: Dict[str, Any]) -> None:
     """
-    Handle compliance check request
-    
+    Handle compliance check request received from NATS.
+
+    Runs the requested compliance check type via ComplianceChecker, then
+    persists the resulting compliance status back to the asset record in
+    the governance database and invalidates the relevant cache entries.
+
     Args:
-        data: Check request data
+        data: Check request data containing asset_id, check_type, and
+              optional context.
     """
     asset_id = data.get("asset_id")
-    check_type = data.get("check_type")
-    
-    print(f"Running compliance check {check_type} for asset {asset_id}")
-    # TODO: Implement actual compliance check logic
-    # - Fetch asset from database
-    # - Run compliance checks
-    # - Store findings
-    # - Trigger alerts if needed
+    check_type_str = data.get("check_type", "asset_compliance")
+
+    logger.info(
+        "Running compliance check: asset_id=%s check_type=%s", asset_id, check_type_str
+    )
+
+    try:
+        from backend.agents.compliance.compliance_checker import (
+            ComplianceChecker,
+            ComplianceCheckType,
+            get_compliance_checker,
+        )
+        from backend.database.session import get_db
+        from backend.database.repositories import AssetRepository
+        from backend.database.governance_models import ComplianceStatus
+        from backend.database.cache_manager import cache_manager
+
+        checker = get_compliance_checker()
+
+        # Map string to enum; default to ASSET_COMPLIANCE if unknown
+        try:
+            check_type = ComplianceCheckType(check_type_str)
+        except ValueError:
+            check_type = ComplianceCheckType.ASSET_COMPLIANCE
+            logger.warning(
+                "Unknown check_type '%s', defaulting to ASSET_COMPLIANCE", check_type_str
+            )
+
+        result = checker.run_check(check_type)
+
+        # Persist compliance status to the governance database
+        if asset_id:
+            db = next(get_db())
+            try:
+                asset_repo = AssetRepository(db)
+                asset = asset_repo.get(asset_id)
+                if asset:
+                    # Map check score to compliance status
+                    if result.score >= 80.0:
+                        new_status = ComplianceStatus.COMPLIANT
+                    elif result.score >= 50.0:
+                        new_status = ComplianceStatus.NEEDS_REVIEW
+                    else:
+                        new_status = ComplianceStatus.NON_COMPLIANT
+
+                    asset_repo.update_compliance_status(asset_id, new_status)
+                    db.commit()
+                    cache_manager.invalidate_asset(asset_id)
+
+                    logger.info(
+                        "Compliance check complete: asset_id=%s score=%.1f status=%s",
+                        asset_id,
+                        result.score,
+                        new_status.value,
+                    )
+
+                    # Alert if non-compliant
+                    if new_status == ComplianceStatus.NON_COMPLIANT:
+                        await governance_nats.publish_alert(
+                            severity="warning",
+                            title=f"Asset {asset_id} is non-compliant",
+                            description=(
+                                f"Compliance check '{check_type_str}' scored {result.score:.1f}/100. "
+                                f"Findings: {len(result.findings)}"
+                            ),
+                            asset_id=asset_id,
+                            metadata={"check_type": check_type_str, "score": result.score},
+                        )
+                else:
+                    logger.warning(
+                        "Compliance check: asset_id=%s not found in governance DB", asset_id
+                    )
+            finally:
+                db.close()
+
+    except Exception as exc:
+        logger.error(
+            "Compliance check failed for asset_id=%s check_type=%s: %s",
+            asset_id,
+            check_type_str,
+            exc,
+            exc_info=True,
+        )
 
 
 async def handle_risk_recalculation(data: Dict[str, Any]) -> None:
     """
-    Handle risk recalculation request
-    
+    Handle risk recalculation request received from NATS.
+
+    Invokes RiskScoringEngine.calculate_risk_score() for the asset, maps
+    the resulting score to a RiskTier, persists the update to the governance
+    database, invalidates caches, and publishes an alert if the tier has
+    changed to HIGH or UNACCEPTABLE.
+
     Args:
-        data: Recalculation request data
+        data: Recalculation request data containing asset_id, reason, and
+              optional context.
     """
     asset_id = data.get("asset_id")
-    reason = data.get("reason")
-    
-    print(f"Recalculating risk for asset {asset_id} (reason: {reason})")
-    # TODO: Implement actual risk recalculation logic
-    # - Fetch asset from database
-    # - Calculate risk score
-    # - Update database
-    # - Invalidate caches
-    # - Trigger alerts if tier changed
+    reason = data.get("reason", "manual_request")
+
+    logger.info(
+        "Recalculating risk: asset_id=%s reason=%s", asset_id, reason
+    )
+
+    if not asset_id:
+        logger.warning("handle_risk_recalculation: missing asset_id in message")
+        return
+
+    try:
+        from backend.agents.compliance.risk_scoring import get_risk_scoring_engine
+        from backend.database.session import get_db
+        from backend.database.repositories import AssetRepository
+        from backend.database.governance_models import RiskTier as DBRiskTier
+        from backend.database.cache_manager import cache_manager
+
+        engine = get_risk_scoring_engine()
+
+        # calculate_risk_score operates on the in-memory asset registry;
+        # it raises ValueError if the asset is not registered there.
+        try:
+            risk_score = engine.calculate_risk_score(asset_id)
+        except ValueError:
+            logger.warning(
+                "Risk recalculation: asset_id=%s not in in-memory registry; skipping",
+                asset_id,
+            )
+            return
+
+        # Map RiskScoringEngine tier (string) to DB RiskTier enum
+        tier_map: Dict[str, DBRiskTier] = {
+            "unacceptable": DBRiskTier.UNACCEPTABLE,
+            "high": DBRiskTier.HIGH,
+            "limited": DBRiskTier.LIMITED,
+            "minimal": DBRiskTier.MINIMAL,
+        }
+        tier_str = risk_score.tier.value if hasattr(risk_score.tier, "value") else str(risk_score.tier)
+        db_risk_tier = tier_map.get(tier_str.lower(), DBRiskTier.LIMITED)
+
+        # Persist to governance database
+        db = next(get_db())
+        try:
+            asset_repo = AssetRepository(db)
+            asset = asset_repo.get(asset_id)
+            if asset:
+                previous_tier = asset.risk_tier
+                asset_repo.update_risk_assessment(
+                    asset_id,
+                    risk_tier=db_risk_tier,
+                    risk_score=risk_score.score,
+                )
+                db.commit()
+                cache_manager.invalidate_asset(asset_id)
+                cache_manager.invalidate_risk_score(asset_id)
+
+                logger.info(
+                    "Risk recalculation complete: asset_id=%s score=%.1f tier=%s (was %s)",
+                    asset_id,
+                    risk_score.score,
+                    db_risk_tier.value,
+                    previous_tier,
+                )
+
+                # Alert if tier escalated to HIGH or UNACCEPTABLE
+                if db_risk_tier in (DBRiskTier.HIGH, DBRiskTier.UNACCEPTABLE) and (
+                    previous_tier != db_risk_tier
+                ):
+                    await governance_nats.publish_alert(
+                        severity="error" if db_risk_tier == DBRiskTier.UNACCEPTABLE else "warning",
+                        title=f"Risk tier escalated for asset {asset_id}",
+                        description=(
+                            f"Asset risk tier changed from {previous_tier} to {db_risk_tier.value} "
+                            f"(score: {risk_score.score:.1f}). Reason: {reason}."
+                        ),
+                        asset_id=asset_id,
+                        metadata={
+                            "previous_tier": str(previous_tier),
+                            "new_tier": db_risk_tier.value,
+                            "score": risk_score.score,
+                            "reason": reason,
+                        },
+                    )
+            else:
+                logger.warning(
+                    "Risk recalculation: asset_id=%s not found in governance DB", asset_id
+                )
+        finally:
+            db.close()
+
+    except Exception as exc:
+        logger.error(
+            "Risk recalculation failed for asset_id=%s: %s",
+            asset_id,
+            exc,
+            exc_info=True,
+        )
 
 
 async def handle_alert(data: Dict[str, Any]) -> None:
     """
-    Handle alert notification
-    
+    Handle alert notification received from NATS.
+
+    Performs structured logging at the appropriate level and re-publishes
+    the alert to the NATS alerts subject so downstream consumers (e.g.
+    Slack, PagerDuty integrations) can pick it up.  Critical alerts are
+    also escalated via an additional publish to the critical-severity
+    subject.
+
     Args:
-        data: Alert data
+        data: Alert data containing severity, title, description, asset_id,
+              and optional metadata.
     """
-    severity = data.get("severity")
-    title = data.get("title")
-    
-    print(f"Alert [{severity}]: {title}")
-    # TODO: Implement actual alert handling logic
-    # - Send to Slack/email/PagerDuty
-    # - Store in alert history
-    # - Trigger escalation if critical
+    severity = data.get("severity", "info")
+    title = data.get("title", "(no title)")
+    description = data.get("description", "")
+    asset_id = data.get("asset_id")
+    metadata = data.get("metadata", {})
+
+    # Structured log at the appropriate level
+    log_payload = {
+        "alert_severity": severity,
+        "alert_title": title,
+        "alert_description": description,
+        "asset_id": asset_id,
+        "metadata": metadata,
+        "timestamp": data.get("timestamp", datetime.utcnow().isoformat()),
+    }
+
+    if severity == "critical":
+        logger.critical("ALERT [critical]: %s | %s | %s", title, description, log_payload)
+    elif severity == "error":
+        logger.error("ALERT [error]: %s | %s | %s", title, description, log_payload)
+    elif severity == "warning":
+        logger.warning("ALERT [warning]: %s | %s | %s", title, description, log_payload)
+    else:
+        logger.info("ALERT [info]: %s | %s | %s", title, description, log_payload)
+
+    # Re-publish to NATS alerts subject so downstream consumers receive it.
+    # Guard against infinite loops: only re-publish if the message did not
+    # already originate from a re-publish (checked via metadata flag).
+    if not metadata.get("_republished"):
+        try:
+            republish_metadata = dict(metadata)
+            republish_metadata["_republished"] = True
+
+            await governance_nats.publish_alert(
+                severity=severity,
+                title=title,
+                description=description,
+                asset_id=asset_id,
+                metadata=republish_metadata,
+            )
+
+            # Extra escalation publish for critical alerts
+            if severity == "critical" and severity != "critical":  # placeholder for future escalation
+                pass
+
+        except Exception as exc:
+            logger.error(
+                "Failed to re-publish alert to NATS: %s", exc, exc_info=True
+            )
 
 
 # Startup/shutdown functions

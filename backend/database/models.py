@@ -107,6 +107,7 @@ class Mission(Base):
     execution_time = Column(Float, nullable=True)
     tokens_used = Column(Integer, default=0, nullable=False)
     cost = Column(Float, default=0.0, nullable=False)
+    budget = Column(Float, nullable=True)  # Optional credit budget cap for this mission
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)

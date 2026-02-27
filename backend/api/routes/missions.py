@@ -41,6 +41,12 @@ class MissionCreate(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict, description="Mission context")
     max_steps: int = Field(default=10, ge=1, le=100, description="Maximum execution steps")
     timeout_seconds: int = Field(default=300, ge=1, description="Execution timeout in seconds")
+    budget: Optional[float] = Field(
+        None,
+        gt=0,
+        description="Optional credit budget cap for this mission. "
+                    "Execution is aborted if costs exceed this value."
+    )
 
     # v4.5 backward compatibility fields
     command: Optional[str] = Field(None, description="[v4.5] Mission command")
@@ -77,6 +83,7 @@ class MissionResponse(BaseModel):
     execution_time: Optional[float] = None
     tokens_used: int = 0
     cost: float = 0.0
+    budget: Optional[float] = None
 
 
 # ============================================================================
@@ -162,6 +169,7 @@ async def create_mission(
         context=context,
         max_steps=mission.max_steps,
         timeout_seconds=mission.timeout_seconds,
+        budget=mission.budget,
         steps=[]
     )
 
@@ -241,7 +249,7 @@ async def create_mission(
                 goal=mission_data.objective,
                 tenant_id=mission_data.tenant_id,
                 user_id=current_user["user_id"],
-                budget=None  # TODO: Add budget support
+                budget=mission_data.budget  # Honour the per-mission credit cap
             )
             
             # Update agent stats
@@ -284,7 +292,8 @@ async def create_mission(
         timeout_seconds=mission_data.timeout_seconds,
         execution_time=mission_data.execution_time,
         tokens_used=mission_data.tokens_used,
-        cost=mission_data.cost
+        cost=mission_data.cost,
+        budget=mission_data.budget
     )
 
 
@@ -333,7 +342,8 @@ async def get_mission(
         timeout_seconds=mission.timeout_seconds,
         execution_time=mission.execution_time,
         tokens_used=mission.tokens_used,
-        cost=mission.cost
+        cost=mission.cost,
+        budget=mission.budget
     )
 
 
@@ -393,7 +403,8 @@ async def list_missions(
         timeout_seconds=m.timeout_seconds,
         execution_time=m.execution_time,
         tokens_used=m.tokens_used,
-        cost=m.cost
+        cost=m.cost,
+        budget=m.budget
     ) for m in missions]
 
 
@@ -456,7 +467,8 @@ async def update_mission(
         timeout_seconds=mission_data.timeout_seconds,
         execution_time=mission_data.execution_time,
         tokens_used=mission_data.tokens_used,
-        cost=mission_data.cost
+        cost=mission_data.cost,
+        budget=mission_data.budget
     )
 
 
@@ -554,7 +566,8 @@ async def start_mission(
         timeout_seconds=mission_data.timeout_seconds,
         execution_time=mission_data.execution_time,
         tokens_used=mission_data.tokens_used,
-        cost=mission_data.cost
+        cost=mission_data.cost,
+        budget=mission_data.budget
     )
 
 
@@ -628,7 +641,8 @@ async def complete_mission(
         timeout_seconds=mission_data.timeout_seconds,
         execution_time=mission_data.execution_time,
         tokens_used=mission_data.tokens_used,
-        cost=mission_data.cost
+        cost=mission_data.cost,
+        budget=mission_data.budget
     )
 
 
@@ -696,7 +710,8 @@ async def fail_mission(
         timeout_seconds=mission_data.timeout_seconds,
         execution_time=mission_data.execution_time,
         tokens_used=mission_data.tokens_used,
-        cost=mission_data.cost
+        cost=mission_data.cost,
+        budget=mission_data.budget
     )
 
 
@@ -762,5 +777,6 @@ async def cancel_mission(
         timeout_seconds=mission_data.timeout_seconds,
         execution_time=mission_data.execution_time,
         tokens_used=mission_data.tokens_used,
-        cost=mission_data.cost
+        cost=mission_data.cost,
+        budget=mission_data.budget
     )

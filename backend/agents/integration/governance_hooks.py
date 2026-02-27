@@ -13,12 +13,15 @@ from backend.database.session import get_db
 from backend.database.repositories import (
     AssetRepository,
     LineageRepository,
-    AuditRepository
+    AuditRepository,
+    ApprovalRepository
 )
 from backend.database.governance_models import (
     AssetType,
     AssetStatus,
-    RiskTier
+    RiskTier,
+    ApprovalStatus,
+    AuthorityLevel
 )
 from backend.database.cache_manager import cache_manager
 from backend.agents.integration.nats_governance import governance_nats
@@ -366,10 +369,83 @@ class GovernanceHooks:
                 
                 return False
             
-            # Check risk tier
+            # Check risk tier — high-risk and unacceptable agents require an approved
+            # governance approval before executing any mission.
             if asset.risk_tier in [RiskTier.HIGH, RiskTier.UNACCEPTABLE]:
-                # TODO: Check for approval
-                logger.info(f"High-risk agent {agent_id} executing mission {mission_id}")
+                approval_repo = ApprovalRepository(db)
+
+                # Look for an existing pending or approved approval for this asset
+                existing = approval_repo.get_by_asset(
+                    asset_id=agent_id,
+                    status=ApprovalStatus.APPROVED
+                )
+
+                if not existing:
+                    # No approved entry — check for a pending one to avoid duplicates
+                    pending = approval_repo.get_by_asset(
+                        asset_id=agent_id,
+                        status=ApprovalStatus.PENDING
+                    )
+
+                    if not pending:
+                        # Create a new approval request so a compliance officer can review
+                        required_authority = (
+                            AuthorityLevel.COMPLIANCE_OFFICER
+                            if asset.risk_tier == RiskTier.UNACCEPTABLE
+                            else AuthorityLevel.ADMIN
+                        )
+                        approval_repo.create_approval_request(
+                            id=str(uuid.uuid4()),
+                            asset_id=agent_id,
+                            tenant_id=tenant_id,
+                            request_type="mission_execution",
+                            requested_by=agent_id,
+                            required_authority=required_authority,
+                            risk_tier=asset.risk_tier,
+                            context={
+                                "mission_id": mission_id,
+                                "objective": objective[:200],
+                                "risk_tier": asset.risk_tier.value
+                            }
+                        )
+                        db.commit()
+                        logger.warning(
+                            f"Mission blocked: high-risk agent {agent_id} has no approved "
+                            f"approval for mission {mission_id}. Approval request created."
+                        )
+
+                        audit_repo = AuditRepository(db)
+                        audit_repo.create_event(
+                            id=str(uuid.uuid4()),
+                            tenant_id=tenant_id,
+                            event_type="mission_blocked",
+                            event_category="compliance",
+                            severity="warning",
+                            actor_id=agent_id,
+                            actor_type="agent",
+                            outcome="blocked",
+                            asset_id=agent_id,
+                            event_data={
+                                "mission_id": mission_id,
+                                "reason": "approval_required",
+                                "risk_tier": asset.risk_tier.value
+                            }
+                        )
+                        db.commit()
+                        return False
+
+                    # A pending approval exists — still blocked until it is approved
+                    logger.warning(
+                        f"Mission blocked: agent {agent_id} has a pending approval "
+                        f"(not yet approved) for mission {mission_id}."
+                    )
+                    return False
+
+                # Approved entry found — allow mission to proceed
+                logger.info(
+                    f"High-risk agent {agent_id} cleared by approval "
+                    f"{existing[0].id} for mission {mission_id}."
+                )
             
             # Create audit event
             audit_repo = AuditRepository(db)

@@ -118,7 +118,7 @@ Analyze the context and make a decision. Provide:
         
         return {
             "decision": self._extract_decision(response.content),
-            "confidence": 0.85,  # TODO: Extract from response
+            "confidence": self._extract_confidence(response.content),
             "reasoning": response.content,
             "model_used": f"{self._get_llm_config()[0]}/{self._get_llm_config()[1]}"
         }
@@ -151,6 +151,58 @@ Analyze what happened and extract lessons learned."""
             return min(max(score, 0.0), 1.0)
         return 0.5  # Default
     
+    def _extract_confidence(self, content: str) -> float:
+        """
+        Extract confidence level (0.0–1.0) from LLM response text.
+
+        Looks for patterns like:
+          - "confidence: 0.9"
+          - "confidence level: 90%"
+          - "I am 85% confident"
+          - "confidence of 0.75"
+
+        Falls back to 0.7 if no match is found.
+
+        Args:
+            content: Raw LLM response text.
+
+        Returns:
+            Float in [0.0, 1.0].
+        """
+        import re
+
+        # Pattern 1: decimal confidence (e.g. "confidence: 0.85" or "confidence of 0.9")
+        decimal_match = re.search(
+            r"confidence[^\d]{0,20}(\d+\.\d+)",
+            content.lower()
+        )
+        if decimal_match:
+            score = float(decimal_match.group(1))
+            return min(max(score, 0.0), 1.0)
+
+        # Pattern 2: percentage confidence (e.g. "85% confident" or "confidence: 90%")
+        percent_match = re.search(
+            r"(\d{1,3})\s*%\s*confiden",
+            content.lower()
+        ) or re.search(
+            r"confiden[a-z\s]{0,20}(\d{1,3})\s*%",
+            content.lower()
+        )
+        if percent_match:
+            score = float(percent_match.group(1)) / 100.0
+            return min(max(score, 0.0), 1.0)
+
+        # Pattern 3: standalone decimal in [0,1] near "confidence" keyword
+        near_match = re.search(
+            r"confiden[a-z\s]{0,30}(0\.\d+|1\.0)",
+            content.lower()
+        )
+        if near_match:
+            score = float(near_match.group(1))
+            return min(max(score, 0.0), 1.0)
+
+        return 0.7  # Conservative default when confidence is not stated
+
     def _extract_decision(self, content: str) -> str:
         """Extract decision from LLM response"""
         content_lower = content.lower()

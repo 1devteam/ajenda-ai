@@ -27,6 +27,7 @@ from backend.core.event_bus.nats_bus import NATSEventBus
 from backend.orchestration.mission_executor import MissionExecutor
 from backend.middleware.rate_limit import RateLimitMiddleware
 from backend.core.cqrs.setup import setup_cqrs, teardown_cqrs
+from backend.integrations.mcp.setup import setup_mcp, teardown_mcp
 from typing import Optional
 
 # Configure logging
@@ -157,7 +158,15 @@ async def lifespan(app: FastAPI):
         logger.info("✅ CQRS buses initialised")
     except Exception as _cqrs_err:
         logger.warning(f"CQRS setup failed (non-fatal): {_cqrs_err}")
-    
+
+    # Initialize MCP subsystem
+    logger.info("Initializing MCP subsystem...")
+    try:
+        await setup_mcp()
+        logger.info("✅ MCP subsystem initialised")
+    except Exception as _mcp_err:
+        logger.warning(f"MCP setup failed (non-fatal): {_mcp_err}")
+
     logger.info("=" * 60)
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} is ready!")
     logger.info(f"📚 API Documentation: http://localhost:8000/docs")
@@ -177,6 +186,8 @@ async def lifespan(app: FastAPI):
         logger.info("Disconnecting NATS Event Bus...")
         await event_bus.disconnect()
 
+    # Teardown MCP subsystem
+    await teardown_mcp()
     # Teardown CQRS buses
     teardown_cqrs()
 

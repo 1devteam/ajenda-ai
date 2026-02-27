@@ -23,11 +23,13 @@ def clear_registry():
     """Clear registry before and after each test."""
     from backend.agents.registry.asset_registry import get_registry
     reg = get_registry()
-    # Clear before test
-    reg._assets.clear()
+    # Use the proper clear() which also resets _assets_by_type and _assets_by_owner.
+    # Clearing only _assets leaves stale IDs in the index dicts, causing wrong
+    # counts in list_by_type() and list_by_owner().
+    reg.clear()
     yield
     # Clear after test
-    reg._assets.clear()
+    reg.clear()
 
 
 @pytest.fixture
