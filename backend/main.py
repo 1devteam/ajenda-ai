@@ -18,7 +18,7 @@ from backend.integrations.observability.telemetry import get_telemetry
 from backend.integrations.observability.prometheus_metrics import get_metrics, metrics_endpoint
 
 # Import API routes
-from backend.api.routes import economy, performance, metrics, missions_v45, meta_learning, tenants, agents, missions, auth, approval, compliance_reports, registry, tags, risk
+from backend.api.routes import economy, performance, metrics, missions_v45, meta_learning, tenants, agents, missions, auth, approval, compliance_reports, registry, tags, risk, dashboard
 
 # Import core services
 from backend.integrations.llm.llm_service import LLMService
@@ -315,6 +315,7 @@ app.include_router(compliance_reports.router)
 app.include_router(registry.router)
 app.include_router(tags.router)
 app.include_router(risk.router)
+app.include_router(dashboard.router)
 
 
 if __name__ == "__main__":
