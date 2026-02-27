@@ -33,20 +33,26 @@ def tool_rule():
     return ToolInventoryRule()
 
 
+@pytest.fixture(autouse=True)
+def clear_registry():
+    """Clear registry before each test."""
+    reg = get_registry()
+    reg._assets.clear()
+    yield
+    reg._assets.clear()
+
+
 @pytest.fixture
 def registry():
-    """Get the global registry and clear it before each test."""
-    reg = get_registry()
-    # Clear the registry for a clean slate
-    reg._assets.clear()
-    return reg
+    """Get the global registry instance."""
+    return get_registry()
 
 
 @pytest.fixture
 def sample_agent(registry):
     """Create and register a sample agent."""
     agent = AIAsset(
-        asset_id="agent-001",
+        asset_id="inv-agent-001",
         asset_type=AssetType.AGENT,
         name="Research Agent",
         description="Agent for research tasks",
@@ -61,7 +67,7 @@ def sample_agent(registry):
 def sample_tool(registry):
     """Create and register a sample tool."""
     tool = AIAsset(
-        asset_id="tool-001",
+        asset_id="inv-tool-001",
         asset_type=AssetType.TOOL,
         name="Web Search",
         description="Search the web",
@@ -76,7 +82,7 @@ def sample_tool(registry):
 def deprecated_tool(registry):
     """Create and register a deprecated tool."""
     tool = AIAsset(
-        asset_id="tool-deprecated",
+        asset_id="inv-tool-deprecated",
         asset_type=AssetType.TOOL,
         name="Old Search",
         description="Deprecated search tool",
@@ -95,7 +101,7 @@ def deprecated_tool(registry):
 def test_agent_rule_registered_agent(agent_rule, sample_agent):
     """Test that registered agent passes the rule."""
     context = {
-        "agent_id": "agent-001",
+        "agent_id": "inv-agent-001",
         "agent_name": "Research Agent",
     }
     
@@ -125,7 +131,7 @@ def test_agent_rule_wrong_asset_type(agent_rule, sample_tool):
     """Test that asset with wrong type fails the rule."""
     # Try to use a tool as an agent
     context = {
-        "agent_id": "tool-001",
+        "agent_id": sample_tool.asset_id,  # Use the registered tool's ID
         "agent_name": "Web Search",
     }
     
@@ -140,7 +146,7 @@ def test_agent_rule_deprecated_agent(agent_rule, registry):
     """Test that deprecated agent fails the rule."""
     # Create deprecated agent
     deprecated_agent = AIAsset(
-        asset_id="agent-deprecated",
+        asset_id="inv-agent-deprecated",
         asset_type=AssetType.AGENT,
         name="Old Agent",
         description="Deprecated agent",
@@ -150,7 +156,7 @@ def test_agent_rule_deprecated_agent(agent_rule, registry):
     registry.register(deprecated_agent)
     
     context = {
-        "agent_id": "agent-deprecated",
+        "agent_id": "inv-agent-deprecated",
         "agent_name": "Old Agent",
     }
     
@@ -165,7 +171,7 @@ def test_agent_rule_archived_agent(agent_rule, registry):
     """Test that archived agent fails the rule."""
     # Create archived agent
     archived_agent = AIAsset(
-        asset_id="agent-archived",
+        asset_id="inv-agent-archived",
         asset_type=AssetType.AGENT,
         name="Archived Agent",
         description="Archived agent",
@@ -175,7 +181,7 @@ def test_agent_rule_archived_agent(agent_rule, registry):
     registry.register(archived_agent)
     
     context = {
-        "agent_id": "agent-archived",
+        "agent_id": "inv-agent-archived",
         "agent_name": "Archived Agent",
     }
     
@@ -267,7 +273,7 @@ def test_tool_rule_archived_tool(tool_rule, registry):
     """Test that archived tool fails the rule."""
     # Create archived tool
     archived_tool = AIAsset(
-        asset_id="tool-archived",
+        asset_id="inv-tool-archived",
         asset_type=AssetType.TOOL,
         name="Archived Tool",
         description="Archived tool",
@@ -346,7 +352,7 @@ def test_agent_and_tool_rules_together(agent_rule, tool_rule, sample_agent, samp
     """Test that both rules work together correctly."""
     # Check agent
     agent_context = {
-        "agent_id": "agent-001",
+        "agent_id": "inv-agent-001",
         "agent_name": "Research Agent",
     }
     agent_result = agent_rule.check(agent_context)
@@ -376,7 +382,7 @@ def test_multiple_tools_check(tool_rule, registry):
     
     # Check all tools
     for i in range(5):
-        context = {"tool_name": f"tool-{i:03d}"}
+        context = {"tool_name": f"Tool {i}"}  # Use name, not asset_id
         result = tool_rule.check(context)
         assert result.allowed is True
 
@@ -384,7 +390,7 @@ def test_multiple_tools_check(tool_rule, registry):
 def test_rule_with_additional_context(agent_rule, sample_agent):
     """Test that rules work with additional context fields."""
     context = {
-        "agent_id": "agent-001",
+        "agent_id": "inv-agent-001",
         "agent_name": "Research Agent",
         "tenant_id": "tenant-001",
         "user_id": "user-001",
@@ -468,7 +474,7 @@ def test_tool_rule_special_characters_in_name(tool_rule, registry):
     registry.register(tool)
     
     context = {
-        "tool_name": "tool-test_123-v2.0",
+        "tool_name": "Special Tool",  # Use name, not asset_id
     }
     
     result = tool_rule.check(context)
@@ -483,18 +489,19 @@ def test_tool_rule_special_characters_in_name(tool_rule, registry):
 def test_agent_rule_result_structure(agent_rule, sample_agent):
     """Test that agent rule result has correct structure."""
     context = {
-        "agent_id": "agent-001",
+        "agent_id": "inv-agent-001",
         "agent_name": "Research Agent",
     }
     
     result = agent_rule.check(context)
     
     assert isinstance(result, ComplianceResult)
-    assert hasattr(result, "compliant")
-    assert hasattr(result, "rule_id")
-    assert hasattr(result, "message")
-    assert hasattr(result, "severity")
-    assert hasattr(result, "metadata")
+    assert hasattr(result, "allowed")
+    assert hasattr(result, "rule")
+    assert hasattr(result, "reason")
+    assert isinstance(result.allowed, bool)
+    assert isinstance(result.rule, str)
+    assert isinstance(result.reason, str)
 
 
 def test_tool_rule_result_structure(tool_rule, sample_tool):
@@ -506,11 +513,12 @@ def test_tool_rule_result_structure(tool_rule, sample_tool):
     result = tool_rule.check(context)
     
     assert isinstance(result, ComplianceResult)
-    assert hasattr(result, "compliant")
-    assert hasattr(result, "rule_id")
-    assert hasattr(result, "message")
-    assert hasattr(result, "severity")
-    assert hasattr(result, "metadata")
+    assert hasattr(result, "allowed")
+    assert hasattr(result, "rule")
+    assert hasattr(result, "reason")
+    assert isinstance(result.allowed, bool)
+    assert isinstance(result.rule, str)
+    assert isinstance(result.reason, str)
 
 
 

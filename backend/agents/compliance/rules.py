@@ -658,6 +658,15 @@ class AgentInventoryRule:
                        f"but attempting to execute as {agent_type}"
             )
         
+        # Check if agent is active
+        from ..registry.asset_registry import AssetStatus
+        if asset.status != AssetStatus.ACTIVE:
+            return ComplianceResult(
+                allowed=False,
+                rule=self.name,
+                reason=f"Agent '{agent_id}' is {asset.status.value}. Only active agents can be executed."
+            )
+        
         return ComplianceResult(
             allowed=True,
             rule=self.name,

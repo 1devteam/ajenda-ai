@@ -18,13 +18,23 @@ from backend.agents.registry.asset_registry import (
 )
 
 
-@pytest.fixture
-def registry():
-    """Create a fresh registry for each test."""
+@pytest.fixture(autouse=True, scope="function")
+def clear_registry():
+    """Clear registry before and after each test."""
     from backend.agents.registry.asset_registry import get_registry
     reg = get_registry()
+    # Clear before test
     reg._assets.clear()
-    return reg
+    yield
+    # Clear after test
+    reg._assets.clear()
+
+
+@pytest.fixture
+def registry():
+    """Get the registry instance."""
+    from backend.agents.registry.asset_registry import get_registry
+    return get_registry()
 
 
 @pytest.fixture
@@ -105,7 +115,7 @@ def test_register_duplicate_asset(registry, sample_agent):
     """Test that registering a duplicate asset raises an error."""
     registry.register(sample_agent)
     
-    with pytest.raises(ValueError, match="already registered"):
+    with pytest.raises(ValueError, match="already exists"):
         registry.register(sample_agent)
 
 

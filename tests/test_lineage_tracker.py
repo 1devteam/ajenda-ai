@@ -22,22 +22,32 @@ from backend.agents.registry.asset_registry import (
 )
 
 
+@pytest.fixture(autouse=True)
+def clear_state():
+    """Clear registry and tracker before each test."""
+    from backend.agents.registry.asset_registry import get_registry
+    from backend.agents.registry.lineage_tracker import get_tracker
+    reg = get_registry()
+    t = get_tracker()
+    reg._assets.clear()
+    t.clear()
+    yield
+    reg._assets.clear()
+    t.clear()
+
+
 @pytest.fixture
 def tracker():
-    """Create a fresh tracker for each test."""
+    """Get the tracker instance."""
     from backend.agents.registry.lineage_tracker import get_tracker
-    t = get_tracker()
-    t.clear()
-    return t
+    return get_tracker()
 
 
 @pytest.fixture
 def registry():
-    """Create a fresh registry for each test."""
+    """Get the registry instance."""
     from backend.agents.registry.asset_registry import get_registry
-    reg = get_registry()
-    reg._assets.clear()
-    return reg
+    return get_registry()
 
 
 @pytest.fixture
@@ -90,8 +100,8 @@ def test_track_fine_tuning(tracker):
     """Test tracking fine-tuning event."""
     event_id = tracker.track_fine_tuning(
         asset_id="model-001",
-        datasets=["dataset-001", "dataset-002"],
-        metadata={"epochs": 10, "learning_rate": 0.001},
+        dataset="dataset-001,dataset-002",
+        parameters={"epochs": 10, "learning_rate": 0.001},
     )
     
     assert event_id is not None
@@ -450,8 +460,9 @@ def test_full_model_lifecycle(tracker, registry):
     # 3. Update model parameters
     tracker.track_event(
         asset_id="model-001",
-        changes={"temperature": 0.7, "max_tokens": 2000},
-        metadata={"updated_by": "user-001"},
+        event_type="updated",
+        description="Model parameters updated",
+        metadata={"changes": {"temperature": 0.7, "max_tokens": 2000}, "updated_by": "user-001"},
     )
     
     # 4. Deploy model
@@ -466,7 +477,7 @@ def test_full_model_lifecycle(tracker, registry):
     tracker.track_deprecation(
         asset_id="model-001",
         reason="Replaced by model-002",
-        metadata={"replacement": "model-002"},
+        replacement_id="model-002",
     )
     
     # Verify complete timeline
