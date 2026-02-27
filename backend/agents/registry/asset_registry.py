@@ -2,7 +2,7 @@
 Asset Registry for AI Governance
 
 Tracks all AI assets (agents, tools, models) with lineage and metadata.
-Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
 
 Built with Pride for Obex Blackvault.
 """

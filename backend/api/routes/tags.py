@@ -3,7 +3,7 @@ Tags API - Contextual tagging and risk assessment endpoints.
 
 This module provides REST API endpoints for:
 - Tag definition management
-- Asset tagging operations
+- AIAsset tagging operations
 - Tag analysis and reporting
 - Risk assessment queries
 

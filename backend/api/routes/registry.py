@@ -2,7 +2,7 @@
 Asset Registry API Endpoints
 
 REST API for managing AI assets (agents, tools, models, vector DBs).
-Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
 
 Built with Pride for Obex Blackvault.
 """

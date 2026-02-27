@@ -2,7 +2,7 @@
 Tests for Inventory Rules
 
 Comprehensive test coverage for AgentInventoryRule and ToolInventoryRule.
-Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
 
 Built with Pride for Obex Blackvault.
 """

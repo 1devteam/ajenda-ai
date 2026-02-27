@@ -1,8 +1,8 @@
 """
-Tests for Asset Registry
+Tests for AIAsset Registry
 
 Comprehensive test coverage for AIAssetRegistry.
-Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
 
 Built with Pride for Obex Blackvault.
 """

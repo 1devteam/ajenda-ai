@@ -231,7 +231,7 @@ class RegulatoryMappingRule:
         
         Args:
             context: Must contain:
-                - asset_id: Asset identifier
+                - asset_id: AIAsset identifier
                 - tags: List of asset tags (optional, will fetch from registry)
         
         Returns:
@@ -249,7 +249,7 @@ class RegulatoryMappingRule:
         # Get tags from context or registry
         tags = context.get("tags")
         if not tags:
-            from ..registry.asset_registry import get_registry
+            from ..registry.asset_registry import get_registry, AIAsset
             registry = get_registry()
             asset = registry.get(asset_id)
             
@@ -276,7 +276,7 @@ class RegulatoryMappingRule:
         )
         
         # Store assessment in asset
-        from ..registry.asset_registry import get_registry
+        from ..registry.asset_registry import get_registry, AIAsset
         registry = get_registry()
         asset = registry.get(asset_id)
         
@@ -367,8 +367,8 @@ class AutonomousAuthorityRule:
             context: Must contain:
                 - user_id: User identifier
                 - user_authority_level: User authority level (0-4)
-                - asset_id: Asset identifier
-                - asset_risk_level: Asset risk level (optional, will fetch)
+                - asset_id: AIAsset identifier
+                - asset_risk_level: AIAsset risk level (optional, will fetch)
                 - human_oversight: Whether human oversight is available (optional)
         
         Returns:
@@ -403,7 +403,7 @@ class AutonomousAuthorityRule:
         risk_level_str = context.get("asset_risk_level")
         if not risk_level_str:
             # Fetch from asset
-            from ..registry.asset_registry import get_registry
+            from ..registry.asset_registry import get_registry, AIAsset
             registry = get_registry()
             asset = registry.get(asset_id)
             
@@ -470,7 +470,7 @@ class AutonomousAuthorityRule:
         
         Args:
             user_level: User authority level (0-4)
-            risk_level: Asset risk level
+            risk_level: AIAsset risk level
             has_oversight: Whether human oversight is available
             
         Returns:

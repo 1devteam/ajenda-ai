@@ -2,7 +2,7 @@
 Tests for Lineage Tracker
 
 Comprehensive test coverage for ModelLineageTracker.
-Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
 
 Built with Pride for Obex Blackvault.
 """

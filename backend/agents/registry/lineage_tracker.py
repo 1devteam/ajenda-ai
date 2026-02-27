@@ -2,7 +2,7 @@
 Model Lineage Tracker
 
 Tracks the provenance and lifecycle of AI models.
-Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
 
 Built with Pride for Obex Blackvault.
 """

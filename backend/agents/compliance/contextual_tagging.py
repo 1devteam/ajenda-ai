@@ -162,7 +162,7 @@ class ContextualTaggingRule:
             "location": "production",
         }
         result = rule.check(context)
-        # Asset tagged with ["phi", "healthcare", "high-risk", "hipaa"]
+        # AIAsset tagged with ["phi", "healthcare", "high-risk", "hipaa"]
     """
     
     name = "contextual_tagging"
@@ -373,7 +373,7 @@ class ContextualTaggingRule:
         
         Args:
             context: Must contain:
-                - asset_id: Asset identifier
+                - asset_id: AIAsset identifier
                 - data_accessed: List of data types/sources accessed (optional)
                 - user_role: User role (optional)
                 - location: Deployment location (optional)
@@ -420,7 +420,7 @@ class ContextualTaggingRule:
             )
         
         # Apply tags to asset
-        from ..registry.asset_registry import get_registry
+        from ..registry.asset_registry import get_registry, AIAsset
         registry = get_registry()
         asset = registry.get(asset_id)
         

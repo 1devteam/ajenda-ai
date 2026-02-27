@@ -588,7 +588,7 @@ class AgentInventoryRule:
     """
     Enforce agent registration before execution.
     
-    Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+    Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
     Ensures all agents are registered in the asset registry before they can execute.
     
     Example:
@@ -678,7 +678,7 @@ class ToolInventoryRule:
     """
     Enforce tool registration before use.
     
-    Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+    Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
     Ensures all tools are registered in the asset registry before they can be used.
     
     Example:
