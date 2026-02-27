@@ -373,6 +373,7 @@ class TestRateLimitRule:
         rule = RateLimitRule()
         context = {
             "agent_id": "agent_123",
+            "agent_type": "researcher",
             "tool_name": "calculator",
         }
         
@@ -385,6 +386,7 @@ class TestRateLimitRule:
         rule = RateLimitRule()
         context = {
             "agent_id": "agent_123",
+            "agent_type": "researcher",
             "tool_name": "web_search",
         }
         
@@ -398,6 +400,7 @@ class TestRateLimitRule:
         rule = RateLimitRule()
         context = {
             "agent_id": "agent_123",
+            "agent_type": "researcher",
             "tool_name": "web_search",
         }
         
@@ -416,6 +419,7 @@ class TestRateLimitRule:
         rule = RateLimitRule()
         context = {
             "agent_id": "agent_123",
+            "agent_type": "researcher",
             "tool_name": "web_search",
         }
         
@@ -438,12 +442,14 @@ class TestRateLimitRule:
         for i in range(10):
             rule.check({
                 "agent_id": "agent_1",
+                "agent_type": "researcher",
                 "tool_name": "web_search",
             })
         
         # Agent 2 should still have quota
         result = rule.check({
             "agent_id": "agent_2",
+            "agent_type": "researcher",
             "tool_name": "web_search",
         })
         

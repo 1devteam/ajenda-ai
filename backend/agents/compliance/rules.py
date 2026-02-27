@@ -7,7 +7,7 @@ Provides three core compliance rules:
 3. RateLimitRule - Rate limiting for expensive operations
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .models import ComplianceResult
 
 
@@ -133,18 +133,18 @@ class DataAccessRule:
 
 class RateLimitRule:
     """
-    Check rate limits for expensive operations.
+    Check rate limits for expensive operations using Redis-based sliding window.
     
     Enforces rate limits on expensive tools like web_search
     and python_executor to prevent abuse.
     
-    Note: This is a simple in-memory implementation.
-    For production, use Redis or similar.
+    Uses ComplianceRateLimiter which supports both in-memory and Redis backends.
     
     Example:
         rule = RateLimitRule()
         context = {
             "agent_id": "agent_123",
+            "agent_type": "researcher",
             "tool_name": "web_search"
         }
         
@@ -156,11 +156,11 @@ class RateLimitRule:
         # 11th call blocked
         result = rule.check(context)
         # result.allowed = False
-        # result.reason = "Rate limit exceeded for 'web_search' (10/min)"
+        # result.reason = "Rate limit exceeded for tool 'web_search'..."
     """
     
     name = "rate_limit"
-    description = "Enforce rate limits"
+    description = "Enforce rate limits using sliding window"
     
     # Rate limits per tool (calls per minute)
     RATE_LIMITS = {
@@ -169,16 +169,18 @@ class RateLimitRule:
     }
     
     def __init__(self):
-        """Initialize rate limit tracker."""
-        self.usage_tracker: Dict[str, int] = {}
+        """Initialize rate limit rule."""
+        from backend.agents.compliance.rate_limiter import get_rate_limiter
+        self.rate_limiter = get_rate_limiter()
     
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
-        Check if rate limit exceeded.
+        Check if rate limit exceeded using sliding window algorithm.
         
         Args:
             context: Must contain:
                 - agent_id: str
+                - agent_type: str
                 - tool_name: str
         
         Returns:
@@ -186,63 +188,35 @@ class RateLimitRule:
             ComplianceResult.block() if rate limit exceeded
         """
         agent_id = context.get("agent_id", "unknown")
+        agent_type = context.get("agent_type", "unknown")
         tool_name = context.get("tool_name", "unknown")
         
-        # Only check rate-limited tools
-        if tool_name not in self.RATE_LIMITS:
-            return ComplianceResult.allow(self.name)
+        # Check tool-specific rate limit
+        allowed, reason = self.rate_limiter.check_agent_tool_rate_limit(
+            agent_id=agent_id,
+            agent_type=agent_type,
+            tool_name=tool_name,
+            rate_limits=self.RATE_LIMITS
+        )
         
-        # Check usage
-        key = f"{agent_id}:{tool_name}"
-        count = self.usage_tracker.get(key, 0)
-        limit = self.RATE_LIMITS[tool_name]
-        
-        if count >= limit:
+        if not allowed:
             return ComplianceResult.block(
                 rule=self.name,
-                reason=f"Rate limit exceeded for '{tool_name}' ({limit}/min)"
+                reason=reason
             )
-        
-        # Increment usage
-        self.usage_tracker[key] = count + 1
         
         return ComplianceResult.allow(self.name)
     
-    def reset(self, agent_id: str = None, tool_name: str = None) -> None:
+    def reset(self, agent_id: str, tool_name: Optional[str] = None) -> None:
         """
-        Reset rate limit counters.
+        Reset rate limit counters for an agent.
         
         Args:
-            agent_id: If provided, reset only for this agent
-            tool_name: If provided, reset only for this tool
+            agent_id: Agent ID to reset limits for
+            tool_name: Optional tool name to reset specific tool limit
         
-        Example:
-            # Reset all
-            rule.reset()
-            
-            # Reset for specific agent
-            rule.reset(agent_id="agent_123")
-            
-            # Reset for specific agent+tool
-            rule.reset(agent_id="agent_123", tool_name="web_search")
         """
-        if agent_id is None and tool_name is None:
-            # Reset all
-            self.usage_tracker.clear()
-        elif agent_id and tool_name:
-            # Reset specific agent+tool
-            key = f"{agent_id}:{tool_name}"
-            self.usage_tracker.pop(key, None)
-        elif agent_id:
-            # Reset all tools for agent
-            keys_to_remove = [k for k in self.usage_tracker if k.startswith(f"{agent_id}:")]
-            for key in keys_to_remove:
-                self.usage_tracker.pop(key)
-        elif tool_name:
-            # Reset all agents for tool
-            keys_to_remove = [k for k in self.usage_tracker if k.endswith(f":{tool_name}")]
-            for key in keys_to_remove:
-                self.usage_tracker.pop(key)
+        self.rate_limiter.reset_agent_limits(agent_id, tool_name)
 
 
 class CostLimitRule:
