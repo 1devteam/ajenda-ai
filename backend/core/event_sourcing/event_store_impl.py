@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Type, TypeVar, Generic
 from dataclasses import dataclass, asdict
 from enum import Enum
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, Index, select
+from sqlalchemy import Column, String, Integer, DateTime, Text, Index, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 
@@ -124,7 +124,7 @@ class EventRecord(Base):
     
     # Event data
     data = Column(Text, nullable=False)  # JSON
-    metadata = Column(Text, nullable=False)  # JSON
+    event_metadata = Column("metadata", Text, nullable=False)  # JSON
     
     # Versioning
     version = Column(Integer, nullable=False)
@@ -212,7 +212,7 @@ class EventStore(LoggerMixin):
             aggregate_id=event.aggregate_id,
             aggregate_type=event.aggregate_type,
             data=json.dumps(event.data),
-            metadata=json.dumps(event.metadata),
+            event_metadata=json.dumps(event.metadata),
             version=event.version,
             timestamp=event.timestamp
         )
@@ -377,7 +377,7 @@ class EventStore(LoggerMixin):
             aggregate_id=record.aggregate_id,
             aggregate_type=record.aggregate_type,
             data=json.loads(record.data),
-            metadata=json.loads(record.metadata),
+            metadata=json.loads(record.event_metadata),
             timestamp=record.timestamp,
             version=record.version
         )
@@ -469,69 +469,153 @@ class Snapshot:
     timestamp: datetime
 
 
+class SnapshotRecord(Base):
+    """
+    Database model for aggregate snapshots.
+    Maps to the ``snapshot_store`` table created by migration e1776d23c66e.
+    """
+    __tablename__ = 'snapshot_store'
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    aggregate_id   = Column(String(36), nullable=False, index=True)
+    aggregate_type = Column(String(50), nullable=False)
+    version        = Column(Integer, nullable=False)
+    state          = Column(Text, nullable=False)   # JSON
+    timestamp      = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('idx_snapshot_agg_ver', 'aggregate_id', 'version'),
+    )
+
+
 class SnapshotStore(LoggerMixin):
     """
-    Store for aggregate snapshots to optimize event replay
+    PostgreSQL-backed store for aggregate snapshots.
+
+    Snapshots allow event replay to start from a known state rather than
+    replaying the entire event history, which is critical for aggregates
+    with long histories.
     """
-    
-    def __init__(self, session: AsyncSession):
+
+    # Take a snapshot every N events to bound replay cost.
+    SNAPSHOT_THRESHOLD: int = 50
+
+    def __init__(self, session: AsyncSession) -> None:
         """
-        Initialize snapshot store
-        
         Args:
-            session: Database session
+            session: Async SQLAlchemy session.
         """
         self.session = session
-    
+
     async def save_snapshot(
         self,
         aggregate_id: str,
         aggregate_type: str,
         version: int,
-        state: Dict[str, Any]
+        state: Dict[str, Any],
     ) -> Snapshot:
         """
-        Save snapshot of aggregate state
-        
+        Persist a snapshot of aggregate state at the given version.
+
+        If a snapshot already exists for this aggregate at this version it is
+        replaced (idempotent upsert via delete + insert).
+
         Args:
-            aggregate_id: ID of the aggregate
-            aggregate_type: Type of the aggregate
-            version: Version at snapshot
-            state: Aggregate state
-        
+            aggregate_id:   Unique aggregate identifier.
+            aggregate_type: Aggregate type name (e.g. ``"agent"``).
+            version:        Event version at which the snapshot was taken.
+            state:          Full aggregate state as a JSON-serialisable dict.
+
         Returns:
-            Created snapshot
+            The persisted :class:`Snapshot` dataclass.
         """
-        # Implementation would save to database
-        # For now, just create the snapshot object
-        snapshot = Snapshot(
+        now = datetime.utcnow()
+
+        # Delete any existing snapshot for this aggregate at this version
+        # (idempotent — safe to call multiple times).
+        existing_q = select(SnapshotRecord).where(
+            SnapshotRecord.aggregate_id == aggregate_id,
+            SnapshotRecord.version == version,
+        )
+        result = await self.session.execute(existing_q)
+        existing = result.scalar_one_or_none()
+        if existing:
+            await self.session.delete(existing)
+
+        record = SnapshotRecord(
+            aggregate_id=aggregate_id,
+            aggregate_type=aggregate_type,
+            version=version,
+            state=json.dumps(state),
+            timestamp=now,
+        )
+        self.session.add(record)
+        await self.session.commit()
+
+        self.log_info(
+            "Snapshot saved",
+            aggregate_id=aggregate_id,
+            aggregate_type=aggregate_type,
+            version=version,
+        )
+
+        return Snapshot(
             aggregate_id=aggregate_id,
             aggregate_type=aggregate_type,
             version=version,
             state=state,
-            timestamp=datetime.utcnow()
+            timestamp=now,
         )
-        
-        self.log_info(
-            f"Snapshot saved",
-            aggregate_id=aggregate_id,
-            version=version
-        )
-        
-        return snapshot
-    
-    async def get_snapshot(
-        self,
-        aggregate_id: str
-    ) -> Optional[Snapshot]:
+
+    async def get_snapshot(self, aggregate_id: str) -> Optional[Snapshot]:
         """
-        Get latest snapshot for aggregate
-        
+        Retrieve the most recent snapshot for an aggregate.
+
         Args:
-            aggregate_id: ID of the aggregate
-        
+            aggregate_id: Unique aggregate identifier.
+
         Returns:
-            Latest snapshot or None
+            The latest :class:`Snapshot`, or ``None`` if no snapshot exists.
         """
-        # Implementation would load from database
-        return None
+        query = (
+            select(SnapshotRecord)
+            .where(SnapshotRecord.aggregate_id == aggregate_id)
+            .order_by(desc(SnapshotRecord.version))
+            .limit(1)
+        )
+        result = await self.session.execute(query)
+        record = result.scalar_one_or_none()
+
+        if record is None:
+            return None
+
+        return Snapshot(
+            aggregate_id=record.aggregate_id,
+            aggregate_type=record.aggregate_type,
+            version=record.version,
+            state=json.loads(record.state),
+            timestamp=record.timestamp,
+        )
+
+    async def should_snapshot(
+        self,
+        aggregate_id: str,
+        current_version: int,
+    ) -> bool:
+        """
+        Return ``True`` when a new snapshot should be taken.
+
+        A snapshot is due when the number of events since the last snapshot
+        exceeds :attr:`SNAPSHOT_THRESHOLD`.
+
+        Args:
+            aggregate_id:    Aggregate to check.
+            current_version: Latest event version for the aggregate.
+
+        Returns:
+            ``True`` if a snapshot should be taken, ``False`` otherwise.
+        """
+        latest = await self.get_snapshot(aggregate_id)
+        last_snapshot_version = latest.version if latest else 0
+        events_since = current_version - last_snapshot_version
+        return events_since >= self.SNAPSHOT_THRESHOLD

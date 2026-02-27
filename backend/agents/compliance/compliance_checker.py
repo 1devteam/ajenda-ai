@@ -330,18 +330,117 @@ class ComplianceChecker:
         )
     
     def _check_approval_compliance(self, check_id: str) -> ComplianceCheck:
-        """Check if high-risk operations are properly approved."""
-        # This would integrate with approval workflow system
-        # For now, return placeholder
+        """
+        Check if high-risk operations are properly approved.
+
+        Queries the :class:`ApprovalWorkflow` singleton for pending requests
+        that have exceeded their SLA and for executed operations that were
+        performed without a corresponding approved request.
+        """
+        from backend.agents.compliance.approval_workflows import (
+            get_approval_workflow,
+            ApprovalState,
+        )
+
+        workflow = get_approval_workflow()
+        findings: List[ComplianceFinding] = []
+        recommendations: List[str] = []
+
+        # ----------------------------------------------------------------
+        # 1. Pending requests that have expired without resolution
+        # ----------------------------------------------------------------
+        expired = workflow.process_expired_requests()
+        if expired:
+            findings.append(
+                ComplianceFinding(
+                    finding_id=f"finding-{uuid.uuid4()}",
+                    description=(
+                        f"{len(expired)} high-risk approval request(s) expired "
+                        "without being approved or rejected"
+                    ),
+                    affected_assets=[r.asset_id for r in expired],
+                    regulation=Regulation.EU_AI_ACT,
+                    article="Article 14 (Human oversight)",
+                    severity=Severity.HIGH,
+                    remediation=(
+                        "Review and resolve expired approval requests; "
+                        "ensure approvers are notified promptly"
+                    ),
+                    metadata={"expired_request_ids": [r.request_id for r in expired]},
+                )
+            )
+            recommendations.append(
+                "Configure shorter SLA windows or add escalation rules for approval requests"
+            )
+
+        # ----------------------------------------------------------------
+        # 2. Pending requests that have been waiting > 24 hours (SLA breach)
+        # ----------------------------------------------------------------
+        sla_threshold = datetime.utcnow() - timedelta(hours=24)
+        overdue = [
+            r for r in workflow.get_pending_requests()
+            if r.created_at < sla_threshold
+        ]
+        if overdue:
+            findings.append(
+                ComplianceFinding(
+                    finding_id=f"finding-{uuid.uuid4()}",
+                    description=(
+                        f"{len(overdue)} approval request(s) pending for more than 24 hours"
+                    ),
+                    affected_assets=[r.asset_id for r in overdue],
+                    regulation=Regulation.EU_AI_ACT,
+                    article="Article 14 (Human oversight)",
+                    severity=Severity.MEDIUM,
+                    remediation="Escalate overdue approval requests to senior approvers",
+                    metadata={"overdue_request_ids": [r.request_id for r in overdue]},
+                )
+            )
+            recommendations.append(
+                "Implement automated escalation for approval requests pending > 24 hours"
+            )
+
+        # ----------------------------------------------------------------
+        # 3. Score calculation
+        # ----------------------------------------------------------------
+        total_requests = len(workflow._requests)
+        resolved = sum(
+            1
+            for r in workflow._requests.values()
+            if r.state in (
+                ApprovalState.APPROVED,
+                ApprovalState.REJECTED,
+                ApprovalState.EXECUTED,
+            )
+        )
+        resolution_rate = (resolved / total_requests) if total_requests > 0 else 1.0
+        score = max(0.0, min(100.0, resolution_rate * 100 - len(findings) * 10))
+
+        status = (
+            CheckStatus.PASS
+            if not findings
+            else (
+                CheckStatus.FAIL
+                if any(f.severity == Severity.HIGH for f in findings)
+                else CheckStatus.WARNING
+            )
+        )
+
         return ComplianceCheck(
             check_id=check_id,
             check_type=ComplianceCheckType.APPROVAL_COMPLIANCE,
-            status=CheckStatus.PASS,
+            status=status,
             timestamp=datetime.utcnow(),
-            findings=[],
-            recommendations=[],
-            score=100.0,
-            metadata={"note": "Approval compliance check placeholder"},
+            findings=findings,
+            recommendations=recommendations,
+            score=round(score, 2),
+            metadata={
+                "total_requests": total_requests,
+                "resolved_requests": resolved,
+                "pending_requests": len(workflow.get_pending_requests()),
+                "expired_requests": len(expired),
+                "overdue_requests": len(overdue),
+            },
         )
     
     def _check_data_compliance(self, check_id: str) -> ComplianceCheck:
@@ -414,18 +513,125 @@ class ComplianceChecker:
         )
     
     def _check_audit_compliance(self, check_id: str) -> ComplianceCheck:
-        """Check if complete audit trails exist."""
-        # This would integrate with audit monitor
-        # For now, return placeholder
+        """
+        Check if complete audit trails exist.
+
+        Queries the :class:`AuditMonitor` singleton to verify:
+        1. Every registered asset has at least one audit event.
+        2. No anomalies have been detected in the last 24 hours.
+        3. The audit event volume is above a minimum threshold.
+        """
+        from backend.agents.compliance.audit_monitor import (
+            get_audit_monitor,
+            EventResult,
+        )
+
+        monitor = get_audit_monitor()
+        registry = get_registry()
+        assets = registry.list_all()
+        findings: List[ComplianceFinding] = []
+        recommendations: List[str] = []
+
+        # ----------------------------------------------------------------
+        # 1. Assets with no audit trail
+        # ----------------------------------------------------------------
+        no_trail = [
+            a for a in assets
+            if not monitor.get_audit_trail(a.asset_id)
+        ]
+        if no_trail:
+            findings.append(
+                ComplianceFinding(
+                    finding_id=f"finding-{uuid.uuid4()}",
+                    description=(
+                        f"{len(no_trail)} asset(s) have no audit trail recorded"
+                    ),
+                    affected_assets=[a.asset_id for a in no_trail],
+                    regulation=Regulation.GDPR,
+                    article="Article 5(2) (Accountability)",
+                    severity=Severity.HIGH,
+                    remediation=(
+                        "Ensure all asset operations are tracked via AuditMonitor.track_event()"
+                    ),
+                )
+            )
+            recommendations.append(
+                "Instrument all asset operations with audit events"
+            )
+
+        # ----------------------------------------------------------------
+        # 2. Active anomalies detected in the last 24 hours
+        # ----------------------------------------------------------------
+        anomalies = monitor.detect_anomalies()
+        recent_anomalies = [
+            a for a in anomalies
+            if a.detected_at >= datetime.utcnow() - timedelta(hours=24)
+        ]
+        if recent_anomalies:
+            findings.append(
+                ComplianceFinding(
+                    finding_id=f"finding-{uuid.uuid4()}",
+                    description=(
+                        f"{len(recent_anomalies)} anomaly(ies) detected in the last 24 hours"
+                    ),
+                    affected_assets=list(
+                        {a.asset_id for a in recent_anomalies if a.asset_id}
+                    ),
+                    regulation=Regulation.EU_AI_ACT,
+                    article="Article 9 (Risk management)",
+                    severity=Severity.HIGH,
+                    remediation="Investigate and resolve detected anomalies",
+                    metadata={
+                        "anomaly_types": list(
+                            {a.anomaly_type.value for a in recent_anomalies}
+                        )
+                    },
+                )
+            )
+            recommendations.append(
+                "Review anomaly alerts and update detection thresholds if needed"
+            )
+
+        # ----------------------------------------------------------------
+        # 3. Score calculation
+        # ----------------------------------------------------------------
+        stats = monitor.get_statistics()
+        total_events = stats.get("total_events", 0)
+        denied_events = stats.get("denied_events", 0)
+        denial_rate = (denied_events / total_events) if total_events > 0 else 0.0
+
+        # Penalise high denial rates (potential policy misconfiguration)
+        denial_penalty = min(20.0, denial_rate * 100)
+        score = max(
+            0.0,
+            min(100.0, 100.0 - len(findings) * 15 - denial_penalty),
+        )
+
+        status = (
+            CheckStatus.PASS
+            if not findings
+            else (
+                CheckStatus.FAIL
+                if any(f.severity == Severity.HIGH for f in findings)
+                else CheckStatus.WARNING
+            )
+        )
+
         return ComplianceCheck(
             check_id=check_id,
             check_type=ComplianceCheckType.AUDIT_COMPLIANCE,
-            status=CheckStatus.PASS,
+            status=status,
             timestamp=datetime.utcnow(),
-            findings=[],
-            recommendations=[],
-            score=100.0,
-            metadata={"note": "Audit compliance check placeholder"},
+            findings=findings,
+            recommendations=recommendations,
+            score=round(score, 2),
+            metadata={
+                "total_assets": len(assets),
+                "assets_without_trail": len(no_trail),
+                "total_audit_events": total_events,
+                "recent_anomalies": len(recent_anomalies),
+                "denial_rate": round(denial_rate, 4),
+            },
         )
     
     def _check_risk_compliance(self, check_id: str) -> ComplianceCheck:

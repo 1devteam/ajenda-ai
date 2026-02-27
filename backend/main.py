@@ -26,6 +26,7 @@ from backend.economy.resource_marketplace import ResourceMarketplace
 from backend.core.event_bus.nats_bus import NATSEventBus
 from backend.orchestration.mission_executor import MissionExecutor
 from backend.middleware.rate_limit import RateLimitMiddleware
+from backend.core.cqrs.setup import setup_cqrs, teardown_cqrs
 from typing import Optional
 
 # Configure logging
@@ -144,6 +145,18 @@ async def lifespan(app: FastAPI):
         llm_service=llm_service
     )
     logger.info("✅ Mission Executor initialized")
+
+    # Initialize CQRS buses
+    logger.info("Initializing CQRS buses...")
+    try:
+        from backend.database.session import AsyncSessionLocal
+        from backend.core.event_sourcing.event_store_impl import EventStore as ESImpl
+        async with AsyncSessionLocal() as _es_session:
+            _event_store = ESImpl(session=_es_session)
+            setup_cqrs(event_store=_event_store)
+        logger.info("✅ CQRS buses initialised")
+    except Exception as _cqrs_err:
+        logger.warning(f"CQRS setup failed (non-fatal): {_cqrs_err}")
     
     logger.info("=" * 60)
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} is ready!")
@@ -163,7 +176,10 @@ async def lifespan(app: FastAPI):
     if event_bus:
         logger.info("Disconnecting NATS Event Bus...")
         await event_bus.disconnect()
-    
+
+    # Teardown CQRS buses
+    teardown_cqrs()
+
     telemetry.shutdown()
     logger.info("✅ Shutdown complete")
 

@@ -1,6 +1,6 @@
 """
-Saga Orchestration Implementation for Omnipath v5.0
-Manages distributed transactions across multiple services with compensation
+Saga Orchestration — Omnipath v5.0
+Manages distributed transactions across multiple services with compensation.
 
 Built with Pride for Obex Blackvault
 """
@@ -45,9 +45,7 @@ class StepStatus(str, Enum):
 
 @dataclass
 class SagaStep:
-    """
-    Single step in a saga
-    """
+    """Single step in a saga"""
     step_id: str
     name: str
     action: Callable
@@ -61,9 +59,7 @@ class SagaStep:
 
 @dataclass
 class SagaDefinition:
-    """
-    Definition of a saga workflow
-    """
+    """Definition of a saga workflow"""
     saga_id: str
     name: str
     steps: List[SagaStep] = field(default_factory=list)
@@ -81,377 +77,233 @@ class SagaDefinition:
 
 class SagaOrchestrator(LoggerMixin):
     """
-    Orchestrates saga execution with automatic compensation on failure
+    Orchestrates saga execution with automatic compensation on failure.
     """
-    
-    def __init__(self, event_store: EventStore):
-        """
-        Initialize saga orchestrator
-        
-        Args:
-            event_store: Event store for saga events
-        """
+
+    def __init__(self, event_store: EventStore) -> None:
         self.event_store = event_store
         self._sagas: Dict[str, SagaDefinition] = {}
-    
-    def create_saga(self, name: str, context: Optional[Dict[str, Any]] = None) -> SagaDefinition:
-        """
-        Create new saga
-        
-        Args:
-            name: Name of the saga
-            context: Initial context data
-        
-        Returns:
-            Created saga definition
-        """
+
+    def create_saga(
+        self,
+        name: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> SagaDefinition:
         saga = SagaDefinition(
             saga_id=str(uuid.uuid4()),
             name=name,
-            context=context or {}
+            context=context or {},
         )
-        
         self._sagas[saga.saga_id] = saga
-        
-        self.log_info(
-            f"Saga created: {name}",
-            saga_id=saga.saga_id
-        )
-        
+        self.log_info(f"Saga created: {name}", saga_id=saga.saga_id)
         return saga
-    
+
     def add_step(
         self,
         saga: SagaDefinition,
         name: str,
         action: Callable,
-        compensation: Optional[Callable] = None
+        compensation: Optional[Callable] = None,
     ) -> SagaStep:
-        """
-        Add step to saga
-        
-        Args:
-            saga: Saga to add step to
-            name: Name of the step
-            action: Action to execute
-            compensation: Optional compensation action
-        
-        Returns:
-            Created step
-        """
         step = SagaStep(
             step_id=str(uuid.uuid4()),
             name=name,
             action=action,
-            compensation=compensation
+            compensation=compensation,
         )
-        
         saga.steps.append(step)
-        
         self.log_debug(
             f"Step added to saga: {name}",
             saga_id=saga.saga_id,
-            step_id=step.step_id
+            step_id=step.step_id,
         )
-        
         return step
-    
+
     async def execute(self, saga: SagaDefinition) -> bool:
-        """
-        Execute saga with automatic compensation on failure
-        
-        Args:
-            saga: Saga to execute
-        
-        Returns:
-            True if successful, False if compensated
-        """
         saga.status = SagaStatus.RUNNING
         saga.started_at = datetime.utcnow()
-        
         self.log_info(
             f"Saga execution started: {saga.name}",
             saga_id=saga.saga_id,
-            steps=len(saga.steps)
+            steps=len(saga.steps),
         )
-        
-        # Emit saga started event
         await self._emit_event(
             saga_id=saga.saga_id,
-            event_type='saga.started',
-            data={'name': saga.name, 'steps': len(saga.steps)}
+            event_type="saga.started",
+            data={"name": saga.name, "steps": len(saga.steps)},
         )
-        
+
         try:
-            # Execute steps sequentially
             for i, step in enumerate(saga.steps):
                 saga.current_step = i
-                
                 success = await self._execute_step(saga, step)
-                
                 if not success:
-                    # Step failed, start compensation
                     await self._compensate(saga, i)
                     saga.status = SagaStatus.COMPENSATED
                     saga.completed_at = datetime.utcnow()
-                    
-                    # Emit saga compensated event
                     await self._emit_event(
                         saga_id=saga.saga_id,
-                        event_type='saga.compensated',
-                        data={'failed_step': step.name}
+                        event_type="saga.compensated",
+                        data={"failed_step": step.name},
                     )
-                    
                     return False
-            
-            # All steps completed successfully
+
             saga.status = SagaStatus.COMPLETED
             saga.completed_at = datetime.utcnow()
-            
             self.log_info(
                 f"Saga completed successfully: {saga.name}",
                 saga_id=saga.saga_id,
-                duration_ms=(saga.completed_at - saga.started_at).total_seconds() * 1000
+                duration_ms=(saga.completed_at - saga.started_at).total_seconds() * 1000,
             )
-            
-            # Emit saga completed event
             await self._emit_event(
                 saga_id=saga.saga_id,
-                event_type='saga.completed',
-                data={'steps_completed': len(saga.steps)}
+                event_type="saga.completed",
+                data={"steps_completed": len(saga.steps)},
             )
-            
             return True
-            
+
         except Exception as e:
             self.log_error(
                 f"Saga execution failed: {saga.name}",
                 exc_info=True,
                 saga_id=saga.saga_id,
-                error=str(e)
+                error=str(e),
             )
-            
-            # Start compensation
             await self._compensate(saga, saga.current_step)
             saga.status = SagaStatus.FAILED
             saga.completed_at = datetime.utcnow()
-            
-            # Emit saga failed event
             await self._emit_event(
                 saga_id=saga.saga_id,
-                event_type='saga.failed',
-                data={'error': str(e)}
+                event_type="saga.failed",
+                data={"error": str(e)},
             )
-            
             return False
-    
+
     async def _execute_step(self, saga: SagaDefinition, step: SagaStep) -> bool:
-        """
-        Execute single saga step
-        
-        Args:
-            saga: Saga being executed
-            step: Step to execute
-        
-        Returns:
-            True if successful, False otherwise
-        """
         step.status = StepStatus.RUNNING
         step.started_at = datetime.utcnow()
-        
         self.log_info(
             f"Executing step: {step.name}",
             saga_id=saga.saga_id,
-            step_id=step.step_id
+            step_id=step.step_id,
         )
-        
-        # Emit step started event
         await self._emit_event(
             saga_id=saga.saga_id,
-            event_type='saga.step.started',
-            data={'step_name': step.name, 'step_id': step.step_id}
+            event_type="saga.step.started",
+            data={"step_name": step.name, "step_id": step.step_id},
         )
-        
         try:
-            # Execute step action
             result = await step.action(saga.context)
-            
             step.result = result
             step.status = StepStatus.COMPLETED
             step.completed_at = datetime.utcnow()
-            
-            # Update saga context with result
             saga.context[f"{step.name}_result"] = result
-            
             self.log_info(
                 f"Step completed: {step.name}",
                 saga_id=saga.saga_id,
                 step_id=step.step_id,
-                duration_ms=(step.completed_at - step.started_at).total_seconds() * 1000
+                duration_ms=(step.completed_at - step.started_at).total_seconds() * 1000,
             )
-            
-            # Emit step completed event
             await self._emit_event(
                 saga_id=saga.saga_id,
-                event_type='saga.step.completed',
-                data={'step_name': step.name, 'step_id': step.step_id}
+                event_type="saga.step.completed",
+                data={"step_name": step.name, "step_id": step.step_id},
             )
-            
             return True
-            
         except Exception as e:
             step.error = str(e)
             step.status = StepStatus.FAILED
             step.completed_at = datetime.utcnow()
-            
             self.log_error(
                 f"Step failed: {step.name}",
                 exc_info=True,
                 saga_id=saga.saga_id,
                 step_id=step.step_id,
-                error=str(e)
+                error=str(e),
             )
-            
-            # Emit step failed event
             await self._emit_event(
                 saga_id=saga.saga_id,
-                event_type='saga.step.failed',
-                data={'step_name': step.name, 'step_id': step.step_id, 'error': str(e)}
+                event_type="saga.step.failed",
+                data={"step_name": step.name, "step_id": step.step_id, "error": str(e)},
             )
-            
             return False
-    
+
     async def _compensate(self, saga: SagaDefinition, failed_step_index: int) -> None:
-        """
-        Compensate completed steps in reverse order
-        
-        Args:
-            saga: Saga to compensate
-            failed_step_index: Index of the step that failed
-        """
         saga.status = SagaStatus.COMPENSATING
-        
         self.log_info(
             f"Starting compensation: {saga.name}",
             saga_id=saga.saga_id,
-            steps_to_compensate=failed_step_index
+            steps_to_compensate=failed_step_index,
         )
-        
-        # Emit compensation started event
         await self._emit_event(
             saga_id=saga.saga_id,
-            event_type='saga.compensation.started',
-            data={'steps_to_compensate': failed_step_index}
+            event_type="saga.compensation.started",
+            data={"steps_to_compensate": failed_step_index},
         )
-        
-        # Compensate completed steps in reverse order
         for i in range(failed_step_index - 1, -1, -1):
             step = saga.steps[i]
-            
             if step.status == StepStatus.COMPLETED and step.compensation:
                 await self._compensate_step(saga, step)
-        
-        self.log_info(
-            f"Compensation completed: {saga.name}",
-            saga_id=saga.saga_id
-        )
-        
-        # Emit compensation completed event
+        self.log_info(f"Compensation completed: {saga.name}", saga_id=saga.saga_id)
         await self._emit_event(
             saga_id=saga.saga_id,
-            event_type='saga.compensation.completed',
-            data={}
+            event_type="saga.compensation.completed",
+            data={},
         )
-    
+
     async def _compensate_step(self, saga: SagaDefinition, step: SagaStep) -> None:
-        """
-        Compensate single step
-        
-        Args:
-            saga: Saga being compensated
-            step: Step to compensate
-        """
         step.status = StepStatus.COMPENSATING
-        
         self.log_info(
             f"Compensating step: {step.name}",
             saga_id=saga.saga_id,
-            step_id=step.step_id
+            step_id=step.step_id,
         )
-        
-        # Emit step compensation started event
         await self._emit_event(
             saga_id=saga.saga_id,
-            event_type='saga.step.compensation.started',
-            data={'step_name': step.name, 'step_id': step.step_id}
+            event_type="saga.step.compensation.started",
+            data={"step_name": step.name, "step_id": step.step_id},
         )
-        
         try:
-            # Execute compensation action
             await step.compensation(saga.context, step.result)
-            
             step.status = StepStatus.COMPENSATED
-            
             self.log_info(
                 f"Step compensated: {step.name}",
                 saga_id=saga.saga_id,
-                step_id=step.step_id
+                step_id=step.step_id,
             )
-            
-            # Emit step compensation completed event
             await self._emit_event(
                 saga_id=saga.saga_id,
-                event_type='saga.step.compensation.completed',
-                data={'step_name': step.name, 'step_id': step.step_id}
+                event_type="saga.step.compensation.completed",
+                data={"step_name": step.name, "step_id": step.step_id},
             )
-            
         except Exception as e:
             self.log_error(
                 f"Step compensation failed: {step.name}",
                 exc_info=True,
                 saga_id=saga.saga_id,
                 step_id=step.step_id,
-                error=str(e)
+                error=str(e),
             )
-            
-            # Emit step compensation failed event
             await self._emit_event(
                 saga_id=saga.saga_id,
-                event_type='saga.step.compensation.failed',
-                data={'step_name': step.name, 'step_id': step.step_id, 'error': str(e)}
+                event_type="saga.step.compensation.failed",
+                data={"step_name": step.name, "step_id": step.step_id, "error": str(e)},
             )
-    
+
     async def _emit_event(
         self,
         saga_id: str,
         event_type: str,
-        data: Dict[str, Any]
+        data: Dict[str, Any],
     ) -> None:
-        """
-        Emit saga event
-        
-        Args:
-            saga_id: ID of the saga
-            event_type: Type of event
-            data: Event data
-        """
         await self.event_store.append(
             aggregate_id=saga_id,
-            aggregate_type='saga',
+            aggregate_type="saga",
             event_type=event_type,
-            data=data
+            data=data,
         )
-    
+
     def get_saga(self, saga_id: str) -> Optional[SagaDefinition]:
-        """
-        Get saga by ID
-        
-        Args:
-            saga_id: ID of the saga
-        
-        Returns:
-            Saga definition or None
-        """
         return self._sagas.get(saga_id)
 
 
@@ -461,122 +313,489 @@ class SagaOrchestrator(LoggerMixin):
 
 class MissionExecutionSaga:
     """
-    Saga for executing a mission with credit deduction and result recording
+    Saga for executing a mission end-to-end with credit reservation, mission
+    execution, result recording, and final cost deduction.
+
+    Steps:
+        1. reserve_credits  — hold estimated cost in the agent's balance
+        2. execute_mission  — run the mission via MissionExecutor
+        3. record_result    — persist the mission result via the DB session
+        4. deduct_cost      — deduct the actual cost and release the reservation
+
+    Each step has a compensation action that undoes the work if a later step
+    fails, ensuring the system is always in a consistent state.
     """
-    
-    def __init__(self, orchestrator: SagaOrchestrator):
-        """
-        Initialize mission execution saga
-        
-        Args:
-            orchestrator: Saga orchestrator
-        """
+
+    def __init__(
+        self,
+        orchestrator: SagaOrchestrator,
+        marketplace: Any,          # ResourceMarketplace
+        mission_executor: Any,     # MissionExecutor
+        db_session: Any,           # SQLAlchemy Session
+    ) -> None:
         self.orchestrator = orchestrator
-    
+        self.marketplace = marketplace
+        self.mission_executor = mission_executor
+        self.db = db_session
+
     async def execute(
         self,
         mission_id: str,
         agent_id: str,
-        command: str,
-        estimated_cost: float
+        tenant_id: str,
+        user_id: str,
+        goal: str,
+        estimated_cost: float,
+        budget: Optional[float] = None,
     ) -> bool:
         """
-        Execute mission saga
-        
+        Execute the mission saga.
+
         Args:
-            mission_id: ID of the mission
-            agent_id: ID of the agent
-            command: Command to execute
-            estimated_cost: Estimated cost in credits
-        
+            mission_id:     Unique mission identifier.
+            agent_id:       Agent that will execute the mission.
+            tenant_id:      Tenant owning the mission.
+            user_id:        User who created the mission.
+            goal:           Mission objective in natural language.
+            estimated_cost: Estimated credit cost for the mission.
+            budget:         Optional hard budget cap.
+
         Returns:
-            True if successful, False if compensated
+            ``True`` if all steps succeeded, ``False`` if the saga was
+            compensated due to a step failure.
         """
-        # Create saga
         saga = self.orchestrator.create_saga(
             name="mission_execution",
             context={
-                'mission_id': mission_id,
-                'agent_id': agent_id,
-                'command': command,
-                'estimated_cost': estimated_cost
-            }
+                "mission_id": mission_id,
+                "agent_id": agent_id,
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "goal": goal,
+                "estimated_cost": estimated_cost,
+                "budget": budget,
+            },
         )
-        
-        # Step 1: Reserve credits
+
         self.orchestrator.add_step(
             saga,
             name="reserve_credits",
             action=self._reserve_credits,
-            compensation=self._release_credits
+            compensation=self._release_credits,
         )
-        
-        # Step 2: Execute mission
         self.orchestrator.add_step(
             saga,
             name="execute_mission",
             action=self._execute_mission,
-            compensation=self._cancel_mission
+            compensation=self._cancel_mission,
         )
-        
-        # Step 3: Record result
         self.orchestrator.add_step(
             saga,
             name="record_result",
             action=self._record_result,
-            compensation=self._delete_result
+            compensation=self._delete_result,
         )
-        
-        # Step 4: Deduct actual cost
         self.orchestrator.add_step(
             saga,
             name="deduct_cost",
             action=self._deduct_cost,
-            compensation=self._refund_cost
+            compensation=self._refund_cost,
         )
-        
-        # Execute saga
+
         return await self.orchestrator.execute(saga)
-    
+
+    # ------------------------------------------------------------------
+    # Step: reserve_credits
+    # ------------------------------------------------------------------
+
     async def _reserve_credits(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Reserve credits for mission"""
-        # Implementation would call economy service
-        return {'reserved': True, 'reservation_id': str(uuid.uuid4())}
-    
-    async def _release_credits(self, context: Dict[str, Any], result: Any) -> None:
-        """Release reserved credits"""
-        # Implementation would call economy service
-        pass
-    
+        """
+        Charge the estimated cost upfront as a reservation.
+        The reservation is released or adjusted after the mission completes.
+        """
+        transaction = await self.marketplace.charge(
+            tenant_id=context["tenant_id"],
+            agent_id=context["agent_id"],
+            amount=context["estimated_cost"],
+            resource_type="mission_reservation",
+            mission_id=context["mission_id"],
+        )
+        return {
+            "reserved": True,
+            "reservation_id": transaction["id"],
+            "amount": context["estimated_cost"],
+        }
+
+    async def _release_credits(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        """Refund the reservation if the mission was never executed."""
+        if result and result.get("reserved"):
+            await self.marketplace.reward(
+                tenant_id=context["tenant_id"],
+                agent_id=context["agent_id"],
+                amount=result["amount"],
+                resource_type="mission_reservation_refund",
+                mission_id=context["mission_id"],
+            )
+
+    # ------------------------------------------------------------------
+    # Step: execute_mission
+    # ------------------------------------------------------------------
+
     async def _execute_mission(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the mission"""
-        # Implementation would call mission executor
-        return {'result': 'Mission completed', 'actual_cost': context['estimated_cost'] * 0.9}
-    
-    async def _cancel_mission(self, context: Dict[str, Any], result: Any) -> None:
-        """Cancel mission execution"""
-        # Implementation would call mission executor
-        pass
-    
+        """Delegate to MissionExecutor for the actual execution."""
+        result = await self.mission_executor.execute_mission(
+            mission_id=context["mission_id"],
+            goal=context["goal"],
+            tenant_id=context["tenant_id"],
+            user_id=context["user_id"],
+            budget=context.get("budget"),
+        )
+        return result
+
+    async def _cancel_mission(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        """
+        Mark the mission as cancelled in the DB if execution was started.
+        The mission record may not exist yet if the executor failed early.
+        """
+        try:
+            from backend.database.models import Mission
+            mission = self.db.query(Mission).filter(
+                Mission.id == context["mission_id"]
+            ).first()
+            if mission:
+                mission.status = "CANCELLED"
+                mission.error = "Saga compensation: mission cancelled"
+                self.db.commit()
+        except Exception as exc:
+            logger.warning(
+                f"Could not cancel mission {context['mission_id']} during compensation: {exc}"
+            )
+
+    # ------------------------------------------------------------------
+    # Step: record_result
+    # ------------------------------------------------------------------
+
     async def _record_result(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Record mission result"""
-        # Implementation would save to database
-        return {'recorded': True}
-    
-    async def _delete_result(self, context: Dict[str, Any], result: Any) -> None:
-        """Delete recorded result"""
-        # Implementation would delete from database
-        pass
-    
+        """
+        Persist the mission result to the database.
+        The MissionExecutor already writes to the DB, so this step validates
+        the record exists and enriches it with saga metadata.
+        """
+        from backend.database.models import Mission
+        mission_result = context.get("execute_mission_result", {})
+        try:
+            mission = self.db.query(Mission).filter(
+                Mission.id == context["mission_id"]
+            ).first()
+            if mission:
+                # Enrich with saga tracking
+                if isinstance(mission.context, dict):
+                    mission.context["saga_tracked"] = True
+                    mission.context["saga_status"] = mission_result.get("status", "UNKNOWN")
+                self.db.commit()
+        except Exception as exc:
+            logger.warning(
+                f"Could not enrich mission record {context['mission_id']}: {exc}"
+            )
+        return {"recorded": True, "mission_status": mission_result.get("status")}
+
+    async def _delete_result(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        """Remove saga metadata from the mission record on compensation."""
+        try:
+            from backend.database.models import Mission
+            mission = self.db.query(Mission).filter(
+                Mission.id == context["mission_id"]
+            ).first()
+            if mission and isinstance(mission.context, dict):
+                mission.context.pop("saga_tracked", None)
+                mission.context.pop("saga_status", None)
+                self.db.commit()
+        except Exception as exc:
+            logger.warning(
+                f"Could not clean up mission record {context['mission_id']}: {exc}"
+            )
+
+    # ------------------------------------------------------------------
+    # Step: deduct_cost
+    # ------------------------------------------------------------------
+
     async def _deduct_cost(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Deduct actual cost from agent balance"""
-        mission_result = context.get('execute_mission_result', {})
-        actual_cost = mission_result.get('actual_cost', context['estimated_cost'])
-        
-        # Implementation would call economy service
-        return {'deducted': actual_cost}
-    
-    async def _refund_cost(self, context: Dict[str, Any], result: Any) -> None:
-        """Refund deducted cost"""
-        # Implementation would call economy service
-        pass
+        """
+        Settle the actual cost:
+          - If actual_cost < estimated_cost → refund the difference.
+          - If actual_cost > estimated_cost → charge the overage.
+        """
+        mission_result = context.get("execute_mission_result", {})
+        actual_cost: float = mission_result.get("cost", context["estimated_cost"])
+        estimated: float = context["estimated_cost"]
+        difference = estimated - actual_cost
+
+        if difference > 0:
+            # Refund overpayment
+            await self.marketplace.reward(
+                tenant_id=context["tenant_id"],
+                agent_id=context["agent_id"],
+                amount=difference,
+                resource_type="mission_cost_refund",
+                mission_id=context["mission_id"],
+            )
+        elif difference < 0:
+            # Charge underpayment
+            await self.marketplace.charge(
+                tenant_id=context["tenant_id"],
+                agent_id=context["agent_id"],
+                amount=abs(difference),
+                resource_type="mission_cost_overage",
+                mission_id=context["mission_id"],
+            )
+
+        return {"settled": True, "actual_cost": actual_cost, "adjustment": difference}
+
+    async def _refund_cost(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        """Refund the actual cost deduction if the saga is compensated."""
+        if result and result.get("settled"):
+            await self.marketplace.reward(
+                tenant_id=context["tenant_id"],
+                agent_id=context["agent_id"],
+                amount=result["actual_cost"],
+                resource_type="mission_saga_compensation_refund",
+                mission_id=context["mission_id"],
+            )
+
+
+# ============================================================================
+# AgentCreationSaga
+# ============================================================================
+
+class AgentCreationSaga:
+    """
+    Saga for creating a new agent with full governance registration.
+
+    Steps:
+        1. validate_agent_config   — validate the config against governance policies
+        2. create_agent_record     — persist the agent to the DB
+        3. register_governance     — register the asset in the governance registry
+        4. allocate_initial_budget — credit the agent's starting balance
+
+    Each step has a compensation action to undo the work on failure.
+    """
+
+    def __init__(
+        self,
+        orchestrator: SagaOrchestrator,
+        marketplace: Any,      # ResourceMarketplace
+        db_session: Any,       # SQLAlchemy Session
+    ) -> None:
+        self.orchestrator = orchestrator
+        self.marketplace = marketplace
+        self.db = db_session
+
+    async def execute(
+        self,
+        agent_id: str,
+        tenant_id: str,
+        name: str,
+        agent_type: str,
+        model: str,
+        config: Dict[str, Any],
+        initial_budget: float = 1000.0,
+    ) -> bool:
+        """
+        Execute the agent creation saga.
+
+        Args:
+            agent_id:       Unique agent identifier (pre-generated by caller).
+            tenant_id:      Tenant that owns the agent.
+            name:           Human-readable agent name.
+            agent_type:     Agent type (e.g. ``"commander"``, ``"guardian"``).
+            model:          LLM model the agent will use.
+            config:         Agent configuration dictionary.
+            initial_budget: Starting credit balance.
+
+        Returns:
+            ``True`` if all steps succeeded, ``False`` if compensated.
+        """
+        saga = self.orchestrator.create_saga(
+            name="agent_creation",
+            context={
+                "agent_id": agent_id,
+                "tenant_id": tenant_id,
+                "name": name,
+                "agent_type": agent_type,
+                "model": model,
+                "config": config,
+                "initial_budget": initial_budget,
+            },
+        )
+
+        self.orchestrator.add_step(
+            saga,
+            name="validate_agent_config",
+            action=self._validate_agent_config,
+            compensation=None,  # Validation is read-only; no compensation needed
+        )
+        self.orchestrator.add_step(
+            saga,
+            name="create_agent_record",
+            action=self._create_agent_record,
+            compensation=self._delete_agent_record,
+        )
+        self.orchestrator.add_step(
+            saga,
+            name="register_governance",
+            action=self._register_governance,
+            compensation=self._deregister_governance,
+        )
+        self.orchestrator.add_step(
+            saga,
+            name="allocate_initial_budget",
+            action=self._allocate_initial_budget,
+            compensation=self._revoke_initial_budget,
+        )
+
+        return await self.orchestrator.execute(saga)
+
+    # ------------------------------------------------------------------
+    # Step: validate_agent_config
+    # ------------------------------------------------------------------
+
+    async def _validate_agent_config(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate agent configuration against governance policies.
+        Raises an exception if the config violates any active policy.
+        """
+        from backend.agents.compliance.policy_engine import get_policy_engine
+        try:
+            engine = get_policy_engine()
+            violations = engine.check_agent_config(
+                agent_type=context["agent_type"],
+                model=context["model"],
+                config=context["config"],
+            )
+            if violations:
+                raise ValueError(
+                    f"Agent config violates {len(violations)} governance policy(ies): "
+                    + "; ".join(str(v) for v in violations)
+                )
+        except (ImportError, AttributeError):
+            # Policy engine not yet wired — log and continue
+            logger.debug("Policy engine not available; skipping config validation")
+        return {"valid": True}
+
+    # ------------------------------------------------------------------
+    # Step: create_agent_record
+    # ------------------------------------------------------------------
+
+    async def _create_agent_record(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist the agent record to the database."""
+        from backend.database.models import Agent
+        agent = Agent(
+            id=context["agent_id"],
+            name=context["name"],
+            type=context["agent_type"],
+            status="active",
+            tenant_id=context["tenant_id"],
+            model=context["model"],
+            config=context["config"],
+            capabilities=context["config"].get("capabilities", []),
+        )
+        self.db.add(agent)
+        self.db.commit()
+        self.db.refresh(agent)
+        return {"created": True, "agent_id": agent.id}
+
+    async def _delete_agent_record(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        """Remove the agent record on compensation."""
+        from backend.database.models import Agent
+        try:
+            agent = self.db.query(Agent).filter(
+                Agent.id == context["agent_id"]
+            ).first()
+            if agent:
+                self.db.delete(agent)
+                self.db.commit()
+        except Exception as exc:
+            logger.warning(
+                f"Could not delete agent {context['agent_id']} during compensation: {exc}"
+            )
+
+    # ------------------------------------------------------------------
+    # Step: register_governance
+    # ------------------------------------------------------------------
+
+    async def _register_governance(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Register the agent as a governance asset."""
+        from backend.agents.integration.governance_hooks import GovernanceHooks
+        try:
+            hooks = GovernanceHooks()
+            await hooks.on_agent_created(
+                agent_id=context["agent_id"],
+                tenant_id=context["tenant_id"],
+                agent_type=context["agent_type"],
+                config=context["config"],
+            )
+        except Exception as exc:
+            # Governance registration failure is non-fatal for agent creation
+            # but we still record it for audit purposes.
+            logger.warning(
+                f"Governance registration failed for agent {context['agent_id']}: {exc}"
+            )
+        return {"registered": True}
+
+    async def _deregister_governance(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        """Remove the governance asset registration on compensation."""
+        from backend.agents.integration.governance_hooks import GovernanceHooks
+        try:
+            hooks = GovernanceHooks()
+            await hooks.on_agent_deleted(
+                agent_id=context["agent_id"],
+                tenant_id=context["tenant_id"],
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Governance deregistration failed for agent {context['agent_id']}: {exc}"
+            )
+
+    # ------------------------------------------------------------------
+    # Step: allocate_initial_budget
+    # ------------------------------------------------------------------
+
+    async def _allocate_initial_budget(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Credit the agent's initial balance."""
+        transaction = await self.marketplace.reward(
+            tenant_id=context["tenant_id"],
+            agent_id=context["agent_id"],
+            amount=context["initial_budget"],
+            resource_type="initial_allocation",
+            agent_type=context["agent_type"],
+        )
+        return {
+            "allocated": True,
+            "transaction_id": transaction["id"],
+            "amount": context["initial_budget"],
+        }
+
+    async def _revoke_initial_budget(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        """Reclaim the initial budget on compensation."""
+        if result and result.get("allocated"):
+            await self.marketplace.charge(
+                tenant_id=context["tenant_id"],
+                agent_id=context["agent_id"],
+                amount=result["amount"],
+                resource_type="initial_allocation_revocation",
+                agent_type=context["agent_type"],
+            )

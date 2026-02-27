@@ -268,6 +268,64 @@ class AdjustCreditCommandHandler(CommandHandler[AdjustCreditCommand, float]):
         return command.amount
 
 
+@dataclass
+class UpdateAgentCommand(Command):
+    """Command to update an existing agent's configuration."""
+    agent_id: str
+    name: Optional[str] = None
+    model: Optional[str] = None
+    capabilities: Optional[List[str]] = None
+    system_prompt: Optional[str] = None
+    temperature: Optional[float] = None
+
+
+class UpdateAgentCommandHandler(CommandHandler[UpdateAgentCommand, None]):
+    """Handler for UpdateAgentCommand."""
+
+    async def handle(self, command: UpdateAgentCommand) -> None:
+        """
+        Update an existing agent and emit an ``agent.updated`` event.
+
+        Only fields that are explicitly provided (non-``None``) are included
+        in the event payload so downstream projections can apply partial
+        updates without overwriting unchanged fields.
+
+        Args:
+            command: Update agent command.
+        """
+        changes: Dict[str, Any] = {}
+        if command.name is not None:
+            changes["name"] = command.name
+        if command.model is not None:
+            changes["model"] = command.model
+        if command.capabilities is not None:
+            changes["capabilities"] = command.capabilities
+        if command.system_prompt is not None:
+            changes["system_prompt"] = command.system_prompt
+        if command.temperature is not None:
+            changes["temperature"] = command.temperature
+
+        if not changes:
+            self.log_info(
+                "UpdateAgentCommand received with no changes — skipping event emit.",
+                agent_id=command.agent_id,
+            )
+            return
+
+        await self.emit_event(
+            aggregate_id=command.agent_id,
+            aggregate_type="agent",
+            event_type="agent.updated",
+            data=changes,
+        )
+
+        self.log_info(
+            "Agent updated",
+            agent_id=command.agent_id,
+            changed_fields=list(changes.keys()),
+        )
+
+
 # ============================================================================
 # Queries (Read Side)
 # ============================================================================

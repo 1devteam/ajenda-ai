@@ -335,3 +335,33 @@ async def test_full_agent_lifecycle(db_session):
     assert "mission_started" in audit_types
     assert "mission_completed" in audit_types
     assert "agent_deleted" in audit_types
+
+
+async def test_governance_hooks_non_blocking():
+    """
+    Test that governance hooks don't block or raise on invalid input.
+
+    Verifies that even if governance operations fail (e.g. None agent_id),
+    they complete gracefully without raising exceptions that would break
+    agent operations.
+
+    Uses async def so pytest-asyncio (asyncio_mode=auto) manages the event
+    loop — avoids asyncio.run() which would corrupt the loop for subsequent
+    tests.
+    """
+    try:
+        await governance_hooks.on_agent_created(
+            agent_id=None,  # Invalid — should be handled gracefully
+            agent_type="test",
+            tenant_id="test",
+            owner_id="test",
+            name="test",
+            model="test",
+            capabilities=[],
+            config={}
+        )
+        # Should complete without raising
+        assert True
+    except Exception:
+        # Any exception means the hook is not non-blocking — fail the test
+        assert False, "governance_hooks.on_agent_created raised an exception on invalid input"
