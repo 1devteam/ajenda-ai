@@ -577,3 +577,177 @@ class TenantIsolationRule:
                 )
         
         return ComplianceResult.allow(self.name)
+
+
+# ============================================================================
+# MONTH 2 WEEK 1: ASSET INVENTORY RULES
+# ============================================================================
+
+
+class AgentInventoryRule:
+    """
+    Enforce agent registration before execution.
+    
+    Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+    Ensures all agents are registered in the asset registry before they can execute.
+    
+    Example:
+        rule = AgentInventoryRule()
+        context = {
+            "agent_id": "agent_123",
+            "agent_type": "researcher"
+        }
+        result = rule.check(context)
+        # result.allowed = True if agent is registered
+        # result.allowed = False if agent is not registered
+    """
+    
+    name = "agent_inventory"
+    description = "Enforce agent registration in asset registry"
+    
+    def check(self, context: Dict[str, Any]) -> ComplianceResult:
+        """
+        Check if agent is registered in asset registry.
+        
+        Args:
+            context: Must contain:
+                - agent_id: Agent identifier
+                - agent_type: Type of agent
+        
+        Returns:
+            ComplianceResult indicating if agent is registered
+        """
+        from ..registry.asset_registry import get_registry, AssetType
+        
+        agent_id = context.get("agent_id")
+        agent_type = context.get("agent_type")
+        
+        if not agent_id:
+            return ComplianceResult(
+                allowed=False,
+                rule=self.name,
+                reason="Agent ID is required for inventory check"
+            )
+        
+        # Check if agent is registered
+        registry = get_registry()
+        asset = registry.get(agent_id)
+        
+        if not asset:
+            return ComplianceResult(
+                allowed=False,
+                rule=self.name,
+                reason=f"Agent '{agent_id}' is not registered in asset registry. "
+                       f"All agents must be registered before execution."
+            )
+        
+        # Verify asset type is agent
+        if asset.asset_type != AssetType.AGENT:
+            return ComplianceResult(
+                allowed=False,
+                rule=self.name,
+                reason=f"Asset '{agent_id}' is registered as {asset.asset_type.value}, not as agent"
+            )
+        
+        # Verify agent type matches (if provided)
+        if agent_type and asset.metadata.get("agent_type") != agent_type:
+            return ComplianceResult(
+                allowed=False,
+                rule=self.name,
+                reason=f"Agent '{agent_id}' is registered as {asset.metadata.get('agent_type')}, "
+                       f"but attempting to execute as {agent_type}"
+            )
+        
+        return ComplianceResult(
+            allowed=True,
+            rule=self.name,
+            reason=f"Agent '{agent_id}' is properly registered"
+        )
+
+
+class ToolInventoryRule:
+    """
+    Enforce tool registration before use.
+    
+    Part of Month 2 Week 1: Asset Inventory & Lineage Tracking.
+    Ensures all tools are registered in the asset registry before they can be used.
+    
+    Example:
+        rule = ToolInventoryRule()
+        context = {
+            "tool_name": "web_search",
+            "agent_id": "agent_123"
+        }
+        result = rule.check(context)
+        # result.allowed = True if tool is registered
+        # result.allowed = False if tool is not registered
+    """
+    
+    name = "tool_inventory"
+    description = "Enforce tool registration in asset registry"
+    
+    def check(self, context: Dict[str, Any]) -> ComplianceResult:
+        """
+        Check if tool is registered in asset registry.
+        
+        Args:
+            context: Must contain:
+                - tool_name: Name of the tool
+                - agent_id: Agent attempting to use the tool (optional)
+        
+        Returns:
+            ComplianceResult indicating if tool is registered
+        """
+        from ..registry.asset_registry import get_registry, AssetType, AssetStatus
+        
+        tool_name = context.get("tool_name")
+        agent_id = context.get("agent_id")
+        
+        if not tool_name:
+            return ComplianceResult(
+                allowed=False,
+                rule=self.name,
+                reason="Tool name is required for inventory check"
+            )
+        
+        # Search for tool by name
+        registry = get_registry()
+        tools = registry.search(asset_type=AssetType.TOOL, name_contains=tool_name)
+        
+        if not tools:
+            return ComplianceResult(
+                allowed=False,
+                rule=self.name,
+                reason=f"Tool '{tool_name}' is not registered in asset registry. "
+                       f"All tools must be registered before use."
+            )
+        
+        # Find exact match
+        tool = None
+        for t in tools:
+            if t.name == tool_name:
+                tool = t
+                break
+        
+        if not tool:
+            # No exact match, suggest similar tools
+            similar = [t.name for t in tools[:3]]
+            return ComplianceResult(
+                allowed=False,
+                rule=self.name,
+                reason=f"Tool '{tool_name}' not found. Similar tools: {', '.join(similar)}"
+            )
+        
+        # Check if tool is active
+        if tool.status != AssetStatus.ACTIVE:
+            return ComplianceResult(
+                allowed=False,
+                rule=self.name,
+                reason=f"Tool '{tool_name}' is {tool.status.value}. Only active tools can be used."
+            )
+        
+        return ComplianceResult(
+            allowed=True,
+            rule=self.name,
+            reason=f"Tool '{tool_name}' is properly registered and active"
+        )
