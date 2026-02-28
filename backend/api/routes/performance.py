@@ -4,11 +4,12 @@ Monitor agent learning and optimization
 
 Built with Pride for Obex Blackvault
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 
 from backend.middleware.auth.auth_middleware import get_current_user
@@ -23,8 +24,10 @@ router = APIRouter(prefix="/api/v1/performance", tags=["performance"])
 # Response Models
 # ============================================================================
 
+
 class AgentPerformanceMetrics(BaseModel):
     """Performance metrics for an agent"""
+
     agent_id: str
     agent_type: str
     total_missions: int
@@ -40,6 +43,7 @@ class AgentPerformanceMetrics(BaseModel):
 
 class ImprovementEvent(BaseModel):
     """Self-improvement event record"""
+
     improvement_id: str
     agent_id: str
     timestamp: datetime
@@ -53,6 +57,7 @@ class ImprovementEvent(BaseModel):
 
 class PerformanceTrend(BaseModel):
     """Performance trend over time"""
+
     agent_id: str
     date: datetime
     success_rate: float
@@ -64,6 +69,7 @@ class PerformanceTrend(BaseModel):
 # ============================================================================
 # Helpers
 # ============================================================================
+
 
 def _build_performance_metrics(agent: Agent, db: Session) -> AgentPerformanceMetrics:
     """
@@ -80,12 +86,8 @@ def _build_performance_metrics(agent: Agent, db: Session) -> AgentPerformanceMet
     agg = (
         db.query(
             func.count(Mission.id).label("total"),
-            func.sum(
-                func.cast(Mission.status == "COMPLETED", int)
-            ).label("successful"),
-            func.sum(
-                func.cast(Mission.status == "FAILED", int)
-            ).label("failed"),
+            func.sum(func.cast(Mission.status == "COMPLETED", int)).label("successful"),
+            func.sum(func.cast(Mission.status == "FAILED", int)).label("failed"),
             func.avg(Mission.execution_time).label("avg_duration"),
             func.avg(Mission.cost).label("avg_cost"),
         )
@@ -133,6 +135,7 @@ def _build_performance_metrics(agent: Agent, db: Session) -> AgentPerformanceMet
 # Endpoints
 # ============================================================================
 
+
 @router.get("/agents", response_model=List[AgentPerformanceMetrics])
 async def get_all_agent_performance(
     current_user: User = Depends(get_current_user),
@@ -145,9 +148,7 @@ async def get_all_agent_performance(
     directly from the missions table.
     """
     agents: List[Agent] = (
-        db.query(Agent)
-        .filter(Agent.tenant_id == current_user.tenant_id)
-        .all()
+        db.query(Agent).filter(Agent.tenant_id == current_user.tenant_id).all()
     )
 
     return [_build_performance_metrics(agent, db) for agent in agents]
@@ -285,7 +286,9 @@ async def get_performance_trends(
         total = len(day_missions)
         successful = sum(1 for m in day_missions if m.status == "COMPLETED")
         costs = [m.cost for m in day_missions if m.cost is not None]
-        durations = [m.execution_time for m in day_missions if m.execution_time is not None]
+        durations = [
+            m.execution_time for m in day_missions if m.execution_time is not None
+        ]
 
         trends.append(
             PerformanceTrend(
@@ -293,7 +296,9 @@ async def get_performance_trends(
                 date=day,
                 success_rate=round(successful / total, 4) if total > 0 else 0.0,
                 average_cost=round(sum(costs) / len(costs), 4) if costs else 0.0,
-                average_duration=round(sum(durations) / len(durations), 2) if durations else 0.0,
+                average_duration=(
+                    round(sum(durations) / len(durations), 2) if durations else 0.0
+                ),
                 missions_count=total,
             )
         )

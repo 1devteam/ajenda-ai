@@ -1,5 +1,7 @@
 """Tests for Alert Manager - Week 2"""
+
 import pytest
+
 pytestmark = pytest.mark.unit
 
 

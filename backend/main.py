@@ -2,6 +2,7 @@
 Omnipath v5.0 - Main Application Entry Point
 Multi-agent AI system with observability, meta-learning, and agent economy
 """
+
 from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,10 +16,31 @@ from backend.version import VERSION, VERSION_INFO
 
 # Import observability
 from backend.integrations.observability.telemetry import get_telemetry
-from backend.integrations.observability.prometheus_metrics import get_metrics, metrics_endpoint
+from backend.integrations.observability.prometheus_metrics import (
+    get_metrics,
+)
 
 # Import API routes
-from backend.api.routes import economy, performance, metrics, missions_v45, meta_learning, tenants, agents, missions, auth, approval, compliance_reports, registry, tags, risk, dashboard, policies, audit, integrations
+from backend.api.routes import (
+    economy,
+    performance,
+    metrics,
+    missions_v45,
+    meta_learning,
+    tenants,
+    agents,
+    missions,
+    auth,
+    approval,
+    compliance_reports,
+    registry,
+    tags,
+    risk,
+    dashboard,
+    policies,
+    audit,
+    integrations,
+)
 
 # Import core services
 from backend.integrations.llm.llm_service import LLMService
@@ -26,14 +48,15 @@ from backend.economy.resource_marketplace import ResourceMarketplace
 from backend.core.event_bus.nats_bus import NATSEventBus
 from backend.orchestration.mission_executor import MissionExecutor
 from backend.middleware.rate_limit import RateLimitMiddleware
+from backend.middleware.security_headers import SecurityHeadersMiddleware
+from backend.security.secrets_validator import validate_secrets
 from backend.core.cqrs.setup import setup_cqrs, teardown_cqrs
 from backend.integrations.mcp.setup import setup_mcp, teardown_mcp
 from typing import Optional
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -60,24 +83,33 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("=" * 60)
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
+
+    # Validate secrets before anything else
+    try:
+        validate_secrets(environment=settings.ENVIRONMENT)
+    except Exception as _sec_err:
+        logger.critical(f"Secrets validation failed: {_sec_err}")
+        raise
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
     logger.info("=" * 60)
-    
+
     # Run database migrations
     logger.info("Running database migrations...")
     try:
         from alembic.config import Config
         from alembic import command
         import os
-        
-        alembic_cfg = Config(os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini"))
+
+        alembic_cfg = Config(
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini")
+        )
         command.upgrade(alembic_cfg, "head")
         logger.info("✅ Database migrations completed")
     except Exception as e:
         logger.warning(f"Database migration failed: {e}")
         logger.warning("Continuing startup without migrations...")
-    
+
     # Initialize OpenTelemetry
     if settings.OTEL_ENABLED:
         logger.info("Initializing OpenTelemetry...")
@@ -87,27 +119,24 @@ async def lifespan(app: FastAPI):
         telemetry.initialize()
     else:
         logger.info("OpenTelemetry disabled")
-    
+
     # Initialize Prometheus metrics
     if settings.PROMETHEUS_ENABLED:
         logger.info("✅ Prometheus metrics enabled")
         prom_metrics.enabled = True
-        prom_metrics.set_app_info(
-            version=settings.APP_VERSION,
-            environment=settings.ENVIRONMENT
-        )
+        prom_metrics.set_app_info(version=settings.APP_VERSION, environment=settings.ENVIRONMENT)
     else:
         logger.info("Prometheus metrics disabled")
         prom_metrics.enabled = False
-    
+
     # Initialize core services
     global llm_service, marketplace, event_bus, mission_executor
-    
+
     # Initialize LLM Service
     logger.info("Initializing LLM Service...")
     llm_service = LLMService(settings)
     logger.info("✅ LLM Service initialized")
-    
+
     # Log LLM provider configuration
     logger.info("LLM Providers configured:")
     if settings.OPENAI_API_KEY:
@@ -120,12 +149,12 @@ async def lifespan(app: FastAPI):
         logger.info("  - xAI (Grok): ✓")
     if settings.OLLAMA_BASE_URL:
         logger.info(f"  - Ollama: ✓ ({settings.OLLAMA_BASE_URL})")
-    
+
     # Initialize Resource Marketplace
     logger.info("Initializing Resource Marketplace...")
     marketplace = ResourceMarketplace()
     logger.info("✅ Resource Marketplace initialized")
-    
+
     # Initialize Event Bus
     logger.info("Initializing NATS Event Bus...")
     event_bus = NATSEventBus(settings.NATS_URL)
@@ -137,13 +166,11 @@ async def lifespan(app: FastAPI):
             logger.warning(f"NATS connection failed, using stub mode: {e}")
     else:
         logger.info("NATS disabled, using stub mode")
-    
+
     # Initialize Mission Executor
     logger.info("Initializing Mission Executor...")
     mission_executor = MissionExecutor(
-        marketplace=marketplace,
-        event_bus=event_bus,
-        llm_service=llm_service
+        marketplace=marketplace, event_bus=event_bus, llm_service=llm_service
     )
     logger.info("✅ Mission Executor initialized")
 
@@ -152,6 +179,7 @@ async def lifespan(app: FastAPI):
     try:
         from backend.database.session import AsyncSessionLocal
         from backend.core.event_sourcing.event_store_impl import EventStore as ESImpl
+
         async with AsyncSessionLocal() as _es_session:
             _event_store = ESImpl(session=_es_session)
             setup_cqrs(event_store=_event_store)
@@ -169,18 +197,18 @@ async def lifespan(app: FastAPI):
 
     logger.info("=" * 60)
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} is ready!")
-    logger.info(f"📚 API Documentation: http://localhost:8000/docs")
-    logger.info(f"❤️  Health Check: http://localhost:8000/health")
+    logger.info("📚 API Documentation: http://localhost:8000/docs")
+    logger.info("❤️  Health Check: http://localhost:8000/health")
     logger.info(f"📊 Metrics: http://localhost:8000{settings.METRICS_ENDPOINT}")
     if settings.OTEL_ENABLED:
-        logger.info(f"🔍 Traces: http://localhost:16686 (Jaeger UI)")
+        logger.info("🔍 Traces: http://localhost:16686 (Jaeger UI)")
     logger.info("=" * 60)
-    
+
     yield
-    
+
     # Shutdown
     logger.info(f"Shutting down {settings.APP_NAME}")
-    
+
     # Disconnect event bus
     if event_bus:
         logger.info("Disconnecting NATS Event Bus...")
@@ -203,25 +231,49 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
 )
 
 # Instrument FastAPI with OpenTelemetry
 if settings.OTEL_ENABLED:
     telemetry.instrument_fastapi(app)
 
+# Security headers middleware (outermost — applied to all responses)
+app.add_middleware(SecurityHeadersMiddleware)
+
 # CORS middleware
+# In production: only allow explicitly whitelisted origins.
+# In development: allow all origins for convenience.
+_cors_origins = ["*"] if settings.DEBUG else settings.CORS_ORIGINS
+_cors_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+_cors_headers = [
+    "Authorization",
+    "Content-Type",
+    "X-Request-ID",
+    "X-Tenant-ID",
+    "Accept",
+    "Origin",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.DEBUG else settings.CORS_ORIGINS,
+    allow_origins=_cors_origins,
     allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=_cors_methods,
+    allow_headers=_cors_headers,
+    expose_headers=[
+        "X-RateLimit-Limit-Minute",
+        "X-RateLimit-Limit-Hour",
+        "X-RateLimit-Remaining",
+        "Retry-After",
+    ],
+    max_age=600,
 )
 
 # Rate limiting middleware
 if settings.RATE_LIMIT_ENABLED:
-    logger.info(f"Rate limiting enabled: {settings.RATE_LIMIT_PER_MINUTE}/min, {settings.RATE_LIMIT_PER_HOUR}/hour")
+    logger.info(
+        f"Rate limiting enabled: {settings.RATE_LIMIT_PER_MINUTE}/min, {settings.RATE_LIMIT_PER_HOUR}/hour"  # noqa: E501
+    )
     app.add_middleware(RateLimitMiddleware)
 
 
@@ -230,19 +282,19 @@ if settings.RATE_LIMIT_ENABLED:
 async def metrics_middleware(request: Request, call_next):
     """Record HTTP request metrics"""
     start_time = time.time()
-    
+
     # Process request
     response = await call_next(request)
-    
+
     # Record metrics
     duration = time.time() - start_time
     prom_metrics.record_http_request(
         method=request.method,
         endpoint=request.url.path,
         status=response.status_code,
-        duration_seconds=duration
+        duration_seconds=duration,
     )
-    
+
     return response
 
 
@@ -251,16 +303,16 @@ async def metrics_middleware(request: Request, call_next):
 async def global_exception_handler(request: Request, exc: Exception):
     """Handle uncaught exceptions gracefully"""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    
+
     # Record error metric
     prom_metrics.record_system_error(error_type=type(exc).__name__)
-    
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "detail": "Internal server error",
-            "error": str(exc) if settings.DEBUG else "An unexpected error occurred"
-        }
+            "error": str(exc) if settings.DEBUG else "An unexpected error occurred",
+        },
     )
 
 
@@ -268,14 +320,14 @@ async def global_exception_handler(request: Request, exc: Exception):
 def get_mission_executor() -> MissionExecutor:
     """
     Dependency to get mission executor instance
-    
+
     Raises:
         HTTPException: If mission executor not initialized
     """
     if mission_executor is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Mission executor not initialized"
+            detail="Mission executor not initialized",
         )
     return mission_executor
 
@@ -293,8 +345,8 @@ async def health_check():
         "environment": settings.ENVIRONMENT,
         "observability": {
             "opentelemetry": settings.OTEL_ENABLED,
-            "prometheus": settings.PROMETHEUS_ENABLED
-        }
+            "prometheus": settings.PROMETHEUS_ENABLED,
+        },
     }
 
 
@@ -323,7 +375,7 @@ async def root():
         "docs": "/docs",
         "health": "/health",
         "metrics": settings.METRICS_ENDPOINT,
-        "version_info": "/version"
+        "version_info": "/version",
     }
 
 
@@ -350,9 +402,5 @@ app.include_router(integrations.router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "backend.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.DEBUG
-    )
+
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=settings.DEBUG)

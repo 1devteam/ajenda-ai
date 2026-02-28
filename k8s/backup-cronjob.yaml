@@ -1,0 +1,94 @@
+---
+# ============================================================
+# Omnipath v2 — Database Backup CronJob
+# Runs daily at 02:00 UTC, retains 7 days of backups in S3.
+# Built with Pride for Obex Blackvault
+# ============================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: omnipath-db-backup
+  namespace: omnipath
+  labels:
+    app: omnipath
+    component: backup
+spec:
+  schedule: "0 2 * * *"          # Daily at 02:00 UTC
+  concurrencyPolicy: Forbid       # Never run two backups simultaneously
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600  # Kill if running > 1 hour
+      template:
+        metadata:
+          labels:
+            app: omnipath
+            component: backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: omnipath-backup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: backup
+              image: postgres:15-alpine
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+                  BACKUP_FILE="/tmp/omnipath_${TIMESTAMP}.sql.gz"
+                  echo "[backup] Starting pg_dump..."
+                  pg_dump --dbname="$DATABASE_URL" --format=plain --no-password \
+                    | gzip -9 > "$BACKUP_FILE"
+                  echo "[backup] Backup complete: $(du -sh $BACKUP_FILE)"
+                  if [ -n "$S3_BUCKET" ]; then
+                    echo "[backup] Uploading to S3..."
+                    aws s3 cp "$BACKUP_FILE" \
+                      "s3://$S3_BUCKET/omnipath/backups/omnipath_${TIMESTAMP}.sql.gz" \
+                      --storage-class STANDARD_IA --sse AES256
+                    echo "[backup] S3 upload complete"
+                  fi
+                  echo "[backup] Done."
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: omnipath-secrets
+                      key: database-url
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: omnipath-secrets
+                      key: backup-s3-bucket
+                      optional: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false  # pg_dump needs /tmp
+                capabilities:
+                  drop:
+                    - ALL
+
+---
+# ── ServiceAccount for backup job ────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: omnipath-backup
+  namespace: omnipath
+  labels:
+    app: omnipath
+    component: backup

@@ -10,6 +10,7 @@ and the in-process ToolRegistry implementations.
 
 Built with Pride for Obex Blackvault
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,7 +40,10 @@ def main() -> None:
 
     if tool is None:
         print(f"Error: tool '{tool_name}' not found in registry.", file=sys.stderr)
-        print(f"Available tools: {[t.name for t in registry.get_all_tools()]}", file=sys.stderr)
+        print(
+            f"Available tools: {[t.name for t in registry.get_all_tools()]}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     server = MCPToolServer(tool)

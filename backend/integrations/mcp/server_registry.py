@@ -8,11 +8,12 @@ reads this registry and starts each server via MCPClient.
 
 Built with Pride for Obex Blackvault
 """
+
 from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from backend.integrations.mcp.mcp_client import MCPServer
@@ -24,6 +25,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Server configuration dataclass
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class MCPServerConfig:
@@ -49,6 +51,7 @@ class MCPServerConfig:
 # Built-in server definitions
 # ---------------------------------------------------------------------------
 
+
 def _make_builtin_servers() -> List[MCPServerConfig]:
     """
     Return the list of built-in MCP server configs.
@@ -61,11 +64,11 @@ def _make_builtin_servers() -> List[MCPServerConfig]:
     python_exe = shutil.which("python3.11") or shutil.which("python3") or "python"
 
     tool_servers = [
-        ("web_search",       "DuckDuckGo web search — no API key required"),
-        ("python_executor",  "Safe Python code execution in a sandboxed subprocess"),
-        ("file_reader",      "Read files from allowed directories"),
-        ("file_writer",      "Write files to allowed directories"),
-        ("calculator",       "Safe mathematical expression evaluator"),
+        ("web_search", "DuckDuckGo web search — no API key required"),
+        ("python_executor", "Safe Python code execution in a sandboxed subprocess"),
+        ("file_reader", "Read files from allowed directories"),
+        ("file_writer", "Write files to allowed directories"),
+        ("calculator", "Safe mathematical expression evaluator"),
     ]
 
     configs: List[MCPServerConfig] = []
@@ -121,7 +124,9 @@ def _make_external_servers() -> List[MCPServerConfig]:
                 )
             )
         else:
-            logger.warning("MCP_ENABLE_FILESYSTEM set but npx not found — skipping filesystem server")
+            logger.warning(
+                "MCP_ENABLE_FILESYSTEM set but npx not found — skipping filesystem server"
+            )
 
     # Brave Search server
     if os.getenv("MCP_ENABLE_BRAVE_SEARCH") and os.getenv("BRAVE_API_KEY"):
@@ -135,7 +140,10 @@ def _make_external_servers() -> List[MCPServerConfig]:
                         name="brave-search",
                         command=npx,
                         args=["-y", "@modelcontextprotocol/server-brave-search"],
-                        env={**os.environ, "BRAVE_API_KEY": os.environ["BRAVE_API_KEY"]},
+                        env={
+                            **os.environ,
+                            "BRAVE_API_KEY": os.environ["BRAVE_API_KEY"],
+                        },
                     ),
                     enabled=True,
                     required=False,
@@ -148,6 +156,7 @@ def _make_external_servers() -> List[MCPServerConfig]:
 # ---------------------------------------------------------------------------
 # MCPServerRegistry
 # ---------------------------------------------------------------------------
+
 
 class MCPServerRegistry:
     """

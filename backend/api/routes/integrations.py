@@ -8,16 +8,20 @@ Date: 2026-02-27
 Built with Pride for Obex Blackvault
 """
 
-from fastapi import APIRouter, HTTPException, Header, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Header,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-import asyncio
 
 from backend.integrations.governance.webhook_manager import (
     get_webhook_manager,
-    WebhookEvent,
-    DeliveryStatus,
 )
 from backend.integrations.governance.api_gateway import (
     get_api_gateway,
@@ -33,8 +37,10 @@ router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 # Request/Response Models
 # ============================================================================
 
+
 class WebhookSubscriptionRequest(BaseModel):
     """Request to create webhook subscription."""
+
     url: str = Field(..., description="Webhook URL")
     events: List[str] = Field(..., description="Event types to subscribe to")
     secret: Optional[str] = Field(None, description="Secret for signature verification")
@@ -42,6 +48,7 @@ class WebhookSubscriptionRequest(BaseModel):
 
 class WebhookSubscriptionResponse(BaseModel):
     """Webhook subscription response."""
+
     subscription_id: str
     url: str
     events: List[str]
@@ -51,6 +58,7 @@ class WebhookSubscriptionResponse(BaseModel):
 
 class WebhookDeliveryResponse(BaseModel):
     """Webhook delivery response."""
+
     delivery_id: str
     subscription_id: str
     event_type: str
@@ -63,6 +71,7 @@ class WebhookDeliveryResponse(BaseModel):
 
 class APIKeyRequest(BaseModel):
     """Request to create API key."""
+
     name: str = Field(..., description="Key name")
     organization: str = Field(..., description="Organization name")
     permissions: List[str] = Field(..., description="Permission scopes")
@@ -72,6 +81,7 @@ class APIKeyRequest(BaseModel):
 
 class APIKeyResponse(BaseModel):
     """API key response."""
+
     key_id: str
     key: Optional[str] = None  # Only returned on creation
     name: str
@@ -85,6 +95,7 @@ class APIKeyResponse(BaseModel):
 
 class StreamSubscriptionRequest(BaseModel):
     """Request to subscribe to event stream."""
+
     stream_type: str = Field(..., description="Stream type")
     filters: Optional[Dict[str, Any]] = Field(None, description="Optional filters")
 
@@ -93,21 +104,22 @@ class StreamSubscriptionRequest(BaseModel):
 # Webhook Endpoints (7)
 # ============================================================================
 
+
 @router.post("/webhooks/subscribe", response_model=WebhookSubscriptionResponse)
 async def subscribe_webhook(request: WebhookSubscriptionRequest):
     """
     Subscribe to webhook events.
-    
+
     Creates a webhook subscription for specified event types.
     """
     manager = get_webhook_manager()
-    
+
     subscription = manager.subscribe(
         url=request.url,
         events=request.events,
         secret=request.secret,
     )
-    
+
     return WebhookSubscriptionResponse(**subscription.to_dict())
 
 
@@ -115,28 +127,32 @@ async def subscribe_webhook(request: WebhookSubscriptionRequest):
 async def unsubscribe_webhook(subscription_id: str):
     """
     Unsubscribe from webhook events.
-    
+
     Removes a webhook subscription.
     """
     manager = get_webhook_manager()
     success = manager.unsubscribe(subscription_id)
-    
+
     if not success:
-        raise HTTPException(status_code=404, detail=f"Subscription {subscription_id} not found")
-    
+        raise HTTPException(
+            status_code=404, detail=f"Subscription {subscription_id} not found"
+        )
+
     return {"status": "unsubscribed", "subscription_id": subscription_id}
 
 
 @router.get("/webhooks", response_model=List[WebhookSubscriptionResponse])
-async def list_webhooks(active_only: bool = Query(True, description="Only active subscriptions")):
+async def list_webhooks(
+    active_only: bool = Query(True, description="Only active subscriptions")
+):
     """
     List webhook subscriptions.
-    
+
     Returns all webhook subscriptions.
     """
     manager = get_webhook_manager()
     subscriptions = manager.list_subscriptions(active_only=active_only)
-    
+
     return [WebhookSubscriptionResponse(**s.to_dict()) for s in subscriptions]
 
 
@@ -144,28 +160,33 @@ async def list_webhooks(active_only: bool = Query(True, description="Only active
 async def get_webhook(subscription_id: str):
     """
     Get webhook subscription by ID.
-    
+
     Returns detailed information about a webhook subscription.
     """
     manager = get_webhook_manager()
     subscription = manager.get_subscription(subscription_id)
-    
+
     if not subscription:
-        raise HTTPException(status_code=404, detail=f"Subscription {subscription_id} not found")
-    
+        raise HTTPException(
+            status_code=404, detail=f"Subscription {subscription_id} not found"
+        )
+
     return WebhookSubscriptionResponse(**subscription.to_dict())
 
 
-@router.get("/webhooks/{subscription_id}/deliveries", response_model=List[WebhookDeliveryResponse])
+@router.get(
+    "/webhooks/{subscription_id}/deliveries",
+    response_model=List[WebhookDeliveryResponse],
+)
 async def get_webhook_deliveries(subscription_id: str):
     """
     Get webhook delivery history.
-    
+
     Returns all delivery attempts for a subscription.
     """
     manager = get_webhook_manager()
     deliveries = manager.get_deliveries(subscription_id=subscription_id)
-    
+
     return [WebhookDeliveryResponse(**d.to_dict()) for d in deliveries]
 
 
@@ -173,15 +194,18 @@ async def get_webhook_deliveries(subscription_id: str):
 async def test_webhook(subscription_id: str):
     """
     Test a webhook subscription.
-    
+
     Sends a test event to verify webhook is working.
     """
     manager = get_webhook_manager()
     success = await manager.test_webhook(subscription_id)
-    
+
     if not success:
-        raise HTTPException(status_code=404, detail=f"Subscription {subscription_id} not found or test failed")
-    
+        raise HTTPException(
+            status_code=404,
+            detail=f"Subscription {subscription_id} not found or test failed",
+        )
+
     return {"status": "test_sent", "subscription_id": subscription_id}
 
 
@@ -189,12 +213,12 @@ async def test_webhook(subscription_id: str):
 async def retry_failed_webhooks():
     """
     Retry all failed webhook deliveries.
-    
+
     Retries all deliveries that failed but haven't exceeded max retries.
     """
     manager = get_webhook_manager()
     count = await manager.retry_failed()
-    
+
     return {"status": "retrying", "count": count}
 
 
@@ -202,15 +226,16 @@ async def retry_failed_webhooks():
 # API Gateway Endpoints (7)
 # ============================================================================
 
+
 @router.post("/api-keys", response_model=APIKeyResponse)
 async def create_api_key(request: APIKeyRequest):
     """
     Create an API key.
-    
+
     Generates a new API key for external access.
     """
     gateway = get_api_gateway()
-    
+
     raw_key, api_key = gateway.create_api_key(
         name=request.name,
         organization=request.organization,
@@ -218,10 +243,10 @@ async def create_api_key(request: APIKeyRequest):
         rate_limit=request.rate_limit,
         expires_in_days=request.expires_in_days,
     )
-    
+
     response = APIKeyResponse(**api_key.to_dict())
     response.key = raw_key  # Only returned on creation
-    
+
     return response
 
 
@@ -229,28 +254,30 @@ async def create_api_key(request: APIKeyRequest):
 async def revoke_api_key(key_id: str):
     """
     Revoke an API key.
-    
+
     Deactivates an API key.
     """
     gateway = get_api_gateway()
     success = gateway.revoke_api_key(key_id)
-    
+
     if not success:
         raise HTTPException(status_code=404, detail=f"API key {key_id} not found")
-    
+
     return {"status": "revoked", "key_id": key_id}
 
 
 @router.get("/api-keys", response_model=List[APIKeyResponse])
-async def list_api_keys(active_only: bool = Query(True, description="Only active keys")):
+async def list_api_keys(
+    active_only: bool = Query(True, description="Only active keys")
+):
     """
     List API keys.
-    
+
     Returns all API keys.
     """
     gateway = get_api_gateway()
     keys = gateway.list_api_keys(active_only=active_only)
-    
+
     return [APIKeyResponse(**k.to_dict()) for k in keys]
 
 
@@ -258,15 +285,15 @@ async def list_api_keys(active_only: bool = Query(True, description="Only active
 async def get_api_key(key_id: str):
     """
     Get API key by ID.
-    
+
     Returns detailed information about an API key.
     """
     gateway = get_api_gateway()
     api_key = gateway.get_api_key(key_id)
-    
+
     if not api_key:
         raise HTTPException(status_code=404, detail=f"API key {key_id} not found")
-    
+
     return APIKeyResponse(**api_key.to_dict())
 
 
@@ -274,17 +301,17 @@ async def get_api_key(key_id: str):
 async def get_api_key_usage(key_id: str):
     """
     Get API key usage statistics.
-    
+
     Returns usage metrics for an API key.
     """
     gateway = get_api_gateway()
     api_key = gateway.get_api_key(key_id)
-    
+
     if not api_key:
         raise HTTPException(status_code=404, detail=f"API key {key_id} not found")
-    
+
     stats = gateway.get_usage_stats(key_id)
-    
+
     return {
         "key_id": key_id,
         "statistics": stats,
@@ -299,15 +326,15 @@ async def validate_api_key(
 ):
     """
     Validate an API key.
-    
+
     Checks if an API key is valid and active.
     """
     gateway = get_api_gateway()
     api_key = gateway.validate_api_key(x_api_key)
-    
+
     if not api_key or api_key.key_id != key_id:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    
+
     return {
         "valid": True,
         "key_id": api_key.key_id,
@@ -320,16 +347,16 @@ async def validate_api_key(
 async def check_rate_limit(key_id: str):
     """
     Check rate limit status.
-    
+
     Returns current rate limit status for an API key.
     """
     gateway = get_api_gateway()
     within_limit = gateway.check_rate_limit(key_id)
-    
+
     api_key = gateway.get_api_key(key_id)
     if not api_key:
         raise HTTPException(status_code=404, detail=f"API key {key_id} not found")
-    
+
     return {
         "key_id": key_id,
         "within_limit": within_limit,
@@ -342,67 +369,76 @@ async def check_rate_limit(key_id: str):
 # Event Streaming Endpoints (6)
 # ============================================================================
 
+
 @router.websocket("/stream")
 async def websocket_stream(websocket: WebSocket):
     """
     WebSocket endpoint for real-time event streaming.
-    
+
     Clients connect and subscribe to event streams.
     """
     await websocket.accept()
     streaming = get_event_streaming()
-    
+
     connection_id = f"conn-{datetime.utcnow().timestamp()}"
     subscriptions = []
-    
+
     try:
         while True:
             # Receive subscription request
             data = await websocket.receive_json()
-            
+
             if data.get("action") == "subscribe":
                 stream_type = StreamType(data["stream_type"])
                 filters = data.get("filters", {})
-                
+
                 subscription = streaming.subscribe(
                     connection_id=connection_id,
                     stream_type=stream_type,
                     filters=filters,
                 )
                 subscriptions.append(subscription)
-                
-                await websocket.send_json({
-                    "type": "subscribed",
-                    "subscription_id": subscription.subscription_id,
-                    "stream_type": stream_type.value,
-                })
-                
+
+                await websocket.send_json(
+                    {
+                        "type": "subscribed",
+                        "subscription_id": subscription.subscription_id,
+                        "stream_type": stream_type.value,
+                    }
+                )
+
                 # Send recent events
                 recent = streaming.get_recent_events(stream_type, limit=10)
                 for event in recent:
-                    await websocket.send_json({
-                        "type": "event",
-                        "subscription_id": subscription.subscription_id,
-                        **event.to_dict(),
-                    })
-            
+                    await websocket.send_json(
+                        {
+                            "type": "event",
+                            "subscription_id": subscription.subscription_id,
+                            **event.to_dict(),
+                        }
+                    )
+
             elif data.get("action") == "unsubscribe":
                 subscription_id = data["subscription_id"]
                 streaming.unsubscribe(subscription_id)
-                subscriptions = [s for s in subscriptions if s.subscription_id != subscription_id]
-                
-                await websocket.send_json({
-                    "type": "unsubscribed",
-                    "subscription_id": subscription_id,
-                })
-            
+                subscriptions = [
+                    s for s in subscriptions if s.subscription_id != subscription_id
+                ]
+
+                await websocket.send_json(
+                    {
+                        "type": "unsubscribed",
+                        "subscription_id": subscription_id,
+                    }
+                )
+
             elif data.get("action") == "ping":
                 # Keep-alive
                 for sub in subscriptions:
                     streaming.update_activity(sub.subscription_id)
-                
+
                 await websocket.send_json({"type": "pong"})
-    
+
     except WebSocketDisconnect:
         # Clean up subscriptions
         for sub in subscriptions:
@@ -413,12 +449,12 @@ async def websocket_stream(websocket: WebSocket):
 async def get_stream_subscriptions():
     """
     Get active stream subscriptions.
-    
+
     Returns all active event stream subscriptions.
     """
     streaming = get_event_streaming()
     subscriptions = streaming.get_active_subscriptions()
-    
+
     return {
         "subscription_count": len(subscriptions),
         "subscriptions": [s.to_dict() for s in subscriptions],
@@ -433,17 +469,19 @@ async def get_recent_stream_events(
 ):
     """
     Get recent events from a stream.
-    
+
     Returns recent events without subscribing to the stream.
     """
     try:
         stream_type_enum = StreamType(stream_type)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid stream type: {stream_type}")
-    
+        raise HTTPException(
+            status_code=400, detail=f"Invalid stream type: {stream_type}"
+        )
+
     streaming = get_event_streaming()
     events = streaming.get_recent_events(stream_type_enum, limit=limit)
-    
+
     return {
         "stream_type": stream_type,
         "event_count": len(events),
@@ -459,17 +497,19 @@ async def publish_stream_event(
 ):
     """
     Publish an event to a stream.
-    
+
     Manually publish an event to a stream (for testing/integration).
     """
     try:
         stream_type_enum = StreamType(stream_type)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid stream type: {stream_type}")
-    
+        raise HTTPException(
+            status_code=400, detail=f"Invalid stream type: {stream_type}"
+        )
+
     streaming = get_event_streaming()
     event = streaming.publish(stream_type_enum, data)
-    
+
     return {
         "status": "published",
         **event.to_dict(),
@@ -480,12 +520,12 @@ async def publish_stream_event(
 async def get_stream_statistics():
     """
     Get streaming statistics.
-    
+
     Returns metrics about event streams and subscriptions.
     """
     streaming = get_event_streaming()
     stats = streaming.get_statistics()
-    
+
     return {
         **stats,
         "timestamp": datetime.utcnow().isoformat(),
@@ -496,7 +536,7 @@ async def get_stream_statistics():
 async def get_stream_types():
     """
     Get available stream types.
-    
+
     Returns list of available event stream types.
     """
     return {

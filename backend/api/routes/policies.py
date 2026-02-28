@@ -11,14 +11,13 @@ Built with Pride for Obex Blackvault
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 import uuid
 
 from backend.agents.compliance.policy_engine import (
     Policy,
     PolicyCondition,
     PolicyAction,
-    PolicyTemplate,
     PolicyStatus,
     ConditionType,
     ConditionOperator,
@@ -29,7 +28,7 @@ from backend.agents.compliance.policy_evaluator import (
     EvaluationContext,
     get_policy_evaluator,
 )
-from backend.agents.registry.asset_registry import get_registry, AssetType
+from backend.agents.registry.asset_registry import get_registry
 
 
 router = APIRouter(prefix="/api/v1/policies", tags=["policies"])
@@ -39,25 +38,29 @@ router = APIRouter(prefix="/api/v1/policies", tags=["policies"])
 # Request/Response Models
 # ============================================================================
 
+
 class PolicyConditionRequest(BaseModel):
     """Request model for policy condition."""
+
     condition_type: str
     operator: str
     field: str
     value: Any
-    and_conditions: List['PolicyConditionRequest'] = []
-    or_conditions: List['PolicyConditionRequest'] = []
-    not_condition: Optional['PolicyConditionRequest'] = None
+    and_conditions: List["PolicyConditionRequest"] = []
+    or_conditions: List["PolicyConditionRequest"] = []
+    not_condition: Optional["PolicyConditionRequest"] = None
 
 
 class PolicyActionRequest(BaseModel):
     """Request model for policy action."""
+
     action_type: str
     parameters: Dict[str, Any] = {}
 
 
 class CreatePolicyRequest(BaseModel):
     """Request to create a policy."""
+
     name: str
     description: str
     conditions: List[PolicyConditionRequest]
@@ -69,6 +72,7 @@ class CreatePolicyRequest(BaseModel):
 
 class UpdatePolicyRequest(BaseModel):
     """Request to update a policy."""
+
     name: Optional[str] = None
     description: Optional[str] = None
     conditions: Optional[List[PolicyConditionRequest]] = None
@@ -80,6 +84,7 @@ class UpdatePolicyRequest(BaseModel):
 
 class CreateFromTemplateRequest(BaseModel):
     """Request to create policy from template."""
+
     template_id: str
     name: str
     description: Optional[str] = None
@@ -90,6 +95,7 @@ class CreateFromTemplateRequest(BaseModel):
 
 class EvaluationContextRequest(BaseModel):
     """Request model for policy evaluation."""
+
     asset_id: str
     operation: str
     user_id: str
@@ -105,6 +111,7 @@ class EvaluationContextRequest(BaseModel):
 # Helper Functions
 # ============================================================================
 
+
 def _convert_condition_request(req: PolicyConditionRequest) -> PolicyCondition:
     """Convert request model to PolicyCondition."""
     return PolicyCondition(
@@ -114,7 +121,9 @@ def _convert_condition_request(req: PolicyConditionRequest) -> PolicyCondition:
         value=req.value,
         and_conditions=[_convert_condition_request(c) for c in req.and_conditions],
         or_conditions=[_convert_condition_request(c) for c in req.or_conditions],
-        not_condition=_convert_condition_request(req.not_condition) if req.not_condition else None,
+        not_condition=(
+            _convert_condition_request(req.not_condition) if req.not_condition else None
+        ),
     )
 
 
@@ -130,11 +139,12 @@ def _convert_action_request(req: PolicyActionRequest) -> PolicyAction:
 # Policy Management Endpoints
 # ============================================================================
 
+
 @router.post("")
 async def create_policy(request: CreatePolicyRequest) -> Dict[str, Any]:
     """Create a new policy."""
     manager = get_policy_manager()
-    
+
     now = datetime.utcnow()
     policy = Policy(
         policy_id=f"policy-{uuid.uuid4().hex[:12]}",
@@ -151,7 +161,7 @@ async def create_policy(request: CreatePolicyRequest) -> Dict[str, Any]:
         applies_to=request.applies_to,
         priority=request.priority,
     )
-    
+
     created = manager.create_policy(policy)
     return created.to_dict()
 
@@ -163,10 +173,10 @@ async def list_policies(
 ) -> Dict[str, Any]:
     """List policies with optional filters."""
     manager = get_policy_manager()
-    
+
     policy_status = PolicyStatus(status) if status else None
     policies = manager.list_policies(status=policy_status, applies_to=applies_to)
-    
+
     return {
         "total": len(policies),
         "policies": [p.to_dict() for p in policies],
@@ -177,11 +187,11 @@ async def list_policies(
 async def get_policy(policy_id: str) -> Dict[str, Any]:
     """Get policy by ID."""
     manager = get_policy_manager()
-    
+
     policy = manager.get_policy(policy_id)
     if not policy:
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} not found")
-    
+
     return policy.to_dict()
 
 
@@ -192,7 +202,7 @@ async def update_policy(
 ) -> Dict[str, Any]:
     """Update an existing policy."""
     manager = get_policy_manager()
-    
+
     updates = {}
     if request.name is not None:
         updates["name"] = request.name
@@ -206,7 +216,7 @@ async def update_policy(
         updates["applies_to"] = request.applies_to
     if request.priority is not None:
         updates["priority"] = request.priority
-    
+
     try:
         updated = manager.update_policy(policy_id, request.updated_by, **updates)
         return updated.to_dict()
@@ -221,7 +231,7 @@ async def delete_policy(
 ) -> Dict[str, str]:
     """Delete a policy."""
     manager = get_policy_manager()
-    
+
     try:
         manager.delete_policy(policy_id, deleted_by)
         return {"message": f"Policy {policy_id} deleted successfully"}
@@ -236,14 +246,14 @@ async def activate_policy(
 ) -> Dict[str, Any]:
     """Activate a policy."""
     manager = get_policy_manager()
-    
+
     try:
         policy = manager.activate_policy(policy_id, activated_by)
-        
+
         # Clear evaluation cache when policy is activated
         evaluator = get_policy_evaluator()
         evaluator.clear_cache()
-        
+
         return policy.to_dict()
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -256,14 +266,14 @@ async def deactivate_policy(
 ) -> Dict[str, Any]:
     """Deactivate a policy."""
     manager = get_policy_manager()
-    
+
     try:
         policy = manager.deactivate_policy(policy_id, deactivated_by)
-        
+
         # Clear evaluation cache when policy is deactivated
         evaluator = get_policy_evaluator()
         evaluator.clear_cache()
-        
+
         return policy.to_dict()
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -273,14 +283,14 @@ async def deactivate_policy(
 async def get_policy_history(policy_id: str) -> Dict[str, Any]:
     """Get change history for a policy."""
     manager = get_policy_manager()
-    
+
     # Check if policy exists
     policy = manager.get_policy(policy_id)
     if not policy:
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} not found")
-    
+
     history = manager.get_policy_history(policy_id)
-    
+
     return {
         "policy_id": policy_id,
         "history": history,
@@ -291,15 +301,16 @@ async def get_policy_history(policy_id: str) -> Dict[str, Any]:
 # Template Endpoints
 # ============================================================================
 
+
 @router.get("/templates")
 async def list_templates(
     category: Optional[str] = Query(None, description="Filter by category"),
 ) -> Dict[str, Any]:
     """List policy templates."""
     manager = get_policy_manager()
-    
+
     templates = manager.list_templates(category=category)
-    
+
     return {
         "total": len(templates),
         "templates": [t.to_dict() for t in templates],
@@ -310,11 +321,11 @@ async def list_templates(
 async def get_template(template_id: str) -> Dict[str, Any]:
     """Get template by ID."""
     manager = get_policy_manager()
-    
+
     template = manager.get_template(template_id)
     if not template:
         raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
-    
+
     return template.to_dict()
 
 
@@ -322,7 +333,7 @@ async def get_template(template_id: str) -> Dict[str, Any]:
 async def create_from_template(request: CreateFromTemplateRequest) -> Dict[str, Any]:
     """Create a policy from a template."""
     manager = get_policy_manager()
-    
+
     try:
         policy = manager.create_from_template(
             request.template_id,
@@ -341,17 +352,18 @@ async def create_from_template(request: CreateFromTemplateRequest) -> Dict[str, 
 # Evaluation Endpoints
 # ============================================================================
 
+
 @router.post("/evaluate")
 async def evaluate_policies(request: EvaluationContextRequest) -> Dict[str, Any]:
     """Evaluate policies for a given context."""
     registry = get_registry()
     evaluator = get_policy_evaluator()
-    
+
     # Get asset
     asset = registry.get(request.asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset {request.asset_id} not found")
-    
+
     # Create evaluation context
     context = EvaluationContext(
         asset=asset,
@@ -365,10 +377,10 @@ async def evaluate_policies(request: EvaluationContextRequest) -> Dict[str, Any]
         api_endpoints=request.api_endpoints,
         metadata=request.metadata,
     )
-    
+
     # Evaluate policies
     result = evaluator.evaluate(context)
-    
+
     return result.to_dict()
 
 
@@ -378,9 +390,9 @@ async def get_applicable_policies(
 ) -> Dict[str, Any]:
     """Get all applicable policies for an asset type."""
     evaluator = get_policy_evaluator()
-    
+
     policies = evaluator.get_applicable_policies(asset_type=asset_type)
-    
+
     return {
         "total": len(policies),
         "policies": [p.to_dict() for p in policies],
@@ -396,17 +408,17 @@ async def test_policy(
     manager = get_policy_manager()
     registry = get_registry()
     evaluator = get_policy_evaluator()
-    
+
     # Get policy
     policy = manager.get_policy(policy_id)
     if not policy:
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} not found")
-    
+
     # Get asset
     asset = registry.get(context.asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset {context.asset_id} not found")
-    
+
     # Create evaluation context
     eval_context = EvaluationContext(
         asset=asset,
@@ -420,10 +432,10 @@ async def test_policy(
         api_endpoints=context.api_endpoints,
         metadata=context.metadata,
     )
-    
+
     # Test policy
     result = evaluator.test_policy(policy, eval_context)
-    
+
     return result.to_dict()
 
 
@@ -431,13 +443,14 @@ async def test_policy(
 # Analytics Endpoints
 # ============================================================================
 
+
 @router.get("/stats")
 async def get_policy_stats() -> Dict[str, Any]:
     """Get policy statistics."""
     manager = get_policy_manager()
-    
+
     all_policies = manager.list_policies()
-    
+
     stats = {
         "total_policies": len(all_policies),
         "by_status": {},
@@ -445,21 +458,21 @@ async def get_policy_stats() -> Dict[str, Any]:
         "total_enforcements": 0,
         "most_enforced": [],
     }
-    
+
     # Count by status
     for status in PolicyStatus:
         count = len([p for p in all_policies if p.status == status])
         stats["by_status"][status.value] = count
-    
+
     # Count by priority
     priorities = {}
     for policy in all_policies:
         priorities[policy.priority] = priorities.get(policy.priority, 0) + 1
     stats["by_priority"] = priorities
-    
+
     # Total enforcements
     stats["total_enforcements"] = sum(p.enforcement_count for p in all_policies)
-    
+
     # Most enforced policies
     sorted_policies = sorted(all_policies, key=lambda p: p.enforcement_count, reverse=True)
     stats["most_enforced"] = [
@@ -470,7 +483,7 @@ async def get_policy_stats() -> Dict[str, Any]:
         }
         for p in sorted_policies[:5]
     ]
-    
+
     return stats
 
 
@@ -478,16 +491,18 @@ async def get_policy_stats() -> Dict[str, Any]:
 async def get_enforcement_history(policy_id: str) -> Dict[str, Any]:
     """Get enforcement history for a policy."""
     manager = get_policy_manager()
-    
+
     policy = manager.get_policy(policy_id)
     if not policy:
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} not found")
-    
+
     return {
         "policy_id": policy_id,
         "name": policy.name,
         "enforcement_count": policy.enforcement_count,
-        "last_enforced_at": policy.last_enforced_at.isoformat() if policy.last_enforced_at else None,
+        "last_enforced_at": (
+            policy.last_enforced_at.isoformat() if policy.last_enforced_at else None
+        ),
     }
 
 
@@ -495,14 +510,14 @@ async def get_enforcement_history(policy_id: str) -> Dict[str, Any]:
 async def detect_policy_conflicts() -> Dict[str, Any]:
     """Detect potential policy conflicts."""
     manager = get_policy_manager()
-    
+
     active_policies = manager.list_policies(status=PolicyStatus.ACTIVE)
-    
+
     conflicts = []
-    
+
     # Check for conflicting policies (same applies_to, different actions)
     for i, policy1 in enumerate(active_policies):
-        for policy2 in active_policies[i+1:]:
+        for policy2 in active_policies[i + 1 :]:
             # Check if they apply to same asset types
             if policy1.applies_to == policy2.applies_to:
                 # Check if they have conflicting actions
@@ -510,23 +525,25 @@ async def detect_policy_conflicts() -> Dict[str, Any]:
                 has_allow_1 = any(a.action_type == ActionType.ALLOW for a in policy1.actions)
                 has_deny_2 = any(a.action_type == ActionType.DENY for a in policy2.actions)
                 has_allow_2 = any(a.action_type == ActionType.ALLOW for a in policy2.actions)
-                
+
                 if (has_deny_1 and has_allow_2) or (has_allow_1 and has_deny_2):
-                    conflicts.append({
-                        "policy_1": {
-                            "id": policy1.policy_id,
-                            "name": policy1.name,
-                            "priority": policy1.priority,
-                        },
-                        "policy_2": {
-                            "id": policy2.policy_id,
-                            "name": policy2.name,
-                            "priority": policy2.priority,
-                        },
-                        "conflict_type": "deny_allow_conflict",
-                        "resolution": f"Policy with higher priority wins (currently: {policy1.name if policy1.priority > policy2.priority else policy2.name})",
-                    })
-    
+                    conflicts.append(
+                        {
+                            "policy_1": {
+                                "id": policy1.policy_id,
+                                "name": policy1.name,
+                                "priority": policy1.priority,
+                            },
+                            "policy_2": {
+                                "id": policy2.policy_id,
+                                "name": policy2.name,
+                                "priority": policy2.priority,
+                            },
+                            "conflict_type": "deny_allow_conflict",
+                            "resolution": f"Policy with higher priority wins (currently: {policy1.name if policy1.priority > policy2.priority else policy2.name})",  # noqa: E501
+                        }
+                    )
+
     return {
         "total_conflicts": len(conflicts),
         "conflicts": conflicts,

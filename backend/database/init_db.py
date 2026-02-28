@@ -4,9 +4,9 @@ Creates all tables and indexes
 
 Built with Pride for Obex Blackvault
 """
+
 from backend.database.base import Base
 from backend.database.session import engine
-from backend.database.models import User, Token, Tenant, Agent, Mission
 
 
 def init_database():

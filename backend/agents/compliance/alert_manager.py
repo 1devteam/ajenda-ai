@@ -20,8 +20,10 @@ import uuid
 # Enums
 # ============================================================================
 
+
 class AlertType(Enum):
     """Types of alerts."""
+
     POLICY_VIOLATION = "policy_violation"
     COMPLIANCE_FAILURE = "compliance_failure"
     ANOMALY_DETECTED = "anomaly_detected"
@@ -33,6 +35,7 @@ class AlertType(Enum):
 
 class AlertStatus(Enum):
     """Status of an alert."""
+
     PENDING = "pending"
     SENT = "sent"
     ACKNOWLEDGED = "acknowledged"
@@ -42,6 +45,7 @@ class AlertStatus(Enum):
 
 class AlertSeverity(Enum):
     """Severity of an alert."""
+
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -53,11 +57,13 @@ class AlertSeverity(Enum):
 # Data Models
 # ============================================================================
 
+
 @dataclass
 class Alert:
     """
     Represents an alert notification.
     """
+
     alert_id: str
     alert_type: AlertType
     severity: AlertSeverity
@@ -73,7 +79,7 @@ class Alert:
     resolved_at: Optional[datetime] = None
     resolution: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -87,7 +93,9 @@ class Alert:
             "recipients": self.recipients,
             "status": self.status.value,
             "acknowledged_by": self.acknowledged_by,
-            "acknowledged_at": self.acknowledged_at.isoformat() if self.acknowledged_at else None,
+            "acknowledged_at": (
+                self.acknowledged_at.isoformat() if self.acknowledged_at else None
+            ),
             "resolved_by": self.resolved_by,
             "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
             "resolution": self.resolution,
@@ -100,6 +108,7 @@ class AlertRule:
     """
     Defines when to send alerts.
     """
+
     rule_id: str
     name: str
     alert_type: AlertType
@@ -114,97 +123,106 @@ class AlertRule:
 # Alert Manager
 # ============================================================================
 
+
 class AlertManager:
     """
     Manages alert notifications and escalations.
-    
+
     Sends notifications, tracks acknowledgments, manages alert rules.
     Singleton pattern ensures consistent alerting.
     """
-    
+
     _instance = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
-        
+
         self._alerts: Dict[str, Alert] = {}
         self._rules: Dict[str, AlertRule] = {}
         self._initialize_default_rules()
         self._initialized = True
-    
+
     def _initialize_default_rules(self) -> None:
         """Initialize default alert rules."""
         # Critical policy violations
-        self.add_rule(AlertRule(
-            rule_id="rule-policy-violation-critical",
-            name="Critical Policy Violation",
-            alert_type=AlertType.POLICY_VIOLATION,
-            conditions={"severity": "critical"},
-            recipients=["compliance-team", "security-team"],
-            severity=AlertSeverity.CRITICAL,
-        ))
-        
+        self.add_rule(
+            AlertRule(
+                rule_id="rule-policy-violation-critical",
+                name="Critical Policy Violation",
+                alert_type=AlertType.POLICY_VIOLATION,
+                conditions={"severity": "critical"},
+                recipients=["compliance-team", "security-team"],
+                severity=AlertSeverity.CRITICAL,
+            )
+        )
+
         # Compliance failures
-        self.add_rule(AlertRule(
-            rule_id="rule-compliance-failure",
-            name="Compliance Check Failure",
-            alert_type=AlertType.COMPLIANCE_FAILURE,
-            conditions={"status": "fail"},
-            recipients=["compliance-team"],
-            severity=AlertSeverity.HIGH,
-        ))
-        
+        self.add_rule(
+            AlertRule(
+                rule_id="rule-compliance-failure",
+                name="Compliance Check Failure",
+                alert_type=AlertType.COMPLIANCE_FAILURE,
+                conditions={"status": "fail"},
+                recipients=["compliance-team"],
+                severity=AlertSeverity.HIGH,
+            )
+        )
+
         # Anomalies
-        self.add_rule(AlertRule(
-            rule_id="rule-anomaly-high",
-            name="High Severity Anomaly",
-            alert_type=AlertType.ANOMALY_DETECTED,
-            conditions={"severity": ["high", "critical"]},
-            recipients=["security-team"],
-            severity=AlertSeverity.HIGH,
-        ))
-        
+        self.add_rule(
+            AlertRule(
+                rule_id="rule-anomaly-high",
+                name="High Severity Anomaly",
+                alert_type=AlertType.ANOMALY_DETECTED,
+                conditions={"severity": ["high", "critical"]},
+                recipients=["security-team"],
+                severity=AlertSeverity.HIGH,
+            )
+        )
+
         # High-risk approvals
-        self.add_rule(AlertRule(
-            rule_id="rule-high-risk-approval",
-            name="High Risk Approval Required",
-            alert_type=AlertType.APPROVAL_REQUIRED,
-            conditions={"risk_tier": ["high", "critical"]},
-            recipients=["compliance-officer"],
-            severity=AlertSeverity.HIGH,
-        ))
-    
+        self.add_rule(
+            AlertRule(
+                rule_id="rule-high-risk-approval",
+                name="High Risk Approval Required",
+                alert_type=AlertType.APPROVAL_REQUIRED,
+                conditions={"risk_tier": ["high", "critical"]},
+                recipients=["compliance-officer"],
+                severity=AlertSeverity.HIGH,
+            )
+        )
+
     def send_alert(self, alert: Alert) -> None:
         """
         Send an alert notification.
-        
+
         Args:
             alert: Alert to send
         """
         # Store alert
         self._alerts[alert.alert_id] = alert
-        
+
         # Update status to sent
         alert.status = AlertStatus.SENT
-        
+
         # In production, this would:
         # - Send email notifications
         # - Send Slack/Teams messages
         # - Trigger webhooks
         # - Create tickets in issue tracking systems
-        
+
         # For now, just log
         print(f"[ALERT] {alert.severity.value.upper()}: {alert.title}")
         print(f"  Recipients: {', '.join(alert.recipients)}")
         print(f"  Description: {alert.description}")
-    
+
     def create_alert(
         self,
         alert_type: AlertType,
@@ -216,7 +234,7 @@ class AlertManager:
     ) -> Alert:
         """
         Create and send an alert.
-        
+
         Args:
             alert_type: Type of alert
             severity: Severity level
@@ -224,13 +242,15 @@ class AlertManager:
             description: Alert description
             affected_assets: List of affected asset IDs
             metadata: Additional metadata
-            
+
         Returns:
             Created alert
         """
         # Find matching rules to determine recipients
-        recipients = self._get_recipients_for_alert(alert_type, severity, metadata or {})
-        
+        recipients = self._get_recipients_for_alert(
+            alert_type, severity, metadata or {}
+        )
+
         alert = Alert(
             alert_id=f"alert-{uuid.uuid4()}",
             alert_type=alert_type,
@@ -243,10 +263,10 @@ class AlertManager:
             status=AlertStatus.PENDING,
             metadata=metadata or {},
         )
-        
+
         self.send_alert(alert)
         return alert
-    
+
     def _get_recipients_for_alert(
         self,
         alert_type: AlertType,
@@ -255,14 +275,14 @@ class AlertManager:
     ) -> List[str]:
         """Get recipients for an alert based on rules."""
         recipients = set()
-        
+
         for rule in self._rules.values():
             if not rule.enabled:
                 continue
-            
+
             if rule.alert_type != alert_type:
                 continue
-            
+
             # Check if conditions match
             matches = True
             for key, value in rule.conditions.items():
@@ -278,68 +298,68 @@ class AlertManager:
                             matches = False
                     elif metadata[key] != value:
                         matches = False
-            
+
             if matches:
                 recipients.update(rule.recipients)
-        
+
         return list(recipients) if recipients else ["default-admin"]
-    
+
     def acknowledge_alert(self, alert_id: str, user: str) -> bool:
         """
         Acknowledge an alert.
-        
+
         Args:
             alert_id: Alert ID
             user: User acknowledging
-            
+
         Returns:
             True if successful
         """
         alert = self._alerts.get(alert_id)
         if not alert:
             return False
-        
+
         alert.status = AlertStatus.ACKNOWLEDGED
         alert.acknowledged_by = user
         alert.acknowledged_at = datetime.utcnow()
         return True
-    
+
     def resolve_alert(self, alert_id: str, user: str, resolution: str) -> bool:
         """
         Resolve an alert.
-        
+
         Args:
             alert_id: Alert ID
             user: User resolving
             resolution: Resolution description
-            
+
         Returns:
             True if successful
         """
         alert = self._alerts.get(alert_id)
         if not alert:
             return False
-        
+
         alert.status = AlertStatus.RESOLVED
         alert.resolved_by = user
         alert.resolved_at = datetime.utcnow()
         alert.resolution = resolution
         return True
-    
+
     def escalate_alert(self, alert_id: str) -> bool:
         """
         Escalate an alert to higher severity.
-        
+
         Args:
             alert_id: Alert ID
-            
+
         Returns:
             True if successful
         """
         alert = self._alerts.get(alert_id)
         if not alert:
             return False
-        
+
         # Increase severity
         if alert.severity == AlertSeverity.LOW:
             alert.severity = AlertSeverity.MEDIUM
@@ -347,29 +367,30 @@ class AlertManager:
             alert.severity = AlertSeverity.HIGH
         elif alert.severity == AlertSeverity.HIGH:
             alert.severity = AlertSeverity.CRITICAL
-        
+
         alert.status = AlertStatus.ESCALATED
-        
+
         # Resend with higher severity
         self.send_alert(alert)
         return True
-    
+
     def get_alert(self, alert_id: str) -> Optional[Alert]:
         """Get alert by ID."""
         return self._alerts.get(alert_id)
-    
+
     def get_active_alerts(self) -> List[Alert]:
         """
         Get all unresolved alerts.
-        
+
         Returns:
             List of active alerts
         """
         return [
-            alert for alert in self._alerts.values()
+            alert
+            for alert in self._alerts.values()
             if alert.status not in [AlertStatus.RESOLVED]
         ]
-    
+
     def list_alerts(
         self,
         alert_type: Optional[AlertType] = None,
@@ -379,44 +400,44 @@ class AlertManager:
     ) -> List[Alert]:
         """
         List alerts with filters.
-        
+
         Args:
             alert_type: Filter by type
             severity: Filter by severity
             status: Filter by status
             limit: Maximum number of alerts
-            
+
         Returns:
             List of alerts
         """
         alerts = list(self._alerts.values())
-        
+
         if alert_type:
             alerts = [a for a in alerts if a.alert_type == alert_type]
         if severity:
             alerts = [a for a in alerts if a.severity == severity]
         if status:
             alerts = [a for a in alerts if a.status == status]
-        
+
         alerts.sort(key=lambda a: a.timestamp, reverse=True)
         return alerts[:limit]
-    
+
     def add_rule(self, rule: AlertRule) -> None:
         """
         Add an alert rule.
-        
+
         Args:
             rule: Alert rule
         """
         self._rules[rule.rule_id] = rule
-    
+
     def remove_rule(self, rule_id: str) -> bool:
         """
         Remove an alert rule.
-        
+
         Args:
             rule_id: Rule ID
-            
+
         Returns:
             True if removed
         """
@@ -424,38 +445,36 @@ class AlertManager:
             del self._rules[rule_id]
             return True
         return False
-    
+
     def list_rules(self) -> List[AlertRule]:
         """List all alert rules."""
         return list(self._rules.values())
-    
+
     def get_statistics(self) -> Dict[str, Any]:
         """
         Get alert statistics.
-        
+
         Returns:
             Statistics about alerts
         """
         alerts = list(self._alerts.values())
-        
+
         by_type = {}
         for alert_type in AlertType:
-            by_type[alert_type.value] = len([
-                a for a in alerts if a.alert_type == alert_type
-            ])
-        
+            by_type[alert_type.value] = len(
+                [a for a in alerts if a.alert_type == alert_type]
+            )
+
         by_severity = {}
         for severity in AlertSeverity:
-            by_severity[severity.value] = len([
-                a for a in alerts if a.severity == severity
-            ])
-        
+            by_severity[severity.value] = len(
+                [a for a in alerts if a.severity == severity]
+            )
+
         by_status = {}
         for status in AlertStatus:
-            by_status[status.value] = len([
-                a for a in alerts if a.status == status
-            ])
-        
+            by_status[status.value] = len([a for a in alerts if a.status == status])
+
         return {
             "total_alerts": len(alerts),
             "active_alerts": len(self.get_active_alerts()),
@@ -464,7 +483,7 @@ class AlertManager:
             "by_status": by_status,
             "total_rules": len(self._rules),
         }
-    
+
     def clear(self) -> None:
         """Clear all alerts (for testing)."""
         self._alerts.clear()
@@ -475,6 +494,7 @@ class AlertManager:
 # ============================================================================
 # Singleton Access
 # ============================================================================
+
 
 def get_alert_manager() -> AlertManager:
     """Get the singleton alert manager instance."""

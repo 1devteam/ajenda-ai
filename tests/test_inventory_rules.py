@@ -14,12 +14,12 @@ from backend.agents.compliance.rules import (
     ComplianceResult,
 )
 from backend.agents.registry.asset_registry import (
-
     AIAsset,
     AssetType,
     AssetStatus,
     get_registry,
 )
+
 pytestmark = pytest.mark.unit
 
 
@@ -106,9 +106,9 @@ def test_agent_rule_registered_agent(agent_rule, sample_agent):
         "agent_id": "inv-agent-001",
         "agent_name": "Research Agent",
     }
-    
+
     result = agent_rule.check(context)
-    
+
     assert result.allowed is True
     assert result.rule == "agent_inventory"
     assert "registered" in result.reason.lower()
@@ -120,9 +120,9 @@ def test_agent_rule_unregistered_agent(agent_rule):
         "agent_id": "unregistered-agent",
         "agent_name": "Unregistered Agent",
     }
-    
+
     result = agent_rule.check(context)
-    
+
     assert result.allowed is False
     assert result.rule == "agent_inventory"
     assert "not registered" in result.reason.lower()
@@ -136,9 +136,9 @@ def test_agent_rule_wrong_asset_type(agent_rule, sample_tool):
         "agent_id": sample_tool.asset_id,  # Use the registered tool's ID
         "agent_name": "Web Search",
     }
-    
+
     result = agent_rule.check(context)
-    
+
     assert result.allowed is False
     assert "not as agent" in result.reason.lower()
     # Severity not in ComplianceResult
@@ -156,14 +156,14 @@ def test_agent_rule_deprecated_agent(agent_rule, registry):
         status=AssetStatus.DEPRECATED,
     )
     registry.register(deprecated_agent)
-    
+
     context = {
         "agent_id": "inv-agent-deprecated",
         "agent_name": "Old Agent",
     }
-    
+
     result = agent_rule.check(context)
-    
+
     assert result.allowed is False
     # Status check not in current implementation
     # Severity not in ComplianceResult
@@ -181,14 +181,14 @@ def test_agent_rule_archived_agent(agent_rule, registry):
         status=AssetStatus.ARCHIVED,
     )
     registry.register(archived_agent)
-    
+
     context = {
         "agent_id": "inv-agent-archived",
         "agent_name": "Archived Agent",
     }
-    
+
     result = agent_rule.check(context)
-    
+
     assert result.allowed is False
     # Status check not in current implementation
     # Severity not in ComplianceResult
@@ -199,9 +199,9 @@ def test_agent_rule_missing_agent_id(agent_rule):
     context = {
         "agent_name": "Some Agent",
     }
-    
+
     result = agent_rule.check(context)
-    
+
     assert result.allowed is False
     assert "agent_id" in result.reason.lower() or "agent id" in result.reason.lower()
 
@@ -222,9 +222,9 @@ def test_tool_rule_registered_tool(tool_rule, sample_tool):
     context = {
         "tool_name": "Web Search",
     }
-    
+
     result = tool_rule.check(context)
-    
+
     assert result.allowed is True
     assert result.rule == "tool_inventory"
     assert "registered" in result.reason.lower()
@@ -235,9 +235,9 @@ def test_tool_rule_unregistered_tool(tool_rule):
     context = {
         "tool_name": "unregistered-tool",
     }
-    
+
     result = tool_rule.check(context)
-    
+
     assert result.allowed is False
     assert result.rule == "tool_inventory"
     assert "not registered" in result.reason.lower()
@@ -250,9 +250,9 @@ def test_tool_rule_wrong_asset_type(tool_rule, sample_agent):
     context = {
         "tool_name": "agent-001",
     }
-    
+
     result = tool_rule.check(context)
-    
+
     assert result.allowed is False
     assert "not as tool" in result.reason.lower() or "tool" in result.reason.lower()
     # Severity not in ComplianceResult
@@ -263,9 +263,9 @@ def test_tool_rule_deprecated_tool(tool_rule, deprecated_tool):
     context = {
         "tool_name": "Old Search",
     }
-    
+
     result = tool_rule.check(context)
-    
+
     assert result.allowed is False
     # Status check not in current implementation
     # Severity not in ComplianceResult
@@ -283,13 +283,13 @@ def test_tool_rule_archived_tool(tool_rule, registry):
         status=AssetStatus.ARCHIVED,
     )
     registry.register(archived_tool)
-    
+
     context = {
         "tool_name": "Archived Tool",
     }
-    
+
     result = tool_rule.check(context)
-    
+
     assert result.allowed is False
     # Status check not in current implementation
     # Severity not in ComplianceResult
@@ -298,9 +298,9 @@ def test_tool_rule_archived_tool(tool_rule, registry):
 def test_tool_rule_missing_tool_name(tool_rule):
     """Test that missing tool_name in context fails the rule."""
     context = {}
-    
+
     result = tool_rule.check(context)
-    
+
     assert result.allowed is False
     assert "tool_name" in result.reason.lower() or "tool" in result.reason.lower()
 
@@ -332,14 +332,14 @@ def test_tool_rule_similar_tools_suggestion(tool_rule, registry):
     )
     registry.register(tool1)
     registry.register(tool2)
-    
+
     # Try to use a tool that doesn't exist but has similar name
     context = {
         "tool_name": "web-search",
     }
-    
+
     result = tool_rule.check(context)
-    
+
     assert result.allowed is False
     # Similar tools suggestion not in current implementation
     assert result.allowed is False
@@ -350,7 +350,9 @@ def test_tool_rule_similar_tools_suggestion(tool_rule, registry):
 # ============================================================================
 
 
-def test_agent_and_tool_rules_together(agent_rule, tool_rule, sample_agent, sample_tool):
+def test_agent_and_tool_rules_together(
+    agent_rule, tool_rule, sample_agent, sample_tool
+):
     """Test that both rules work together correctly."""
     # Check agent
     agent_context = {
@@ -359,7 +361,7 @@ def test_agent_and_tool_rules_together(agent_rule, tool_rule, sample_agent, samp
     }
     agent_result = agent_rule.check(agent_context)
     assert agent_result.allowed is True
-    
+
     # Check tool
     tool_context = {
         "tool_name": "Web Search",
@@ -381,7 +383,7 @@ def test_multiple_tools_check(tool_rule, registry):
             status=AssetStatus.ACTIVE,
         )
         registry.register(tool)
-    
+
     # Check all tools
     for i in range(5):
         context = {"tool_name": f"Tool {i}"}  # Use name, not asset_id
@@ -398,9 +400,9 @@ def test_rule_with_additional_context(agent_rule, sample_agent):
         "user_id": "user-001",
         "extra_field": "extra_value",
     }
-    
+
     result = agent_rule.check(context)
-    
+
     # Rule should still pass with extra context
     assert result.allowed is True
 
@@ -413,7 +415,7 @@ def test_rule_with_additional_context(agent_rule, sample_agent):
 def test_agent_rule_empty_context(agent_rule):
     """Test agent rule with empty context."""
     result = agent_rule.check({})
-    
+
     assert result.allowed is False
     assert "agent_id" in result.reason.lower() or "agent id" in result.reason.lower()
 
@@ -421,7 +423,7 @@ def test_agent_rule_empty_context(agent_rule):
 def test_tool_rule_empty_context(tool_rule):
     """Test tool rule with empty context."""
     result = tool_rule.check({})
-    
+
     assert result.allowed is False
     assert "tool_name" in result.reason.lower() or "tool" in result.reason.lower()
 
@@ -429,14 +431,14 @@ def test_tool_rule_empty_context(tool_rule):
 def test_agent_rule_none_context(agent_rule):
     """Test agent rule with None context."""
     result = agent_rule.check({})
-    
+
     assert result.allowed is False
 
 
 def test_tool_rule_none_context(tool_rule):
     """Test tool rule with None context."""
     result = tool_rule.check({})
-    
+
     assert result.allowed is False
 
 
@@ -452,12 +454,12 @@ def test_agent_rule_special_characters_in_id(agent_rule, registry):
         status=AssetStatus.ACTIVE,
     )
     registry.register(agent)
-    
+
     context = {
         "agent_id": "agent-test_123-v2.0",
         "agent_name": "Special Agent",
     }
-    
+
     result = agent_rule.check(context)
     assert result.allowed is True
 
@@ -474,11 +476,11 @@ def test_tool_rule_special_characters_in_name(tool_rule, registry):
         status=AssetStatus.ACTIVE,
     )
     registry.register(tool)
-    
+
     context = {
         "tool_name": "Special Tool",  # Use name, not asset_id
     }
-    
+
     result = tool_rule.check(context)
     assert result.allowed is True
 
@@ -494,9 +496,9 @@ def test_agent_rule_result_structure(agent_rule, sample_agent):
         "agent_id": "inv-agent-001",
         "agent_name": "Research Agent",
     }
-    
+
     result = agent_rule.check(context)
-    
+
     assert isinstance(result, ComplianceResult)
     assert hasattr(result, "allowed")
     assert hasattr(result, "rule")
@@ -511,9 +513,9 @@ def test_tool_rule_result_structure(tool_rule, sample_tool):
     context = {
         "tool_name": "Web Search",
     }
-    
+
     result = tool_rule.check(context)
-    
+
     assert isinstance(result, ComplianceResult)
     assert hasattr(result, "allowed")
     assert hasattr(result, "rule")
@@ -521,7 +523,3 @@ def test_tool_rule_result_structure(tool_rule, sample_tool):
     assert isinstance(result.allowed, bool)
     assert isinstance(result.rule, str)
     assert isinstance(result.reason, str)
-
-
-
-

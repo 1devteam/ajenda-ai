@@ -22,10 +22,10 @@ AGENT_TOOL_PERMISSIONS = {
 class ToolPermissionRule:
     """
     Check if agent has permission to use tool.
-    
+
     Enforces agent-tool mappings to ensure agents only use
     tools appropriate for their capabilities.
-    
+
     Example:
         rule = ToolPermissionRule()
         context = {
@@ -34,52 +34,52 @@ class ToolPermissionRule:
         }
         result = rule.check(context)
         # result.allowed = True
-        
+
         context["tool_name"] = "file_writer"
         result = rule.check(context)
         # result.allowed = False
         # result.reason = "Agent 'researcher' not permitted to use 'file_writer'"
     """
-    
+
     name = "tool_permission"
     description = "Verify agent has permission for tool"
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check if agent type is permitted to use the tool.
-        
+
         Args:
             context: Must contain:
                 - agent_type: str
                 - tool_name: str
-        
+
         Returns:
             ComplianceResult.allow() if permitted
             ComplianceResult.block() if not permitted
         """
         agent_type = context.get("agent_type", "unknown")
         tool_name = context.get("tool_name", "unknown")
-        
+
         # Get allowed tools for agent type
         allowed_tools = AGENT_TOOL_PERMISSIONS.get(agent_type, [])
-        
+
         # Check permission
         if tool_name not in allowed_tools:
             return ComplianceResult.block(
                 rule=self.name,
-                reason=f"Agent '{agent_type}' not permitted to use '{tool_name}'"
+                reason=f"Agent '{agent_type}' not permitted to use '{tool_name}'",
             )
-        
+
         return ComplianceResult.allow(self.name)
 
 
 class DataAccessRule:
     """
     Check data access permissions.
-    
+
     Requires mission justification for tools that access data
     (file_reader, database_query, etc.).
-    
+
     Example:
         rule = DataAccessRule()
         context = {
@@ -88,58 +88,57 @@ class DataAccessRule:
         }
         result = rule.check(context)
         # result.allowed = True
-        
+
         context["mission_payload"] = {}
         result = rule.check(context)
         # result.allowed = False
         # result.reason = "Data access requires mission justification"
     """
-    
+
     name = "data_access"
     description = "Verify data access is justified"
-    
+
     # Tools that access data
     DATA_ACCESS_TOOLS = ["file_reader", "database_query"]
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check if data access is justified by mission.
-        
+
         Args:
             context: Must contain:
                 - tool_name: str
                 - mission_payload: Dict (optional)
-        
+
         Returns:
             ComplianceResult.allow() if justified or not a data access tool
             ComplianceResult.block() if data access without justification
         """
         tool_name = context.get("tool_name", "unknown")
-        
+
         # Only check data access tools
         if tool_name not in self.DATA_ACCESS_TOOLS:
             return ComplianceResult.allow(self.name)
-        
+
         # Require mission justification
         mission = context.get("mission_payload", {})
         if not mission.get("task"):
             return ComplianceResult.block(
-                rule=self.name,
-                reason="Data access requires mission justification"
+                rule=self.name, reason="Data access requires mission justification"
             )
-        
+
         return ComplianceResult.allow(self.name)
 
 
 class RateLimitRule:
     """
     Check rate limits for expensive operations using Redis-based sliding window.
-    
+
     Enforces rate limits on expensive tools like web_search
     and python_executor to prevent abuse.
-    
+
     Uses ComplianceRateLimiter which supports both in-memory and Redis backends.
-    
+
     Example:
         rule = RateLimitRule()
         context = {
@@ -147,42 +146,43 @@ class RateLimitRule:
             "agent_type": "researcher",
             "tool_name": "web_search"
         }
-        
+
         # First 10 calls allowed
         for i in range(10):
             result = rule.check(context)
             # result.allowed = True
-        
+
         # 11th call blocked
         result = rule.check(context)
         # result.allowed = False
         # result.reason = "Rate limit exceeded for tool 'web_search'..."
     """
-    
+
     name = "rate_limit"
     description = "Enforce rate limits using sliding window"
-    
+
     # Rate limits per tool (calls per minute)
     RATE_LIMITS = {
         "web_search": 10,
         "python_executor": 5,
     }
-    
+
     def __init__(self):
         """Initialize rate limit rule."""
         from backend.agents.compliance.rate_limiter import get_rate_limiter
+
         self.rate_limiter = get_rate_limiter()
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check if rate limit exceeded using sliding window algorithm.
-        
+
         Args:
             context: Must contain:
                 - agent_id: str
                 - agent_type: str
                 - tool_name: str
-        
+
         Returns:
             ComplianceResult.allow() if under limit or not rate-limited
             ComplianceResult.block() if rate limit exceeded
@@ -190,31 +190,28 @@ class RateLimitRule:
         agent_id = context.get("agent_id", "unknown")
         agent_type = context.get("agent_type", "unknown")
         tool_name = context.get("tool_name", "unknown")
-        
+
         # Check tool-specific rate limit
         allowed, reason = self.rate_limiter.check_agent_tool_rate_limit(
             agent_id=agent_id,
             agent_type=agent_type,
             tool_name=tool_name,
-            rate_limits=self.RATE_LIMITS
+            rate_limits=self.RATE_LIMITS,
         )
-        
+
         if not allowed:
-            return ComplianceResult.block(
-                rule=self.name,
-                reason=reason
-            )
-        
+            return ComplianceResult.block(rule=self.name, reason=reason)
+
         return ComplianceResult.allow(self.name)
-    
+
     def reset(self, agent_id: str, tool_name: Optional[str] = None) -> None:
         """
         Reset rate limit counters for an agent.
-        
+
         Args:
             agent_id: Agent ID to reset limits for
             tool_name: Optional tool name to reset specific tool limit
-        
+
         """
         self.rate_limiter.reset_agent_limits(agent_id, tool_name)
 
@@ -222,13 +219,13 @@ class RateLimitRule:
 class CostLimitRule:
     """
     Check cost limits for expensive operations.
-    
+
     Tracks cumulative costs and blocks when budget exceeded.
     Prevents runaway spending from LLM/API calls.
-    
+
     Note: This is a simple in-memory implementation.
     For production, use Redis or database for persistence.
-    
+
     Example:
         rule = CostLimitRule()
         context = {
@@ -237,50 +234,50 @@ class CostLimitRule:
             "estimated_cost_usd": 0.05,
             "tenant_id": "tenant_456"
         }
-        
+
         # First $10 allowed
         for i in range(200):  # 200 * $0.05 = $10
             result = rule.check(context)
             # result.allowed = True
-        
+
         # Next call blocked
         result = rule.check(context)
         # result.allowed = False
         # result.reason = "Cost limit exceeded for agent 'agent_123' ($10.00/$10.00)"
     """
-    
+
     name = "cost_limit"
     description = "Enforce cost limits"
-    
+
     # Cost limits per agent (USD)
     AGENT_COST_LIMITS = {
         "researcher": 10.0,  # $10/day
-        "analyst": 20.0,     # $20/day
-        "developer": 15.0,   # $15/day
+        "analyst": 20.0,  # $20/day
+        "developer": 15.0,  # $15/day
     }
-    
+
     # Default cost estimates per tool (USD)
     TOOL_COST_ESTIMATES = {
         "web_search": 0.05,
         "python_executor": 0.01,
         "llm_call": 0.10,
     }
-    
+
     def __init__(self):
         """Initialize cost tracker."""
         self.cost_tracker: Dict[str, float] = {}
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check if cost limit exceeded.
-        
+
         Args:
             context: Must contain:
                 - agent_id: str
                 - agent_type: str (optional, for limit lookup)
                 - tool_name: str
                 - estimated_cost_usd: float (optional, uses default if not provided)
-        
+
         Returns:
             ComplianceResult.allow() if under limit
             ComplianceResult.block() if cost limit exceeded
@@ -288,42 +285,41 @@ class CostLimitRule:
         agent_id = context.get("agent_id", "unknown")
         agent_type = context.get("agent_type", "unknown")
         tool_name = context.get("tool_name", "unknown")
-        
+
         # Get cost estimate
         estimated_cost = context.get(
-            "estimated_cost_usd",
-            self.TOOL_COST_ESTIMATES.get(tool_name, 0.0)
+            "estimated_cost_usd", self.TOOL_COST_ESTIMATES.get(tool_name, 0.0)
         )
-        
+
         # Get cost limit for agent type
         cost_limit = self.AGENT_COST_LIMITS.get(agent_type, 5.0)  # Default $5
-        
+
         # Check current cost
         current_cost = self.cost_tracker.get(agent_id, 0.0)
         new_cost = current_cost + estimated_cost
-        
+
         if new_cost > cost_limit:
             return ComplianceResult.block(
                 rule=self.name,
-                reason=f"Cost limit exceeded for agent '{agent_id}' (${new_cost:.2f}/${cost_limit:.2f})"
+                reason=f"Cost limit exceeded for agent '{agent_id}' (${new_cost:.2f}/${cost_limit:.2f})",  # noqa: E501
             )
-        
+
         # Increment cost
         self.cost_tracker[agent_id] = new_cost
-        
+
         return ComplianceResult.allow(self.name)
-    
+
     def reset(self, agent_id: str = None) -> None:
         """
         Reset cost counters.
-        
+
         Args:
             agent_id: If provided, reset only for this agent
-        
+
         Example:
             # Reset all
             rule.reset()
-            
+
             # Reset for specific agent
             rule.reset(agent_id="agent_123")
         """
@@ -333,14 +329,14 @@ class CostLimitRule:
         else:
             # Reset specific agent
             self.cost_tracker.pop(agent_id, None)
-    
+
     def get_cost(self, agent_id: str) -> float:
         """
         Get current cost for agent.
-        
+
         Args:
             agent_id: Agent ID
-        
+
         Returns:
             Current cumulative cost in USD
         """
@@ -350,17 +346,17 @@ class CostLimitRule:
 class DataPrivacyRule:
     """
     Check for PII/sensitive data in parameters.
-    
+
     Prevents accidental exposure of personally identifiable information
     (PII) and sensitive data through tool parameters.
-    
+
     Detects patterns for:
     - Email addresses
     - Credit card numbers
     - Social Security Numbers (SSN)
     - Phone numbers
     - API keys/tokens
-    
+
     Example:
         rule = DataPrivacyRule()
         context = {
@@ -370,64 +366,65 @@ class DataPrivacyRule:
         result = rule.check(context)
         # result.allowed = False
         # result.reason = "PII detected: email address in parameters"
-        
+
         context["parameters"] = {"query": "machine learning"}
         result = rule.check(context)
         # result.allowed = True
     """
-    
+
     name = "data_privacy"
     description = "Prevent PII exposure"
-    
+
     # PII patterns (regex)
     import re
-    
+
     PII_PATTERNS = {
-        "email": re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
-        "credit_card": re.compile(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'),
-        "ssn": re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),
-        "phone": re.compile(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'),
-        "api_key": re.compile(r'\b(sk_live_|pk_live_|api_key_)[A-Za-z0-9]{20,}\b'),  # API key prefix pattern
+        "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
+        "credit_card": re.compile(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b"),
+        "ssn": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+        "phone": re.compile(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b"),
+        "api_key": re.compile(
+            r"\b(sk_live_|pk_live_|api_key_)[A-Za-z0-9]{20,}\b"
+        ),  # API key prefix pattern
     }
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check parameters for PII patterns.
-        
+
         Args:
             context: Must contain:
                 - parameters: Dict (tool parameters to check)
-        
+
         Returns:
             ComplianceResult.allow() if no PII detected
             ComplianceResult.block() if PII detected
         """
         parameters = context.get("parameters", {})
-        
+
         # Convert parameters to string for pattern matching
         param_str = str(parameters)
-        
+
         # Check each PII pattern
         for pii_type, pattern in self.PII_PATTERNS.items():
             if pattern.search(param_str):
                 return ComplianceResult.block(
-                    rule=self.name,
-                    reason=f"PII detected: {pii_type} in parameters"
+                    rule=self.name, reason=f"PII detected: {pii_type} in parameters"
                 )
-        
+
         return ComplianceResult.allow(self.name)
 
 
 class ApprovalRequiredRule:
     """
     Require human approval for sensitive operations.
-    
+
     Marks certain tools/operations as requiring explicit human approval
     before execution. Supports approval workflows for compliance.
-    
+
     Note: This rule returns a special "requires_approval" status.
     The compliance engine should handle this appropriately.
-    
+
     Example:
         rule = ApprovalRequiredRule()
         context = {
@@ -437,22 +434,22 @@ class ApprovalRequiredRule:
         result = rule.check(context)
         # result.allowed = False
         # result.reason = "Tool 'file_writer' requires approval"
-        
+
         context["tool_name"] = "web_search"
         result = rule.check(context)
         # result.allowed = True
     """
-    
+
     name = "approval_required"
     description = "Require approval for sensitive operations"
-    
+
     # Tools requiring approval
     APPROVAL_REQUIRED_TOOLS = [
         "file_writer",
         "database_query",
         "api_caller",
     ]
-    
+
     # Sensitive paths requiring approval
     SENSITIVE_PATH_PATTERNS = [
         "/prod/",
@@ -460,48 +457,46 @@ class ApprovalRequiredRule:
         "/config/",
         ".env",
     ]
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check if operation requires approval.
-        
+
         Args:
             context: Must contain:
                 - tool_name: str
                 - parameters: Dict (optional, for path checking)
-        
+
         Returns:
             ComplianceResult.allow() if no approval required
             ComplianceResult.block() with "requires_approval" reason if approval needed
         """
         tool_name = context.get("tool_name", "unknown")
         parameters = context.get("parameters", {})
-        
+
         # Check if tool requires approval
         if tool_name in self.APPROVAL_REQUIRED_TOOLS:
             # Check for sensitive paths
             path = parameters.get("path", "")
             if any(pattern in path for pattern in self.SENSITIVE_PATH_PATTERNS):
                 return ComplianceResult.block(
-                    rule=self.name,
-                    reason=f"Sensitive path '{path}' requires approval"
+                    rule=self.name, reason=f"Sensitive path '{path}' requires approval"
                 )
-            
+
             return ComplianceResult.block(
-                rule=self.name,
-                reason=f"Tool '{tool_name}' requires approval"
+                rule=self.name, reason=f"Tool '{tool_name}' requires approval"
             )
-        
+
         return ComplianceResult.allow(self.name)
 
 
 class TenantIsolationRule:
     """
     Enforce multi-tenant data isolation.
-    
+
     Prevents agents from accessing data belonging to other tenants.
     Critical for SaaS security and compliance.
-    
+
     Example:
         rule = TenantIsolationRule()
         context = {
@@ -512,70 +507,68 @@ class TenantIsolationRule:
         }
         result = rule.check(context)
         # result.allowed = True
-        
+
         context["parameters"] = {"path": "/tenant_789/data.json"}
         result = rule.check(context)
         # result.allowed = False
-        # result.reason = "Cross-tenant access denied: agent belongs to 'tenant_456', accessing 'tenant_789'"
+        # result.reason = "Cross-tenant access denied: agent belongs to 'tenant_456', accessing 'tenant_789'"  # noqa: E501
     """
-    
+
     name = "tenant_isolation"
     description = "Enforce tenant isolation"
-    
+
     # Tools that access tenant data
     TENANT_DATA_TOOLS = [
         "file_reader",
         "file_writer",
         "database_query",
     ]
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check tenant isolation.
-        
+
         Args:
             context: Must contain:
                 - tenant_id: str (agent's tenant)
                 - tool_name: str
                 - parameters: Dict (optional, for path/resource checking)
-        
+
         Returns:
             ComplianceResult.allow() if same tenant or not tenant-scoped
             ComplianceResult.block() if cross-tenant access detected
         """
         tool_name = context.get("tool_name", "unknown")
-        
+
         # Only check tenant data tools
         if tool_name not in self.TENANT_DATA_TOOLS:
             return ComplianceResult.allow(self.name)
-        
+
         agent_tenant = context.get("tenant_id", "unknown")
         parameters = context.get("parameters", {})
-        
+
         # Check path for tenant ID
         path = parameters.get("path", "")
         if path:
             # Extract tenant ID from path (assumes /tenant_<id>/ format)
             import re
-            match = re.search(r'/(tenant_[^/]+)(?:/|$)', path)
+
+            match = re.search(r"/(tenant_[^/]+)(?:/|$)", path)
             if match:
                 resource_tenant = match.group(1)
                 if resource_tenant != agent_tenant:
                     return ComplianceResult.block(
                         rule=self.name,
-                        reason=f"Cross-tenant access denied: agent belongs to '{agent_tenant}', accessing '{resource_tenant}'"
+                        reason=f"Cross-tenant access denied: agent belongs to '{agent_tenant}', accessing '{resource_tenant}'",  # noqa: E501
                     )
-        
+
         # Check query for tenant_id parameter
         query = parameters.get("query", "")
         if "tenant_id" in query:
             # Simple check - in production, parse SQL properly
             if agent_tenant not in query:
-                return ComplianceResult.block(
-                    rule=self.name,
-                    reason=f"Cross-tenant query detected"
-                )
-        
+                return ComplianceResult.block(rule=self.name, reason="Cross-tenant query detected")
+
         return ComplianceResult.allow(self.name)
 
 
@@ -587,10 +580,10 @@ class TenantIsolationRule:
 class AgentInventoryRule:
     """
     Enforce agent registration before execution.
-    
+
     Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
     Ensures all agents are registered in the asset registry before they can execute.
-    
+
     Example:
         rule = AgentInventoryRule()
         context = {
@@ -601,86 +594,87 @@ class AgentInventoryRule:
         # result.allowed = True if agent is registered
         # result.allowed = False if agent is not registered
     """
-    
+
     name = "agent_inventory"
     description = "Enforce agent registration in asset registry"
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check if agent is registered in asset registry.
-        
+
         Args:
             context: Must contain:
                 - agent_id: Agent identifier
                 - agent_type: Type of agent
-        
+
         Returns:
             ComplianceResult indicating if agent is registered
         """
         from ..registry.asset_registry import get_registry, AssetType
-        
+
         agent_id = context.get("agent_id")
         agent_type = context.get("agent_type")
-        
+
         if not agent_id:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason="Agent ID is required for inventory check"
+                reason="Agent ID is required for inventory check",
             )
-        
+
         # Check if agent is registered
         registry = get_registry()
         asset = registry.get(agent_id)
-        
+
         if not asset:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
                 reason=f"Agent '{agent_id}' is not registered in asset registry. "
-                       f"All agents must be registered before execution."
+                "All agents must be registered before execution.",
             )
-        
+
         # Verify asset type is agent
         if asset.asset_type != AssetType.AGENT:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason=f"Asset '{agent_id}' is registered as {asset.asset_type.value}, not as agent"
+                reason=f"Asset '{agent_id}' is registered as {asset.asset_type.value}, not as agent",  # noqa: E501
             )
-        
+
         # Verify agent type matches (if provided)
         if agent_type and asset.metadata.get("agent_type") != agent_type:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
                 reason=f"Agent '{agent_id}' is registered as {asset.metadata.get('agent_type')}, "
-                       f"but attempting to execute as {agent_type}"
+                f"but attempting to execute as {agent_type}",
             )
-        
+
         # Check if agent is active
         from ..registry.asset_registry import AssetStatus
+
         if asset.status != AssetStatus.ACTIVE:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason=f"Agent '{agent_id}' is {asset.status.value}. Only active agents can be executed."
+                reason=f"Agent '{agent_id}' is {asset.status.value}. Only active agents can be executed.",  # noqa: E501
             )
-        
+
         return ComplianceResult(
             allowed=True,
             rule=self.name,
-            reason=f"Agent '{agent_id}' is properly registered"
+            reason=f"Agent '{agent_id}' is properly registered",
         )
 
 
 class ToolInventoryRule:
     """
     Enforce tool registration before use.
-    
+
     Part of Month 2 Week 1: AIAsset Inventory & Lineage Tracking.
     Ensures all tools are registered in the asset registry before they can be used.
-    
+
     Example:
         rule = ToolInventoryRule()
         context = {
@@ -691,72 +685,72 @@ class ToolInventoryRule:
         # result.allowed = True if tool is registered
         # result.allowed = False if tool is not registered
     """
-    
+
     name = "tool_inventory"
     description = "Enforce tool registration in asset registry"
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check if tool is registered in asset registry.
-        
+
         Args:
             context: Must contain:
                 - tool_name: Name of the tool
                 - agent_id: Agent attempting to use the tool (optional)
-        
+
         Returns:
             ComplianceResult indicating if tool is registered
         """
         from ..registry.asset_registry import get_registry, AssetType, AssetStatus
-        
+
         tool_name = context.get("tool_name")
-        agent_id = context.get("agent_id")
-        
+        context.get("agent_id")
+
         if not tool_name:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason="Tool name is required for inventory check"
+                reason="Tool name is required for inventory check",
             )
-        
+
         # Search for tool by name
         registry = get_registry()
         tools = registry.search(asset_type=AssetType.TOOL, name_contains=tool_name)
-        
+
         if not tools:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
                 reason=f"Tool '{tool_name}' is not registered in asset registry. "
-                       f"All tools must be registered before use."
+                "All tools must be registered before use.",
             )
-        
+
         # Find exact match
         tool = None
         for t in tools:
             if t.name == tool_name:
                 tool = t
                 break
-        
+
         if not tool:
             # No exact match, suggest similar tools
             similar = [t.name for t in tools[:3]]
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason=f"Tool '{tool_name}' not found. Similar tools: {', '.join(similar)}"
+                reason=f"Tool '{tool_name}' not found. Similar tools: {', '.join(similar)}",
             )
-        
+
         # Check if tool is active
         if tool.status != AssetStatus.ACTIVE:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason=f"Tool '{tool_name}' is {tool.status.value}. Only active tools can be used."
+                reason=f"Tool '{tool_name}' is {tool.status.value}. Only active tools can be used.",
             )
-        
+
         return ComplianceResult(
             allowed=True,
             rule=self.name,
-            reason=f"Tool '{tool_name}' is properly registered and active"
+            reason=f"Tool '{tool_name}' is properly registered and active",
         )

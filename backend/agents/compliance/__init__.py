@@ -14,31 +14,24 @@ Components:
 Usage:
     from backend.agents.compliance import ComplianceEngine, ComplianceRegistry
     from backend.agents.compliance.rules import ToolPermissionRule
-    
+
     # Register rules
     ComplianceRegistry.register(ToolPermissionRule)
-    
+
     # Create engine
     engine = ComplianceEngine()
-    
+
     # Evaluate action
     context = {"agent_type": "researcher", "tool_name": "web_search"}
     evaluation = engine.evaluate("web_search", context)
-    
+
     if not evaluation.allowed:
         print(f"Blocked: {evaluation.reason}")
 """
 
-from .models import (
-    ComplianceResult,
-    ComplianceTrace,
-    ComplianceEvaluation
-)
+from .models import ComplianceResult, ComplianceTrace, ComplianceEvaluation
 
-from .registry import (
-    ComplianceRule,
-    ComplianceRegistry
-)
+from .registry import ComplianceRule, ComplianceRegistry
 
 from .engine import ComplianceEngine
 

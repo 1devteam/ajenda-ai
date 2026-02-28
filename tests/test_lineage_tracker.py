@@ -14,13 +14,13 @@ from backend.agents.registry.lineage_tracker import (
     LineageTracker,
 )
 from backend.agents.registry.asset_registry import (
-
     AIAsset,
     AssetType,
     AssetStatus,
     ModelLineage,
     get_registry,
 )
+
 pytestmark = pytest.mark.unit
 
 
@@ -29,6 +29,7 @@ def clear_state():
     """Clear registry and tracker before each test."""
     from backend.agents.registry.asset_registry import get_registry
     from backend.agents.registry.lineage_tracker import get_tracker
+
     reg = get_registry()
     t = get_tracker()
     reg._assets.clear()
@@ -42,6 +43,7 @@ def clear_state():
 def tracker():
     """Get the tracker instance."""
     from backend.agents.registry.lineage_tracker import get_tracker
+
     return get_tracker()
 
 
@@ -49,6 +51,7 @@ def tracker():
 def registry():
     """Get the registry instance."""
     from backend.agents.registry.asset_registry import get_registry
+
     return get_registry()
 
 
@@ -86,9 +89,9 @@ def test_track_model_creation(tracker):
         base_model="gpt-4",
         metadata={"version": "1.0"},
     )
-    
+
     assert event_id is not None
-    
+
     # Verify event
     event = tracker.get_event(event_id)
     assert event is not None
@@ -105,9 +108,9 @@ def test_track_fine_tuning(tracker):
         dataset="dataset-001,dataset-002",
         parameters={"epochs": 10, "learning_rate": 0.001},
     )
-    
+
     assert event_id is not None
-    
+
     # Verify event
     event = tracker.get_event(event_id)
     assert event is not None
@@ -123,11 +126,14 @@ def test_track_event(tracker):
         asset_id="model-001",
         event_type="updated",
         description="Model parameters updated",
-        metadata={"changes": {"temperature": 0.7, "max_tokens": 2000}, "updated_by": "user-001"},
+        metadata={
+            "changes": {"temperature": 0.7, "max_tokens": 2000},
+            "updated_by": "user-001",
+        },
     )
-    
+
     assert event_id is not None
-    
+
     # Verify event
     event = tracker.get_event(event_id)
     assert event is not None
@@ -144,16 +150,22 @@ def test_track_deprecation(tracker):
         reason="Replaced by model-002",
         replacement_id="model-002",
     )
-    
+
     assert event_id is not None
-    
+
     # Verify event
     event = tracker.get_event(event_id)
     assert event is not None
     assert event.asset_id == "model-001"
     assert event.event_type == "deprecated"
-    assert "Replaced by model-002" in event.description or "deprecated" in event.description.lower()
-    assert event.metadata.get("replacement_id") == "model-002" or event.metadata.get("reason") == "Replaced by model-002"
+    assert (
+        "Replaced by model-002" in event.description
+        or "deprecated" in event.description.lower()
+    )
+    assert (
+        event.metadata.get("replacement_id") == "model-002"
+        or event.metadata.get("reason") == "Replaced by model-002"
+    )
 
 
 def test_track_custom_event(tracker):
@@ -164,9 +176,9 @@ def test_track_custom_event(tracker):
         description="Model deployed to production",
         metadata={"environment": "production", "version": "1.0"},
     )
-    
+
     assert event_id is not None
-    
+
     # Verify event
     event = tracker.get_event(event_id)
     assert event is not None
@@ -187,7 +199,7 @@ def test_get_event(tracker):
         asset_id="model-001",
         base_model="gpt-4",
     )
-    
+
     event = tracker.get_event(event_id)
     assert event is not None
     assert event.event_id == event_id
@@ -204,12 +216,17 @@ def test_get_events_for_asset(tracker):
     # Track multiple events
     tracker.track_model_creation(asset_id="model-001", base_model="gpt-4")
     tracker.track_fine_tuning(asset_id="model-001", dataset="dataset-001")
-    tracker.track_event(asset_id="model-001", event_type="updated", description="Model updated", metadata={"changes": {"temperature": 0.7}})
-    
+    tracker.track_event(
+        asset_id="model-001",
+        event_type="updated",
+        description="Model updated",
+        metadata={"changes": {"temperature": 0.7}},
+    )
+
     # Get events
     events = tracker.get_events_for_asset("model-001")
     assert len(events) == 3
-    
+
     # Verify events are sorted by timestamp (newest first)
     assert events[0].event_type == "updated"
     assert events[1].event_type == "fine_tuned"
@@ -228,12 +245,12 @@ def test_get_events_for_multiple_assets(tracker):
     tracker.track_model_creation(asset_id="model-001", base_model="gpt-4")
     tracker.track_model_creation(asset_id="model-002", base_model="claude-3")
     tracker.track_fine_tuning(asset_id="model-001", dataset="dataset-001")
-    
+
     # Get events for model-001
     events_001 = tracker.get_events_for_asset("model-001")
     assert len(events_001) == 2
     assert all(e.asset_id == "model-001" for e in events_001)
-    
+
     # Get events for model-002
     events_002 = tracker.get_events_for_asset("model-002")
     assert len(events_002) == 1
@@ -248,7 +265,7 @@ def test_get_events_for_multiple_assets(tracker):
 def test_get_lineage_chain_single_model(tracker, registry, sample_model):
     """Test getting lineage chain for a single model."""
     chain = tracker.get_lineage_chain("model-001")
-    
+
     assert len(chain) == 1
     assert chain[0].asset_id == "model-001"
 
@@ -264,7 +281,7 @@ def test_get_lineage_chain_with_dependencies(tracker, registry):
         owner="team-ml",
         dependencies=[],
     )
-    
+
     model2 = AIAsset(
         asset_id="model-002",
         asset_type=AssetType.MODEL,
@@ -273,7 +290,7 @@ def test_get_lineage_chain_with_dependencies(tracker, registry):
         owner="team-ml",
         dependencies=["model-001"],
     )
-    
+
     model3 = AIAsset(
         asset_id="model-003",
         asset_type=AssetType.MODEL,
@@ -282,14 +299,14 @@ def test_get_lineage_chain_with_dependencies(tracker, registry):
         owner="team-ml",
         dependencies=["model-002"],
     )
-    
+
     registry.register(model1)
     registry.register(model2)
     registry.register(model3)
-    
+
     # Get lineage chain for model-003
     chain = tracker.get_lineage_chain("model-003")
-    
+
     assert len(chain) == 3
     assert chain[0].asset_id == "model-001"  # Origin
     assert chain[1].asset_id == "model-002"
@@ -314,7 +331,7 @@ def test_get_lineage_chain_with_missing_dependencies(tracker, registry):
         dependencies=["nonexistent-model"],
     )
     registry.register(model)
-    
+
     # Get lineage chain (should only include existing assets)
     chain = tracker.get_lineage_chain("model-001")
     assert len(chain) == 1
@@ -332,7 +349,7 @@ def test_get_lineage_chain_complex_dependencies(tracker, registry):
         owner="team-ml",
         dependencies=[],
     )
-    
+
     model2 = AIAsset(
         asset_id="model-002",
         asset_type=AssetType.MODEL,
@@ -341,7 +358,7 @@ def test_get_lineage_chain_complex_dependencies(tracker, registry):
         owner="team-ml",
         dependencies=[],
     )
-    
+
     model3 = AIAsset(
         asset_id="model-003",
         asset_type=AssetType.MODEL,
@@ -350,11 +367,11 @@ def test_get_lineage_chain_complex_dependencies(tracker, registry):
         owner="team-ml",
         dependencies=["model-001", "model-002"],  # Multiple dependencies
     )
-    
+
     registry.register(model1)
     registry.register(model2)
     registry.register(model3)
-    
+
     # Get lineage chain (should follow first dependency)
     chain = tracker.get_lineage_chain("model-003")
     assert len(chain) == 2
@@ -371,15 +388,20 @@ def test_event_timeline_ordering(tracker):
     """Test that events are ordered by timestamp."""
     # Track events with small delays to ensure different timestamps
     import time
-    
+
     tracker.track_model_creation(asset_id="model-001", base_model="gpt-4")
     time.sleep(0.01)
     tracker.track_fine_tuning(asset_id="model-001", dataset="dataset-001")
     time.sleep(0.01)
-    tracker.track_event(asset_id="model-001", event_type="updated", description="Model updated", metadata={"changes": {"temperature": 0.7}})
-    
+    tracker.track_event(
+        asset_id="model-001",
+        event_type="updated",
+        description="Model updated",
+        metadata={"changes": {"temperature": 0.7}},
+    )
+
     events = tracker.get_events_for_asset("model-001")
-    
+
     # Verify events are in reverse chronological order
     assert events[0].timestamp > events[1].timestamp
     assert events[1].timestamp > events[2].timestamp
@@ -393,14 +415,14 @@ def test_event_metadata(tracker):
         "version": "1.0",
         "nested": {"key": "value"},
     }
-    
+
     event_id = tracker.track_event(
         asset_id="model-001",
         event_type="deployed",
         description="Deployment",
         metadata=metadata,
     )
-    
+
     event = tracker.get_event(event_id)
     assert event.metadata == metadata
     assert event.metadata["nested"]["key"] == "value"
@@ -418,10 +440,10 @@ def test_event_to_dict(tracker):
         base_model="gpt-4",
         metadata={"version": "1.0"},
     )
-    
+
     event = tracker.get_event(event_id)
     data = event.to_dict()
-    
+
     assert data["event_id"] == event.event_id
     assert data["asset_id"] == event.asset_id
     assert data["event_type"] == event.event_type
@@ -451,22 +473,25 @@ def test_full_model_lifecycle(tracker, registry):
         base_model="gpt-4",
         metadata={"provider": "openai"},
     )
-    
+
     # 2. Fine-tune model
     tracker.track_fine_tuning(
         asset_id="model-001",
         dataset="dataset-001,dataset-002",
         parameters={"epochs": 10, "learning_rate": 0.001},
     )
-    
+
     # 3. Update model parameters
     tracker.track_event(
         asset_id="model-001",
         event_type="updated",
         description="Model parameters updated",
-        metadata={"changes": {"temperature": 0.7, "max_tokens": 2000}, "updated_by": "user-001"},
+        metadata={
+            "changes": {"temperature": 0.7, "max_tokens": 2000},
+            "updated_by": "user-001",
+        },
     )
-    
+
     # 4. Deploy model
     tracker.track_event(
         asset_id="model-001",
@@ -474,18 +499,18 @@ def test_full_model_lifecycle(tracker, registry):
         description="Deployed to production",
         metadata={"environment": "production"},
     )
-    
+
     # 5. Deprecate model
     tracker.track_deprecation(
         asset_id="model-001",
         reason="Replaced by model-002",
         replacement_id="model-002",
     )
-    
+
     # Verify complete timeline
     events = tracker.get_events_for_asset("model-001")
     assert len(events) == 5
-    
+
     event_types = [e.event_type for e in reversed(events)]
     assert event_types == ["created", "fine_tuned", "updated", "deployed", "deprecated"]
 
@@ -503,7 +528,7 @@ def test_multiple_models_lifecycle(tracker, registry):
     registry.register(model1)
     tracker.track_model_creation(asset_id="model-001", base_model="gpt-4")
     tracker.track_fine_tuning(asset_id="model-001", dataset="dataset-001")
-    
+
     # Create and track model-002
     model2 = AIAsset(
         asset_id="model-002",
@@ -514,13 +539,18 @@ def test_multiple_models_lifecycle(tracker, registry):
     )
     registry.register(model2)
     tracker.track_model_creation(asset_id="model-002", base_model="claude-3")
-    tracker.track_event(asset_id="model-002", event_type="updated", description="Model updated", metadata={"changes": {"temperature": 0.5}})
-    
+    tracker.track_event(
+        asset_id="model-002",
+        event_type="updated",
+        description="Model updated",
+        metadata={"changes": {"temperature": 0.5}},
+    )
+
     # Verify separate timelines
     events_001 = tracker.get_events_for_asset("model-001")
     assert len(events_001) == 2
     assert all(e.asset_id == "model-001" for e in events_001)
-    
+
     events_002 = tracker.get_events_for_asset("model-002")
     assert len(events_002) == 2
     assert all(e.asset_id == "model-002" for e in events_002)

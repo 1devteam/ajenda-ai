@@ -4,7 +4,18 @@ ORM models for PostgreSQL persistence
 
 Built with Pride for Obex Blackvault
 """
-from sqlalchemy import Column, String, DateTime, Float, Integer, Boolean, ForeignKey, JSON, Text
+
+from sqlalchemy import (
+    Column,
+    String,
+    DateTime,
+    Float,
+    Integer,
+    Boolean,
+    ForeignKey,
+    JSON,
+    Text,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -13,6 +24,7 @@ from backend.database.base import Base
 
 class User(Base):
     """User model with authentication"""
+
     __tablename__ = "users"
 
     id = Column(String(50), primary_key=True, index=True)
@@ -31,6 +43,7 @@ class User(Base):
 
 class Token(Base):
     """Access and refresh tokens"""
+
     __tablename__ = "tokens"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -47,6 +60,7 @@ class Token(Base):
 
 class Tenant(Base):
     """Multi-tenant organization"""
+
     __tablename__ = "tenants"
 
     id = Column(String(50), primary_key=True, index=True)
@@ -64,6 +78,7 @@ class Tenant(Base):
 
 class Agent(Base):
     """AI Agent model"""
+
     __tablename__ = "agents"
 
     id = Column(String(50), primary_key=True, index=True)
@@ -90,6 +105,7 @@ class Agent(Base):
 
 class Mission(Base):
     """Mission/Task model"""
+
     __tablename__ = "missions"
 
     id = Column(String(50), primary_key=True, index=True)

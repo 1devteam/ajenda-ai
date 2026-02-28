@@ -6,7 +6,6 @@ Built with Pride for Obex Blackvault.
 """
 
 import logging
-from typing import Optional
 from prometheus_client import Counter, Histogram, Gauge, Info, generate_latest, REGISTRY
 from fastapi import Response
 
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 class PrometheusMetrics:
     """
     Prometheus metrics manager for Omnipath
-    
+
     Tracks:
     - Mission execution (count, duration, success rate)
     - Agent invocations (by type, model)
@@ -24,200 +23,188 @@ class PrometheusMetrics:
     - LLM API calls (by provider, cost)
     - System health (uptime, errors)
     """
-    
+
     def __init__(self, enabled: bool = True):
         self.enabled = enabled
-        
+
         if not enabled:
             logger.info("Prometheus metrics disabled")
             return
-        
+
         # --- Mission Metrics ---
         # Counter for total missions by status and complexity
         # status: PENDING, RUNNING, COMPLETED, FAILED, REJECTED
         self.missions_total = Counter(
-            'omnipath_missions_total',
-            'Total number of missions executed',
-            ['status', 'complexity']
+            "omnipath_missions_total",
+            "Total number of missions executed",
+            ["status", "complexity"],
         )
-        
+
         # Histogram for mission duration
         self.mission_duration = Histogram(
-            'omnipath_mission_duration_seconds',
-            'Mission execution duration in seconds',
-            ['complexity'],
-            buckets=(1, 5, 10, 30, 60, 120, 300, 600, 1800)
+            "omnipath_mission_duration_seconds",
+            "Mission execution duration in seconds",
+            ["complexity"],
+            buckets=(1, 5, 10, 30, 60, 120, 300, 600, 1800),
         )
-        
+
         # Gauge for currently active missions
         self.missions_active = Gauge(
-            'omnipath_active_missions',
-            'Number of currently active missions'
+            "omnipath_active_missions", "Number of currently active missions"
         )
-        
+
         # --- Agent Metrics ---
         # Counter for agent invocations
         self.agent_invocations = Counter(
-            'omnipath_agent_invocations_total',
-            'Total agent invocations',
-            ['agent_type', 'model']
+            "omnipath_agent_invocations_total",
+            "Total agent invocations",
+            ["agent_type", "model"],
         )
-        
+
         # Counter for agent errors
         self.agent_errors = Counter(
-            'omnipath_agent_errors_total',
-            'Total agent execution errors',
-            ['agent_type', 'error_type']
+            "omnipath_agent_errors_total",
+            "Total agent execution errors",
+            ["agent_type", "error_type"],
         )
 
         # Gauge for current agent status (1 for active state, 0 otherwise)
         self.agent_status = Gauge(
-            'omnipath_agent_status',
-            'Current status of an agent',
-            ['agent_type', 'status']
+            "omnipath_agent_status",
+            "Current status of an agent",
+            ["agent_type", "status"],
         )
-        
+
         # --- Economy Metrics ---
         # Counter for credits earned
         self.credits_earned = Counter(
-            'omnipath_credits_earned_total',
-            'Total credits earned by agents',
-            ['agent_id', 'resource_type']
+            "omnipath_credits_earned_total",
+            "Total credits earned by agents",
+            ["agent_id", "resource_type"],
         )
-        
+
         # Counter for credits spent
         self.credits_spent = Counter(
-            'omnipath_credits_spent_total',
-            'Total credits spent by agents',
-            ['agent_id', 'resource_type']
+            "omnipath_credits_spent_total",
+            "Total credits spent by agents",
+            ["agent_id", "resource_type"],
         )
-        
+
         # Gauge for current agent credit balance
         self.agent_balance = Gauge(
-            'omnipath_agent_balance',
-            'Current credit balance per agent',
-            ['agent_id']
+            "omnipath_agent_balance", "Current credit balance per agent", ["agent_id"]
         )
-        
+
         # --- Compliance Metrics ---
         # Counter for compliance checks
         self.compliance_checks_total = Counter(
-            'omnipath_compliance_checks_total',
-            'Total compliance checks performed',
-            ['agent_type', 'tool_name', 'result']  # result: allowed, blocked
+            "omnipath_compliance_checks_total",
+            "Total compliance checks performed",
+            ["agent_type", "tool_name", "result"],  # result: allowed, blocked
         )
-        
+
         # Counter for compliance rule evaluations
         self.compliance_rule_evaluations = Counter(
-            'omnipath_compliance_rule_evaluations_total',
-            'Total compliance rule evaluations',
-            ['rule_name', 'result']  # result: pass, fail
+            "omnipath_compliance_rule_evaluations_total",
+            "Total compliance rule evaluations",
+            ["rule_name", "result"],  # result: pass, fail
         )
-        
+
         # Histogram for compliance check duration
         self.compliance_check_duration = Histogram(
-            'omnipath_compliance_check_duration_seconds',
-            'Compliance check duration in seconds',
-            ['agent_type'],
-            buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0)
+            "omnipath_compliance_check_duration_seconds",
+            "Compliance check duration in seconds",
+            ["agent_type"],
+            buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
         )
-        
+
         # Counter for blocked actions by rule
         self.compliance_blocks = Counter(
-            'omnipath_compliance_blocks_total',
-            'Total actions blocked by compliance',
-            ['agent_type', 'tool_name', 'rule_name']
+            "omnipath_compliance_blocks_total",
+            "Total actions blocked by compliance",
+            ["agent_type", "tool_name", "rule_name"],
         )
-        
+
         # --- LLM API Metrics ---
         # Counter for total LLM API calls
         self.llm_api_calls = Counter(
-            'omnipath_llm_api_calls_total',
-            'Total LLM API calls',
-            ['provider', 'model']
+            "omnipath_llm_api_calls_total", "Total LLM API calls", ["provider", "model"]
         )
-        
+
         # Counter for tokens used
         self.llm_tokens_used = Counter(
-            'omnipath_llm_tokens_used_total',
-            'Total tokens used',
-            ['provider', 'model', 'type']  # type: prompt, completion
+            "omnipath_llm_tokens_used_total",
+            "Total tokens used",
+            ["provider", "model", "type"],  # type: prompt, completion
         )
-        
+
         # Counter for total LLM cost in USD
         self.llm_cost = Counter(
-            'omnipath_llm_cost_total',
-            'Total LLM API cost in USD',
-            ['provider', 'model']
+            "omnipath_llm_cost_total",
+            "Total LLM API cost in USD",
+            ["provider", "model"],
         )
-        
+
         # Histogram for LLM call latency
         self.llm_latency = Histogram(
-            'omnipath_llm_latency_seconds',
-            'LLM API call latency',
-            ['provider', 'model'],
-            buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0)
+            "omnipath_llm_latency_seconds",
+            "LLM API call latency",
+            ["provider", "model"],
+            buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
         )
-        
+
         # --- System Metrics ---
         # Counter for HTTP requests
         self.http_requests = Counter(
-            'omnipath_http_requests_total',
-            'Total HTTP requests',
-            ['method', 'endpoint', 'status']
+            "omnipath_http_requests_total",
+            "Total HTTP requests",
+            ["method", "endpoint", "status"],
         )
-        
+
         # Histogram for HTTP request duration
         self.http_request_duration = Histogram(
-            'omnipath_http_request_duration_seconds',
-            'HTTP request duration',
-            ['method', 'endpoint'],
-            buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0)
+            "omnipath_http_request_duration_seconds",
+            "HTTP request duration",
+            ["method", "endpoint"],
+            buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0),
         )
-        
+
         # Counter for internal system errors
         self.system_errors = Counter(
-            'omnipath_system_errors_total',
-            'Total system errors',
-            ['error_type']
+            "omnipath_system_errors_total", "Total system errors", ["error_type"]
         )
 
         # Counter for user logins
         self.user_logins = Counter(
-            'omnipath_user_logins_total',
-            'Total user logins',
-            ['tenant_id']
+            "omnipath_user_logins_total", "Total user logins", ["tenant_id"]
         )
 
         # Counter for rate limit exceeded events
         self.rate_limit_exceeded = Counter(
-            'omnipath_rate_limit_exceeded_total',
-            'Total rate limit exceed events',
-            ['identifier']
+            "omnipath_rate_limit_exceeded_total",
+            "Total rate limit exceed events",
+            ["identifier"],
         )
 
         # Counter for NATS message throughput
         self.nats_messages = Counter(
-            'omnipath_nats_messages_total',
-            'Total NATS messages processed',
-            ['subject', 'direction'] # direction: pub, sub
+            "omnipath_nats_messages_total",
+            "Total NATS messages processed",
+            ["subject", "direction"],  # direction: pub, sub
         )
-        
+
         # Counter for reasoning workflow steps
         self.reasoning_steps = Counter(
-            'omnipath_agent_reasoning_steps_total',
-            'Total reasoning workflow steps executed',
-            ['step_type']
+            "omnipath_agent_reasoning_steps_total",
+            "Total reasoning workflow steps executed",
+            ["step_type"],
         )
-        
+
         # Gauge for application info
-        self.app_info = Info(
-            'omnipath_app',
-            'Application information'
-        )
-        
+        self.app_info = Info("omnipath_app", "Application information")
+
         logger.info("Prometheus metrics initialized")
-    
+
     def record_mission_created(self, complexity: str, priority: str = "1"):
         """Record mission creation (PENDING status)"""
         if self.enabled:
@@ -228,12 +215,9 @@ class PrometheusMetrics:
         if self.enabled:
             self.missions_active.inc()
             self.missions_total.labels(status="RUNNING", complexity=complexity).inc()
-    
+
     def record_mission_complete(
-        self,
-        status: str,
-        complexity: str,
-        duration_seconds: float
+        self, status: str, complexity: str, duration_seconds: float
     ):
         """Record terminal mission status (COMPLETED, FAILED, REJECTED) and duration"""
         if self.enabled:
@@ -247,16 +231,18 @@ class PrometheusMetrics:
                 norm_status = "REJECTED"
             else:
                 norm_status = status_upper
-                
+
             self.missions_total.labels(status=norm_status, complexity=complexity).inc()
-            self.mission_duration.labels(complexity=complexity).observe(duration_seconds)
+            self.mission_duration.labels(complexity=complexity).observe(
+                duration_seconds
+            )
             self.missions_active.dec()
-    
+
     def record_agent_invocation(self, agent_type: str, model: str):
         """Record agent being invoked"""
         if self.enabled:
             self.agent_invocations.labels(agent_type=agent_type, model=model).inc()
-    
+
     def record_agent_error(self, agent_type: str, error_type: str):
         """Record agent execution error"""
         if self.enabled:
@@ -271,67 +257,57 @@ class PrometheusMetrics:
             # Reset all statuses for this agent type first to ensure only one is active
             for s in ["idle", "running", "completed", "failed"]:
                 self.agent_status.labels(agent_type=agent_type, status=s).set(0)
-            self.agent_status.labels(agent_type=agent_type, status=status.lower()).set(1)
-    
+            self.agent_status.labels(agent_type=agent_type, status=status.lower()).set(
+                1
+            )
+
     def record_credits_earned(self, agent_id: str, resource_type: str, amount: float):
         """Record credits earned/rewarded"""
         if self.enabled:
-            self.credits_earned.labels(agent_id=agent_id, resource_type=resource_type).inc(amount)
-    
+            self.credits_earned.labels(
+                agent_id=agent_id, resource_type=resource_type
+            ).inc(amount)
+
     def record_credits_spent(self, agent_id: str, resource_type: str, amount: float):
         """Record credits spent/consumed"""
         if self.enabled:
-            self.credits_spent.labels(agent_id=agent_id, resource_type=resource_type).inc(amount)
-    
+            self.credits_spent.labels(
+                agent_id=agent_id, resource_type=resource_type
+            ).inc(amount)
+
     def update_agent_balance(self, agent_id: str, balance: float):
         """Update current agent credit balance"""
         if self.enabled:
             self.agent_balance.labels(agent_id=agent_id).set(balance)
-    
+
     def record_compliance_check(
-        self,
-        agent_type: str,
-        tool_name: str,
-        allowed: bool,
-        duration_seconds: float
+        self, agent_type: str, tool_name: str, allowed: bool, duration_seconds: float
     ):
         """Record compliance check result and duration"""
         if self.enabled:
             result = "allowed" if allowed else "blocked"
             self.compliance_checks_total.labels(
-                agent_type=agent_type,
-                tool_name=tool_name,
-                result=result
+                agent_type=agent_type, tool_name=tool_name, result=result
             ).inc()
-            self.compliance_check_duration.labels(agent_type=agent_type).observe(duration_seconds)
-    
-    def record_compliance_rule_evaluation(
-        self,
-        rule_name: str,
-        passed: bool
-    ):
+            self.compliance_check_duration.labels(agent_type=agent_type).observe(
+                duration_seconds
+            )
+
+    def record_compliance_rule_evaluation(self, rule_name: str, passed: bool):
         """Record individual rule evaluation"""
         if self.enabled:
             result = "pass" if passed else "fail"
             self.compliance_rule_evaluations.labels(
-                rule_name=rule_name,
-                result=result
+                rule_name=rule_name, result=result
             ).inc()
-    
-    def record_compliance_block(
-        self,
-        agent_type: str,
-        tool_name: str,
-        rule_name: str
-    ):
+
+    def record_compliance_block(self, agent_type: str, tool_name: str, rule_name: str):
         """Record action blocked by compliance rule"""
         if self.enabled:
             self.compliance_blocks.labels(
-                agent_type=agent_type,
-                tool_name=tool_name,
-                rule_name=rule_name
+                agent_type=agent_type, tool_name=tool_name, rule_name=rule_name
             ).inc()
-    
+
     def record_llm_call(
         self,
         provider: str,
@@ -339,30 +315,34 @@ class PrometheusMetrics:
         prompt_tokens: int,
         completion_tokens: int,
         cost_usd: float,
-        latency_seconds: float
+        latency_seconds: float,
     ):
         """Record comprehensive LLM call metrics"""
         if self.enabled:
             self.llm_api_calls.labels(provider=provider, model=model).inc()
             self.llm_tokens_used.labels(
-                provider=provider,
-                model=model,
-                type="prompt"
+                provider=provider, model=model, type="prompt"
             ).inc(prompt_tokens)
             self.llm_tokens_used.labels(
-                provider=provider,
-                model=model,
-                type="completion"
+                provider=provider, model=model, type="completion"
             ).inc(completion_tokens)
             self.llm_cost.labels(provider=provider, model=model).inc(cost_usd)
-            self.llm_latency.labels(provider=provider, model=model).observe(latency_seconds)
-    
-    def record_http_request(self, method: str, endpoint: str, status: int, duration_seconds: float):
+            self.llm_latency.labels(provider=provider, model=model).observe(
+                latency_seconds
+            )
+
+    def record_http_request(
+        self, method: str, endpoint: str, status: int, duration_seconds: float
+    ):
         """Record HTTP request metrics"""
         if self.enabled:
-            self.http_requests.labels(method=method, endpoint=endpoint, status=str(status)).inc()
-            self.http_request_duration.labels(method=method, endpoint=endpoint).observe(duration_seconds)
-    
+            self.http_requests.labels(
+                method=method, endpoint=endpoint, status=str(status)
+            ).inc()
+            self.http_request_duration.labels(method=method, endpoint=endpoint).observe(
+                duration_seconds
+            )
+
     def record_system_error(self, error_type: str):
         """Record internal system error"""
         if self.enabled:
@@ -382,17 +362,17 @@ class PrometheusMetrics:
         """Record NATS message throughput"""
         if self.enabled:
             self.nats_messages.labels(subject=subject, direction=direction).inc()
-    
+
     def record_agent_reasoning_step(self, step_type: str):
         """Record a reasoning workflow step."""
         if self.enabled:
             self.reasoning_steps.labels(step_type=step_type).inc()
-    
+
     def set_app_info(self, version: str, environment: str):
         """Set application metadata info"""
         if self.enabled:
-            self.app_info.info({'version': version, 'environment': environment})
-    
+            self.app_info.info({"version": version, "environment": environment})
+
     def get_metrics(self) -> bytes:
         """Generate metrics in Prometheus format"""
         if not self.enabled:
@@ -403,13 +383,15 @@ class PrometheusMetrics:
 # Global metrics singleton
 metrics = PrometheusMetrics()
 
+
 def get_metrics() -> PrometheusMetrics:
     """Get the global PrometheusMetrics instance"""
     return metrics
+
 
 def metrics_endpoint():
     """FastAPI endpoint for Prometheus scraping"""
     return Response(
         content=metrics.get_metrics(),
-        media_type="text/plain; version=0.0.4; charset=utf-8"
+        media_type="text/plain; version=0.0.4; charset=utf-8",
     )

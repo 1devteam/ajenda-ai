@@ -14,6 +14,7 @@ import uuid
 
 class ApprovalStatus(str, Enum):
     """Approval request status"""
+
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -25,7 +26,7 @@ class ApprovalStatus(str, Enum):
 class ApprovalRequest:
     """
     Approval request for a sensitive operation.
-    
+
     Attributes:
         id: Unique request ID
         agent_id: ID of agent requesting approval
@@ -41,6 +42,7 @@ class ApprovalRequest:
         expires_at: When request expires
         metadata: Additional metadata
     """
+
     id: str
     agent_id: str
     agent_type: str
@@ -54,19 +56,19 @@ class ApprovalRequest:
     approval_note: Optional[str] = None
     expires_at: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def is_pending(self) -> bool:
         """Check if request is pending"""
         return self.status == ApprovalStatus.PENDING
-    
+
     def is_approved(self) -> bool:
         """Check if request is approved"""
         return self.status == ApprovalStatus.APPROVED
-    
+
     def is_rejected(self) -> bool:
         """Check if request is rejected"""
         return self.status == ApprovalStatus.REJECTED
-    
+
     def is_expired(self) -> bool:
         """Check if request is expired"""
         if self.status == ApprovalStatus.EXPIRED:
@@ -74,11 +76,11 @@ class ApprovalRequest:
         if self.expires_at and datetime.utcnow() > self.expires_at:
             return True
         return False
-    
+
     def approve(self, approved_by: str, note: Optional[str] = None) -> None:
         """
         Approve the request.
-        
+
         Args:
             approved_by: User approving the request
             note: Optional approval note
@@ -87,11 +89,11 @@ class ApprovalRequest:
         self.approved_by = approved_by
         self.approved_at = datetime.utcnow()
         self.approval_note = note
-    
+
     def reject(self, rejected_by: str, note: Optional[str] = None) -> None:
         """
         Reject the request.
-        
+
         Args:
             rejected_by: User rejecting the request
             note: Optional rejection note
@@ -100,11 +102,11 @@ class ApprovalRequest:
         self.approved_by = rejected_by
         self.approved_at = datetime.utcnow()
         self.approval_note = note
-    
+
     def cancel(self) -> None:
         """Cancel the request"""
         self.status = ApprovalStatus.CANCELLED
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {
@@ -127,14 +129,14 @@ class ApprovalRequest:
 class ApprovalStore:
     """
     In-memory store for approval requests.
-    
+
     For production, replace with database (PostgreSQL, Redis, etc.)
     """
-    
+
     def __init__(self):
         """Initialize approval store"""
         self._requests: Dict[str, ApprovalRequest] = {}
-    
+
     def create(
         self,
         agent_id: str,
@@ -143,11 +145,11 @@ class ApprovalStore:
         parameters: Dict[str, Any],
         reason: str,
         expires_in_seconds: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> ApprovalRequest:
         """
         Create new approval request.
-        
+
         Args:
             agent_id: ID of agent requesting approval
             agent_type: Type of agent
@@ -156,18 +158,19 @@ class ApprovalStore:
             reason: Reason for requiring approval
             expires_in_seconds: Optional expiration time in seconds
             metadata: Optional metadata
-        
+
         Returns:
             ApprovalRequest instance
         """
         request_id = str(uuid.uuid4())
         requested_at = datetime.utcnow()
         expires_at = None
-        
+
         if expires_in_seconds:
             from datetime import timedelta
+
             expires_at = requested_at + timedelta(seconds=expires_in_seconds)
-        
+
         request = ApprovalRequest(
             id=request_id,
             agent_id=agent_id,
@@ -177,72 +180,72 @@ class ApprovalStore:
             reason=reason,
             requested_at=requested_at,
             expires_at=expires_at,
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
-        
+
         self._requests[request_id] = request
         return request
-    
+
     def get(self, request_id: str) -> Optional[ApprovalRequest]:
         """
         Get approval request by ID.
-        
+
         Args:
             request_id: Request ID
-        
+
         Returns:
             ApprovalRequest or None if not found
         """
         return self._requests.get(request_id)
-    
+
     def list(
         self,
         status: Optional[ApprovalStatus] = None,
         agent_id: Optional[str] = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> List[ApprovalRequest]:
         """
         List approval requests.
-        
+
         Args:
             status: Optional status filter
             agent_id: Optional agent ID filter
             limit: Maximum number of requests to return
-        
+
         Returns:
             List of ApprovalRequest instances
         """
         requests = list(self._requests.values())
-        
+
         # Filter by status
         if status:
             requests = [r for r in requests if r.status == status]
-        
+
         # Filter by agent_id
         if agent_id:
             requests = [r for r in requests if r.agent_id == agent_id]
-        
+
         # Sort by requested_at (newest first)
         requests.sort(key=lambda r: r.requested_at, reverse=True)
-        
+
         return requests[:limit]
-    
+
     def update(self, request: ApprovalRequest) -> None:
         """
         Update approval request.
-        
+
         Args:
             request: ApprovalRequest instance
         """
         self._requests[request.id] = request
-    
+
     def delete(self, request_id: str) -> bool:
         """
         Delete approval request.
-        
+
         Args:
             request_id: Request ID
-        
+
         Returns:
             True if deleted, False if not found
         """
@@ -250,23 +253,23 @@ class ApprovalStore:
             del self._requests[request_id]
             return True
         return False
-    
+
     def cleanup_expired(self) -> int:
         """
         Mark expired requests as expired.
-        
+
         Returns:
             Number of requests marked as expired
         """
         count = 0
         now = datetime.utcnow()
-        
+
         for request in self._requests.values():
             if request.status == ApprovalStatus.PENDING:
                 if request.expires_at and now > request.expires_at:
                     request.status = ApprovalStatus.EXPIRED
                     count += 1
-        
+
         return count
 
 
@@ -277,7 +280,7 @@ _global_approval_store: Optional[ApprovalStore] = None
 def get_approval_store() -> ApprovalStore:
     """
     Get global approval store instance.
-    
+
     Returns:
         ApprovalStore instance
     """
@@ -290,7 +293,7 @@ def get_approval_store() -> ApprovalStore:
 def set_approval_store(store: ApprovalStore) -> None:
     """
     Set global approval store instance.
-    
+
     Args:
         store: ApprovalStore instance
     """

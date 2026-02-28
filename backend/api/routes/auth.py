@@ -5,6 +5,7 @@ Migrated to SQLAlchemy database persistence
 
 Built with Pride for Obex Blackvault
 """
+
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, EmailStr
@@ -28,14 +29,22 @@ BCRYPT_ROUNDS = 12
 # Request/Response Models
 # ============================================================================
 
+
 class UserRegister(BaseModel):
     """User registration schema"""
+
     email: EmailStr = Field(..., description="User email address")
-    password: str = Field(..., min_length=8, description="User password (min 8 characters)")
+    password: str = Field(
+        ..., min_length=8, description="User password (min 8 characters)"
+    )
     name: Optional[str] = Field(None, min_length=1, description="User full name")
-    full_name: Optional[str] = Field(None, min_length=1, description="User full name (alias for name)")
-    tenant_id: Optional[str] = Field(None, description="Tenant ID (optional, will create if not provided)")
-    
+    full_name: Optional[str] = Field(
+        None, min_length=1, description="User full name (alias for name)"
+    )
+    tenant_id: Optional[str] = Field(
+        None, description="Tenant ID (optional, will create if not provided)"
+    )
+
     def get_name(self) -> str:
         """Get name from either name or full_name field"""
         return self.name or self.full_name or "User"
@@ -43,10 +52,13 @@ class UserRegister(BaseModel):
 
 class UserLogin(BaseModel):
     """User login schema (supports both JSON and form data)"""
+
     email: Optional[EmailStr] = Field(None, description="User email address")
-    username: Optional[EmailStr] = Field(None, description="User email (OAuth2 compatibility)")
+    username: Optional[EmailStr] = Field(
+        None, description="User email (OAuth2 compatibility)"
+    )
     password: str = Field(..., description="User password")
-    
+
     def get_email(self) -> str:
         """Get email from either email or username field"""
         return self.email or self.username
@@ -54,6 +66,7 @@ class UserLogin(BaseModel):
 
 class TokenResponse(BaseModel):
     """Token response schema"""
+
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -64,11 +77,13 @@ class TokenResponse(BaseModel):
 
 class TokenRefresh(BaseModel):
     """Token refresh schema"""
+
     refresh_token: str = Field(..., description="Refresh token")
 
 
 class UserResponse(BaseModel):
     """User response schema"""
+
     id: str
     email: str
     name: str
@@ -81,49 +96,63 @@ class UserResponse(BaseModel):
 # Authentication Functions
 # ============================================================================
 
+
 def hash_password(password: str) -> str:
     """Hash password using bcrypt"""
     salt = bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
-    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify password against hash"""
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+    )
 
 
 def create_access_token(user_id: str, tenant_id: str) -> tuple[str, datetime]:
     """Create JWT access token"""
     import uuid
-    expires_at = datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    expires_at = datetime.utcnow() + timedelta(
+        minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+    )
     payload = {
         "user_id": user_id,
         "tenant_id": tenant_id,
         "exp": expires_at,
         "type": "access",
-        "jti": str(uuid.uuid4())  # Unique token ID to prevent duplicates
+        "jti": str(uuid.uuid4()),  # Unique token ID to prevent duplicates
     }
-    token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    token = jwt.encode(
+        payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+    )
     return token, expires_at
 
 
 def create_refresh_token(user_id: str, tenant_id: str) -> tuple[str, datetime]:
     """Create JWT refresh token"""
-    expires_at = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    expires_at = datetime.utcnow() + timedelta(
+        days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+    )
     payload = {
         "user_id": user_id,
         "tenant_id": tenant_id,
         "exp": expires_at,
-        "type": "refresh"
+        "type": "refresh",
     }
-    token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    token = jwt.encode(
+        payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+    )
     return token, expires_at
 
 
 def verify_token(token: str) -> Optional[dict]:
     """Verify JWT token and return payload"""
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        )
         return payload
     except jwt.ExpiredSignatureError:
         return None
@@ -136,70 +165,69 @@ def verify_token(token: str) -> Optional[dict]:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> dict:
     """
     Validate token and return current user info
-    
+
     This dependency should be used on all protected endpoints to:
     1. Validate the access token
     2. Return user_id and tenant_id for authorization
     3. Raise 401 if token is invalid or expired
-    
+
     Usage:
         @router.get("/protected")
         async def protected_endpoint(current_user: dict = Depends(get_current_user)):
             user_id = current_user["user_id"]
             tenant_id = current_user["tenant_id"]
             # ... endpoint logic
-    
+
     Returns:
         dict: {
             "user_id": str,
             "tenant_id": str
         }
-    
+
     Raises:
         HTTPException: 401 if token is invalid or expired
     """
     token = credentials.credentials
     token_data = verify_token(token)
-    
+
     if not token_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"}
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     # Check if token is revoked in database
-    db_token = db.query(Token).filter(
-        Token.token == token,
-        Token.revoked == False
-    ).first()
-    
+    db_token = (
+        db.query(Token).filter(Token.token == token, Token.revoked is False).first()
+    )
+
     if not db_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked or does not exist",
-            headers={"WWW-Authenticate": "Bearer"}
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    return {
-        "user_id": token_data["user_id"],
-        "tenant_id": token_data["tenant_id"]
-    }
+
+    return {"user_id": token_data["user_id"], "tenant_id": token_data["tenant_id"]}
 
 
 # ============================================================================
 # API Endpoints
 # ============================================================================
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED
+)
 async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     """
     Register a new user
-    
+
     Creates a new user account with email and password.
     """
     # Check if user already exists
@@ -207,12 +235,12 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email already exists"
+            detail="User with this email already exists",
         )
-    
+
     # Get name from either field
     user_name = user_data.get_name()
-    
+
     # Create tenant if not provided
     tenant_id = user_data.tenant_id
     if not tenant_id:
@@ -222,10 +250,10 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
             name=f"{user_name}'s Organization",
             slug=f"org-{uuid.uuid4().hex[:8]}",
             created_at=datetime.utcnow(),
-            settings={}
+            settings={},
         )
         db.add(tenant)
-    
+
     # Create user
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     user = User(
@@ -234,20 +262,20 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
         name=user_name,
         password_hash=hash_password(user_data.password),
         tenant_id=tenant_id,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
-    
+
     db.add(user)
     db.commit()
     db.refresh(user)
-    
+
     return UserResponse(
         id=user.id,
         email=user.email,
         name=user.name,
         tenant_id=user.tenant_id,
         created_at=user.created_at,
-        last_login=user.last_login
+        last_login=user.last_login,
     )
 
 
@@ -255,116 +283,121 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
 async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     """
     User login
-    
+
     Authenticates user and returns access and refresh tokens.
     """
     email = credentials.get_email()
-    
+
     # Find user
     user = db.query(User).filter(User.email == email).first()
     if not user or not verify_password(credentials.password, user.password_hash):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
         )
-    
+
     # Update last login
     user.last_login = datetime.utcnow()
     db.commit()
-    
+
     # Record in Prometheus
     from backend.integrations.observability.prometheus_metrics import get_metrics
+
     get_metrics().record_user_login(user.tenant_id)
-    
+
     # Create tokens
     access_token, access_expires = create_access_token(user.id, user.tenant_id)
     refresh_token, refresh_expires = create_refresh_token(user.id, user.tenant_id)
-    
+
     # Store tokens in database
     db_access_token = Token(
         token=access_token,
         token_type="access",
         user_id=user.id,
         expires_at=access_expires,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     db_refresh_token = Token(
         token=refresh_token,
         token_type="refresh",
         user_id=user.id,
         expires_at=refresh_expires,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
-    
+
     db.add(db_access_token)
     db.add(db_refresh_token)
     db.flush()  # Ensure tokens are written to database before returning response
     db.commit()
-    
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user_id=user.id,
-        tenant_id=user.tenant_id
+        tenant_id=user.tenant_id,
     )
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token_endpoint(refresh_data: TokenRefresh, db: Session = Depends(get_db)):
+async def refresh_token_endpoint(
+    refresh_data: TokenRefresh, db: Session = Depends(get_db)
+):
     """
     Refresh access token
-    
+
     Uses refresh token to get a new access token.
     """
     try:
         refresh_token = refresh_data.refresh_token
-        
+
         # Verify refresh token
         token_data = verify_token(refresh_token)
         if not token_data or token_data.get("type") != "refresh":
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
             )
-        
+
         # Check if token exists and not revoked
-        db_token = db.query(Token).filter(
-            Token.token == refresh_token,
-            Token.token_type == "refresh",
-            Token.revoked == False
-        ).first()
-        
+        db_token = (
+            db.query(Token)
+            .filter(
+                Token.token == refresh_token,
+                Token.token_type == "refresh",
+                Token.revoked is False,
+            )
+            .first()
+        )
+
         if not db_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh token has been revoked or does not exist"
+                detail="Refresh token has been revoked or does not exist",
             )
-        
+
         # Create new access token
         user_id = token_data["user_id"]
         tenant_id = token_data["tenant_id"]
         access_token, access_expires = create_access_token(user_id, tenant_id)
-        
+
         # Store new access token
         db_access_token = Token(
             token=access_token,
             token_type="access",
             user_id=user_id,
             expires_at=access_expires,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
         db.add(db_access_token)
         db.commit()
-        
+
         return TokenResponse(
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
             expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             user_id=user_id,
-            tenant_id=tenant_id
+            tenant_id=tenant_id,
         )
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -373,7 +406,7 @@ async def refresh_token_endpoint(refresh_data: TokenRefresh, db: Session = Depen
         # Log unexpected errors and return 401
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token refresh failed: {str(e)}"
+            detail=f"Token refresh failed: {str(e)}",
         )
 
 
@@ -381,50 +414,48 @@ async def refresh_token_endpoint(refresh_data: TokenRefresh, db: Session = Depen
 async def logout(
     current_user: dict = Depends(get_current_user),
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     User logout
-    
+
     Revokes the current access token.
     """
     token = credentials.credentials
-    
+
     # Revoke token in database
     db_token = db.query(Token).filter(Token.token == token).first()
     if db_token:
         db_token.revoked = True
         db.commit()
-    
+
     return None
 
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """
     Get current user info
-    
+
     Returns the authenticated user's information.
     """
     user_id = current_user["user_id"]
     user = db.query(User).filter(User.id == user_id).first()
-    
+
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
-    
+
     return UserResponse(
         id=user.id,
         email=user.email,
         name=user.name,
         tenant_id=user.tenant_id,
         created_at=user.created_at,
-        last_login=user.last_login
+        last_login=user.last_login,
     )
 
 
@@ -432,7 +463,11 @@ async def get_me(
 async def verify_token_endpoint(current_user: dict = Depends(get_current_user)):
     """
     Verify token validity
-    
+
     Returns 200 if token is valid, 401 otherwise.
     """
-    return {"valid": True, "user_id": current_user["user_id"], "tenant_id": current_user["tenant_id"]}
+    return {
+        "valid": True,
+        "user_id": current_user["user_id"],
+        "tenant_id": current_user["tenant_id"],
+    }

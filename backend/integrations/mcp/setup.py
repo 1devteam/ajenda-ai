@@ -10,14 +10,17 @@ Called from main.py lifespan:
 
 Built with Pride for Obex Blackvault
 """
+
 from __future__ import annotations
 
-import asyncio
 from typing import Optional
 
 from backend.integrations.mcp.mcp_client import MCPClient, MCPAgentIntegration
 from backend.integrations.mcp.tool_bridge import MCPToolBridge, get_mcp_tool_bridge
-from backend.integrations.mcp.server_registry import MCPServerRegistry, get_mcp_server_registry
+from backend.integrations.mcp.server_registry import (
+    MCPServerRegistry,
+    get_mcp_server_registry,
+)
 from backend.core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -34,6 +37,7 @@ _mcp_bridge: Optional[MCPToolBridge] = None
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 async def setup_mcp() -> None:
     """
@@ -118,6 +122,7 @@ async def teardown_mcp() -> None:
 # ---------------------------------------------------------------------------
 # Accessors
 # ---------------------------------------------------------------------------
+
 
 def get_mcp_client() -> Optional[MCPClient]:
     """Return the active MCPClient, or None if MCP is not initialised."""

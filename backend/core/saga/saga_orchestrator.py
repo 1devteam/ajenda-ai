@@ -6,14 +6,13 @@ Built with Pride for Obex Blackvault
 """
 
 import uuid
-from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from backend.core.logging_config import get_logger, LoggerMixin
-from backend.core.event_sourcing.event_store_impl import EventStore, Event
+from backend.core.event_sourcing.event_store_impl import EventStore
 
 
 logger = get_logger(__name__)
@@ -23,8 +22,10 @@ logger = get_logger(__name__)
 # Saga Models
 # ============================================================================
 
+
 class SagaStatus(str, Enum):
     """Status of saga execution"""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -35,6 +36,7 @@ class SagaStatus(str, Enum):
 
 class StepStatus(str, Enum):
     """Status of saga step execution"""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -46,6 +48,7 @@ class StepStatus(str, Enum):
 @dataclass
 class SagaStep:
     """Single step in a saga"""
+
     step_id: str
     name: str
     action: Callable
@@ -60,6 +63,7 @@ class SagaStep:
 @dataclass
 class SagaDefinition:
     """Definition of a saga workflow"""
+
     saga_id: str
     name: str
     steps: List[SagaStep] = field(default_factory=list)
@@ -74,6 +78,7 @@ class SagaDefinition:
 # ============================================================================
 # Saga Orchestrator
 # ============================================================================
+
 
 class SagaOrchestrator(LoggerMixin):
     """
@@ -153,7 +158,8 @@ class SagaOrchestrator(LoggerMixin):
             self.log_info(
                 f"Saga completed successfully: {saga.name}",
                 saga_id=saga.saga_id,
-                duration_ms=(saga.completed_at - saga.started_at).total_seconds() * 1000,
+                duration_ms=(saga.completed_at - saga.started_at).total_seconds()
+                * 1000,
             )
             await self._emit_event(
                 saga_id=saga.saga_id,
@@ -202,7 +208,8 @@ class SagaOrchestrator(LoggerMixin):
                 f"Step completed: {step.name}",
                 saga_id=saga.saga_id,
                 step_id=step.step_id,
-                duration_ms=(step.completed_at - step.started_at).total_seconds() * 1000,
+                duration_ms=(step.completed_at - step.started_at).total_seconds()
+                * 1000,
             )
             await self._emit_event(
                 saga_id=saga.saga_id,
@@ -311,6 +318,7 @@ class SagaOrchestrator(LoggerMixin):
 # Pre-defined Sagas
 # ============================================================================
 
+
 class MissionExecutionSaga:
     """
     Saga for executing a mission end-to-end with credit reservation, mission
@@ -329,9 +337,9 @@ class MissionExecutionSaga:
     def __init__(
         self,
         orchestrator: SagaOrchestrator,
-        marketplace: Any,          # ResourceMarketplace
-        mission_executor: Any,     # MissionExecutor
-        db_session: Any,           # SQLAlchemy Session
+        marketplace: Any,  # ResourceMarketplace
+        mission_executor: Any,  # MissionExecutor
+        db_session: Any,  # SQLAlchemy Session
     ) -> None:
         self.orchestrator = orchestrator
         self.marketplace = marketplace
@@ -463,9 +471,12 @@ class MissionExecutionSaga:
         """
         try:
             from backend.database.models import Mission
-            mission = self.db.query(Mission).filter(
-                Mission.id == context["mission_id"]
-            ).first()
+
+            mission = (
+                self.db.query(Mission)
+                .filter(Mission.id == context["mission_id"])
+                .first()
+            )
             if mission:
                 mission.status = "CANCELLED"
                 mission.error = "Saga compensation: mission cancelled"
@@ -486,16 +497,21 @@ class MissionExecutionSaga:
         the record exists and enriches it with saga metadata.
         """
         from backend.database.models import Mission
+
         mission_result = context.get("execute_mission_result", {})
         try:
-            mission = self.db.query(Mission).filter(
-                Mission.id == context["mission_id"]
-            ).first()
+            mission = (
+                self.db.query(Mission)
+                .filter(Mission.id == context["mission_id"])
+                .first()
+            )
             if mission:
                 # Enrich with saga tracking
                 if isinstance(mission.context, dict):
                     mission.context["saga_tracked"] = True
-                    mission.context["saga_status"] = mission_result.get("status", "UNKNOWN")
+                    mission.context["saga_status"] = mission_result.get(
+                        "status", "UNKNOWN"
+                    )
                 self.db.commit()
         except Exception as exc:
             logger.warning(
@@ -509,9 +525,12 @@ class MissionExecutionSaga:
         """Remove saga metadata from the mission record on compensation."""
         try:
             from backend.database.models import Mission
-            mission = self.db.query(Mission).filter(
-                Mission.id == context["mission_id"]
-            ).first()
+
+            mission = (
+                self.db.query(Mission)
+                .filter(Mission.id == context["mission_id"])
+                .first()
+            )
             if mission and isinstance(mission.context, dict):
                 mission.context.pop("saga_tracked", None)
                 mission.context.pop("saga_status", None)
@@ -575,6 +594,7 @@ class MissionExecutionSaga:
 # AgentCreationSaga
 # ============================================================================
 
+
 class AgentCreationSaga:
     """
     Saga for creating a new agent with full governance registration.
@@ -591,8 +611,8 @@ class AgentCreationSaga:
     def __init__(
         self,
         orchestrator: SagaOrchestrator,
-        marketplace: Any,      # ResourceMarketplace
-        db_session: Any,       # SQLAlchemy Session
+        marketplace: Any,  # ResourceMarketplace
+        db_session: Any,  # SQLAlchemy Session
     ) -> None:
         self.orchestrator = orchestrator
         self.marketplace = marketplace
@@ -673,6 +693,7 @@ class AgentCreationSaga:
         Raises an exception if the config violates any active policy.
         """
         from backend.agents.compliance.policy_engine import get_policy_engine
+
         try:
             engine = get_policy_engine()
             violations = engine.check_agent_config(
@@ -697,6 +718,7 @@ class AgentCreationSaga:
     async def _create_agent_record(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Persist the agent record to the database."""
         from backend.database.models import Agent
+
         agent = Agent(
             id=context["agent_id"],
             name=context["name"],
@@ -717,10 +739,9 @@ class AgentCreationSaga:
     ) -> None:
         """Remove the agent record on compensation."""
         from backend.database.models import Agent
+
         try:
-            agent = self.db.query(Agent).filter(
-                Agent.id == context["agent_id"]
-            ).first()
+            agent = self.db.query(Agent).filter(Agent.id == context["agent_id"]).first()
             if agent:
                 self.db.delete(agent)
                 self.db.commit()
@@ -736,6 +757,7 @@ class AgentCreationSaga:
     async def _register_governance(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Register the agent as a governance asset."""
         from backend.agents.integration.governance_hooks import GovernanceHooks
+
         try:
             hooks = GovernanceHooks()
             await hooks.on_agent_created(
@@ -757,6 +779,7 @@ class AgentCreationSaga:
     ) -> None:
         """Remove the governance asset registration on compensation."""
         from backend.agents.integration.governance_hooks import GovernanceHooks
+
         try:
             hooks = GovernanceHooks()
             await hooks.on_agent_deleted(

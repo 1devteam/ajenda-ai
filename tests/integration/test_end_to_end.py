@@ -40,7 +40,7 @@ class OmnipathE2ETest:
             "name": name,
             "passed": passed,
             "details": details,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
         self.test_results.append(result)
         status = "✅ PASS" if passed else "❌ FAIL"
@@ -63,7 +63,7 @@ class OmnipathE2ETest:
             self.log_test(
                 "Health Check",
                 passed,
-                f"Status: {response.status_code}, Service: {data.get('service', 'N/A')}"
+                f"Status: {response.status_code}, Service: {data.get('service', 'N/A')}",
             )
             return passed
         except Exception as e:
@@ -78,7 +78,7 @@ class OmnipathE2ETest:
             self.log_test(
                 "Metrics Endpoint",
                 passed,
-                f"Status: {response.status_code}, Contains metrics: {passed}"
+                f"Status: {response.status_code}, Contains metrics: {passed}",
             )
             return passed
         except Exception as e:
@@ -91,9 +91,7 @@ class OmnipathE2ETest:
             response = await self.client.get(f"{self.base_url}/docs")
             passed = response.status_code == 200
             self.log_test(
-                "API Documentation",
-                passed,
-                f"Status: {response.status_code}"
+                "API Documentation", passed, f"Status: {response.status_code}"
             )
             return passed
         except Exception as e:
@@ -106,11 +104,10 @@ class OmnipathE2ETest:
             tenant_data = {
                 "name": "Test Tenant E2E",
                 "slug": f"test-tenant-e2e-{int(time.time())}",
-                "settings": {}
+                "settings": {},
             }
             response = await self.client.post(
-                f"{self.base_url}/api/v1/tenants",
-                json=tenant_data
+                f"{self.base_url}/api/v1/tenants", json=tenant_data
             )
             passed = response.status_code in [200, 201]
             if passed:
@@ -119,7 +116,7 @@ class OmnipathE2ETest:
             self.log_test(
                 "Create Tenant",
                 passed,
-                f"Status: {response.status_code}, Tenant ID: {self.test_tenant_id or 'N/A'}"
+                f"Status: {response.status_code}, Tenant ID: {self.test_tenant_id or 'N/A'}",
             )
             return passed
         except Exception as e:
@@ -132,23 +129,22 @@ class OmnipathE2ETest:
             # Store credentials for login
             self.test_user_email = f"test-e2e-{int(time.time())}@example.com"
             self.test_user_password = "TestPassword123!"
-            
+
             user_data = {
                 "email": self.test_user_email,
                 "password": self.test_user_password,
-                "name": "Test User E2E"
+                "name": "Test User E2E",
             }
-            
+
             # Only add tenant_id if we have one
             if self.test_tenant_id:
                 user_data["tenant_id"] = self.test_tenant_id
-            
+
             response = await self.client.post(
-                f"{self.base_url}/api/v1/auth/register",
-                json=user_data
+                f"{self.base_url}/api/v1/auth/register", json=user_data
             )
             passed = response.status_code in [200, 201]
-            
+
             if passed:
                 data = response.json()
                 self.test_user_id = data.get("id")
@@ -160,7 +156,7 @@ class OmnipathE2ETest:
                     details = f"Status: {response.status_code}, Error: {json.dumps(error_data)}"
                 except:
                     details = f"Status: {response.status_code}, Response: {response.text[:200]}"
-            
+
             self.log_test("Register User", passed, details)
             return passed
         except Exception as e:
@@ -172,19 +168,19 @@ class OmnipathE2ETest:
         if not self.test_user_email or not self.test_user_password:
             self.log_test("Login User", False, "No user credentials available")
             return False
-            
+
         try:
             # OAuth2 password flow uses form data
             login_data = {
                 "username": self.test_user_email,
-                "password": self.test_user_password
+                "password": self.test_user_password,
             }
             response = await self.client.post(
                 f"{self.base_url}/api/v1/auth/login",
-                json=login_data  # Send JSON to match Pydantic model
+                json=login_data,  # Send JSON to match Pydantic model
             )
             passed = response.status_code == 200
-            
+
             if passed:
                 data = response.json()
                 self.auth_token = data.get("access_token")
@@ -195,7 +191,7 @@ class OmnipathE2ETest:
                     details = f"Status: {response.status_code}, Error: {json.dumps(error_data)}"
                 except:
                     details = f"Status: {response.status_code}, Response: {response.text[:200]}"
-            
+
             self.log_test("Login User", passed, details)
             return passed
         except Exception as e:
@@ -216,15 +212,15 @@ class OmnipathE2ETest:
                 "temperature": 0.7,
                 "system_prompt": "You are a test agent",
                 "capabilities": ["test"],
-                "config": {}
+                "config": {},
             }
             response = await self.client.post(
                 f"{self.base_url}/api/v1/agents",
                 json=agent_data,
-                headers=self.get_auth_headers()
+                headers=self.get_auth_headers(),
             )
             passed = response.status_code in [200, 201]
-            
+
             if passed:
                 data = response.json()
                 self.test_agent_id = data.get("id")
@@ -235,7 +231,7 @@ class OmnipathE2ETest:
                     details = f"Status: {response.status_code}, Error: {json.dumps(error_data)}"
                 except:
                     details = f"Status: {response.status_code}, Response: {response.text[:200]}"
-            
+
             self.log_test("Create Agent", passed, details)
             return passed
         except Exception as e:
@@ -254,7 +250,7 @@ class OmnipathE2ETest:
         try:
             response = await self.client.get(
                 f"{self.base_url}/api/v1/agents/{self.test_agent_id}",
-                headers=self.get_auth_headers()
+                headers=self.get_auth_headers(),
             )
             passed = response.status_code == 200
             if passed:
@@ -265,7 +261,7 @@ class OmnipathE2ETest:
             self.log_test(
                 "Get Agent",
                 passed,
-                f"Status: {response.status_code}, Name: {agent_name}"
+                f"Status: {response.status_code}, Name: {agent_name}",
             )
             return passed
         except Exception as e:
@@ -280,8 +276,7 @@ class OmnipathE2ETest:
 
         try:
             response = await self.client.get(
-                f"{self.base_url}/api/v1/agents",
-                headers=self.get_auth_headers()
+                f"{self.base_url}/api/v1/agents", headers=self.get_auth_headers()
             )
             passed = response.status_code == 200
             if passed:
@@ -290,9 +285,7 @@ class OmnipathE2ETest:
             else:
                 count = 0
             self.log_test(
-                "List Agents",
-                passed,
-                f"Status: {response.status_code}, Count: {count}"
+                "List Agents", passed, f"Status: {response.status_code}, Count: {count}"
             )
             return passed
         except Exception as e:
@@ -315,15 +308,15 @@ class OmnipathE2ETest:
                 "priority": "normal",
                 "context": {
                     "task": "Respond with 'Test successful'",
-                    "complexity": "low"
+                    "complexity": "low",
                 },
                 "max_steps": 10,
-                "timeout_seconds": 300
+                "timeout_seconds": 300,
             }
             response = await self.client.post(
                 f"{self.base_url}/api/v1/missions",
                 json=mission_data,
-                headers=self.get_auth_headers()
+                headers=self.get_auth_headers(),
             )
             passed = response.status_code in [200, 201]
             if passed:
@@ -332,7 +325,7 @@ class OmnipathE2ETest:
             self.log_test(
                 "Create Mission",
                 passed,
-                f"Status: {response.status_code}, Mission ID: {self.test_mission_id or 'N/A'}"
+                f"Status: {response.status_code}, Mission ID: {self.test_mission_id or 'N/A'}",
             )
             return passed
         except Exception as e:
@@ -351,7 +344,7 @@ class OmnipathE2ETest:
         try:
             response = await self.client.get(
                 f"{self.base_url}/api/v1/missions/{self.test_mission_id}",
-                headers=self.get_auth_headers()
+                headers=self.get_auth_headers(),
             )
             passed = response.status_code == 200
             if passed:
@@ -362,7 +355,7 @@ class OmnipathE2ETest:
             self.log_test(
                 "Get Mission",
                 passed,
-                f"Status: {response.status_code}, Mission Status: {status}"
+                f"Status: {response.status_code}, Mission Status: {status}",
             )
             return passed
         except Exception as e:
@@ -372,15 +365,13 @@ class OmnipathE2ETest:
     async def test_economy_balance(self) -> bool:
         """Test 12: Check economy balance"""
         try:
-            response = await self.client.get(
-                f"{self.base_url}/api/v1/economy/balance"
-            )
+            response = await self.client.get(f"{self.base_url}/api/v1/economy/balance")
             # May return 401/403 if auth required - that's acceptable
             passed = response.status_code in [200, 401, 403]
             self.log_test(
                 "Economy Balance",
                 passed,
-                f"Status: {response.status_code} (Auth may be required)"
+                f"Status: {response.status_code} (Auth may be required)",
             )
             return passed
         except Exception as e:
@@ -395,9 +386,7 @@ class OmnipathE2ETest:
             )
             passed = response.status_code in [200, 401, 403]
             self.log_test(
-                "Meta-Learning Leaderboard",
-                passed,
-                f"Status: {response.status_code}"
+                "Meta-Learning Leaderboard", passed, f"Status: {response.status_code}"
             )
             return passed
         except Exception as e:
@@ -411,11 +400,7 @@ class OmnipathE2ETest:
                 f"{self.base_url}/api/v1/meta-learning/system-insights"
             )
             passed = response.status_code in [200, 401, 403]
-            self.log_test(
-                "System Insights",
-                passed,
-                f"Status: {response.status_code}"
-            )
+            self.log_test("System Insights", passed, f"Status: {response.status_code}")
             return passed
         except Exception as e:
             self.log_test("System Insights", False, f"Error: {str(e)}")
@@ -430,7 +415,7 @@ class OmnipathE2ETest:
             try:
                 await self.client.delete(
                     f"{self.base_url}/api/v1/missions/{self.test_mission_id}",
-                    headers=self.get_auth_headers()
+                    headers=self.get_auth_headers(),
                 )
                 print(f"  ✅ Deleted mission {self.test_mission_id}")
             except Exception as e:
@@ -441,7 +426,7 @@ class OmnipathE2ETest:
             try:
                 await self.client.delete(
                     f"{self.base_url}/api/v1/agents/{self.test_agent_id}",
-                    headers=self.get_auth_headers()
+                    headers=self.get_auth_headers(),
                 )
                 print(f"  ✅ Deleted agent {self.test_agent_id}")
             except Exception as e:
@@ -449,9 +434,9 @@ class OmnipathE2ETest:
 
     def print_summary(self):
         """Print test summary"""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("TEST SUMMARY")
-        print("="*60)
+        print("=" * 60)
 
         total = len(self.test_results)
         passed = sum(1 for r in self.test_results if r["passed"])
@@ -462,7 +447,7 @@ class OmnipathE2ETest:
         print(f"Passed: {passed} ✅")
         print(f"Failed: {failed} ❌")
         print(f"Pass Rate: {pass_rate:.1f}%")
-        print("="*60)
+        print("=" * 60)
 
         if failed > 0:
             print("\nFailed Tests:")
@@ -479,7 +464,7 @@ class OmnipathE2ETest:
             "total_tests": len(self.test_results),
             "passed": sum(1 for r in self.test_results if r["passed"]),
             "failed": sum(1 for r in self.test_results if not r["passed"]),
-            "tests": self.test_results
+            "tests": self.test_results,
         }
 
         with open(filename, "w") as f:
@@ -490,10 +475,10 @@ class OmnipathE2ETest:
 
 async def run_all_tests():
     """Run all end-to-end tests"""
-    print("="*60)
+    print("=" * 60)
     print("OMNIPATH V5.0 - END-TO-END INTEGRATION TEST")
     print("Built with Pride for Obex Blackvault")
-    print("="*60)
+    print("=" * 60)
     print()
 
     async with OmnipathE2ETest() as tester:
@@ -502,18 +487,18 @@ async def run_all_tests():
         await tester.test_metrics_endpoint()
         await tester.test_api_docs()
         await tester.test_create_tenant()
-        
+
         # Authentication flow (NEW)
         await tester.test_register_user()
         await tester.test_login_user()
-        
+
         # Protected endpoints (now with auth)
         await tester.test_create_agent()
         await tester.test_get_agent()
         await tester.test_list_agents()
         await tester.test_create_mission()
         await tester.test_get_mission()
-        
+
         # Public/optional auth endpoints
         await tester.test_economy_balance()
         await tester.test_meta_learning_leaderboard()

@@ -2,6 +2,7 @@
 Mission Domain Models
 Defines mission states and data structures
 """
+
 from enum import Enum
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -10,6 +11,7 @@ from datetime import datetime
 
 class MissionStatus(Enum):
     """Mission execution status"""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -20,6 +22,7 @@ class MissionStatus(Enum):
 
 class MissionPriority(Enum):
     """Mission priority levels"""
+
     LOW = "low"
     NORMAL = "normal"
     HIGH = "high"
@@ -28,6 +31,7 @@ class MissionPriority(Enum):
 
 class Mission(BaseModel):
     """Mission domain model"""
+
     id: str
     objective: str
     status: MissionStatus = MissionStatus.PENDING
@@ -41,13 +45,14 @@ class Mission(BaseModel):
     error: Optional[str] = None
     steps: List[Dict[str, Any]] = []
     context: Dict[str, Any] = {}
-    
+
     class Config:
         use_enum_values = True
 
 
 class MissionResult(BaseModel):
     """Result of a mission execution"""
+
     mission_id: str
     status: MissionStatus
     output: Optional[Any] = None
@@ -55,6 +60,6 @@ class MissionResult(BaseModel):
     execution_time: float = 0.0
     tokens_used: int = 0
     cost: float = 0.0
-    
+
     class Config:
         use_enum_values = True

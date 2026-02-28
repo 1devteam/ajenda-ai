@@ -7,12 +7,12 @@ allowing agents to discover and call tools through a uniform MCP interface.
 
 Built with Pride for Obex Blackvault
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import sys
-import logging
 from typing import Any, Dict, List, Optional
 
 from backend.agents.tools.tool_registry import BaseTool, ToolRegistry, get_tool_registry
@@ -25,6 +25,7 @@ logger = get_logger(__name__)
 # JSON-RPC helpers
 # ---------------------------------------------------------------------------
 
+
 def _ok(request_id: Any, result: Any) -> Dict[str, Any]:
     """Build a JSON-RPC 2.0 success response."""
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -32,12 +33,17 @@ def _ok(request_id: Any, result: Any) -> Dict[str, Any]:
 
 def _err(request_id: Any, code: int, message: str) -> Dict[str, Any]:
     """Build a JSON-RPC 2.0 error response."""
-    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {"code": code, "message": message},
+    }
 
 
 # ---------------------------------------------------------------------------
 # In-process MCP server (stdio transport)
 # ---------------------------------------------------------------------------
+
 
 class MCPToolServer:
     """
@@ -154,7 +160,9 @@ class MCPToolServer:
                 "isError": False,
             }
         except Exception as exc:
-            logger.error(f"Tool execution error [{self.tool.name}]: {exc}", exc_info=True)
+            logger.error(
+                f"Tool execution error [{self.tool.name}]: {exc}", exc_info=True
+            )
             return {
                 "content": [{"type": "text", "text": f"Error: {exc}"}],
                 "isError": True,
@@ -173,6 +181,7 @@ class MCPToolServer:
 # ---------------------------------------------------------------------------
 # MCPToolBridge — in-process bridge (no subprocess needed)
 # ---------------------------------------------------------------------------
+
 
 class MCPToolBridge:
     """
@@ -270,7 +279,9 @@ class MCPToolBridge:
         if tool is None:
             raise ValueError(f"Tool not registered: {tool_name!r}")
 
-        logger.info(f"MCPToolBridge: calling tool '{tool_name}'", extra={"arguments": arguments})
+        logger.info(
+            f"MCPToolBridge: calling tool '{tool_name}'", extra={"arguments": arguments}
+        )
 
         try:
             result = await tool.execute(**arguments)

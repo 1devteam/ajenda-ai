@@ -16,12 +16,12 @@ from backend.agents.registry.asset_registry import (
     AssetStatus,
 )
 from backend.agents.compliance.contextual_tagging import (
-
     ContextualTag,
     ContextualTaggingRule,
     TagCategory,
     TagRule,
 )
+
 pytestmark = pytest.mark.unit
 
 
@@ -34,6 +34,7 @@ pytestmark = pytest.mark.unit
 def clear_registry():
     """Clear registry before and after each test."""
     from backend.agents.registry.asset_registry import get_registry
+
     reg = get_registry()
     # Clear before test
     reg._assets.clear()
@@ -84,7 +85,7 @@ def test_contextual_tag_creation():
         context={"data_accessed": ["email", "phone"]},
         confidence=0.9,
     )
-    
+
     assert tag.name == "pii"
     assert tag.category == TagCategory.DATA_SENSITIVITY
     assert tag.confidence == 0.9
@@ -103,7 +104,7 @@ def test_contextual_tag_expiration():
         confidence=1.0,
         expires_at=datetime.utcnow() - timedelta(hours=1),
     )
-    
+
     assert tag.is_expired()
 
 
@@ -117,9 +118,9 @@ def test_contextual_tag_to_dict():
         context={"test": "value"},
         confidence=0.9,
     )
-    
+
     tag_dict = tag.to_dict()
-    
+
     assert tag_dict["name"] == "pii"
     assert tag_dict["category"] == "data_sensitivity"
     assert tag_dict["confidence"] == 0.9
@@ -144,11 +145,11 @@ def test_tag_rule_matches_data_accessed():
             }
         ],
     )
-    
+
     # Should match
     context = {"data_accessed": ["email", "name"]}
     assert rule.matches(context)
-    
+
     # Should not match
     context = {"data_accessed": ["public_data"]}
     assert not rule.matches(context)
@@ -167,11 +168,11 @@ def test_tag_rule_matches_domain():
             }
         ],
     )
-    
+
     # Should match
     context = {"domain": "healthcare"}
     assert rule.matches(context)
-    
+
     # Should not match
     context = {"domain": "finance"}
     assert not rule.matches(context)
@@ -191,11 +192,11 @@ def test_tag_rule_matches_metadata():
             }
         ],
     )
-    
+
     # Should match
     context = {"metadata": {"makes_decisions": True}}
     assert rule.matches(context)
-    
+
     # Should not match
     context = {"metadata": {"makes_decisions": False}}
     assert not rule.matches(context)
@@ -209,7 +210,7 @@ def test_tag_rule_matches_metadata():
 def test_tagging_rule_initialization(tagging_rule):
     """Test that tagging rule initializes with default rules."""
     assert len(tagging_rule.tag_rules) > 0
-    
+
     # Check for expected default tags
     tag_names = [rule.tag_name for rule in tagging_rule.tag_rules]
     assert "pii" in tag_names
@@ -224,9 +225,9 @@ def test_tagging_rule_pii_detection(tagging_rule, sample_agent):
         "asset_id": sample_agent.asset_id,
         "data_accessed": ["email", "phone", "address"],
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     assert "pii" in sample_agent.tags
     assert hasattr(sample_agent, "contextual_tags")
@@ -239,9 +240,9 @@ def test_tagging_rule_phi_detection(tagging_rule, sample_agent):
         "asset_id": sample_agent.asset_id,
         "data_accessed": ["patient_records", "medical_images"],
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     assert "phi" in sample_agent.tags
     assert "hipaa" in sample_agent.tags  # Should also trigger HIPAA
@@ -253,9 +254,9 @@ def test_tagging_rule_financial_detection(tagging_rule, sample_agent):
         "asset_id": sample_agent.asset_id,
         "data_accessed": ["credit_card", "bank_account"],
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     assert "financial" in sample_agent.tags
 
@@ -268,9 +269,9 @@ def test_tagging_rule_multiple_tags(tagging_rule, sample_agent):
         "location": "production",
         "domain": "healthcare",
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     # Should have multiple tags
     assert len(sample_agent.tags) > 1
@@ -286,9 +287,9 @@ def test_tagging_rule_no_matches(tagging_rule, sample_agent):
         "asset_id": sample_agent.asset_id,
         "data_accessed": ["public_data"],
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     assert "No contextual tags matched" in result.reason
 
@@ -298,9 +299,9 @@ def test_tagging_rule_missing_asset_id(tagging_rule):
     context = {
         "data_accessed": ["email"],
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert not result.allowed
     assert "Asset ID is required" in result.reason
 
@@ -311,9 +312,9 @@ def test_tagging_rule_asset_not_found(tagging_rule):
         "asset_id": "nonexistent-asset",
         "data_accessed": ["email"],
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert not result.allowed
     assert "not found in registry" in result.reason
 
@@ -332,16 +333,16 @@ def test_tagging_rule_add_custom_rule(tagging_rule, sample_agent):
             }
         ],
     )
-    
+
     tagging_rule.add_rule(custom_rule)
-    
+
     context = {
         "asset_id": sample_agent.asset_id,
         "metadata": {"custom_field": "custom_value"},
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     assert "custom-tag" in sample_agent.tags
 
@@ -349,12 +350,12 @@ def test_tagging_rule_add_custom_rule(tagging_rule, sample_agent):
 def test_tagging_rule_remove_rule(tagging_rule):
     """Test removing a tagging rule."""
     initial_count = len(tagging_rule.tag_rules)
-    
+
     removed = tagging_rule.remove_rule("pii")
-    
+
     assert removed
     assert len(tagging_rule.tag_rules) == initial_count - 1
-    
+
     # Verify rule is gone
     tag_names = [rule.tag_name for rule in tagging_rule.tag_rules]
     assert "pii" not in tag_names
@@ -366,9 +367,9 @@ def test_tagging_rule_get_tags_for_context(tagging_rule):
         "data_accessed": ["patient_records", "email"],
         "location": "production",
     }
-    
+
     tags = tagging_rule.get_tags_for_context(context)
-    
+
     assert len(tags) > 0
     assert "phi" in tags
     assert "pii" in tags
@@ -389,9 +390,9 @@ def test_tagging_with_healthcare_domain(tagging_rule, sample_agent):
         "location": "production",
         "metadata": {"makes_decisions": True},
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     # Should have comprehensive healthcare tags
     assert "phi" in sample_agent.tags
@@ -410,9 +411,9 @@ def test_tagging_with_finance_domain(tagging_rule, sample_agent):
         "domain": "finance",
         "metadata": {"makes_decisions": True},
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     assert "financial" in sample_agent.tags
     assert "finance" in sample_agent.tags
@@ -426,12 +427,12 @@ def test_tag_confidence_scores(tagging_rule, sample_agent):
         "asset_id": sample_agent.asset_id,
         "data_accessed": ["email"],
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     assert hasattr(sample_agent, "contextual_tags")
-    
+
     for tag in sample_agent.contextual_tags.values():
         assert 0.0 <= tag.confidence <= 1.0
 
@@ -444,12 +445,12 @@ def test_tag_context_preservation(tagging_rule, sample_agent):
         "user_role": "physician",
         "location": "production",
     }
-    
+
     result = tagging_rule.check(context)
-    
+
     assert result.allowed
     assert hasattr(sample_agent, "contextual_tags")
-    
+
     # Check that context is preserved in tags
     for tag in sample_agent.contextual_tags.values():
         assert tag.context == context
@@ -464,9 +465,9 @@ def test_multiple_tagging_runs(tagging_rule, sample_agent):
     }
     result1 = tagging_rule.check(context1)
     assert result1.allowed
-    
+
     initial_tag_count = len(sample_agent.tags)
-    
+
     # Second run with different context
     context2 = {
         "asset_id": sample_agent.asset_id,
@@ -474,7 +475,7 @@ def test_multiple_tagging_runs(tagging_rule, sample_agent):
     }
     result2 = tagging_rule.check(context2)
     assert result2.allowed
-    
+
     # Should have more tags now
     assert len(sample_agent.tags) > initial_tag_count
     assert "pii" in sample_agent.tags

@@ -12,15 +12,13 @@ Date: 2026-02-26
 Built with Pride for Obex Blackvault
 """
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.agents.registry.asset_registry import get_registry, AssetType, AssetStatus
+from backend.agents.registry.asset_registry import get_registry
 from backend.agents.compliance.contextual_tagging import (
-    ContextualTag,
     ContextualTaggingRule,
     TagCategory,
     TagRule,
@@ -28,8 +26,6 @@ from backend.agents.compliance.contextual_tagging import (
 from backend.agents.compliance.regulatory_mapping import (
     RegulatoryMappingRule,
     AutonomousAuthorityRule,
-    RiskLevel,
-    RiskAssessment,
 )
 
 
@@ -43,6 +39,7 @@ router = APIRouter(prefix="/api/v1/tags", tags=["tags"])
 
 class TagDefinitionCreate(BaseModel):
     """Request model for creating tag definition."""
+
     name: str = Field(..., description="Tag name")
     category: str = Field(..., description="Tag category")
     risk_weight: float = Field(..., ge=0.0, le=1.0, description="Risk weight (0.0-1.0)")
@@ -53,6 +50,7 @@ class TagDefinitionCreate(BaseModel):
 
 class TagDefinitionResponse(BaseModel):
     """Response model for tag definition."""
+
     name: str
     category: str
     risk_weight: float
@@ -63,11 +61,13 @@ class TagDefinitionResponse(BaseModel):
 
 class ApplyTagsRequest(BaseModel):
     """Request model for applying tags to asset."""
+
     context: Dict[str, Any] = Field(..., description="Context for auto-tagging")
 
 
 class ApplyTagsResponse(BaseModel):
     """Response model for tag application."""
+
     asset_id: str
     tags_applied: List[str]
     tags_total: int
@@ -76,6 +76,7 @@ class ApplyTagsResponse(BaseModel):
 
 class TagHistoryResponse(BaseModel):
     """Response model for tag history."""
+
     name: str
     category: str
     applied_at: str
@@ -87,6 +88,7 @@ class TagHistoryResponse(BaseModel):
 
 class RiskAssessmentResponse(BaseModel):
     """Response model for risk assessment."""
+
     asset_id: str
     risk_level: str
     regulation: str
@@ -98,6 +100,7 @@ class RiskAssessmentResponse(BaseModel):
 
 class AuthorityCheckRequest(BaseModel):
     """Request model for authority check."""
+
     user_id: str
     user_authority_level: int = Field(..., ge=0, le=4)
     asset_id: str
@@ -106,6 +109,7 @@ class AuthorityCheckRequest(BaseModel):
 
 class AuthorityCheckResponse(BaseModel):
     """Response model for authority check."""
+
     allowed: bool
     user_id: str
     user_authority_level: int
@@ -116,6 +120,7 @@ class AuthorityCheckResponse(BaseModel):
 
 class TagStatsResponse(BaseModel):
     """Response model for tag statistics."""
+
     total_tags: int
     tags_by_category: Dict[str, int]
     most_common_tags: List[Dict[str, Any]]
@@ -131,7 +136,7 @@ class TagStatsResponse(BaseModel):
 async def create_tag_definition(definition: TagDefinitionCreate):
     """
     Create a new tag definition.
-    
+
     Tag definitions control how assets are automatically tagged based on context.
     """
     try:
@@ -141,9 +146,9 @@ async def create_tag_definition(definition: TagDefinitionCreate):
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid category. Must be one of: {[c.value for c in TagCategory]}"
+                detail=f"Invalid category. Must be one of: {[c.value for c in TagCategory]}",
             )
-        
+
         # Create tag rule
         rule = TagRule(
             tag_name=definition.name,
@@ -153,11 +158,11 @@ async def create_tag_definition(definition: TagDefinitionCreate):
             confidence=definition.confidence,
             ttl_hours=definition.ttl_hours,
         )
-        
+
         # Add to tagging rule engine
         tagging_rule = ContextualTaggingRule()
         tagging_rule.add_rule(rule)
-        
+
         return TagDefinitionResponse(
             name=definition.name,
             category=definition.category,
@@ -166,7 +171,7 @@ async def create_tag_definition(definition: TagDefinitionCreate):
             confidence=definition.confidence,
             ttl_hours=definition.ttl_hours,
         )
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -175,25 +180,27 @@ async def create_tag_definition(definition: TagDefinitionCreate):
 async def list_tag_definitions():
     """
     List all tag definitions.
-    
+
     Returns all configured tag rules used for auto-tagging.
     """
     try:
         tagging_rule = ContextualTaggingRule()
-        
+
         definitions = []
         for rule in tagging_rule.tag_rules:
-            definitions.append(TagDefinitionResponse(
-                name=rule.tag_name,
-                category=rule.category.value,
-                risk_weight=rule.risk_weight,
-                conditions=rule.conditions,
-                confidence=rule.confidence,
-                ttl_hours=rule.ttl_hours,
-            ))
-        
+            definitions.append(
+                TagDefinitionResponse(
+                    name=rule.tag_name,
+                    category=rule.category.value,
+                    risk_weight=rule.risk_weight,
+                    conditions=rule.conditions,
+                    confidence=rule.confidence,
+                    ttl_hours=rule.ttl_hours,
+                )
+            )
+
         return definitions
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -205,7 +212,7 @@ async def get_tag_definition(name: str):
     """
     try:
         tagging_rule = ContextualTaggingRule()
-        
+
         for rule in tagging_rule.tag_rules:
             if rule.tag_name == name:
                 return TagDefinitionResponse(
@@ -216,9 +223,11 @@ async def get_tag_definition(name: str):
                     confidence=rule.confidence,
                     ttl_hours=rule.ttl_hours,
                 )
-        
-        raise HTTPException(status_code=404, detail=f"Tag definition '{name}' not found")
-    
+
+        raise HTTPException(
+            status_code=404, detail=f"Tag definition '{name}' not found"
+        )
+
     except HTTPException:
         raise
     except Exception as e:
@@ -229,17 +238,19 @@ async def get_tag_definition(name: str):
 async def delete_tag_definition(name: str):
     """
     Delete a tag definition.
-    
+
     Note: This only removes the auto-tagging rule, not existing tags on assets.
     """
     try:
         tagging_rule = ContextualTaggingRule()
-        
+
         if not tagging_rule.remove_rule(name):
-            raise HTTPException(status_code=404, detail=f"Tag definition '{name}' not found")
-        
+            raise HTTPException(
+                status_code=404, detail=f"Tag definition '{name}' not found"
+            )
+
         return None
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -255,40 +266,40 @@ async def delete_tag_definition(name: str):
 async def apply_tags_to_asset(asset_id: str, request: ApplyTagsRequest):
     """
     Apply contextual tags to an asset based on usage context.
-    
+
     Analyzes the provided context and automatically applies relevant tags.
     """
     try:
         # Add asset_id to context
         context = request.context.copy()
         context["asset_id"] = asset_id
-        
+
         # Apply contextual tagging
         tagging_rule = ContextualTaggingRule()
         result = tagging_rule.check(context)
-        
+
         if not result.allowed:
             raise HTTPException(status_code=400, detail=result.reason)
-        
+
         # Get updated asset
         registry = get_registry()
         asset = registry.get(asset_id)
-        
+
         if not asset:
             raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found")
-        
+
         # Get applied tags
         tags_applied = []
         if hasattr(asset, "contextual_tags"):
             tags_applied = list(asset.contextual_tags.keys())
-        
+
         return ApplyTagsResponse(
             asset_id=asset_id,
             tags_applied=tags_applied,
             tags_total=len(asset.tags),
             message=result.reason,
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -303,27 +314,29 @@ async def get_asset_tags(asset_id: str):
     try:
         registry = get_registry()
         asset = registry.get(asset_id)
-        
+
         if not asset:
             raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found")
-        
+
         if not hasattr(asset, "contextual_tags") or not asset.contextual_tags:
             return []
-        
+
         tags = []
         for tag in asset.contextual_tags.values():
-            tags.append(TagHistoryResponse(
-                name=tag.name,
-                category=tag.category.value,
-                applied_at=tag.applied_at.isoformat(),
-                applied_by=tag.applied_by,
-                context=tag.context,
-                confidence=tag.confidence,
-                expires_at=tag.expires_at.isoformat() if tag.expires_at else None,
-            ))
-        
+            tags.append(
+                TagHistoryResponse(
+                    name=tag.name,
+                    category=tag.category.value,
+                    applied_at=tag.applied_at.isoformat(),
+                    applied_by=tag.applied_by,
+                    context=tag.context,
+                    confidence=tag.confidence,
+                    expires_at=tag.expires_at.isoformat() if tag.expires_at else None,
+                )
+            )
+
         return tags
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -338,20 +351,20 @@ async def remove_tag_from_asset(asset_id: str, tag_name: str):
     try:
         registry = get_registry()
         asset = registry.get(asset_id)
-        
+
         if not asset:
             raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found")
-        
+
         # Remove from contextual tags
         if hasattr(asset, "contextual_tags") and tag_name in asset.contextual_tags:
             del asset.contextual_tags[tag_name]
-        
+
         # Remove from regular tags
         if tag_name in asset.tags:
             asset.tags.remove(tag_name)
-        
+
         return None
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -367,16 +380,16 @@ async def remove_tag_from_asset(asset_id: str, tag_name: str):
 async def assess_asset_risk(asset_id: str):
     """
     Assess risk level for an asset based on its tags.
-    
+
     Maps asset tags to EU AI Act risk categories and generates compliance requirements.
     """
     try:
         registry = get_registry()
         asset = registry.get(asset_id)
-        
+
         if not asset:
             raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found")
-        
+
         # Apply regulatory mapping
         mapping_rule = RegulatoryMappingRule()
         context = {
@@ -384,16 +397,16 @@ async def assess_asset_risk(asset_id: str):
             "tags": asset.tags,
         }
         result = mapping_rule.check(context)
-        
+
         if not result.allowed:
             raise HTTPException(status_code=400, detail=result.reason)
-        
+
         # Get risk assessment
         if not hasattr(asset, "risk_assessment") or not asset.risk_assessment:
             raise HTTPException(status_code=500, detail="Risk assessment failed")
-        
+
         assessment = asset.risk_assessment
-        
+
         return RiskAssessmentResponse(
             asset_id=asset_id,
             risk_level=assessment.risk_level.value,
@@ -403,7 +416,7 @@ async def assess_asset_risk(asset_id: str):
             assessed_by=assessment.assessed_by,
             notes=assessment.notes,
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -418,15 +431,18 @@ async def get_asset_risk(asset_id: str):
     try:
         registry = get_registry()
         asset = registry.get(asset_id)
-        
+
         if not asset:
             raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found")
-        
+
         if not hasattr(asset, "risk_assessment") or not asset.risk_assessment:
-            raise HTTPException(status_code=404, detail=f"No risk assessment found for asset '{asset_id}'")
-        
+            raise HTTPException(
+                status_code=404,
+                detail=f"No risk assessment found for asset '{asset_id}'",
+            )
+
         assessment = asset.risk_assessment
-        
+
         return RiskAssessmentResponse(
             asset_id=asset_id,
             risk_level=assessment.risk_level.value,
@@ -436,7 +452,7 @@ async def get_asset_risk(asset_id: str):
             assessed_by=assessment.assessed_by,
             notes=assessment.notes,
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -452,21 +468,23 @@ async def get_asset_risk(asset_id: str):
 async def check_user_authority(request: AuthorityCheckRequest):
     """
     Check if user has authority to access an asset based on risk level.
-    
+
     Enforces risk-based access control using authority levels.
     """
     try:
         registry = get_registry()
         asset = registry.get(request.asset_id)
-        
+
         if not asset:
-            raise HTTPException(status_code=404, detail=f"Asset '{request.asset_id}' not found")
-        
+            raise HTTPException(
+                status_code=404, detail=f"Asset '{request.asset_id}' not found"
+            )
+
         # Get asset risk level
         asset_risk_level = "minimal"
         if hasattr(asset, "risk_assessment") and asset.risk_assessment:
             asset_risk_level = asset.risk_assessment.risk_level.value
-        
+
         # Check authority
         authority_rule = AutonomousAuthorityRule()
         context = {
@@ -477,7 +495,7 @@ async def check_user_authority(request: AuthorityCheckRequest):
             "human_oversight": request.human_oversight,
         }
         result = authority_rule.check(context)
-        
+
         return AuthorityCheckResponse(
             allowed=result.allowed,
             user_id=request.user_id,
@@ -486,7 +504,7 @@ async def check_user_authority(request: AuthorityCheckRequest):
             asset_risk_level=asset_risk_level,
             reason=result.reason,
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -506,24 +524,26 @@ async def get_assets_by_tag(tag_name: str):
     try:
         registry = get_registry()
         all_assets = registry.list_all()
-        
+
         matching_assets = []
         for asset in all_assets:
             if tag_name in asset.tags:
-                matching_assets.append({
-                    "asset_id": asset.asset_id,
-                    "name": asset.name,
-                    "type": asset.asset_type.value,
-                    "owner": asset.owner,
-                    "status": asset.status.value,
-                })
-        
+                matching_assets.append(
+                    {
+                        "asset_id": asset.asset_id,
+                        "name": asset.name,
+                        "type": asset.asset_type.value,
+                        "owner": asset.owner,
+                        "status": asset.status.value,
+                    }
+                )
+
         return {
             "tag_name": tag_name,
             "asset_count": len(matching_assets),
             "assets": matching_assets,
         }
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -536,7 +556,7 @@ async def get_tag_statistics():
     try:
         registry = get_registry()
         all_assets = registry.list_all()
-        
+
         # Count tags by category
         tags_by_category = {}
         tag_counts = {}
@@ -546,34 +566,34 @@ async def get_tag_statistics():
             "high": 0,
             "unacceptable": 0,
         }
-        
+
         for asset in all_assets:
             # Count regular tags
             for tag in asset.tags:
                 tag_counts[tag] = tag_counts.get(tag, 0) + 1
-            
+
             # Count contextual tags by category
             if hasattr(asset, "contextual_tags"):
                 for tag in asset.contextual_tags.values():
                     category = tag.category.value
                     tags_by_category[category] = tags_by_category.get(category, 0) + 1
-            
+
             # Count risk levels
             if hasattr(asset, "risk_assessment") and asset.risk_assessment:
                 risk_level = asset.risk_assessment.risk_level.value
                 risk_level_counts[risk_level] = risk_level_counts.get(risk_level, 0) + 1
-        
+
         # Get most common tags
         most_common = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:10]
         most_common_tags = [{"tag": tag, "count": count} for tag, count in most_common]
-        
+
         return TagStatsResponse(
             total_tags=len(tag_counts),
             tags_by_category=tags_by_category,
             most_common_tags=most_common_tags,
             assets_by_risk_level=risk_level_counts,
         )
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -586,7 +606,7 @@ async def get_compliance_report():
     try:
         registry = get_registry()
         all_assets = registry.list_all()
-        
+
         report = {
             "total_assets": len(all_assets),
             "by_risk_level": {
@@ -601,7 +621,7 @@ async def get_compliance_report():
                 "non_compliant": 0,
             },
         }
-        
+
         for asset in all_assets:
             asset_info = {
                 "asset_id": asset.asset_id,
@@ -609,12 +629,12 @@ async def get_compliance_report():
                 "type": asset.asset_type.value,
                 "tags": asset.tags,
             }
-            
+
             if hasattr(asset, "risk_assessment") and asset.risk_assessment:
                 risk_level = asset.risk_assessment.risk_level.value
                 asset_info["requirements"] = asset.risk_assessment.requirements
                 report["by_risk_level"][risk_level].append(asset_info)
-                
+
                 # Determine compliance status
                 if not asset.risk_assessment.requirements:
                     report["compliance_summary"]["compliant"] += 1
@@ -623,8 +643,8 @@ async def get_compliance_report():
             else:
                 report["by_risk_level"]["minimal"].append(asset_info)
                 report["compliance_summary"]["compliant"] += 1
-        
+
         return report
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -3,6 +3,7 @@ Missions API Routes (v4.5 - Fully Functional)
 
 Built with Pride for Obex Blackvault
 """
+
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -37,6 +38,7 @@ def get_mission_executor() -> MissionExecutor:
 
 class CreateMissionRequest(BaseModel):
     """Request to create a new mission"""
+
     name: str = Field(..., description="Human-readable mission name")
     goal: str = Field(..., description="Mission objective in natural language")
     budget: Optional[float] = Field(None, description="Budget limit in credits")
@@ -45,6 +47,7 @@ class CreateMissionRequest(BaseModel):
 
 class MissionResponse(BaseModel):
     """Mission execution response"""
+
     mission_id: str
     status: str
     message: Optional[str] = None
@@ -67,7 +70,9 @@ def _mission_to_response(mission: Mission) -> MissionResponse:
     """
     result_data = mission.result or {}
     output = result_data.get("output") if isinstance(result_data, dict) else None
-    agents_used = result_data.get("agents_used") if isinstance(result_data, dict) else None
+    agents_used = (
+        result_data.get("agents_used") if isinstance(result_data, dict) else None
+    )
 
     duration: Optional[float] = None
     if mission.started_at and mission.completed_at:
@@ -159,7 +164,9 @@ async def get_mission(
 
 @router.get("/", response_model=List[MissionResponse])
 async def list_missions(
-    limit: int = Query(default=50, ge=1, le=200, description="Maximum results to return"),
+    limit: int = Query(
+        default=50, ge=1, le=200, description="Maximum results to return"
+    ),
     offset: int = Query(default=0, ge=0, description="Number of results to skip"),
     status: Optional[str] = Query(default=None, description="Filter by status"),
     current_user: User = Depends(get_current_user),
@@ -178,10 +185,7 @@ async def list_missions(
         query = query.filter(Mission.status == status.upper())
 
     missions: List[Mission] = (
-        query.order_by(Mission.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
+        query.order_by(Mission.created_at.desc()).offset(offset).limit(limit).all()
     )
 
     return [_mission_to_response(m) for m in missions]

@@ -5,17 +5,19 @@ Tests for Event Sourcing, CQRS, and Saga Orchestration
 All tests written against the actual class signatures — no assumptions.
 Built with Pride for Obex Blackvault
 """
+
 import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any, Dict, Optional
-pytestmark = pytest.mark.unit
 
+pytestmark = pytest.mark.unit
 
 
 # ============================================================================
 # Event Sourcing Tests
 # ============================================================================
+
 
 class TestEventClass:
     """Tests for the Event base class and serialization"""
@@ -23,6 +25,7 @@ class TestEventClass:
     def test_event_creation_minimal(self):
         """Test basic Event creation with required fields"""
         from backend.core.event_sourcing.event_store_impl import Event, EventType
+
         event = Event(
             event_id="evt_001",
             event_type=EventType.AGENT_CREATED,
@@ -31,7 +34,7 @@ class TestEventClass:
             data={"name": "TestAgent"},
             metadata={},
             timestamp=datetime.utcnow(),
-            version=1
+            version=1,
         )
         assert event.event_id == "evt_001"
         assert event.event_type == EventType.AGENT_CREATED
@@ -42,6 +45,7 @@ class TestEventClass:
     def test_event_to_dict(self):
         """Test Event serialization to dictionary"""
         from backend.core.event_sourcing.event_store_impl import Event, EventType
+
         now = datetime.utcnow()
         event = Event(
             event_id="evt_002",
@@ -51,7 +55,7 @@ class TestEventClass:
             data={"title": "Test Mission"},
             metadata={"source": "test"},
             timestamp=now,
-            version=1
+            version=1,
         )
         d = event.to_dict()
         assert d["event_id"] == "evt_002"
@@ -63,6 +67,7 @@ class TestEventClass:
     def test_event_from_dict(self):
         """Test Event deserialization from dictionary"""
         from backend.core.event_sourcing.event_store_impl import Event, EventType
+
         data = {
             "event_id": "evt_003",
             "event_type": EventType.AGENT_UPDATED,
@@ -71,7 +76,7 @@ class TestEventClass:
             "version": 2,
             "timestamp": datetime.utcnow().isoformat(),
             "data": {"model": "gpt-4-turbo"},
-            "metadata": {}
+            "metadata": {},
         }
         event = Event.from_dict(data)
         assert event.event_id == "evt_003"
@@ -82,6 +87,7 @@ class TestEventClass:
     def test_event_roundtrip_serialization(self):
         """Test that Event survives a to_dict/from_dict roundtrip"""
         from backend.core.event_sourcing.event_store_impl import Event, EventType
+
         original = Event(
             event_id="evt_004",
             event_type=EventType.MISSION_COMPLETED,
@@ -90,7 +96,7 @@ class TestEventClass:
             data={"result": "success", "cost": 1.5},
             metadata={"executor": "test"},
             timestamp=datetime.utcnow(),
-            version=3
+            version=3,
         )
         restored = Event.from_dict(original.to_dict())
         assert restored.event_id == original.event_id
@@ -105,6 +111,7 @@ class TestEventTypes:
     def test_agent_event_types_defined(self):
         """Test that all agent event types are defined"""
         from backend.core.event_sourcing.event_store_impl import EventType
+
         assert EventType.AGENT_CREATED is not None
         assert EventType.AGENT_UPDATED is not None
         assert EventType.AGENT_DELETED is not None
@@ -112,6 +119,7 @@ class TestEventTypes:
     def test_mission_event_types_defined(self):
         """Test that all mission event types are defined"""
         from backend.core.event_sourcing.event_store_impl import EventType
+
         assert EventType.MISSION_STARTED is not None
         assert EventType.MISSION_COMPLETED is not None
         assert EventType.MISSION_FAILED is not None
@@ -119,6 +127,7 @@ class TestEventTypes:
     def test_economy_event_types_defined(self):
         """Test that economy event types are defined"""
         from backend.core.event_sourcing.event_store_impl import EventType
+
         assert EventType.CREDIT_EARNED is not None
         assert EventType.CREDIT_SPENT is not None
         assert EventType.BALANCE_ADJUSTED is not None
@@ -126,6 +135,7 @@ class TestEventTypes:
     def test_event_type_values_are_strings(self):
         """Test that EventType values are dot-notation strings"""
         from backend.core.event_sourcing.event_store_impl import EventType
+
         assert "." in EventType.AGENT_CREATED.value
         assert "." in EventType.MISSION_STARTED.value
 
@@ -136,12 +146,13 @@ class TestSnapshotClass:
     def test_snapshot_creation(self):
         """Test Snapshot creation with required fields"""
         from backend.core.event_sourcing.event_store_impl import Snapshot
+
         snapshot = Snapshot(
             aggregate_id="agent_001",
             aggregate_type="Agent",
             version=10,
             state={"name": "TestAgent", "status": "active"},
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
         )
         assert snapshot.aggregate_id == "agent_001"
         assert snapshot.version == 10
@@ -150,18 +161,19 @@ class TestSnapshotClass:
     def test_snapshot_state_preserved(self):
         """Test that snapshot state is preserved exactly"""
         from backend.core.event_sourcing.event_store_impl import Snapshot
+
         complex_state = {
             "name": "Agent",
             "capabilities": ["planning", "execution"],
             "metrics": {"missions": 42, "success_rate": 0.95},
-            "nested": {"deep": {"value": True}}
+            "nested": {"deep": {"value": True}},
         }
         snapshot = Snapshot(
             aggregate_id="agent_002",
             aggregate_type="Agent",
             version=5,
             state=complex_state,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
         )
         assert snapshot.state == complex_state
         assert snapshot.state["metrics"]["success_rate"] == 0.95
@@ -179,14 +191,14 @@ class TestEventStoreAppend:
         mock_session = AsyncMock(spec=AsyncSession)
         store = EventStore(session=mock_session)
 
-        with patch.object(store, '_get_current_version', return_value=0):
+        with patch.object(store, "_get_current_version", return_value=0):
             await store.append(
                 aggregate_id="agent_001",
                 aggregate_type="Agent",
                 event_type=EventType.AGENT_CREATED,
                 data={"name": "TestAgent"},
                 metadata={},
-                expected_version=0
+                expected_version=0,
             )
             mock_session.add.assert_called_once()
             mock_session.commit.assert_called_once()
@@ -194,20 +206,24 @@ class TestEventStoreAppend:
     @pytest.mark.asyncio
     async def test_concurrency_conflict_raises(self):
         """Test that appending with wrong expected_version raises ConcurrencyError"""
-        from backend.core.event_sourcing.event_store_impl import EventStore, EventType, ConcurrencyError
+        from backend.core.event_sourcing.event_store_impl import (
+            EventStore,
+            EventType,
+            ConcurrencyError,
+        )
         from sqlalchemy.ext.asyncio import AsyncSession
 
         mock_session = AsyncMock(spec=AsyncSession)
         store = EventStore(session=mock_session)
 
-        with patch.object(store, '_get_current_version', return_value=2):
+        with patch.object(store, "_get_current_version", return_value=2):
             with pytest.raises(ConcurrencyError):
                 await store.append(
                     aggregate_id="agent_001",
                     aggregate_type="Agent",
                     event_type=EventType.AGENT_UPDATED,
                     data={},
-                    expected_version=1  # Wrong — current is 2
+                    expected_version=1,  # Wrong — current is 2
                 )
 
 
@@ -215,19 +231,21 @@ class TestEventStoreAppend:
 # CQRS Tests
 # ============================================================================
 
+
 class TestCommandClasses:
     """Tests for CQRS Command dataclasses — using actual signatures"""
 
     def test_create_agent_command(self):
         """Test CreateAgentCommand creation with actual signature"""
         from backend.core.cqrs.cqrs_impl import CreateAgentCommand
+
         cmd = CreateAgentCommand(
             tenant_id="tenant_1",
             name="Test Commander",
             model="gpt-4-turbo",
             capabilities=["planning", "coordination"],
             system_prompt="You are a commander agent.",
-            temperature=0.7
+            temperature=0.7,
         )
         assert cmd.tenant_id == "tenant_1"
         assert cmd.name == "Test Commander"
@@ -237,23 +255,25 @@ class TestCommandClasses:
     def test_create_agent_command_default_temperature(self):
         """Test CreateAgentCommand uses default temperature"""
         from backend.core.cqrs.cqrs_impl import CreateAgentCommand
+
         cmd = CreateAgentCommand(
             tenant_id="tenant_1",
             name="Test",
             model="gpt-4",
             capabilities=[],
-            system_prompt="You are an agent."
+            system_prompt="You are an agent.",
         )
         assert cmd.temperature == 0.7
 
     def test_start_mission_command(self):
         """Test StartMissionCommand creation with actual signature"""
         from backend.core.cqrs.cqrs_impl import StartMissionCommand
+
         cmd = StartMissionCommand(
             mission_id="mission_001",
             agent_id="agent_001",
             command="Analyze the market trends",
-            context={"priority": "high", "deadline": "2026-03-01"}
+            context={"priority": "high", "deadline": "2026-03-01"},
         )
         assert cmd.mission_id == "mission_001"
         assert cmd.agent_id == "agent_001"
@@ -262,11 +282,12 @@ class TestCommandClasses:
     def test_complete_mission_command(self):
         """Test CompleteMissionCommand creation with actual signature"""
         from backend.core.cqrs.cqrs_impl import CompleteMissionCommand
+
         cmd = CompleteMissionCommand(
             mission_id="mission_001",
             result={"status": "success", "output": "Analysis complete"},
             tokens_used=1500,
-            cost=2.5
+            cost=2.5,
         )
         assert cmd.mission_id == "mission_001"
         assert cmd.tokens_used == 1500
@@ -275,10 +296,9 @@ class TestCommandClasses:
     def test_adjust_credit_command(self):
         """Test AdjustCreditCommand creation with actual signature"""
         from backend.core.cqrs.cqrs_impl import AdjustCreditCommand
+
         cmd = AdjustCreditCommand(
-            agent_id="agent_001",
-            amount=10.0,
-            reason="mission_reward"
+            agent_id="agent_001", amount=10.0, reason="mission_reward"
         )
         assert cmd.agent_id == "agent_001"
         assert cmd.amount == 10.0
@@ -287,11 +307,10 @@ class TestCommandClasses:
     def test_update_agent_command(self):
         """Test UpdateAgentCommand creation with actual signature"""
         from backend.core.cqrs.cqrs_impl import UpdateAgentCommand
+
         # UpdateAgentCommand uses individual optional fields, not an 'updates' dict
         cmd = UpdateAgentCommand(
-            agent_id="agent_001",
-            model="gpt-4-turbo",
-            name="Updated Commander"
+            agent_id="agent_001", model="gpt-4-turbo", name="Updated Commander"
         )
         assert cmd.agent_id == "agent_001"
         assert cmd.model == "gpt-4-turbo"
@@ -306,12 +325,14 @@ class TestQueryClasses:
     def test_get_agent_query(self):
         """Test GetAgentQuery creation with actual signature"""
         from backend.core.cqrs.cqrs_impl import GetAgentQuery
+
         query = GetAgentQuery(agent_id="agent_001")
         assert query.agent_id == "agent_001"
 
     def test_list_agents_query(self):
         """Test ListAgentsQuery creation with actual signature"""
         from backend.core.cqrs.cqrs_impl import ListAgentsQuery
+
         query = ListAgentsQuery(tenant_id="tenant_1", limit=10, offset=0)
         assert query.tenant_id == "tenant_1"
         assert query.limit == 10
@@ -319,6 +340,7 @@ class TestQueryClasses:
     def test_list_agents_query_defaults(self):
         """Test ListAgentsQuery default values"""
         from backend.core.cqrs.cqrs_impl import ListAgentsQuery
+
         query = ListAgentsQuery(tenant_id="tenant_1")
         assert query.limit == 100
         assert query.offset == 0
@@ -326,12 +348,14 @@ class TestQueryClasses:
     def test_get_mission_query(self):
         """Test GetMissionQuery creation with actual signature"""
         from backend.core.cqrs.cqrs_impl import GetMissionQuery
+
         query = GetMissionQuery(mission_id="mission_001")
         assert query.mission_id == "mission_001"
 
     def test_list_missions_query(self):
         """Test ListMissionsQuery creation with actual signature"""
         from backend.core.cqrs.cqrs_impl import ListMissionsQuery
+
         query = ListMissionsQuery(status="active", limit=20, offset=0)
         assert query.status == "active"
         assert query.limit == 20
@@ -339,6 +363,7 @@ class TestQueryClasses:
     def test_list_missions_query_all_optional(self):
         """Test ListMissionsQuery with all optional fields"""
         from backend.core.cqrs.cqrs_impl import ListMissionsQuery
+
         query = ListMissionsQuery()
         assert query.agent_id is None
         assert query.status is None
@@ -363,7 +388,7 @@ class TestCommandBus:
             name="Test",
             model="gpt-4",
             capabilities=[],
-            system_prompt="You are an agent."
+            system_prompt="You are an agent.",
         )
         result = await bus.dispatch(cmd)
         mock_handler.handle.assert_called_once_with(cmd)
@@ -380,7 +405,7 @@ class TestCommandBus:
             name="Test",
             model="gpt-4",
             capabilities=[],
-            system_prompt="You are an agent."
+            system_prompt="You are an agent.",
         )
         with pytest.raises(Exception):
             await bus.dispatch(cmd)
@@ -428,12 +453,14 @@ class TestQueryBus:
 # Saga Orchestration Tests
 # ============================================================================
 
+
 class TestSagaOrchestrator:
     """Tests for the SagaOrchestrator engine"""
 
     def _make_orchestrator(self):
         from backend.core.saga.saga_orchestrator import SagaOrchestrator
         from backend.core.event_sourcing.event_store_impl import EventStore
+
         mock_event_store = MagicMock(spec=EventStore)
         mock_event_store.append = AsyncMock()
         return SagaOrchestrator(event_store=mock_event_store)
@@ -441,11 +468,9 @@ class TestSagaOrchestrator:
     def test_create_saga(self):
         """Test creating a saga definition"""
         from backend.core.saga.saga_orchestrator import SagaDefinition
+
         orchestrator = self._make_orchestrator()
-        saga = orchestrator.create_saga(
-            name="test_saga",
-            context={"key": "value"}
-        )
+        saga = orchestrator.create_saga(name="test_saga", context={"key": "value"})
         assert saga.name == "test_saga"
         assert saga.context["key"] == "value"
         assert saga.saga_id is not None
@@ -462,14 +487,14 @@ class TestSagaOrchestrator:
         orchestrator = self._make_orchestrator()
         saga = orchestrator.create_saga(name="test_saga", context={})
 
-        async def step_fn(ctx): return ctx
-        async def comp_fn(ctx): return ctx
+        async def step_fn(ctx):
+            return ctx
+
+        async def comp_fn(ctx):
+            return ctx
 
         step = orchestrator.add_step(
-            saga=saga,
-            name="step_1",
-            action=step_fn,
-            compensation=comp_fn
+            saga=saga, name="step_1", action=step_fn, compensation=comp_fn
         )
         assert len(saga.steps) == 1
         assert saga.steps[0].name == "step_1"
@@ -480,7 +505,8 @@ class TestSagaOrchestrator:
         orchestrator = self._make_orchestrator()
         saga = orchestrator.create_saga(name="test_saga", context={})
 
-        async def noop(ctx): return ctx
+        async def noop(ctx):
+            return ctx
 
         orchestrator.add_step(saga, "step_1", noop, None)
         orchestrator.add_step(saga, "step_2", noop, None)
@@ -495,11 +521,9 @@ class TestSagaOrchestrator:
     async def test_execute_successful_saga(self):
         """Test executing a saga where all steps succeed"""
         from backend.core.saga.saga_orchestrator import SagaStatus
+
         orchestrator = self._make_orchestrator()
-        saga = orchestrator.create_saga(
-            name="test_saga",
-            context={"value": 0}
-        )
+        saga = orchestrator.create_saga(name="test_saga", context={"value": 0})
 
         async def step_1(ctx):
             ctx["value"] += 1
@@ -521,13 +545,11 @@ class TestSagaOrchestrator:
     async def test_execute_saga_with_compensation(self):
         """Test that compensation runs when a step fails"""
         from backend.core.saga.saga_orchestrator import SagaStatus
+
         orchestrator = self._make_orchestrator()
         compensation_called = []
 
-        saga = orchestrator.create_saga(
-            name="test_saga",
-            context={"value": 0}
-        )
+        saga = orchestrator.create_saga(name="test_saga", context={"value": 0})
 
         async def step_1(ctx):
             ctx["value"] += 1
@@ -570,7 +592,10 @@ class TestMissionExecutionSaga:
     """Tests for the MissionExecutionSaga"""
 
     def _make_saga(self):
-        from backend.core.saga.saga_orchestrator import MissionExecutionSaga, SagaOrchestrator
+        from backend.core.saga.saga_orchestrator import (
+            MissionExecutionSaga,
+            SagaOrchestrator,
+        )
         from backend.core.event_sourcing.event_store_impl import EventStore
 
         mock_event_store = MagicMock(spec=EventStore)
@@ -583,11 +608,13 @@ class TestMissionExecutionSaga:
         mock_marketplace.reward = AsyncMock(return_value={"balance": 101.0})
 
         mock_executor = MagicMock()
-        mock_executor.execute_mission = AsyncMock(return_value={
-            "status": "completed",
-            "result": {"output": "success"},
-            "cost": 1.5
-        })
+        mock_executor.execute_mission = AsyncMock(
+            return_value={
+                "status": "completed",
+                "result": {"output": "success"},
+                "cost": 1.5,
+            }
+        )
 
         mock_db = MagicMock()
 
@@ -595,7 +622,7 @@ class TestMissionExecutionSaga:
             orchestrator=orchestrator,
             marketplace=mock_marketplace,
             mission_executor=mock_executor,
-            db_session=mock_db
+            db_session=mock_db,
         )
 
     def test_mission_saga_creation(self):
@@ -615,7 +642,7 @@ class TestMissionExecutionSaga:
             tenant_id="tenant_1",
             user_id="user_1",
             goal="Analyze market trends",
-            estimated_cost=1.5
+            estimated_cost=1.5,
         )
         assert isinstance(result, bool)
 
@@ -624,7 +651,10 @@ class TestAgentCreationSaga:
     """Tests for the AgentCreationSaga"""
 
     def _make_saga(self):
-        from backend.core.saga.saga_orchestrator import AgentCreationSaga, SagaOrchestrator
+        from backend.core.saga.saga_orchestrator import (
+            AgentCreationSaga,
+            SagaOrchestrator,
+        )
         from backend.core.event_sourcing.event_store_impl import EventStore
 
         mock_event_store = MagicMock(spec=EventStore)
@@ -637,9 +667,7 @@ class TestAgentCreationSaga:
         mock_db = MagicMock()
 
         return AgentCreationSaga(
-            orchestrator=orchestrator,
-            marketplace=mock_marketplace,
-            db_session=mock_db
+            orchestrator=orchestrator, marketplace=mock_marketplace, db_session=mock_db
         )
 
     def test_agent_saga_creation(self):
@@ -659,7 +687,7 @@ class TestAgentCreationSaga:
             agent_type="commander",
             model="gpt-4",
             config={"temperature": 0.7},
-            initial_budget=1000.0
+            initial_budget=1000.0,
         )
         assert isinstance(result, bool)
 
@@ -668,27 +696,32 @@ class TestAgentCreationSaga:
 # CQRS Setup Module Tests
 # ============================================================================
 
+
 class TestCQRSSetupModule:
     """Tests for the CQRS setup module"""
 
     def test_command_bus_importable_from_cqrs_impl(self):
         """Test that CommandBus can be imported from cqrs_impl"""
         from backend.core.cqrs.cqrs_impl import CommandBus
+
         assert CommandBus is not None
 
     def test_query_bus_importable_from_cqrs_impl(self):
         """Test that QueryBus can be imported from cqrs_impl"""
         from backend.core.cqrs.cqrs_impl import QueryBus
+
         assert QueryBus is not None
 
     def test_setup_cqrs_function_exists(self):
         """Test that setup_cqrs function exists and is callable"""
         from backend.core.cqrs.setup import setup_cqrs
+
         assert callable(setup_cqrs)
 
     def test_get_command_bus_raises_before_setup(self):
         """Test that get_command_bus raises RuntimeError before setup"""
         from backend.core.cqrs.setup import get_command_bus, teardown_cqrs
+
         teardown_cqrs()  # Ensure clean state
         with pytest.raises(RuntimeError, match="CQRS buses not initialised"):
             get_command_bus()
@@ -696,6 +729,7 @@ class TestCQRSSetupModule:
     def test_get_query_bus_raises_before_setup(self):
         """Test that get_query_bus raises RuntimeError before setup"""
         from backend.core.cqrs.setup import get_query_bus, teardown_cqrs
+
         teardown_cqrs()  # Ensure clean state
         with pytest.raises(RuntimeError, match="CQRS buses not initialised"):
             get_query_bus()
@@ -703,6 +737,7 @@ class TestCQRSSetupModule:
     def test_teardown_cqrs_resets_state(self):
         """Test that teardown_cqrs resets the bus singletons"""
         from backend.core.cqrs.setup import teardown_cqrs, get_command_bus
+
         teardown_cqrs()
         with pytest.raises(RuntimeError):
             get_command_bus()
@@ -712,40 +747,48 @@ class TestCQRSSetupModule:
 # Event Store Module Re-export Tests
 # ============================================================================
 
+
 class TestEventStoreModuleReexports:
     """Tests for the event_store.py module re-exports"""
 
     def test_event_importable_from_event_store(self):
         """Test that Event can be imported from event_store module"""
         from backend.core.event_sourcing.event_store import Event
+
         assert Event is not None
 
     def test_event_type_importable_from_event_store(self):
         """Test that EventType can be imported from event_store module"""
         from backend.core.event_sourcing.event_store import EventType
+
         assert EventType is not None
 
     def test_event_store_class_importable(self):
         """Test that EventStore class can be imported from event_store module"""
         from backend.core.event_sourcing.event_store import EventStore
+
         assert EventStore is not None
 
     def test_snapshot_store_importable(self):
         """Test that SnapshotStore can be imported from event_store module"""
         from backend.core.event_sourcing.event_store import SnapshotStore
+
         assert SnapshotStore is not None
 
     def test_snapshot_importable(self):
         """Test that Snapshot can be imported from event_store module"""
         from backend.core.event_sourcing.event_store import Snapshot
+
         assert Snapshot is not None
 
     def test_concurrency_error_importable(self):
         """Test that ConcurrencyError can be imported"""
         from backend.core.event_sourcing.event_store import ConcurrencyError
+
         assert ConcurrencyError is not None
 
     def test_event_store_error_importable(self):
         """Test that EventStoreError can be imported"""
         from backend.core.event_sourcing.event_store import EventStoreError
+
         assert EventStoreError is not None

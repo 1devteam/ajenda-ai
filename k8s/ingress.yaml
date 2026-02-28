@@ -1,0 +1,88 @@
+---
+# ============================================================
+# Omnipath v2 — Kubernetes Ingress
+# TLS termination + rate limiting + security headers
+# Requires: ingress-nginx controller + cert-manager
+# Built with Pride for Obex Blackvault
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: omnipath-ingress
+  namespace: omnipath
+  labels:
+    app: omnipath
+    component: ingress
+  annotations:
+    # ── Ingress class ─────────────────────────────────────────
+    kubernetes.io/ingress.class: nginx
+
+    # ── TLS / cert-manager ────────────────────────────────────
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+    # ── SSL redirect ─────────────────────────────────────────
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # ── Rate limiting ─────────────────────────────────────────
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+
+    # ── Proxy settings ────────────────────────────────────────
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+
+    # ── Security headers (nginx ingress) ─────────────────────
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+      more_set_headers "X-Request-ID: $request_id";
+
+    nginx.ingress.kubernetes.io/server-snippet: |
+      add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    # ── CORS ─────────────────────────────────────────────────
+    # CORS is handled by the application layer; do not duplicate here
+
+spec:
+  tls:
+    - hosts:
+        - api.omnipath.ai          # Replace with your actual domain
+      secretName: omnipath-tls
+
+  rules:
+    - host: api.omnipath.ai        # Replace with your actual domain
+      http:
+        paths:
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: omnipath-backend
+                port:
+                  name: http
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: omnipath-backend
+                port:
+                  name: http
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: omnipath-backend
+                port:
+                  name: http
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: omnipath-backend
+                port:
+                  name: http

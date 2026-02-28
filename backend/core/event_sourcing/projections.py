@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # AgentProjection
 # ---------------------------------------------------------------------------
 
+
 class AgentProjection(Projection):
     """
     Maintains a denormalised, in-memory view of all agents.
@@ -186,6 +187,7 @@ class AgentProjection(Projection):
 # MissionProjection
 # ---------------------------------------------------------------------------
 
+
 class MissionProjection(Projection):
     """
     Maintains a denormalised, in-memory view of all missions.
@@ -261,9 +263,7 @@ class MissionProjection(Projection):
     ) -> List[Dict[str, Any]]:
         """Return missions for *agent_id*, optionally filtered by *status*."""
         mission_ids = self._by_agent.get(agent_id, [])
-        missions = [
-            self._missions[mid] for mid in mission_ids if mid in self._missions
-        ]
+        missions = [self._missions[mid] for mid in mission_ids if mid in self._missions]
         if status is not None:
             missions = [m for m in missions if m.get("status") == status]
         return missions[offset : offset + limit]
@@ -352,6 +352,7 @@ class MissionProjection(Projection):
 # EconomyProjection
 # ---------------------------------------------------------------------------
 
+
 class EconomyProjection(Projection):
     """
     Maintains a per-agent credit ledger derived from economy events.
@@ -439,7 +440,9 @@ class EconomyProjection(Projection):
     # Event handlers (private)
     # ------------------------------------------------------------------
 
-    def _apply_delta(self, agent_id: str, delta: float, reason: str, ts: datetime) -> None:
+    def _apply_delta(
+        self, agent_id: str, delta: float, reason: str, ts: datetime
+    ) -> None:
         """Apply *delta* to *agent_id*'s balance and record the ledger entry."""
         self._balances[agent_id] = self._balances.get(agent_id, 0.0) + delta
         self._ledger[agent_id].append(
@@ -484,6 +487,7 @@ class EconomyProjection(Projection):
 # ---------------------------------------------------------------------------
 # Public factory
 # ---------------------------------------------------------------------------
+
 
 def create_projections(event_store: EventStore) -> Dict[str, Projection]:
     """

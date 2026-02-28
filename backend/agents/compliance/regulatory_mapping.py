@@ -10,7 +10,7 @@ Date: 2026-02-26
 Built with Pride for Obex Blackvault
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from enum import Enum
@@ -20,6 +20,7 @@ from .models import ComplianceResult
 
 class RiskLevel(str, Enum):
     """EU AI Act risk levels."""
+
     UNACCEPTABLE = "unacceptable"
     HIGH = "high"
     LIMITED = "limited"
@@ -28,6 +29,7 @@ class RiskLevel(str, Enum):
 
 class AuthorityLevel(int, Enum):
     """User authority levels for risk-based access control."""
+
     GUEST = 0
     USER = 1
     OPERATOR = 2
@@ -39,7 +41,7 @@ class AuthorityLevel(int, Enum):
 class RiskAssessment:
     """
     Risk assessment for an asset based on regulatory mapping.
-    
+
     Attributes:
         risk_level: EU AI Act risk level
         regulation: Applicable regulation
@@ -49,6 +51,7 @@ class RiskAssessment:
         valid_until: Optional expiration
         notes: Additional notes
     """
+
     risk_level: RiskLevel
     regulation: str
     requirements: List[str]
@@ -56,7 +59,7 @@ class RiskAssessment:
     assessed_by: str
     valid_until: Optional[datetime] = None
     notes: str = ""
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
@@ -74,13 +77,14 @@ class RiskAssessment:
 class RiskMapping:
     """
     Mapping from tags to risk levels and requirements.
-    
+
     Attributes:
         risk_level: Risk level for this mapping
         tags: Tags that trigger this risk level
         requirements: Compliance requirements
         action: Action to take (allow, block, require_oversight)
     """
+
     risk_level: RiskLevel
     tags: List[str]
     requirements: List[str]
@@ -90,16 +94,16 @@ class RiskMapping:
 class RegulatoryMappingRule:
     """
     Compliance rule that maps asset tags to regulatory risk categories.
-    
+
     This rule analyzes asset tags (from ContextualTaggingRule) and maps them
     to EU AI Act risk levels, generating appropriate compliance requirements.
-    
+
     Risk Levels:
     - Unacceptable: Prohibited AI systems (blocked)
     - High: Significant risk to safety/rights (strict requirements)
     - Limited: Transparency obligations
     - Minimal: Low/no risk (no special requirements)
-    
+
     Example:
         rule = RegulatoryMappingRule()
         context = {
@@ -109,18 +113,18 @@ class RegulatoryMappingRule:
         result = rule.check(context)
         # Result: risk_level="high", requirements=[human-oversight, ...]
     """
-    
+
     name = "regulatory_mapping"
     description = "Map asset tags to EU AI Act risk categories"
-    
+
     def __init__(self):
         """Initialize with EU AI Act risk mappings."""
         self.risk_mappings = self._load_eu_ai_act_mappings()
-    
+
     def _load_eu_ai_act_mappings(self) -> List[RiskMapping]:
         """
         Load EU AI Act risk mappings.
-        
+
         Returns:
             List of risk mappings
         """
@@ -137,7 +141,6 @@ class RegulatoryMappingRule:
                 requirements=[],
                 action="block",
             ),
-            
             # High Risk - Strict Requirements
             RiskMapping(
                 risk_level=RiskLevel.HIGH,
@@ -164,7 +167,6 @@ class RegulatoryMappingRule:
                 ],
                 action="require_oversight",
             ),
-            
             # Limited Risk - Transparency
             RiskMapping(
                 risk_level=RiskLevel.LIMITED,
@@ -180,7 +182,6 @@ class RegulatoryMappingRule:
                 ],
                 action="allow",
             ),
-            
             # Minimal Risk - No Special Requirements
             RiskMapping(
                 risk_level=RiskLevel.MINIMAL,
@@ -193,14 +194,14 @@ class RegulatoryMappingRule:
                 action="allow",
             ),
         ]
-    
+
     def _determine_risk_level(self, tags: List[str]) -> tuple[RiskLevel, List[str], str]:
         """
         Determine risk level based on tags.
-        
+
         Args:
             tags: List of asset tags
-            
+
         Returns:
             Tuple of (risk_level, requirements, action)
         """
@@ -209,62 +210,63 @@ class RegulatoryMappingRule:
             if mapping.risk_level == RiskLevel.UNACCEPTABLE:
                 if any(tag in tags for tag in mapping.tags):
                     return mapping.risk_level, mapping.requirements, mapping.action
-        
+
         # Check for high risk
         for mapping in self.risk_mappings:
             if mapping.risk_level == RiskLevel.HIGH:
                 if any(tag in tags for tag in mapping.tags):
                     return mapping.risk_level, mapping.requirements, mapping.action
-        
+
         # Check for limited risk
         for mapping in self.risk_mappings:
             if mapping.risk_level == RiskLevel.LIMITED:
                 if any(tag in tags for tag in mapping.tags):
                     return mapping.risk_level, mapping.requirements, mapping.action
-        
+
         # Default to minimal risk
         return RiskLevel.MINIMAL, [], "allow"
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check asset tags and map to risk level.
-        
+
         Args:
             context: Must contain:
                 - asset_id: AIAsset identifier
                 - tags: List of asset tags (optional, will fetch from registry)
-        
+
         Returns:
             ComplianceResult with risk assessment
         """
         asset_id = context.get("asset_id")
-        
+
         if not asset_id:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason="Asset ID is required for regulatory mapping"
+                reason="Asset ID is required for regulatory mapping",
             )
-        
+
         # Get tags from context or registry
         tags = context.get("tags")
         if not tags:
-            from ..registry.asset_registry import get_registry, AIAsset
+            from ..registry.asset_registry import get_registry
+
             registry = get_registry()
             asset = registry.get(asset_id)
-            
+
             if not asset:
                 return ComplianceResult(
                     allowed=False,
                     rule=self.name,
-                    reason=f"Asset '{asset_id}' not found in registry"
+                    reason=f"Asset '{asset_id}' not found in registry",
                 )
-            
+
             tags = asset.tags
-        
+
         # Determine risk level
         risk_level, requirements, action = self._determine_risk_level(tags)
-        
+
         # Create risk assessment
         assessment = RiskAssessment(
             risk_level=risk_level,
@@ -274,54 +276,55 @@ class RegulatoryMappingRule:
             assessed_by="auto",
             notes=f"Risk level determined based on tags: {', '.join(tags)}",
         )
-        
+
         # Store assessment in asset
-        from ..registry.asset_registry import get_registry, AIAsset
+        from ..registry.asset_registry import get_registry
+
         registry = get_registry()
         asset = registry.get(asset_id)
-        
+
         if asset:
             if not hasattr(asset, "risk_assessment"):
                 asset.risk_assessment = None
             asset.risk_assessment = assessment
-        
+
         # Check if action is block
         if action == "block":
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason=f"Asset '{asset_id}' has unacceptable risk level and is prohibited under EU AI Act"
+                reason=f"Asset '{asset_id}' has unacceptable risk level and is prohibited under EU AI Act",  # noqa: E501
             )
-        
+
         # Build reason message
         if requirements:
             req_list = ", ".join(requirements)
-            reason = f"Asset '{asset_id}' mapped to {risk_level.value} risk. Requirements: {req_list}"
+            reason = (
+                f"Asset '{asset_id}' mapped to {risk_level.value} risk. Requirements: {req_list}"
+            )
         else:
-            reason = f"Asset '{asset_id}' mapped to {risk_level.value} risk with no special requirements"
-        
-        return ComplianceResult(
-            allowed=True,
-            rule=self.name,
-            reason=reason
-        )
-    
+            reason = (
+                f"Asset '{asset_id}' mapped to {risk_level.value} risk with no special requirements"
+            )
+
+        return ComplianceResult(allowed=True, rule=self.name, reason=reason)
+
     def add_mapping(self, mapping: RiskMapping) -> None:
         """
         Add custom risk mapping.
-        
+
         Args:
             mapping: RiskMapping to add
         """
         self.risk_mappings.append(mapping)
-    
+
     def get_risk_level(self, tags: List[str]) -> RiskLevel:
         """
         Get risk level for given tags.
-        
+
         Args:
             tags: List of tags
-            
+
         Returns:
             Risk level
         """
@@ -332,17 +335,17 @@ class RegulatoryMappingRule:
 class AutonomousAuthorityRule:
     """
     Compliance rule that enforces authority levels based on risk.
-    
+
     This rule checks if a user has sufficient authority to use an asset
     based on its risk level. Higher risk assets require higher authority.
-    
+
     Authority Levels:
     - 0 (Guest): Minimal risk only
     - 1 (User): Minimal, Limited risk
     - 2 (Operator): Minimal, Limited, High (with oversight)
     - 3 (Admin): All except Unacceptable
     - 4 (Compliance Officer): All (override)
-    
+
     Example:
         rule = AutonomousAuthorityRule()
         context = {
@@ -355,14 +358,14 @@ class AutonomousAuthorityRule:
         result = rule.check(context)
         # Result: allowed=True (Operator with oversight can use high-risk)
     """
-    
+
     name = "autonomous_authority"
     description = "Enforce authority levels based on risk"
-    
+
     def check(self, context: Dict[str, Any]) -> ComplianceResult:
         """
         Check if user has authority to use asset.
-        
+
         Args:
             context: Must contain:
                 - user_id: User identifier
@@ -370,56 +373,55 @@ class AutonomousAuthorityRule:
                 - asset_id: AIAsset identifier
                 - asset_risk_level: AIAsset risk level (optional, will fetch)
                 - human_oversight: Whether human oversight is available (optional)
-        
+
         Returns:
             ComplianceResult indicating if access is allowed
         """
         user_id = context.get("user_id")
         user_level = context.get("user_authority_level")
         asset_id = context.get("asset_id")
-        
+
         if not user_id:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason="User ID is required for authority check"
+                reason="User ID is required for authority check",
             )
-        
+
         if user_level is None:
             return ComplianceResult(
-                allowed=False,
-                rule=self.name,
-                reason="User authority level is required"
+                allowed=False, rule=self.name, reason="User authority level is required"
             )
-        
+
         if not asset_id:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason="Asset ID is required for authority check"
+                reason="Asset ID is required for authority check",
             )
-        
+
         # Get asset risk level
         risk_level_str = context.get("asset_risk_level")
         if not risk_level_str:
             # Fetch from asset
-            from ..registry.asset_registry import get_registry, AIAsset
+            from ..registry.asset_registry import get_registry
+
             registry = get_registry()
             asset = registry.get(asset_id)
-            
+
             if not asset:
                 return ComplianceResult(
                     allowed=False,
                     rule=self.name,
-                    reason=f"Asset '{asset_id}' not found in registry"
+                    reason=f"Asset '{asset_id}' not found in registry",
                 )
-            
+
             if hasattr(asset, "risk_assessment") and asset.risk_assessment:
                 risk_level_str = asset.risk_assessment.risk_level.value
             else:
                 # No risk assessment, default to minimal
                 risk_level_str = "minimal"
-        
+
         # Parse risk level
         try:
             risk_level = RiskLevel(risk_level_str)
@@ -427,63 +429,57 @@ class AutonomousAuthorityRule:
             return ComplianceResult(
                 allowed=False,
                 rule=self.name,
-                reason=f"Invalid risk level: {risk_level_str}"
+                reason=f"Invalid risk level: {risk_level_str}",
             )
-        
+
         # Check oversight
         has_oversight = context.get("human_oversight", False)
-        
+
         # Apply authority rules
         allowed = self._check_authority(user_level, risk_level, has_oversight)
-        
+
         if not allowed:
             if risk_level == RiskLevel.UNACCEPTABLE:
-                reason = f"User '{user_id}' (level {user_level}) cannot access unacceptable risk asset '{asset_id}'. Only Compliance Officers (level 4) can override."
+                reason = f"User '{user_id}' (level {user_level}) cannot access unacceptable risk asset '{asset_id}'. Only Compliance Officers (level 4) can override."  # noqa: E501
             elif risk_level == RiskLevel.HIGH and not has_oversight:
-                reason = f"User '{user_id}' (level {user_level}) cannot access high-risk asset '{asset_id}' without human oversight. Requires Admin (level 3) or Operator (level 2) with oversight."
+                reason = f"User '{user_id}' (level {user_level}) cannot access high-risk asset '{asset_id}' without human oversight. Requires Admin (level 3) or Operator (level 2) with oversight."  # noqa: E501
             elif risk_level == RiskLevel.HIGH and has_oversight:
-                reason = f"User '{user_id}' (level {user_level}) cannot access high-risk asset '{asset_id}'. Requires Operator (level 2) or higher with oversight."
+                reason = f"User '{user_id}' (level {user_level}) cannot access high-risk asset '{asset_id}'. Requires Operator (level 2) or higher with oversight."  # noqa: E501
             elif risk_level == RiskLevel.LIMITED:
-                reason = f"User '{user_id}' (level {user_level}) cannot access limited-risk asset '{asset_id}'. Requires User (level 1) or higher."
+                reason = f"User '{user_id}' (level {user_level}) cannot access limited-risk asset '{asset_id}'. Requires User (level 1) or higher."  # noqa: E501
             else:
-                reason = f"User '{user_id}' (level {user_level}) does not have sufficient authority for {risk_level.value} risk asset '{asset_id}'"
-            
-            return ComplianceResult(
-                allowed=False,
-                rule=self.name,
-                reason=reason
-            )
-        
+                reason = f"User '{user_id}' (level {user_level}) does not have sufficient authority for {risk_level.value} risk asset '{asset_id}'"  # noqa: E501
+
+            return ComplianceResult(allowed=False, rule=self.name, reason=reason)
+
         # Access allowed
-        oversight_note = " with human oversight" if has_oversight and risk_level == RiskLevel.HIGH else ""
-        reason = f"User '{user_id}' (level {user_level}) authorized to access {risk_level.value} risk asset '{asset_id}'{oversight_note}"
-        
-        return ComplianceResult(
-            allowed=True,
-            rule=self.name,
-            reason=reason
+        oversight_note = (
+            " with human oversight" if has_oversight and risk_level == RiskLevel.HIGH else ""
         )
-    
+        reason = f"User '{user_id}' (level {user_level}) authorized to access {risk_level.value} risk asset '{asset_id}'{oversight_note}"  # noqa: E501
+
+        return ComplianceResult(allowed=True, rule=self.name, reason=reason)
+
     def _check_authority(self, user_level: int, risk_level: RiskLevel, has_oversight: bool) -> bool:
         """
         Check if user level is sufficient for risk level.
-        
+
         Args:
             user_level: User authority level (0-4)
             risk_level: AIAsset risk level
             has_oversight: Whether human oversight is available
-            
+
         Returns:
             True if access is allowed
         """
         # Compliance Officer can access everything
         if user_level >= AuthorityLevel.COMPLIANCE_OFFICER:
             return True
-        
+
         # Unacceptable risk requires Compliance Officer
         if risk_level == RiskLevel.UNACCEPTABLE:
             return False
-        
+
         # High risk requires Admin or Operator with oversight
         if risk_level == RiskLevel.HIGH:
             if user_level >= AuthorityLevel.ADMIN:
@@ -491,10 +487,10 @@ class AutonomousAuthorityRule:
             if user_level >= AuthorityLevel.OPERATOR and has_oversight:
                 return True
             return False
-        
+
         # Limited risk requires User or higher
         if risk_level == RiskLevel.LIMITED:
             return user_level >= AuthorityLevel.USER
-        
+
         # Minimal risk allows all users
         return True
