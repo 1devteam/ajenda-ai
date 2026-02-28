@@ -175,9 +175,7 @@ class PrometheusMetrics:
         )
 
         # Counter for user logins
-        self.user_logins = Counter(
-            "omnipath_user_logins_total", "Total user logins", ["tenant_id"]
-        )
+        self.user_logins = Counter("omnipath_user_logins_total", "Total user logins", ["tenant_id"])
 
         # Counter for rate limit exceeded events
         self.rate_limit_exceeded = Counter(
@@ -216,9 +214,7 @@ class PrometheusMetrics:
             self.missions_active.inc()
             self.missions_total.labels(status="RUNNING", complexity=complexity).inc()
 
-    def record_mission_complete(
-        self, status: str, complexity: str, duration_seconds: float
-    ):
+    def record_mission_complete(self, status: str, complexity: str, duration_seconds: float):
         """Record terminal mission status (COMPLETED, FAILED, REJECTED) and duration"""
         if self.enabled:
             # Normalize status for dashboard expectations
@@ -233,9 +229,7 @@ class PrometheusMetrics:
                 norm_status = status_upper
 
             self.missions_total.labels(status=norm_status, complexity=complexity).inc()
-            self.mission_duration.labels(complexity=complexity).observe(
-                duration_seconds
-            )
+            self.mission_duration.labels(complexity=complexity).observe(duration_seconds)
             self.missions_active.dec()
 
     def record_agent_invocation(self, agent_type: str, model: str):
@@ -257,23 +251,17 @@ class PrometheusMetrics:
             # Reset all statuses for this agent type first to ensure only one is active
             for s in ["idle", "running", "completed", "failed"]:
                 self.agent_status.labels(agent_type=agent_type, status=s).set(0)
-            self.agent_status.labels(agent_type=agent_type, status=status.lower()).set(
-                1
-            )
+            self.agent_status.labels(agent_type=agent_type, status=status.lower()).set(1)
 
     def record_credits_earned(self, agent_id: str, resource_type: str, amount: float):
         """Record credits earned/rewarded"""
         if self.enabled:
-            self.credits_earned.labels(
-                agent_id=agent_id, resource_type=resource_type
-            ).inc(amount)
+            self.credits_earned.labels(agent_id=agent_id, resource_type=resource_type).inc(amount)
 
     def record_credits_spent(self, agent_id: str, resource_type: str, amount: float):
         """Record credits spent/consumed"""
         if self.enabled:
-            self.credits_spent.labels(
-                agent_id=agent_id, resource_type=resource_type
-            ).inc(amount)
+            self.credits_spent.labels(agent_id=agent_id, resource_type=resource_type).inc(amount)
 
     def update_agent_balance(self, agent_id: str, balance: float):
         """Update current agent credit balance"""
@@ -289,17 +277,13 @@ class PrometheusMetrics:
             self.compliance_checks_total.labels(
                 agent_type=agent_type, tool_name=tool_name, result=result
             ).inc()
-            self.compliance_check_duration.labels(agent_type=agent_type).observe(
-                duration_seconds
-            )
+            self.compliance_check_duration.labels(agent_type=agent_type).observe(duration_seconds)
 
     def record_compliance_rule_evaluation(self, rule_name: str, passed: bool):
         """Record individual rule evaluation"""
         if self.enabled:
             result = "pass" if passed else "fail"
-            self.compliance_rule_evaluations.labels(
-                rule_name=rule_name, result=result
-            ).inc()
+            self.compliance_rule_evaluations.labels(rule_name=rule_name, result=result).inc()
 
     def record_compliance_block(self, agent_type: str, tool_name: str, rule_name: str):
         """Record action blocked by compliance rule"""
@@ -320,25 +304,19 @@ class PrometheusMetrics:
         """Record comprehensive LLM call metrics"""
         if self.enabled:
             self.llm_api_calls.labels(provider=provider, model=model).inc()
-            self.llm_tokens_used.labels(
-                provider=provider, model=model, type="prompt"
-            ).inc(prompt_tokens)
-            self.llm_tokens_used.labels(
-                provider=provider, model=model, type="completion"
-            ).inc(completion_tokens)
-            self.llm_cost.labels(provider=provider, model=model).inc(cost_usd)
-            self.llm_latency.labels(provider=provider, model=model).observe(
-                latency_seconds
+            self.llm_tokens_used.labels(provider=provider, model=model, type="prompt").inc(
+                prompt_tokens
             )
+            self.llm_tokens_used.labels(provider=provider, model=model, type="completion").inc(
+                completion_tokens
+            )
+            self.llm_cost.labels(provider=provider, model=model).inc(cost_usd)
+            self.llm_latency.labels(provider=provider, model=model).observe(latency_seconds)
 
-    def record_http_request(
-        self, method: str, endpoint: str, status: int, duration_seconds: float
-    ):
+    def record_http_request(self, method: str, endpoint: str, status: int, duration_seconds: float):
         """Record HTTP request metrics"""
         if self.enabled:
-            self.http_requests.labels(
-                method=method, endpoint=endpoint, status=str(status)
-            ).inc()
+            self.http_requests.labels(method=method, endpoint=endpoint, status=str(status)).inc()
             self.http_request_duration.labels(method=method, endpoint=endpoint).observe(
                 duration_seconds
             )

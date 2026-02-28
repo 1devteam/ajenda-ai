@@ -222,9 +222,7 @@ class GovernanceHooks:
             logger.error(f"Governance hook failed for agent {agent_id}: {e}")
 
     @staticmethod
-    async def on_agent_deleted(
-        agent_id: str, tenant_id: str, actor_id: str, db=None
-    ) -> None:
+    async def on_agent_deleted(agent_id: str, tenant_id: str, actor_id: str, db=None) -> None:
         """
         Hook called when agent is deleted
 
@@ -530,9 +528,7 @@ class GovernanceHooks:
                     {"mission_id": mission_id, "error": error},
                 )
 
-            logger.info(
-                f"Governance: Mission {mission_id} completed with status {status}"
-            )
+            logger.info(f"Governance: Mission {mission_id} completed with status {status}")
 
         except Exception as e:
             logger.error(f"Governance hook failed for mission completion: {e}")

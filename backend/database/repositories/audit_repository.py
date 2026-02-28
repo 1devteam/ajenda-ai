@@ -323,10 +323,7 @@ class AuditRepository(BaseRepository[GovernanceAuditEvent]):
             query = query.filter(GovernanceAuditEvent.timestamp <= end_date)
 
         return (
-            query.order_by(desc(GovernanceAuditEvent.timestamp))
-            .limit(limit)
-            .offset(offset)
-            .all()
+            query.order_by(desc(GovernanceAuditEvent.timestamp)).limit(limit).offset(offset).all()
         )
 
     def get_statistics(self, tenant_id: str, hours: int = 24) -> Dict[str, Any]:
@@ -357,9 +354,7 @@ class AuditRepository(BaseRepository[GovernanceAuditEvent]):
         # By severity
         by_severity = {}
         severity_counts = (
-            self.db.query(
-                GovernanceAuditEvent.severity, func.count(GovernanceAuditEvent.id)
-            )
+            self.db.query(GovernanceAuditEvent.severity, func.count(GovernanceAuditEvent.id))
             .filter(
                 and_(
                     GovernanceAuditEvent.tenant_id == tenant_id,
@@ -376,9 +371,7 @@ class AuditRepository(BaseRepository[GovernanceAuditEvent]):
         # By outcome
         by_outcome = {}
         outcome_counts = (
-            self.db.query(
-                GovernanceAuditEvent.outcome, func.count(GovernanceAuditEvent.id)
-            )
+            self.db.query(GovernanceAuditEvent.outcome, func.count(GovernanceAuditEvent.id))
             .filter(
                 and_(
                     GovernanceAuditEvent.tenant_id == tenant_id,
@@ -395,9 +388,7 @@ class AuditRepository(BaseRepository[GovernanceAuditEvent]):
         # By category
         by_category = {}
         category_counts = (
-            self.db.query(
-                GovernanceAuditEvent.event_category, func.count(GovernanceAuditEvent.id)
-            )
+            self.db.query(GovernanceAuditEvent.event_category, func.count(GovernanceAuditEvent.id))
             .filter(
                 and_(
                     GovernanceAuditEvent.tenant_id == tenant_id,

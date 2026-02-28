@@ -134,17 +134,13 @@ async def unsubscribe_webhook(subscription_id: str):
     success = manager.unsubscribe(subscription_id)
 
     if not success:
-        raise HTTPException(
-            status_code=404, detail=f"Subscription {subscription_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Subscription {subscription_id} not found")
 
     return {"status": "unsubscribed", "subscription_id": subscription_id}
 
 
 @router.get("/webhooks", response_model=List[WebhookSubscriptionResponse])
-async def list_webhooks(
-    active_only: bool = Query(True, description="Only active subscriptions")
-):
+async def list_webhooks(active_only: bool = Query(True, description="Only active subscriptions")):
     """
     List webhook subscriptions.
 
@@ -167,9 +163,7 @@ async def get_webhook(subscription_id: str):
     subscription = manager.get_subscription(subscription_id)
 
     if not subscription:
-        raise HTTPException(
-            status_code=404, detail=f"Subscription {subscription_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Subscription {subscription_id} not found")
 
     return WebhookSubscriptionResponse(**subscription.to_dict())
 
@@ -267,9 +261,7 @@ async def revoke_api_key(key_id: str):
 
 
 @router.get("/api-keys", response_model=List[APIKeyResponse])
-async def list_api_keys(
-    active_only: bool = Query(True, description="Only active keys")
-):
+async def list_api_keys(active_only: bool = Query(True, description="Only active keys")):
     """
     List API keys.
 
@@ -421,9 +413,7 @@ async def websocket_stream(websocket: WebSocket):
             elif data.get("action") == "unsubscribe":
                 subscription_id = data["subscription_id"]
                 streaming.unsubscribe(subscription_id)
-                subscriptions = [
-                    s for s in subscriptions if s.subscription_id != subscription_id
-                ]
+                subscriptions = [s for s in subscriptions if s.subscription_id != subscription_id]
 
                 await websocket.send_json(
                     {
@@ -475,9 +465,7 @@ async def get_recent_stream_events(
     try:
         stream_type_enum = StreamType(stream_type)
     except ValueError:
-        raise HTTPException(
-            status_code=400, detail=f"Invalid stream type: {stream_type}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid stream type: {stream_type}")
 
     streaming = get_event_streaming()
     events = streaming.get_recent_events(stream_type_enum, limit=limit)
@@ -503,9 +491,7 @@ async def publish_stream_event(
     try:
         stream_type_enum = StreamType(stream_type)
     except ValueError:
-        raise HTTPException(
-            status_code=400, detail=f"Invalid stream type: {stream_type}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid stream type: {stream_type}")
 
     streaming = get_event_streaming()
     event = streaming.publish(stream_type_enum, data)

@@ -90,9 +90,7 @@ class OmnipathE2ETest:
         try:
             response = await self.client.get(f"{self.base_url}/docs")
             passed = response.status_code == 200
-            self.log_test(
-                "API Documentation", passed, f"Status: {response.status_code}"
-            )
+            self.log_test("API Documentation", passed, f"Status: {response.status_code}")
             return passed
         except Exception as e:
             self.log_test("API Documentation", False, f"Error: {str(e)}")
@@ -106,9 +104,7 @@ class OmnipathE2ETest:
                 "slug": f"test-tenant-e2e-{int(time.time())}",
                 "settings": {},
             }
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/tenants", json=tenant_data
-            )
+            response = await self.client.post(f"{self.base_url}/api/v1/tenants", json=tenant_data)
             passed = response.status_code in [200, 201]
             if passed:
                 data = response.json()
@@ -284,9 +280,7 @@ class OmnipathE2ETest:
                 count = len(data) if isinstance(data, list) else data.get("total", 0)
             else:
                 count = 0
-            self.log_test(
-                "List Agents", passed, f"Status: {response.status_code}, Count: {count}"
-            )
+            self.log_test("List Agents", passed, f"Status: {response.status_code}, Count: {count}")
             return passed
         except Exception as e:
             self.log_test("List Agents", False, f"Error: {str(e)}")
@@ -381,13 +375,9 @@ class OmnipathE2ETest:
     async def test_meta_learning_leaderboard(self) -> bool:
         """Test 13: Meta-learning leaderboard"""
         try:
-            response = await self.client.get(
-                f"{self.base_url}/api/v1/meta-learning/leaderboard"
-            )
+            response = await self.client.get(f"{self.base_url}/api/v1/meta-learning/leaderboard")
             passed = response.status_code in [200, 401, 403]
-            self.log_test(
-                "Meta-Learning Leaderboard", passed, f"Status: {response.status_code}"
-            )
+            self.log_test("Meta-Learning Leaderboard", passed, f"Status: {response.status_code}")
             return passed
         except Exception as e:
             self.log_test("Meta-Learning Leaderboard", False, f"Error: {str(e)}")

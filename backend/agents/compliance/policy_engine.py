@@ -105,9 +105,7 @@ class PolicyCondition:
             "value": self.value,
             "and_conditions": [c.to_dict() for c in self.and_conditions],
             "or_conditions": [c.to_dict() for c in self.or_conditions],
-            "not_condition": (
-                self.not_condition.to_dict() if self.not_condition else None
-            ),
+            "not_condition": (self.not_condition.to_dict() if self.not_condition else None),
         }
 
     @classmethod
@@ -121,9 +119,7 @@ class PolicyCondition:
             and_conditions=[cls.from_dict(c) for c in data.get("and_conditions", [])],
             or_conditions=[cls.from_dict(c) for c in data.get("or_conditions", [])],
             not_condition=(
-                cls.from_dict(data["not_condition"])
-                if data.get("not_condition")
-                else None
+                cls.from_dict(data["not_condition"]) if data.get("not_condition") else None
             ),
         )
 
@@ -566,9 +562,7 @@ class PolicyManager:
             policies = [p for p in policies if p.status == status]
 
         if applies_to:
-            policies = [
-                p for p in policies if not p.applies_to or applies_to in p.applies_to
-            ]
+            policies = [p for p in policies if not p.applies_to or applies_to in p.applies_to]
 
         # Sort by priority (highest first)
         policies.sort(key=lambda p: p.priority, reverse=True)
@@ -608,9 +602,7 @@ class PolicyManager:
 
     def deactivate_policy(self, policy_id: str, deactivated_by: str) -> Policy:
         """Deactivate a policy."""
-        return self.update_policy(
-            policy_id, deactivated_by, status=PolicyStatus.DEPRECATED
-        )
+        return self.update_policy(policy_id, deactivated_by, status=PolicyStatus.DEPRECATED)
 
     def get_policy_history(self, policy_id: str) -> List[Dict[str, Any]]:
         """Get change history for a policy."""

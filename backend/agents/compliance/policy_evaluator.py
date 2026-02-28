@@ -143,9 +143,7 @@ class PolicyEvaluator:
         cache_key = self._get_cache_key(context)
         if cache_key in self._eval_cache:
             result, cached_at = self._eval_cache[cache_key]
-            if (
-                datetime.utcnow() - cached_at
-            ).total_seconds() < self._cache_ttl_seconds:
+            if (datetime.utcnow() - cached_at).total_seconds() < self._cache_ttl_seconds:
                 return result
 
         # Get applicable policies
@@ -220,9 +218,7 @@ class PolicyEvaluator:
                 return True
 
             # Otherwise check if any OR condition is true
-            or_result = any(
-                self._evaluate_condition(c, context) for c in condition.or_conditions
-            )
+            or_result = any(self._evaluate_condition(c, context) for c in condition.or_conditions)
             return or_result
 
         # Evaluate AND conditions (main condition AND all and_conditions)
@@ -241,9 +237,7 @@ class PolicyEvaluator:
                 return False
 
             # Otherwise check if all AND conditions are true
-            and_result = all(
-                self._evaluate_condition(c, context) for c in condition.and_conditions
-            )
+            and_result = all(self._evaluate_condition(c, context) for c in condition.and_conditions)
             return and_result
 
         # No AND/OR conditions, just evaluate the main condition
@@ -378,9 +372,7 @@ class PolicyEvaluator:
                     return expected[0] <= val <= expected[1]
                 except (ValueError, TypeError):
                     # For time comparison
-                    if isinstance(actual, str) and all(
-                        isinstance(e, str) for e in expected
-                    ):
+                    if isinstance(actual, str) and all(isinstance(e, str) for e in expected):
                         return expected[0] <= actual <= expected[1]
                     return False
             return False
@@ -392,9 +384,7 @@ class PolicyEvaluator:
                     return not (expected[0] <= val <= expected[1])
                 except (ValueError, TypeError):
                     # For time comparison
-                    if isinstance(actual, str) and all(
-                        isinstance(e, str) for e in expected
-                    ):
+                    if isinstance(actual, str) and all(isinstance(e, str) for e in expected):
                         return not (expected[0] <= actual <= expected[1])
                     return True
             return True
@@ -444,9 +434,7 @@ class PolicyEvaluator:
             elif action.action_type == ActionType.LOG_EVENT:
                 result.events_to_log.append(
                     {
-                        "event_type": action.parameters.get(
-                            "event_type", "policy_event"
-                        ),
+                        "event_type": action.parameters.get("event_type", "policy_event"),
                         "severity": action.parameters.get("severity", "info"),
                         "details": action.parameters.get("details", {}),
                     }

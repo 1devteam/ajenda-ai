@@ -82,9 +82,7 @@ class GovernanceEconomy:
                 }
 
             # Apply risk multiplier
-            risk_multiplier = GovernanceEconomy.RISK_MULTIPLIERS.get(
-                asset.risk_tier, 1.0
-            )
+            risk_multiplier = GovernanceEconomy.RISK_MULTIPLIERS.get(asset.risk_tier, 1.0)
 
             final_cost = base_cost * risk_multiplier
 
@@ -107,9 +105,7 @@ class GovernanceEconomy:
             }
 
     @staticmethod
-    def calculate_compliance_reward(
-        agent_id: str, tenant_id: str, db=None
-    ) -> Dict[str, Any]:
+    def calculate_compliance_reward(agent_id: str, tenant_id: str, db=None) -> Dict[str, Any]:
         """
         Calculate compliance reward/penalty for agent
 
@@ -131,16 +127,12 @@ class GovernanceEconomy:
                 return {"agent_id": agent_id, "reward": 0.0, "reason": "not_registered"}
 
             # Get reward based on compliance status
-            reward = GovernanceEconomy.COMPLIANCE_REWARDS.get(
-                asset.compliance_status, 0.0
-            )
+            reward = GovernanceEconomy.COMPLIANCE_REWARDS.get(asset.compliance_status, 0.0)
 
             return {
                 "agent_id": agent_id,
                 "compliance_status": (
-                    asset.compliance_status.value
-                    if asset.compliance_status
-                    else "unknown"
+                    asset.compliance_status.value if asset.compliance_status else "unknown"
                 ),
                 "reward": reward,
                 "reason": (
@@ -179,9 +171,7 @@ class GovernanceEconomy:
         return base_cost * risk_multiplier
 
     @staticmethod
-    def calculate_policy_violation_penalty(
-        severity: str, violation_count: int
-    ) -> float:
+    def calculate_policy_violation_penalty(severity: str, violation_count: int) -> float:
         """
         Calculate penalty for policy violations
 
@@ -232,13 +222,9 @@ class GovernanceEconomy:
                 "agent_id": agent_id,
                 "registered": True,
                 "risk_tier": asset.risk_tier.value if asset.risk_tier else "unknown",
-                "risk_multiplier": GovernanceEconomy.RISK_MULTIPLIERS.get(
-                    asset.risk_tier, 1.0
-                ),
+                "risk_multiplier": GovernanceEconomy.RISK_MULTIPLIERS.get(asset.risk_tier, 1.0),
                 "compliance_status": (
-                    asset.compliance_status.value
-                    if asset.compliance_status
-                    else "unknown"
+                    asset.compliance_status.value if asset.compliance_status else "unknown"
                 ),
                 "compliance_reward": GovernanceEconomy.COMPLIANCE_REWARDS.get(
                     asset.compliance_status, 0.0
@@ -246,13 +232,9 @@ class GovernanceEconomy:
                 "example_costs": {
                     "base_mission_100_credits": GovernanceEconomy.calculate_mission_cost(
                         100.0, agent_id, tenant_id, db=db
-                    )[
-                        "final_cost"
-                    ],
+                    )["final_cost"],
                     "deployment_approval": (
-                        GovernanceEconomy.calculate_approval_cost(
-                            "deployment", asset.risk_tier
-                        )
+                        GovernanceEconomy.calculate_approval_cost("deployment", asset.risk_tier)
                         if asset.risk_tier
                         else 50.0
                     ),

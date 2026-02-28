@@ -389,9 +389,7 @@ class AuditMonitor:
                 description=f"Unusual volume of {event.event_type.value} events: {len(recent_events)} in 5 minutes",  # noqa: E501
                 severity="medium",
                 affected_events=[e.event_id for e in recent_events[-10:]],  # Last 10
-                affected_assets=list(
-                    set(e.asset_id for e in recent_events if e.asset_id)
-                ),
+                affected_assets=list(set(e.asset_id for e in recent_events if e.asset_id)),
                 affected_users=list(set(e.actor for e in recent_events)),
                 metadata={"event_count": len(recent_events)},
             )
@@ -403,9 +401,7 @@ class AuditMonitor:
         hour = event.timestamp.hour
         weekday = event.timestamp.weekday()
 
-        is_off_hours = (
-            weekday >= 5 or hour < 8 or hour >= 18  # Weekend  # Before 8am  # After 6pm
-        )
+        is_off_hours = weekday >= 5 or hour < 8 or hour >= 18  # Weekend  # Before 8am  # After 6pm
 
         if is_off_hours and event.event_type in [
             AuditEventType.ASSET_REGISTERED,

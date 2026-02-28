@@ -27,9 +27,7 @@ class TenantCreate(BaseModel):
     """Schema for creating a new tenant"""
 
     name: str = Field(..., min_length=1, max_length=100, description="Tenant name")
-    description: Optional[str] = Field(
-        None, max_length=500, description="Tenant description"
-    )
+    description: Optional[str] = Field(None, max_length=500, description="Tenant description")
 
 
 class TenantUpdate(BaseModel):
@@ -153,9 +151,7 @@ async def get_tenant(tenant_id: str, db: Session = Depends(get_db)):
 async def list_tenants(
     db: Session = Depends(get_db),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(
-        100, ge=1, le=1000, description="Max number of records to return"
-    ),
+    limit: int = Query(100, ge=1, le=1000, description="Max number of records to return"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
 ):
     """
@@ -188,9 +184,7 @@ async def list_tenants(
 
 
 @router.put("/{tenant_id}", response_model=TenantResponse)
-async def update_tenant(
-    tenant_id: str, tenant: TenantUpdate, db: Session = Depends(get_db)
-):
+async def update_tenant(tenant_id: str, tenant: TenantUpdate, db: Session = Depends(get_db)):
     """
     Update tenant
 

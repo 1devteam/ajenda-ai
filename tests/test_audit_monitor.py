@@ -357,9 +357,7 @@ def test_detect_repeated_denials(monitor):
     assert len(anomalies) > 0
 
     # Find repeated denials anomaly
-    denial_anomalies = [
-        a for a in anomalies if a.anomaly_type == AnomalyType.REPEATED_DENIALS
-    ]
+    denial_anomalies = [a for a in anomalies if a.anomaly_type == AnomalyType.REPEATED_DENIALS]
     assert len(denial_anomalies) > 0
 
     anomaly = denial_anomalies[0]
@@ -387,9 +385,7 @@ def test_detect_unusual_volume(monitor):
     anomalies = monitor.detect_anomalies()
 
     # Find unusual volume anomaly
-    volume_anomalies = [
-        a for a in anomalies if a.anomaly_type == AnomalyType.UNUSUAL_VOLUME
-    ]
+    volume_anomalies = [a for a in anomalies if a.anomaly_type == AnomalyType.UNUSUAL_VOLUME]
     assert len(volume_anomalies) > 0
 
     anomaly = volume_anomalies[0]
@@ -416,9 +412,7 @@ def test_detect_off_hours_access(monitor):
     anomalies = monitor.detect_anomalies()
 
     # Find off-hours anomaly
-    off_hours_anomalies = [
-        a for a in anomalies if a.anomaly_type == AnomalyType.OFF_HOURS_ACCESS
-    ]
+    off_hours_anomalies = [a for a in anomalies if a.anomaly_type == AnomalyType.OFF_HOURS_ACCESS]
     assert len(off_hours_anomalies) > 0
 
     anomaly = off_hours_anomalies[0]

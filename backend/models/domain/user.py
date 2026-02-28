@@ -30,9 +30,7 @@ class User(BaseModel):
     username: str = Field(..., description="Username")
     tenant_id: str = Field(..., description="Tenant/organization identifier")
     role: UserRole = Field(default=UserRole.VIEWER, description="User role for RBAC")
-    is_active: bool = Field(
-        default=True, description="Whether the user account is active"
-    )
+    is_active: bool = Field(default=True, description="Whether the user account is active")
     created_at: datetime = Field(
         default_factory=datetime.utcnow, description="Account creation timestamp"
     )

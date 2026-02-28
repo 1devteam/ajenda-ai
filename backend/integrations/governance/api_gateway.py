@@ -570,11 +570,7 @@ class EventStreaming:
             by_stream[stream_type.value] = {
                 "event_count": len(self._event_buffers[stream_type]),
                 "subscription_count": len(
-                    [
-                        s
-                        for s in self._subscriptions.values()
-                        if s.stream_type == stream_type
-                    ]
+                    [s for s in self._subscriptions.values() if s.stream_type == stream_type]
                 ),
             }
 

@@ -31,9 +31,7 @@ class TestResourceMarketplace:
         assert balance["total_spent"] == 0.0
 
     @pytest.mark.asyncio
-    async def test_charge_reduces_balance(
-        self, marketplace: ResourceMarketplace, mock_user: User
-    ):
+    async def test_charge_reduces_balance(self, marketplace: ResourceMarketplace, mock_user: User):
         """Test that charging an agent reduces their balance"""
         tenant_id = mock_user.tenant_id
         agent_id = "test_agent"
@@ -66,7 +64,9 @@ class TestResourceMarketplace:
         import uuid
 
         tenant_id = mock_user.tenant_id
-        agent_id = f"reward_test_agent_{uuid.uuid4().hex[:8]}"  # Unique agent ID to avoid state pollution
+        agent_id = (
+            f"reward_test_agent_{uuid.uuid4().hex[:8]}"  # Unique agent ID to avoid state pollution
+        )
 
         # Get initial balance
         initial_balance = await marketplace.get_balance(tenant_id, agent_id)
@@ -85,10 +85,7 @@ class TestResourceMarketplace:
         # Verify balance increased
         new_balance = await marketplace.get_balance(tenant_id, agent_id)
         assert new_balance["balance"] == initial_amount + reward_amount
-        assert (
-            new_balance["total_earned"]
-            == initial_balance["total_earned"] + reward_amount
-        )
+        assert new_balance["total_earned"] == initial_balance["total_earned"] + reward_amount
 
         # Verify transaction was recorded
         assert transaction["type"] == "reward"
@@ -115,9 +112,7 @@ class TestResourceMarketplace:
         """Test retrieving transaction history"""
         tenant_id = mock_user.tenant_id
 
-        transactions = await marketplace_with_data.get_transactions(
-            tenant_id, limit=100
-        )
+        transactions = await marketplace_with_data.get_transactions(tenant_id, limit=100)
 
         assert len(transactions) > 0
         assert all("id" in tx for tx in transactions)
@@ -133,9 +128,7 @@ class TestResourceMarketplace:
         tenant_id = mock_user.tenant_id
         agent_id = "agent_commander"
 
-        transactions = await marketplace_with_data.get_transactions(
-            tenant_id, agent_id=agent_id
-        )
+        transactions = await marketplace_with_data.get_transactions(tenant_id, agent_id=agent_id)
 
         assert all(tx["agent_id"] == agent_id for tx in transactions)
 
@@ -147,14 +140,10 @@ class TestResourceMarketplace:
         tenant_id = mock_user.tenant_id
 
         # Get first page
-        page1 = await marketplace_with_data.get_transactions(
-            tenant_id, limit=2, offset=0
-        )
+        page1 = await marketplace_with_data.get_transactions(tenant_id, limit=2, offset=0)
 
         # Get second page
-        page2 = await marketplace_with_data.get_transactions(
-            tenant_id, limit=2, offset=2
-        )
+        page2 = await marketplace_with_data.get_transactions(tenant_id, limit=2, offset=2)
 
         # Verify pages are different
         if len(page1) > 0 and len(page2) > 0:
@@ -223,9 +212,7 @@ class TestResourceMarketplace:
 
         before_time = datetime.utcnow()
 
-        await marketplace.charge(
-            tenant_id, agent_id, 10.0, "llm_call", agent_type="commander"
-        )
+        await marketplace.charge(tenant_id, agent_id, 10.0, "llm_call", agent_type="commander")
 
         balance = await marketplace.get_balance(tenant_id, agent_id)
         after_time = datetime.utcnow()
@@ -233,23 +220,15 @@ class TestResourceMarketplace:
         assert before_time <= balance["last_updated"] <= after_time
 
     @pytest.mark.asyncio
-    async def test_multiple_resource_types(
-        self, marketplace: ResourceMarketplace, mock_user: User
-    ):
+    async def test_multiple_resource_types(self, marketplace: ResourceMarketplace, mock_user: User):
         """Test tracking different resource types"""
         tenant_id = mock_user.tenant_id
         agent_id = "test_agent"
 
         # Charge for different resource types
-        await marketplace.charge(
-            tenant_id, agent_id, 10.0, "llm_call", agent_type="commander"
-        )
-        await marketplace.charge(
-            tenant_id, agent_id, 5.0, "compute", agent_type="commander"
-        )
-        await marketplace.charge(
-            tenant_id, agent_id, 2.0, "storage", agent_type="commander"
-        )
+        await marketplace.charge(tenant_id, agent_id, 10.0, "llm_call", agent_type="commander")
+        await marketplace.charge(tenant_id, agent_id, 5.0, "compute", agent_type="commander")
+        await marketplace.charge(tenant_id, agent_id, 2.0, "storage", agent_type="commander")
 
         # Get transactions
         transactions = await marketplace.get_transactions(tenant_id, agent_id=agent_id)
@@ -260,9 +239,7 @@ class TestResourceMarketplace:
         assert "storage" in resource_types
 
     @pytest.mark.asyncio
-    async def test_concurrent_transactions(
-        self, marketplace: ResourceMarketplace, mock_user: User
-    ):
+    async def test_concurrent_transactions(self, marketplace: ResourceMarketplace, mock_user: User):
         """Test that concurrent transactions are handled correctly"""
         import asyncio
 
@@ -275,9 +252,7 @@ class TestResourceMarketplace:
 
         # Execute multiple transactions concurrently
         tasks = [
-            marketplace.charge(
-                tenant_id, agent_id, 10.0, "llm_call", agent_type="commander"
-            )
+            marketplace.charge(tenant_id, agent_id, 10.0, "llm_call", agent_type="commander")
             for _ in range(5)
         ]
 

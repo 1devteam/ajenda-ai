@@ -59,9 +59,7 @@ class TestJWTTokens:
         token = create_access_token(token_data, expires_delta)
 
         # Decode to verify expiration
-        payload = jwt.decode(
-            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
 
         assert "exp" in payload
 
@@ -125,9 +123,7 @@ class TestJWTTokens:
         token = create_access_token(token_data)
 
         # Decode without validation to inspect payload
-        payload = jwt.decode(
-            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
 
         assert "user_id" in payload
         assert "email" in payload
@@ -183,16 +179,12 @@ class TestAuthenticationFlow:
     """Test complete authentication workflows"""
 
     @pytest.mark.asyncio
-    async def test_get_current_user_with_valid_token(
-        self, mock_user: User, auth_token: str
-    ):
+    async def test_get_current_user_with_valid_token(self, mock_user: User, auth_token: str):
         """Test getting current user with a valid token"""
         from fastapi.security import HTTPAuthorizationCredentials
         from backend.middleware.auth.auth_middleware import get_current_user
 
-        credentials = HTTPAuthorizationCredentials(
-            scheme="Bearer", credentials=auth_token
-        )
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth_token)
 
         user = await get_current_user(credentials)
 

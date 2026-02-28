@@ -28,21 +28,13 @@ class ComplianceSummary(BaseModel):
     total_checks: int = Field(..., description="Total compliance checks performed")
     allowed: int = Field(..., description="Number of checks that allowed the action")
     blocked: int = Field(..., description="Number of checks that blocked the action")
-    approval_rate: float = Field(
-        ..., description="Percentage of checks that allowed action"
-    )
-    block_rate: float = Field(
-        ..., description="Percentage of checks that blocked action"
-    )
+    approval_rate: float = Field(..., description="Percentage of checks that allowed action")
+    block_rate: float = Field(..., description="Percentage of checks that blocked action")
     top_blocking_rules: List[Dict[str, Any]] = Field(
         ..., description="Most frequently blocking rules"
     )
-    top_agents: List[Dict[str, Any]] = Field(
-        ..., description="Agents with most compliance checks"
-    )
-    top_tools: List[Dict[str, Any]] = Field(
-        ..., description="Tools with most compliance checks"
-    )
+    top_agents: List[Dict[str, Any]] = Field(..., description="Agents with most compliance checks")
+    top_tools: List[Dict[str, Any]] = Field(..., description="Tools with most compliance checks")
 
 
 class AgentComplianceReport(BaseModel):
@@ -164,9 +156,7 @@ async def get_compliance_summary(
 
     top_blocking_rules = [
         {"rule": rule, "count": count}
-        for rule, count in sorted(
-            rule_counts.items(), key=lambda x: x[1], reverse=True
-        )[:5]
+        for rule, count in sorted(rule_counts.items(), key=lambda x: x[1], reverse=True)[:5]
     ]
 
     # Top agents
@@ -176,9 +166,7 @@ async def get_compliance_summary(
 
     top_agents = [
         {"agent_id": agent_id, "checks": count}
-        for agent_id, count in sorted(
-            agent_counts.items(), key=lambda x: x[1], reverse=True
-        )[:5]
+        for agent_id, count in sorted(agent_counts.items(), key=lambda x: x[1], reverse=True)[:5]
     ]
 
     # Top tools
@@ -188,9 +176,7 @@ async def get_compliance_summary(
 
     top_tools = [
         {"tool": tool, "checks": count}
-        for tool, count in sorted(
-            tool_counts.items(), key=lambda x: x[1], reverse=True
-        )[:5]
+        for tool, count in sorted(tool_counts.items(), key=lambda x: x[1], reverse=True)[:5]
     ]
 
     return ComplianceSummary(
@@ -222,15 +208,11 @@ async def get_agent_compliance_report(
     """
     cutoff = datetime.utcnow() - timedelta(hours=hours)
     agent_logs = [
-        log
-        for log in _compliance_log
-        if log["agent_id"] == agent_id and log["timestamp"] >= cutoff
+        log for log in _compliance_log if log["agent_id"] == agent_id and log["timestamp"] >= cutoff
     ]
 
     if not agent_logs:
-        raise HTTPException(
-            status_code=404, detail="No compliance data found for agent"
-        )
+        raise HTTPException(status_code=404, detail="No compliance data found for agent")
 
     total_checks = len(agent_logs)
     allowed = sum(1 for log in agent_logs if log["allowed"])
@@ -287,9 +269,7 @@ async def list_compliance_violations(
     """
     cutoff = datetime.utcnow() - timedelta(hours=hours)
     violations = [
-        log
-        for log in _compliance_log
-        if not log["allowed"] and log["timestamp"] >= cutoff
+        log for log in _compliance_log if not log["allowed"] and log["timestamp"] >= cutoff
     ]
 
     # Apply filters
@@ -335,9 +315,7 @@ async def get_compliance_trends(
         Compliance trends
     """
     if period not in ["hour", "day", "week"]:
-        raise HTTPException(
-            status_code=400, detail="Invalid period. Valid values: hour, day, week"
-        )
+        raise HTTPException(status_code=400, detail="Invalid period. Valid values: hour, day, week")
 
     cutoff = datetime.utcnow() - timedelta(hours=hours)
     recent_logs = [log for log in _compliance_log if log["timestamp"] >= cutoff]
@@ -417,9 +395,7 @@ async def get_approval_stats():
             response_time = (req.approved_at - req.requested_at).total_seconds()
             response_times.append(response_time)
 
-    avg_response_time = (
-        sum(response_times) / len(response_times) if response_times else 0.0
-    )
+    avg_response_time = sum(response_times) / len(response_times) if response_times else 0.0
 
     return {
         "total_requests": len(all_requests),

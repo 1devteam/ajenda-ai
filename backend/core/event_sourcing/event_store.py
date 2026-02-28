@@ -74,9 +74,7 @@ class EventSourcedAggregate:
     # Public API
     # ------------------------------------------------------------------
 
-    def apply(
-        self, event_type: str, data: dict, metadata: Optional[dict] = None
-    ) -> None:
+    def apply(self, event_type: str, data: dict, metadata: Optional[dict] = None) -> None:
         """
         Record a new domain event and update local state.
 

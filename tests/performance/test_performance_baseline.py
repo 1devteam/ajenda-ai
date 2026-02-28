@@ -37,9 +37,7 @@ class PerformanceTest:
 
             # Login
             login_data = {"username": self.test_user_email, "password": "PerfTest123!"}
-            response = await client.post(
-                f"{self.base_url}/api/v1/auth/login", json=login_data
-            )
+            response = await client.post(f"{self.base_url}/api/v1/auth/login", json=login_data)
             if response.status_code == 200:
                 self.access_token = response.json().get("access_token")
 
@@ -109,9 +107,7 @@ class PerformanceTest:
                 for _ in range(50):
                     start = time.time()
                     if method == "GET":
-                        response = await client.get(
-                            f"{self.base_url}{endpoint}", headers=headers
-                        )
+                        response = await client.get(f"{self.base_url}{endpoint}", headers=headers)
                     latency = (time.time() - start) * 1000
                     latencies.append(latency)
 
@@ -144,9 +140,7 @@ class PerformanceTest:
         async def make_request(client):
             try:
                 start = time.time()
-                response = await client.get(
-                    f"{self.base_url}/api/v1/agents", headers=headers
-                )
+                response = await client.get(f"{self.base_url}/api/v1/agents", headers=headers)
                 latency = (time.time() - start) * 1000
                 return {
                     "latency_ms": latency,
@@ -279,9 +273,7 @@ class PerformanceTest:
             latencies = []
             for _ in range(20):
                 start = time.time()
-                response = await client.get(
-                    f"{self.base_url}/api/v1/agents", headers=headers
-                )
+                response = await client.get(f"{self.base_url}/api/v1/agents", headers=headers)
                 latency = (time.time() - start) * 1000
                 latencies.append(latency)
 

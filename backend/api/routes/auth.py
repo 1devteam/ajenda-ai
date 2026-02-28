@@ -34,9 +34,7 @@ class UserRegister(BaseModel):
     """User registration schema"""
 
     email: EmailStr = Field(..., description="User email address")
-    password: str = Field(
-        ..., min_length=8, description="User password (min 8 characters)"
-    )
+    password: str = Field(..., min_length=8, description="User password (min 8 characters)")
     name: Optional[str] = Field(None, min_length=1, description="User full name")
     full_name: Optional[str] = Field(
         None, min_length=1, description="User full name (alias for name)"
@@ -54,9 +52,7 @@ class UserLogin(BaseModel):
     """User login schema (supports both JSON and form data)"""
 
     email: Optional[EmailStr] = Field(None, description="User email address")
-    username: Optional[EmailStr] = Field(
-        None, description="User email (OAuth2 compatibility)"
-    )
+    username: Optional[EmailStr] = Field(None, description="User email (OAuth2 compatibility)")
     password: str = Field(..., description="User password")
 
     def get_email(self) -> str:
@@ -105,18 +101,14 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify password against hash"""
-    return bcrypt.checkpw(
-        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
-    )
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 
 def create_access_token(user_id: str, tenant_id: str) -> tuple[str, datetime]:
     """Create JWT access token"""
     import uuid
 
-    expires_at = datetime.utcnow() + timedelta(
-        minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
-    )
+    expires_at = datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "user_id": user_id,
         "tenant_id": tenant_id,
@@ -124,35 +116,27 @@ def create_access_token(user_id: str, tenant_id: str) -> tuple[str, datetime]:
         "type": "access",
         "jti": str(uuid.uuid4()),  # Unique token ID to prevent duplicates
     }
-    token = jwt.encode(
-        payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
-    )
+    token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return token, expires_at
 
 
 def create_refresh_token(user_id: str, tenant_id: str) -> tuple[str, datetime]:
     """Create JWT refresh token"""
-    expires_at = datetime.utcnow() + timedelta(
-        days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
-    )
+    expires_at = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {
         "user_id": user_id,
         "tenant_id": tenant_id,
         "exp": expires_at,
         "type": "refresh",
     }
-    token = jwt.encode(
-        payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
-    )
+    token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return token, expires_at
 
 
 def verify_token(token: str) -> Optional[dict]:
     """Verify JWT token and return payload"""
     try:
-        payload = jwt.decode(
-            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
         return None
@@ -202,9 +186,7 @@ async def get_current_user(
         )
 
     # Check if token is revoked in database
-    db_token = (
-        db.query(Token).filter(Token.token == token, Token.revoked is False).first()
-    )
+    db_token = db.query(Token).filter(Token.token == token, Token.revoked is False).first()
 
     if not db_token:
         raise HTTPException(
@@ -221,9 +203,7 @@ async def get_current_user(
 # ============================================================================
 
 
-@router.post(
-    "/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED
-)
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     """
     Register a new user
@@ -340,9 +320,7 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token_endpoint(
-    refresh_data: TokenRefresh, db: Session = Depends(get_db)
-):
+async def refresh_token_endpoint(refresh_data: TokenRefresh, db: Session = Depends(get_db)):
     """
     Refresh access token
 
@@ -433,9 +411,7 @@ async def logout(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(
-    current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
-):
+async def get_me(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Get current user info
 
@@ -445,9 +421,7 @@ async def get_me(
     user = db.query(User).filter(User.id == user_id).first()
 
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     return UserResponse(
         id=user.id,

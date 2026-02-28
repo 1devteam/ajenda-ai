@@ -201,12 +201,8 @@ class MCPClient(LoggerMixin):
             self.log_info(
                 f"Capabilities discovered for {server_name}",
                 tools=len([t for t in self._tools if t.startswith(f"{server_name}:")]),
-                prompts=len(
-                    [p for p in self._prompts if p.startswith(f"{server_name}:")]
-                ),
-                resources=len(
-                    [r for r in self._resources if r.startswith(f"{server_name}:")]
-                ),
+                prompts=len([p for p in self._prompts if p.startswith(f"{server_name}:")]),
+                resources=len([r for r in self._resources if r.startswith(f"{server_name}:")]),
             )
 
         except Exception as e:
@@ -325,9 +321,7 @@ class MCPClient(LoggerMixin):
             )
             raise
 
-    async def get_prompt(
-        self, prompt_name: str, arguments: Optional[Dict[str, Any]] = None
-    ) -> str:
+    async def get_prompt(self, prompt_name: str, arguments: Optional[Dict[str, Any]] = None) -> str:
         """
         Get MCP prompt
 
@@ -361,9 +355,7 @@ class MCPClient(LoggerMixin):
             messages = response.get("messages", [])
 
             # Combine messages into single prompt
-            prompt_text = "\n\n".join(
-                msg.get("content", {}).get("text", "") for msg in messages
-            )
+            prompt_text = "\n\n".join(msg.get("content", {}).get("text", "") for msg in messages)
 
             return prompt_text
 
@@ -396,9 +388,7 @@ class MCPClient(LoggerMixin):
 
         try:
             # Send resource read request
-            response = await self._send_request(
-                server_name, "resources/read", {"uri": uri}
-            )
+            response = await self._send_request(server_name, "resources/read", {"uri": uri})
 
             contents = response.get("contents", [])
 
@@ -448,9 +438,7 @@ class MCPClient(LoggerMixin):
 
         # Check for error
         if "error" in response:
-            raise RuntimeError(
-                f"MCP error: {response['error'].get('message', 'Unknown error')}"
-            )
+            raise RuntimeError(f"MCP error: {response['error'].get('message', 'Unknown error')}")
 
         return response.get("result", {})
 
@@ -540,9 +528,7 @@ class MCPAgentIntegration(LoggerMixin):
         Returns:
             Tool result as string
         """
-        self.log_info(
-            f"Executing MCP tool from agent: {tool_name}", arguments=arguments
-        )
+        self.log_info(f"Executing MCP tool from agent: {tool_name}", arguments=arguments)
 
         try:
             result = await self.mcp_client.call_tool(tool_name, arguments)
@@ -556,7 +542,5 @@ class MCPAgentIntegration(LoggerMixin):
             return result_text
 
         except Exception as e:
-            self.log_error(
-                f"MCP tool execution failed: {tool_name}", exc_info=True, error=str(e)
-            )
+            self.log_error(f"MCP tool execution failed: {tool_name}", exc_info=True, error=str(e))
             return f"Error: {str(e)}"

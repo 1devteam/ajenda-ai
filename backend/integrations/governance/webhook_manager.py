@@ -228,9 +228,7 @@ class WebhookManager:
         """
         # Find matching subscriptions
         matching_subs = [
-            sub
-            for sub in self._subscriptions.values()
-            if sub.active and event_type in sub.events
+            sub for sub in self._subscriptions.values() if sub.active and event_type in sub.events
         ]
 
         if not matching_subs:
@@ -450,14 +448,10 @@ class WebhookManager:
 
         return {
             "total_subscriptions": len(self._subscriptions),
-            "active_subscriptions": len(
-                [s for s in self._subscriptions.values() if s.active]
-            ),
+            "active_subscriptions": len([s for s in self._subscriptions.values() if s.active]),
             "total_deliveries": len(deliveries),
             "by_status": by_status,
-            "success_rate": (
-                by_status["success"] / len(deliveries) * 100 if deliveries else 0
-            ),
+            "success_rate": (by_status["success"] / len(deliveries) * 100 if deliveries else 0),
         }
 
     def clear(self) -> None:

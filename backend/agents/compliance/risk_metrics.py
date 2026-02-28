@@ -170,9 +170,7 @@ class RiskMetricsAggregator:
             requiring_approval = 0
 
         # Compliance coverage
-        compliance_coverage = (
-            (assets_with_scores / len(assets)) * 100 if assets else 0.0
-        )
+        compliance_coverage = (assets_with_scores / len(assets)) * 100 if assets else 0.0
 
         return RiskMetrics(
             total_assets=len(assets),
@@ -309,9 +307,7 @@ class RiskMetricsAggregator:
             "operator_approval_required": operator_approval,
             "admin_approval_required": admin_approval,
             "compliance_approval_required": compliance_approval,
-            "total_requiring_approval": operator_approval
-            + admin_approval
-            + compliance_approval,
+            "total_requiring_approval": operator_approval + admin_approval + compliance_approval,
         }
 
     def get_compliance_posture(self) -> Dict[str, Any]:
@@ -342,9 +338,7 @@ class RiskMetricsAggregator:
             # risk_score (set by RiskScoringEngine.calculate_risk_score()).  The
             # legacy risk_assessment attribute (set by RegulatoryMapping) is a
             # separate concern and may not be present on all assets.
-            has_risk_score = (
-                hasattr(asset, "risk_score") and asset.risk_score is not None
-            )
+            has_risk_score = hasattr(asset, "risk_score") and asset.risk_score is not None
             if has_risk_score:
                 assets_with_risk_assessment += 1
 

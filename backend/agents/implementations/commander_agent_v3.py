@@ -75,9 +75,7 @@ class CommanderAgentV3(BaseAgent):
         mission_payload: Dict[str, Any],
         configuration: Dict[str, Any] = None,
     ):
-        super().__init__(
-            agent_id, agent_name, tenant_id, mission_payload, configuration
-        )
+        super().__init__(agent_id, agent_name, tenant_id, mission_payload, configuration)
 
         # Event-sourced aggregate
         self.aggregate = CommanderAggregate(agent_id)

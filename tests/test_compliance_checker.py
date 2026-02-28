@@ -388,9 +388,7 @@ def test_data_compliance_phi_without_hipaa_policy(checker, registry, policy_mana
     )
 
 
-def test_data_compliance_pass_with_protection_policies(
-    checker, registry, policy_manager
-):
+def test_data_compliance_pass_with_protection_policies(checker, registry, policy_manager):
     """Test data compliance passes with appropriate protection policies."""
     # Create asset with PII tag
     asset = AIAsset(
@@ -535,9 +533,7 @@ def test_list_checks_by_type(checker, sample_asset):
 
     asset_checks = checker.list_checks(check_type=ComplianceCheckType.ASSET_COMPLIANCE)
     assert len(asset_checks) == 2
-    assert all(
-        c.check_type == ComplianceCheckType.ASSET_COMPLIANCE for c in asset_checks
-    )
+    assert all(c.check_type == ComplianceCheckType.ASSET_COMPLIANCE for c in asset_checks)
 
 
 def test_list_checks_by_status(checker, registry):

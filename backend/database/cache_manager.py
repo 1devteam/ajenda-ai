@@ -127,9 +127,7 @@ class CacheManager:
 
     # Policy Evaluation Caching
 
-    def get_policy_evaluation(
-        self, asset_id: str, policy_id: str
-    ) -> Optional[Dict[str, Any]]:
+    def get_policy_evaluation(self, asset_id: str, policy_id: str) -> Optional[Dict[str, Any]]:
         """
         Get cached policy evaluation
 
@@ -205,9 +203,7 @@ class CacheManager:
         value = self.redis_client.get(key)
         return self._deserialize(value)
 
-    def set_asset(
-        self, asset_id: str, asset: Dict[str, Any], ttl: Optional[int] = None
-    ) -> None:
+    def set_asset(self, asset_id: str, asset: Dict[str, Any], ttl: Optional[int] = None) -> None:
         """
         Cache asset metadata
 

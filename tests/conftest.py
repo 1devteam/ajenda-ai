@@ -37,9 +37,7 @@ def test_settings():
     """
     import os
 
-    os.environ["JWT_SECRET_KEY"] = (
-        "test-secret-key-for-jwt-tokens-do-not-use-in-production"
-    )
+    os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-tokens-do-not-use-in-production"
     os.environ["SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
     return Settings()
 
@@ -211,23 +209,15 @@ async def marketplace_with_data(
     tenant_id = mock_user.tenant_id
 
     # Create agents with different balances
-    await marketplace.charge(
-        tenant_id, "agent_commander", 50.0, "llm_call", agent_type="commander"
-    )
+    await marketplace.charge(tenant_id, "agent_commander", 50.0, "llm_call", agent_type="commander")
     await marketplace.reward(
         tenant_id, "agent_commander", 100.0, "mission_success", agent_type="commander"
     )
 
-    await marketplace.charge(
-        tenant_id, "agent_guardian", 10.0, "llm_call", agent_type="guardian"
-    )
-    await marketplace.charge(
-        tenant_id, "agent_guardian", 5.0, "compute", agent_type="guardian"
-    )
+    await marketplace.charge(tenant_id, "agent_guardian", 10.0, "llm_call", agent_type="guardian")
+    await marketplace.charge(tenant_id, "agent_guardian", 5.0, "compute", agent_type="guardian")
 
-    await marketplace.charge(
-        tenant_id, "agent_archivist", 200.0, "storage", agent_type="archivist"
-    )
+    await marketplace.charge(tenant_id, "agent_archivist", 200.0, "storage", agent_type="archivist")
     await marketplace.reward(
         tenant_id, "agent_archivist", 50.0, "quality_bonus", agent_type="archivist"
     )

@@ -28,9 +28,7 @@ class LLMMetricsWrapper(BaseChatModel):
     model_name: str = Field(description="The model name")
 
     def __init__(self, llm: BaseChatModel, provider: str, model_name: str, **kwargs):
-        super().__init__(
-            llm_instance=llm, provider=provider, model_name=model_name, **kwargs
-        )
+        super().__init__(llm_instance=llm, provider=provider, model_name=model_name, **kwargs)
 
     def _generate(
         self,
@@ -53,9 +51,7 @@ class LLMMetricsWrapper(BaseChatModel):
             duration = time.time() - start_time
 
             # Record metrics
-            token_usage = (
-                result.llm_output.get("token_usage", {}) if result.llm_output else {}
-            )
+            token_usage = result.llm_output.get("token_usage", {}) if result.llm_output else {}
             # Estimate cost (simplified)
             cost = 0.0
 
@@ -69,9 +65,7 @@ class LLMMetricsWrapper(BaseChatModel):
             )
 
             # Convert LLMResult generation to ChatResult
-            return ChatResult(
-                generations=result.generations[0], llm_output=result.llm_output
-            )
+            return ChatResult(generations=result.generations[0], llm_output=result.llm_output)
 
         except Exception as e:
             get_metrics().record_system_error(f"llm_error_{self.provider}")
@@ -97,9 +91,7 @@ class LLMMetricsWrapper(BaseChatModel):
             duration = time.time() - start_time
 
             # Record metrics
-            token_usage = (
-                result.llm_output.get("token_usage", {}) if result.llm_output else {}
-            )
+            token_usage = result.llm_output.get("token_usage", {}) if result.llm_output else {}
             # Estimate cost (simplified)
             cost = 0.0
 
@@ -112,9 +104,7 @@ class LLMMetricsWrapper(BaseChatModel):
                 latency_seconds=duration,
             )
 
-            return ChatResult(
-                generations=result.generations[0], llm_output=result.llm_output
-            )
+            return ChatResult(generations=result.generations[0], llm_output=result.llm_output)
 
         except Exception as e:
             get_metrics().record_system_error(f"llm_error_{self.provider}")

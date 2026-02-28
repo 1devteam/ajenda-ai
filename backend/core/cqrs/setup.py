@@ -65,9 +65,7 @@ def get_command_bus() -> CommandBus:
         RuntimeError: If ``setup_cqrs()`` has not been called yet.
     """
     if _command_bus is None:
-        raise RuntimeError(
-            "CQRS buses not initialised. Call setup_cqrs() during app startup."
-        )
+        raise RuntimeError("CQRS buses not initialised. Call setup_cqrs() during app startup.")
     return _command_bus
 
 
@@ -78,9 +76,7 @@ def get_query_bus() -> QueryBus:
         RuntimeError: If ``setup_cqrs()`` has not been called yet.
     """
     if _query_bus is None:
-        raise RuntimeError(
-            "CQRS buses not initialised. Call setup_cqrs() during app startup."
-        )
+        raise RuntimeError("CQRS buses not initialised. Call setup_cqrs() during app startup.")
     return _query_bus
 
 

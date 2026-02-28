@@ -241,9 +241,7 @@ async def get_risk_assessment_report(
 @router.get("/trends/risk-scores")
 async def get_risk_score_trends(
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
-    asset_id: Optional[str] = Query(
-        None, description="Specific asset ID (None for portfolio)"
-    ),
+    asset_id: Optional[str] = Query(None, description="Specific asset ID (None for portfolio)"),
 ) -> Dict[str, Any]:
     """
     Get risk score trends over time.
@@ -317,9 +315,7 @@ async def get_approval_volume_trends(
 @router.get("/forecast/{metric}")
 async def get_forecast(
     metric: str,
-    days: int = Query(
-        30, ge=1, le=365, description="Historical days to base forecast on"
-    ),
+    days: int = Query(30, ge=1, le=365, description="Historical days to base forecast on"),
 ) -> Dict[str, Any]:
     """
     Get forecast for specific metric.
@@ -384,9 +380,7 @@ async def export_dashboard_data(
         Exported dashboard data
     """
     if format not in ["json", "csv"]:
-        raise HTTPException(
-            status_code=400, detail="Invalid format. Must be 'json' or 'csv'"
-        )
+        raise HTTPException(status_code=400, detail="Invalid format. Must be 'json' or 'csv'")
 
     export_data = {
         "exported_at": datetime.utcnow().isoformat(),

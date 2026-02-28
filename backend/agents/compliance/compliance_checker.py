@@ -156,9 +156,7 @@ class ComplianceChecker:
             return
 
         self._checks: Dict[str, ComplianceCheck] = {}
-        self._scheduled_checks: Dict[ComplianceCheckType, int] = (
-            {}
-        )  # Type -> interval (seconds)
+        self._scheduled_checks: Dict[ComplianceCheckType, int] = {}  # Type -> interval (seconds)
         self._initialized = True
 
     def run_check(self, check_type: ComplianceCheckType) -> ComplianceCheck:
@@ -228,9 +226,7 @@ class ComplianceChecker:
 
         # Check for deprecated assets still active
         deprecated_active = [
-            a
-            for a in assets
-            if a.status == AssetStatus.DEPRECATED and "production" in a.tags
+            a for a in assets if a.status == AssetStatus.DEPRECATED and "production" in a.tags
         ]
         if deprecated_active:
             findings.append(
@@ -244,9 +240,7 @@ class ComplianceChecker:
                     remediation="Remove deprecated assets from production",
                 )
             )
-            recommendations.append(
-                "Immediately remove deprecated assets from production"
-            )
+            recommendations.append("Immediately remove deprecated assets from production")
 
         # Check for assets without descriptions
         no_description = [a for a in assets if not a.description]
@@ -315,13 +309,9 @@ class ComplianceChecker:
                         description=f"Required policy template '{template_id}' not active",
                         affected_assets=[],
                         regulation=(
-                            Regulation.EU_AI_ACT
-                            if "high-risk" in template_id
-                            else Regulation.GDPR
+                            Regulation.EU_AI_ACT if "high-risk" in template_id else Regulation.GDPR
                         ),
-                        article=(
-                            "Article 14" if "high-risk" in template_id else "Article 5"
-                        ),
+                        article=("Article 14" if "high-risk" in template_id else "Article 5"),
                         severity=Severity.HIGH,
                         remediation=f"Activate policy from template '{template_id}'",
                     )
@@ -411,9 +401,7 @@ class ComplianceChecker:
         # 2. Pending requests that have been waiting > 24 hours (SLA breach)
         # ----------------------------------------------------------------
         sla_threshold = datetime.utcnow() - timedelta(hours=24)
-        overdue = [
-            r for r in workflow.get_pending_requests() if r.created_at < sla_threshold
-        ]
+        overdue = [r for r in workflow.get_pending_requests() if r.created_at < sla_threshold]
         if overdue:
             findings.append(
                 ComplianceFinding(
@@ -487,9 +475,7 @@ class ComplianceChecker:
 
         # Check for assets with PII/PHI tags but no protection policies
         sensitive_tags = ["pii", "phi", "financial", "biometric"]
-        sensitive_assets = [
-            a for a in assets if any(tag in a.tags for tag in sensitive_tags)
-        ]
+        sensitive_assets = [a for a in assets if any(tag in a.tags for tag in sensitive_tags)]
 
         if sensitive_assets:
             # Check if protection policies exist
@@ -513,9 +499,7 @@ class ComplianceChecker:
                             remediation="Activate GDPR PII protection policy",
                         )
                     )
-                    recommendations.append(
-                        "Activate GDPR PII protection policy immediately"
-                    )
+                    recommendations.append("Activate GDPR PII protection policy immediately")
 
             if not has_hipaa_policy:
                 phi_assets = [a for a in sensitive_assets if "phi" in a.tags]
@@ -531,9 +515,7 @@ class ComplianceChecker:
                             remediation="Activate HIPAA PHI protection policy",
                         )
                     )
-                    recommendations.append(
-                        "Activate HIPAA PHI protection policy immediately"
-                    )
+                    recommendations.append("Activate HIPAA PHI protection policy immediately")
 
         # Calculate score
         score = max(0, 100 - (len(findings) * 20))
@@ -580,9 +562,7 @@ class ComplianceChecker:
             findings.append(
                 ComplianceFinding(
                     finding_id=f"finding-{uuid.uuid4()}",
-                    description=(
-                        f"{len(no_trail)} asset(s) have no audit trail recorded"
-                    ),
+                    description=(f"{len(no_trail)} asset(s) have no audit trail recorded"),
                     affected_assets=[a.asset_id for a in no_trail],
                     regulation=Regulation.GDPR,
                     article="Article 5(2) (Accountability)",
@@ -599,9 +579,7 @@ class ComplianceChecker:
         # ----------------------------------------------------------------
         anomalies = monitor.detect_anomalies()
         recent_anomalies = [
-            a
-            for a in anomalies
-            if a.detected_at >= datetime.utcnow() - timedelta(hours=24)
+            a for a in anomalies if a.detected_at >= datetime.utcnow() - timedelta(hours=24)
         ]
         if recent_anomalies:
             findings.append(
@@ -610,17 +588,13 @@ class ComplianceChecker:
                     description=(
                         f"{len(recent_anomalies)} anomaly(ies) detected in the last 24 hours"
                     ),
-                    affected_assets=list(
-                        {a.asset_id for a in recent_anomalies if a.asset_id}
-                    ),
+                    affected_assets=list({a.asset_id for a in recent_anomalies if a.asset_id}),
                     regulation=Regulation.EU_AI_ACT,
                     article="Article 9 (Risk management)",
                     severity=Severity.HIGH,
                     remediation="Investigate and resolve detected anomalies",
                     metadata={
-                        "anomaly_types": list(
-                            {a.anomaly_type.value for a in recent_anomalies}
-                        )
+                        "anomaly_types": list({a.anomaly_type.value for a in recent_anomalies})
                     },
                 )
             )
@@ -699,9 +673,7 @@ class ComplianceChecker:
                     )
 
         if findings:
-            recommendations.append(
-                "Recalculate risk scores for all high-risk assets monthly"
-            )
+            recommendations.append("Recalculate risk scores for all high-risk assets monthly")
 
         # Calculate score
         score = max(0, 100 - (len(findings) * 10))
@@ -848,9 +820,7 @@ class ComplianceChecker:
 
         return violations
 
-    def schedule_check(
-        self, check_type: ComplianceCheckType, interval_seconds: int
-    ) -> None:
+    def schedule_check(self, check_type: ComplianceCheckType, interval_seconds: int) -> None:
         """
         Schedule a recurring check.
 

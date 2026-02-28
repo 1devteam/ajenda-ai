@@ -123,9 +123,7 @@ class InMemoryCache(CacheBackend):
         """Delete all keys matching a simple prefix or glob pattern."""
         import fnmatch
 
-        keys_to_delete = [
-            k for k in list(self._store.keys()) if fnmatch.fnmatch(k, pattern)
-        ]
+        keys_to_delete = [k for k in list(self._store.keys()) if fnmatch.fnmatch(k, pattern)]
         for k in keys_to_delete:
             del self._store[k]
         return len(keys_to_delete)
@@ -306,9 +304,7 @@ class OmnipathCacheManager:
         return self._backend.get(f"agents:{tenant_id}:list:{page}")
 
     def set_agent_list(self, tenant_id: str, data: Any, page: int = 1) -> None:
-        self._backend.set(
-            f"agents:{tenant_id}:list:{page}", data, ttl=self.TTL_AGENT_LIST
-        )
+        self._backend.set(f"agents:{tenant_id}:list:{page}", data, ttl=self.TTL_AGENT_LIST)
 
     # ── Missions ──────────────────────────────────────────────
 
@@ -316,9 +312,7 @@ class OmnipathCacheManager:
         return self._backend.get(f"missions:{tenant_id}:{mission_id}")
 
     def set_mission(self, tenant_id: str, mission_id: str, data: Any) -> None:
-        self._backend.set(
-            f"missions:{tenant_id}:{mission_id}", data, ttl=self.TTL_MISSION
-        )
+        self._backend.set(f"missions:{tenant_id}:{mission_id}", data, ttl=self.TTL_MISSION)
 
     def invalidate_mission(self, tenant_id: str, mission_id: str) -> None:
         self._backend.delete(f"missions:{tenant_id}:{mission_id}")
@@ -330,13 +324,9 @@ class OmnipathCacheManager:
         return self._backend.get(f"governance:assets:{asset_id}")
 
     def set_governance_asset(self, asset_id: str, data: Any) -> None:
-        self._backend.set(
-            f"governance:assets:{asset_id}", data, ttl=self.TTL_GOVERNANCE_ASSET
-        )
+        self._backend.set(f"governance:assets:{asset_id}", data, ttl=self.TTL_GOVERNANCE_ASSET)
 
-    def invalidate_governance_asset(
-        self, asset_id: str, tenant_id: str | None = None
-    ) -> None:
+    def invalidate_governance_asset(self, asset_id: str, tenant_id: str | None = None) -> None:
         self._backend.delete(f"governance:assets:{asset_id}")
         if tenant_id:
             self._backend.delete_pattern(f"governance:assets:{tenant_id}:list*")
@@ -347,9 +337,7 @@ class OmnipathCacheManager:
         return self._backend.get(f"governance:risk:{asset_id}")
 
     def set_risk_score(self, asset_id: str, data: Any) -> None:
-        self._backend.set(
-            f"governance:risk:{asset_id}", data, ttl=self.TTL_GOVERNANCE_RISK
-        )
+        self._backend.set(f"governance:risk:{asset_id}", data, ttl=self.TTL_GOVERNANCE_RISK)
 
     def invalidate_risk_score(self, asset_id: str) -> None:
         self._backend.delete(f"governance:risk:{asset_id}")

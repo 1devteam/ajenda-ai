@@ -463,9 +463,7 @@ class ApprovalWorkflow:
         # Filter by authority level if provided
         if approver_level is not None:
             pending = [
-                req
-                for req in pending
-                if req.required_approver_level.value <= approver_level.value
+                req for req in pending if req.required_approver_level.value <= approver_level.value
             ]
 
         return pending

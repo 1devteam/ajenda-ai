@@ -42,9 +42,7 @@ class ResourceMarketplace:
         self._balances: Dict[str, Dict[str, Dict]] = defaultdict(
             dict
         )  # tenant_id -> agent_id -> balance_data
-        self._transactions: Dict[str, List[Dict]] = defaultdict(
-            list
-        )  # tenant_id -> transactions
+        self._transactions: Dict[str, List[Dict]] = defaultdict(list)  # tenant_id -> transactions
         self._lock = asyncio.Lock()
 
     async def get_balance(self, tenant_id: str, agent_id: str) -> Optional[Dict]:
@@ -236,9 +234,7 @@ class ResourceMarketplace:
                 transactions = [tx for tx in transactions if tx["agent_id"] == agent_id]
 
             # Sort by timestamp (newest first)
-            transactions = sorted(
-                transactions, key=lambda x: x["timestamp"], reverse=True
-            )
+            transactions = sorted(transactions, key=lambda x: x["timestamp"], reverse=True)
 
             # Apply pagination
             return transactions[offset : offset + limit]
@@ -268,9 +264,7 @@ class ResourceMarketplace:
 
             # Calculate today's activity
             today = datetime.utcnow().date()
-            today_transactions = [
-                tx for tx in transactions if tx["timestamp"].date() == today
-            ]
+            today_transactions = [tx for tx in transactions if tx["timestamp"].date() == today]
 
             total_spent_today = sum(
                 tx["amount"] for tx in today_transactions if tx["type"] == "charge"
@@ -284,11 +278,7 @@ class ResourceMarketplace:
             mission_transactions = [tx for tx in transactions if tx.get("mission_id")]
             missions = set(tx["mission_id"] for tx in mission_transactions)
             average_cost_per_mission = (
-                sum(
-                    tx["amount"]
-                    for tx in mission_transactions
-                    if tx["type"] == "charge"
-                )
+                sum(tx["amount"] for tx in mission_transactions if tx["type"] == "charge")
                 / len(missions)
                 if missions
                 else 0.0
@@ -309,9 +299,7 @@ class ResourceMarketplace:
 
             # Calculate additional stats
             total_transactions = len(transactions)
-            avg_balance_per_agent = (
-                total_balance / total_agents if total_agents > 0 else 0.0
-            )
+            avg_balance_per_agent = total_balance / total_agents if total_agents > 0 else 0.0
 
             return {
                 "total_agents": total_agents,

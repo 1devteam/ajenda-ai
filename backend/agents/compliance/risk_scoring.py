@@ -392,10 +392,7 @@ class RiskScoringEngine:
         # Check if asset has cached score
         if hasattr(asset, "risk_score") and asset.risk_score:
             # Check if expired
-            if (
-                asset.risk_score.expires_at
-                and asset.risk_score.expires_at < datetime.utcnow()
-            ):
+            if asset.risk_score.expires_at and asset.risk_score.expires_at < datetime.utcnow():
                 # Recalculate
                 return self.calculate_risk_score(asset_id)
             return asset.risk_score

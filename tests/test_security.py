@@ -51,9 +51,7 @@ class TestSecurityHeadersMiddleware:
         app = self._make_app()
         client = TestClient(app)
         response = client.get("/api/v1/test")
-        assert "strict-origin-when-cross-origin" in response.headers.get(
-            "Referrer-Policy", ""
-        )
+        assert "strict-origin-when-cross-origin" in response.headers.get("Referrer-Policy", "")
 
     def test_permissions_policy_present(self):
         app = self._make_app()

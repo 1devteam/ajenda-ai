@@ -35,15 +35,9 @@ router = APIRouter(prefix="/api/v1/registry", tags=["registry"])
 class ModelLineageRequest(BaseModel):
     """Request model for model lineage."""
 
-    base_model: str = Field(
-        ..., description="Base model name (e.g., 'gpt-4', 'claude-3')"
-    )
-    fine_tuning_data: Optional[List[str]] = Field(
-        None, description="Datasets used for fine-tuning"
-    )
-    vector_db_sources: Optional[List[str]] = Field(
-        None, description="Knowledge base sources"
-    )
+    base_model: str = Field(..., description="Base model name (e.g., 'gpt-4', 'claude-3')")
+    fine_tuning_data: Optional[List[str]] = Field(None, description="Datasets used for fine-tuning")
+    vector_db_sources: Optional[List[str]] = Field(None, description="Knowledge base sources")
     training_date: Optional[datetime] = Field(None, description="Training date")
     model_version: Optional[str] = Field(None, description="Model version")
     parameters: Optional[Dict[str, Any]] = Field(None, description="Model parameters")
@@ -53,16 +47,12 @@ class AssetCreateRequest(BaseModel):
     """Request model for creating an asset."""
 
     asset_id: str = Field(..., description="Unique asset identifier")
-    asset_type: str = Field(
-        ..., description="Asset type (agent, tool, model, vector_db)"
-    )
+    asset_type: str = Field(..., description="Asset type (agent, tool, model, vector_db)")
     name: str = Field(..., description="Asset name")
     description: str = Field(..., description="Asset description")
     owner: str = Field(..., description="Owner (user or team)")
     status: str = Field(default="active", description="Asset status")
-    lineage: Optional[ModelLineageRequest] = Field(
-        None, description="Model lineage (for models)"
-    )
+    lineage: Optional[ModelLineageRequest] = Field(None, description="Model lineage (for models)")
     metadata: Optional[Dict[str, Any]] = Field(
         default_factory=dict, description="Additional metadata"
     )
@@ -268,12 +258,8 @@ async def list_assets(
     asset_type: Optional[str] = Query(None, description="Filter by asset type"),
     owner: Optional[str] = Query(None, description="Filter by owner"),
     status: Optional[str] = Query(None, description="Filter by status"),
-    tags: Optional[List[str]] = Query(
-        None, description="Filter by tags (must have all)"
-    ),
-    name_contains: Optional[str] = Query(
-        None, description="Filter by name (substring match)"
-    ),
+    tags: Optional[List[str]] = Query(None, description="Filter by tags (must have all)"),
+    name_contains: Optional[str] = Query(None, description="Filter by name (substring match)"),
 ):
     """
     List assets with optional filters.
@@ -356,17 +342,13 @@ async def get_lineage(asset_id: str):
     lineage = registry.get_lineage(asset_id)
 
     if not lineage:
-        raise HTTPException(
-            status_code=404, detail=f"No lineage found for asset '{asset_id}'"
-        )
+        raise HTTPException(status_code=404, detail=f"No lineage found for asset '{asset_id}'")
 
     return {
         "base_model": lineage.base_model,
         "fine_tuning_data": lineage.fine_tuning_data,
         "vector_db_sources": lineage.vector_db_sources,
-        "training_date": (
-            lineage.training_date.isoformat() if lineage.training_date else None
-        ),
+        "training_date": (lineage.training_date.isoformat() if lineage.training_date else None),
         "model_version": lineage.model_version,
         "parameters": lineage.parameters,
     }

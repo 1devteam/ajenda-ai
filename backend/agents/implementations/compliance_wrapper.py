@@ -63,9 +63,7 @@ class ComplianceAwareMixin:
             )
 
         self.compliance_engine = ComplianceEngine()
-        logger.info(
-            f"Compliance engine initialized for {self.agent_type} agent {self.agent_id}"
-        )
+        logger.info(f"Compliance engine initialized for {self.agent_type} agent {self.agent_id}")
 
     def _build_compliance_context(
         self,

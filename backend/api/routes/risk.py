@@ -148,16 +148,12 @@ async def calculate_risk_score(asset_id: str):
             tier=risk_score.tier.value,
             breakdown={k.value: v for k, v in risk_score.breakdown.items()},
             calculated_at=risk_score.calculated_at.isoformat(),
-            expires_at=(
-                risk_score.expires_at.isoformat() if risk_score.expires_at else None
-            ),
+            expires_at=(risk_score.expires_at.isoformat() if risk_score.expires_at else None),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error calculating risk score: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error calculating risk score: {str(e)}")
 
 
 @router.get("/assets/{asset_id}/score", response_model=RiskScoreResponse)
@@ -185,16 +181,12 @@ async def get_risk_score(asset_id: str):
             tier=risk_score.tier.value,
             breakdown={k.value: v for k, v in risk_score.breakdown.items()},
             calculated_at=risk_score.calculated_at.isoformat(),
-            expires_at=(
-                risk_score.expires_at.isoformat() if risk_score.expires_at else None
-            ),
+            expires_at=(risk_score.expires_at.isoformat() if risk_score.expires_at else None),
         )
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error retrieving risk score: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error retrieving risk score: {str(e)}")
 
 
 @router.get("/assets/{asset_id}/breakdown", response_model=dict)
@@ -213,9 +205,7 @@ async def get_risk_breakdown(asset_id: str):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error getting risk breakdown: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error getting risk breakdown: {str(e)}")
 
 
 @router.post("/recalculate-all", response_model=List[RiskScoreResponse])
@@ -244,9 +234,7 @@ async def recalculate_all_scores():
             for score in scores
         ]
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error recalculating scores: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error recalculating scores: {str(e)}")
 
 
 # ============================================================================
@@ -278,9 +266,7 @@ async def create_approval_request(request: ApprovalRequestCreate):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error creating approval request: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error creating approval request: {str(e)}")
 
 
 @router.get("/approvals/{request_id}", response_model=ApprovalRequestResponse)
@@ -296,24 +282,18 @@ async def get_approval_request(request_id: str):
         request = workflow.get_request(request_id)
 
         if not request:
-            raise HTTPException(
-                status_code=404, detail=f"Approval request {request_id} not found"
-            )
+            raise HTTPException(status_code=404, detail=f"Approval request {request_id} not found")
 
         return ApprovalRequestResponse(**request.to_dict())
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error retrieving approval request: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error retrieving approval request: {str(e)}")
 
 
 @router.get("/approvals", response_model=List[ApprovalRequestResponse])
 async def get_pending_approvals(
-    approver_level: Optional[int] = Query(
-        None, description="Filter by authority level"
-    ),
+    approver_level: Optional[int] = Query(None, description="Filter by authority level"),
 ):
     """
     Get pending approval requests.
@@ -326,16 +306,12 @@ async def get_pending_approvals(
     try:
         workflow = get_approval_workflow()
 
-        authority = (
-            AuthorityLevel(approver_level) if approver_level is not None else None
-        )
+        authority = AuthorityLevel(approver_level) if approver_level is not None else None
         requests = workflow.get_pending_requests(approver_level=authority)
 
         return [ApprovalRequestResponse(**req.to_dict()) for req in requests]
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error retrieving pending approvals: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error retrieving pending approvals: {str(e)}")
 
 
 @router.post("/approvals/{request_id}/approve", response_model=ApprovalRequestResponse)
@@ -365,9 +341,7 @@ async def approve_request(request_id: str, action: ApprovalAction):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error approving request: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error approving request: {str(e)}")
 
 
 @router.post("/approvals/{request_id}/reject", response_model=ApprovalRequestResponse)
@@ -400,9 +374,7 @@ async def reject_request(request_id: str, action: ApprovalAction):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error rejecting request: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error rejecting request: {str(e)}")
 
 
 @router.post("/approvals/{request_id}/escalate", response_model=ApprovalRequestResponse)
@@ -432,14 +404,10 @@ async def escalate_request(request_id: str, escalation: EscalationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error escalating request: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error escalating request: {str(e)}")
 
 
-@router.get(
-    "/approvals/asset/{asset_id}/history", response_model=List[ApprovalRequestResponse]
-)
+@router.get("/approvals/asset/{asset_id}/history", response_model=List[ApprovalRequestResponse])
 async def get_approval_history(asset_id: str):
     """
     Get approval history for an asset.
@@ -453,9 +421,7 @@ async def get_approval_history(asset_id: str):
 
         return [ApprovalRequestResponse(**req.to_dict()) for req in requests]
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error retrieving approval history: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error retrieving approval history: {str(e)}")
 
 
 @router.get("/approvals/check/{asset_id}", response_model=dict)
@@ -502,9 +468,7 @@ async def mark_executed(request_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error marking as executed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error marking as executed: {str(e)}")
 
 
 # ============================================================================
@@ -559,9 +523,7 @@ async def get_blast_radius(asset_id: str):
 
         return {"asset_id": asset_id, "blast_radius": blast_radius}
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error calculating blast radius: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error calculating blast radius: {str(e)}")
 
 
 @router.get("/assets/{asset_id}/recovery-time", response_model=dict)
@@ -582,9 +544,7 @@ async def estimate_recovery_time(asset_id: str):
             "rto_formatted": str(rto),
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error estimating recovery time: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error estimating recovery time: {str(e)}")
 
 
 @router.get(

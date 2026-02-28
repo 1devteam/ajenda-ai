@@ -154,9 +154,7 @@ def test_compliance_penalty_non_compliant(db_session):
         owner_id="user_1",
         tenant_id="tenant_1",
     )
-    asset_repo.update_compliance_status(
-        "non_compliant_agent", ComplianceStatus.NON_COMPLIANT
-    )
+    asset_repo.update_compliance_status("non_compliant_agent", ComplianceStatus.NON_COMPLIANT)
 
     # Calculate penalty
     reward = GovernanceEconomy.calculate_compliance_reward(

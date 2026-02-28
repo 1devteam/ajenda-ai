@@ -77,9 +77,7 @@ class TrendAnalyzer:
         self.risk_engine = get_risk_scoring_engine()
 
         # In-memory storage for historical data (in production, would use database)
-        self._historical_risk_scores: Dict[str, List[Tuple[datetime, float]]] = (
-            defaultdict(list)
-        )
+        self._historical_risk_scores: Dict[str, List[Tuple[datetime, float]]] = defaultdict(list)
         self._historical_asset_counts: List[Tuple[datetime, int]] = []
         self._historical_approval_counts: List[Tuple[datetime, int]] = []
 
@@ -99,13 +97,9 @@ class TrendAnalyzer:
         for asset in assets:
             risk_score = self.risk_engine.get_score(asset.asset_id)
             if risk_score:
-                self._historical_risk_scores[asset.asset_id].append(
-                    (now, risk_score.score)
-                )
+                self._historical_risk_scores[asset.asset_id].append((now, risk_score.score))
 
-    def get_risk_score_trends(
-        self, days: int = 30, asset_id: Optional[str] = None
-    ) -> TrendData:
+    def get_risk_score_trends(self, days: int = 30, asset_id: Optional[str] = None) -> TrendData:
         """
         Get risk score trends over time.
 
@@ -197,9 +191,7 @@ class TrendAnalyzer:
 
         # Filter historical data
         time_series = [
-            (ts, count)
-            for ts, count in self._historical_asset_counts
-            if ts >= start_time
+            (ts, count) for ts, count in self._historical_asset_counts if ts >= start_time
         ]
 
         # If no historical data, use current count
@@ -245,9 +237,7 @@ class TrendAnalyzer:
         # In production, would track historical compliance data
         assets = self.registry.list_all()
         assets_with_scores = sum(
-            1
-            for asset in assets
-            if self.risk_engine.get_score(asset.asset_id) is not None
+            1 for asset in assets if self.risk_engine.get_score(asset.asset_id) is not None
         )
 
         coverage = (assets_with_scores / len(assets) * 100) if assets else 0.0
@@ -282,9 +272,7 @@ class TrendAnalyzer:
 
         # Filter historical data
         time_series = [
-            (ts, count)
-            for ts, count in self._historical_approval_counts
-            if ts >= start_time
+            (ts, count) for ts, count in self._historical_approval_counts if ts >= start_time
         ]
 
         # If no historical data, estimate from current state

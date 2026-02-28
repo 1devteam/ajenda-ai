@@ -97,16 +97,9 @@ class ApprovalRepository(BaseRepository[GovernanceApproval]):
         )
 
         if authority_level:
-            query = query.filter(
-                GovernanceApproval.required_authority == authority_level
-            )
+            query = query.filter(GovernanceApproval.required_authority == authority_level)
 
-        return (
-            query.order_by(GovernanceApproval.requested_at)
-            .limit(limit)
-            .offset(offset)
-            .all()
-        )
+        return query.order_by(GovernanceApproval.requested_at).limit(limit).offset(offset).all()
 
     def get_by_asset(
         self, asset_id: str, status: Optional[ApprovalStatus] = None, limit: int = 100
@@ -122,9 +115,7 @@ class ApprovalRepository(BaseRepository[GovernanceApproval]):
         Returns:
             List of GovernanceApproval instances
         """
-        query = self.db.query(GovernanceApproval).filter(
-            GovernanceApproval.asset_id == asset_id
-        )
+        query = self.db.query(GovernanceApproval).filter(GovernanceApproval.asset_id == asset_id)
 
         if status:
             query = query.filter(GovernanceApproval.status == status)
@@ -163,10 +154,7 @@ class ApprovalRepository(BaseRepository[GovernanceApproval]):
             query = query.filter(GovernanceApproval.status == status)
 
         return (
-            query.order_by(desc(GovernanceApproval.requested_at))
-            .limit(limit)
-            .offset(offset)
-            .all()
+            query.order_by(desc(GovernanceApproval.requested_at)).limit(limit).offset(offset).all()
         )
 
     def get_by_approver(
@@ -223,9 +211,7 @@ class ApprovalRepository(BaseRepository[GovernanceApproval]):
             approved_at=datetime.utcnow(),
         )
 
-    def reject_request(
-        self, approval_id: str, rejected_by: str, reason: str
-    ) -> GovernanceApproval:
+    def reject_request(self, approval_id: str, rejected_by: str, reason: str) -> GovernanceApproval:
         """
         Reject request
 
@@ -245,9 +231,7 @@ class ApprovalRepository(BaseRepository[GovernanceApproval]):
             rejection_reason=reason,
         )
 
-    def escalate_request(
-        self, approval_id: str, new_approvers: List[str]
-    ) -> GovernanceApproval:
+    def escalate_request(self, approval_id: str, new_approvers: List[str]) -> GovernanceApproval:
         """
         Escalate request to higher authority
 
@@ -258,9 +242,7 @@ class ApprovalRepository(BaseRepository[GovernanceApproval]):
         Returns:
             Updated GovernanceApproval instance
         """
-        return self.update(
-            approval_id, status=ApprovalStatus.ESCALATED, approvers=new_approvers
-        )
+        return self.update(approval_id, status=ApprovalStatus.ESCALATED, approvers=new_approvers)
 
     def expire_old_requests(self, tenant_id: str) -> int:
         """
@@ -296,9 +278,7 @@ class ApprovalRepository(BaseRepository[GovernanceApproval]):
 
         return count
 
-    def get_approval_queue_depth(
-        self, tenant_id: str, risk_tier: Optional[RiskTier] = None
-    ) -> int:
+    def get_approval_queue_depth(self, tenant_id: str, risk_tier: Optional[RiskTier] = None) -> int:
         """
         Get number of pending approvals
 

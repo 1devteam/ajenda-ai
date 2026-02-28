@@ -91,9 +91,7 @@ class AgentProjection(Projection):
         if handler is not None:
             handler(event)
         else:
-            logger.debug(
-                "AgentProjection: no handler for event type '%s'", event.event_type
-            )
+            logger.debug("AgentProjection: no handler for event type '%s'", event.event_type)
 
     # ------------------------------------------------------------------
     # Query methods
@@ -242,9 +240,7 @@ class MissionProjection(Projection):
         if handler is not None:
             handler(event)
         else:
-            logger.debug(
-                "MissionProjection: no handler for event type '%s'", event.event_type
-            )
+            logger.debug("MissionProjection: no handler for event type '%s'", event.event_type)
 
     # ------------------------------------------------------------------
     # Query methods
@@ -405,9 +401,7 @@ class EconomyProjection(Projection):
         if handler is not None:
             handler(event)
         else:
-            logger.debug(
-                "EconomyProjection: no handler for event type '%s'", event.event_type
-            )
+            logger.debug("EconomyProjection: no handler for event type '%s'", event.event_type)
 
     # ------------------------------------------------------------------
     # Query methods
@@ -440,14 +434,10 @@ class EconomyProjection(Projection):
     # Event handlers (private)
     # ------------------------------------------------------------------
 
-    def _apply_delta(
-        self, agent_id: str, delta: float, reason: str, ts: datetime
-    ) -> None:
+    def _apply_delta(self, agent_id: str, delta: float, reason: str, ts: datetime) -> None:
         """Apply *delta* to *agent_id*'s balance and record the ledger entry."""
         self._balances[agent_id] = self._balances.get(agent_id, 0.0) + delta
-        self._ledger[agent_id].append(
-            (ts.isoformat(), delta, reason, self._balances[agent_id])
-        )
+        self._ledger[agent_id].append((ts.isoformat(), delta, reason, self._balances[agent_id]))
 
     def _on_economy_credit_earned(self, event: Event) -> None:
         amount = float(event.data.get("amount", 0.0))

@@ -83,17 +83,13 @@ class OmnipathPerformanceTest:
     async def test_health_endpoint(self):
         """Test 1: Health endpoint performance"""
         print("\n🔍 Testing health endpoint...")
-        metrics = await self.measure_endpoint(
-            "GET", "/health", iterations=100, target_p95=50.0
-        )
+        metrics = await self.measure_endpoint("GET", "/health", iterations=100, target_p95=50.0)
         self.log_metric("Health Endpoint", metrics)
 
     async def test_metrics_endpoint(self):
         """Test 2: Metrics endpoint performance"""
         print("\n🔍 Testing metrics endpoint...")
-        metrics = await self.measure_endpoint(
-            "GET", "/metrics", iterations=50, target_p95=100.0
-        )
+        metrics = await self.measure_endpoint("GET", "/metrics", iterations=50, target_p95=100.0)
         self.log_metric("Metrics Endpoint", metrics)
 
     async def test_list_agents(self):
@@ -137,14 +133,10 @@ class OmnipathPerformanceTest:
             "mean": statistics.mean(latencies),
             "median": statistics.median(latencies),
             "p95": (
-                latencies[int(len(latencies) * 0.95)]
-                if len(latencies) > 20
-                else max(latencies)
+                latencies[int(len(latencies) * 0.95)] if len(latencies) > 20 else max(latencies)
             ),
             "p99": (
-                latencies[int(len(latencies) * 0.99)]
-                if len(latencies) > 100
-                else max(latencies)
+                latencies[int(len(latencies) * 0.99)] if len(latencies) > 100 else max(latencies)
             ),
             "target_p95": 500.0,
         }
@@ -222,15 +214,11 @@ class OmnipathPerformanceTest:
                 else:
                     status = "❌"
                 print(f"\n{status} {name}")
-                print(
-                    f"   P95: {metrics['p95']:.0f}ms (Target: {metrics['target_p95']:.0f}ms)"
-                )
+                print(f"   P95: {metrics['p95']:.0f}ms (Target: {metrics['target_p95']:.0f}ms)")
 
             if "throughput_req_per_sec" in metrics:
                 targets_total += 1
-                if metrics["throughput_req_per_sec"] >= metrics.get(
-                    "target_throughput", 0
-                ):
+                if metrics["throughput_req_per_sec"] >= metrics.get("target_throughput", 0):
                     targets_met += 1
                     status = "✅"
                 else:

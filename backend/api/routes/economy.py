@@ -100,9 +100,7 @@ async def top_up_credits(
     await marketplace.add_tenant_credits(current_user.tenant_id, amount)
     return {
         "message": f"Added {amount} credits to tenant {current_user.tenant_id}",
-        "new_balance": await marketplace.get_tenant_total_balance(
-            current_user.tenant_id
-        ),
+        "new_balance": await marketplace.get_tenant_total_balance(current_user.tenant_id),
     }
 
 

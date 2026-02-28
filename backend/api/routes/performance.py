@@ -113,20 +113,15 @@ def _build_performance_metrics(agent: Agent, db: Session) -> AgentPerformanceMet
         average_cost=round(avg_cost, 4),
         # Improvement tracking is stored in agent.config; default to 0 if absent
         total_improvements=int(
-            agent.config.get("total_improvements", 0)
-            if isinstance(agent.config, dict)
-            else 0
+            agent.config.get("total_improvements", 0) if isinstance(agent.config, dict) else 0
         ),
         last_improvement_date=(
             datetime.fromisoformat(agent.config["last_improvement_date"])
-            if isinstance(agent.config, dict)
-            and agent.config.get("last_improvement_date")
+            if isinstance(agent.config, dict) and agent.config.get("last_improvement_date")
             else None
         ),
         current_strategy_version=int(
-            agent.config.get("strategy_version", 1)
-            if isinstance(agent.config, dict)
-            else 1
+            agent.config.get("strategy_version", 1) if isinstance(agent.config, dict) else 1
         ),
     )
 
@@ -147,9 +142,7 @@ async def get_all_agent_performance(
     Returns success rates, costs, and self-improvement activity computed
     directly from the missions table.
     """
-    agents: List[Agent] = (
-        db.query(Agent).filter(Agent.tenant_id == current_user.tenant_id).all()
-    )
+    agents: List[Agent] = db.query(Agent).filter(Agent.tenant_id == current_user.tenant_id).all()
 
     return [_build_performance_metrics(agent, db) for agent in agents]
 
@@ -206,9 +199,7 @@ async def get_improvement_history(
     events: List[ImprovementEvent] = []
     for agent in agents:
         improvements = (
-            agent.config.get("improvements", [])
-            if isinstance(agent.config, dict)
-            else []
+            agent.config.get("improvements", []) if isinstance(agent.config, dict) else []
         )
         for imp in improvements:
             try:
@@ -286,9 +277,7 @@ async def get_performance_trends(
         total = len(day_missions)
         successful = sum(1 for m in day_missions if m.status == "COMPLETED")
         costs = [m.cost for m in day_missions if m.cost is not None]
-        durations = [
-            m.execution_time for m in day_missions if m.execution_time is not None
-        ]
+        durations = [m.execution_time for m in day_missions if m.execution_time is not None]
 
         trends.append(
             PerformanceTrend(
@@ -296,9 +285,7 @@ async def get_performance_trends(
                 date=day,
                 success_rate=round(successful / total, 4) if total > 0 else 0.0,
                 average_cost=round(sum(costs) / len(costs), 4) if costs else 0.0,
-                average_duration=(
-                    round(sum(durations) / len(durations), 2) if durations else 0.0
-                ),
+                average_duration=(round(sum(durations) / len(durations), 2) if durations else 0.0),
                 missions_count=total,
             )
         )

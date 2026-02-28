@@ -37,20 +37,14 @@ class MissionCreate(BaseModel):
     """Schema for creating a new mission (supports both v4.5 and v5.0 formats)"""
 
     # v5.0 fields
-    objective: Optional[str] = Field(
-        None, min_length=1, description="Mission objective"
-    )
+    objective: Optional[str] = Field(None, min_length=1, description="Mission objective")
     agent_id: str = Field(..., description="Agent ID to execute the mission")
     priority: MissionPriority = Field(
         default=MissionPriority.NORMAL, description="Mission priority"
     )
     context: Dict[str, Any] = Field(default_factory=dict, description="Mission context")
-    max_steps: int = Field(
-        default=10, ge=1, le=100, description="Maximum execution steps"
-    )
-    timeout_seconds: int = Field(
-        default=300, ge=1, description="Execution timeout in seconds"
-    )
+    max_steps: int = Field(default=10, ge=1, le=100, description="Maximum execution steps")
+    timeout_seconds: int = Field(default=300, ge=1, description="Execution timeout in seconds")
     budget: Optional[float] = Field(
         None,
         gt=0,
@@ -61,9 +55,7 @@ class MissionCreate(BaseModel):
     # v4.5 backward compatibility fields
     command: Optional[str] = Field(None, description="[v4.5] Mission command")
     message: Optional[str] = Field(None, description="[v4.5] Mission message")
-    payload: Optional[str] = Field(
-        None, description="[v4.5] Mission payload (JSON string)"
-    )
+    payload: Optional[str] = Field(None, description="[v4.5] Mission payload (JSON string)")
     state: Optional[str] = Field(None, description="[v4.5] Initial state")
 
 
@@ -169,9 +161,7 @@ async def create_mission(
             import json
 
             context = (
-                json.loads(mission.payload)
-                if isinstance(mission.payload, str)
-                else mission.payload
+                json.loads(mission.payload) if isinstance(mission.payload, str) else mission.payload
             )
         except Exception:
             context = {"payload": mission.payload}
@@ -289,9 +279,7 @@ async def create_mission(
             finally:
                 bg_db.close()
 
-            logger.info(
-                f"Mission {mission_data.id} execution completed: {result['status']}"
-            )
+            logger.info(f"Mission {mission_data.id} execution completed: {result['status']}")
 
         except Exception as e:
             logger.error(f"Mission execution failed: {e}", exc_info=True)
@@ -387,9 +375,7 @@ async def list_missions(
         None, alias="priority", description="Filter by priority"
     ),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(
-        100, ge=1, le=1000, description="Max number of records to return"
-    ),
+    limit: int = Query(100, ge=1, le=1000, description="Max number of records to return"),
 ):
     """
     List all missions
@@ -407,9 +393,7 @@ async def list_missions(
 
     if status_filter:
         status_value = (
-            status_filter.value
-            if isinstance(status_filter, MissionStatus)
-            else status_filter
+            status_filter.value if isinstance(status_filter, MissionStatus) else status_filter
         )
         query = query.filter(Mission.status == status_value)
 
@@ -484,9 +468,7 @@ async def update_mission(
     # Update fields if provided
     if mission.status is not None:
         mission_data.status = (
-            mission.status.value
-            if isinstance(mission.status, MissionStatus)
-            else mission.status
+            mission.status.value if isinstance(mission.status, MissionStatus) else mission.status
         )
     if mission.priority is not None:
         mission_data.priority = (

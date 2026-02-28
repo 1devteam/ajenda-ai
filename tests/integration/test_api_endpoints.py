@@ -64,9 +64,7 @@ class TestEconomyEndpoints:
     def test_get_specific_agent_balance(self, client: TestClient, auth_headers: dict):
         """Test retrieving a specific agent's balance"""
         agent_id = "test_agent_001"
-        response = client.get(
-            f"/api/v1/economy/balance/{agent_id}", headers=auth_headers
-        )
+        response = client.get(f"/api/v1/economy/balance/{agent_id}", headers=auth_headers)
 
         # Should return 200 with balance data or 404 if agent doesn't exist
         assert response.status_code in [200, 404]
@@ -86,9 +84,7 @@ class TestEconomyEndpoints:
         data = response.json()
         assert isinstance(data, list)
 
-    def test_get_transactions_with_pagination(
-        self, client: TestClient, auth_headers: dict
-    ):
+    def test_get_transactions_with_pagination(self, client: TestClient, auth_headers: dict):
         """Test transaction pagination"""
         response = client.get(
             "/api/v1/economy/transactions?limit=10&offset=0", headers=auth_headers
@@ -98,9 +94,7 @@ class TestEconomyEndpoints:
         data = response.json()
         assert len(data) <= 10
 
-    def test_get_transactions_filtered_by_agent(
-        self, client: TestClient, auth_headers: dict
-    ):
+    def test_get_transactions_filtered_by_agent(self, client: TestClient, auth_headers: dict):
         """Test filtering transactions by agent"""
         agent_id = "test_agent"
         response = client.get(
@@ -130,22 +124,16 @@ class TestEconomyEndpoints:
 
     def test_top_up_credits(self, client: TestClient, auth_headers: dict):
         """Test adding credits to tenant economy"""
-        response = client.post(
-            "/api/v1/economy/top-up?amount=100.0", headers=auth_headers
-        )
+        response = client.post("/api/v1/economy/top-up?amount=100.0", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
         assert "message" in data
         assert "new_balance" in data
 
-    def test_top_up_credits_invalid_amount(
-        self, client: TestClient, auth_headers: dict
-    ):
+    def test_top_up_credits_invalid_amount(self, client: TestClient, auth_headers: dict):
         """Test that negative amounts are rejected"""
-        response = client.post(
-            "/api/v1/economy/top-up?amount=-50.0", headers=auth_headers
-        )
+        response = client.post("/api/v1/economy/top-up?amount=-50.0", headers=auth_headers)
 
         # Should return 422 (validation error)
         assert response.status_code == 422
@@ -195,9 +183,7 @@ class TestPerformanceEndpoints:
             assert "trigger_reason" in event
             assert "improvement_type" in event
 
-    def test_get_improvement_history_with_pagination(
-        self, client: TestClient, auth_headers: dict
-    ):
+    def test_get_improvement_history_with_pagination(self, client: TestClient, auth_headers: dict):
         """Test improvement history pagination"""
         response = client.get(
             "/api/v1/performance/improvements?limit=5&offset=0", headers=auth_headers
@@ -252,9 +238,7 @@ class TestEndToEndWorkflows:
 
         assert new_total == initial_total + top_up_amount
 
-    def test_transaction_tracking_workflow(
-        self, client: TestClient, auth_headers: dict
-    ):
+    def test_transaction_tracking_workflow(self, client: TestClient, auth_headers: dict):
         """
         Test transaction tracking workflow:
         1. Get initial transaction count
@@ -268,9 +252,7 @@ class TestEndToEndWorkflows:
         initial_count = len(initial_transactions)
 
         # Step 2: Top up credits
-        response = client.post(
-            "/api/v1/economy/top-up?amount=100.0", headers=auth_headers
-        )
+        response = client.post("/api/v1/economy/top-up?amount=100.0", headers=auth_headers)
         assert response.status_code == 200
 
         # Step 3: Verify new transactions
@@ -331,9 +313,7 @@ class TestPerformanceAndLoad:
 
     def test_large_transaction_history(self, client: TestClient, auth_headers: dict):
         """Test retrieving large transaction history"""
-        response = client.get(
-            "/api/v1/economy/transactions?limit=1000", headers=auth_headers
-        )
+        response = client.get("/api/v1/economy/transactions?limit=1000", headers=auth_headers)
 
         assert response.status_code == 200
         # Response should complete within reasonable time

@@ -158,8 +158,7 @@ class SagaOrchestrator(LoggerMixin):
             self.log_info(
                 f"Saga completed successfully: {saga.name}",
                 saga_id=saga.saga_id,
-                duration_ms=(saga.completed_at - saga.started_at).total_seconds()
-                * 1000,
+                duration_ms=(saga.completed_at - saga.started_at).total_seconds() * 1000,
             )
             await self._emit_event(
                 saga_id=saga.saga_id,
@@ -208,8 +207,7 @@ class SagaOrchestrator(LoggerMixin):
                 f"Step completed: {step.name}",
                 saga_id=saga.saga_id,
                 step_id=step.step_id,
-                duration_ms=(step.completed_at - step.started_at).total_seconds()
-                * 1000,
+                duration_ms=(step.completed_at - step.started_at).total_seconds() * 1000,
             )
             await self._emit_event(
                 saga_id=saga.saga_id,
@@ -472,11 +470,7 @@ class MissionExecutionSaga:
         try:
             from backend.database.models import Mission
 
-            mission = (
-                self.db.query(Mission)
-                .filter(Mission.id == context["mission_id"])
-                .first()
-            )
+            mission = self.db.query(Mission).filter(Mission.id == context["mission_id"]).first()
             if mission:
                 mission.status = "CANCELLED"
                 mission.error = "Saga compensation: mission cancelled"
@@ -500,23 +494,15 @@ class MissionExecutionSaga:
 
         mission_result = context.get("execute_mission_result", {})
         try:
-            mission = (
-                self.db.query(Mission)
-                .filter(Mission.id == context["mission_id"])
-                .first()
-            )
+            mission = self.db.query(Mission).filter(Mission.id == context["mission_id"]).first()
             if mission:
                 # Enrich with saga tracking
                 if isinstance(mission.context, dict):
                     mission.context["saga_tracked"] = True
-                    mission.context["saga_status"] = mission_result.get(
-                        "status", "UNKNOWN"
-                    )
+                    mission.context["saga_status"] = mission_result.get("status", "UNKNOWN")
                 self.db.commit()
         except Exception as exc:
-            logger.warning(
-                f"Could not enrich mission record {context['mission_id']}: {exc}"
-            )
+            logger.warning(f"Could not enrich mission record {context['mission_id']}: {exc}")
         return {"recorded": True, "mission_status": mission_result.get("status")}
 
     async def _delete_result(
@@ -526,19 +512,13 @@ class MissionExecutionSaga:
         try:
             from backend.database.models import Mission
 
-            mission = (
-                self.db.query(Mission)
-                .filter(Mission.id == context["mission_id"])
-                .first()
-            )
+            mission = self.db.query(Mission).filter(Mission.id == context["mission_id"]).first()
             if mission and isinstance(mission.context, dict):
                 mission.context.pop("saga_tracked", None)
                 mission.context.pop("saga_status", None)
                 self.db.commit()
         except Exception as exc:
-            logger.warning(
-                f"Could not clean up mission record {context['mission_id']}: {exc}"
-            )
+            logger.warning(f"Could not clean up mission record {context['mission_id']}: {exc}")
 
     # ------------------------------------------------------------------
     # Step: deduct_cost
@@ -576,9 +556,7 @@ class MissionExecutionSaga:
 
         return {"settled": True, "actual_cost": actual_cost, "adjustment": difference}
 
-    async def _refund_cost(
-        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
-    ) -> None:
+    async def _refund_cost(self, context: Dict[str, Any], result: Optional[Dict[str, Any]]) -> None:
         """Refund the actual cost deduction if the saga is compensated."""
         if result and result.get("settled"):
             await self.marketplace.reward(
@@ -769,9 +747,7 @@ class AgentCreationSaga:
         except Exception as exc:
             # Governance registration failure is non-fatal for agent creation
             # but we still record it for audit purposes.
-            logger.warning(
-                f"Governance registration failed for agent {context['agent_id']}: {exc}"
-            )
+            logger.warning(f"Governance registration failed for agent {context['agent_id']}: {exc}")
         return {"registered": True}
 
     async def _deregister_governance(

@@ -191,9 +191,7 @@ async def test_mission_start_hook_blocks_non_compliant_agent(db_session):
         owner_id="user_1",
         tenant_id="tenant_1",
     )
-    asset_repo.update_compliance_status(
-        "non_compliant_agent", ComplianceStatus.NON_COMPLIANT
-    )
+    asset_repo.update_compliance_status("non_compliant_agent", ComplianceStatus.NON_COMPLIANT)
     db_session.commit()
 
     # Call mission start hook
@@ -211,9 +209,7 @@ async def test_mission_start_hook_blocks_non_compliant_agent(db_session):
     # Verify audit event for blocked mission
     audit_repo = AuditRepository(db_session)
     events = audit_repo.get_by_tenant("tenant_1")
-    assert any(
-        e.event_type == "mission_blocked" and e.outcome == "blocked" for e in events
-    )
+    assert any(e.event_type == "mission_blocked" and e.outcome == "blocked" for e in events)
 
 
 @pytest.mark.asyncio
@@ -248,9 +244,7 @@ async def test_mission_completion_hook(db_session):
     # Verify audit event
     audit_repo = AuditRepository(db_session)
     events = audit_repo.get_by_tenant("tenant_1")
-    assert any(
-        e.event_type == "mission_completed" and e.outcome == "success" for e in events
-    )
+    assert any(e.event_type == "mission_completed" and e.outcome == "success" for e in events)
 
 
 @pytest.mark.asyncio
@@ -361,6 +355,4 @@ async def test_governance_hooks_non_blocking():
         assert True
     except Exception:
         # Any exception means the hook is not non-blocking — fail the test
-        assert (
-            False
-        ), "governance_hooks.on_agent_created raised an exception on invalid input"
+        assert False, "governance_hooks.on_agent_created raised an exception on invalid input"

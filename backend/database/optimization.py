@@ -38,24 +38,18 @@ class QueryPerformanceMonitor:
         """Install query monitoring hooks"""
 
         @event.listens_for(Engine, "before_cursor_execute")
-        def before_cursor_execute(
-            conn, cursor, statement, parameters, context, executemany
-        ):
+        def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
             """Record query start time"""
             conn.info.setdefault("query_start_time", []).append(time.time())
 
         @event.listens_for(Engine, "after_cursor_execute")
-        def after_cursor_execute(
-            conn, cursor, statement, parameters, context, executemany
-        ):
+        def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
             """Log slow queries"""
             total_time = time.time() - conn.info["query_start_time"].pop()
             duration_ms = total_time * 1000
 
             if duration_ms > self.threshold_ms:
-                logger.warning(
-                    f"Slow query ({duration_ms:.2f}ms): {statement[:200]}..."
-                )
+                logger.warning(f"Slow query ({duration_ms:.2f}ms): {statement[:200]}...")
 
                 # Track stats
                 query_key = statement[:100]

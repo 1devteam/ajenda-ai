@@ -475,9 +475,7 @@ def test_get_pending_requests_by_authority_level(sample_asset_with_score):
     )
 
     # Should be visible to compliance officer
-    pending_co = workflow.get_pending_requests(
-        approver_level=AuthorityLevel.COMPLIANCE_OFFICER
-    )
+    pending_co = workflow.get_pending_requests(approver_level=AuthorityLevel.COMPLIANCE_OFFICER)
     assert len(pending_co) == 1
 
     # Should not be visible to operator

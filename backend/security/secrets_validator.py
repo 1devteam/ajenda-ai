@@ -88,16 +88,9 @@ def validate_secrets(environment: str = "development") -> None:
 
     # Check Redis password in production
     redis_url = os.getenv("REDIS_URL", "")
-    if (
-        redis_url
-        and is_production
-        and "://:@" not in redis_url
-        and "@" not in redis_url
-    ):
+    if redis_url and is_production and "://:@" not in redis_url and "@" not in redis_url:
         # Redis URL without authentication in production
-        issues.append(
-            "REDIS_URL does not include authentication credentials in production"
-        )
+        issues.append("REDIS_URL does not include authentication credentials in production")
 
     if issues:
         message = "Secrets validation failed:\n" + "\n".join(f"  - {i}" for i in issues)

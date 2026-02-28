@@ -258,11 +258,7 @@ class PolicyEvaluationRepository(BaseRepository[GovernancePolicyEvaluation]):
         if result:
             query = query.filter(GovernancePolicyEvaluation.result == result)
 
-        return (
-            query.order_by(desc(GovernancePolicyEvaluation.evaluated_at))
-            .limit(limit)
-            .all()
-        )
+        return query.order_by(desc(GovernancePolicyEvaluation.evaluated_at)).limit(limit).all()
 
     def get_cached_evaluation(
         self, policy_id: str, asset_id: str, max_age_minutes: int = 5

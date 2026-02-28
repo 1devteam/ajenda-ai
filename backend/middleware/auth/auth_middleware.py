@@ -35,15 +35,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(
-            minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
-        )
+        expire = datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode.update({"exp": expire})
 
-    encoded_jwt = jwt.encode(
-        to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
-    )
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     return encoded_jwt
 
@@ -68,9 +64,7 @@ def decode_access_token(token: str) -> TokenData:
     )
 
     try:
-        payload = jwt.decode(
-            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
 
         user_id: str = payload.get("user_id")
         email: str = payload.get("email")
@@ -123,9 +117,7 @@ async def get_current_user(
     )
 
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
 
     return user
 
@@ -137,9 +129,7 @@ async def get_current_active_user(
     Dependency to ensure the current user is active
     """
     if not current_user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
     return current_user
 
 
@@ -163,9 +153,7 @@ def require_role(required_role: UserRole):
             UserRole.ADMIN: 3,
         }
 
-        if role_hierarchy.get(current_user.role, 0) < role_hierarchy.get(
-            required_role, 999
-        ):
+        if role_hierarchy.get(current_user.role, 0) < role_hierarchy.get(required_role, 999):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Insufficient permissions. Required role: {required_role.value}",

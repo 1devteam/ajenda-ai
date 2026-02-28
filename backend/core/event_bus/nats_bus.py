@@ -310,9 +310,7 @@ class NATSEventBus:
                     return await handler(data)
                 return handler(data)
             except Exception as exc:
-                logger.error(
-                    "In-process request handler for '%s' raised: %s", subject, exc
-                )
+                logger.error("In-process request handler for '%s' raised: %s", subject, exc)
                 return {"error": str(exc)}
 
         # No handler registered — return an informative response instead of a
@@ -320,9 +318,7 @@ class NATSEventBus:
         logger.debug("[LOCAL] No request handler registered for: %s", subject)
         return {"status": "no_handler", "subject": subject}
 
-    async def publish_mission_event(
-        self, mission_id: str, status: str, data: dict = None
-    ):
+    async def publish_mission_event(self, mission_id: str, status: str, data: dict = None):
         """
         Helper: Publish mission lifecycle event
 
@@ -341,9 +337,7 @@ class NATSEventBus:
 
         await self.publish(subject, payload)
 
-    async def publish_agent_event(
-        self, agent_id: str, event_type: str, data: dict = None
-    ):
+    async def publish_agent_event(self, agent_id: str, event_type: str, data: dict = None):
         """
         Helper: Publish agent event
 
@@ -390,9 +384,7 @@ class NATSEventBus:
 
         await self.publish(subject, payload)
 
-    async def publish_learning_outcome(
-        self, agent_id: str, mission_id: str, outcome_data: dict
-    ):
+    async def publish_learning_outcome(self, agent_id: str, mission_id: str, outcome_data: dict):
         """
         Helper: Publish learning outcome
 

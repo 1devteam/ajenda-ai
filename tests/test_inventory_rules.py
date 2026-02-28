@@ -350,9 +350,7 @@ def test_tool_rule_similar_tools_suggestion(tool_rule, registry):
 # ============================================================================
 
 
-def test_agent_and_tool_rules_together(
-    agent_rule, tool_rule, sample_agent, sample_tool
-):
+def test_agent_and_tool_rules_together(agent_rule, tool_rule, sample_agent, sample_tool):
     """Test that both rules work together correctly."""
     # Check agent
     agent_context = {

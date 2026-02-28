@@ -95,9 +95,7 @@ class TestComplianceEvaluation:
             ComplianceTrace(rule="rule2", allowed=False, reason="Blocked"),
         ]
 
-        evaluation = ComplianceEvaluation(
-            allowed=False, reason="Blocked", traces=traces
-        )
+        evaluation = ComplianceEvaluation(allowed=False, reason="Blocked", traces=traces)
 
         assert evaluation.allowed is False
         assert evaluation.reason == "Blocked"

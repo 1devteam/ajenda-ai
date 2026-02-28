@@ -158,10 +158,7 @@ def test_track_deprecation(tracker):
     assert event is not None
     assert event.asset_id == "model-001"
     assert event.event_type == "deprecated"
-    assert (
-        "Replaced by model-002" in event.description
-        or "deprecated" in event.description.lower()
-    )
+    assert "Replaced by model-002" in event.description or "deprecated" in event.description.lower()
     assert (
         event.metadata.get("replacement_id") == "model-002"
         or event.metadata.get("reason") == "Replaced by model-002"

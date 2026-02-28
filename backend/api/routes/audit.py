@@ -313,9 +313,7 @@ async def get_compliance_score():
     return {
         "score": score,
         "timestamp": datetime.utcnow().isoformat(),
-        "status": (
-            "compliant" if score >= 80 else "non_compliant" if score < 60 else "warning"
-        ),
+        "status": ("compliant" if score >= 80 else "non_compliant" if score < 60 else "warning"),
     }
 
 

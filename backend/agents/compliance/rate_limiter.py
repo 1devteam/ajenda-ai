@@ -15,9 +15,7 @@ class RateLimiter:
     Base rate limiter interface.
     """
 
-    def check_rate_limit(
-        self, key: str, limit: int, window_seconds: int
-    ) -> tuple[bool, int, int]:
+    def check_rate_limit(self, key: str, limit: int, window_seconds: int) -> tuple[bool, int, int]:
         """
         Check if rate limit is exceeded.
 
@@ -48,9 +46,7 @@ class InMemoryRateLimiter(RateLimiter):
         # key -> deque of timestamps
         self._windows: Dict[str, deque] = defaultdict(deque)
 
-    def check_rate_limit(
-        self, key: str, limit: int, window_seconds: int
-    ) -> tuple[bool, int, int]:
+    def check_rate_limit(self, key: str, limit: int, window_seconds: int) -> tuple[bool, int, int]:
         """
         Check if rate limit is exceeded using sliding window.
 
@@ -124,9 +120,7 @@ class RedisRateLimiter(RateLimiter):
             getattr(redis_client.zadd, "__call__", None)
         )
 
-    def check_rate_limit(
-        self, key: str, limit: int, window_seconds: int
-    ) -> tuple[bool, int, int]:
+    def check_rate_limit(self, key: str, limit: int, window_seconds: int) -> tuple[bool, int, int]:
         """
         Check if rate limit is exceeded using Redis sorted set.
 
@@ -299,9 +293,7 @@ class ComplianceRateLimiter:
 
         return True, None
 
-    def reset_agent_limits(
-        self, agent_id: str, tool_name: Optional[str] = None
-    ) -> None:
+    def reset_agent_limits(self, agent_id: str, tool_name: Optional[str] = None) -> None:
         """
         Reset all rate limits for an agent.
 

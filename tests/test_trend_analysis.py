@@ -371,9 +371,7 @@ def test_forecast_no_data():
     """Test forecasting with no data."""
     analyzer = get_trend_analyzer()
 
-    forecast_30d, forecast_60d, forecast_90d, confidence = analyzer._forecast(
-        [], [30, 60, 90]
-    )
+    forecast_30d, forecast_60d, forecast_90d, confidence = analyzer._forecast([], [30, 60, 90])
 
     assert forecast_30d == 0.0
     assert forecast_60d == 0.0

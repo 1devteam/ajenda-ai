@@ -45,9 +45,7 @@ class ModelLineage:
     vector_db_sources: Optional[List[str]] = None  # Knowledge base sources
     training_date: Optional[datetime] = None
     model_version: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = (
-        None  # Model parameters (size, context length, etc.)
-    )
+    parameters: Optional[Dict[str, Any]] = None  # Model parameters (size, context length, etc.)
 
     def __post_init__(self):
         """Initialize empty lists if None."""
@@ -79,9 +77,7 @@ class AIAsset:
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     tags: List[str] = field(default_factory=list)
-    dependencies: List[str] = field(
-        default_factory=list
-    )  # Other asset IDs this depends on
+    dependencies: List[str] = field(default_factory=list)  # Other asset IDs this depends on
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert asset to dictionary for serialization."""

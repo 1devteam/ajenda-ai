@@ -105,20 +105,14 @@ class OmnipathAuthTest:
     async def test_access_protected_endpoint(self) -> bool:
         """Test 3: Access protected endpoint with token"""
         if not self.access_token:
-            self.log_test(
-                "Access Protected Endpoint", False, "No access token available"
-            )
+            self.log_test("Access Protected Endpoint", False, "No access token available")
             return False
 
         try:
             headers = {"Authorization": f"Bearer {self.access_token}"}
-            response = await self.client.get(
-                f"{self.base_url}/api/v1/agents", headers=headers
-            )
+            response = await self.client.get(f"{self.base_url}/api/v1/agents", headers=headers)
             passed = response.status_code == 200
-            self.log_test(
-                "Access Protected Endpoint", passed, f"Status: {response.status_code}"
-            )
+            self.log_test("Access Protected Endpoint", passed, f"Status: {response.status_code}")
             return passed
         except Exception as e:
             self.log_test("Access Protected Endpoint", False, f"Error: {str(e)}")
@@ -144,9 +138,7 @@ class OmnipathAuthTest:
         """Test 5: Access with invalid token (should fail)"""
         try:
             headers = {"Authorization": "Bearer invalid_token_12345"}
-            response = await self.client.get(
-                f"{self.base_url}/api/v1/agents", headers=headers
-            )
+            response = await self.client.get(f"{self.base_url}/api/v1/agents", headers=headers)
             # Should return 401 or 403
             passed = response.status_code in [401, 403]
             self.log_test(
@@ -285,9 +277,7 @@ class OmnipathAuthTest:
 
         try:
             headers = {"Authorization": f"Bearer {self.access_token}"}
-            response = await self.client.get(
-                f"{self.base_url}/api/v1/agents", headers=headers
-            )
+            response = await self.client.get(f"{self.base_url}/api/v1/agents", headers=headers)
             # Should return 401 or 403 after logout
             passed = response.status_code in [401, 403]
             self.log_test(

@@ -160,9 +160,7 @@ class MCPToolServer:
                 "isError": False,
             }
         except Exception as exc:
-            logger.error(
-                f"Tool execution error [{self.tool.name}]: {exc}", exc_info=True
-            )
+            logger.error(f"Tool execution error [{self.tool.name}]: {exc}", exc_info=True)
             return {
                 "content": [{"type": "text", "text": f"Error: {exc}"}],
                 "isError": True,
@@ -279,9 +277,7 @@ class MCPToolBridge:
         if tool is None:
             raise ValueError(f"Tool not registered: {tool_name!r}")
 
-        logger.info(
-            f"MCPToolBridge: calling tool '{tool_name}'", extra={"arguments": arguments}
-        )
+        logger.info(f"MCPToolBridge: calling tool '{tool_name}'", extra={"arguments": arguments})
 
         try:
             result = await tool.execute(**arguments)

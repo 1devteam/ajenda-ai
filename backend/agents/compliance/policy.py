@@ -173,9 +173,7 @@ class PolicyLoader:
         return cls.load_from_string(content, filepath=str(path))
 
     @classmethod
-    def load_from_string(
-        cls, content: str, filepath: Optional[str] = None
-    ) -> CompliancePolicy:
+    def load_from_string(cls, content: str, filepath: Optional[str] = None) -> CompliancePolicy:
         """
         Load policy from YAML string.
 

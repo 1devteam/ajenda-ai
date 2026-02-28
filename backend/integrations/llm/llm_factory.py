@@ -71,29 +71,19 @@ class LLMFactory:
             model = LLMFactory.DEFAULT_MODELS.get(provider)
 
         if provider == LLMProvider.OPENAI:
-            llm = LLMFactory._create_openai(
-                model, temperature, max_tokens, api_key, **kwargs
-            )
+            llm = LLMFactory._create_openai(model, temperature, max_tokens, api_key, **kwargs)
 
         elif provider == LLMProvider.ANTHROPIC:
-            llm = LLMFactory._create_anthropic(
-                model, temperature, max_tokens, api_key, **kwargs
-            )
+            llm = LLMFactory._create_anthropic(model, temperature, max_tokens, api_key, **kwargs)
 
         elif provider == LLMProvider.GOOGLE:
-            llm = LLMFactory._create_google(
-                model, temperature, max_tokens, api_key, **kwargs
-            )
+            llm = LLMFactory._create_google(model, temperature, max_tokens, api_key, **kwargs)
 
         elif provider == LLMProvider.XAI:
-            llm = LLMFactory._create_xai(
-                model, temperature, max_tokens, api_key, **kwargs
-            )
+            llm = LLMFactory._create_xai(model, temperature, max_tokens, api_key, **kwargs)
 
         elif provider == LLMProvider.OLLAMA:
-            llm = LLMFactory._create_ollama(
-                model, temperature, max_tokens, base_url, **kwargs
-            )
+            llm = LLMFactory._create_ollama(model, temperature, max_tokens, base_url, **kwargs)
 
         else:
             raise ValueError(f"Unsupported provider: {provider}")

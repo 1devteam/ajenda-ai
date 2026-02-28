@@ -125,9 +125,7 @@ def test_executive_summary_high_risk_finding():
     report = reporter.generate_executive_summary()
 
     # Should have finding about high-risk assets
-    high_risk_findings = [
-        f for f in report.findings if f["category"] == "High-Risk Assets"
-    ]
+    high_risk_findings = [f for f in report.findings if f["category"] == "High-Risk Assets"]
     assert len(high_risk_findings) > 0
 
 
@@ -192,9 +190,7 @@ def test_detailed_audit_deprecated_assets():
     report = reporter.generate_detailed_audit()
 
     # Should have finding about deprecated assets
-    deprecated_findings = [
-        f for f in report.findings if f["category"] == "Deprecated Assets"
-    ]
+    deprecated_findings = [f for f in report.findings if f["category"] == "Deprecated Assets"]
     assert len(deprecated_findings) > 0
 
 

@@ -107,9 +107,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # ── Cache-Control ──────────────────────────────────────────────────
         # API responses must not be cached by intermediaries
         if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = (
-                "no-store, no-cache, must-revalidate, private"
-            )
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
             response.headers["Pragma"] = "no-cache"
 
         # ── Remove server identification headers ───────────────────────────

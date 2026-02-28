@@ -93,9 +93,7 @@ class Alert:
             "recipients": self.recipients,
             "status": self.status.value,
             "acknowledged_by": self.acknowledged_by,
-            "acknowledged_at": (
-                self.acknowledged_at.isoformat() if self.acknowledged_at else None
-            ),
+            "acknowledged_at": (self.acknowledged_at.isoformat() if self.acknowledged_at else None),
             "resolved_by": self.resolved_by,
             "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
             "resolution": self.resolution,
@@ -247,9 +245,7 @@ class AlertManager:
             Created alert
         """
         # Find matching rules to determine recipients
-        recipients = self._get_recipients_for_alert(
-            alert_type, severity, metadata or {}
-        )
+        recipients = self._get_recipients_for_alert(alert_type, severity, metadata or {})
 
         alert = Alert(
             alert_id=f"alert-{uuid.uuid4()}",
@@ -386,9 +382,7 @@ class AlertManager:
             List of active alerts
         """
         return [
-            alert
-            for alert in self._alerts.values()
-            if alert.status not in [AlertStatus.RESOLVED]
+            alert for alert in self._alerts.values() if alert.status not in [AlertStatus.RESOLVED]
         ]
 
     def list_alerts(
@@ -461,15 +455,11 @@ class AlertManager:
 
         by_type = {}
         for alert_type in AlertType:
-            by_type[alert_type.value] = len(
-                [a for a in alerts if a.alert_type == alert_type]
-            )
+            by_type[alert_type.value] = len([a for a in alerts if a.alert_type == alert_type])
 
         by_severity = {}
         for severity in AlertSeverity:
-            by_severity[severity.value] = len(
-                [a for a in alerts if a.severity == severity]
-            )
+            by_severity[severity.value] = len([a for a in alerts if a.severity == severity])
 
         by_status = {}
         for status in AlertStatus:
