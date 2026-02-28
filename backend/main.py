@@ -25,7 +25,7 @@ from backend.api.routes import (
     economy,
     performance,
     metrics,
-    missions_v45,
+
     meta_learning,
     tenants,
     agents,
@@ -387,7 +387,7 @@ app.include_router(missions.router)
 app.include_router(economy.router)
 app.include_router(performance.router)
 app.include_router(metrics.router)
-app.include_router(missions_v45.router)
+
 app.include_router(meta_learning.router)
 app.include_router(approval.router)
 app.include_router(compliance_reports.router)

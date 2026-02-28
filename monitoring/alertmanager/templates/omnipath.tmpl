@@ -1,0 +1,37 @@
+{{/* Omnipath Alertmanager notification templates */}}
+
+{{/* Severity emoji helper */}}
+{{ define "omnipath.severity_emoji" -}}
+  {{- if eq .CommonLabels.severity "critical" }}🔴
+  {{- else if eq .CommonLabels.severity "high" }}🟠
+  {{- else if eq .CommonLabels.severity "medium" }}🟡
+  {{- else }}🔵{{ end -}}
+{{ end }}
+
+{{/* Short title for Slack */}}
+{{ define "omnipath.slack.title" -}}
+  {{ template "omnipath.severity_emoji" . }}
+  {{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }}:
+  {{ .CommonLabels.alertname }}
+  [{{ .CommonLabels.component }}]
+{{- end }}
+
+{{/* Slack message body */}}
+{{ define "omnipath.slack.text" -}}
+  {{ range .Alerts }}
+  *Summary:* {{ .Annotations.summary }}
+  *Details:* {{ .Annotations.description }}
+  {{ if .Annotations.runbook }}*Runbook:* {{ .Annotations.runbook }}{{ end }}
+  *Started:* {{ .StartsAt | since }}
+  {{ end }}
+{{- end }}
+
+{{/* PagerDuty description */}}
+{{ define "omnipath.pagerduty.description" -}}
+  {{ range .Alerts }}
+  [{{ .Labels.alertname }}] {{ .Annotations.summary }}
+  Component: {{ .Labels.component }}
+  {{ .Annotations.description }}
+  Runbook: {{ .Annotations.runbook }}
+  {{ end }}
+{{- end }}

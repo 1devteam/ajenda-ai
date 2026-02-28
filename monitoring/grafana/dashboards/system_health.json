@@ -1,0 +1,246 @@
+{
+  "id": null,
+  "uid": "omnipath-system-health",
+  "title": "Omnipath — System Health",
+  "description": "CPU, memory, database, NATS, Redis, and container health metrics",
+  "tags": ["omnipath", "system", "infrastructure"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "schemaVersion": 38,
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(up{job='omnipath-backend'}, instance)",
+        "includeAll": true,
+        "multi": true,
+        "label": "Instance"
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Deployments",
+        "datasource": "Prometheus",
+        "enable": true,
+        "expr": "changes(omnipath_version_info[2m]) > 0",
+        "iconColor": "blue",
+        "titleFormat": "Deploy: {{version}}"
+      },
+      {
+        "name": "OOM Events",
+        "datasource": "Prometheus",
+        "enable": true,
+        "expr": "changes(container_oom_events_total[2m]) > 0",
+        "iconColor": "red",
+        "titleFormat": "OOM Kill: {{container}}"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Backend Up",
+      "type": "stat",
+      "gridPos": {"h": 3, "w": 4, "x": 0, "y": 0},
+      "targets": [{"expr": "up{job='omnipath-backend'}", "legendFormat": "{{instance}}"}],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]
+        }
+      },
+      "options": {"colorMode": "background"}
+    },
+    {
+      "id": 2,
+      "title": "PostgreSQL Up",
+      "type": "stat",
+      "gridPos": {"h": 3, "w": 4, "x": 4, "y": 0},
+      "targets": [{"expr": "up{job='postgres'}", "legendFormat": "postgres"}],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]
+        }
+      },
+      "options": {"colorMode": "background"}
+    },
+    {
+      "id": 3,
+      "title": "Redis Up",
+      "type": "stat",
+      "gridPos": {"h": 3, "w": 4, "x": 8, "y": 0},
+      "targets": [{"expr": "up{job='redis'}", "legendFormat": "redis"}],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]
+        }
+      },
+      "options": {"colorMode": "background"}
+    },
+    {
+      "id": 4,
+      "title": "NATS Up",
+      "type": "stat",
+      "gridPos": {"h": 3, "w": 4, "x": 12, "y": 0},
+      "targets": [{"expr": "up{job='nats'}", "legendFormat": "nats"}],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]
+        }
+      },
+      "options": {"colorMode": "background"}
+    },
+    {
+      "id": 5,
+      "title": "Firing Alerts",
+      "type": "stat",
+      "gridPos": {"h": 3, "w": 8, "x": 16, "y": 0},
+      "targets": [{"expr": "count(ALERTS{alertstate='firing'}) or vector(0)", "legendFormat": "firing"}],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{"value": 0, "color": "green"}, {"value": 1, "color": "yellow"}, {"value": 5, "color": "red"}]
+          }
+        }
+      },
+      "options": {"colorMode": "background"}
+    },
+    {
+      "id": 6,
+      "title": "CPU Usage (%)",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 3},
+      "targets": [
+        {
+          "expr": "100 - (avg by (instance) (irate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)",
+          "legendFormat": "CPU {{instance}}"
+        },
+        {
+          "expr": "rate(process_cpu_seconds_total{job='omnipath-backend'}[5m]) * 100",
+          "legendFormat": "Backend process CPU"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{"value": 0, "color": "green"}, {"value": 70, "color": "yellow"}, {"value": 90, "color": "red"}]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Memory Usage",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 3},
+      "targets": [
+        {
+          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
+          "legendFormat": "Used"
+        },
+        {
+          "expr": "node_memory_MemTotal_bytes",
+          "legendFormat": "Total"
+        },
+        {
+          "expr": "process_resident_memory_bytes{job='omnipath-backend'}",
+          "legendFormat": "Backend RSS"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "id": 8,
+      "title": "DB Connection Pool",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 10},
+      "targets": [
+        {
+          "expr": "pg_stat_database_numbackends{datname='omnipath'}",
+          "legendFormat": "Active connections"
+        },
+        {
+          "expr": "pg_settings_max_connections",
+          "legendFormat": "Max connections"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 9,
+      "title": "DB Query Latency (p95 ms)",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 10},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(omnipath_db_query_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(omnipath_db_query_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 10,
+      "title": "Redis Memory & Hit Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 10},
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes / redis_memory_max_bytes * 100",
+          "legendFormat": "Memory %"
+        },
+        {
+          "expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100",
+          "legendFormat": "Hit rate %"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent"}}
+    },
+    {
+      "id": 11,
+      "title": "NATS Messages/sec",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 17},
+      "targets": [
+        {
+          "expr": "rate(nats_server_in_msgs_total[5m])",
+          "legendFormat": "Inbound msg/s"
+        },
+        {
+          "expr": "rate(nats_server_out_msgs_total[5m])",
+          "legendFormat": "Outbound msg/s"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "msgps"}}
+    },
+    {
+      "id": 12,
+      "title": "Disk I/O",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 17},
+      "targets": [
+        {
+          "expr": "rate(node_disk_read_bytes_total[5m])",
+          "legendFormat": "Read {{device}}"
+        },
+        {
+          "expr": "rate(node_disk_written_bytes_total[5m])",
+          "legendFormat": "Write {{device}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps"}}
+    }
+  ]
+}

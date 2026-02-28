@@ -1,0 +1,303 @@
+{
+  "id": null,
+  "uid": "omnipath-api-perf",
+  "title": "Omnipath — API Performance",
+  "description": "HTTP request rates, latency percentiles, error rates, and per-endpoint breakdown",
+  "tags": ["omnipath", "api", "performance"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "schemaVersion": 38,
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "type": "custom",
+        "query": "production,staging,development",
+        "current": {"value": "production", "text": "production"},
+        "includeAll": false,
+        "multi": false,
+        "label": "Environment"
+      },
+      {
+        "name": "method",
+        "type": "custom",
+        "query": "All,GET,POST,PUT,DELETE,PATCH",
+        "current": {"value": "All", "text": "All"},
+        "includeAll": true,
+        "multi": false,
+        "label": "HTTP Method"
+      },
+      {
+        "name": "endpoint",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(omnipath_http_requests_total, path)",
+        "includeAll": true,
+        "multi": true,
+        "label": "Endpoint"
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Deployments",
+        "datasource": "Prometheus",
+        "enable": true,
+        "expr": "changes(omnipath_version_info[2m]) > 0",
+        "iconColor": "blue",
+        "titleFormat": "Deploy: {{version}}",
+        "textFormat": "New deployment detected"
+      },
+      {
+        "name": "Incidents",
+        "datasource": "Prometheus",
+        "enable": true,
+        "expr": "ALERTS{severity='critical', alertstate='firing'}",
+        "iconColor": "red",
+        "titleFormat": "CRITICAL: {{alertname}}",
+        "textFormat": "{{description}}"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate (req/s)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(omnipath_http_requests_total[5m]))",
+          "legendFormat": "req/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": 0, "color": "green"},
+              {"value": 100, "color": "yellow"},
+              {"value": 500, "color": "red"}
+            ]
+          }
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area"}
+    },
+    {
+      "id": 2,
+      "title": "Error Rate (%)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(omnipath_http_requests_total{status=~'5..'}[5m])) / sum(rate(omnipath_http_requests_total[5m])) * 100",
+          "legendFormat": "error %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": 0, "color": "green"},
+              {"value": 1, "color": "yellow"},
+              {"value": 5, "color": "red"}
+            ]
+          }
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "id": 3,
+      "title": "P50 Latency (ms)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(omnipath_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p50"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": 0, "color": "green"},
+              {"value": 200, "color": "yellow"},
+              {"value": 500, "color": "red"}
+            ]
+          }
+        }
+      },
+      "options": {"colorMode": "value", "graphMode": "area"}
+    },
+    {
+      "id": 4,
+      "title": "P99 Latency (ms)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(omnipath_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": 0, "color": "green"},
+              {"value": 1000, "color": "yellow"},
+              {"value": 3000, "color": "red"}
+            ]
+          }
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area"}
+    },
+    {
+      "id": 5,
+      "title": "Request Rate by Status Code",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(omnipath_http_requests_total[5m]))",
+          "legendFormat": "HTTP {{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "reqps"},
+        "overrides": [
+          {"matcher": {"id": "byRegexp", "options": "5.."}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]},
+          {"matcher": {"id": "byRegexp", "options": "4.."}, "properties": [{"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}]},
+          {"matcher": {"id": "byRegexp", "options": "2.."}, "properties": [{"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]}
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "title": "Latency Percentiles",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(omnipath_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(omnipath_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p90"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(omnipath_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(omnipath_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 7,
+      "title": "Top 10 Slowest Endpoints (p95 ms)",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (path, le) (rate(omnipath_http_request_duration_seconds_bucket[5m]))) * 1000)",
+          "legendFormat": "{{path}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ms"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Value"}, "properties": [{"id": "displayName", "value": "p95 Latency (ms)"}, {"id": "custom.width", "value": 150}]}
+        ]
+      },
+      "options": {"sortBy": [{"displayName": "p95 Latency (ms)", "desc": true}]}
+    },
+    {
+      "id": 8,
+      "title": "Top 10 Highest Error Rate Endpoints",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {
+          "expr": "topk(10, sum by (path) (rate(omnipath_http_requests_total{status=~'5..'}[5m])) / sum by (path) (rate(omnipath_http_requests_total[5m])) * 100)",
+          "legendFormat": "{{path}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percent"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Value"}, "properties": [{"id": "displayName", "value": "Error Rate (%)"}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"value": 0, "color": "green"}, {"value": 1, "color": "yellow"}, {"value": 5, "color": "red"}]}}]}
+        ]
+      },
+      "options": {"sortBy": [{"displayName": "Error Rate (%)", "desc": true}]}
+    },
+    {
+      "id": 9,
+      "title": "Active Connections",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 20},
+      "targets": [
+        {
+          "expr": "omnipath_http_active_connections",
+          "legendFormat": "Active"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 10,
+      "title": "Request Size Distribution",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 20},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(omnipath_http_request_size_bytes_bucket[5m])) by (le))",
+          "legendFormat": "p50 request size"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(omnipath_http_request_size_bytes_bucket[5m])) by (le))",
+          "legendFormat": "p95 request size"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "id": 11,
+      "title": "Response Size Distribution",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 20},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(omnipath_http_response_size_bytes_bucket[5m])) by (le))",
+          "legendFormat": "p50 response size"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(omnipath_http_response_size_bytes_bucket[5m])) by (le))",
+          "legendFormat": "p95 response size"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    }
+  ]
+}

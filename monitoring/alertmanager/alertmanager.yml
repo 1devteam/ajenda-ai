@@ -1,0 +1,244 @@
+# Alertmanager Configuration for Omnipath v2
+# Built with Pride for Obex Blackvault
+#
+# Routing tree:
+#   critical  → PagerDuty (immediate) + Slack #alerts-critical
+#   high      → Slack #alerts-high (5m grouping)
+#   medium    → Slack #alerts-medium (15m grouping)
+#   low       → Email digest (1h grouping)
+#
+# Required environment variables:
+#   ALERTMANAGER_SLACK_WEBHOOK_CRITICAL   - Slack incoming webhook URL
+#   ALERTMANAGER_SLACK_WEBHOOK_HIGH       - Slack incoming webhook URL
+#   ALERTMANAGER_SLACK_WEBHOOK_MEDIUM     - Slack incoming webhook URL
+#   ALERTMANAGER_PAGERDUTY_KEY            - PagerDuty integration key
+#   ALERTMANAGER_EMAIL_FROM               - Sender email address
+#   ALERTMANAGER_EMAIL_TO                 - Recipient email address(es)
+#   ALERTMANAGER_SMTP_HOST                - SMTP server host:port
+#   ALERTMANAGER_SMTP_USER                - SMTP username
+#   ALERTMANAGER_SMTP_PASSWORD            - SMTP password
+
+global:
+  # Default SMTP settings — override with env vars in docker-compose
+  smtp_from: "${ALERTMANAGER_EMAIL_FROM}"
+  smtp_smarthost: "${ALERTMANAGER_SMTP_HOST}"
+  smtp_auth_username: "${ALERTMANAGER_SMTP_USER}"
+  smtp_auth_password: "${ALERTMANAGER_SMTP_PASSWORD}"
+  smtp_require_tls: true
+
+  # Slack default
+  slack_api_url: "${ALERTMANAGER_SLACK_WEBHOOK_HIGH}"
+
+  # How long to wait before sending a notification again
+  resolve_timeout: 5m
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Templates
+# ─────────────────────────────────────────────────────────────────────────────
+templates:
+  - "/etc/alertmanager/templates/*.tmpl"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Routing
+# ─────────────────────────────────────────────────────────────────────────────
+route:
+  # Default receiver for unmatched alerts
+  receiver: "slack-high"
+
+  # Group alerts by these labels to reduce noise
+  group_by: ["alertname", "component", "severity"]
+
+  # Wait before sending initial notification (collect related alerts)
+  group_wait: 30s
+
+  # Wait before sending a new notification for a group that already fired
+  group_interval: 5m
+
+  # Wait before re-sending a notification for an ongoing alert
+  repeat_interval: 4h
+
+  routes:
+    # ── Critical: immediate PagerDuty + Slack ────────────────────────────────
+    - match:
+        severity: critical
+      receiver: "pagerduty-critical"
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      continue: true  # also send to Slack
+
+    - match:
+        severity: critical
+      receiver: "slack-critical"
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+
+    # ── High: Slack with 5m grouping ─────────────────────────────────────────
+    - match:
+        severity: high
+      receiver: "slack-high"
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 2h
+
+    # ── Medium: Slack with 15m grouping ──────────────────────────────────────
+    - match:
+        severity: medium
+      receiver: "slack-medium"
+      group_wait: 5m
+      group_interval: 15m
+      repeat_interval: 6h
+
+    # ── Low: email digest ────────────────────────────────────────────────────
+    - match:
+        severity: low
+      receiver: "email-low"
+      group_wait: 10m
+      group_interval: 1h
+      repeat_interval: 24h
+
+    # ── Watchdog: heartbeat (silence by default) ─────────────────────────────
+    - match:
+        alertname: Watchdog
+      receiver: "null"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Inhibition Rules
+# Suppress lower-severity alerts when a higher-severity alert is firing
+# for the same component.
+# ─────────────────────────────────────────────────────────────────────────────
+inhibit_rules:
+  # Suppress high/medium/low when critical is firing for same component
+  - source_match:
+      severity: critical
+    target_match_re:
+      severity: "high|medium|low"
+    equal: ["component"]
+
+  # Suppress medium/low when high is firing for same component
+  - source_match:
+      severity: high
+    target_match_re:
+      severity: "medium|low"
+    equal: ["component"]
+
+  # Suppress low when medium is firing for same component
+  - source_match:
+      severity: medium
+    target_match:
+      severity: low
+    equal: ["component"]
+
+  # Suppress all alerts when the backend is down (avoid alert storm)
+  - source_match:
+      alertname: OmnipathBackendDown
+    target_match_re:
+      alertname: ".+"
+    equal: ["environment"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Receivers
+# ─────────────────────────────────────────────────────────────────────────────
+receivers:
+  # Null receiver (silence)
+  - name: "null"
+
+  # PagerDuty — critical alerts
+  - name: "pagerduty-critical"
+    pagerduty_configs:
+      - routing_key: "${ALERTMANAGER_PAGERDUTY_KEY}"
+        severity: critical
+        description: |
+          {{ range .Alerts }}
+          [{{ .Labels.alertname }}] {{ .Annotations.summary }}
+          Component: {{ .Labels.component }}
+          {{ .Annotations.description }}
+          Runbook: {{ .Annotations.runbook }}
+          {{ end }}
+        details:
+          environment: "{{ .CommonLabels.environment }}"
+          cluster: "{{ .CommonLabels.cluster }}"
+          component: "{{ .CommonLabels.component }}"
+
+  # Slack — critical channel
+  - name: "slack-critical"
+    slack_configs:
+      - api_url: "${ALERTMANAGER_SLACK_WEBHOOK_CRITICAL}"
+        channel: "#alerts-critical"
+        send_resolved: true
+        icon_emoji: ":rotating_light:"
+        username: "Omnipath Alertmanager"
+        title: |
+          {{ if eq .Status "firing" }}🔴 CRITICAL{{ else }}✅ RESOLVED{{ end }}: {{ .CommonLabels.alertname }}
+        text: |
+          *Component:* {{ .CommonLabels.component }}
+          *Environment:* {{ .CommonLabels.environment }}
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Details:* {{ .Annotations.description }}
+          *Runbook:* {{ .Annotations.runbook }}
+          {{ end }}
+        color: |
+          {{ if eq .Status "firing" }}danger{{ else }}good{{ end }}
+
+  # Slack — high severity
+  - name: "slack-high"
+    slack_configs:
+      - api_url: "${ALERTMANAGER_SLACK_WEBHOOK_HIGH}"
+        channel: "#alerts-high"
+        send_resolved: true
+        icon_emoji: ":warning:"
+        username: "Omnipath Alertmanager"
+        title: |
+          {{ if eq .Status "firing" }}🟠 HIGH{{ else }}✅ RESOLVED{{ end }}: {{ .CommonLabels.alertname }}
+        text: |
+          *Component:* {{ .CommonLabels.component }}
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Details:* {{ .Annotations.description }}
+          *Runbook:* {{ .Annotations.runbook }}
+          {{ end }}
+        color: |
+          {{ if eq .Status "firing" }}warning{{ else }}good{{ end }}
+
+  # Slack — medium severity
+  - name: "slack-medium"
+    slack_configs:
+      - api_url: "${ALERTMANAGER_SLACK_WEBHOOK_MEDIUM}"
+        channel: "#alerts-medium"
+        send_resolved: true
+        icon_emoji: ":information_source:"
+        username: "Omnipath Alertmanager"
+        title: |
+          {{ if eq .Status "firing" }}🟡 MEDIUM{{ else }}✅ RESOLVED{{ end }}: {{ .CommonLabels.alertname }}
+        text: |
+          *Component:* {{ .CommonLabels.component }}
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Details:* {{ .Annotations.description }}
+          {{ end }}
+
+  # Email — low severity digest
+  - name: "email-low"
+    email_configs:
+      - to: "${ALERTMANAGER_EMAIL_TO}"
+        send_resolved: true
+        headers:
+          Subject: |
+            [Omnipath] {{ if eq .Status "firing" }}{{ .Alerts.Firing | len }} alert(s) firing{{ else }}Alerts resolved{{ end }}
+        html: |
+          <h2>Omnipath Alert Digest</h2>
+          <p><strong>Status:</strong> {{ .Status }}</p>
+          <p><strong>Environment:</strong> {{ .CommonLabels.environment }}</p>
+          <table border="1" cellpadding="5">
+            <tr><th>Alert</th><th>Component</th><th>Summary</th><th>Runbook</th></tr>
+            {{ range .Alerts }}
+            <tr>
+              <td>{{ .Labels.alertname }}</td>
+              <td>{{ .Labels.component }}</td>
+              <td>{{ .Annotations.summary }}</td>
+              <td>{{ .Annotations.runbook }}</td>
+            </tr>
+            {{ end }}
+          </table>

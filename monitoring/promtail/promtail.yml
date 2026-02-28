@@ -1,0 +1,113 @@
+# Promtail Configuration for Omnipath v2
+# Collects structured JSON logs from the backend container and ships to Loki
+# Built with Pride for Obex Blackvault
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    tenant_id: omnipath
+    batchwait: 1s
+    batchsize: 1048576  # 1 MiB
+    timeout: 10s
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+
+scrape_configs:
+  # ── Backend application logs ─────────────────────────────────────────────
+  - job_name: omnipath-backend
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: omnipath-backend
+          environment: production
+          __path__: /var/log/omnipath/*.log
+
+    pipeline_stages:
+      # Parse JSON log lines emitted by python-json-logger
+      - json:
+          expressions:
+            level: levelname
+            logger: name
+            message: message
+            timestamp: asctime
+            request_id: request_id
+            tenant_id: tenant_id
+            agent_id: agent_id
+            mission_id: mission_id
+            duration_ms: duration_ms
+            status_code: status_code
+            error: error
+
+      # Promote parsed fields to Loki labels (low-cardinality only)
+      - labels:
+          level:
+          logger:
+          tenant_id:
+
+      # Set log timestamp from the JSON field
+      - timestamp:
+          source: timestamp
+          format: "2006-01-02 15:04:05,000"
+          fallback_formats:
+            - "2006-01-02T15:04:05Z07:00"
+            - RFC3339
+
+      # Set log level for Loki level filtering
+      - static_labels:
+          service: omnipath-backend
+
+      # Drop DEBUG logs in production to reduce volume
+      - match:
+          selector: '{level="DEBUG"}'
+          action: drop
+          drop_counter_reason: debug_filtered
+
+  # ── Nginx access logs ────────────────────────────────────────────────────
+  - job_name: nginx-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx-access
+          environment: production
+          __path__: /var/log/nginx/access.log
+
+    pipeline_stages:
+      # Parse nginx combined log format
+      - regex:
+          expression: >-
+            ^(?P<remote_addr>\S+) - (?P<remote_user>\S+) \[(?P<time_local>[^\]]+)\]
+            "(?P<method>\S+) (?P<path>\S+) (?P<protocol>[^"]+)"
+            (?P<status>\d+) (?P<body_bytes_sent>\d+)
+            "(?P<http_referer>[^"]*)" "(?P<http_user_agent>[^"]*)"$
+
+      - labels:
+          method:
+          status:
+
+      - static_labels:
+          service: nginx
+
+  # ── Nginx error logs ─────────────────────────────────────────────────────
+  - job_name: nginx-error
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx-error
+          environment: production
+          __path__: /var/log/nginx/error.log
+
+    pipeline_stages:
+      - static_labels:
+          service: nginx
+          level: error

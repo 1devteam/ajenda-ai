@@ -1,0 +1,197 @@
+{
+  "id": null,
+  "uid": "omnipath-logs",
+  "title": "Omnipath — Logs",
+  "description": "Structured log explorer: error rates, slow requests, agent activity, and full log stream",
+  "tags": ["omnipath", "logs", "loki"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "schemaVersion": 38,
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "level",
+        "type": "custom",
+        "query": "All,DEBUG,INFO,WARNING,ERROR,CRITICAL",
+        "current": {"value": "All", "text": "All"},
+        "includeAll": true,
+        "multi": false,
+        "label": "Log Level"
+      },
+      {
+        "name": "tenant_id",
+        "type": "query",
+        "datasource": "Loki",
+        "query": "label_values({job='omnipath-backend'}, tenant_id)",
+        "includeAll": true,
+        "multi": false,
+        "label": "Tenant"
+      },
+      {
+        "name": "search",
+        "type": "textbox",
+        "label": "Search",
+        "current": {"value": ""}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Log Volume by Level",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 0},
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "sum by (level) (rate({job='omnipath-backend'}[5m]))",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "ERROR"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "WARNING"}, "properties": [{"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "INFO"}, "properties": [{"id": "color", "value": {"fixedColor": "blue", "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "CRITICAL"}, "properties": [{"id": "color", "value": {"fixedColor": "dark-red", "mode": "fixed"}}]}
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Error Rate (errors/min)",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "sum(rate({job='omnipath-backend', level=~'ERROR|CRITICAL'}[5m])) * 60",
+          "legendFormat": "errors/min"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{"value": 0, "color": "green"}, {"value": 1, "color": "yellow"}, {"value": 10, "color": "red"}]
+          }
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area"}
+    },
+    {
+      "id": 3,
+      "title": "Unique Error Types (last 1h)",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "count(count by (logger) (rate({job='omnipath-backend', level='ERROR'}[1h])))",
+          "legendFormat": "unique error sources"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{"value": 0, "color": "green"}, {"value": 3, "color": "yellow"}, {"value": 10, "color": "red"}]
+          }
+        }
+      },
+      "options": {"colorMode": "background"}
+    },
+    {
+      "id": 4,
+      "title": "Error Log Stream",
+      "type": "logs",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 6},
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "{job='omnipath-backend', level=~'ERROR|CRITICAL'} |= \"$search\"",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Slow Requests (>1s)",
+      "type": "logs",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "{job='omnipath-backend'} | json | duration_ms > 1000 |= \"$search\"",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Agent Activity Log",
+      "type": "logs",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "{job='omnipath-backend', logger=~'.*agent.*'} |= \"$search\"",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Full Log Stream",
+      "type": "logs",
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 24},
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "{job='omnipath-backend'} | json | level=~\"$level\" |= \"$search\"",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "showCommonLabels": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ]
+}

@@ -1,0 +1,4663 @@
+{
+  "info": {
+    "_postman_id": "a452c95b-b9da-4e77-8c6d-63c83d8f57ae",
+    "name": "Omnipath",
+    "description": "Multi-agent AI system with observability, meta-learning, and agent economy",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Health check endpoint for monitoring and load balancers"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Version",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/version",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "version"
+              ]
+            },
+            "description": "Get version information"
+          },
+          "response": []
+        },
+        {
+          "name": "Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Root endpoint with API information"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Register a new user\n\nCreates a new user account with email and password.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"string\",\n  \"password\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "User login\n\nAuthenticates user and returns access and refresh tokens.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token Endpoint",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Refresh access token\n\nUses refresh token to get a new access token.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "User logout\n\nRevokes the current access token."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Get current user info\n\nReturns the authenticated user's information."
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Token Endpoint",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "verify"
+              ]
+            },
+            "description": "Verify token validity\n\nReturns 200 if token is valid, 401 otherwise."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Tenants",
+      "item": [
+        {
+          "name": "Create Tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants"
+              ]
+            },
+            "description": "Create a new tenant\n\nCreates a new tenant/organization in the system with database persistence.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Tenants",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants"
+              ]
+            },
+            "description": "List all tenants\n\nReturns a list of tenants from the database with optional filtering."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tenant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants/{tenant_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{tenant_id}"
+              ]
+            },
+            "description": "Get tenant by ID\n\nRetrieves a specific tenant's information from the database."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Tenant",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants/{tenant_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{tenant_id}"
+              ]
+            },
+            "description": "Update tenant\n\nUpdates a tenant's information in the database.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Tenant",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants/{tenant_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{tenant_id}"
+              ]
+            },
+            "description": "Delete tenant\n\nDeletes a tenant from the database.\nNote: This will cascade delete all related users, agents, and missions."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Agents",
+      "item": [
+        {
+          "name": "Create Agent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents"
+              ]
+            },
+            "description": "Create a new agent\n\nCreates a new AI agent with specified configuration.\nAgent will be created under the authenticated user's tenant.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"type\": \"custom\",\n  \"model\": \"gpt-4\",\n  \"temperature\": 0.7,\n  \"capabilities\": [],\n  \"config\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Agents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents"
+              ]
+            },
+            "description": "List all agents\n\nReturns a list of agents with optional filtering.\nUsers can only see agents in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Agent",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "{agent_id}"
+              ]
+            },
+            "description": "Get agent by ID\n\nRetrieves a specific agent's information.\nUsers can only access agents in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Agent",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "{agent_id}"
+              ]
+            },
+            "description": "Update agent\n\nUpdates an agent's configuration.\nUsers can only update agents in their own tenant.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Agent",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "{agent_id}"
+              ]
+            },
+            "description": "Delete agent\n\nDeletes an agent from the system.\nUsers can only delete agents in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Activate Agent",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/{agent_id}/activate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "{agent_id}",
+                "activate"
+              ]
+            },
+            "description": "Activate agent\n\nSets agent status to IDLE (ready to accept missions).\nUsers can only activate agents in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate Agent",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/{agent_id}/deactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "{agent_id}",
+                "deactivate"
+              ]
+            },
+            "description": "Deactivate agent\n\nSets agent status to OFFLINE (not accepting missions).\nUsers can only deactivate agents in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "List Specialized Agent Types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "types"
+              ]
+            },
+            "description": "List available specialized agent types\n\nReturns information about all specialized agent types including their\ncapabilities, tools, and use cases.\n\nThis endpoint does not require any parameters and is available to all\nauthenticated users."
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Specialized Agent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/execute",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "execute"
+              ]
+            },
+            "description": "Execute a task with a specialized agent\n\nThis endpoint allows direct execution of specialized agents (Researcher, Analyst, Developer)\nwith their reasoning workflows and tool-calling capabilities.\n\nThe agent will use LangGraph-based reasoning to plan, execute, reflect, and adapt\nits approach to complete the task.\n\n**Agent Types:**\n- `researcher`: Conducts research, gathers information, synthesizes findings\n- `analyst`: Analyzes data, performs calculations, generates insights\n- `developer`: Generates code, debugs issues, writes tests\n\n**Example Tasks:**\n- Researcher: `{\"query\": \"What is quantum computing?\", \"depth\": \"standard\"}`\n- Analyst: `{\"data\": {...}, \"analysis_type\": \"descriptive\"}`\n- Developer: `{\"task_type\": \"generate\", \"specification\": \"Create a sorting function\"}`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_type\": \"string\",\n  \"task\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Available Tools",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/tools",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "tools"
+              ]
+            },
+            "description": "List all available tools for agents\n\nReturns information about all tools that specialized agents can use,\nincluding their descriptions, categories, and usage examples."
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Researcher Agent",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/research",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "research"
+              ]
+            },
+            "description": "Execute a research task with the Researcher agent\n\nConvenience endpoint for directly executing research tasks without\nneeding to construct the full request payload.\n\nThe Researcher agent will:\n1. Search the web for relevant information\n2. Synthesize findings from multiple sources\n3. Provide citations and sources\n4. Generate a comprehensive research report\n\n**Parameters:**\n- `query`: The research question or topic\n- `depth`: Research depth - \"standard\" for quick research, \"deep\" for comprehensive\n\n**Example:**\n```\nPOST /api/v1/agents/research\n{\n    \"query\": \"What is the latest research on quantum computing?\",\n    \"depth\": \"deep\"\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Analyst Agent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/analyze",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "analyze"
+              ]
+            },
+            "description": "Execute an analysis task with the Analyst agent\n\nConvenience endpoint for directly executing data analysis tasks.\n\nThe Analyst agent will:\n1. Analyze the provided data\n2. Perform statistical calculations\n3. Identify patterns and trends\n4. Generate actionable insights\n\n**Parameters:**\n- `data`: The data to analyze (dict, list, or structured data)\n- `analysis_type`: Type of analysis - \"descriptive\", \"comparative\", \"predictive\"\n\n**Example:**\n```\nPOST /api/v1/agents/analyze\n{\n    \"data\": {\"sales\": [100, 200, 150, 300], \"costs\": [50, 80, 60, 120]},\n    \"analysis_type\": \"descriptive\"\n}\n```",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {},\n  \"analysis_type\": \"descriptive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Developer Agent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/develop",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "develop"
+              ]
+            },
+            "description": "Execute a development task with the Developer agent\n\nConvenience endpoint for directly executing code-related tasks.\n\nThe Developer agent will:\n1. Generate code based on specifications\n2. Debug and fix code issues\n3. Write unit tests\n4. Review code and provide feedback\n\n**Parameters:**\n- `specification`: Description of what code to generate or task to perform\n- `task_type`: Type of task - \"generate\", \"debug\", \"review\", \"test\"\n\n**Example:**\n```\nPOST /api/v1/agents/develop\n{\n    \"specification\": \"Create a function to calculate the fibonacci sequence\",\n    \"task_type\": \"generate\"\n}\n```",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"specification\": \"string\",\n  \"task_type\": \"generate\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Missions",
+      "item": [
+        {
+          "name": "Create Mission",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/missions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "missions"
+              ]
+            },
+            "description": "Create a new mission\n\nCreates a new mission for an agent to execute.\nMission will be created under the authenticated user's tenant.\nAgent must belong to the same tenant.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_id\": \"string\",\n  \"priority\": \"normal\",\n  \"context\": {},\n  \"max_steps\": 10,\n  \"timeout_seconds\": 300\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Missions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/missions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "missions"
+              ]
+            },
+            "description": "List all missions\n\nReturns a list of missions with optional filtering.\nUsers can only see missions in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Mission",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/missions/{mission_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "missions",
+                "{mission_id}"
+              ]
+            },
+            "description": "Get mission by ID\n\nRetrieves a specific mission's information.\nUsers can only access missions in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Mission",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/missions/{mission_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "missions",
+                "{mission_id}"
+              ]
+            },
+            "description": "Update mission\n\nUpdates a mission's status or result.\nUsers can only update missions in their own tenant.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Mission",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/missions/{mission_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "missions",
+                "{mission_id}"
+              ]
+            },
+            "description": "Delete mission\n\nDeletes a mission from the system.\nUsers can only delete missions in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Start Mission",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/missions/{mission_id}/start",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "missions",
+                "{mission_id}",
+                "start"
+              ]
+            },
+            "description": "Start mission execution\n\nBegins executing a pending mission.\nUsers can only start missions in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Complete Mission",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/missions/{mission_id}/complete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "missions",
+                "{mission_id}",
+                "complete"
+              ]
+            },
+            "description": "Complete mission execution\n\nMarks a mission as completed with results.\nUsers can only complete missions in their own tenant.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Fail Mission",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/missions/{mission_id}/fail",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "missions",
+                "{mission_id}",
+                "fail"
+              ]
+            },
+            "description": "Fail mission execution\n\nMarks a mission as failed with error details.\nUsers can only fail missions in their own tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Mission",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/missions/{mission_id}/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "missions",
+                "{mission_id}",
+                "cancel"
+              ]
+            },
+            "description": "Cancel mission execution\n\nCancels a pending or running mission.\nUsers can only cancel missions in their own tenant."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Economy",
+      "item": [
+        {
+          "name": "Get Agent Balances",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/economy/balance",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "economy",
+                "balance"
+              ]
+            },
+            "description": "Get all agent balances for the current tenant"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/economy/transactions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "economy",
+                "transactions"
+              ]
+            },
+            "description": "Get transaction history for the tenant or specific agent"
+          },
+          "response": []
+        },
+        {
+          "name": "Top Up Credits",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/economy/top-up",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "economy",
+                "top-up"
+              ]
+            },
+            "description": "Add credits to the tenant's economy\nIn production, this would integrate with a payment processor"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Economy Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/economy/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "economy",
+                "stats"
+              ]
+            },
+            "description": "Get economy statistics for the tenant"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Performance",
+      "item": [
+        {
+          "name": "Get All Agent Performance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/performance/agents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "performance",
+                "agents"
+              ]
+            },
+            "description": "Get performance metrics for all agents in the tenant.\n\nReturns success rates, costs, and self-improvement activity computed\ndirectly from the missions table."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Agent Performance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/performance/agents/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "performance",
+                "agents",
+                "{agent_id}"
+              ]
+            },
+            "description": "Get performance metrics for a specific agent.\n\nRaises 404 if the agent does not exist or belongs to a different tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Improvement History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/performance/improvements",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "performance",
+                "improvements"
+              ]
+            },
+            "description": "Get self-improvement event history.\n\nImprovement events are stored in ``agent.config[\"improvements\"]``.\nReturns an empty list if no improvements have been recorded."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Performance Trends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/performance/trends/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "performance",
+                "trends",
+                "{agent_id}"
+              ]
+            },
+            "description": "Get performance trends over time for an agent.\n\nAggregates mission data by calendar day over the requested window and\nreturns one data point per day that had at least one mission.\n\nRaises 404 if the agent does not exist or belongs to a different tenant."
+          },
+          "response": []
+        },
+        {
+          "name": "Trigger Manual Improvement",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/performance/trigger-improvement/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "performance",
+                "trigger-improvement",
+                "{agent_id}"
+              ]
+            },
+            "description": "Manually trigger self-improvement analysis for an agent.\n\nNormally happens automatically every 10 missions.  This endpoint queues\nan immediate analysis regardless of the mission count threshold."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Metrics",
+      "item": [
+        {
+          "name": "Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/metrics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "metrics"
+              ]
+            },
+            "description": "Prometheus metrics endpoint\n\nExposes all Prometheus metrics for scraping"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Meta-learning",
+      "item": [
+        {
+          "name": "Get Agent Performance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/performance/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "performance",
+                "{agent_id}"
+              ]
+            },
+            "description": "Get performance metrics for a specific agent\n\nReturns aggregated statistics including:\n- Success rate\n- Average cost and duration\n- Quality scores\n- Complexity breakdown\n- Recent trends"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Agent Performance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/performance",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "performance"
+              ]
+            },
+            "description": "Get performance metrics for all agents\n\nReturns a dictionary of agent_id -> performance metrics"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Leaderboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/leaderboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "leaderboard"
+              ]
+            },
+            "description": "Get top performing agents by a specific metric\n\nAvailable metrics:\n- success_rate: Percentage of successful missions\n- avg_cost_per_mission: Average cost efficiency\n- avg_duration_per_mission: Average speed\n- average_quality: Average output quality"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Learning Insights",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/insights/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "insights",
+                "{agent_id}"
+              ]
+            },
+            "description": "Get actionable learning insights for an agent\n\nProvides:\n- Performance summary\n- Identified patterns\n- Recommendations for improvement\n- Best practices for this agent"
+          },
+          "response": []
+        },
+        {
+          "name": "Analyze Agent",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/analysis/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "analysis",
+                "{agent_id}"
+              ]
+            },
+            "description": "Comprehensive analysis of an agent's performance\n\nIncludes:\n- Model performance analysis\n- Complexity analysis\n- Cost efficiency analysis\n- Quality analysis\n- Optimization recommendations"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Recommendations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/recommendations/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "recommendations",
+                "{agent_id}"
+              ]
+            },
+            "description": "Get optimization recommendations for an agent\n\nReturns specific, actionable recommendations with:\n- Current vs recommended values\n- Expected improvement\n- Confidence level\n- Reasoning"
+          },
+          "response": []
+        },
+        {
+          "name": "Auto Optimize Agent",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/optimize/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "optimize",
+                "{agent_id}"
+              ]
+            },
+            "description": "Automatically generate optimized configuration for an agent\n\nAnalyzes performance data and creates an optimized configuration\nincluding:\n- Preferred model\n- Optimal complexity level\n- Cost limits\n- Quality thresholds"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Agent Configuration",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/configuration/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "configuration",
+                "{agent_id}"
+              ]
+            },
+            "description": "Get the current optimized configuration for an agent\n\nReturns the configuration generated by auto-optimization"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Complexity Insights",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/complexity-insights",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "complexity-insights"
+              ]
+            },
+            "description": "Get insights about mission complexity across all agents\n\nShows success rates, costs, and durations for each complexity level"
+          },
+          "response": []
+        },
+        {
+          "name": "Get System Insights",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/system-insights",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "system-insights"
+              ]
+            },
+            "description": "Get system-wide insights across all agents\n\nProvides:\n- Overall statistics\n- Top performers\n- System-wide trends\n- Complexity analysis"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Recent Outcomes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/recent-outcomes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "recent-outcomes"
+              ]
+            },
+            "description": "Get recent mission outcomes\n\nUseful for debugging and monitoring recent performance"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Meta Learning Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "stats"
+              ]
+            },
+            "description": "Get overall meta-learning system statistics\n\nQuick overview of the learning system status"
+          },
+          "response": []
+        },
+        {
+          "name": "Record Mission Outcome",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/record-outcome",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "record-outcome"
+              ]
+            },
+            "description": "Record a mission outcome for learning\n\nThis endpoint is typically called by the mission executor\nafter a mission completes.\n\nExpected payload:\n{\n    \"mission_id\": \"string\",\n    \"agent_id\": \"string\",\n    \"tenant_id\": \"string\",\n    \"outcome\": \"success|failure|partial|error\",\n    \"duration_seconds\": float,\n    \"cost\": float,\n    \"complexity\": \"simple|moderate|complex|swarm\",\n    \"model_used\": \"string (optional)\",\n    \"tokens_used\": int (optional),\n    \"quality_score\": float (optional),\n    \"error_message\": \"string (optional)\"\n}",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Clear Performance Data",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meta-learning/clear-data",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "meta-learning",
+                "clear-data"
+              ]
+            },
+            "description": "Clear all performance tracking data\n\n\u26a0\ufe0f WARNING: This will delete all learning data!\nUse only for testing or reset purposes."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Approval",
+      "item": [
+        {
+          "name": "Create Approval Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/approval/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "approval",
+                "requests"
+              ]
+            },
+            "description": "Create new approval request.\n\nArgs:\n    request: Approval request data\n\nReturns:\n    Created approval request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_id\": \"string\",\n  \"agent_type\": \"string\",\n  \"tool_name\": \"string\",\n  \"parameters\": {},\n  \"reason\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Approval Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/approval/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "approval",
+                "requests"
+              ]
+            },
+            "description": "List approval requests.\n\nArgs:\n    status: Optional status filter\n    agent_id: Optional agent ID filter\n    limit: Maximum number of requests\n\nReturns:\n    List of approval requests"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Approval Request",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/approval/requests/{request_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "approval",
+                "requests",
+                "{request_id}"
+              ]
+            },
+            "description": "Get approval request by ID.\n\nArgs:\n    request_id: Request ID\n\nReturns:\n    Approval request"
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Request",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/approval/requests/{request_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "approval",
+                "requests",
+                "{request_id}"
+              ]
+            },
+            "description": "Cancel approval request.\n\nArgs:\n    request_id: Request ID\n\nReturns:\n    No content"
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/approval/requests/{request_id}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "approval",
+                "requests",
+                "{request_id}",
+                "approve"
+              ]
+            },
+            "description": "Approve approval request.\n\nArgs:\n    request_id: Request ID\n    approve_req: Approval data\n\nReturns:\n    Updated approval request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approved_by\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reject Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/approval/requests/{request_id}/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "approval",
+                "requests",
+                "{request_id}",
+                "reject"
+              ]
+            },
+            "description": "Reject approval request.\n\nArgs:\n    request_id: Request ID\n    reject_req: Rejection data\n\nReturns:\n    Updated approval request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rejected_by\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cleanup Expired Requests",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/approval/requests/cleanup",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "approval",
+                "requests",
+                "cleanup"
+              ]
+            },
+            "description": "Cleanup expired approval requests.\n\nReturns:\n    Number of requests marked as expired"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Compliance",
+      "item": [
+        {
+          "name": "Get Compliance Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/compliance/reports/summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "compliance",
+                "reports",
+                "summary"
+              ]
+            },
+            "description": "Get overall compliance summary.\n\nArgs:\n    hours: Time window in hours (default: 24)\n\nReturns:\n    Compliance summary"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Agent Compliance Report",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/compliance/reports/agent/{agent_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "compliance",
+                "reports",
+                "agent",
+                "{agent_id}"
+              ]
+            },
+            "description": "Get agent-specific compliance report.\n\nArgs:\n    agent_id: Agent ID\n    hours: Time window in hours\n\nReturns:\n    Agent compliance report"
+          },
+          "response": []
+        },
+        {
+          "name": "List Compliance Violations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/compliance/reports/violations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "compliance",
+                "reports",
+                "violations"
+              ]
+            },
+            "description": "List compliance violations.\n\nArgs:\n    hours: Time window in hours\n    agent_id: Optional agent ID filter\n    rule: Optional rule filter\n    limit: Maximum number of violations\n\nReturns:\n    List of compliance violations"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Compliance Trends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/compliance/reports/trends",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "compliance",
+                "reports",
+                "trends"
+              ]
+            },
+            "description": "Get compliance trends over time.\n\nArgs:\n    period: Time period for grouping (hour, day, week)\n    hours: Time window in hours\n\nReturns:\n    Compliance trends"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Approval Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/compliance/reports/approvals/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "compliance",
+                "reports",
+                "approvals",
+                "stats"
+              ]
+            },
+            "description": "Get approval workflow statistics.\n\nReturns:\n    Approval statistics"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Registry",
+      "item": [
+        {
+          "name": "Create Asset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets"
+              ]
+            },
+            "description": "Register a new AI asset.\n\nCreates a new asset in the registry with the specified properties.\nAll agents, tools, and models must be registered before use.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset_id\": \"string\",\n  \"asset_type\": \"string\",\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"owner\": \"string\",\n  \"status\": \"active\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Assets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets"
+              ]
+            },
+            "description": "List assets with optional filters.\n\nReturns a list of assets matching the specified filters.\nIf no filters are provided, returns all assets."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Asset",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets/{asset_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets",
+                "{asset_id}"
+              ]
+            },
+            "description": "Get an asset by ID.\n\nReturns the asset details including lineage, metadata, and dependencies."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Asset",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets/{asset_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets",
+                "{asset_id}"
+              ]
+            },
+            "description": "Update an asset.\n\nUpdates the specified fields of an asset. Only provided fields are updated.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Asset",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets/{asset_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets",
+                "{asset_id}"
+              ]
+            },
+            "description": "Delete an asset.\n\nRemoves the asset from the registry. This action cannot be undone."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Dependencies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets/{asset_id}/dependencies",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets",
+                "{asset_id}",
+                "dependencies"
+              ]
+            },
+            "description": "Get dependencies for an asset.\n\nReturns the list of assets that this asset depends on.\nIf recursive=true, returns all transitive dependencies."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Dependents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets/{asset_id}/dependents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets",
+                "{asset_id}",
+                "dependents"
+              ]
+            },
+            "description": "Get assets that depend on this asset.\n\nReturns the list of assets that have this asset as a dependency."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Lineage",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets/{asset_id}/lineage",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets",
+                "{asset_id}",
+                "lineage"
+              ]
+            },
+            "description": "Get lineage for an asset.\n\nReturns the model lineage information including base model,\nfine-tuning data, and vector database sources."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Lineage Chain",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets/{asset_id}/lineage/chain",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets",
+                "{asset_id}",
+                "lineage",
+                "chain"
+              ]
+            },
+            "description": "Get the full lineage chain for an asset.\n\nTraces back through dependencies to find the origin.\nReturns the chain from origin to current asset."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Lineage Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/assets/{asset_id}/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "assets",
+                "{asset_id}",
+                "events"
+              ]
+            },
+            "description": "Get lineage events for an asset.\n\nReturns the timeline of events (created, fine-tuned, updated, deprecated)\nfor the specified asset, sorted by timestamp (newest first)."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Lineage Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "events"
+              ]
+            },
+            "description": "Track a lineage event.\n\nCreates a new event in the lineage timeline for an asset.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset_id\": \"string\",\n  \"event_type\": \"string\",\n  \"description\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Registry Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/registry/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "registry",
+                "stats"
+              ]
+            },
+            "description": "Get registry statistics.\n\nReturns aggregate statistics about assets in the registry."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Tags",
+      "item": [
+        {
+          "name": "List Tag Definitions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/definitions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "definitions"
+              ]
+            },
+            "description": "List all tag definitions.\n\nReturns all configured tag rules used for auto-tagging."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Tag Definition",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/definitions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "definitions"
+              ]
+            },
+            "description": "Create a new tag definition.\n\nTag definitions control how assets are automatically tagged based on context.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"category\": \"string\",\n  \"risk_weight\": 0.0,\n  \"conditions\": [],\n  \"confidence\": 1.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tag Definition",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/definitions/{name}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "definitions",
+                "{name}"
+              ]
+            },
+            "description": "Get a specific tag definition by name."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Tag Definition",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/definitions/{name}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "definitions",
+                "{name}"
+              ]
+            },
+            "description": "Delete a tag definition.\n\nNote: This only removes the auto-tagging rule, not existing tags on assets."
+          },
+          "response": []
+        },
+        {
+          "name": "Apply Tags To Asset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/assets/{asset_id}/apply",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "assets",
+                "{asset_id}",
+                "apply"
+              ]
+            },
+            "description": "Apply contextual tags to an asset based on usage context.\n\nAnalyzes the provided context and automatically applies relevant tags.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"context\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Asset Tags",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/assets/{asset_id}/tags",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "assets",
+                "{asset_id}",
+                "tags"
+              ]
+            },
+            "description": "Get all contextual tags for an asset with history."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Tag From Asset",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/assets/{asset_id}/tags/{tag_name}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "assets",
+                "{asset_id}",
+                "tags",
+                "{tag_name}"
+              ]
+            },
+            "description": "Remove a specific tag from an asset."
+          },
+          "response": []
+        },
+        {
+          "name": "Assess Asset Risk",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/assets/{asset_id}/assess-risk",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "assets",
+                "{asset_id}",
+                "assess-risk"
+              ]
+            },
+            "description": "Assess risk level for an asset based on its tags.\n\nMaps asset tags to EU AI Act risk categories and generates compliance requirements."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Asset Risk",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/assets/{asset_id}/risk",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "assets",
+                "{asset_id}",
+                "risk"
+              ]
+            },
+            "description": "Get current risk assessment for an asset."
+          },
+          "response": []
+        },
+        {
+          "name": "Check User Authority",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/authority/check",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "authority",
+                "check"
+              ]
+            },
+            "description": "Check if user has authority to access an asset based on risk level.\n\nEnforces risk-based access control using authority levels.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"string\",\n  \"user_authority_level\": 0,\n  \"asset_id\": \"string\",\n  \"human_oversight\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Assets By Tag",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/analysis/by-tag/{tag_name}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "analysis",
+                "by-tag",
+                "{tag_name}"
+              ]
+            },
+            "description": "Get all assets that have a specific tag."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tag Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/analysis/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "analysis",
+                "stats"
+              ]
+            },
+            "description": "Get overall tag usage statistics."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Compliance Report",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tags/compliance/report",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tags",
+                "compliance",
+                "report"
+              ]
+            },
+            "description": "Get compliance report showing assets by risk level and requirements."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Risk",
+      "item": [
+        {
+          "name": "Calculate Risk Score",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/assets/{asset_id}/calculate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "assets",
+                "{asset_id}",
+                "calculate"
+              ]
+            },
+            "description": "Calculate risk score for an asset.\n\nThis endpoint calculates a comprehensive risk score based on:\n- Inherent risk (EU AI Act level)\n- Data sensitivity (tags)\n- Operational context (production, user-facing, etc.)\n- Historical risk (past incidents)\n\nReturns:\n    Risk score with breakdown by factor"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Risk Score",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/assets/{asset_id}/score",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "assets",
+                "{asset_id}",
+                "score"
+              ]
+            },
+            "description": "Get current risk score for an asset (from cache if available).\n\nReturns cached score if available and not expired, otherwise calculates new score.\n\nReturns:\n    Risk score with breakdown"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Risk Breakdown",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/assets/{asset_id}/breakdown",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "assets",
+                "{asset_id}",
+                "breakdown"
+              ]
+            },
+            "description": "Get detailed risk breakdown by factor.\n\nReturns:\n    Dictionary mapping risk factors to scores"
+          },
+          "response": []
+        },
+        {
+          "name": "Recalculate All Scores",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/recalculate-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "recalculate-all"
+              ]
+            },
+            "description": "Recalculate risk scores for all assets.\n\nThis is a maintenance endpoint for bulk recalculation.\n\nReturns:\n    List of updated risk scores"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Approval Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/approvals",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "approvals"
+              ]
+            },
+            "description": "Create an approval request for a high-risk operation.\n\nThe system automatically determines the required approval level based on\nthe asset's risk tier.\n\nReturns:\n    Created approval request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset_id\": \"string\",\n  \"operation\": \"string\",\n  \"requester_id\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pending Approvals",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/approvals",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "approvals"
+              ]
+            },
+            "description": "Get pending approval requests.\n\nOptionally filter by approver authority level.\n\nReturns:\n    List of pending approval requests"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Approval Request",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/approvals/{request_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "approvals",
+                "{request_id}"
+              ]
+            },
+            "description": "Get approval request by ID.\n\nReturns:\n    Approval request details"
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/approvals/{request_id}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "approvals",
+                "{request_id}",
+                "approve"
+              ]
+            },
+            "description": "Approve an approval request.\n\nReturns:\n    Updated approval request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approver_id\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reject Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/approvals/{request_id}/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "approvals",
+                "{request_id}",
+                "reject"
+              ]
+            },
+            "description": "Reject an approval request.\n\nReturns:\n    Updated approval request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approver_id\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Escalate Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/approvals/{request_id}/escalate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "approvals",
+                "{request_id}",
+                "escalate"
+              ]
+            },
+            "description": "Escalate an approval request to higher authority.\n\nReturns:\n    Updated approval request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"escalated_by\": \"string\",\n  \"reason\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Approval History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/approvals/asset/{asset_id}/history",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "approvals",
+                "asset",
+                "{asset_id}",
+                "history"
+              ]
+            },
+            "description": "Get approval history for an asset.\n\nReturns:\n    List of all approval requests for the asset"
+          },
+          "response": []
+        },
+        {
+          "name": "Check Approval Required",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/approvals/check/{asset_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "approvals",
+                "check",
+                "{asset_id}"
+              ]
+            },
+            "description": "Check if approval is required for an operation.\n\nReturns:\n    Dictionary with required flag and risk tier"
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Executed",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/approvals/{request_id}/execute",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "approvals",
+                "{request_id}",
+                "execute"
+              ]
+            },
+            "description": "Mark an approved request as executed.\n\nReturns:\n    Updated approval request"
+          },
+          "response": []
+        },
+        {
+          "name": "Assess Impact",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/assets/{asset_id}/impact",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "assets",
+                "{asset_id}",
+                "impact"
+              ]
+            },
+            "description": "Assess comprehensive impact for an asset.\n\nEvaluates three dimensions:\n- Business impact (revenue, customers, penalties, reputation)\n- Technical impact (dependencies, data volume, blast radius, RTO)\n- Compliance impact (requirements, audit trails, documentation)\n\nReturns:\n    Impact score with breakdown"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Blast Radius",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/assets/{asset_id}/blast-radius",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "assets",
+                "{asset_id}",
+                "blast-radius"
+              ]
+            },
+            "description": "Calculate blast radius for an asset.\n\nReturns:\n    Dictionary with blast radius count"
+          },
+          "response": []
+        },
+        {
+          "name": "Estimate Recovery Time",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/assets/{asset_id}/recovery-time",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "assets",
+                "{asset_id}",
+                "recovery-time"
+              ]
+            },
+            "description": "Estimate recovery time objective (RTO) for an asset.\n\nReturns:\n    Dictionary with RTO in hours"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Mitigation Strategies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/mitigation-strategies/{risk_tier}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "mitigation-strategies",
+                "{risk_tier}"
+              ]
+            },
+            "description": "Get recommended mitigation strategies for a risk tier.\n\nReturns:\n    List of mitigation strategies"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Asset Mitigation Strategies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/risk/mitigation-strategies/asset/{asset_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "mitigation-strategies",
+                "asset",
+                "{asset_id}"
+              ]
+            },
+            "description": "Get recommended mitigation strategies for a specific asset.\n\nReturns:\n    List of mitigation strategies based on asset's risk tier"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Metrics Overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/metrics/overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "metrics",
+                "overview"
+              ]
+            },
+            "description": "Get portfolio overview metrics.\n\nReturns comprehensive statistics including asset counts, risk distribution,\nand compliance coverage."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Risk Distribution",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/metrics/risk-distribution",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "metrics",
+                "risk-distribution"
+              ]
+            },
+            "description": "Get risk tier distribution.\n\nReturns count of assets in each risk tier."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Risk Heatmap",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/metrics/heatmap",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "metrics",
+                "heatmap"
+              ]
+            },
+            "description": "Get risk heatmap (asset type \u00d7 risk tier matrix).\n\nReturns matrix showing distribution of risk across asset types."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Top Risks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/metrics/top-risks",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "metrics",
+                "top-risks"
+              ]
+            },
+            "description": "Get top N highest-risk assets.\n\nArgs:\n    limit: Maximum number of assets to return (1-100)\n\nReturns:\n    List of highest-risk assets with scores and details"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Approval Queue Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/metrics/approval-queue",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "metrics",
+                "approval-queue"
+              ]
+            },
+            "description": "Get approval queue statistics.\n\nReturns counts of assets requiring different approval levels."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Risk Trends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/metrics/trends",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "metrics",
+                "trends"
+              ]
+            },
+            "description": "Get risk trends over time.\n\nArgs:\n    days: Number of days to look back (1-365)\n\nReturns:\n    Risk score trends with moving averages"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Compliance Posture",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/metrics/compliance-posture",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "metrics",
+                "compliance-posture"
+              ]
+            },
+            "description": "Get compliance posture summary.\n\nReturns compliance coverage, gaps, and readiness metrics."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Executive Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/reports/executive-summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "reports",
+                "executive-summary"
+              ]
+            },
+            "description": "Generate executive summary report.\n\nHigh-level overview of compliance posture, risk distribution, and key gaps.\n\nArgs:\n    days: Number of days to include in report (1-365)\n    generated_by: User ID generating the report\n\nReturns:\n    Executive summary report"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Detailed Audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/reports/audit",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "reports",
+                "audit"
+              ]
+            },
+            "description": "Generate detailed audit report.\n\nComplete asset inventory with compliance status, approval history,\nlineage tracking, and tag application history.\n\nArgs:\n    days: Number of days to include in audit (1-365)\n    generated_by: User ID generating the report\n\nReturns:\n    Detailed audit report"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Regulatory Compliance Report",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/reports/regulatory/{regulation}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "reports",
+                "regulatory",
+                "{regulation}"
+              ]
+            },
+            "description": "Generate regulatory compliance report.\n\nCompliance status for specific regulation (EU AI Act, GDPR, HIPAA, SOX).\n\nArgs:\n    regulation: Regulation name (\"eu_ai_act\", \"gdpr\", \"hipaa\", \"sox\")\n    generated_by: User ID generating the report\n\nReturns:\n    Regulatory compliance report"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Risk Assessment Report",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/reports/risk-assessment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "reports",
+                "risk-assessment"
+              ]
+            },
+            "description": "Generate risk assessment report.\n\nPortfolio risk analysis with factor breakdown, high-risk deep dive,\nand mitigation recommendations.\n\nArgs:\n    generated_by: User ID generating the report\n\nReturns:\n    Risk assessment report"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Risk Score Trends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/trends/risk-scores",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "trends",
+                "risk-scores"
+              ]
+            },
+            "description": "Get risk score trends over time.\n\nArgs:\n    days: Number of days to analyze (1-365)\n    asset_id: Specific asset ID (None for portfolio average)\n\nReturns:\n    Risk score trends with forecasts"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Asset Growth Trends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/trends/asset-growth",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "trends",
+                "asset-growth"
+              ]
+            },
+            "description": "Get asset growth trends over time.\n\nArgs:\n    days: Number of days to analyze (1-365)\n\nReturns:\n    Asset count trends with forecasts"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Compliance Trends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/trends/compliance",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "trends",
+                "compliance"
+              ]
+            },
+            "description": "Get compliance coverage trends over time.\n\nArgs:\n    days: Number of days to analyze (1-365)\n\nReturns:\n    Compliance coverage trends with forecasts"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Approval Volume Trends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/trends/approval-volume",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "trends",
+                "approval-volume"
+              ]
+            },
+            "description": "Get approval volume trends over time.\n\nArgs:\n    days: Number of days to analyze (1-365)\n\nReturns:\n    Approval volume trends with forecasts"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Forecast",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/forecast/{metric}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "forecast",
+                "{metric}"
+              ]
+            },
+            "description": "Get forecast for specific metric.\n\nArgs:\n    metric: Metric name (\"risk_score\", \"asset_count\", \"compliance\", \"approval_volume\")\n    days: Number of historical days to analyze (1-365)\n\nReturns:\n    Forecast data for 30/60/90 days"
+          },
+          "response": []
+        },
+        {
+          "name": "Export Dashboard Data",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/export",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "export"
+              ]
+            },
+            "description": "Export dashboard data in specified format.\n\nArgs:\n    format: Export format (\"json\" or \"csv\")\n    include_metrics: Include risk metrics\n    include_reports: Include compliance reports\n    include_trends: Include trend analysis\n\nReturns:\n    Exported dashboard data"
+          },
+          "response": []
+        },
+        {
+          "name": "Record Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard/snapshot",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "snapshot"
+              ]
+            },
+            "description": "Record current state snapshot for trend analysis.\n\nShould be called periodically (e.g., daily via cron) to build historical data.\n\nReturns:\n    Confirmation message"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Policies",
+      "item": [
+        {
+          "name": "Create Policy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies"
+              ]
+            },
+            "description": "Create a new policy.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"conditions\": [],\n  \"actions\": [],\n  \"applies_to\": [],\n  \"priority\": 0,\n  \"created_by\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Policies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies"
+              ]
+            },
+            "description": "List policies with optional filters."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Policy",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/{policy_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "{policy_id}"
+              ]
+            },
+            "description": "Get policy by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Policy",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/{policy_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "{policy_id}"
+              ]
+            },
+            "description": "Update an existing policy.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"updated_by\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Policy",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/{policy_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "{policy_id}"
+              ]
+            },
+            "description": "Delete a policy."
+          },
+          "response": []
+        },
+        {
+          "name": "Activate Policy",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/{policy_id}/activate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "{policy_id}",
+                "activate"
+              ]
+            },
+            "description": "Activate a policy."
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate Policy",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/{policy_id}/deactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "{policy_id}",
+                "deactivate"
+              ]
+            },
+            "description": "Deactivate a policy."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Policy History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/{policy_id}/history",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "{policy_id}",
+                "history"
+              ]
+            },
+            "description": "Get change history for a policy."
+          },
+          "response": []
+        },
+        {
+          "name": "List Templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "templates"
+              ]
+            },
+            "description": "List policy templates."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Template",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/templates/{template_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "templates",
+                "{template_id}"
+              ]
+            },
+            "description": "Get template by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Create From Template",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/from-template",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "from-template"
+              ]
+            },
+            "description": "Create a policy from a template.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"template_id\": \"string\",\n  \"name\": \"string\",\n  \"applies_to\": [],\n  \"priority\": 0,\n  \"created_by\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Evaluate Policies",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/evaluate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "evaluate"
+              ]
+            },
+            "description": "Evaluate policies for a given context.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset_id\": \"string\",\n  \"operation\": \"string\",\n  \"user_id\": \"string\",\n  \"user_role\": \"string\",\n  \"user_authority_level\": 0,\n  \"data_accessed\": [],\n  \"api_endpoints\": [],\n  \"metadata\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Applicable Policies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/applicable",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "applicable"
+              ]
+            },
+            "description": "Get all applicable policies for an asset type."
+          },
+          "response": []
+        },
+        {
+          "name": "Test Policy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/test",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "test"
+              ]
+            },
+            "description": "Test a policy before activation.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset_id\": \"string\",\n  \"operation\": \"string\",\n  \"user_id\": \"string\",\n  \"user_role\": \"string\",\n  \"user_authority_level\": 0,\n  \"data_accessed\": [],\n  \"api_endpoints\": [],\n  \"metadata\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Policy Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "stats"
+              ]
+            },
+            "description": "Get policy statistics."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Enforcement History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/{policy_id}/enforcement",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "{policy_id}",
+                "enforcement"
+              ]
+            },
+            "description": "Get enforcement history for a policy."
+          },
+          "response": []
+        },
+        {
+          "name": "Detect Policy Conflicts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/policies/conflicts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "policies",
+                "conflicts"
+              ]
+            },
+            "description": "Detect potential policy conflicts."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Audit",
+      "item": [
+        {
+          "name": "List Audit Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "events"
+              ]
+            },
+            "description": "List audit events with optional filters.\n\nReturns recent audit events sorted by timestamp (newest first)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Audit Event",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/events/{event_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "events",
+                "{event_id}"
+              ]
+            },
+            "description": "Get audit event by ID.\n\nReturns detailed information about a specific audit event."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Audit Trail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/trail/{asset_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "trail",
+                "{asset_id}"
+              ]
+            },
+            "description": "Get complete audit trail for an asset.\n\nReturns all events related to an asset, sorted chronologically."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Anomalies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/anomalies",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "anomalies"
+              ]
+            },
+            "description": "Get detected anomalies.\n\nReturns all anomalies detected by the audit monitor."
+          },
+          "response": []
+        },
+        {
+          "name": "Export Audit Data",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/export",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "export"
+              ]
+            },
+            "description": "Export audit data.\n\nReturns audit data in exportable format (JSON).\nIn production, this would support CSV, PDF, etc."
+          },
+          "response": []
+        },
+        {
+          "name": "Run Compliance Check",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/checks/run",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "checks",
+                "run"
+              ]
+            },
+            "description": "Run a compliance check.\n\nExecutes an automated compliance check and returns results.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"check_type\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Compliance Checks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/checks",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "checks"
+              ]
+            },
+            "description": "List compliance check results.\n\nReturns recent compliance checks sorted by timestamp."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Compliance Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/checks/{check_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "checks",
+                "{check_id}"
+              ]
+            },
+            "description": "Get compliance check by ID.\n\nReturns detailed results of a specific compliance check."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Compliance Score",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/compliance-score",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "compliance-score"
+              ]
+            },
+            "description": "Get overall compliance score.\n\nReturns aggregate compliance score (0-100) based on recent checks."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Violations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/violations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "violations"
+              ]
+            },
+            "description": "Get active compliance violations.\n\nReturns all findings with CRITICAL or HIGH severity."
+          },
+          "response": []
+        },
+        {
+          "name": "List Alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/alerts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "alerts"
+              ]
+            },
+            "description": "List alerts with optional filters.\n\nReturns recent alerts sorted by timestamp."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Alert",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/alerts/{alert_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "alerts",
+                "{alert_id}"
+              ]
+            },
+            "description": "Get alert by ID.\n\nReturns detailed information about a specific alert."
+          },
+          "response": []
+        },
+        {
+          "name": "Acknowledge Alert",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/alerts/{alert_id}/acknowledge",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "alerts",
+                "{alert_id}",
+                "acknowledge"
+              ]
+            },
+            "description": "Acknowledge an alert.\n\nMarks an alert as acknowledged by a user.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resolve Alert",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/alerts/{alert_id}/resolve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "alerts",
+                "{alert_id}",
+                "resolve"
+              ]
+            },
+            "description": "Resolve an alert.\n\nMarks an alert as resolved with resolution description.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"string\",\n  \"resolution\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Active Alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit/alerts/active",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "alerts",
+                "active"
+              ]
+            },
+            "description": "Get active (unresolved) alerts.\n\nReturns all alerts that haven't been resolved."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Integrations",
+      "item": [
+        {
+          "name": "Subscribe Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/webhooks/subscribe",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "webhooks",
+                "subscribe"
+              ]
+            },
+            "description": "Subscribe to webhook events.\n\nCreates a webhook subscription for specified event types.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"string\",\n  \"events\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unsubscribe Webhook",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/webhooks/{subscription_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "webhooks",
+                "{subscription_id}"
+              ]
+            },
+            "description": "Unsubscribe from webhook events.\n\nRemoves a webhook subscription."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Webhook",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/webhooks/{subscription_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "webhooks",
+                "{subscription_id}"
+              ]
+            },
+            "description": "Get webhook subscription by ID.\n\nReturns detailed information about a webhook subscription."
+          },
+          "response": []
+        },
+        {
+          "name": "List Webhooks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/webhooks",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "webhooks"
+              ]
+            },
+            "description": "List webhook subscriptions.\n\nReturns all webhook subscriptions."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Webhook Deliveries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/webhooks/{subscription_id}/deliveries",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "webhooks",
+                "{subscription_id}",
+                "deliveries"
+              ]
+            },
+            "description": "Get webhook delivery history.\n\nReturns all delivery attempts for a subscription."
+          },
+          "response": []
+        },
+        {
+          "name": "Test Webhook",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/webhooks/{subscription_id}/test",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "webhooks",
+                "{subscription_id}",
+                "test"
+              ]
+            },
+            "description": "Test a webhook subscription.\n\nSends a test event to verify webhook is working."
+          },
+          "response": []
+        },
+        {
+          "name": "Retry Failed Webhooks",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/webhooks/retry-failed",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "webhooks",
+                "retry-failed"
+              ]
+            },
+            "description": "Retry all failed webhook deliveries.\n\nRetries all deliveries that failed but haven't exceeded max retries."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Api Key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/api-keys",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "api-keys"
+              ]
+            },
+            "description": "Create an API key.\n\nGenerates a new API key for external access.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"organization\": \"string\",\n  \"permissions\": [],\n  \"rate_limit\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Api Keys",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/api-keys",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "api-keys"
+              ]
+            },
+            "description": "List API keys.\n\nReturns all API keys."
+          },
+          "response": []
+        },
+        {
+          "name": "Revoke Api Key",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/api-keys/{key_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "api-keys",
+                "{key_id}"
+              ]
+            },
+            "description": "Revoke an API key.\n\nDeactivates an API key."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Api Key",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/api-keys/{key_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "api-keys",
+                "{key_id}"
+              ]
+            },
+            "description": "Get API key by ID.\n\nReturns detailed information about an API key."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Api Key Usage",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/api-keys/{key_id}/usage",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "api-keys",
+                "{key_id}",
+                "usage"
+              ]
+            },
+            "description": "Get API key usage statistics.\n\nReturns usage metrics for an API key."
+          },
+          "response": []
+        },
+        {
+          "name": "Validate Api Key",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/api-keys/{key_id}/validate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "api-keys",
+                "{key_id}",
+                "validate"
+              ]
+            },
+            "description": "Validate an API key.\n\nChecks if an API key is valid and active."
+          },
+          "response": []
+        },
+        {
+          "name": "Check Rate Limit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/api-keys/{key_id}/rate-limit",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "api-keys",
+                "{key_id}",
+                "rate-limit"
+              ]
+            },
+            "description": "Check rate limit status.\n\nReturns current rate limit status for an API key."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Stream Subscriptions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/stream/subscriptions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "stream",
+                "subscriptions"
+              ]
+            },
+            "description": "Get active stream subscriptions.\n\nReturns all active event stream subscriptions."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Recent Stream Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/stream/{stream_type}/recent",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "stream",
+                "{stream_type}",
+                "recent"
+              ]
+            },
+            "description": "Get recent events from a stream.\n\nReturns recent events without subscribing to the stream."
+          },
+          "response": []
+        },
+        {
+          "name": "Publish Stream Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/stream/{stream_type}/publish",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "stream",
+                "{stream_type}",
+                "publish"
+              ]
+            },
+            "description": "Publish an event to a stream.\n\nManually publish an event to a stream (for testing/integration).",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Stream Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/stream/statistics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "stream",
+                "statistics"
+              ]
+            },
+            "description": "Get streaming statistics.\n\nReturns metrics about event streams and subscriptions."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Stream Types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/integrations/stream/types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "stream",
+                "types"
+              ]
+            },
+            "description": "Get available stream types.\n\nReturns list of available event stream types."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
