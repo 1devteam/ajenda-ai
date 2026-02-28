@@ -7,7 +7,7 @@ Built with Pride for Obex Blackvault
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime
 import uuid
 
 from backend.agents.compliance.policy_engine import (
@@ -19,7 +19,6 @@ from backend.agents.compliance.policy_engine import (
     ConditionType,
     ConditionOperator,
     ActionType,
-    PolicyManager,
     PolicyTemplateLibrary,
     get_policy_manager,
 )
@@ -124,7 +123,7 @@ def test_condition_from_dict():
 
 def test_condition_with_and_logic():
     """Test condition with AND logic."""
-    condition1 = PolicyCondition(
+    _ = PolicyCondition(
         condition_type=ConditionType.ASSET_TAG,
         operator=ConditionOperator.CONTAINS,
         field="tags",
@@ -152,7 +151,7 @@ def test_condition_with_and_logic():
 
 def test_condition_with_or_logic():
     """Test condition with OR logic."""
-    condition1 = PolicyCondition(
+    _ = PolicyCondition(
         condition_type=ConditionType.RISK_TIER,
         operator=ConditionOperator.EQUALS,
         field="risk_tier",
@@ -282,7 +281,7 @@ def test_policy_with_inheritance():
     """Test policy with parent inheritance."""
     now = datetime.utcnow()
 
-    parent = Policy(
+    _ = Policy(
         policy_id="parent-001",
         name="Parent Policy",
         description="Parent",

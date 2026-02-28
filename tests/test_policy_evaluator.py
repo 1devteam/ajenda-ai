@@ -8,7 +8,6 @@ Built with Pride for Obex Blackvault
 
 import pytest
 from datetime import datetime
-import uuid
 
 from backend.agents.compliance.policy_engine import (
     Policy,
@@ -22,8 +21,6 @@ from backend.agents.compliance.policy_engine import (
 )
 from backend.agents.compliance.policy_evaluator import (
     EvaluationContext,
-    PolicyEvaluationResult,
-    PolicyEvaluator,
     get_policy_evaluator,
 )
 from backend.agents.registry.asset_registry import (

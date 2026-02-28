@@ -6,17 +6,14 @@ Built with Pride for Obex Blackvault
 """
 
 import pytest
-from datetime import datetime, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database.base import Base
 from backend.database.governance_models import (
-    GovernanceAsset,
     AssetType,
     AssetStatus,
     RiskTier,
-    ComplianceStatus,
     AuthorityLevel,
     ApprovalStatus,
     PolicyStatus,
@@ -25,7 +22,6 @@ from backend.database.repositories import (
     AssetRepository,
     LineageRepository,
     PolicyRepository,
-    PolicyEvaluationRepository,
     AuditRepository,
     ApprovalRepository,
 )
@@ -454,7 +450,7 @@ def test_approval_repository_approve(db_session):
         tenant_id="tenant_1",
     )
 
-    approval = approval_repo.create_approval_request(
+    _ = approval_repo.create_approval_request(
         id="approval_1",
         asset_id="asset_1",
         tenant_id="tenant_1",

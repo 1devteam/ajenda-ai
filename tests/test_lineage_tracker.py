@@ -8,17 +8,11 @@ Built with Pride for Obex Blackvault.
 """
 
 import pytest
-from datetime import datetime, timedelta
-from backend.agents.registry.lineage_tracker import (
-    LineageEvent,
-    LineageTracker,
-)
+from datetime import datetime
 from backend.agents.registry.asset_registry import (
     AIAsset,
     AssetType,
-    AssetStatus,
     ModelLineage,
-    get_registry,
 )
 
 pytestmark = pytest.mark.unit

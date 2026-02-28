@@ -9,7 +9,6 @@ Built with Pride for Obex Blackvault
 """
 
 import pytest
-from datetime import datetime, timedelta
 from backend.agents.compliance.compliance_checker import (
     get_compliance_checker,
     ComplianceCheckType,
@@ -17,7 +16,6 @@ from backend.agents.compliance.compliance_checker import (
     Severity,
     Regulation,
     ComplianceFinding,
-    ComplianceCheck,
 )
 from backend.agents.registry.asset_registry import (
     get_registry,
@@ -36,8 +34,6 @@ from backend.agents.compliance.policy_engine import (
 )
 from backend.agents.compliance.risk_scoring import (
     get_risk_scoring_engine,
-    RiskScore,
-    RiskTier,
 )
 
 pytestmark = pytest.mark.unit

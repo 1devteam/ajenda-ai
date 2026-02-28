@@ -10,9 +10,8 @@ import httpx
 import json
 import time
 import statistics
-from typing import List, Dict, Any
+from typing import Dict, Any
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
 
 
 class OmnipathPerformanceTest:
@@ -111,13 +110,13 @@ class OmnipathPerformanceTest:
                     response = await client.get(f"{self.base_url}/health")
                     latency = (time.time() - start) * 1000
                     return latency if response.status_code == 200 else None
-                except:
+                except Exception:
                     return None
 
         # Run concurrent requests
         tasks = [make_request() for _ in range(concurrent_users)]
         latencies = await asyncio.gather(*tasks)
-        latencies = [l for l in latencies if l is not None]
+        latencies = [lat for lat in latencies if lat is not None]
 
         if not latencies:
             print("  ❌ All concurrent requests failed")
@@ -160,7 +159,7 @@ class OmnipathPerformanceTest:
                         request_count += 1
                     else:
                         error_count += 1
-                except:
+                except Exception:
                     error_count += 1
 
         actual_duration = time.time() - start_time
@@ -171,7 +170,7 @@ class OmnipathPerformanceTest:
             else 0
         )
 
-        print(f"\n📊 Throughput Test")
+        print("\n📊 Throughput Test")
         print(f"  Duration: {actual_duration:.1f}s")
         print(f"  Successful Requests: {request_count}")
         print(f"  Failed Requests: {error_count}")
@@ -179,9 +178,9 @@ class OmnipathPerformanceTest:
         print(f"  Error Rate: {error_rate:.2f}%")
 
         if throughput >= 50:
-            print(f"  ✅ Throughput meets target (50 req/sec)")
+            print("  ✅ Throughput meets target (50 req/sec)")
         else:
-            print(f"  ❌ Throughput below target (50 req/sec)")
+            print("  ❌ Throughput below target (50 req/sec)")
 
         self.test_results["Throughput"] = {
             "duration": actual_duration,
@@ -225,7 +224,8 @@ class OmnipathPerformanceTest:
                     status = "❌"
                 print(f"\n{status} Throughput")
                 print(
-                    f"   {metrics['throughput_req_per_sec']:.1f} req/sec (Target: {metrics.get('target_throughput', 0):.0f})"
+                    f"   {metrics['throughput_req_per_sec']:.1f} req/sec "
+                    f"(Target: {metrics.get('target_throughput', 0):.0f})"
                 )
 
         print("\n" + "=" * 60)

@@ -211,7 +211,7 @@ class TestEndToEndWorkflows:
         # Step 1: Check initial balance
         response = client.get("/api/v1/economy/balance", headers=auth_headers)
         assert response.status_code == 200
-        initial_balances = response.json()
+        response.json()
 
         # Step 2: View economy stats
         response = client.get("/api/v1/economy/stats", headers=auth_headers)

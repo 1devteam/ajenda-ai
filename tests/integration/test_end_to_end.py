@@ -9,7 +9,7 @@ import asyncio
 import httpx
 import json
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 from datetime import datetime
 
 
@@ -150,7 +150,7 @@ class OmnipathE2ETest:
                 try:
                     error_data = response.json()
                     details = f"Status: {response.status_code}, Error: {json.dumps(error_data)}"
-                except:
+                except Exception:
                     details = f"Status: {response.status_code}, Response: {response.text[:200]}"
 
             self.log_test("Register User", passed, details)
@@ -185,7 +185,7 @@ class OmnipathE2ETest:
                 try:
                     error_data = response.json()
                     details = f"Status: {response.status_code}, Error: {json.dumps(error_data)}"
-                except:
+                except Exception:
                     details = f"Status: {response.status_code}, Response: {response.text[:200]}"
 
             self.log_test("Login User", passed, details)
@@ -225,7 +225,7 @@ class OmnipathE2ETest:
                 try:
                     error_data = response.json()
                     details = f"Status: {response.status_code}, Error: {json.dumps(error_data)}"
-                except:
+                except Exception:
                     details = f"Status: {response.status_code}, Response: {response.text[:200]}"
 
             self.log_test("Create Agent", passed, details)

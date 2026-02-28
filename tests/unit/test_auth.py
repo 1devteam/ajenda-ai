@@ -3,25 +3,23 @@ Unit Tests for Authentication and Authorization
 Tests JWT tokens, user authentication, and role-based access control
 """
 
-import pytest
-from datetime import timedelta
-from jose import jwt, JWTError
-
-from backend.middleware.auth.auth_middleware import (
-    create_access_token,
-    decode_access_token,
-)
-from backend.models.domain.user import User, UserRole, TokenData
-from backend.config.settings import Settings
 import os
 
-# Set fixed JWT secret for testing
+import pytest
+from datetime import timedelta
+from jose import jwt
+
+# Set fixed JWT secret for testing before importing backend modules
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-tokens-do-not-use-in-production"
 os.environ["SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
 
-# Force reload of settings after environment variables are set
-import importlib
-import backend.middleware.auth.auth_middleware as auth_module
+from backend.middleware.auth.auth_middleware import (  # noqa: E402
+    create_access_token,
+    decode_access_token,
+)
+from backend.models.domain.user import User, UserRole  # noqa: E402
+from backend.config.settings import Settings  # noqa: E402
+import backend.middleware.auth.auth_middleware as auth_module  # noqa: E402
 
 settings = Settings()
 auth_module.settings = settings  # Override the module-level settings instance

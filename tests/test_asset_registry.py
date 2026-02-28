@@ -14,7 +14,6 @@ from backend.agents.registry.asset_registry import (
     AssetType,
     AssetStatus,
     ModelLineage,
-    AIAssetRegistry,
 )
 
 pytestmark = pytest.mark.unit

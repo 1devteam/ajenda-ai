@@ -10,9 +10,8 @@ import httpx
 import time
 import statistics
 import json
-from typing import List, Dict, Any
+from typing import Dict, Any
 from datetime import datetime
-import concurrent.futures
 
 
 class PerformanceTest:
@@ -107,7 +106,7 @@ class PerformanceTest:
                 for _ in range(50):
                     start = time.time()
                     if method == "GET":
-                        response = await client.get(f"{self.base_url}{endpoint}", headers=headers)
+                        await client.get(f"{self.base_url}{endpoint}", headers=headers)
                     latency = (time.time() - start) * 1000
                     latencies.append(latency)
 
@@ -273,7 +272,7 @@ class PerformanceTest:
             latencies = []
             for _ in range(20):
                 start = time.time()
-                response = await client.get(f"{self.base_url}/api/v1/agents", headers=headers)
+                await client.get(f"{self.base_url}/api/v1/agents", headers=headers)
                 latency = (time.time() - start) * 1000
                 latencies.append(latency)
 

@@ -12,10 +12,8 @@ from datetime import datetime, timedelta
 from backend.agents.compliance.approval_workflows import (
     get_approval_workflow,
     ApprovalState,
-    ApprovalPolicy,
 )
 from backend.agents.compliance.risk_scoring import (
-    get_risk_scoring_engine,
     RiskTier,
     RiskScore,
 )
@@ -468,7 +466,7 @@ def test_get_pending_requests_by_authority_level(sample_asset_with_score):
     registry.register(sample_asset_with_score)
 
     workflow = get_approval_workflow()
-    request = workflow.create_approval_request(
+    workflow.create_approval_request(
         asset_id="test-001",
         operation="execute",
         requester_id="user-001",

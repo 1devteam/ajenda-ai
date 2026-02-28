@@ -83,7 +83,8 @@ def test_executive_summary_high_risk_finding():
     # Score calculation:
     #   - "biometric" triggers EU AI Act HIGH inherent risk (score = 75, weight 0.40 = 30.0)
     #   - "pii"+"phi"+"financial" data sensitivity = 20+25+20 = 65 (weight 0.25 = 16.25)
-    #   - "automated-decision"+"production"+"user-facing" operational = 20+20+15 = 55 (weight 0.20 = 11.0)
+    #   - "automated-decision"+"production"+"user-facing" operational
+    #     = 20+20+15 = 55 (weight 0.20 = 11.0)
     #   Total = 30.0 + 16.25 + 11.0 = 57.25 → MEDIUM
     # Adding "biometric" to data sensitivity: 25+20+25+20 = 90 (weight 0.25 = 22.5)
     #   Total = 30.0 + 22.5 + 11.0 = 63.5 → HIGH tier (>= 60)

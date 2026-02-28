@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 
 from backend.agents.compliance.impact_assessment import (
     get_impact_assessor,
-    ImpactDimension,
 )
 from backend.agents.compliance.risk_scoring import RiskTier, RiskScore
 from backend.agents.compliance.regulatory_mapping import RiskLevel, RiskAssessment

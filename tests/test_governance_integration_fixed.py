@@ -6,8 +6,6 @@ Built with Pride for Obex Blackvault
 """
 
 import pytest
-import asyncio
-from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -15,7 +13,6 @@ from backend.database.base import Base
 from backend.database.governance_models import (
     AssetType,
     AssetStatus,
-    RiskTier,
     ComplianceStatus,
 )
 from backend.database.repositories import (
@@ -156,7 +153,7 @@ async def test_mission_start_hook_allows_compliant_agent(db_session):
     """Test mission start hook allows compliant agent"""
     # Create compliant agent
     asset_repo = AssetRepository(db_session)
-    asset = asset_repo.create_asset(
+    _ = asset_repo.create_asset(
         id="compliant_agent",
         name="Compliant Agent",
         asset_type=AssetType.AGENT,
@@ -184,7 +181,7 @@ async def test_mission_start_hook_blocks_non_compliant_agent(db_session):
     """Test mission start hook blocks non-compliant agent"""
     # Create non-compliant agent
     asset_repo = AssetRepository(db_session)
-    asset = asset_repo.create_asset(
+    _ = asset_repo.create_asset(
         id="non_compliant_agent",
         name="Non-Compliant Agent",
         asset_type=AssetType.AGENT,

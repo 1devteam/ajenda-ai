@@ -8,8 +8,7 @@ with reasoning workflows, tool-calling, and MissionExecutor.
 
 import pytest
 import uuid
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from backend.agents.factory.agent_factory import AgentFactory
 from backend.agents.implementations.researcher_agent import (
@@ -21,7 +20,6 @@ from backend.integrations.llm.llm_service import LLMService
 from backend.orchestration.mission_executor import MissionExecutor
 from backend.economy.resource_marketplace import ResourceMarketplace
 from backend.core.event_bus.nats_bus import NATSEventBus
-from backend.config.settings import settings
 
 
 @pytest.fixture

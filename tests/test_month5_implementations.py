@@ -9,7 +9,6 @@ Built with Pride for Obex Blackvault
 import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Any, Dict, Optional
 
 pytestmark = pytest.mark.unit
 
@@ -465,7 +464,6 @@ class TestSagaOrchestrator:
 
     def test_create_saga(self):
         """Test creating a saga definition"""
-        from backend.core.saga.saga_orchestrator import SagaDefinition
 
         orchestrator = self._make_orchestrator()
         saga = orchestrator.create_saga(name="test_saga", context={"key": "value"})

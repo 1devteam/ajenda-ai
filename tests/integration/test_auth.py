@@ -9,8 +9,8 @@ import asyncio
 import httpx
 import json
 import time
-from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
+from typing import Optional
+from datetime import datetime
 
 
 class OmnipathAuthTest:
@@ -95,7 +95,8 @@ class OmnipathAuthTest:
             self.log_test(
                 "User Login",
                 passed,
-                f"Status: {response.status_code}, Token Type: {token_type}, Has Token: {bool(self.access_token)}",
+                f"Status: {response.status_code}, Token Type: {token_type}, "
+                f"Has Token: {bool(self.access_token)}",
             )
             return passed
         except Exception as e:
@@ -171,7 +172,8 @@ class OmnipathAuthTest:
             self.log_test(
                 "Refresh Token",
                 passed,
-                f"Status: {response.status_code}, New Token: {bool(new_token) if passed else 'N/A'}",
+                f"Status: {response.status_code}, "
+                f"New Token: {bool(new_token) if passed else 'N/A'}",
             )
             return passed
         except Exception as e:

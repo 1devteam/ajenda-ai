@@ -13,7 +13,6 @@ from backend.agents.compliance.risk_scoring import (
     get_risk_scoring_engine,
     RiskTier,
     RiskFactor,
-    RiskScore,
 )
 from backend.agents.compliance.regulatory_mapping import RiskLevel, RiskAssessment
 from backend.agents.registry.asset_registry import (

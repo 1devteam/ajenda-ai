@@ -35,7 +35,7 @@ def test_mission_cost_minimal_risk(db_session):
     """Test mission cost calculation for minimal risk agent"""
     # Create minimal risk agent
     asset_repo = AssetRepository(db_session)
-    asset = asset_repo.create_asset(
+    _ = asset_repo.create_asset(
         id="minimal_agent",
         name="Minimal Risk Agent",
         asset_type=AssetType.AGENT,
@@ -60,7 +60,7 @@ def test_mission_cost_high_risk(db_session):
     """Test mission cost calculation for high risk agent"""
     # Create high risk agent
     asset_repo = AssetRepository(db_session)
-    asset = asset_repo.create_asset(
+    _ = asset_repo.create_asset(
         id="high_risk_agent",
         name="High Risk Agent",
         asset_type=AssetType.AGENT,
@@ -84,7 +84,7 @@ def test_mission_cost_unacceptable_risk(db_session):
     """Test mission cost calculation for unacceptable risk agent"""
     # Create unacceptable risk agent
     asset_repo = AssetRepository(db_session)
-    asset = asset_repo.create_asset(
+    _ = asset_repo.create_asset(
         id="unacceptable_agent",
         name="Unacceptable Risk Agent",
         asset_type=AssetType.AGENT,
@@ -124,7 +124,7 @@ def test_compliance_reward_compliant(db_session):
     """Test compliance reward for compliant agent"""
     # Create compliant agent
     asset_repo = AssetRepository(db_session)
-    asset = asset_repo.create_asset(
+    _ = asset_repo.create_asset(
         id="compliant_agent",
         name="Compliant Agent",
         asset_type=AssetType.AGENT,
@@ -147,7 +147,7 @@ def test_compliance_penalty_non_compliant(db_session):
     """Test compliance penalty for non-compliant agent"""
     # Create non-compliant agent
     asset_repo = AssetRepository(db_session)
-    asset = asset_repo.create_asset(
+    _ = asset_repo.create_asset(
         id="non_compliant_agent",
         name="Non-Compliant Agent",
         asset_type=AssetType.AGENT,
@@ -210,7 +210,7 @@ def test_pricing_summary(db_session):
     """Test pricing summary for agent"""
     # Create agent with risk and compliance
     asset_repo = AssetRepository(db_session)
-    asset = asset_repo.create_asset(
+    _ = asset_repo.create_asset(
         id="summary_agent",
         name="Summary Agent",
         asset_type=AssetType.AGENT,
@@ -249,7 +249,7 @@ def test_economic_incentives_alignment(db_session):
     results = []
 
     for agent_id, risk_tier, compliance_status in profiles:
-        asset = asset_repo.create_asset(
+        _ = asset_repo.create_asset(
             id=agent_id,
             name=f"Agent {agent_id}",
             asset_type=AssetType.AGENT,

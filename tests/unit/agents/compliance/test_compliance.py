@@ -3,14 +3,13 @@ Unit tests for compliance module.
 
 Tests all compliance components:
 - ComplianceResult
-- ComplianceTrace  
+- ComplianceTrace
 - ComplianceEvaluation
 - ComplianceRegistry
 - ComplianceEngine
 - Default rules (ToolPermission, DataAccess, RateLimit)
 """
 
-import pytest
 from datetime import datetime
 from backend.agents.compliance import (
     ComplianceResult,
@@ -188,14 +187,14 @@ class TestComplianceEngine:
 
     def test_engine_auto_register_defaults(self):
         """Test engine auto-registers default rules"""
-        engine = ComplianceEngine(auto_register_defaults=True)
+        ComplianceEngine(auto_register_defaults=True)
 
         # Should have 3 default rules
         assert ComplianceRegistry.count() == 3
 
     def test_engine_no_auto_register(self):
         """Test engine without auto-registration"""
-        engine = ComplianceEngine(auto_register_defaults=False)
+        ComplianceEngine(auto_register_defaults=False)
 
         assert ComplianceRegistry.count() == 0
 
@@ -481,8 +480,7 @@ class TestComplianceIntegration:
         assert "tool_permission" in evaluation.blocked_by
 
 
-# Import new rules
-from backend.agents.compliance.rules import (
+from backend.agents.compliance.rules import (  # noqa: E402
     CostLimitRule,
     DataPrivacyRule,
     ApprovalRequiredRule,
