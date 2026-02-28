@@ -361,24 +361,83 @@ class RiskMetricsAggregator:
     def get_risk_trends(
         self,
         days: int = 30,
-        granularity: str = "daily"
+        granularity: str = "daily",
     ) -> List[Tuple[datetime, float, int]]:
         """
         Get risk score trends over time.
-        
+
+        Derives trend data from the ``calculated_at`` timestamps stored on each
+        asset's ``risk_score`` attribute.  Scores are bucketed by *granularity*
+        and averaged within each bucket.
+
+        When fewer than two historical data-points are available (e.g. the
+        registry is freshly populated and all scores were calculated in the
+        same bucket) the method returns a single entry representing the current
+        portfolio state so callers always receive a non-empty list.
+
         Args:
-            days: Number of days to look back
-            granularity: "daily", "weekly", or "monthly"
-            
+            days:        Number of days to look back (default 30).
+            granularity: Bucket size — ``"daily"``, ``"weekly"``, or
+                         ``"monthly"`` (default ``"daily"``).
+
         Returns:
-            List of (timestamp, average_score, asset_count) tuples
+            List of ``(bucket_timestamp, average_score, asset_count)`` tuples
+            ordered from oldest to newest.
         """
-        # This is a placeholder - in production, would query historical data
-        # For now, return current snapshot
-        metrics = self.get_portfolio_metrics()
-        
+        from collections import defaultdict
+
+        # Validate granularity
+        valid_granularities = {"daily", "weekly", "monthly"}
+        if granularity not in valid_granularities:
+            raise ValueError(
+                f"granularity must be one of {valid_granularities}, got '{granularity}'"
+            )
+
         now = datetime.utcnow()
-        return [(now, metrics.average_risk_score, metrics.total_assets)]
+        cutoff = now - timedelta(days=days)
+
+        # Determine bucket size in days
+        bucket_days = {"daily": 1, "weekly": 7, "monthly": 30}[granularity]
+
+        # Collect (calculated_at, score) pairs from assets that have been scored
+        assets = self.registry.list_all()
+        data_points: List[Tuple[datetime, float]] = []
+
+        for asset in assets:
+            risk_score = self.risk_engine.get_score(asset.asset_id)
+            if risk_score is None:
+                continue
+            ts = risk_score.calculated_at
+            if ts >= cutoff:
+                data_points.append((ts, risk_score.score))
+
+        # If no historical data exists, return the current portfolio snapshot
+        if not data_points:
+            metrics = self.get_portfolio_metrics()
+            return [(now, metrics.average_risk_score, metrics.total_assets)]
+
+        # Bucket data points
+        # Bucket key = number of complete bucket_days intervals since epoch
+        epoch = datetime(1970, 1, 1)
+
+        def _bucket_key(ts: datetime) -> int:
+            return int((ts - epoch).days // bucket_days)
+
+        def _bucket_start(key: int) -> datetime:
+            return epoch + timedelta(days=key * bucket_days)
+
+        buckets: Dict[int, List[float]] = defaultdict(list)
+        for ts, score in data_points:
+            buckets[_bucket_key(ts)].append(score)
+
+        # Build the result list ordered from oldest to newest
+        result: List[Tuple[datetime, float, int]] = []
+        for key in sorted(buckets.keys()):
+            scores = buckets[key]
+            avg_score = sum(scores) / len(scores)
+            result.append((_bucket_start(key), avg_score, len(scores)))
+
+        return result
 
 
 # Global instance

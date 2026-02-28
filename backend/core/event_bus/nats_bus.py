@@ -38,13 +38,13 @@ class Subjects(Enum):
 
 class NATSEventBus:
     """
-    Real NATS Event Bus for distributed messaging
-    
-    Think of this as a super-fast post office where:
-    - Services can send messages (publish)
-    - Services can listen for messages (subscribe)
-    - Messages are delivered instantly
-    - Everything is tracked and reliable
+    Real NATS Event Bus for distributed messaging.
+
+    When a NATS server is reachable the bus uses the nats-py client for full
+    pub/sub and request-reply.  When NATS is unavailable (e.g. local dev or
+    unit tests) the bus falls back to an in-process delivery mechanism so that
+    all subscribers and request handlers still receive messages without any
+    code changes at the call site.
     """
     
     def __init__(self, nats_url: str = "nats://localhost:4222"):
@@ -53,9 +53,12 @@ class NATSEventBus:
         self.js: Optional[JetStreamContext] = None
         self._subscribers: Dict[str, list] = {}
         self._connected = False
-        
+        # In-process request handlers: subject → async callable
+        # Used for request-reply when NATS is unavailable.
+        self._request_handlers: Dict[str, Callable] = {}
+
         if not NATS_AVAILABLE:
-            logger.warning("NATS client not available - running in stub mode")
+            logger.debug("NATS client not available — running in local-delivery mode")
     
     async def connect(self):
         """
@@ -64,7 +67,7 @@ class NATSEventBus:
         Like opening a connection to the post office
         """
         if not NATS_AVAILABLE:
-            logger.info("NATS not available - using in-memory stub")
+            logger.debug("NATS not available — using in-process local-delivery mode")
             self._connected = True
             return
         
@@ -175,8 +178,8 @@ class NATSEventBus:
             except Exception as e:
                 logger.error(f"Failed to publish event {subject}: {e}")
         else:
-            # Stub mode - deliver to local subscribers
-            logger.debug(f"[STUB] Published event: {subject}")
+            # Local-delivery mode — deliver to in-process subscribers
+            logger.debug("[LOCAL] Published event: %s", subject)
             await self._deliver_local(subject, event)
     
     async def _deliver_local(self, subject: str, event: dict):
@@ -236,49 +239,78 @@ class NATSEventBus:
             except Exception as e:
                 logger.error(f"Failed to subscribe to {subject}: {e}")
         else:
-            logger.debug(f"[STUB] Subscribed to: {subject}")
+            logger.debug("[LOCAL] Subscribed to: %s", subject)
     
+    def register_request_handler(self, subject: str, handler: Callable) -> None:
+        """
+        Register an in-process handler for request-reply on *subject*.
+
+        The handler must be an async callable with the signature::
+
+            async def handler(data: dict) -> dict: ...
+
+        It is used when NATS is unavailable (local-delivery mode) so that
+        ``request()`` callers receive a real response instead of a stub.
+
+        Args:
+            subject: The subject to handle (exact match, no wildcards).
+            handler: Async callable that accepts request data and returns
+                     a response dict.
+        """
+        self._request_handlers[subject] = handler
+        logger.debug("Registered in-process request handler for: %s", subject)
+
     async def request(self, subject: str, data: dict, timeout: float = 5.0) -> Any:
         """
-        Request-reply pattern - send a request and wait for response
-        
-        Like sending a letter and waiting for a reply
-        
+        Request-reply pattern — send a request and wait for a response.
+
+        When connected to a real NATS server the standard NATS request-reply
+        mechanism is used.  In local-delivery mode the call is routed to a
+        registered in-process handler (if one exists) so that callers always
+        receive a meaningful response.
+
         Args:
-            subject: Request subject
-            data: Request payload
-            timeout: Timeout in seconds
-            
+            subject: Request subject.
+            data:    Request payload.
+            timeout: Timeout in seconds (only applies to real NATS).
+
         Returns:
-            Response data
+            Response dict from the handler, or an error dict on failure.
         """
-        # Add metadata
-        request = {
+        request_envelope = {
             "subject": subject,
             "data": data,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
-        
-        message = json.dumps(request).encode()
-        
+
         if self.nc and self._connected and NATS_AVAILABLE:
             try:
-                # Send request and wait for reply
-                response = await self.nc.request(
-                    subject, 
-                    message, 
-                    timeout=timeout
-                )
-                
-                # Parse response
+                message = json.dumps(request_envelope).encode()
+                response = await self.nc.request(subject, message, timeout=timeout)
                 return json.loads(response.data.decode())
-            except Exception as e:
-                logger.error(f"Request failed: {e}")
-                return {"error": str(e)}
-        else:
-            # Stub mode - return empty response
-            logger.debug(f"[STUB] Request: {subject}")
-            return {"status": "stub_response"}
+            except Exception as exc:
+                logger.error("NATS request failed for subject '%s': %s", subject, exc)
+                return {"error": str(exc)}
+
+        # Local-delivery mode — route to registered in-process handler
+        handler = self._request_handlers.get(subject)
+        if handler is not None:
+            try:
+                logger.debug("[LOCAL] Request routed in-process: %s", subject)
+                import asyncio
+                if asyncio.iscoroutinefunction(handler):
+                    return await handler(data)
+                return handler(data)
+            except Exception as exc:
+                logger.error(
+                    "In-process request handler for '%s' raised: %s", subject, exc
+                )
+                return {"error": str(exc)}
+
+        # No handler registered — return an informative response instead of a
+        # silent stub so callers can detect the unhandled case.
+        logger.debug("[LOCAL] No request handler registered for: %s", subject)
+        return {"status": "no_handler", "subject": subject}
     
     async def publish_mission_event(self, mission_id: str, status: str, data: dict = None):
         """

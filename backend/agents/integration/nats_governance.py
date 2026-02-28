@@ -634,9 +634,37 @@ async def handle_alert(data: Dict[str, Any]) -> None:
                 metadata=republish_metadata,
             )
 
-            # Extra escalation publish for critical alerts
-            if severity == "critical" and severity != "critical":  # placeholder for future escalation
-                pass
+            # Extra escalation: critical alerts are also published to the
+            # dedicated escalation subject (governance.alerts.escalation)
+            # so that PagerDuty / on-call integrations can subscribe
+            # independently of the normal alert stream.
+            if severity == "critical":
+                escalation_metadata = dict(republish_metadata)
+                escalation_metadata["_escalated"] = True
+                escalation_metadata["escalated_at"] = datetime.utcnow().isoformat()
+
+                escalation_message = {
+                    "severity": "critical",
+                    "title": title,
+                    "description": description,
+                    "asset_id": asset_id,
+                    "metadata": escalation_metadata,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+
+                try:
+                    await governance_nats.nc.publish(
+                        "governance.alerts.escalation",
+                        governance_nats._serialize(escalation_message),
+                    )
+                    logger.critical(
+                        "Critical alert escalated to governance.alerts.escalation: %s",
+                        title,
+                    )
+                except Exception as esc_exc:
+                    logger.error(
+                        "Failed to publish critical escalation: %s", esc_exc, exc_info=True
+                    )
 
         except Exception as exc:
             logger.error(

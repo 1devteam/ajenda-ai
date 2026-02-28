@@ -17,19 +17,35 @@ from typing import Optional
 from backend.core.cqrs.cqrs_impl import (
     CommandBus,
     QueryBus,
-    # Commands
+    # ── Commands ──────────────────────────────────────────────────────────────
     CreateAgentCommand,
     UpdateAgentCommand,
-    # Queries
-    GetAgentQuery,
-    ListAgentsQuery,
-    # Handlers
+    StartMissionCommand,
+    CompleteMissionCommand,
+    AdjustCreditCommand,
+    # ── Command handlers ──────────────────────────────────────────────────────
     CreateAgentCommandHandler,
     UpdateAgentCommandHandler,
+    StartMissionCommandHandler,
+    CompleteMissionCommandHandler,
+    AdjustCreditCommandHandler,
+    # ── Queries ───────────────────────────────────────────────────────────────
+    GetAgentQuery,
+    ListAgentsQuery,
+    GetMissionQuery,
+    ListMissionsQuery,
+    GetAgentBalanceQuery,
+    GetPerformanceMetricsQuery,
+    # ── Query handlers ────────────────────────────────────────────────────────
     GetAgentQueryHandler,
     ListAgentsQueryHandler,
-    # Read models
+    GetMissionQueryHandler,
+    ListMissionsQueryHandler,
+    GetAgentBalanceQueryHandler,
+    GetPerformanceMetricsQueryHandler,
+    # ── Read models ───────────────────────────────────────────────────────────
     AgentReadModel,
+    MissionReadModel,
 )
 from backend.core.event_sourcing.event_store_impl import EventStore
 
@@ -88,12 +104,14 @@ def setup_cqrs(event_store: EventStore) -> tuple[CommandBus, QueryBus]:
     # Read models (shared between command and query handlers)
     # ------------------------------------------------------------------
     agent_read_model = AgentReadModel(event_store=event_store)
+    mission_read_model = MissionReadModel(event_store=event_store)
 
     # ------------------------------------------------------------------
-    # Command bus
+    # Command bus — write side
     # ------------------------------------------------------------------
     command_bus = CommandBus()
 
+    # Agent commands
     command_bus.register(
         CreateAgentCommand,
         CreateAgentCommandHandler(event_store=event_store),
@@ -103,16 +121,33 @@ def setup_cqrs(event_store: EventStore) -> tuple[CommandBus, QueryBus]:
         UpdateAgentCommandHandler(event_store=event_store),
     )
 
+    # Mission commands
+    command_bus.register(
+        StartMissionCommand,
+        StartMissionCommandHandler(event_store=event_store),
+    )
+    command_bus.register(
+        CompleteMissionCommand,
+        CompleteMissionCommandHandler(event_store=event_store),
+    )
+
+    # Economy commands
+    command_bus.register(
+        AdjustCreditCommand,
+        AdjustCreditCommandHandler(event_store=event_store),
+    )
+
     logger.info(
         "CQRS CommandBus initialised with %d handler(s).",
         len(command_bus._handlers),
     )
 
     # ------------------------------------------------------------------
-    # Query bus
+    # Query bus — read side
     # ------------------------------------------------------------------
     query_bus = QueryBus()
 
+    # Agent queries
     query_bus.register(
         GetAgentQuery,
         GetAgentQueryHandler(read_model=agent_read_model),
@@ -120,6 +155,26 @@ def setup_cqrs(event_store: EventStore) -> tuple[CommandBus, QueryBus]:
     query_bus.register(
         ListAgentsQuery,
         ListAgentsQueryHandler(read_model=agent_read_model),
+    )
+
+    # Mission queries
+    query_bus.register(
+        GetMissionQuery,
+        GetMissionQueryHandler(read_model=mission_read_model),
+    )
+    query_bus.register(
+        ListMissionsQuery,
+        ListMissionsQueryHandler(read_model=mission_read_model),
+    )
+
+    # Economy queries
+    query_bus.register(
+        GetAgentBalanceQuery,
+        GetAgentBalanceQueryHandler(event_store=event_store),
+    )
+    query_bus.register(
+        GetPerformanceMetricsQuery,
+        GetPerformanceMetricsQueryHandler(event_store=event_store),
     )
 
     logger.info(

@@ -583,6 +583,259 @@ class AgentReadModel(ReadModel):
         return agent
 
 
+class MissionReadModel(ReadModel):
+    """
+    Read model for mission queries.
+
+    Maintains a denormalised, in-memory view of all missions keyed by
+    ``mission_id``.  Rebuilt from the event store on demand.
+    """
+
+    def __init__(self, event_store: EventStore) -> None:
+        self.event_store = event_store
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        # agent_id → list of mission_ids for fast per-agent listing
+        self._by_agent: Dict[str, List[str]] = {}
+
+    async def get_by_id(self, mission_id: str) -> Optional[Dict[str, Any]]:
+        """Return mission state for *mission_id*, or ``None`` if not found."""
+        if mission_id in self._cache:
+            return self._cache[mission_id]
+        events = await self.event_store.get_events(mission_id)
+        if not events:
+            return None
+        mission = self._build_from_events(events)
+        self._cache[mission_id] = mission
+        agent_id = mission.get("agent_id")
+        if agent_id:
+            self._by_agent.setdefault(agent_id, [])
+            if mission_id not in self._by_agent[agent_id]:
+                self._by_agent[agent_id].append(mission_id)
+        return mission
+
+    async def list_missions(
+        self,
+        agent_id: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Return missions, optionally filtered by *agent_id* and/or *status*."""
+        if agent_id is not None:
+            mission_ids = self._by_agent.get(agent_id, [])
+            missions = [
+                self._cache[mid]
+                for mid in mission_ids
+                if mid in self._cache
+            ]
+        else:
+            missions = list(self._cache.values())
+
+        if status is not None:
+            missions = [m for m in missions if m.get("status") == status]
+
+        return missions[offset : offset + limit]
+
+    async def rebuild(self) -> None:
+        """Rebuild the read model from all mission events in the event store."""
+        self.log_info("Rebuilding mission read model")
+        self._cache.clear()
+        self._by_agent.clear()
+
+        events = await self.event_store.get_all_events()
+        mission_events: Dict[str, List[Event]] = {}
+        for event in events:
+            if event.aggregate_type == "mission":
+                mission_events.setdefault(event.aggregate_id, []).append(event)
+
+        for mission_id, evts in mission_events.items():
+            mission = self._build_from_events(evts)
+            self._cache[mission_id] = mission
+            agent_id = mission.get("agent_id")
+            if agent_id:
+                self._by_agent.setdefault(agent_id, [])
+                if mission_id not in self._by_agent[agent_id]:
+                    self._by_agent[agent_id].append(mission_id)
+
+        self.log_info("Mission read model rebuilt: %d missions", len(self._cache))
+
+    def _build_from_events(self, events: List[Event]) -> Dict[str, Any]:
+        """Derive mission state by replaying *events* in version order."""
+        mission: Dict[str, Any] = {}
+        for event in sorted(events, key=lambda e: e.version):
+            if event.event_type == "mission.created":
+                mission = {
+                    "id": event.aggregate_id,
+                    "status": "created",
+                    "created_at": event.timestamp.isoformat(),
+                    "version": event.version,
+                    **event.data,
+                }
+            elif event.event_type == "mission.started":
+                mission["status"] = "running"
+                mission["started_at"] = event.timestamp.isoformat()
+                mission["version"] = event.version
+            elif event.event_type == "mission.completed":
+                mission["status"] = "completed"
+                mission["result"] = event.data.get("result")
+                mission["tokens_used"] = event.data.get("tokens_used", 0)
+                mission["cost"] = event.data.get("cost", 0.0)
+                mission["completed_at"] = event.timestamp.isoformat()
+                mission["version"] = event.version
+            elif event.event_type == "mission.failed":
+                mission["status"] = "failed"
+                mission["error"] = event.data.get("error")
+                mission["completed_at"] = event.timestamp.isoformat()
+                mission["version"] = event.version
+            elif event.event_type == "mission.cancelled":
+                mission["status"] = "cancelled"
+                mission["completed_at"] = event.timestamp.isoformat()
+                mission["version"] = event.version
+        return mission
+
+
+class GetMissionQueryHandler(QueryHandler[GetMissionQuery, Optional[Dict[str, Any]]]):
+    """Handler for GetMissionQuery — returns a single mission by ID."""
+
+    def __init__(self, read_model: MissionReadModel) -> None:
+        self.read_model = read_model
+
+    async def handle(self, query: GetMissionQuery) -> Optional[Dict[str, Any]]:
+        mission = await self.read_model.get_by_id(query.mission_id)
+        if mission:
+            self.log_debug("Mission retrieved", mission_id=query.mission_id)
+        else:
+            self.log_warning("Mission not found", mission_id=query.mission_id)
+        return mission
+
+
+class ListMissionsQueryHandler(QueryHandler[ListMissionsQuery, List[Dict[str, Any]]]):
+    """Handler for ListMissionsQuery — returns a filtered list of missions."""
+
+    def __init__(self, read_model: MissionReadModel) -> None:
+        self.read_model = read_model
+
+    async def handle(self, query: ListMissionsQuery) -> List[Dict[str, Any]]:
+        missions = await self.read_model.list_missions(
+            agent_id=query.agent_id,
+            status=query.status,
+            limit=query.limit,
+            offset=query.offset,
+        )
+        self.log_debug(
+            "Missions listed: %d",
+            len(missions),
+            agent_id=query.agent_id,
+            status=query.status,
+        )
+        return missions
+
+
+class GetAgentBalanceQueryHandler(QueryHandler[GetAgentBalanceQuery, float]):
+    """
+    Handler for GetAgentBalanceQuery.
+
+    Derives the current balance by summing all ``economy.balance_adjusted``,
+    ``economy.credit_earned``, and ``economy.credit_spent`` events for the
+    agent from the event store.
+    """
+
+    def __init__(self, event_store: EventStore) -> None:
+        self.event_store = event_store
+
+    async def handle(self, query: GetAgentBalanceQuery) -> float:
+        events = await self.event_store.get_events(query.agent_id)
+        balance = 1000.0  # default starting balance
+        for event in sorted(events, key=lambda e: e.version):
+            if event.event_type == "economy.balance_adjusted":
+                balance += float(event.data.get("amount", 0.0))
+            elif event.event_type == "economy.credit_earned":
+                balance += float(event.data.get("amount", 0.0))
+            elif event.event_type == "economy.credit_spent":
+                balance -= float(event.data.get("amount", 0.0))
+        self.log_debug("Balance calculated", agent_id=query.agent_id, balance=balance)
+        return balance
+
+
+class GetPerformanceMetricsQueryHandler(
+    QueryHandler[GetPerformanceMetricsQuery, Dict[str, Any]]
+):
+    """
+    Handler for GetPerformanceMetricsQuery.
+
+    Aggregates mission outcome events to produce per-agent (or portfolio-wide)
+    performance metrics: total missions, success rate, average cost, and
+    average token usage.
+    """
+
+    def __init__(self, event_store: EventStore) -> None:
+        self.event_store = event_store
+
+    async def handle(self, query: GetPerformanceMetricsQuery) -> Dict[str, Any]:
+        from datetime import datetime as _dt
+
+        # Fetch relevant events
+        all_events = await self.event_store.get_all_events()
+
+        # Apply optional time filters
+        from_dt = _dt.fromisoformat(query.from_date) if query.from_date else None
+        to_dt = _dt.fromisoformat(query.to_date) if query.to_date else None
+
+        total = 0
+        completed = 0
+        failed = 0
+        total_cost = 0.0
+        total_tokens = 0
+
+        for event in all_events:
+            if event.aggregate_type != "mission":
+                continue
+            if from_dt and event.timestamp < from_dt:
+                continue
+            if to_dt and event.timestamp > to_dt:
+                continue
+
+            # If filtering by agent, we need the agent_id from the event data
+            if query.agent_id:
+                if event.data.get("agent_id") != query.agent_id:
+                    continue
+
+            if event.event_type == "mission.started":
+                total += 1
+            elif event.event_type == "mission.completed":
+                completed += 1
+                total_cost += float(event.data.get("cost", 0.0))
+                total_tokens += int(event.data.get("tokens_used", 0))
+            elif event.event_type == "mission.failed":
+                failed += 1
+
+        success_rate = (completed / total * 100) if total > 0 else 0.0
+        avg_cost = (total_cost / completed) if completed > 0 else 0.0
+        avg_tokens = (total_tokens / completed) if completed > 0 else 0
+
+        metrics = {
+            "agent_id": query.agent_id,
+            "from_date": query.from_date,
+            "to_date": query.to_date,
+            "total_missions": total,
+            "completed_missions": completed,
+            "failed_missions": failed,
+            "success_rate_pct": round(success_rate, 2),
+            "average_cost": round(avg_cost, 4),
+            "average_tokens_used": avg_tokens,
+            "total_cost": round(total_cost, 4),
+            "total_tokens_used": total_tokens,
+        }
+
+        self.log_debug(
+            "Performance metrics calculated",
+            agent_id=query.agent_id,
+            total=total,
+            success_rate=success_rate,
+        )
+        return metrics
+
+
 # ============================================================================
 # Command/Query Bus
 # ============================================================================
