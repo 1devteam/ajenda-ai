@@ -213,10 +213,14 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     # Get name from either field
     user_name = user_data.get_name()
     
+    # Get name from either field
+    user_name = user_data.get_name()
+    
     # Create tenant if not provided
     tenant_id = user_data.tenant_id
     if not tenant_id:
         tenant_id = f"tenant_{uuid.uuid4().hex[:12]}"
+<<<<<<< Updated upstream
         tenant = Tenant(
             id=tenant_id,
             name=f"{user_name}'s Organization",
@@ -225,6 +229,15 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
             settings={}
         )
         db.add(tenant)
+=======
+        _tenants_db[tenant_id] = {
+            "id": tenant_id,
+            "name": f"{user_name}'s Organization",
+            "slug": f"org-{uuid.uuid4().hex[:8]}",
+            "created_at": datetime.utcnow(),
+            "settings": {}
+        }
+>>>>>>> Stashed changes
     
     # Create user
     user_id = f"user_{uuid.uuid4().hex[:12]}"
@@ -237,9 +250,23 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
         created_at=datetime.utcnow()
     )
     
+<<<<<<< Updated upstream
     db.add(user)
     db.commit()
     db.refresh(user)
+=======
+    user = {
+        "id": user_id,
+        "email": user_data.email,
+        "password_hash": hash_password(user_data.password),
+        "name": user_name,
+        "tenant_id": tenant_id,
+        "created_at": now,
+        "last_login": None
+    }
+    
+    _users_db[user_id] = user
+>>>>>>> Stashed changes
     
     return UserResponse(
         id=user.id,
@@ -258,7 +285,25 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     
     Authenticates user and returns access and refresh tokens.
     """
+<<<<<<< Updated upstream
     email = credentials.get_email()
+=======
+    # Get email from either field
+    user_email = credentials.get_email()
+    
+    if not user_email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Email or username is required"
+        )
+    
+    # Find user by email
+    user = None
+    for u in _users_db.values():
+        if u["email"] == user_email:
+            user = u
+            break
+>>>>>>> Stashed changes
     
     # Find user
     user = db.query(User).filter(User.email == email).first()
