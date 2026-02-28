@@ -23,6 +23,8 @@ from backend.database.repositories import (
     AuditRepository
 )
 from backend.agents.integration.governance_hooks import governance_hooks
+pytestmark = pytest.mark.unit
+
 
 
 # Test database setup

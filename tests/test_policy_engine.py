@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import uuid
 
 from backend.agents.compliance.policy_engine import (
+
     Policy,
     PolicyCondition,
     PolicyAction,
@@ -23,6 +24,7 @@ from backend.agents.compliance.policy_engine import (
     PolicyTemplateLibrary,
     get_policy_manager,
 )
+pytestmark = pytest.mark.unit
 
 
 # ============================================================================

@@ -10,12 +10,14 @@ Built with Pride for Obex Blackvault.
 import pytest
 from datetime import datetime
 from backend.agents.registry.asset_registry import (
+
     AIAsset,
     AssetType,
     AssetStatus,
     ModelLineage,
     AIAssetRegistry,
 )
+pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True, scope="function")

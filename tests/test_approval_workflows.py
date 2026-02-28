@@ -18,6 +18,8 @@ from backend.agents.compliance.risk_scoring import get_risk_scoring_engine, Risk
 from backend.agents.compliance.regulatory_mapping import AuthorityLevel
 from backend.agents.registry.asset_registry import get_registry, AIAsset, AssetType, AssetStatus
 from backend.agents.registry.lineage_tracker import get_tracker
+pytestmark = pytest.mark.unit
+
 
 
 @pytest.fixture(autouse=True)

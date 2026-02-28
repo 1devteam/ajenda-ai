@@ -16,6 +16,7 @@ from backend.agents.registry.asset_registry import (
     AssetStatus,
 )
 from backend.agents.compliance.regulatory_mapping import (
+
     RegulatoryMappingRule,
     AutonomousAuthorityRule,
     RiskLevel,
@@ -23,6 +24,7 @@ from backend.agents.compliance.regulatory_mapping import (
     RiskAssessment,
     RiskMapping,
 )
+pytestmark = pytest.mark.unit
 
 
 # ============================================================================

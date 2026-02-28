@@ -12,6 +12,7 @@ Built with Pride for Obex Blackvault
 import pytest
 from datetime import datetime, timedelta
 from backend.agents.compliance.audit_monitor import (
+
     get_audit_monitor,
     AuditEvent,
     AuditEventType,
@@ -19,6 +20,7 @@ from backend.agents.compliance.audit_monitor import (
     Anomaly,
     AnomalyType,
 )
+pytestmark = pytest.mark.unit
 
 
 # ============================================================================

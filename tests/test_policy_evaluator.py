@@ -27,11 +27,13 @@ from backend.agents.compliance.policy_evaluator import (
     get_policy_evaluator,
 )
 from backend.agents.registry.asset_registry import (
+
     AIAsset,
     AssetType,
     AssetStatus,
     get_registry,
 )
+pytestmark = pytest.mark.unit
 
 
 # ============================================================================

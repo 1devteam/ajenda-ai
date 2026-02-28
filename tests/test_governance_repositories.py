@@ -21,6 +21,7 @@ from backend.database.governance_models import (
     PolicyStatus
 )
 from backend.database.repositories import (
+
     AssetRepository,
     LineageRepository,
     PolicyRepository,
@@ -28,6 +29,7 @@ from backend.database.repositories import (
     AuditRepository,
     ApprovalRepository
 )
+pytestmark = pytest.mark.unit
 
 
 # Test database setup

@@ -16,11 +16,13 @@ from backend.agents.registry.asset_registry import (
     AssetStatus,
 )
 from backend.agents.compliance.contextual_tagging import (
+
     ContextualTag,
     ContextualTaggingRule,
     TagCategory,
     TagRule,
 )
+pytestmark = pytest.mark.unit
 
 
 # ============================================================================

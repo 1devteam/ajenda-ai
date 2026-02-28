@@ -14,11 +14,13 @@ from backend.agents.compliance.rules import (
     ComplianceResult,
 )
 from backend.agents.registry.asset_registry import (
+
     AIAsset,
     AssetType,
     AssetStatus,
     get_registry,
 )
+pytestmark = pytest.mark.unit
 
 
 @pytest.fixture

@@ -1,5 +1,7 @@
 """Tests for Webhook Manager - Week 3"""
 import pytest
+pytestmark = pytest.mark.unit
+
 
 def test_placeholder():
     """Placeholder - full tests to be implemented"""

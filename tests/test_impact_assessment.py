@@ -16,6 +16,8 @@ from backend.agents.compliance.impact_assessment import (
 from backend.agents.compliance.risk_scoring import RiskTier, RiskScore
 from backend.agents.compliance.regulatory_mapping import RiskLevel, RiskAssessment
 from backend.agents.registry.asset_registry import get_registry, AIAsset, AssetType, AssetStatus
+pytestmark = pytest.mark.unit
+
 
 
 @pytest.fixture(autouse=True)

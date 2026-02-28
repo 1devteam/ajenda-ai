@@ -22,6 +22,8 @@ from backend.agents.compliance.compliance_checker import (
 from backend.agents.registry.asset_registry import get_registry, AIAsset, AssetType, AssetStatus
 from backend.agents.compliance.policy_engine import get_policy_manager, Policy, PolicyStatus, PolicyCondition, PolicyAction, ConditionType, ActionType
 from backend.agents.compliance.risk_scoring import get_risk_scoring_engine, RiskScore, RiskTier
+pytestmark = pytest.mark.unit
+
 
 
 # ============================================================================

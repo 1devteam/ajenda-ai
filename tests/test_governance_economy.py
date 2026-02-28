@@ -16,6 +16,8 @@ from backend.database.governance_models import (
 )
 from backend.database.repositories import AssetRepository
 from backend.economy.governance_economy import GovernanceEconomy
+pytestmark = pytest.mark.unit
+
 
 
 @pytest.fixture(scope="function")

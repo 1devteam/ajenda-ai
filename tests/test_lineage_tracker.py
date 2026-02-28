@@ -14,12 +14,14 @@ from backend.agents.registry.lineage_tracker import (
     LineageTracker,
 )
 from backend.agents.registry.asset_registry import (
+
     AIAsset,
     AssetType,
     AssetStatus,
     ModelLineage,
     get_registry,
 )
+pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
