@@ -269,9 +269,8 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: omnipath:${{ github.sha }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
       - name: 🔄 Move Docker layer cache
         run: |
