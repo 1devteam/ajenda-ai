@@ -99,3 +99,11 @@ dump.rdb
 prometheus_data/
 grafana_data/
 .env.backup
+
+# Virtual environments
+venv*/
+.venv*/
+env/
+
+# Archive
+archive/
