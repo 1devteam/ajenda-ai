@@ -80,5 +80,5 @@ safety>=3.0.0
 email-validator==2.1.0
 duckduckgo-search==6.1.7
 numpy==1.26.4
-typer>=0.12.3
+typer>=0.16.0
 fastapi-users==13.0.0
