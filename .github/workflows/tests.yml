@@ -273,3 +273,4 @@ jobs:
           exit-code: "0"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+
