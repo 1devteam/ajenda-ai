@@ -1,50 +1,63 @@
-> **Note**: This is the documentation for Omnipath v3.0, a significant architectural upgrade. For the previous version, please refer to the `v2.0` branch.
+# OmniPath v2
 
-# Omnipath v3.0: Next-Generation Multi-Agent Platform
-
-**Omnipath v3.0** is a production-ready, event-driven multi-agent platform designed for building scalable, observable, and intelligent autonomous systems. It combines a unique emotional intelligence core with enterprise-grade governance, making it the ideal foundation for complex AI automation.
-
-This version represents a complete architectural overhaul, moving from a synchronous request-response model to a fully asynchronous, event-driven system. It introduces industry-standard protocols and best-in-class observability tools to provide unprecedented control and insight into agent behavior.
-
-![Architecture Diagram](https://private-us-east-1.manuscdn.com/sessionFile/k7GU7hUSA7cxeqZ3oAae2R/sandbox/U1KgzKUZTeTt9PlDSbDP4J-images_1769627043304_na1fn_L2hvbWUvdWJ1bnR1L29tbmlwYXRoLXYzL2RvY3MvYXJjaGl0ZWN0dXJl.png?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvazdHVTdoVVNBN2N4ZXFaM29BYWUyUi9zYW5kYm94L1UxS2d6S1VaVGVUdDlQbERTYkRQNEotaW1hZ2VzXzE3Njk2MjcwNDMzMDRfbmExZm5fTDJodmJXVXZkV0oxYm5SMUwyOXRibWx3WVhSb0xYWXpMMlJ2WTNNdllYSmphR2wwWldOMGRYSmwucG5nIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzk4NzYxNjAwfX19XX0_&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=KpnaMayI4qrYPD08MhaDmG0AqDIdt6h8gJvWS8VY-CRxu1vCHyigz4tqh31HHKSG6NhnELlTEVabbiY-ZAB4jP3eYyVJUV71AEI2u77xHnCzXxh99QH6D5M4Vip~2htbZ59~WIeKqlAN83gYdhGQDCg3JHf-ZyVYC5VZOuAKT0f6l~Z-0GZRkfqS1RMbNmSBoHxx5HH5YMJnkoOuvxdqkdHlrNO1nSOdpuEb69iKw6VWx71Kk-VHjpDPruuoHDLCJje8IFFz7z0ifhoi--PXfAX~ta7~h-idDtWG6pa2ZigDLyjycIiR0LoBBI-QuyeS2NQQ6GPbm~tM16YDsxRDKA__)
+**A Production-Grade, Multi-Agent AI Platform**
 
 ---
 
-## ✨ Key Features in v3.0
+OmniPath is an open, extensible, and observable platform for building, deploying, and managing fleets of autonomous AI agents. It provides the complete infrastructure necessary for production-grade agentic systems, from event-driven architecture and enterprise-grade governance to a comprehensive observability stack.
 
--   **🚀 Event-Driven Architecture**: Powered by **NATS.io**, the new core enables massive scalability and resilience. Agents communicate asynchronously, eliminating bottlenecks and allowing for independent scaling.
+This is not a toy framework. It is a complete, working system built with the same patterns used by large-scale distributed applications, ready for deployment on a single server or a Kubernetes cluster.
 
--   **💾 Event Sourcing & CQRS**: Agent state is now an immutable log of events, providing a perfect audit trail and enabling time-travel debugging. CQRS separates read and write concerns for optimal performance.
-
--   **🔭 Deep Observability**: With **OpenTelemetry**, **Langfuse**, and **Prometheus** integrated, every agent action, LLM call, and system metric is traceable and measurable from a unified dashboard in **Grafana**.
-
--   **🛡️ Reliable Workflows with Sagas**: Complex, multi-agent missions are orchestrated using the **Saga pattern**, ensuring that workflows either complete successfully or are safely compensated, maintaining data consistency across services.
-
--   **🧩 Standardized Protocols**: Adopts **Model Context Protocol (MCP)** for tool integration, creating a plug-and-play ecosystem for external services and APIs.
-
--   **🧠 Emotional Intelligence Core**: Retains its unique ability to factor emotion and risk into agent decision-making, providing a nuanced layer of control not found in other platforms.
-
--   **🔒 Enterprise-Grade Governance**: Built-in RBAC, multi-tenancy, and immutable audit logs provide the security and compliance features required for enterprise deployment.
+| | |
+|---|---|
+| **Version** | `5.0.0` |
+| **CI Status** | ✅ Passing |
+| **Test Coverage** | 37% (679 tests) |
+| **License** | Proprietary |
 
 ---
 
-## 🛠️ Technology Stack
+## Core Features
 
-| Category          | Technology                                        | Purpose                                    |
-| ----------------- | ------------------------------------------------- | ------------------------------------------ |
-| **Web Framework**   | FastAPI                                           | High-performance async API                 |
-| **Database**        | PostgreSQL 15+                                    | Primary data store, event store            |
-| **Messaging**       | NATS.io                                           | Event bus for inter-agent communication    |
-| **Caching**         | Redis                                             | Session data, read model snapshots         |
-| **Observability**   | OpenTelemetry, Langfuse, Prometheus, Jaeger       | Tracing, metrics, and LLM observability    |
-| **Containerization**| Docker, Kubernetes                                | Scalable and resilient deployment          |
-| **Agent Framework** | LangGraph (evaluated)                             | Visual, debuggable agent state machines    |
+OmniPath is built on a foundation of production-ready architectural patterns:
+
+-   **Event-Driven Architecture**: At its core, OmniPath uses a **NATS.io** event bus for asynchronous, decoupled communication between all components. This enables high scalability and resilience.
+
+-   **Event Sourcing & CQRS**: Agent and mission states are not just stored; they are modeled as an immutable sequence of events. This provides a complete audit trail, enables state reconstruction, and separates read/write workloads for performance.
+
+-   **Saga Orchestration**: Manages complex, multi-step operations across agents and services with automated compensation for failures, ensuring data consistency in a distributed environment.
+
+-   **Comprehensive Governance**: A powerful, policy-driven governance engine provides fine-grained control over agent behavior, resource access, and compliance. Features include:
+    -   **Risk-Based Pricing**: High-risk operations automatically incur higher costs.
+    -   **Approval Workflows**: Multi-level approval queues for sensitive actions.
+    -   **Immutable Audit Trails**: Complete, tamper-proof logs of all system activity.
+
+-   **Full-Stack Observability**: The entire platform is instrumented for deep visibility.
+    -   **Distributed Tracing** with OpenTelemetry and Jaeger.
+    -   **Metrics** with Prometheus.
+    -   **Dashboards** with Grafana for system health, API performance, and governance.
+
+-   **Multi-LLM Strategy**: Flexibly route tasks to the best model for the job (e.g., GPT-4 for reasoning, Claude 3.5 for safety, Gemini for speed) via a centralized `LLMService`.
 
 ---
 
-## 🚀 Quick Start
+## Technology Stack
 
-This project uses Docker Compose to set up a complete local development environment, including all necessary services.
+| Category | Technology | Purpose |
+|---|---|---|
+| **Web Framework** | FastAPI | High-performance asynchronous API |
+| **Database** | PostgreSQL 15+ | Primary data store, event store |
+| **Messaging** | NATS.io | Event bus for inter-service communication |
+| **Caching** | Redis | Session data, read model snapshots |
+| **Observability** | OpenTelemetry, Prometheus, Jaeger, Grafana | Tracing, metrics, and dashboards |
+| **Containerization**| Docker, Kubernetes | Scalable and resilient deployment |
+| **Authentication** | JWT with RBAC | Secure, role-based access control |
+
+---
+
+## Quick Start
+
+This project uses Docker Compose to set up a complete local development environment.
 
 ### Prerequisites
 
@@ -55,50 +68,42 @@ This project uses Docker Compose to set up a complete local development environm
 
 ```bash
 git clone <your-repo-url>
-cd omnipath-v3
+cd omnipath_v2
 ```
 
 ### 2. Configure Environment
 
-Copy the example environment file and update it with your credentials, especially for Langfuse and LLM providers.
+Copy the example environment file. **This is the only file you need to edit.**
 
 ```bash
-cp .env.v3.example .env
+cp .env.example .env
 ```
 
-**Edit `.env`** and add your API keys:
+Now, edit the `.env` file to add your API keys and generate security secrets. At a minimum, you need:
 
 ```env
-# Langfuse (LLM Observability)
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
+# Generate these two secrets
+SECRET_KEY=your_32_character_random_string
+JWT_SECRET_KEY=your_32_character_random_string
 
-# LLM Providers
+# Add your OpenAI API key (required for core agents)
 OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-...
 ```
 
 ### 3. Launch the Stack
 
-Build and run all services using Docker Compose.
+Build and run all services using the production Docker Compose file.
 
 ```bash
-docker-compose -f docker-compose.v3.yml up --build -d
+docker-compose -f docker-compose.production.yml up --build -d
 ```
 
-This will start:
--   `omnipath-backend` on port `8000`
--   `postgres` on port `5432`
--   `redis` on port `6379`
--   `nats` on port `4222` (client) and `8222` (monitoring)
--   `jaeger` on port `16686` (UI)
--   `prometheus` on port `9090`
--   `grafana` on port `3000`
+This command will start the entire OmniPath stack, including the backend, database, event bus, and full observability suite.
 
 ### 4. Access Services
 
 -   **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
--   **Grafana**: [http://localhost:3000](http://localhost:3000) (user: `admin`, pass: `admin`)
+-   **Grafana Dashboards**: [http://localhost:3000](http://localhost:3000) (user: `admin`, pass: `changeme`)
 -   **Jaeger Tracing**: [http://localhost:16686](http://localhost:16686)
 -   **NATS Monitoring**: [http://localhost:8222](http://localhost:8222)
 -   **Prometheus**: [http://localhost:9090](http://localhost:9090)
@@ -108,52 +113,45 @@ This will start:
 Once the backend is running, apply the initial database schema.
 
 ```bash
-docker-compose -f docker-compose.v3.yml exec backend alembic upgrade head
+docker-compose -f docker-compose.production.yml exec backend alembic upgrade head
+```
+
+Your OmniPath instance is now fully operational.
+
+---
+
+## Project Structure
+
+```
+/omnipath_v2
+├── backend/                # Main application source code
+│   ├── api/                # FastAPI routes and endpoints
+│   ├── agents/             # Core agent implementations and factory
+│   ├── core/               # Foundational patterns (CQRS, Event Sourcing, Saga)
+│   ├── database/           # SQLAlchemy models and repositories
+│   ├── economy/            # Governance-based economy logic
+│   ├── integrations/       # 3rd-party services (LLM, MCP, Observability)
+│   ├── middleware/         # Auth, rate limiting, security headers
+│   ├── models/             # Pydantic domain models
+│   ├── orchestration/      # Mission execution logic
+│   └── main.py             # Application entry point
+├── docs/                   # Detailed architecture and design documents
+├── k8s/                    # Kubernetes deployment manifests
+├── monitoring/             # Prometheus, Grafana, and Nginx configurations
+├── scripts/                # Utility and operational scripts
+├── tests/                  # Unit, integration, and performance tests (670+)
+├── .env.example            # Template for environment variables
+├── docker-compose.production.yml # Production-ready Docker Compose stack
+├── Dockerfile.production   # Hardened production Docker image
+└── README.md               # This file
 ```
 
 ---
 
-## 🏛️ Project Structure
+## Contributing
 
-```
-/omnipath-v3
-├── backend/
-│   ├── api/            # FastAPI routes
-│   ├── agents/         # Agent implementations (Commander, Guardian, etc.)
-│   ├── core/
-│   │   ├── event_bus/  # NATS implementation
-│   │   └── event_sourcing/ # Event store logic
-│   ├── integrations/   # 3rd-party services (Observability, MCP)
-│   ├── models/         # SQLAlchemy data models
-│   ├── orchestration/  # Saga orchestrator
-│   ├── services/       # Business logic (Auth, RBAC)
-│   ├── main.py         # Application entry point
-│   └── config/         # Settings and configuration
-├── docs/
-│   ├── ARCHITECTURE.md # Detailed architecture document
-│   └── UPGRADE_GUIDE.md  # v2 to v3 upgrade guide
-├── monitoring/
-│   ├── prometheus.yml  # Prometheus scrape configs
-│   └── grafana-datasources.yml # Grafana datasource provisioning
-├── .env.v3.example     # Example environment file
-├── docker-compose.v3.yml # Docker Compose for v3 stack
-├── Dockerfile          # Application Docker image
-└── README.md           # This file
-```
+Contributions are welcome. Please open an issue to discuss your proposed changes before submitting a pull request.
 
----
-
-## 📄 Documentation
-
--   **[Architecture Deep Dive](docs/ARCHITECTURE.md)**: A detailed explanation of the v3.0 architecture, components, and design patterns.
--   **[v2.0 to v3.0 Upgrade Guide](docs/UPGRADE_GUIDE.md)**: A guide for understanding the key changes and migration path from the previous version.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
-
-## ⚖️ License
+## License
 
 This project is proprietary and confidential. Unauthorized use, copying, or distribution is strictly prohibited.
