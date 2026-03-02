@@ -3,7 +3,7 @@ Authentication Middleware
 Provides JWT authentication and current user dependency injection
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
@@ -15,8 +15,8 @@ from backend.config.settings import Settings
 # Initialize settings
 settings = Settings()
 
-# Security scheme
-security = HTTPBearer()
+# Security scheme — auto_error=False so we can return 401 (not 403) for missing token
+security = HTTPBearer(auto_error=False)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -81,25 +81,33 @@ def decode_access_token(token: str) -> TokenData:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> User:
     """
-    FastAPI dependency to get the current authenticated user
+    FastAPI dependency to get the current authenticated user.
 
-    This is used in route handlers like:
-        @app.get("/protected")
-        async def protected_route(current_user: User = Depends(get_current_user)):
-            return {"user": current_user.email}
+    Returns 401 (not 403) when no token is provided — RFC 7235 compliance.
+    HTTPBearer(auto_error=False) allows us to handle the missing-token case
+    ourselves with the correct 401 status code.
 
     Args:
-        credentials: HTTP Bearer token from request header
+        credentials: HTTP Bearer token from request header (Optional — None if missing)
 
     Returns:
         User object representing the authenticated user
 
     Raises:
-        HTTPException: If authentication fails
+        HTTPException 401: If token is missing, invalid, or expired
+        HTTPException 403: If user account is inactive
     """
+    # No token provided — return 401 Unauthorized (RFC 7235)
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     token = credentials.credentials
     token_data = decode_access_token(token)
 
