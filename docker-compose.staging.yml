@@ -1,6 +1,6 @@
 # Citadel (OmniPath v2) — Staging Docker Compose
-# HTTP only (SSL to be added after domain registration)
-# Single backend replica (no swarm mode needed)
+# Domain: nested-ai.net | HTTPS via Let's Encrypt
+# All internal services port-locked — only nginx exposes 80/443
 # Built with Pride for Obex Blackvault
 
 services:
@@ -72,8 +72,7 @@ services:
       COLLECTOR_OTLP_ENABLED: "true"
       SPAN_STORAGE_TYPE: memory
       MEMORY_MAX_TRACES: "10000"
-    ports:
-      - "16686:16686"
+    # Port 16686 is NOT exposed publicly — accessible via nginx /monitoring/jaeger/
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:16686"]
       interval: 10s
@@ -92,8 +91,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'
-    ports:
-      - "9090:9090"
+    # Port 9090 is NOT exposed publicly — accessible via nginx /monitoring/prometheus/
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -113,10 +111,10 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://5.161.59.198:3000}
+      GF_SERVER_ROOT_URL: https://nested-ai.net/monitoring/grafana
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_INSTALL_PLUGINS: grafana-piechart-panel
-    ports:
-      - "3000:3000"
+    # Port 3000 is NOT exposed publicly — accessible via nginx /monitoring/grafana/
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -138,8 +136,7 @@ services:
       context: .
       dockerfile: Dockerfile.production
     container_name: citadel-backend
-    ports:
-      - "8000:8000"
+    # Port 8000 is NOT exposed publicly — all traffic routes through nginx
     environment:
       # Database
       DATABASE_URL: postgresql://${POSTGRES_USER:-omnipath}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-omnipath}
@@ -212,6 +209,7 @@ services:
       - ./monitoring/nginx/nginx.staging.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot:ro
+      - /etc/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
       - backend
     healthcheck:
