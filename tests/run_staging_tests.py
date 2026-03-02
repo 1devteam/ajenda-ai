@@ -3,21 +3,22 @@ Citadel Staging Test Runner
 Runs all integration and performance tests against https://nested-ai.net
 Built with Pride for Obex Blackvault
 """
+
 import asyncio
-import sys
-import os
 import json
+import os
+import sys
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
+import httpx
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 STAGING_URL = "https://nested-ai.net"
 REPORT_PATH = os.environ.get("CITADEL_REPORT_PATH", "/tmp/citadel_staging_test_report.json")
-
-import httpx
 
 
 def safe_json(response: httpx.Response) -> Optional[dict]:
@@ -31,6 +32,7 @@ def safe_json(response: httpx.Response) -> Optional[dict]:
 # ============================================================================
 # Auth Integration Tests
 # ============================================================================
+
 
 class AuthTestSuite:
     """Authentication and authorization test suite against staging"""
@@ -55,42 +57,59 @@ class AuthTestSuite:
 
             # Test 1: Register
             try:
-                r = await client.post(f"{self.base_url}/api/v1/auth/register", json={
-                    "email": self.test_user_email,
-                    "password": self.test_user_password,
-                    "name": "Staging Auth Tester",
-                })
+                r = await client.post(
+                    f"{self.base_url}/api/v1/auth/register",
+                    json={
+                        "email": self.test_user_email,
+                        "password": self.test_user_password,
+                        "name": "Staging Auth Tester",
+                    },
+                )
                 data = safe_json(r) or {}
                 passed = r.status_code == 201
-                self.log("User Registration", passed,
-                    f"status={r.status_code} id={data.get('id', 'N/A')}")
+                self.log(
+                    "User Registration",
+                    passed,
+                    f"status={r.status_code} id={data.get('id', 'N/A')}",
+                )
             except Exception as e:
                 self.log("User Registration", False, str(e))
 
             # Test 2: Login
             try:
-                r = await client.post(f"{self.base_url}/api/v1/auth/login", json={
-                    "email": self.test_user_email,
-                    "password": self.test_user_password,
-                })
+                r = await client.post(
+                    f"{self.base_url}/api/v1/auth/login",
+                    json={
+                        "email": self.test_user_email,
+                        "password": self.test_user_password,
+                    },
+                )
                 data = safe_json(r) or {}
                 passed = r.status_code == 200
                 if passed:
                     self.access_token = data.get("access_token")
                     self.refresh_token = data.get("refresh_token")
-                self.log("User Login", passed,
-                    f"status={r.status_code} token={'present' if self.access_token else 'missing'}")
+                self.log(
+                    "User Login",
+                    passed,
+                    f"status={r.status_code} token={'present' if self.access_token else 'missing'}",
+                )
             except Exception as e:
                 self.log("User Login", False, str(e))
 
             # Test 3: Access protected endpoint with valid token
             try:
-                r = await client.get(f"{self.base_url}/api/v1/auth/me",
-                    headers={"Authorization": f"Bearer {self.access_token}"})
+                r = await client.get(
+                    f"{self.base_url}/api/v1/auth/me",
+                    headers={"Authorization": f"Bearer {self.access_token}"},
+                )
                 data = safe_json(r) or {}
                 passed = r.status_code == 200 and data.get("email") == self.test_user_email
-                self.log("Access Protected Endpoint", passed,
-                    f"status={r.status_code} email={data.get('email', 'N/A')}")
+                self.log(
+                    "Access Protected Endpoint",
+                    passed,
+                    f"status={r.status_code} email={data.get('email', 'N/A')}",
+                )
             except Exception as e:
                 self.log("Access Protected Endpoint", False, str(e))
 
@@ -98,31 +117,37 @@ class AuthTestSuite:
             try:
                 r = await client.get(f"{self.base_url}/api/v1/auth/me")
                 passed = r.status_code == 401
-                self.log("Reject Request Without Token", passed,
-                    f"status={r.status_code} (expected 401)")
+                self.log(
+                    "Reject Request Without Token", passed, f"status={r.status_code} (expected 401)"
+                )
             except Exception as e:
                 self.log("Reject Request Without Token", False, str(e))
 
             # Test 5: Access with invalid token (should be 401)
             try:
-                r = await client.get(f"{self.base_url}/api/v1/auth/me",
-                    headers={"Authorization": "Bearer invalid.token.here"})
+                r = await client.get(
+                    f"{self.base_url}/api/v1/auth/me",
+                    headers={"Authorization": "Bearer invalid.token.here"},
+                )
                 passed = r.status_code == 401
-                self.log("Reject Invalid Token", passed,
-                    f"status={r.status_code} (expected 401)")
+                self.log("Reject Invalid Token", passed, f"status={r.status_code} (expected 401)")
             except Exception as e:
                 self.log("Reject Invalid Token", False, str(e))
 
             # Test 6: Refresh token
             try:
-                r = await client.post(f"{self.base_url}/api/v1/auth/refresh", json={
-                    "refresh_token": self.refresh_token
-                })
+                r = await client.post(
+                    f"{self.base_url}/api/v1/auth/refresh",
+                    json={"refresh_token": self.refresh_token},
+                )
                 data = safe_json(r) or {}
                 new_token = data.get("access_token", "")
                 passed = r.status_code == 200 and bool(new_token)
-                self.log("Token Refresh", passed,
-                    f"status={r.status_code} new_token={'present' if new_token else 'missing'}")
+                self.log(
+                    "Token Refresh",
+                    passed,
+                    f"status={r.status_code} new_token={'present' if new_token else 'missing'}",
+                )
                 if passed:
                     self.access_token = new_token
             except Exception as e:
@@ -131,38 +156,50 @@ class AuthTestSuite:
             # Test 7: Wrong password rejected
             # Note: 429 is also acceptable — means rate limiter is protecting the endpoint
             try:
-                r = await client.post(f"{self.base_url}/api/v1/auth/login", json={
-                    "email": self.test_user_email,
-                    "password": "WrongPassword999!",
-                })
+                r = await client.post(
+                    f"{self.base_url}/api/v1/auth/login",
+                    json={
+                        "email": self.test_user_email,
+                        "password": "WrongPassword999!",
+                    },
+                )
                 # 401 = wrong password (ideal), 429 = rate limited (also correct — security working)
                 passed = r.status_code in [401, 400, 429]
                 note = "rate_limited" if r.status_code == 429 else "rejected"
-                self.log("Reject Wrong Password", passed,
-                    f"status={r.status_code} ({note} — both are correct security behavior)")
+                self.log(
+                    "Reject Wrong Password",
+                    passed,
+                    f"status={r.status_code} ({note} — both are correct security behavior)",
+                )
             except Exception as e:
                 self.log("Reject Wrong Password", False, str(e))
 
             # Test 8: Duplicate registration rejected
             # Note: 429 acceptable — rate limiter is protecting registration endpoint
             try:
-                r = await client.post(f"{self.base_url}/api/v1/auth/register", json={
-                    "email": self.test_user_email,
-                    "password": self.test_user_password,
-                    "name": "Duplicate User",
-                })
+                r = await client.post(
+                    f"{self.base_url}/api/v1/auth/register",
+                    json={
+                        "email": self.test_user_email,
+                        "password": self.test_user_password,
+                        "name": "Duplicate User",
+                    },
+                )
                 # 409/400/422 = duplicate rejected, 429 = rate limited (also security working)
                 passed = r.status_code in [409, 400, 422, 429]
                 note = "rate_limited" if r.status_code == 429 else "rejected_duplicate"
-                self.log("Reject Duplicate Registration", passed,
-                    f"status={r.status_code} ({note})")
+                self.log(
+                    "Reject Duplicate Registration", passed, f"status={r.status_code} ({note})"
+                )
             except Exception as e:
                 self.log("Reject Duplicate Registration", False, str(e))
 
             # Test 9: Logout
             try:
-                r = await client.post(f"{self.base_url}/api/v1/auth/logout",
-                    headers={"Authorization": f"Bearer {self.access_token}"})
+                r = await client.post(
+                    f"{self.base_url}/api/v1/auth/logout",
+                    headers={"Authorization": f"Bearer {self.access_token}"},
+                )
                 # 200/204 = logged out, 429 = rate limited (token still valid, but rate limiter hit)
                 passed = r.status_code in [200, 204, 429]
                 note = "rate_limited" if r.status_code == 429 else "logged_out"
@@ -172,13 +209,14 @@ class AuthTestSuite:
 
             # Test 10: Access after logout (should be 401 if logout succeeded, or 429)
             try:
-                r = await client.get(f"{self.base_url}/api/v1/auth/me",
-                    headers={"Authorization": f"Bearer {self.access_token}"})
+                r = await client.get(
+                    f"{self.base_url}/api/v1/auth/me",
+                    headers={"Authorization": f"Bearer {self.access_token}"},
+                )
                 # 401 = token revoked (ideal), 429 = rate limited (also acceptable)
                 passed = r.status_code in [401, 429]
                 note = "rate_limited" if r.status_code == 429 else "token_revoked"
-                self.log("Reject Access After Logout", passed,
-                    f"status={r.status_code} ({note})")
+                self.log("Reject Access After Logout", passed, f"status={r.status_code} ({note})")
             except Exception as e:
                 self.log("Reject Access After Logout", False, str(e))
 
@@ -197,6 +235,7 @@ class AuthTestSuite:
 # ============================================================================
 # API Endpoint Tests
 # ============================================================================
+
 
 class APIEndpointTestSuite:
     """API endpoint coverage tests"""
@@ -218,9 +257,10 @@ class APIEndpointTestSuite:
         """Register and login, with retry on rate limit."""
         for attempt in range(3):
             try:
-                reg = await client.post(f"{self.base_url}/api/v1/auth/register", json={
-                    "email": self.email, "password": "ApiTest123!", "name": "API Tester"
-                })
+                reg = await client.post(
+                    f"{self.base_url}/api/v1/auth/register",
+                    json={"email": self.email, "password": "ApiTest123!", "name": "API Tester"},
+                )
                 if reg.status_code == 429:
                     wait = int(reg.headers.get("Retry-After", 10))
                     print(f"    ⏳ Rate limited on register, waiting {wait}s...")
@@ -229,9 +269,10 @@ class APIEndpointTestSuite:
                     self.email = f"staging_api_{int(time.time())}@nested-ai.net"
                     continue
 
-                login = await client.post(f"{self.base_url}/api/v1/auth/login", json={
-                    "email": self.email, "password": "ApiTest123!"
-                })
+                login = await client.post(
+                    f"{self.base_url}/api/v1/auth/login",
+                    json={"email": self.email, "password": "ApiTest123!"},
+                )
                 if login.status_code == 429:
                     wait = int(login.headers.get("Retry-After", 10))
                     print(f"    ⏳ Rate limited on login, waiting {wait}s...")
@@ -253,8 +294,12 @@ class APIEndpointTestSuite:
             if not await self._setup_auth(client):
                 self.log("Test Setup", False, "Could not obtain auth token after 3 attempts")
                 return {
-                    "suite": "API Endpoints", "total": 1, "passed": 0,
-                    "failed": 1, "pass_rate": 0.0, "results": self.test_results
+                    "suite": "API Endpoints",
+                    "total": 1,
+                    "passed": 0,
+                    "failed": 1,
+                    "pass_rate": 0.0,
+                    "results": self.test_results,
                 }
 
             headers = {"Authorization": f"Bearer {self.access_token}"}
@@ -264,8 +309,11 @@ class APIEndpointTestSuite:
                 r = await client.get(f"{self.base_url}/health")
                 data = safe_json(r) or {}
                 passed = r.status_code == 200 and data.get("status") == "ok"
-                self.log("GET /health", passed,
-                    f"status={r.status_code} version={data.get('version', 'N/A')}")
+                self.log(
+                    "GET /health",
+                    passed,
+                    f"status={r.status_code} version={data.get('version', 'N/A')}",
+                )
             except Exception as e:
                 self.log("GET /health", False, str(e))
 
@@ -292,8 +340,11 @@ class APIEndpointTestSuite:
                 r_unauth = await client.get(f"{self.base_url}/api/v1/agents")
                 r_auth = await client.get(f"{self.base_url}/api/v1/agents", headers=headers)
                 passed = r_unauth.status_code == 401 and r_auth.status_code in [200, 404]
-                self.log("GET /api/v1/agents (auth required)", passed,
-                    f"unauth={r_unauth.status_code} auth={r_auth.status_code}")
+                self.log(
+                    "GET /api/v1/agents (auth required)",
+                    passed,
+                    f"unauth={r_unauth.status_code} auth={r_auth.status_code}",
+                )
             except Exception as e:
                 self.log("GET /api/v1/agents (auth required)", False, str(e))
 
@@ -302,8 +353,11 @@ class APIEndpointTestSuite:
                 r_unauth = await client.get(f"{self.base_url}/api/v1/missions")
                 r_auth = await client.get(f"{self.base_url}/api/v1/missions", headers=headers)
                 passed = r_unauth.status_code == 401 and r_auth.status_code in [200, 404]
-                self.log("GET /api/v1/missions (auth required)", passed,
-                    f"unauth={r_unauth.status_code} auth={r_auth.status_code}")
+                self.log(
+                    "GET /api/v1/missions (auth required)",
+                    passed,
+                    f"unauth={r_unauth.status_code} auth={r_auth.status_code}",
+                )
             except Exception as e:
                 self.log("GET /api/v1/missions (auth required)", False, str(e))
 
@@ -319,15 +373,19 @@ class APIEndpointTestSuite:
             try:
                 statuses = []
                 for _ in range(25):
-                    r = await client.post(f"{self.base_url}/api/v1/auth/login", json={
-                        "email": "nonexistent@test.com", "password": "wrong"
-                    })
+                    r = await client.post(
+                        f"{self.base_url}/api/v1/auth/login",
+                        json={"email": "nonexistent@test.com", "password": "wrong"},
+                    )
                     statuses.append(r.status_code)
                     if r.status_code == 429:
                         break
                 rate_limited = 429 in statuses
-                self.log("Rate Limiting Active on Auth", rate_limited,
-                    f"429 triggered after {len(statuses)} requests: {rate_limited}")
+                self.log(
+                    "Rate Limiting Active on Auth",
+                    rate_limited,
+                    f"429 triggered after {len(statuses)} requests: {rate_limited}",
+                )
             except Exception as e:
                 self.log("Rate Limiting Active on Auth", False, str(e))
 
@@ -338,18 +396,23 @@ class APIEndpointTestSuite:
                 xframe = "x-frame-options" in r.headers
                 xcontent = "x-content-type-options" in r.headers
                 passed = hsts and xframe and xcontent
-                self.log("Security Headers Present", passed,
-                    f"HSTS={hsts} X-Frame={xframe} X-Content-Type={xcontent}")
+                self.log(
+                    "Security Headers Present",
+                    passed,
+                    f"HSTS={hsts} X-Frame={xframe} X-Content-Type={xcontent}",
+                )
             except Exception as e:
                 self.log("Security Headers Present", False, str(e))
 
             # Test 9: HTTP redirects to HTTPS
             try:
-                r = await client.get("http://nested-ai.net/health",
-                    follow_redirects=False)
+                r = await client.get("http://nested-ai.net/health", follow_redirects=False)
                 passed = r.status_code == 301 and "https" in r.headers.get("location", "")
-                self.log("HTTP -> HTTPS Redirect", passed,
-                    f"status={r.status_code} location={r.headers.get('location', 'N/A')}")
+                self.log(
+                    "HTTP -> HTTPS Redirect",
+                    passed,
+                    f"status={r.status_code} location={r.headers.get('location', 'N/A')}",
+                )
             except Exception as e:
                 self.log("HTTP -> HTTPS Redirect", False, str(e))
 
@@ -360,8 +423,11 @@ class APIEndpointTestSuite:
                     r = await client.get(f"{self.base_url}{path}")
                     blocked.append(r.status_code in [403, 404])
                 passed = all(blocked)
-                self.log("Sensitive Paths Blocked", passed,
-                    f"All {len(blocked)} paths returned 403/404: {passed}")
+                self.log(
+                    "Sensitive Paths Blocked",
+                    passed,
+                    f"All {len(blocked)} paths returned 403/404: {passed}",
+                )
             except Exception as e:
                 self.log("Sensitive Paths Blocked", False, str(e))
 
@@ -380,6 +446,7 @@ class APIEndpointTestSuite:
 # ============================================================================
 # Performance Baseline Tests
 # ============================================================================
+
 
 class PerformanceTestSuite:
     """Performance baseline tests"""
@@ -401,9 +468,10 @@ class PerformanceTestSuite:
         """Register and login, with retry on rate limit."""
         for attempt in range(3):
             try:
-                reg = await client.post(f"{self.base_url}/api/v1/auth/register", json={
-                    "email": self.email, "password": "PerfTest123!", "name": "Perf Tester"
-                })
+                reg = await client.post(
+                    f"{self.base_url}/api/v1/auth/register",
+                    json={"email": self.email, "password": "PerfTest123!", "name": "Perf Tester"},
+                )
                 if reg.status_code == 429:
                     wait = int(reg.headers.get("Retry-After", 15))
                     print(f"    ⏳ Rate limited on register, waiting {wait}s...")
@@ -411,9 +479,10 @@ class PerformanceTestSuite:
                     self.email = f"staging_perf_{int(time.time())}@nested-ai.net"
                     continue
 
-                login = await client.post(f"{self.base_url}/api/v1/auth/login", json={
-                    "email": self.email, "password": "PerfTest123!"
-                })
+                login = await client.post(
+                    f"{self.base_url}/api/v1/auth/login",
+                    json={"email": self.email, "password": "PerfTest123!"},
+                )
                 if login.status_code == 429:
                     wait = int(login.headers.get("Retry-After", 15))
                     print(f"    ⏳ Rate limited on login, waiting {wait}s...")
@@ -436,8 +505,12 @@ class PerformanceTestSuite:
             if not await self._setup_auth(client):
                 self.log("Perf Setup", False, "Could not obtain auth token after 3 attempts")
                 return {
-                    "suite": "Performance", "total": 1, "passed": 0,
-                    "failed": 1, "pass_rate": 0.0, "results": self.test_results
+                    "suite": "Performance",
+                    "total": 1,
+                    "passed": 0,
+                    "failed": 1,
+                    "pass_rate": 0.0,
+                    "results": self.test_results,
                 }
 
             headers = {"Authorization": f"Bearer {self.access_token}"}
@@ -452,8 +525,11 @@ class PerformanceTestSuite:
                 avg_ms = statistics.mean(times)
                 p95_ms = sorted(times)[int(len(times) * 0.95)]
                 passed = avg_ms < 200
-                self.log("Health Endpoint Latency (<200ms avg)", passed,
-                    f"avg={avg_ms:.1f}ms p95={p95_ms:.1f}ms over 10 requests")
+                self.log(
+                    "Health Endpoint Latency (<200ms avg)",
+                    passed,
+                    f"avg={avg_ms:.1f}ms p95={p95_ms:.1f}ms over 10 requests",
+                )
             except Exception as e:
                 self.log("Health Endpoint Latency", False, str(e))
 
@@ -466,8 +542,9 @@ class PerformanceTestSuite:
                     times.append((time.time() - start) * 1000)
                 avg_ms = statistics.mean(times)
                 passed = avg_ms < 500
-                self.log("Auth/me Latency (<500ms avg)", passed,
-                    f"avg={avg_ms:.1f}ms over 10 requests")
+                self.log(
+                    "Auth/me Latency (<500ms avg)", passed, f"avg={avg_ms:.1f}ms over 10 requests"
+                )
             except Exception as e:
                 self.log("Auth/me Latency", False, str(e))
 
@@ -476,17 +553,21 @@ class PerformanceTestSuite:
                 times = []
                 for _ in range(5):
                     start = time.time()
-                    r = await client.post(f"{self.base_url}/api/v1/auth/login", json={
-                        "email": self.email, "password": "PerfTest123!"
-                    })
+                    r = await client.post(
+                        f"{self.base_url}/api/v1/auth/login",
+                        json={"email": self.email, "password": "PerfTest123!"},
+                    )
                     times.append((time.time() - start) * 1000)
                     if r.status_code == 429:
                         break
                 if times:
                     avg_ms = statistics.mean(times)
                     passed = avg_ms < 2000
-                    self.log("Login Latency (<2000ms avg, bcrypt intentional)", passed,
-                        f"avg={avg_ms:.1f}ms over {len(times)} requests")
+                    self.log(
+                        "Login Latency (<2000ms avg, bcrypt intentional)",
+                        passed,
+                        f"avg={avg_ms:.1f}ms over {len(times)} requests",
+                    )
                 else:
                     self.log("Login Latency", False, "All requests rate limited")
             except Exception as e:
@@ -499,12 +580,14 @@ class PerformanceTestSuite:
                 responses = await asyncio.gather(*tasks, return_exceptions=True)
                 elapsed = (time.time() - start) * 1000
                 success_count = sum(
-                    1 for r in responses
-                    if hasattr(r, "status_code") and r.status_code == 200
+                    1 for r in responses if hasattr(r, "status_code") and r.status_code == 200
                 )
                 passed = success_count == 10 and elapsed < 5000
-                self.log("10 Concurrent Health Requests", passed,
-                    f"success={success_count}/10 total_time={elapsed:.0f}ms")
+                self.log(
+                    "10 Concurrent Health Requests",
+                    passed,
+                    f"success={success_count}/10 total_time={elapsed:.0f}ms",
+                )
             except Exception as e:
                 self.log("10 Concurrent Health Requests", False, str(e))
 
@@ -520,8 +603,11 @@ class PerformanceTestSuite:
                     times.append((time.time() - start) * 1000)
                 warm_avg = statistics.mean(times)
                 passed = warm_avg < 200
-                self.log("SSL Connection Reuse (warm < 200ms)", passed,
-                    f"cold={cold_ms:.0f}ms warm_avg={warm_avg:.1f}ms")
+                self.log(
+                    "SSL Connection Reuse (warm < 200ms)",
+                    passed,
+                    f"cold={cold_ms:.0f}ms warm_avg={warm_avg:.1f}ms",
+                )
             except Exception as e:
                 self.log("SSL Connection Reuse", False, str(e))
 
@@ -541,6 +627,7 @@ class PerformanceTestSuite:
 # Main Runner
 # ============================================================================
 
+
 async def main():
     print("=" * 70)
     print("CITADEL v5.0 — STAGING TEST SUITE")
@@ -555,7 +642,8 @@ async def main():
     print("-" * 40)
     auth_results = await AuthTestSuite().run()
     all_results.append(auth_results)
-    print(f"  → {auth_results['passed']}/{auth_results['total']} passed ({auth_results['pass_rate']}%)")
+    rate = auth_results["pass_rate"]
+    print(f"  → {auth_results['passed']}/{auth_results['total']} passed ({rate}%)")
 
     # Brief pause between suites to let rate limit window partially recover
     print("\n  ⏳ Pausing 5s between suites (rate limit recovery)...")
@@ -565,7 +653,9 @@ async def main():
     print("-" * 40)
     api_results = await APIEndpointTestSuite().run()
     all_results.append(api_results)
-    print(f"  → {api_results['passed']}/{api_results['total']} passed ({api_results['pass_rate']}%)")
+    print(
+        f"  → {api_results['passed']}/{api_results['total']} passed ({api_results['pass_rate']}%)"
+    )
 
     print("\n  ⏳ Pausing 5s between suites (rate limit recovery)...")
     await asyncio.sleep(5)
@@ -574,7 +664,8 @@ async def main():
     print("-" * 40)
     perf_results = await PerformanceTestSuite().run()
     all_results.append(perf_results)
-    print(f"  → {perf_results['passed']}/{perf_results['total']} passed ({perf_results['pass_rate']}%)")
+    rate = perf_results["pass_rate"]
+    print(f"  → {perf_results['passed']}/{perf_results['total']} passed ({rate}%)")
 
     # Summary
     total_tests = sum(r["total"] for r in all_results)

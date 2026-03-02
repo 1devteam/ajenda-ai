@@ -106,13 +106,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 
-def create_access_token(user_id: str, tenant_id: str) -> tuple[str, datetime]:
+def create_access_token(user_id: str, tenant_id: str, email: str = "") -> tuple[str, datetime]:
     """Create JWT access token"""
     import uuid
 
     expires_at = datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "user_id": user_id,
+        "email": email,
         "tenant_id": tenant_id,
         "exp": expires_at,
         "type": "access",
@@ -184,7 +185,9 @@ async def get_current_user(
         )
 
     # Check if token is revoked in database
-    db_token = db.query(Token).filter(Token.token == token, Token.revoked == False).first()  # noqa: E712
+    db_token = (
+        db.query(Token).filter(Token.token == token, Token.revoked == False).first()  # noqa: E712
+    )
 
     if not db_token:
         raise HTTPException(
@@ -283,7 +286,7 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     get_metrics().record_user_login(user.tenant_id)
 
     # Create tokens
-    access_token, access_expires = create_access_token(user.id, user.tenant_id)
+    access_token, access_expires = create_access_token(user.id, user.tenant_id, user.email)
     refresh_token, refresh_expires = create_refresh_token(user.id, user.tenant_id)
 
     # Store tokens in database
@@ -354,7 +357,10 @@ async def refresh_token_endpoint(refresh_data: TokenRefresh, db: Session = Depen
         # Create new access token
         user_id = token_data["user_id"]
         tenant_id = token_data["tenant_id"]
-        access_token, access_expires = create_access_token(user_id, tenant_id)
+        # Fetch user email from DB to include in new access token payload
+        user_obj = db.query(User).filter(User.id == user_id).first()
+        user_email = user_obj.email if user_obj else ""
+        access_token, access_expires = create_access_token(user_id, tenant_id, user_email)
 
         # Store new access token
         db_access_token = Token(
