@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     COMMANDER_MODEL: str = "gpt-4-turbo"
     COMMANDER_TEMPERATURE: float = 0.7
 
-    GUARDIAN_PROVIDER: str = "anthropic"
-    GUARDIAN_MODEL: str = "claude-3-5-sonnet-20241022"
+    GUARDIAN_PROVIDER: str = "openai"  # Default to openai; override via GUARDIAN_PROVIDER env var
+    GUARDIAN_MODEL: str = "gpt-4o-mini"  # Cost-efficient safety validator; override for claude
     GUARDIAN_TEMPERATURE: float = 0.3  # Lower for safety
 
     ARCHIVIST_PROVIDER: str = "google"

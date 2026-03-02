@@ -853,10 +853,8 @@ async def get_agent_history(
 
     try:
         # Fetch events for this agent aggregate
-        events = await event_store.get_events(
-            aggregate_id=agent_id,
-            aggregate_type="agent",
-        )
+        # get_events() accepts aggregate_id, from_version, to_version only
+        events = await event_store.get_events(aggregate_id=agent_id)
 
         # Also fetch mission events where this agent was the executor
         mission_events = await event_store.get_events_by_type(
