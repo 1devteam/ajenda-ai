@@ -21,7 +21,9 @@ from backend.database.models import User, Token, Tenant
 from backend.config.settings import settings
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
-security = HTTPBearer()
+# auto_error=False: return 401 (not 403) when Authorization header is missing
+# RFC 7235 §3.1: 401 = not authenticated, 403 = authenticated but not allowed
+security = HTTPBearer(auto_error=False)
 BCRYPT_ROUNDS = 12
 
 
@@ -148,33 +150,29 @@ def verify_token(token: str) -> Optional[dict]:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
 ) -> dict:
     """
-    Validate token and return current user info
+    Validate token and return current user info.
 
-    This dependency should be used on all protected endpoints to:
-    1. Validate the access token
-    2. Return user_id and tenant_id for authorization
-    3. Raise 401 if token is invalid or expired
-
-    Usage:
-        @router.get("/protected")
-        async def protected_endpoint(current_user: dict = Depends(get_current_user)):
-            user_id = current_user["user_id"]
-            tenant_id = current_user["tenant_id"]
-            # ... endpoint logic
+    Returns 401 (not 403) when no token is provided — RFC 7235 compliance.
+    HTTPBearer(auto_error=False) lets us control the response for missing tokens.
 
     Returns:
-        dict: {
-            "user_id": str,
-            "tenant_id": str
-        }
+        dict: {"user_id": str, "tenant_id": str}
 
     Raises:
-        HTTPException: 401 if token is invalid or expired
+        HTTPException 401: Token missing, invalid, expired, or revoked
     """
+    # No Authorization header provided — 401 Unauthorized (RFC 7235)
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     token = credentials.credentials
     token_data = verify_token(token)
 
