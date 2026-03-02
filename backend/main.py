@@ -41,6 +41,7 @@ from backend.api.routes import (
     integrations,
     scheduler as scheduler_router,
     vault as vault_router,
+    campaigns as campaigns_router,
 )
 
 # Import core services
@@ -536,6 +537,7 @@ app.include_router(audit.router)
 app.include_router(integrations.router)
 app.include_router(scheduler_router.router)
 app.include_router(vault_router.router)
+app.include_router(campaigns_router.router)
 
 
 if __name__ == "__main__":
