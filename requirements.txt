@@ -66,6 +66,15 @@ bcrypt>=4.0.0
 # YAML parsing (policy engine)
 PyYAML>=6.0
 
+# Task Scheduling
+apscheduler==3.11.2
+
+# Reddit API Integration
+praw==7.8.1
+
+# Cryptography (API key vault AES-256 encryption)
+cryptography>=42.0.0
+
 # Development
 pytest==7.4.4
 pytest-asyncio==0.23.3
