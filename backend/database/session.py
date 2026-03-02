@@ -12,12 +12,20 @@ from typing import Generator
 from backend.config.settings import settings
 import os
 
-# Determine database URL (use SQLite for development if PostgreSQL not available)
+# Determine database URL — environment variable takes precedence over settings default.
+# pydantic-settings already merges .env into settings, so settings.DATABASE_URL
+# reflects the .env value. We read from os.getenv directly to get the raw env var,
+# falling back to the settings value (which itself may come from .env).
 db_url = os.getenv("DATABASE_URL", settings.DATABASE_URL)
 
-# Use SQLite for local development if PostgreSQL URL not explicitly set
-if db_url.startswith("postgresql://localhost") or db_url == settings.DATABASE_URL:
-    # Check if we're in development mode without PostgreSQL
+# Use SQLite ONLY when the URL explicitly points to localhost PostgreSQL
+# (i.e. a developer running without Docker). In all other cases — including
+# Docker deployments where the host is a service name like 'postgres' — use
+# the PostgreSQL URL as-is.
+_DEFAULT_LOCAL_URL = "postgresql://omnipath:omnipath@localhost:5432/omnipath"
+
+if db_url == _DEFAULT_LOCAL_URL or db_url.startswith("postgresql://omnipath:omnipath@localhost"):
+    # Developer running locally without a PostgreSQL instance — fall back to SQLite
     db_url = "sqlite:///./omnipath.db"
     print(f"Using SQLite for development: {db_url}")
 
@@ -28,7 +36,7 @@ if db_url.startswith("postgresql://localhost") or db_url == settings.DATABASE_UR
         echo=settings.DEBUG,
     )
 else:
-    # PostgreSQL production settings
+    # PostgreSQL — production / staging / any non-default URL
     engine = create_engine(
         db_url,
         pool_size=settings.DATABASE_POOL_SIZE,
