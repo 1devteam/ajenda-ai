@@ -201,14 +201,17 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Nginx (Reverse Proxy — HTTP for staging)
+  # Nginx (Reverse Proxy — HTTPS with Let's Encrypt)
   nginx:
     image: nginx:alpine
     container_name: citadel-nginx
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./monitoring/nginx/nginx.staging.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
     depends_on:
       - backend
     healthcheck:
