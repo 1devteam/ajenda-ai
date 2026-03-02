@@ -9,7 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import ENUM
 
 
 # revision identifiers, used by Alembic.
@@ -18,34 +18,34 @@ down_revision: Union[str, None] = '3d39706f076f'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# Define enum types with create_type=False so SQLAlchemy does not attempt
-# to CREATE them automatically when processing op.create_table() — we
-# create them explicitly via op.execute() using IF NOT EXISTS to be safe.
-assettype_enum = sa.Enum(
+# Use postgresql.ENUM with create_type=False so SQLAlchemy does NOT attempt
+# to auto-CREATE the type during op.create_table(). We create them explicitly
+# via DO blocks below (idiomatic PostgreSQL 15 approach for idempotent creation).
+assettype_enum = ENUM(
     'agent', 'tool', 'model', 'vector_db', 'dataset', 'workflow',
     name='assettype', create_type=False
 )
-assetstatus_enum = sa.Enum(
+assetstatus_enum = ENUM(
     'active', 'inactive', 'archived', 'suspended', 'under_review',
     name='assetstatus', create_type=False
 )
-risktier_enum = sa.Enum(
+risktier_enum = ENUM(
     'unacceptable', 'high', 'limited', 'minimal',
     name='risktier', create_type=False
 )
-authoritylevel_enum = sa.Enum(
+authoritylevel_enum = ENUM(
     'guest', 'user', 'operator', 'admin', 'compliance_officer',
     name='authoritylevel', create_type=False
 )
-approvalstatus_enum = sa.Enum(
+approvalstatus_enum = ENUM(
     'pending', 'approved', 'rejected', 'escalated', 'expired',
     name='approvalstatus', create_type=False
 )
-policystatus_enum = sa.Enum(
+policystatus_enum = ENUM(
     'draft', 'active', 'inactive', 'archived',
     name='policystatus', create_type=False
 )
-compliancestatus_enum = sa.Enum(
+compliancestatus_enum = ENUM(
     'compliant', 'non_compliant', 'needs_review', 'exempted',
     name='compliancestatus', create_type=False
 )
@@ -54,8 +54,8 @@ compliancestatus_enum = sa.Enum(
 def upgrade() -> None:
     """Create governance tables for AI governance system"""
 
-    # Create enum types — use DO block for PostgreSQL 15 compatibility
-    # (CREATE TYPE IF NOT EXISTS requires PostgreSQL 17+)
+    # Create enum types using DO blocks — idiomatic PostgreSQL 15 approach.
+    # Each DO block catches duplicate_object so migration is idempotent.
     op.execute("""
         DO $$ BEGIN
             CREATE TYPE assettype AS ENUM ('agent', 'tool', 'model', 'vector_db', 'dataset', 'workflow');
@@ -278,7 +278,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Drop governance tables"""
 
-    # Drop composite indexes
+    # Drop composite indexes first
     op.drop_index('idx_policy_evals_asset_policy', table_name='governance_policy_evaluations')
     op.drop_index('idx_approvals_status_tenant', table_name='governance_approvals')
     op.drop_index('idx_audit_asset_event_type', table_name='governance_audit_events')
