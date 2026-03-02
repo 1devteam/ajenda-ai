@@ -113,12 +113,18 @@ async def get_current_user(
 
     # In production, you would fetch the user from the database here
     # For now, we construct a User object from the token data
+    # Resolve role — default to VIEWER if not present in token payload
+    try:
+        resolved_role = UserRole(token_data.role) if token_data.role else UserRole.VIEWER
+    except ValueError:
+        resolved_role = UserRole.VIEWER
+
     user = User(
         id=token_data.user_id,
         email=token_data.email,
         username=token_data.email.split("@")[0],  # Simple username from email
         tenant_id=token_data.tenant_id,
-        role=UserRole(token_data.role),
+        role=resolved_role,
         is_active=True,
         created_at=datetime.utcnow(),
         last_login=datetime.utcnow(),
