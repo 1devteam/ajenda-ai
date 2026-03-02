@@ -6,6 +6,7 @@ Migrated to SQLAlchemy database persistence
 Built with Pride for Obex Blackvault
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -20,6 +21,16 @@ from backend.api.routes.auth import get_current_user
 from backend.database import get_db
 from backend.database.models import Agent
 from backend.models.domain.agent import AgentStatus, AgentType
+
+
+def _get_event_store():
+    """Lazy import to avoid circular dependency at module load time."""
+    try:
+        from backend.main import get_event_store
+        return get_event_store()
+    except Exception:
+        return None
+
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +127,24 @@ async def create_agent(
     db.add(agent_data)
     db.commit()
     db.refresh(agent_data)
+
+    # Append agent.created event (non-fatal if event store unavailable)
+    _es = _get_event_store()
+    if _es:
+        asyncio.create_task(
+            _es.append(
+                aggregate_id=agent_id,
+                aggregate_type="agent",
+                event_type="agent.created",
+                data={
+                    "name": agent_data.name,
+                    "type": agent_data.type,
+                    "tenant_id": agent_data.tenant_id,
+                    "model": agent_data.model,
+                    "created_at": agent_data.created_at.isoformat(),
+                },
+            )
+        )
 
     return AgentResponse(
         id=agent_data.id,
@@ -338,6 +367,22 @@ async def delete_agent(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Agent belongs to different tenant",
+        )
+
+    # Append agent.deleted event before deletion (non-fatal if event store unavailable)
+    _es = _get_event_store()
+    if _es:
+        asyncio.create_task(
+            _es.append(
+                aggregate_id=agent_id,
+                aggregate_type="agent",
+                event_type="agent.deleted",
+                data={
+                    "name": agent.name,
+                    "tenant_id": agent.tenant_id,
+                    "deleted_at": datetime.utcnow().isoformat(),
+                },
+            )
         )
 
     db.delete(agent)
@@ -750,3 +795,115 @@ async def execute_developer_agent(
         task={"specification": specification, "task_type": task_type},
     )
     return await execute_specialized_agent(request, current_user)
+
+
+# ============================================================================
+# Agent History — Event Sourcing Read Endpoint
+# ============================================================================
+
+@router.get("/{agent_id}/history", response_model=Dict[str, Any])
+async def get_agent_history(
+    agent_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get the full event history for a specific agent.
+
+    Returns a chronological list of all domain events emitted for this agent
+    (created, updated, deleted, mission started, mission completed, etc.)
+    sourced directly from the EventStore.
+
+    This endpoint is the proof-of-life for the event sourcing layer — every
+    action taken on or by this agent is recorded here permanently.
+
+    **Parameters:**
+    - `agent_id`: The agent's unique identifier
+    - `limit`: Maximum number of events to return (default 50, max 500)
+    - `offset`: Number of events to skip for pagination
+
+    **Returns:**
+    ```json
+    {
+        "agent_id": "...",
+        "total_events": 42,
+        "events": [
+            {
+                "event_id": "...",
+                "event_type": "agent.created",
+                "aggregate_id": "...",
+                "aggregate_type": "agent",
+                "version": 1,
+                "timestamp": "2026-03-02T12:00:00",
+                "data": { ... }
+            }
+        ]
+    }
+    ```
+    """
+    event_store = _get_event_store()
+    if event_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Event store is not available — CQRS subsystem may not have started.",
+        )
+
+    limit = min(limit, 500)  # Hard cap to prevent abuse
+
+    try:
+        # Fetch events for this agent aggregate
+        events = await event_store.get_events(
+            aggregate_id=agent_id,
+            aggregate_type="agent",
+        )
+
+        # Also fetch mission events where this agent was the executor
+        mission_events = await event_store.get_events_by_type(
+            event_type="mission.started",
+        )
+        agent_mission_events = [
+            e for e in mission_events
+            if e.data.get("agent_id") == agent_id
+        ]
+
+        # Combine and sort chronologically
+        all_events = events + agent_mission_events
+        all_events.sort(key=lambda e: e.timestamp)
+
+        total = len(all_events)
+        paginated = all_events[offset: offset + limit]
+
+        serialised = [
+            {
+                "event_id": str(e.event_id),
+                "event_type": e.event_type,
+                "aggregate_id": str(e.aggregate_id),
+                "aggregate_type": e.aggregate_type,
+                "version": e.version,
+                "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+                "data": e.data,
+                "metadata": e.metadata or {},
+            }
+            for e in paginated
+        ]
+
+        logger.info(
+            f"Agent history retrieved: {total} events",
+            extra={"agent_id": agent_id, "user": current_user.get("sub")},
+        )
+
+        return {
+            "agent_id": agent_id,
+            "total_events": total,
+            "limit": limit,
+            "offset": offset,
+            "events": serialised,
+        }
+
+    except Exception as exc:
+        logger.error(f"Failed to retrieve agent history for {agent_id}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve agent history: {str(exc)}",
+        )

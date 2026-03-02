@@ -138,9 +138,10 @@ async def lifespan(app: FastAPI):
     if settings.OLLAMA_BASE_URL:
         logger.info(f"  - Ollama: ✓ ({settings.OLLAMA_BASE_URL})")
 
-    # Initialize Resource Marketplace
+    # Initialize Resource Marketplace (Redis-backed with in-memory fallback)
     logger.info("Initializing Resource Marketplace...")
     marketplace = ResourceMarketplace()
+    await marketplace.connect()
     logger.info("✅ Resource Marketplace initialized")
 
     # Initialize Event Bus
@@ -155,23 +156,30 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("NATS disabled, using stub mode")
 
-    # Initialize Mission Executor
+    # Initialize Mission Executor (event_store wired in after CQRS init below)
     logger.info("Initializing Mission Executor...")
     mission_executor = MissionExecutor(
         marketplace=marketplace, event_bus=event_bus, llm_service=llm_service
     )
     logger.info("✅ Mission Executor initialized")
-
-    # Initialize CQRS buses
+    # Initialize CQRS buses and wire EventStore into MissionExecutor
     logger.info("Initializing CQRS buses...")
     try:
         from backend.database.session import AsyncSessionLocal
         from backend.core.event_sourcing.event_store_impl import EventStore as ESImpl
-
-        async with AsyncSessionLocal() as _es_session:
-            _event_store = ESImpl(session=_es_session)
-            setup_cqrs(event_store=_event_store)
-        logger.info("✅ CQRS buses initialised")
+        # Pass the session factory — EventStore opens its own session per operation
+        _event_store = ESImpl(session_factory=AsyncSessionLocal)
+        setup_cqrs(event_store=_event_store)
+        # Wire the same EventStore instance into the MissionExecutor
+        mission_executor.event_store = _event_store
+        # Make event store available as a FastAPI dependency
+        global _event_store_ref
+        _event_store_ref = _event_store
+        # Start the SagaOrchestrator — manages distributed transactions
+        from backend.core.saga.saga_orchestrator import SagaOrchestrator
+        saga_orchestrator = SagaOrchestrator(event_store=_event_store)
+        app.state.saga_orchestrator = saga_orchestrator
+        logger.info("✅ CQRS buses initialised — EventStore and SagaOrchestrator wired")
     except Exception as _cqrs_err:
         logger.warning(f"CQRS setup failed (non-fatal): {_cqrs_err}")
 
@@ -372,6 +380,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+# Module-level reference to the event store (set during lifespan startup)
+_event_store_ref = None
+
+
 # Dependency function to get mission executor
 def get_mission_executor() -> MissionExecutor:
     """
@@ -386,6 +398,14 @@ def get_mission_executor() -> MissionExecutor:
             detail="Mission executor not initialized",
         )
     return mission_executor
+
+
+def get_event_store():
+    """
+    Dependency to get the EventStore instance.
+    Returns None if CQRS initialisation failed (non-fatal).
+    """
+    return _event_store_ref
 
 
 # Health check endpoint

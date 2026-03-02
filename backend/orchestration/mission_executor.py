@@ -20,6 +20,10 @@ from backend.agents.factory.agent_factory import AgentFactory
 from backend.agents.integration.governance_hooks import governance_hooks
 from backend.agents.governance import assemble_prompt
 from langchain_core.messages import SystemMessage, HumanMessage
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from backend.core.event_sourcing.event_store_impl import EventStore
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -46,10 +50,12 @@ class MissionExecutor:
         marketplace: ResourceMarketplace,
         event_bus: NATSEventBus,
         llm_service: LLMService,
+        event_store: Optional["EventStore"] = None,
     ):
         self.marketplace = marketplace
         self.event_bus = event_bus
         self.llm_service = llm_service
+        self.event_store = event_store
         self.agent_factory = AgentFactory(llm_service)
         self.active_missions: Dict[str, Dict[str, Any]] = {}
         self.status_callback = None
@@ -108,6 +114,24 @@ class MissionExecutor:
             try:
                 # Initial status update
                 await self._update_status(mission_id, "RUNNING")
+
+                # Append mission.started event to the event store
+                if self.event_store:
+                    try:
+                        await self.event_store.append(
+                            aggregate_id=mission_id,
+                            aggregate_type="mission",
+                            event_type="mission.started",
+                            data={
+                                "goal": goal,
+                                "tenant_id": tenant_id,
+                                "user_id": user_id,
+                                "budget": budget,
+                                "timestamp": start_time.isoformat(),
+                            },
+                        )
+                    except Exception as _ev_err:
+                        logger.warning(f"Event store append failed (non-fatal): {_ev_err}")
 
                 # Governance hook: Check if mission can proceed.
                 # primary_agent_id is extracted from the plan after Phase 2 below.
@@ -181,6 +205,29 @@ class MissionExecutor:
                     execution_time=duration,
                 )
 
+                # Append mission.completed or mission.failed event
+                if self.event_store:
+                    try:
+                        _ev_type = (
+                            "mission.completed"
+                            if result["status"] == "SUCCESS"
+                            else "mission.failed"
+                        )
+                        await self.event_store.append(
+                            aggregate_id=mission_id,
+                            aggregate_type="mission",
+                            event_type=_ev_type,
+                            data={
+                                "status": result["status"],
+                                "cost": result.get("cost", 0.0),
+                                "duration_seconds": duration,
+                                "agents_used": result.get("agents_used", []),
+                                "tenant_id": tenant_id,
+                            },
+                        )
+                    except Exception as _ev_err:
+                        logger.warning(f"Event store append failed (non-fatal): {_ev_err}")
+
                 # Governance hook: Record mission completion — use the
                 # primary_agent_id that was embedded in the plan during Phase 2.
                 primary_agent_id = plan.get("primary_agent_id", f"agent_{mission_id}")
@@ -221,6 +268,24 @@ class MissionExecutor:
 
                 # Update status to FAILED
                 await self._update_status(mission_id, "FAILED", error=str(e))
+
+                # Append mission.failed event on unexpected exception
+                if self.event_store:
+                    try:
+                        await self.event_store.append(
+                            aggregate_id=mission_id,
+                            aggregate_type="mission",
+                            event_type="mission.failed",
+                            data={
+                                "error": str(e),
+                                "tenant_id": tenant_id,
+                                "duration_seconds": (
+                                    datetime.utcnow() - start_time
+                                ).total_seconds(),
+                            },
+                        )
+                    except Exception as _ev_err:
+                        logger.warning(f"Event store append failed (non-fatal): {_ev_err}")
 
                 return {"mission_id": mission_id, "status": "ERROR", "error": str(e)}
 

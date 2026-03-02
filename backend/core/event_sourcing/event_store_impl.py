@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from sqlalchemy import Column, String, Integer, DateTime, Text, Index, select, desc
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
 from backend.core.logging_config import get_logger, LoggerMixin
@@ -150,17 +150,19 @@ class EventRecord(Base):
 
 class EventStore(LoggerMixin):
     """
-    Event store implementation with PostgreSQL backend
+    Event store implementation with PostgreSQL backend.
+
+    Accepts an async_sessionmaker so that every public method opens and
+    closes its own short-lived AsyncSession.  Safe to hold as a singleton.
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session_factory: async_sessionmaker) -> None:
         """
-        Initialize event store
-
         Args:
-            session: Database session
+            session_factory: async_sessionmaker bound to the async engine.
+                             Use backend.database.session.AsyncSessionLocal.
         """
-        self.session = session
+        self._session_factory = session_factory
 
     async def append(
         self,
@@ -172,57 +174,54 @@ class EventStore(LoggerMixin):
         expected_version: Optional[int] = None,
     ) -> Event:
         """
-        Append new event to the store
+        Append new event to the store.
 
         Args:
-            aggregate_id: ID of the aggregate
-            aggregate_type: Type of the aggregate
-            event_type: Type of event
-            data: Event data
-            metadata: Optional metadata
-            expected_version: Expected current version (for optimistic locking)
+            aggregate_id:     ID of the aggregate.
+            aggregate_type:   Type of the aggregate.
+            event_type:       Type of event (use EventType constants).
+            data:             Event payload — must be JSON-serialisable.
+            metadata:         Optional supplementary metadata dict.
+            expected_version: If provided, raises ConcurrencyError on mismatch.
 
         Returns:
-            Created event
+            The persisted Event.
 
         Raises:
-            ConcurrencyError: If expected_version doesn't match
+            ConcurrencyError: If expected_version doesn't match current version.
         """
-        # Get current version
-        current_version = await self._get_current_version(aggregate_id)
+        async with self._session_factory() as session:
+            current_version = await self._get_current_version(session, aggregate_id)
 
-        # Check optimistic locking
-        if expected_version is not None and current_version != expected_version:
-            raise ConcurrencyError(
-                f"Version mismatch: expected {expected_version}, got {current_version}"
+            if expected_version is not None and current_version != expected_version:
+                raise ConcurrencyError(
+                    f"Version mismatch for {aggregate_id}: "
+                    f"expected {expected_version}, got {current_version}"
+                )
+
+            event = Event(
+                event_id=str(uuid.uuid4()),
+                event_type=event_type,
+                aggregate_id=aggregate_id,
+                aggregate_type=aggregate_type,
+                data=data,
+                metadata=metadata or {},
+                timestamp=datetime.utcnow(),
+                version=current_version + 1,
             )
 
-        # Create event
-        event = Event(
-            event_id=str(uuid.uuid4()),
-            event_type=event_type,
-            aggregate_id=aggregate_id,
-            aggregate_type=aggregate_type,
-            data=data,
-            metadata=metadata or {},
-            timestamp=datetime.utcnow(),
-            version=current_version + 1,
-        )
-
-        # Save to database
-        record = EventRecord(
-            event_id=event.event_id,
-            event_type=event.event_type,
-            aggregate_id=event.aggregate_id,
-            aggregate_type=event.aggregate_type,
-            data=json.dumps(event.data),
-            event_metadata=json.dumps(event.metadata),
-            version=event.version,
-            timestamp=event.timestamp,
-        )
-
-        self.session.add(record)
-        await self.session.commit()
+            record = EventRecord(
+                event_id=event.event_id,
+                event_type=event.event_type,
+                aggregate_id=event.aggregate_id,
+                aggregate_type=event.aggregate_type,
+                data=json.dumps(event.data),
+                event_metadata=json.dumps(event.metadata),
+                version=event.version,
+                timestamp=event.timestamp,
+            )
+            session.add(record)
+            await session.commit()
 
         self.log_info(
             f"Event appended: {event_type}",
@@ -230,37 +229,37 @@ class EventStore(LoggerMixin):
             aggregate_id=aggregate_id,
             version=event.version,
         )
-
         return event
 
     async def get_events(
-        self, aggregate_id: str, from_version: int = 0, to_version: Optional[int] = None
+        self,
+        aggregate_id: str,
+        from_version: int = 0,
+        to_version: Optional[int] = None,
     ) -> List[Event]:
         """
-        Get events for an aggregate
+        Get all events for an aggregate, optionally bounded by version range.
 
         Args:
-            aggregate_id: ID of the aggregate
-            from_version: Start version (inclusive)
-            to_version: End version (inclusive, None for all)
+            aggregate_id:  Aggregate identifier.
+            from_version:  Minimum version (inclusive).  Defaults to 0.
+            to_version:    Maximum version (inclusive).  Defaults to unbounded.
 
         Returns:
-            List of events
+            List of Event objects ordered by version ascending.
         """
-        query = select(EventRecord).where(
-            EventRecord.aggregate_id == aggregate_id,
-            EventRecord.version >= from_version,
-        )
-
-        if to_version is not None:
-            query = query.where(EventRecord.version <= to_version)
-
-        query = query.order_by(EventRecord.version)
-
-        result = await self.session.execute(query)
-        records = result.scalars().all()
-
-        return [self._record_to_event(record) for record in records]
+        async with self._session_factory() as session:
+            query = (
+                select(EventRecord)
+                .where(EventRecord.aggregate_id == aggregate_id)
+                .where(EventRecord.version >= from_version)
+                .order_by(EventRecord.version)
+            )
+            if to_version is not None:
+                query = query.where(EventRecord.version <= to_version)
+            result = await session.execute(query)
+            records = result.scalars().all()
+            return [self._record_to_event(r) for r in records]
 
     async def get_events_by_type(
         self,
@@ -270,31 +269,27 @@ class EventStore(LoggerMixin):
         limit: int = 100,
     ) -> List[Event]:
         """
-        Get events by type within time range
+        Get events by type within an optional time range.
 
         Args:
-            event_type: Type of events to retrieve
-            from_time: Start time (inclusive)
-            to_time: End time (inclusive)
-            limit: Maximum number of events
+            event_type: Event type string to filter on.
+            from_time:  Start time (inclusive).
+            to_time:    End time (inclusive).
+            limit:      Maximum number of events to return.
 
         Returns:
-            List of events
+            List of Event objects ordered by timestamp descending.
         """
-        query = select(EventRecord).where(EventRecord.event_type == event_type)
-
-        if from_time:
-            query = query.where(EventRecord.timestamp >= from_time)
-
-        if to_time:
-            query = query.where(EventRecord.timestamp <= to_time)
-
-        query = query.order_by(EventRecord.timestamp.desc()).limit(limit)
-
-        result = await self.session.execute(query)
-        records = result.scalars().all()
-
-        return [self._record_to_event(record) for record in records]
+        async with self._session_factory() as session:
+            query = select(EventRecord).where(EventRecord.event_type == event_type)
+            if from_time:
+                query = query.where(EventRecord.timestamp >= from_time)
+            if to_time:
+                query = query.where(EventRecord.timestamp <= to_time)
+            query = query.order_by(EventRecord.timestamp.desc()).limit(limit)
+            result = await session.execute(query)
+            records = result.scalars().all()
+            return [self._record_to_event(r) for r in records]
 
     async def get_all_events(
         self,
@@ -303,30 +298,26 @@ class EventStore(LoggerMixin):
         limit: int = 1000,
     ) -> List[Event]:
         """
-        Get all events within time range
+        Get all events within an optional time range.
 
         Args:
-            from_time: Start time (inclusive)
-            to_time: End time (inclusive)
-            limit: Maximum number of events
+            from_time: Start time (inclusive).
+            to_time:   End time (inclusive).
+            limit:     Maximum number of events to return.
 
         Returns:
-            List of events
+            List of Event objects ordered by timestamp descending.
         """
-        query = select(EventRecord)
-
-        if from_time:
-            query = query.where(EventRecord.timestamp >= from_time)
-
-        if to_time:
-            query = query.where(EventRecord.timestamp <= to_time)
-
-        query = query.order_by(EventRecord.timestamp.desc()).limit(limit)
-
-        result = await self.session.execute(query)
-        records = result.scalars().all()
-
-        return [self._record_to_event(record) for record in records]
+        async with self._session_factory() as session:
+            query = select(EventRecord)
+            if from_time:
+                query = query.where(EventRecord.timestamp >= from_time)
+            if to_time:
+                query = query.where(EventRecord.timestamp <= to_time)
+            query = query.order_by(EventRecord.timestamp.desc()).limit(limit)
+            result = await session.execute(query)
+            records = result.scalars().all()
+            return [self._record_to_event(r) for r in records]
 
     async def replay_events(self, aggregate_id: str, handler: "EventHandler") -> Any:
         """
@@ -349,18 +340,17 @@ class EventStore(LoggerMixin):
 
         return state
 
-    async def _get_current_version(self, aggregate_id: str) -> int:
-        """Get current version of aggregate"""
+    @staticmethod
+    async def _get_current_version(session: AsyncSession, aggregate_id: str) -> int:
+        """Return the latest version number for an aggregate (0 if none)."""
         query = (
             select(EventRecord.version)
             .where(EventRecord.aggregate_id == aggregate_id)
             .order_by(EventRecord.version.desc())
             .limit(1)
         )
-
-        result = await self.session.execute(query)
+        result = await session.execute(query)
         version = result.scalar()
-
         return version if version is not None else 0
 
     @staticmethod
@@ -497,12 +487,12 @@ class SnapshotStore(LoggerMixin):
     # Take a snapshot every N events to bound replay cost.
     SNAPSHOT_THRESHOLD: int = 50
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session_factory: async_sessionmaker) -> None:
         """
         Args:
-            session: Async SQLAlchemy session.
+            session_factory: async_sessionmaker bound to the async engine.
         """
-        self.session = session
+        self._session_factory = session_factory
 
     async def save_snapshot(
         self,
@@ -514,8 +504,7 @@ class SnapshotStore(LoggerMixin):
         """
         Persist a snapshot of aggregate state at the given version.
 
-        If a snapshot already exists for this aggregate at this version it is
-        replaced (idempotent upsert via delete + insert).
+        Idempotent: if a snapshot already exists at this version it is replaced.
 
         Args:
             aggregate_id:   Unique aggregate identifier.
@@ -524,30 +513,28 @@ class SnapshotStore(LoggerMixin):
             state:          Full aggregate state as a JSON-serialisable dict.
 
         Returns:
-            The persisted :class:`Snapshot` dataclass.
+            The persisted Snapshot dataclass.
         """
         now = datetime.utcnow()
+        async with self._session_factory() as session:
+            existing_q = select(SnapshotRecord).where(
+                SnapshotRecord.aggregate_id == aggregate_id,
+                SnapshotRecord.version == version,
+            )
+            result = await session.execute(existing_q)
+            existing = result.scalar_one_or_none()
+            if existing:
+                await session.delete(existing)
 
-        # Delete any existing snapshot for this aggregate at this version
-        # (idempotent — safe to call multiple times).
-        existing_q = select(SnapshotRecord).where(
-            SnapshotRecord.aggregate_id == aggregate_id,
-            SnapshotRecord.version == version,
-        )
-        result = await self.session.execute(existing_q)
-        existing = result.scalar_one_or_none()
-        if existing:
-            await self.session.delete(existing)
-
-        record = SnapshotRecord(
-            aggregate_id=aggregate_id,
-            aggregate_type=aggregate_type,
-            version=version,
-            state=json.dumps(state),
-            timestamp=now,
-        )
-        self.session.add(record)
-        await self.session.commit()
+            record = SnapshotRecord(
+                aggregate_id=aggregate_id,
+                aggregate_type=aggregate_type,
+                version=version,
+                state=json.dumps(state),
+                timestamp=now,
+            )
+            session.add(record)
+            await session.commit()
 
         self.log_info(
             "Snapshot saved",
@@ -555,7 +542,6 @@ class SnapshotStore(LoggerMixin):
             aggregate_type=aggregate_type,
             version=version,
         )
-
         return Snapshot(
             aggregate_id=aggregate_id,
             aggregate_type=aggregate_type,
@@ -572,20 +558,20 @@ class SnapshotStore(LoggerMixin):
             aggregate_id: Unique aggregate identifier.
 
         Returns:
-            The latest :class:`Snapshot`, or ``None`` if no snapshot exists.
+            The latest Snapshot, or None if no snapshot exists.
         """
-        query = (
-            select(SnapshotRecord)
-            .where(SnapshotRecord.aggregate_id == aggregate_id)
-            .order_by(desc(SnapshotRecord.version))
-            .limit(1)
-        )
-        result = await self.session.execute(query)
-        record = result.scalar_one_or_none()
+        async with self._session_factory() as session:
+            query = (
+                select(SnapshotRecord)
+                .where(SnapshotRecord.aggregate_id == aggregate_id)
+                .order_by(desc(SnapshotRecord.version))
+                .limit(1)
+            )
+            result = await session.execute(query)
+            record = result.scalar_one_or_none()
 
         if record is None:
             return None
-
         return Snapshot(
             aggregate_id=record.aggregate_id,
             aggregate_type=record.aggregate_type,
