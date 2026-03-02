@@ -39,6 +39,8 @@ from backend.api.routes import (
     policies,
     audit,
     integrations,
+    scheduler as scheduler_router,
+    vault as vault_router,
 )
 
 # Import core services
@@ -71,6 +73,8 @@ llm_service: Optional[LLMService] = None
 marketplace: Optional[ResourceMarketplace] = None
 event_bus: Optional[NATSEventBus] = None
 mission_executor: Optional[MissionExecutor] = None
+_scheduler_service_ref = None
+_vault_service_ref = None
 
 
 @asynccontextmanager
@@ -183,6 +187,37 @@ async def lifespan(app: FastAPI):
     except Exception as _cqrs_err:
         logger.warning(f"CQRS setup failed (non-fatal): {_cqrs_err}")
 
+    # Initialize VaultService (AES-256-GCM encrypted external API key storage)
+    logger.info("Initializing VaultService...")
+    try:
+        from backend.database.session import AsyncSessionLocal
+        from backend.core.vault.vault_service import VaultService
+        global _vault_service_ref
+        _vault_service_ref = VaultService(
+            session_factory=AsyncSessionLocal,
+            secret_key=settings.SECRET_KEY,
+        )
+        logger.info("✅ VaultService initialised")
+    except Exception as _vault_err:
+        logger.warning(f"VaultService init failed (non-fatal): {_vault_err}")
+
+    # Initialize SchedulerService (APScheduler-backed recurring missions)
+    logger.info("Initializing SchedulerService...")
+    try:
+        from backend.database.session import AsyncSessionLocal
+        from backend.core.scheduler.scheduler_service import SchedulerService
+        global _scheduler_service_ref
+        _scheduler_service_ref = SchedulerService(
+            session_factory=AsyncSessionLocal,
+            mission_executor=mission_executor,
+            event_store=_event_store_ref,
+        )
+        await _scheduler_service_ref.start()
+        app.state.scheduler_service = _scheduler_service_ref
+        logger.info("✅ SchedulerService started")
+    except Exception as _sched_err:
+        logger.warning(f"SchedulerService init failed (non-fatal): {_sched_err}")
+
     # Initialize MCP subsystem
     logger.info("Initializing MCP subsystem...")
     try:
@@ -275,6 +310,14 @@ async def lifespan(app: FastAPI):
     if event_bus:
         logger.info("Disconnecting NATS Event Bus...")
         await event_bus.disconnect()
+
+    # Stop SchedulerService
+    if _scheduler_service_ref is not None:
+        try:
+            await _scheduler_service_ref.stop()
+            logger.info("✅ SchedulerService stopped")
+        except Exception as _sched_stop_err:
+            logger.warning(f"SchedulerService stop error: {_sched_stop_err}")
 
     # Teardown MCP subsystem
     await teardown_mcp()
@@ -380,8 +423,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Module-level reference to the event store (set during lifespan startup)
+# Module-level references to services (set during lifespan startup)
 _event_store_ref = None
+# Note: _scheduler_service_ref and _vault_service_ref are declared in globals above
 
 
 # Dependency function to get mission executor
@@ -406,6 +450,22 @@ def get_event_store():
     Returns None if CQRS initialisation failed (non-fatal).
     """
     return _event_store_ref
+
+
+def get_scheduler_service():
+    """
+    Dependency to get the SchedulerService instance.
+    Returns None if SchedulerService initialisation failed (non-fatal).
+    """
+    return _scheduler_service_ref
+
+
+def get_vault_service():
+    """
+    Dependency to get the VaultService instance.
+    Returns None if VaultService initialisation failed (non-fatal).
+    """
+    return _vault_service_ref
 
 
 # Health check endpoint
@@ -474,6 +534,8 @@ app.include_router(dashboard.router)
 app.include_router(policies.router)
 app.include_router(audit.router)
 app.include_router(integrations.router)
+app.include_router(scheduler_router.router)
+app.include_router(vault_router.router)
 
 
 if __name__ == "__main__":
