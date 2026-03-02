@@ -413,6 +413,29 @@ class ToolRegistry:
         for tool in default_tools:
             self.register_tool(tool)
 
+        # Phase 3 tools — registered if dependencies are available
+        self._register_phase3_tools()
+
+    def _register_phase3_tools(self):
+        """Register Phase 3 tools (browser automation, social media)."""
+        # PlaywrightBrowserTool — optional, requires playwright
+        try:
+            from backend.integrations.tools.browser_tool import PlaywrightBrowserTool
+            self.register_tool(PlaywrightBrowserTool())
+        except ImportError:
+            logger.info("PlaywrightBrowserTool skipped — playwright not installed")
+        except Exception as exc:
+            logger.warning(f"PlaywrightBrowserTool registration failed: {exc}")
+
+        # TwitterTool — optional, requires tweepy
+        try:
+            from backend.integrations.tools.twitter_tool import TwitterTool
+            self.register_tool(TwitterTool())
+        except ImportError:
+            logger.info("TwitterTool skipped — tweepy not installed")
+        except Exception as exc:
+            logger.warning(f"TwitterTool registration failed: {exc}")
+
     def register_tool(self, tool: BaseTool):
         """Register a new tool."""
         self.tools[tool.name] = tool

@@ -75,6 +75,10 @@ praw==7.8.1
 # Cryptography (API key vault AES-256 encryption)
 cryptography>=42.0.0
 
+# Phase 3: Browser Automation & Social Media
+playwright>=1.40.0
+tweepy>=4.14.0
+
 # Development
 pytest==7.4.4
 pytest-asyncio==0.23.3
