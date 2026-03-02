@@ -41,16 +41,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ---- Auth ----
 export const auth = {
-  login: (username: string, password: string) =>
-    request<{ access_token: string; token_type: string }>('/auth/token', {
+  /**
+   * Login — API requires email (not username).
+   * Accepts email in the `email` field; `username` field also accepts email for OAuth2 compat.
+   */
+  login: (email: string, password: string) =>
+    request<{ access_token: string; refresh_token: string; token_type: string; user_id: string; tenant_id: string }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ email, password }),
     }),
-  register: (username: string, email: string, password: string) =>
-    request<{ user_id: string; username: string }>('/auth/register', {
+  /**
+   * Register — email + password required, name optional.
+   */
+  register: (email: string, password: string, name?: string) =>
+    request<{ user_id: string; email: string }>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password }),
+      body: JSON.stringify({ email, password, ...(name ? { name } : {}) }),
     }),
+  me: () => request<{ id: string; email: string; name: string; tenant_id: string }>('/auth/me'),
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
 };
 
 // ---- Agents ----
