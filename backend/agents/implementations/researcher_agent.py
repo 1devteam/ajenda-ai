@@ -127,14 +127,22 @@ class ResearcherAgent(ComplianceAwareMixin):
             return {"success": False, "error": str(e)}
 
     def _get_system_prompt(self) -> str:
-        """Get the system prompt for the researcher agent."""
-        return """You are an expert research analyst. Your role is to:
-1. Synthesize information from multiple sources
-2. Identify key insights and patterns
-3. Verify facts and cross-reference claims
-4. Provide clear, well-cited conclusions
+        """Get the system prompt for the researcher agent.
 
-Always maintain objectivity and distinguish between facts and opinions."""
+        The Pride Protocol preamble is prepended via PrideKernel.assemble_prompt()
+        to ensure all governance standards are applied before the role definition.
+        """
+        from backend.agents.governance import assemble_prompt
+
+        role_prompt = (
+            "You are an expert research analyst. Your role is to:\n"
+            "1. Synthesize information from multiple sources\n"
+            "2. Identify key insights and patterns\n"
+            "3. Verify facts and cross-reference claims\n"
+            "4. Provide clear, well-cited conclusions\n\n"
+            "Always maintain objectivity and distinguish between facts and opinions."
+        )
+        return assemble_prompt(role_prompt)
 
     def _build_synthesis_prompt(self, query: str, search_results: Dict[str, Any]) -> str:
         """Build a prompt for synthesizing search results."""
@@ -366,12 +374,18 @@ class DeveloperAgent(ComplianceAwareMixin):
 
     async def _generate_code(self, specification: str) -> Dict[str, Any]:
         """Generate code based on specification."""
-        system_prompt = """You are an expert software developer. Generate clean, well-documented, production-ready code.  # noqa: E501
-Follow best practices:
-- Type hints
-- Docstrings
-- Error handling
-- Clear variable names"""
+        from backend.agents.governance import assemble_prompt
+
+        role_prompt = (
+            "You are an expert software developer. Generate clean, well-documented, "
+            "production-ready code.  # noqa: E501\n"
+            "Follow best practices:\n"
+            "- Type hints\n"
+            "- Docstrings\n"
+            "- Error handling\n"
+            "- Clear variable names"
+        )
+        system_prompt = assemble_prompt(role_prompt)
 
         user_prompt = f"""Generate Python code for the following specification:
 
@@ -418,12 +432,17 @@ Identify the issue and provide a corrected version."""
 
     async def _review_code(self, code: str) -> Dict[str, Any]:
         """Review code and provide feedback."""
-        system_prompt = """You are a senior code reviewer. Provide constructive feedback on:
-1. Code quality and style
-2. Potential bugs
-3. Performance issues
-4. Security concerns
-5. Suggestions for improvement"""
+        from backend.agents.governance import assemble_prompt
+
+        role_prompt = (
+            "You are a senior code reviewer. Provide constructive feedback on:\n"
+            "1. Code quality and style\n"
+            "2. Potential bugs\n"
+            "3. Performance issues\n"
+            "4. Security concerns\n"
+            "5. Suggestions for improvement"
+        )
+        system_prompt = assemble_prompt(role_prompt)
 
         user_prompt = f"""Review this code:
 
@@ -440,8 +459,10 @@ Identify the issue and provide a corrected version."""
 
     async def _generate_tests(self, code: str) -> Dict[str, Any]:
         """Generate unit tests for code."""
-        system_prompt = (
-            """You are a test automation expert. Generate comprehensive unit tests using pytest."""
+        from backend.agents.governance import assemble_prompt
+
+        system_prompt = assemble_prompt(
+            "You are a test automation expert. Generate comprehensive unit tests using pytest."
         )
 
         user_prompt = f"""Generate unit tests for this code:

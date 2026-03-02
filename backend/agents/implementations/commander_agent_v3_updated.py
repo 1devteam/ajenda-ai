@@ -62,17 +62,20 @@ class CommanderAgentV3(BaseAgentV3):
 
     async def _evaluate_signal(self, signal: str) -> Dict[str, Any]:
         """Evaluate a signal with emotional context"""
+        from backend.agents.governance import assemble_prompt
 
-        # Build prompt with emotional context
-        system_prompt = f"""You are the Commander agent in a multi-agent system.
-Your current emotional state: {self.emotional_state['mood']} (intensity: {self.emotional_state['intensity']}/10)  # noqa: E501
-
-Evaluate the following signal and provide:
-1. Risk score (0.0 to 1.0)
-2. Recommended action
-3. Reasoning
-
-Consider your emotional state in your evaluation."""
+        # Build prompt with emotional context — Pride preamble prepended by assemble_prompt
+        role_prompt = (
+            f"You are the Commander agent in a multi-agent system.\n"
+            f"Your current emotional state: {self.emotional_state['mood']} "
+            f"(intensity: {self.emotional_state['intensity']}/10)\n\n"
+            "Evaluate the following signal and provide:\n"
+            "1. Risk score (0.0 to 1.0)\n"
+            "2. Recommended action\n"
+            "3. Reasoning\n\n"
+            "Consider your emotional state in your evaluation."
+        )
+        system_prompt = assemble_prompt(role_prompt)
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -95,15 +98,19 @@ Consider your emotional state in your evaluation."""
 
     async def _make_decision(self, context: str) -> Dict[str, Any]:
         """Make a decision based on context"""
+        from backend.agents.governance import assemble_prompt
 
-        system_prompt = f"""You are the Commander agent making a critical decision.
-Emotional state: {self.emotional_state['mood']} (intensity: {self.emotional_state['intensity']}/10)
-Risk threshold: {self.risk_threshold}
-
-Analyze the context and make a decision. Provide:
-1. Your decision (approve/reject/defer)
-2. Confidence level (0.0 to 1.0)
-3. Reasoning"""
+        role_prompt = (
+            f"You are the Commander agent making a critical decision.\n"
+            f"Emotional state: {self.emotional_state['mood']} "
+            f"(intensity: {self.emotional_state['intensity']}/10)\n"
+            f"Risk threshold: {self.risk_threshold}\n\n"
+            "Analyze the context and make a decision. Provide:\n"
+            "1. Your decision (approve/reject/defer)\n"
+            "2. Confidence level (0.0 to 1.0)\n"
+            "3. Reasoning"
+        )
+        system_prompt = assemble_prompt(role_prompt)
 
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=context)]
 
@@ -118,9 +125,12 @@ Analyze the context and make a decision. Provide:
 
     async def _reflect_on_action(self, action: str) -> Dict[str, Any]:
         """Reflect on a completed action"""
+        from backend.agents.governance import assemble_prompt
 
-        system_prompt = """You are the Commander agent reflecting on a completed action.
-Analyze what happened and extract lessons learned."""
+        system_prompt = assemble_prompt(
+            "You are the Commander agent reflecting on a completed action.\n"
+            "Analyze what happened and extract lessons learned."
+        )
 
         messages = [
             SystemMessage(content=system_prompt),

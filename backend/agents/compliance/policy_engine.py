@@ -184,6 +184,11 @@ class Policy:
     enforcement_count: int = 0
     last_enforced_at: Optional[datetime] = None
 
+    # Immutability — system-level policies that cannot be modified or deleted
+    # via the API or PolicyManager. Set True only at startup for core governance
+    # policies (e.g. the Pride Protocol). Changing this requires a code deploy.
+    immutable: bool = False
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -207,6 +212,7 @@ class Policy:
             "last_enforced_at": (
                 self.last_enforced_at.isoformat() if self.last_enforced_at else None
             ),
+            "immutable": self.immutable,
         }
 
     @classmethod
@@ -574,6 +580,12 @@ class PolicyManager:
         policy = self.get_policy(policy_id)
         if not policy:
             raise ValueError(f"Policy {policy_id} not found")
+        if policy.immutable:
+            raise PermissionError(
+                f"Policy '{policy_id}' is immutable and cannot be modified. "
+                "Immutable policies are system-level governance rules that require "
+                "a code deployment to change."
+            )
 
         # Update fields
         for key, value in updates.items():
@@ -592,6 +604,13 @@ class PolicyManager:
         """Delete a policy."""
         if policy_id not in self._policies:
             raise ValueError(f"Policy {policy_id} not found")
+        policy = self._policies[policy_id]
+        if policy.immutable:
+            raise PermissionError(
+                f"Policy '{policy_id}' is immutable and cannot be deleted. "
+                "Immutable policies are system-level governance rules that require "
+                "a code deployment to change."
+            )
 
         del self._policies[policy_id]
         self._record_history(policy_id, "deleted", deleted_by)

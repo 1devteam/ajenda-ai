@@ -183,6 +183,72 @@ async def lifespan(app: FastAPI):
     except Exception as _mcp_err:
         logger.warning(f"MCP setup failed (non-fatal): {_mcp_err}")
 
+    # -------------------------------------------------------------------------
+    # Register the Pride Protocol as an immutable system-level governance policy.
+    # This policy cannot be deleted or modified via the API — it requires a code
+    # deployment to change. It is registered every startup from source constants.
+    # The preamble itself is enforced at the code level in assemble_prompt();
+    # this policy registration provides the audit and visibility layer.
+    # -------------------------------------------------------------------------
+    logger.info("Registering Pride Protocol governance policy...")
+    try:
+        from backend.agents.compliance.policy_engine import (
+            Policy,
+            PolicyAction,
+            PolicyStatus,
+            ActionType,
+            get_policy_manager,
+        )
+        from backend.agents.governance import PRIDE_PROTOCOL_VERSION
+
+        _pride_policy_id = "citadel.pride.v1"
+        _policy_manager = get_policy_manager()
+
+        # Only register if not already present (singleton PolicyManager persists
+        # across hot-reloads in development; skip re-registration gracefully).
+        if _policy_manager.get_policy(_pride_policy_id) is None:
+            _pride_policy = Policy(
+                policy_id=_pride_policy_id,
+                name="Pride Protocol — Citadel Core Governance",
+                description=(
+                    f"Immutable governance policy (v{PRIDE_PROTOCOL_VERSION}) that enforces "
+                    "the Pride Protocol on all agents. "
+                    "Proper actions / total actions >= 95%. "
+                    "Applied as a system prompt prefix to every agent LLM call."
+                ),
+                status=PolicyStatus.ACTIVE,
+                conditions=[],  # Applies to ALL agents unconditionally
+                actions=[
+                    PolicyAction(
+                        action_type=ActionType.LOG_EVENT,
+                        parameters={
+                            "event": "pride_protocol_applied",
+                            "version": PRIDE_PROTOCOL_VERSION,
+                        },
+                    )
+                ],
+                created_by="citadel.system",
+                priority=9999,  # Highest priority — evaluated before all other policies
+                applies_to=[],  # Empty = applies to all agent types
+                immutable=True,
+                metadata={
+                    "protocol_version": PRIDE_PROTOCOL_VERSION,
+                    "enforcement": "system_prompt_prefix",
+                    "source": "backend.agents.governance.pride_kernel",
+                },
+            )
+            _policy_manager.create_policy(_pride_policy)
+            logger.info(
+                f"✅ Pride Protocol policy registered: {_pride_policy_id} "
+                f"(v{PRIDE_PROTOCOL_VERSION}, immutable=True, priority=9999)"
+            )
+        else:
+            logger.info(f"✅ Pride Protocol policy already registered: {_pride_policy_id}")
+    except Exception as _pride_err:
+        # Log but do not crash — the preamble is still enforced at the code level
+        # in assemble_prompt(). The policy registration is the audit layer.
+        logger.error(f"Pride Protocol policy registration failed: {_pride_err}")
+
     logger.info("=" * 60)
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} is ready!")
     logger.info("📚 API Documentation: http://localhost:8000/docs")
