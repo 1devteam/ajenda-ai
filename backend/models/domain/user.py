@@ -84,4 +84,4 @@ class TokenData(BaseModel):
     user_id: str
     email: str
     tenant_id: str
-    role: str
+    role: Optional[str] = None  # Optional: not all tokens include role in payload
