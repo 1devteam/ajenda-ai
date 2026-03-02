@@ -25,7 +25,6 @@ from backend.agents.compliance.policy_engine import (
     PolicyAction,
     PolicyStatus,
     ActionType,
-    PolicyManager,
     get_policy_manager,
 )
 
