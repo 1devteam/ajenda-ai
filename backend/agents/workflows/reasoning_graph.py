@@ -4,6 +4,13 @@ Built with Pride for Obex Blackvault
 
 This module implements a sophisticated multi-step reasoning workflow using LangGraph.
 Agents can plan, execute, reflect, and adapt their strategies dynamically.
+
+Pride Protocol Note
+-------------------
+Every node in this workflow calls assemble_prompt() from the governance module to
+prepend the immutable Pride Protocol preamble to all system prompts before invoking
+the LLM. This guarantees governance coverage across every iteration of the
+plan → execute → reflect → adapt → finalize loop, including all retry cycles.
 """
 
 from typing import Dict, Any, List, TypedDict, Annotated, Sequence
@@ -14,6 +21,7 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.language_models import BaseChatModel
 
+from backend.agents.governance import assemble_prompt
 from backend.integrations.observability.prometheus_metrics import get_metrics
 
 
@@ -52,6 +60,10 @@ class ReasoningWorkflow:
     3. REFLECTOR: Evaluate the result and identify issues
     4. ADAPTER: Adjust the plan based on reflection
     5. FINALIZER: Synthesize results into a final answer
+
+    All five nodes route their system prompts through assemble_prompt() to
+    guarantee the Pride Protocol preamble is present on every LLM call,
+    including all retry iterations triggered by the REFLECTOR → ADAPTER loop.
     """
 
     def __init__(self, llm: BaseChatModel, max_iterations: int = 5):
@@ -100,15 +112,23 @@ class ReasoningWorkflow:
     async def _plan_node(self, state: ReasoningState) -> Dict[str, Any]:
         """
         PLANNER: Break down the objective into actionable steps.
+
+        The Pride Protocol preamble is prepended via assemble_prompt() to ensure
+        all governance standards apply before the role-specific instruction.
         """
         self.metrics.record_agent_reasoning_step("planner")
 
-        system_prompt = """You are an expert planner. Break down complex objectives into clear, actionable steps.  # noqa: E501
-Each step should be specific and measurable. Number the steps clearly."""
+        role_prompt = (
+            "You are an expert planner. Break down complex objectives into clear, "
+            "actionable steps. Each step should be specific and measurable. "
+            "Number the steps clearly."
+        )
+        system_prompt = assemble_prompt(role_prompt)
 
-        user_prompt = f"""Objective: {state['objective']}
-
-Create a detailed plan to achieve this objective. List 3-7 specific steps."""
+        user_prompt = (
+            f"Objective: {state['objective']}\n\n"
+            "Create a detailed plan to achieve this objective. List 3-7 specific steps."
+        )
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -135,6 +155,9 @@ Create a detailed plan to achieve this objective. List 3-7 specific steps."""
     async def _execute_node(self, state: ReasoningState) -> Dict[str, Any]:
         """
         EXECUTOR: Execute the current step in the plan.
+
+        Called once per plan step, and again on RETRY cycles. The Pride Protocol
+        preamble is prepended on every invocation via assemble_prompt().
         """
         self.metrics.record_agent_reasoning_step("executor")
 
@@ -146,16 +169,20 @@ Create a detailed plan to achieve this objective. List 3-7 specific steps."""
 
         step_description = plan[current_step]
 
-        system_prompt = """You are an expert executor. Given a specific step, provide a detailed execution strategy and expected outcome."""  # noqa: E501
+        role_prompt = (
+            "You are an expert executor. Given a specific step, provide a detailed "
+            "execution strategy and expected outcome."
+        )
+        system_prompt = assemble_prompt(role_prompt)
 
-        user_prompt = f"""Step to execute: {step_description}
-
-Context from previous steps: {state.get('step_results', {})}
-
-Provide:
-1. Execution strategy
-2. Expected outcome
-3. Success criteria"""
+        user_prompt = (
+            f"Step to execute: {step_description}\n\n"
+            f"Context from previous steps: {state.get('step_results', {})}\n\n"
+            "Provide:\n"
+            "1. Execution strategy\n"
+            "2. Expected outcome\n"
+            "3. Success criteria"
+        )
 
         messages = state["messages"] + [
             SystemMessage(content=system_prompt),
@@ -165,7 +192,7 @@ Provide:
         response = await self.llm.ainvoke(messages)
 
         # Store the result
-        step_results = state.get("step_results", {})
+        step_results = dict(state.get("step_results", {}))
         step_results[current_step] = {
             "step": step_description,
             "execution": response.content,
@@ -176,21 +203,29 @@ Provide:
     async def _reflect_node(self, state: ReasoningState) -> Dict[str, Any]:
         """
         REFLECTOR: Evaluate the execution result and identify issues.
+
+        Fires after every executor step. On "continue" decisions this node
+        triggers the ADAPTER → EXECUTOR retry loop. The Pride Protocol preamble
+        is prepended on every invocation via assemble_prompt().
         """
         self.metrics.record_agent_reasoning_step("reflector")
 
         current_step = state["current_step"]
         step_result = state["step_results"][current_step]
 
-        system_prompt = """You are a critical evaluator. Assess the execution result and identify:
-1. What went well
-2. What could be improved
-3. Whether the step achieved its goal"""
+        role_prompt = (
+            "You are a critical evaluator. Assess the execution result and identify:\n"
+            "1. What went well\n"
+            "2. What could be improved\n"
+            "3. Whether the step achieved its goal"
+        )
+        system_prompt = assemble_prompt(role_prompt)
 
-        user_prompt = f"""Step: {step_result['step']}
-Execution: {step_result['execution']}
-
-Provide a critical reflection."""
+        user_prompt = (
+            f"Step: {step_result['step']}\n"
+            f"Execution: {step_result['execution']}\n\n"
+            "Provide a critical reflection."
+        )
 
         messages = state["messages"] + [
             SystemMessage(content=system_prompt),
@@ -227,22 +262,25 @@ Provide a critical reflection."""
     async def _adapt_node(self, state: ReasoningState) -> Dict[str, Any]:
         """
         ADAPTER: Adjust the plan based on reflection.
+
+        The Pride Protocol preamble is prepended via assemble_prompt() to ensure
+        governance coverage on every adaptation decision.
         """
         self.metrics.record_agent_reasoning_step("adapter")
 
         reflection = state["reflection"]
         current_step = state["current_step"]
 
-        system_prompt = """You are an adaptive planner. Based on the reflection, decide:
-1. Should we move to the next step?
-2. Should we retry the current step with modifications?
-3. Should we revise the remaining plan?
+        role_prompt = (
+            "You are an adaptive planner. Based on the reflection, decide:\n"
+            "1. Should we move to the next step?\n"
+            "2. Should we retry the current step with modifications?\n"
+            "3. Should we revise the remaining plan?\n\n"
+            "Respond with: NEXT_STEP, RETRY, or REVISE_PLAN"
+        )
+        system_prompt = assemble_prompt(role_prompt)
 
-Respond with: NEXT_STEP, RETRY, or REVISE_PLAN"""
-
-        user_prompt = f"""Reflection: {reflection}
-
-What should we do next?"""
+        user_prompt = f"Reflection: {reflection}\n\nWhat should we do next?"
 
         messages = state["messages"] + [
             SystemMessage(content=system_prompt),
@@ -265,18 +303,24 @@ What should we do next?"""
     async def _finalize_node(self, state: ReasoningState) -> Dict[str, Any]:
         """
         FINALIZER: Synthesize all results into a final answer.
+
+        The Pride Protocol preamble is prepended via assemble_prompt() to ensure
+        the synthesis step operates under full governance coverage.
         """
         self.metrics.record_agent_reasoning_step("finalizer")
 
-        system_prompt = """You are a synthesis expert. Given the objective and all execution results, provide a comprehensive final answer."""  # noqa: E501
+        role_prompt = (
+            "You are a synthesis expert. Given the objective and all execution results, "
+            "provide a comprehensive final answer."
+        )
+        system_prompt = assemble_prompt(role_prompt)
 
-        user_prompt = f"""Objective: {state['objective']}
-
-Plan: {state['plan']}
-
-Execution Results: {state['step_results']}
-
-Provide a clear, actionable final answer that addresses the original objective."""
+        user_prompt = (
+            f"Objective: {state['objective']}\n\n"
+            f"Plan: {state['plan']}\n\n"
+            f"Execution Results: {state['step_results']}\n\n"
+            "Provide a clear, actionable final answer that addresses the original objective."
+        )
 
         messages = state["messages"] + [
             SystemMessage(content=system_prompt),

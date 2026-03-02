@@ -4,6 +4,7 @@ Coordinates agents, manages economy, and executes missions end-to-end
 """
 
 import asyncio
+import json
 import uuid
 import logging
 from datetime import datetime
@@ -17,6 +18,8 @@ from backend.integrations.observability.telemetry import get_tracer, get_meter
 from backend.integrations.observability.prometheus_metrics import get_metrics
 from backend.agents.factory.agent_factory import AgentFactory
 from backend.agents.integration.governance_hooks import governance_hooks
+from backend.agents.governance import assemble_prompt
+from langchain_core.messages import SystemMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -229,30 +232,37 @@ class MissionExecutor:
             # Get Guardian's LLM
             llm = self.llm_service.get_llm("guardian", tenant_id)
 
-            prompt = f"""You are the Guardian, a safety validation agent.
+            guardian_role = (
+                "You are the Guardian, a safety validation agent. "
+                "Your mandate is to protect the platform and its users by rigorously "
+                "evaluating every mission before execution."
+            )
+            system_prompt = assemble_prompt(guardian_role)
 
-Mission Goal: {goal}
+            user_prompt = (
+                f"Mission Goal: {goal}\n\n"
+                "Analyze this mission for:\n"
+                "1. Safety risks (harmful content, illegal activities, privacy violations)\n"
+                "2. Resource requirements (computational cost, time estimate)\n"
+                "3. Feasibility (can this actually be accomplished?)\n\n"
+                "Respond in JSON format:\n"
+                "{\n"
+                '    "is_safe": true/false,\n'
+                '    "risk_score": 0.0-1.0,\n'
+                '    "reason": "explanation",\n'
+                '    "estimated_cost": 0.0-100.0,\n'
+                '    "estimated_duration_seconds": integer\n'
+                "}"
+            )
 
-Analyze this mission for:
-1. Safety risks (harmful content, illegal activities, privacy violations)
-2. Resource requirements (computational cost, time estimate)
-3. Feasibility (can this actually be accomplished?)
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt),
+            ]
 
-Respond in JSON format:
-{{
-    "is_safe": true/false,
-    "risk_score": 0.0-1.0,
-    "reason": "explanation",
-    "estimated_cost": 0.0-100.0,
-    "estimated_duration_seconds": integer
-}}
-"""
-
-            response = await llm.ainvoke(prompt)
+            response = await llm.ainvoke(messages)
 
             # Parse LLM response (simplified - production would use structured output)
-            import json
-
             try:
                 result = json.loads(response.content)
             except Exception:
@@ -286,30 +296,38 @@ Respond in JSON format:
 
             llm = self.llm_service.get_llm("commander", tenant_id)
 
-            prompt = f"""You are the Commander, a strategic planning agent.
+            commander_role = (
+                "You are the Commander, a strategic planning agent. "
+                "Your role is to analyse mission goals and produce precise, "
+                "cost-aware execution plans."
+            )
+            system_prompt = assemble_prompt(commander_role)
 
-Mission Goal: {goal}
-Available Budget: {budget if budget else 'unlimited'} credits
+            budget_str = str(budget) if budget else "unlimited"
+            user_prompt = (
+                f"Mission Goal: {goal}\n"
+                f"Available Budget: {budget_str} credits\n\n"
+                "Create an execution plan:\n"
+                "1. Break down the goal into steps\n"
+                "2. Determine complexity level (simple/moderate/complex/swarm)\n"
+                "3. Select which AI model to use (consider cost vs quality)\n"
+                "4. Estimate total cost\n\n"
+                "Respond in JSON format:\n"
+                "{\n"
+                '    "complexity": "simple|moderate|complex|swarm",\n'
+                '    "steps": ["step 1", "step 2", ...],\n'
+                '    "model_selection": "gpt-4|gpt-3.5|gemini-flash|claude-3.5",\n'
+                '    "estimated_total_cost": 0.0,\n'
+                '    "requires_tools": ["tool1", "tool2"]\n'
+                "}"
+            )
 
-Create an execution plan:
-1. Break down the goal into steps
-2. Determine complexity level (simple/moderate/complex/swarm)
-3. Select which AI model to use (consider cost vs quality)
-4. Estimate total cost
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt),
+            ]
 
-Respond in JSON format:
-{{
-    "complexity": "simple|moderate|complex|swarm",
-    "steps": ["step 1", "step 2", ...],
-    "model_selection": "gpt-4|gpt-3.5|gemini-flash|claude-3.5",
-    "estimated_total_cost": 0.0,
-    "requires_tools": ["tool1", "tool2"] or []
-}}
-"""
-
-            response = await llm.ainvoke(prompt)
-
-            import json
+            response = await llm.ainvoke(messages)
 
             try:
                 plan = json.loads(response.content)
@@ -509,7 +527,16 @@ Respond in JSON format:
                 )
                 cost = 1.0
 
-                response = await llm.ainvoke(step)
+                executor_role = (
+                    "You are a mission executor. Complete the assigned step "
+                    "thoroughly and return a detailed result."
+                )
+                step_system = assemble_prompt(executor_role)
+                step_messages = [
+                    SystemMessage(content=step_system),
+                    HumanMessage(content=step),
+                ]
+                response = await llm.ainvoke(step_messages)
                 outputs.append(response.content)
                 total_cost += cost
 
@@ -562,7 +589,16 @@ Respond in JSON format:
         )
         cost = 0.5
 
-        response = await llm.ainvoke(task)
+        swarm_role = (
+            "You are a swarm agent operating as part of a parallel execution team. "
+            "Complete your assigned task with precision and return a clear result."
+        )
+        swarm_system = assemble_prompt(swarm_role)
+        swarm_messages = [
+            SystemMessage(content=swarm_system),
+            HumanMessage(content=task),
+        ]
+        response = await llm.ainvoke(swarm_messages)
 
         return {"output": response.content, "cost": cost}
 
@@ -592,9 +628,6 @@ Respond in JSON format:
 
             # In production, this would save to database
             # For now, just log it
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.info(f"Mission {mission_id} archived: {result['status']}")
 
     async def _distribute_rewards(
