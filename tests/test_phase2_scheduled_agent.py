@@ -408,7 +408,7 @@ class TestMigrationStructure:
         down_revision = mod.down_revision
 
         assert revision == "b2c3d4e5f6a7"
-        assert down_revision == "e1776d23c66e"
+        assert down_revision == "a1b2c3d4e5f6"
 
     def test_migration_upgrade_creates_both_tables(self):
         """upgrade() creates scheduled_jobs and external_api_keys tables."""
