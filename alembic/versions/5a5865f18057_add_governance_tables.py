@@ -54,14 +54,38 @@ compliancestatus_enum = sa.Enum(
 def upgrade() -> None:
     """Create governance tables for AI governance system"""
 
-    # Create enum types explicitly — IF NOT EXISTS prevents failure on retry
-    op.execute("CREATE TYPE IF NOT EXISTS assettype AS ENUM ('agent', 'tool', 'model', 'vector_db', 'dataset', 'workflow')")
-    op.execute("CREATE TYPE IF NOT EXISTS assetstatus AS ENUM ('active', 'inactive', 'archived', 'suspended', 'under_review')")
-    op.execute("CREATE TYPE IF NOT EXISTS risktier AS ENUM ('unacceptable', 'high', 'limited', 'minimal')")
-    op.execute("CREATE TYPE IF NOT EXISTS authoritylevel AS ENUM ('guest', 'user', 'operator', 'admin', 'compliance_officer')")
-    op.execute("CREATE TYPE IF NOT EXISTS approvalstatus AS ENUM ('pending', 'approved', 'rejected', 'escalated', 'expired')")
-    op.execute("CREATE TYPE IF NOT EXISTS policystatus AS ENUM ('draft', 'active', 'inactive', 'archived')")
-    op.execute("CREATE TYPE IF NOT EXISTS compliancestatus AS ENUM ('compliant', 'non_compliant', 'needs_review', 'exempted')")
+    # Create enum types — use DO block for PostgreSQL 15 compatibility
+    # (CREATE TYPE IF NOT EXISTS requires PostgreSQL 17+)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE assettype AS ENUM ('agent', 'tool', 'model', 'vector_db', 'dataset', 'workflow');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        DO $$ BEGIN
+            CREATE TYPE assetstatus AS ENUM ('active', 'inactive', 'archived', 'suspended', 'under_review');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        DO $$ BEGIN
+            CREATE TYPE risktier AS ENUM ('unacceptable', 'high', 'limited', 'minimal');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        DO $$ BEGIN
+            CREATE TYPE authoritylevel AS ENUM ('guest', 'user', 'operator', 'admin', 'compliance_officer');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        DO $$ BEGIN
+            CREATE TYPE approvalstatus AS ENUM ('pending', 'approved', 'rejected', 'escalated', 'expired');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        DO $$ BEGIN
+            CREATE TYPE policystatus AS ENUM ('draft', 'active', 'inactive', 'archived');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        DO $$ BEGIN
+            CREATE TYPE compliancestatus AS ENUM ('compliant', 'non_compliant', 'needs_review', 'exempted');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
 
     # 1. Governance Assets
     op.create_table(
