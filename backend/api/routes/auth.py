@@ -186,7 +186,7 @@ async def get_current_user(
         )
 
     # Check if token is revoked in database
-    db_token = db.query(Token).filter(Token.token == token, Token.revoked is False).first()
+    db_token = db.query(Token).filter(Token.token == token, Token.revoked == False).first()  # noqa: E712
 
     if not db_token:
         raise HTTPException(
@@ -342,7 +342,7 @@ async def refresh_token_endpoint(refresh_data: TokenRefresh, db: Session = Depen
             .filter(
                 Token.token == refresh_token,
                 Token.token_type == "refresh",
-                Token.revoked is False,
+                Token.revoked == False,  # noqa: E712
             )
             .first()
         )
