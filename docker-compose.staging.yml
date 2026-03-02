@@ -70,14 +70,10 @@ services:
     container_name: citadel-jaeger
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
-      SPAN_STORAGE_TYPE: badger
-      BADGER_EPHEMERAL: "false"
-      BADGER_DIRECTORY_VALUE: /badger/data
-      BADGER_DIRECTORY_KEY: /badger/key
+      SPAN_STORAGE_TYPE: memory
+      MEMORY_MAX_TRACES: "10000"
     ports:
       - "16686:16686"
-    volumes:
-      - jaeger_data:/badger
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:16686"]
       interval: 10s
@@ -230,8 +226,6 @@ volumes:
   redis_data:
     driver: local
   nats_data:
-    driver: local
-  jaeger_data:
     driver: local
   prometheus_data:
     driver: local
