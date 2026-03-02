@@ -223,13 +223,15 @@ async def lifespan(app: FastAPI):
 
 
 # Initialize FastAPI application
+# Disable interactive API docs in non-development environments to prevent API surface disclosure
+_is_development = settings.ENVIRONMENT == "development"
 app = FastAPI(
     title=settings.APP_NAME,
     version=VERSION,
     description="Multi-agent AI system with observability, meta-learning, and agent economy",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _is_development else None,
+    redoc_url="/redoc" if _is_development else None,
     openapi_url="/openapi.json",
 )
 
@@ -371,7 +373,7 @@ async def root():
         "service": settings.APP_NAME,
         "version": VERSION,
         "description": "Multi-agent AI system with observability and meta-learning",
-        "docs": "/docs",
+        "docs": "/docs" if _is_development else None,
         "health": "/health",
         "metrics": settings.METRICS_ENDPOINT,
         "version_info": "/version",

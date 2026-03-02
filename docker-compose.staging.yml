@@ -110,6 +110,7 @@ services:
     container_name: citadel-grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SECURITY_SECRET_KEY: ${GRAFANA_SECRET_KEY}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_SERVER_ROOT_URL: https://nested-ai.net/monitoring/grafana
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
