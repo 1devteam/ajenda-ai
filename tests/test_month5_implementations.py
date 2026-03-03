@@ -183,14 +183,30 @@ class TestEventStoreAppend:
 
     @pytest.mark.asyncio
     async def test_append_event_calls_session_add(self):
-        """Test that appending an event calls session.add and commit"""
+        """
+        Test that appending an event calls session.add and commit.
+
+        EventStore uses a session_factory (async_sessionmaker) and opens its
+        own session per call.  We mock the factory as an async context manager
+        that yields a mock session so we can assert on add/commit.
+        """
         from backend.core.event_sourcing.event_store_impl import EventStore, EventType
         from sqlalchemy.ext.asyncio import AsyncSession
+        from contextlib import asynccontextmanager
 
         mock_session = AsyncMock(spec=AsyncSession)
-        store = EventStore(session=mock_session)
 
-        with patch.object(store, "_get_current_version", return_value=0):
+        # Build a mock session_factory that returns mock_session as an async CM
+        @asynccontextmanager
+        async def _mock_factory():
+            yield mock_session
+
+        store = EventStore(session_factory=_mock_factory)
+
+        # Patch the static _get_current_version to avoid a real DB call
+        with patch.object(
+            EventStore, "_get_current_version", new=AsyncMock(return_value=0)
+        ):
             await store.append(
                 aggregate_id="agent_001",
                 aggregate_type="Agent",
@@ -204,18 +220,30 @@ class TestEventStoreAppend:
 
     @pytest.mark.asyncio
     async def test_concurrency_conflict_raises(self):
-        """Test that appending with wrong expected_version raises ConcurrencyError"""
+        """
+        Test that appending with wrong expected_version raises ConcurrencyError.
+
+        Uses the same session_factory mock pattern as test_append_event_calls_session_add.
+        """
         from backend.core.event_sourcing.event_store_impl import (
             EventStore,
             EventType,
             ConcurrencyError,
         )
         from sqlalchemy.ext.asyncio import AsyncSession
+        from contextlib import asynccontextmanager
 
         mock_session = AsyncMock(spec=AsyncSession)
-        store = EventStore(session=mock_session)
 
-        with patch.object(store, "_get_current_version", return_value=2):
+        @asynccontextmanager
+        async def _mock_factory():
+            yield mock_session
+
+        store = EventStore(session_factory=_mock_factory)
+
+        with patch.object(
+            EventStore, "_get_current_version", new=AsyncMock(return_value=2)
+        ):
             with pytest.raises(ConcurrencyError):
                 await store.append(
                     aggregate_id="agent_001",

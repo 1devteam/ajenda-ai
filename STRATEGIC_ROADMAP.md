@@ -33,9 +33,9 @@ The `PROJECT_SPEC.md` is an excellent document, but it is aspirational. It descr
 
 ---
 
-## 3. The Roadmap: Three Phases to a Workforce
+## 3. The Roadmap: Six Phases to a Self-Auditing Workforce
 
-This roadmap is designed to close the gaps and deliver the workforce vision. It is broken into three distinct, sequential phases.
+This roadmap is designed to close the gaps and deliver the workforce vision. It is broken into six distinct, sequential phases.
 
 ### Phase 1: The Persistent Agent (v6.0)
 
@@ -61,7 +61,9 @@ This roadmap is designed to close the gaps and deliver the workforce vision. It 
 
 **First Mission (Post-v6.1)**: *"Using the Reddit API, post the top 3 AI-related news articles to the /r/artificial subreddit every day at 9 AM EST for one week."* This proves the agent can perform a scheduled, multi-day task using an external tool.
 
-### Phase 3: The Self-Marketing Agent (v6.2)
+### Phase 3: The Self-Marketing Agent (v6.2) — ✅ COMPLETE
+
+*   **Commit**: `cb8ef2b`
 
 **Goal**: The agent can now market itself. It has memory, it can run on a schedule, and it can use external tools.
 
@@ -72,6 +74,46 @@ This roadmap is designed to close the gaps and deliver the workforce vision. It 
 | **Outreach & Posting Sagas** | A full marketing campaign is a long-running saga — create accounts, build a profile, make posts, respond to replies. | Design and implement sagas for social media account creation and content posting campaigns. |
 
 **First Mission (Post-v6.2)**: *"Create a LinkedIn profile for Citadel. Find 10 companies in the retail loss-prevention space. Write and publish three posts on the Citadel profile about the ROI of using AI for shrink reduction, referencing the WalX analysis. Report back with the URLs of the posts and any engagement metrics."* This is the ultimate proof of a self-sustaining, self-marketing system.
+
+### Phase 4: The Coordinating Agent (v6.3) — ✅ COMPLETE
+
+*   **Commit**: `3620c2c`
+
+**Goal**: Evolve from single agents to a coordinated workforce. Introduce a meta-agent capable of decomposing complex goals and orchestrating a team of specialized agents.
+
+| Feature | Why it matters | Implementation |
+|---|---|---|
+| **Workforce Coordinator** | Complex missions require a team. A single agent cannot be a master of all trades. The coordinator acts as a general contractor, assigning tasks to the right specialist. | The `WorkforceCoordinator` was implemented. It takes a high-level goal, creates a `WorkforcePlan` of `SubMission` objects, and executes them sequentially or in parallel. |
+| **Specialized Agent Roles** | To have a team, you need roles. Each agent needs a defined purpose (e.g., research, analysis, writing). | The `AgentRole` enum was created, and the `AgentFactory` was updated to produce agents with specific roles and tools. The initial team consists of: `Researcher`, `Analyst`, `Writer`, and `Poster`. |
+| **Workforce DB & API** | The state of the workforce and its missions must be persistent and queryable. | New database models (`Workforce`, `WorkforceMember`, `WorkforceRun`) and a full suite of API endpoints at `/api/v1/workforces` were created to manage and monitor the workforce. |
+
+**First Mission (Post-v6.3)**: *"Research the top 5 publicly traded competitors to Datadog, analyze their latest quarterly earnings reports for mentions of AI, and write a summary of their AI strategy."* This proves the coordinator can manage a multi-step research and analysis workflow across multiple agents.
+
+### Phase 5: The Revenue Agent (v6.4) — ✅ COMPLETE
+
+*   **Commit**: `90dd360`
+
+**Goal**: Apply the coordinated workforce to a real-world, value-generating business process: B2B sales.
+
+| Feature | Why it matters | Implementation |
+|---|---|---|
+| **Revenue Agent** | The ultimate test of an autonomous system is whether it can generate revenue. This agent automates the entire sales pipeline, from lead discovery to outreach. | The `RevenueAgent` was built on top of the `WorkforceCoordinator`. It orchestrates the `Researcher`, `Analyst`, and `Writer` agents to discover leads, qualify them against an ICP, and generate bespoke proposals. |
+| **Deal Closing Saga** | A sales cycle is a long-running, multi-step transaction. It needs to be robust to failure at any stage. | The `DealClosingSaga` was implemented to manage the entire deal flow, with compensation actions to ensure data consistency if any step (e.g., proposal generation) fails. |
+| **Revenue API** | A sales pipeline needs a rich API for management, monitoring, and manual intervention. | A full suite of 12 new endpoints was added under `/api/v1/revenue` to manage leads, opportunities, proposals, and to trigger the `RevenueAgent` pipeline. |
+
+**First Mission (Post-v6.4)**: *"Find 10 SMB retail companies, qualify them based on their online presence, generate a proposal for our AI loss prevention solution for each, and report the pipeline status."* This proves the system can autonomously execute a core business function.
+
+### Phase 6: The Self-Auditing Workforce (v6.5) — ⏳ IN PROGRESS
+
+**Goal**: Turn the workforce inward. Give it the tools and the mandate to audit its own capabilities, identify its own gaps, and improve its own code and documentation.
+
+| Feature | Why it matters | Implementation Plan |
+|---|---|---|
+| **Proof Mission Harness** | To test itself, the workforce needs a way to run complex, multi-step missions and evaluate the results against a set of acceptance criteria. | A new service or test harness will be built to execute the three defined proof missions (Code Auditor, Issue Reproducer, Roadmap Updater) and report on their success or failure. |
+| **Enhanced Agent Tooling** | The existing tools (`web_search`, `python_executor`) are insufficient for deep code analysis. The agents will need more powerful tools. | The `python_executor` will be upgraded to allow installation of packages. New tools for static analysis (e.g., a linter tool) and git history analysis will be added. |
+| **Session Log & Continuity** | For the agent to learn from its own work, it needs a persistent memory of its sessions. | A `SESSION_LOG.md` file will be created and updated at the end of each session, documenting what was built, what decisions were made, and what the next steps are. |
+
+**First Mission (Post-v6.5)**: *Execute the three proof missions and report the results. Then, analyze the failures and create a prioritized backlog of engineering tasks for Phase 7.* This is the ultimate demonstration of a self-improving system.
 
 ---
 

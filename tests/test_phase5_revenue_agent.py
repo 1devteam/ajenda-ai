@@ -57,56 +57,61 @@ def _stub_module(name: str, **attrs) -> types.ModuleType:
 
 
 def _ensure_stubs():
-    """Ensure all heavy optional dependencies are stubbed out."""
-    stubs = {
-        "langchain_core": types.ModuleType("langchain_core"),
-        "langchain_core.messages": _stub_module(
-            "langchain_core.messages",
-            HumanMessage=MagicMock,
-            SystemMessage=MagicMock,
-        ),
-        "apscheduler": types.ModuleType("apscheduler"),
-        "apscheduler.schedulers": types.ModuleType("apscheduler.schedulers"),
-        "apscheduler.schedulers.asyncio": _stub_module(
-            "apscheduler.schedulers.asyncio",
-            AsyncIOScheduler=MagicMock,
-        ),
-        "apscheduler.triggers": types.ModuleType("apscheduler.triggers"),
-        "apscheduler.triggers.cron": _stub_module(
-            "apscheduler.triggers.cron", CronTrigger=MagicMock
-        ),
-        "apscheduler.triggers.interval": _stub_module(
-            "apscheduler.triggers.interval", IntervalTrigger=MagicMock
-        ),
-        "praw": _stub_module("praw", Reddit=MagicMock),
-        "tweepy": _stub_module("tweepy", Client=MagicMock, API=MagicMock),
-        "playwright": types.ModuleType("playwright"),
-        "playwright.async_api": _stub_module(
-            "playwright.async_api", async_playwright=MagicMock
-        ),
-        "cryptography": types.ModuleType("cryptography"),
-        "cryptography.hazmat": types.ModuleType("cryptography.hazmat"),
-        "cryptography.hazmat.primitives": types.ModuleType(
-            "cryptography.hazmat.primitives"
-        ),
-        "cryptography.hazmat.primitives.ciphers": _stub_module(
-            "cryptography.hazmat.primitives.ciphers",
-            Cipher=MagicMock,
-            algorithms=MagicMock,
-            modes=MagicMock,
-        ),
-        "cryptography.hazmat.primitives.ciphers.aead": _stub_module(
-            "cryptography.hazmat.primitives.ciphers.aead",
-            AESGCM=MagicMock,
-        ),
-        "cryptography.hazmat.backends": _stub_module(
-            "cryptography.hazmat.backends",
-            default_backend=MagicMock,
-        ),
-    }
-    for name, mod in stubs.items():
-        if name not in sys.modules:
-            sys.modules[name] = mod
+    """
+    Stub heavy optional dependencies that are not installed.
+
+    Uses a try/import guard so that when the real library IS installed
+    (e.g. cryptography, apscheduler) the real module is used and the stub
+    is never injected.  This prevents test-order contamination where a stub
+    registered here would shadow the real module for later test files.
+    """
+
+    def _stub_if_missing(name: str, **attrs) -> None:
+        """Register a stub only when the module cannot be imported."""
+        if name in sys.modules:
+            return  # already loaded (real or stub) — leave it alone
+        try:
+            __import__(name)
+        except ImportError:
+            _stub_module(name, **attrs)
+
+    # LangChain — may or may not be installed
+    _stub_if_missing("langchain_core")
+    _stub_if_missing(
+        "langchain_core.messages",
+        HumanMessage=MagicMock,
+        SystemMessage=MagicMock,
+    )
+
+    # APScheduler — IS installed; do NOT stub so that CronTrigger remains real
+    _stub_if_missing("apscheduler")
+    _stub_if_missing("apscheduler.schedulers")
+    _stub_if_missing("apscheduler.schedulers.asyncio", AsyncIOScheduler=MagicMock)
+    _stub_if_missing("apscheduler.triggers")
+    _stub_if_missing("apscheduler.triggers.cron", CronTrigger=MagicMock)
+    _stub_if_missing("apscheduler.triggers.interval", IntervalTrigger=MagicMock)
+
+    # Optional social / browser integrations
+    _stub_if_missing("praw", Reddit=MagicMock)
+    _stub_if_missing("tweepy", Client=MagicMock, API=MagicMock)
+    _stub_if_missing("playwright")
+    _stub_if_missing("playwright.async_api", async_playwright=MagicMock)
+
+    # Cryptography — IS installed; do NOT stub so that AESGCM remains real
+    _stub_if_missing("cryptography")
+    _stub_if_missing("cryptography.hazmat")
+    _stub_if_missing("cryptography.hazmat.primitives")
+    _stub_if_missing(
+        "cryptography.hazmat.primitives.ciphers",
+        Cipher=MagicMock,
+        algorithms=MagicMock,
+        modes=MagicMock,
+    )
+    _stub_if_missing(
+        "cryptography.hazmat.primitives.ciphers.aead",
+        AESGCM=MagicMock,
+    )
+    _stub_if_missing("cryptography.hazmat.backends", default_backend=MagicMock)
 
 
 _ensure_stubs()
