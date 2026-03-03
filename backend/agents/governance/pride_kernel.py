@@ -13,7 +13,7 @@ Author: Dev Team Lead
 Built with Pride for Obex Blackvault
 """
 
-from typing import Optional
+from typing import List, Optional
 
 # ============================================================================
 # PRIDE PROTOCOL — IMMUTABLE CONSTANT
@@ -72,12 +72,21 @@ Your compliance with this protocol is logged and audited.
 # ============================================================================
 
 
-def assemble_prompt(user_system_prompt: Optional[str] = None) -> str:
+def assemble_prompt(
+    user_system_prompt: Optional[str] = None,
+    scenario: Optional[str] = None,
+    few_shot_count: int = 2,
+    few_shot_tags: Optional[List[str]] = None,
+) -> str:
     """
     Assemble the effective system prompt for an agent.
 
     The PRIDE preamble is always prepended, regardless of what the user
-    provided. The user's custom prompt follows after a clear separator.
+    provided. If a ``scenario`` is supplied, a few-shot reference block
+    containing both positive and negative examples is injected between the
+    preamble and the user's system prompt. The user's custom prompt follows
+    after a clear separator.
+
     This function is the single point of truth for prompt assembly —
     every LLM call in Citadel must route through here.
 
@@ -85,9 +94,16 @@ def assemble_prompt(user_system_prompt: Optional[str] = None) -> str:
         user_system_prompt: The user-defined system prompt for the agent.
                             May be None or empty — the Pride preamble is
                             always present regardless.
+        scenario:           Optional scenario name (e.g. "lead_qualification").
+                            When provided, few-shot examples are retrieved from
+                            the FewShotLibrary and injected into the prompt.
+        few_shot_count:     Maximum number of few-shot examples to inject.
+                            Defaults to 2 (one positive, one negative).
+        few_shot_tags:      Optional tag filter for the few-shot examples.
 
     Returns:
-        The fully assembled system prompt with Pride preamble prepended.
+        The fully assembled system prompt with Pride preamble (and optional
+        few-shot block) prepended.
 
     Example:
         >>> assembled = assemble_prompt("You are a financial analyst.")
@@ -95,10 +111,41 @@ def assemble_prompt(user_system_prompt: Optional[str] = None) -> str:
         True
         >>> "financial analyst" in assembled
         True
+        >>> qualified = assemble_prompt(
+        ...     "You are a B2B sales analyst.",
+        ...     scenario="lead_qualification"
+        ... )
+        >>> "PROPER ACTION" in qualified
+        True
+        >>> "IMPROPER ACTION" in qualified
+        True
     """
+    parts = [PRIDE_PREAMBLE]
+
+    # Inject few-shot examples if a scenario is specified
+    if scenario:
+        try:
+            from backend.agents.governance.few_shot_library import FewShotLibrary
+            library = FewShotLibrary.get_instance()
+            few_shot_block = library.format_examples_block(
+                scenario,
+                count=few_shot_count,
+                tags=few_shot_tags,
+            )
+            if few_shot_block:
+                parts.append(few_shot_block)
+        except FileNotFoundError:
+            # Library file not present — degrade gracefully, do not crash
+            import logging
+            logging.getLogger(__name__).warning(
+                "Few-shot library not found; skipping example injection for scenario: %s",
+                scenario,
+            )
+
     if user_system_prompt and user_system_prompt.strip():
-        return f"{PRIDE_PREAMBLE}\n{user_system_prompt.strip()}"
-    return PRIDE_PREAMBLE
+        parts.append(user_system_prompt.strip())
+
+    return "\n".join(parts)
 
 
 def get_preamble_version() -> str:
