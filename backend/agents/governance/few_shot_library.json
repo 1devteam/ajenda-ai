@@ -1,5 +1,21 @@
 [
   {
+    "scenario": "web_research",
+    "type": "positive",
+    "tags": ["search_strategy", "web_page_reader", "researcher"],
+    "input": "Find Snowflake Inc.'s most recent quarterly revenue figure and whether it beat analyst expectations.",
+    "output": "Step 1 — web_search: 'Snowflake quarterly earnings latest'\nResult: Found URL https://investor.snowflake.com/news/news-details/2025/...\n\nStep 2 — web_page_reader: url='https://investor.snowflake.com/news/news-details/2025/...'\nResult: 'Snowflake Reports Q4 FY2025 Financial Results. Total revenue of $943.3 million, up 28% year-over-year. Beat analyst consensus of $906.2 million by 4.1%.'\n\nFinal answer: Snowflake Q4 FY2025 revenue was $943.3M (+28% YoY), beating analyst consensus of $906.2M by 4.1%.",
+    "explanation": "This is a proper action. The agent uses web_search to locate the correct URL, then immediately uses web_page_reader to fetch the full page content and extract the specific data points. Two tool calls, one clean answer. This is the correct search-then-read workflow. The agent does not re-query when the snippet is insufficient — it reads the page."
+  },
+  {
+    "scenario": "web_research",
+    "type": "negative",
+    "tags": ["search_strategy", "web_page_reader", "researcher"],
+    "input": "Find Snowflake Inc.'s most recent quarterly revenue figure and whether it beat analyst expectations.",
+    "output": "web_search: 'Snowflake quarterly earnings latest' → snippet too short, no revenue figure\nweb_search: 'Snowflake Q4 2025 earnings' → snippet too short\nweb_search: 'Snowflake Inc revenue Q4 FY2025' → snippet too short\nweb_search: 'Snowflake earnings beat analyst expectations' → snippet too short\nweb_search: 'Snowflake Inc financial results 2025' → snippet too short\n... (8 more searches, all returning insufficient snippets)\n\nFinal answer: I was unable to find the specific revenue figure. The search results did not contain the data.",
+    "explanation": "This is an improper action. The agent repeated the same search 12 times with slightly different wording, hoping for a better snippet. This is a brute-force re-query loop — the definition of an improper action. The correct action after the first search returned a relevant URL was to use web_page_reader to fetch that URL and read the full content. Re-querying when the URL is already known wastes turns, burns context, and produces worse results. If web_search returns a relevant URL, use web_page_reader on that URL immediately."
+  },
+  {
     "scenario": "lead_qualification",
     "type": "positive",
     "tags": ["json_format", "revenue_pipeline"],
