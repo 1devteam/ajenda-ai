@@ -1176,3 +1176,452 @@ class SocialMediaPostingSaga:
                 tenant_id=context["tenant_id"],
                 user_id=context["agent_id"],
             )
+
+
+# ============================================================================
+# PHASE 5: Deal Closing Saga
+# ============================================================================
+
+
+class DealClosingSaga:
+    """
+    Manages the full sales cycle from lead qualification to closed revenue.
+
+    Steps (in order):
+      1. qualify_lead       — Score the lead; fail if below threshold
+      2. create_opportunity — Persist Opportunity record
+      3. generate_proposal  — Writer agent produces markdown proposal
+      4. send_outreach      — Poster agent dispatches proposal via email/LinkedIn
+      5. record_response    — Wait for and record prospect response
+      6. close_deal         — Move opportunity to closed_won; create Deal record
+      7. record_revenue     — Emit revenue event to EventStore
+
+    Compensations (reverse order on failure):
+      - close_deal          → reopen_opportunity
+      - send_outreach       → mark_proposal_cancelled
+      - generate_proposal   → delete_draft_proposal
+      - create_opportunity  → delete_opportunity
+      - qualify_lead        → mark_lead_disqualified
+
+    Built with Pride for Obex Blackvault
+    """
+
+    def __init__(
+        self,
+        orchestrator: SagaOrchestrator,
+        revenue_agent: Any,
+        event_store: EventStore,
+    ) -> None:
+        self.orchestrator = orchestrator
+        self.revenue_agent = revenue_agent
+        self.event_store = event_store
+
+    async def execute(
+        self,
+        lead_id: str,
+        tenant_id: str,
+        agent_id: str,
+        value_proposition: str,
+        ideal_customer_profile: str,
+        lead_data: Dict[str, Any],
+        send_outreach: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Execute the deal closing saga for a single lead.
+
+        Parameters
+        ----------
+        lead_id : str
+            ID of the lead to process.
+        tenant_id : str
+            Tenant context.
+        agent_id : str
+            Agent executing the saga.
+        value_proposition : str
+            What Citadel offers (used in proposal generation).
+        ideal_customer_profile : str
+            ICP criteria for qualification scoring.
+        lead_data : dict
+            Raw lead data dict (company_name, industry, research_data, etc.).
+        send_outreach : bool
+            Whether to dispatch outreach via Poster agent.
+        """
+        context: Dict[str, Any] = {
+            "lead_id": lead_id,
+            "tenant_id": tenant_id,
+            "agent_id": agent_id,
+            "value_proposition": value_proposition,
+            "ideal_customer_profile": ideal_customer_profile,
+            "lead_data": lead_data,
+            "send_outreach": send_outreach,
+        }
+
+        saga = self.orchestrator.create_saga(
+            name="deal_closing",
+            context=context,
+        )
+
+        # Step 1: Qualify lead
+        self.orchestrator.add_step(
+            saga,
+            name="qualify_lead",
+            action=self._qualify_lead,
+            compensation=self._mark_lead_disqualified,
+        )
+
+        # Step 2: Create opportunity
+        self.orchestrator.add_step(
+            saga,
+            name="create_opportunity",
+            action=self._create_opportunity,
+            compensation=self._delete_opportunity,
+        )
+
+        # Step 3: Generate proposal
+        self.orchestrator.add_step(
+            saga,
+            name="generate_proposal",
+            action=self._generate_proposal,
+            compensation=self._delete_draft_proposal,
+        )
+
+        # Step 4: Send outreach (conditional)
+        self.orchestrator.add_step(
+            saga,
+            name="send_outreach",
+            action=self._send_outreach,
+            compensation=self._mark_proposal_cancelled,
+        )
+
+        # Step 5: Record response
+        self.orchestrator.add_step(
+            saga,
+            name="record_response",
+            action=self._record_response,
+            compensation=None,
+        )
+
+        # Step 6: Close deal
+        self.orchestrator.add_step(
+            saga,
+            name="close_deal",
+            action=self._close_deal,
+            compensation=self._reopen_opportunity,
+        )
+
+        # Step 7: Record revenue
+        self.orchestrator.add_step(
+            saga,
+            name="record_revenue",
+            action=self._record_revenue,
+            compensation=None,
+        )
+
+        success = await self.orchestrator.execute(saga)
+
+        return {
+            "saga_id": saga.saga_id,
+            "status": saga.status.value,
+            "success": success,
+            "lead_id": lead_id,
+            "opportunity_id": context.get("opportunity_id"),
+            "proposal_id": context.get("proposal_id"),
+            "deal_id": context.get("deal_id"),
+            "revenue": context.get("deal_value"),
+        }
+
+    # -----------------------------------------------------------------------
+    # Step actions
+    # -----------------------------------------------------------------------
+
+    async def _qualify_lead(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Score the lead; raise if below qualification threshold."""
+        from backend.orchestration.revenue_agent import LeadRecord
+
+        lead_data = context["lead_data"]
+        lead = LeadRecord(
+            id=context["lead_id"],
+            company_name=lead_data.get("company_name", "Unknown"),
+            tenant_id=context["tenant_id"],
+            industry=lead_data.get("industry"),
+            company_size=lead_data.get("company_size"),
+            research_data=lead_data.get("research_data", {}),
+        )
+
+        score, notes, contact_title, est_value, prob = (
+            await self.revenue_agent._qualify_lead(
+                lead=lead,
+                value_proposition=context["value_proposition"],
+                ideal_customer_profile=context["ideal_customer_profile"],
+            )
+        )
+
+        threshold = getattr(self.revenue_agent, "qualification_threshold", 0.6)
+        if score < threshold:
+            raise ValueError(
+                f"Lead {context['lead_id']} scored {score:.2f} — "
+                f"below threshold {threshold:.2f}"
+            )
+
+        context["qualification_score"] = score
+        context["qualification_notes"] = notes
+        context["contact_title"] = contact_title
+        context["estimated_value"] = est_value
+        context["probability"] = prob
+
+        await self.event_store.append_event(
+            aggregate_id=context["lead_id"],
+            event_type="lead.qualified",
+            payload={
+                "lead_id": context["lead_id"],
+                "score": score,
+                "notes": notes,
+            },
+            tenant_id=context["tenant_id"],
+            user_id=context["agent_id"],
+        )
+
+        return {"score": score, "notes": notes}
+
+    async def _create_opportunity(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist an Opportunity record for the qualified lead."""
+        import uuid
+
+        opp_id = f"opp_{uuid.uuid4().hex[:12]}"
+        context["opportunity_id"] = opp_id
+
+        await self.event_store.append_event(
+            aggregate_id=opp_id,
+            event_type="opportunity.created",
+            payload={
+                "opportunity_id": opp_id,
+                "lead_id": context["lead_id"],
+                "estimated_value": context.get("estimated_value"),
+                "probability": context.get("probability"),
+            },
+            tenant_id=context["tenant_id"],
+            user_id=context["agent_id"],
+        )
+
+        return {"opportunity_id": opp_id}
+
+    async def _generate_proposal(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Writer agent generates a markdown proposal."""
+        from backend.orchestration.revenue_agent import LeadRecord, OpportunityRecord
+
+        lead_data = context["lead_data"]
+        lead = LeadRecord(
+            id=context["lead_id"],
+            company_name=lead_data.get("company_name", "Unknown"),
+            tenant_id=context["tenant_id"],
+            industry=lead_data.get("industry"),
+            company_size=lead_data.get("company_size"),
+            research_data=lead_data.get("research_data", {}),
+            qualification_notes=context.get("qualification_notes"),
+            contact_title=context.get("contact_title"),
+        )
+        opp = OpportunityRecord(
+            id=context["opportunity_id"],
+            lead_id=context["lead_id"],
+            tenant_id=context["tenant_id"],
+            name=f"{lead.company_name} proposal",
+            estimated_value=context.get("estimated_value"),
+        )
+
+        proposal = await self.revenue_agent._generate_proposal(
+            lead=lead,
+            opportunity=opp,
+            value_proposition=context["value_proposition"],
+        )
+
+        context["proposal_id"] = proposal.id
+        context["proposal_title"] = proposal.title
+        context["proposal_body"] = proposal.body
+
+        await self.event_store.append_event(
+            aggregate_id=proposal.id,
+            event_type="proposal.generated",
+            payload={
+                "proposal_id": proposal.id,
+                "opportunity_id": context["opportunity_id"],
+                "title": proposal.title,
+            },
+            tenant_id=context["tenant_id"],
+            user_id=context["agent_id"],
+        )
+
+        return {"proposal_id": proposal.id, "title": proposal.title}
+
+    async def _send_outreach(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Dispatch outreach if send_outreach is enabled."""
+        if not context.get("send_outreach", False):
+            return {"sent": False, "reason": "outreach_disabled"}
+
+        from backend.orchestration.revenue_agent import ProposalRecord
+
+        proposal = ProposalRecord(
+            id=context["proposal_id"],
+            opportunity_id=context["opportunity_id"],
+            tenant_id=context["tenant_id"],
+            title=context.get("proposal_title", ""),
+            body=context.get("proposal_body", ""),
+            sent_to_email=context.get("contact_email"),
+            sent_to_linkedin=context.get("contact_linkedin"),
+        )
+
+        sent = await self.revenue_agent._send_outreach(proposal=proposal)
+
+        if sent:
+            await self.event_store.append_event(
+                aggregate_id=context["proposal_id"],
+                event_type="proposal.sent",
+                payload={
+                    "proposal_id": context["proposal_id"],
+                    "sent_via": "email" if proposal.sent_to_email else "linkedin",
+                },
+                tenant_id=context["tenant_id"],
+                user_id=context["agent_id"],
+            )
+
+        return {"sent": sent}
+
+    async def _record_response(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Record the prospect's response.
+
+        In a real deployment this step would poll for a webhook or email reply.
+        For now it records a 'pending_response' event and returns immediately —
+        the saga completes optimistically and the response is recorded later
+        via the proposals API when the prospect replies.
+        """
+        await self.event_store.append_event(
+            aggregate_id=context.get("proposal_id", context["lead_id"]),
+            event_type="proposal.response_pending",
+            payload={
+                "proposal_id": context.get("proposal_id"),
+                "opportunity_id": context.get("opportunity_id"),
+            },
+            tenant_id=context["tenant_id"],
+            user_id=context["agent_id"],
+        )
+        return {"response_status": "pending"}
+
+    async def _close_deal(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Move opportunity to closed_won and create a Deal record.
+
+        In a real deployment this step would be triggered by a response webhook.
+        For the saga, it records the deal optimistically — the revenue dashboard
+        shows it as 'pending' until payment is confirmed.
+        """
+        import uuid
+
+        deal_id = f"deal_{uuid.uuid4().hex[:12]}"
+        deal_value = context.get("estimated_value") or 0.0
+        context["deal_id"] = deal_id
+        context["deal_value"] = deal_value
+
+        await self.event_store.append_event(
+            aggregate_id=deal_id,
+            event_type="deal.created",
+            payload={
+                "deal_id": deal_id,
+                "opportunity_id": context.get("opportunity_id"),
+                "lead_id": context["lead_id"],
+                "value": deal_value,
+                "currency": "USD",
+                "payment_status": "pending",
+            },
+            tenant_id=context["tenant_id"],
+            user_id=context["agent_id"],
+        )
+
+        return {"deal_id": deal_id, "value": deal_value}
+
+    async def _record_revenue(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Emit the canonical revenue event to the EventStore."""
+        await self.event_store.append_event(
+            aggregate_id=context["tenant_id"],
+            event_type="revenue.recorded",
+            payload={
+                "deal_id": context.get("deal_id"),
+                "opportunity_id": context.get("opportunity_id"),
+                "lead_id": context["lead_id"],
+                "amount": context.get("deal_value", 0.0),
+                "currency": "USD",
+                "agent_id": context["agent_id"],
+            },
+            tenant_id=context["tenant_id"],
+            user_id=context["agent_id"],
+        )
+        return {"revenue_recorded": True, "amount": context.get("deal_value", 0.0)}
+
+    # -----------------------------------------------------------------------
+    # Compensation actions
+    # -----------------------------------------------------------------------
+
+    async def _mark_lead_disqualified(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        await self.event_store.append_event(
+            aggregate_id=context["lead_id"],
+            event_type="lead.disqualified",
+            payload={"lead_id": context["lead_id"], "reason": "Saga compensation"},
+            tenant_id=context["tenant_id"],
+            user_id=context["agent_id"],
+        )
+
+    async def _delete_opportunity(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        opp_id = context.get("opportunity_id")
+        if opp_id:
+            await self.event_store.append_event(
+                aggregate_id=opp_id,
+                event_type="opportunity.cancelled",
+                payload={"opportunity_id": opp_id, "reason": "Saga compensation"},
+                tenant_id=context["tenant_id"],
+                user_id=context["agent_id"],
+            )
+
+    async def _delete_draft_proposal(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        prop_id = context.get("proposal_id")
+        if prop_id:
+            await self.event_store.append_event(
+                aggregate_id=prop_id,
+                event_type="proposal.cancelled",
+                payload={"proposal_id": prop_id, "reason": "Saga compensation"},
+                tenant_id=context["tenant_id"],
+                user_id=context["agent_id"],
+            )
+
+    async def _mark_proposal_cancelled(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        prop_id = context.get("proposal_id")
+        if prop_id and result and result.get("sent"):
+            await self.event_store.append_event(
+                aggregate_id=prop_id,
+                event_type="proposal.outreach_cancelled",
+                payload={"proposal_id": prop_id, "reason": "Saga compensation"},
+                tenant_id=context["tenant_id"],
+                user_id=context["agent_id"],
+            )
+
+    async def _reopen_opportunity(
+        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
+    ) -> None:
+        opp_id = context.get("opportunity_id")
+        if opp_id:
+            await self.event_store.append_event(
+                aggregate_id=opp_id,
+                event_type="opportunity.reopened",
+                payload={
+                    "opportunity_id": opp_id,
+                    "reason": "Saga compensation — deal close reversed",
+                },
+                tenant_id=context["tenant_id"],
+                user_id=context["agent_id"],
+            )
