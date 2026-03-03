@@ -124,6 +124,78 @@ export interface DashboardStats {
   system_health: 'healthy' | 'degraded' | 'down';
 }
 
+// ---- Revenue Pipeline ----
+export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'disqualified' | 'converted';
+export type OpportunityStatus = 'open' | 'proposal_sent' | 'negotiating' | 'closed_won' | 'closed_lost';
+export type DealStatus = 'active' | 'won' | 'lost' | 'on_hold';
+
+export interface Lead {
+  id: string;
+  company_name: string;
+  industry?: string;
+  company_size?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_linkedin?: string;
+  website?: string;
+  status: LeadStatus;
+  qualification_score?: number;
+  qualification_notes?: string;
+  estimated_value?: number;
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface Opportunity {
+  id: string;
+  lead_id: string;
+  title: string;
+  stage: string;
+  status: OpportunityStatus;
+  value: number;
+  probability: number;
+  expected_close_date?: string;
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface Proposal {
+  id: string;
+  opportunity_id: string;
+  lead_id?: string;
+  title: string;
+  content: string;
+  status: 'draft' | 'sent' | 'accepted' | 'rejected';
+  value: number;
+  sent_at?: string;
+  created_at: string;
+}
+
+export interface Deal {
+  id: string;
+  opportunity_id: string;
+  lead_id?: string;
+  title: string;
+  value: number;
+  status: DealStatus;
+  closed_at?: string;
+  created_at: string;
+}
+
+export interface RevenueDashboard {
+  total_leads: number;
+  qualified_leads: number;
+  open_opportunities: number;
+  total_pipeline_value: number;
+  proposals_sent: number;
+  deals_closed: number;
+  total_revenue: number;
+  conversion_rate: number;
+  avg_deal_value: number;
+}
+
 // ---- API Response wrappers ----
 export interface PaginatedResponse<T> {
   items: T[];

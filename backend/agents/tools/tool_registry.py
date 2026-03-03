@@ -365,23 +365,28 @@ class ToolRegistry:
         self._register_default_tools()
 
     def _register_default_tools(self):
-        """Register default tools."""
+        """Register default tools available to all agents."""
         # Import here to avoid circular imports at module load time
         from backend.agents.tools.web_page_reader import WebPageReaderTool
+        from backend.agents.tools.search_memory import SearchMemoryTool
+        from backend.agents.tools.email_tool import EmailTool
 
         default_tools = [
-            WebSearchTool(),
+            # SearchMemoryTool replaces plain WebSearchTool — same interface,
+            # adds per-session deduplication to prevent re-query loops.
+            SearchMemoryTool(),
             WebPageReaderTool(),
             PythonExecutorTool(),
             FileReaderTool(),
             FileWriterTool(),
             CalculatorTool(),
+            EmailTool(),
         ]
 
         for tool in default_tools:
             self.register_tool(tool)
 
-        # Phase 3 tools — registered if dependencies are available
+        # Optional tools — registered if dependencies are available
         self._register_phase3_tools()
 
     def _register_phase3_tools(self):
@@ -404,6 +409,15 @@ class ToolRegistry:
         except Exception as exc:
             logger.warning(f"TwitterTool registration failed: {exc}")
 
+        # RedditTool — optional, requires praw
+        try:
+            from backend.integrations.tools.reddit_tool import RedditTool
+            self.register_tool(RedditTool())
+        except ImportError:
+            logger.info("RedditTool skipped — praw not installed")
+        except Exception as exc:
+            logger.warning(f"RedditTool registration failed: {exc}")
+
     def register_tool(self, tool: BaseTool):
         """Register a new tool."""
         self.tools[tool.name] = tool
@@ -414,16 +428,31 @@ class ToolRegistry:
         return self.tools.get(name)
 
     def get_tools_by_category(self, category: ToolCategory) -> List[BaseTool]:
-        """Get all tools in a category."""
-        return [tool for tool in self.tools.values() if tool.category == category]
+        """Get all tools in a category, skipping non-native tools without category."""
+        result = []
+        for tool in self.tools.values():
+            try:
+                if tool.category == category:
+                    result.append(tool)
+            except AttributeError:
+                pass
+        return result
 
     def get_all_tools(self) -> List[BaseTool]:
         """Get all registered tools."""
         return list(self.tools.values())
 
     def to_langchain_tools(self) -> List[Tool]:
-        """Convert all tools to LangChain format."""
-        return [tool.to_langchain_tool() for tool in self.tools.values()]
+        """Convert all registered tools to LangChain format."""
+        tools = []
+        for tool in self.tools.values():
+            try:
+                tools.append(tool.to_langchain_tool())
+            except AttributeError:
+                # Non-native tools (e.g. LangChain BaseTool subclasses)
+                # are already in LangChain format
+                tools.append(tool)  # type: ignore[arg-type]
+        return tools
 
 
 # Global tool registry
