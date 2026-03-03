@@ -7,9 +7,6 @@ Tools include web search, code execution, file operations, and more.
 """
 
 from typing import Dict, Any, List, Optional
-from abc import ABC, abstractmethod
-from enum import Enum
-import asyncio
 import subprocess
 import tempfile
 import os
@@ -17,48 +14,11 @@ import logging
 
 from langchain_core.tools import Tool
 
+# BaseTool and ToolCategory live in base.py to prevent circular imports
+# with individual tool modules that import BaseTool but are also registered here.
+from backend.agents.tools.base import BaseTool, ToolCategory  # noqa: F401
+
 logger = logging.getLogger(__name__)
-
-
-class ToolCategory(str, Enum):
-    """Categories of agent tools."""
-
-    SEARCH = "search"
-    CODE = "code"
-    FILE = "file"
-    DATA = "data"
-    COMMUNICATION = "communication"
-
-
-class BaseTool(ABC):
-    """Base class for all agent tools."""
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Tool name."""
-
-    @property
-    @abstractmethod
-    def description(self) -> str:
-        """Tool description for LLM."""
-
-    @property
-    @abstractmethod
-    def category(self) -> ToolCategory:
-        """Tool category."""
-
-    @abstractmethod
-    async def execute(self, **kwargs) -> Dict[str, Any]:
-        """Execute the tool."""
-
-    def to_langchain_tool(self) -> Tool:
-        """Convert to LangChain Tool format."""
-        return Tool(
-            name=self.name,
-            description=self.description,
-            func=lambda **kwargs: asyncio.run(self.execute(**kwargs)),
-        )
 
 
 class WebSearchTool(BaseTool):
@@ -92,8 +52,12 @@ Output: Top search results with titles, snippets, and URLs."""
             Search results with metadata
         """
         try:
-            # Use duckduckgo-search library (lightweight, no API key)
-            from duckduckgo_search import DDGS
+            # Use ddgs (the successor to duckduckgo_search — no API key required).
+            # Falls back to the legacy duckduckgo_search package if ddgs is not installed.
+            try:
+                from ddgs import DDGS
+            except ImportError:
+                from duckduckgo_search import DDGS  # type: ignore[no-redef]
 
             results = []
             with DDGS() as ddgs:
@@ -402,8 +366,12 @@ class ToolRegistry:
 
     def _register_default_tools(self):
         """Register default tools."""
+        # Import here to avoid circular imports at module load time
+        from backend.agents.tools.web_page_reader import WebPageReaderTool
+
         default_tools = [
             WebSearchTool(),
+            WebPageReaderTool(),
             PythonExecutorTool(),
             FileReaderTool(),
             FileWriterTool(),
