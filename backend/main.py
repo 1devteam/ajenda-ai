@@ -43,6 +43,7 @@ from backend.api.routes import (
     vault as vault_router,
     campaigns as campaigns_router,
     workforces as workforces_router,
+    revenue as revenue_router,
 )
 
 # Import core services
@@ -78,6 +79,7 @@ mission_executor: Optional[MissionExecutor] = None
 _scheduler_service_ref = None
 _vault_service_ref = None
 _workforce_coordinator_ref = None
+_revenue_agent_ref = None
 
 
 @asynccontextmanager
@@ -203,6 +205,20 @@ async def lifespan(app: FastAPI):
         logger.info("✅ VaultService initialised")
     except Exception as _vault_err:
         logger.warning(f"VaultService init failed (non-fatal): {_vault_err}")
+
+    # Initialize RevenueAgent (Phase 5 — sales pipeline and deal closing)
+    logger.info("Initializing RevenueAgent...")
+    try:
+        from backend.orchestration.revenue_agent import RevenueAgent
+        global _revenue_agent_ref
+        _revenue_agent_ref = RevenueAgent(
+            llm_service=llm_service,
+            event_store=_event_store_ref,
+        )
+        app.state.revenue_agent = _revenue_agent_ref
+        logger.info("✅ RevenueAgent initialised")
+    except Exception as _rev_err:
+        logger.warning(f"RevenueAgent init failed (non-fatal): {_rev_err}")
 
     # Initialize WorkforceCoordinator (Phase 4 — multi-agent coordination)
     logger.info("Initializing WorkforceCoordinator...")
@@ -493,6 +509,14 @@ def get_workforce_coordinator():
     return _workforce_coordinator_ref
 
 
+def get_revenue_agent():
+    """
+    Dependency to get the RevenueAgent instance.
+    Returns None if RevenueAgent initialisation failed (non-fatal).
+    """
+    return _revenue_agent_ref
+
+
 # Health check endpoint
 @app.get("/health", tags=["system"])
 async def health_check():
@@ -563,6 +587,7 @@ app.include_router(scheduler_router.router)
 app.include_router(vault_router.router)
 app.include_router(campaigns_router.router)
 app.include_router(workforces_router.router)
+app.include_router(revenue_router.router)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from sqlalchemy import (
     ForeignKey,
     JSON,
     Text,
+    Numeric,
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -324,3 +325,243 @@ class WorkforceMember(Base):
     # Relationships
     workforce = relationship("Workforce", back_populates="members")
     agent = relationship("Agent")
+
+
+# ============================================================================
+# PHASE 5: SALES PIPELINE DOMAIN MODELS
+# ============================================================================
+
+
+class Lead(Base):
+    """
+    A prospective customer identified by the Revenue Agent.
+
+    Leads are discovered via the LeadGenerationWorkflow (web search + browser
+    automation) and qualify into Opportunities when they meet scoring criteria.
+
+    Lifecycle: NEW → RESEARCHED → QUALIFIED → CONVERTED | DISQUALIFIED
+    """
+
+    __tablename__ = "leads"
+
+    # Primary key
+    id = Column(String(50), primary_key=True, index=True)
+
+    # Ownership
+    tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
+    created_by = Column(String(50), ForeignKey("users.id"), nullable=False)
+    assigned_agent_id = Column(String(50), ForeignKey("agents.id"), nullable=True, index=True)
+
+    # Identity
+    company_name = Column(String(255), nullable=False, index=True)
+    contact_name = Column(String(255), nullable=True)
+    contact_email = Column(String(255), nullable=True, index=True)
+    contact_title = Column(String(255), nullable=True)
+    contact_linkedin = Column(String(500), nullable=True)   # LinkedIn profile URL of contact
+    website = Column(String(500), nullable=True)
+    linkedin_url = Column(String(500), nullable=True)
+
+    # Classification
+    industry = Column(String(100), nullable=True, index=True)
+    company_size = Column(String(50), nullable=True)   # 'startup' | 'smb' | 'mid-market' | 'enterprise'
+    location = Column(String(255), nullable=True)
+
+    # Qualification
+    status = Column(String(50), nullable=False, default="new", index=True)
+    # new | researched | qualified | converted | disqualified
+    qualification_score = Column(Float, nullable=True)   # 0.0–1.0
+    qualification_notes = Column(Text, nullable=True)
+    disqualification_reason = Column(String(255), nullable=True)
+
+    # Research data (raw output from Researcher agent)
+    research_data = Column(JSON, default=dict, nullable=False)
+
+    # Financials (denormalised from Opportunity for quick access)
+    estimated_value = Column(Numeric(12, 2), nullable=True)   # USD — set during qualification
+
+    # Notes
+    notes = Column(Text, nullable=True)
+
+    # Source tracking
+    source = Column(String(100), nullable=True)   # 'web_search' | 'linkedin' | 'manual' | 'referral'
+    source_url = Column(String(500), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    qualified_at = Column(DateTime, nullable=True)
+    converted_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    tenant = relationship("Tenant")
+    creator = relationship("User", foreign_keys=[created_by])
+    assigned_agent = relationship("Agent", foreign_keys=[assigned_agent_id])
+    opportunities = relationship("Opportunity", back_populates="lead", cascade="all, delete-orphan")
+
+
+class Opportunity(Base):
+    """
+    A qualified lead that has been assessed as a real sales opportunity.
+
+    Opportunities track the deal value, probability, and stage through the
+    sales funnel. Each Opportunity can have one active Proposal.
+
+    Lifecycle: DISCOVERY → PROPOSAL → NEGOTIATION → CLOSED_WON | CLOSED_LOST
+    """
+
+    __tablename__ = "opportunities"
+
+    # Primary key
+    id = Column(String(50), primary_key=True, index=True)
+
+    # Ownership
+    tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
+    lead_id = Column(String(50), ForeignKey("leads.id"), nullable=False, index=True)
+    assigned_agent_id = Column(String(50), ForeignKey("agents.id"), nullable=True, index=True)
+
+    # Identity
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Financials
+    estimated_value = Column(Numeric(12, 2), nullable=True)   # USD
+    probability = Column(Float, nullable=True)                  # 0.0–1.0
+    expected_close_date = Column(DateTime, nullable=True)
+
+    # Stage (detailed funnel position)
+    stage = Column(String(50), nullable=False, default="discovery", index=True)
+    # discovery | proposal | negotiation | closed_won | closed_lost
+
+    # Status (pipeline status for filtering/dashboard)
+    status = Column(String(50), nullable=False, default="open", index=True)
+    # open | proposal_sent | negotiating | closed_won | closed_lost
+
+    # Close tracking
+    close_reason = Column(String(255), nullable=True)
+    actual_value = Column(Numeric(12, 2), nullable=True)   # Actual closed value (USD)
+    closed_at = Column(DateTime, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    # Relationships
+    tenant = relationship("Tenant")
+    lead = relationship("Lead", back_populates="opportunities")
+    assigned_agent = relationship("Agent", foreign_keys=[assigned_agent_id])
+    proposals = relationship("Proposal", back_populates="opportunity", cascade="all, delete-orphan")
+    deal = relationship("Deal", back_populates="opportunity", uselist=False)
+
+
+class Proposal(Base):
+    """
+    An AI-generated sales proposal for an Opportunity.
+
+    Proposals are generated by the Writer agent using the research data from
+    the Lead and the qualification analysis from the Analyst agent.
+
+    Lifecycle: DRAFT → SENT → VIEWED → ACCEPTED | REJECTED | EXPIRED
+    """
+
+    __tablename__ = "proposals"
+
+    # Primary key
+    id = Column(String(50), primary_key=True, index=True)
+
+    # Ownership
+    tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
+    opportunity_id = Column(String(50), ForeignKey("opportunities.id"), nullable=False, index=True)
+    generated_by_agent_id = Column(String(50), ForeignKey("agents.id"), nullable=True)
+
+    # Content
+    title = Column(String(255), nullable=False)
+    executive_summary = Column(Text, nullable=True)
+    body = Column(Text, nullable=False)   # Full proposal markdown
+    call_to_action = Column(Text, nullable=True)
+
+    # Delivery
+    status = Column(String(50), nullable=False, default="draft", index=True)
+    # draft | sent | viewed | accepted | rejected | expired
+    sent_via = Column(String(50), nullable=True)   # 'email' | 'linkedin' | 'twitter' | 'manual'
+    sent_to_email = Column(String(255), nullable=True)
+    sent_to_linkedin = Column(String(500), nullable=True)
+
+    # Response tracking
+    response_received = Column(Boolean, default=False, nullable=False)
+    response_sentiment = Column(String(50), nullable=True)   # 'positive' | 'neutral' | 'negative'
+    response_notes = Column(Text, nullable=True)
+
+    # Version tracking
+    version = Column(Integer, default=1, nullable=False)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    sent_at = Column(DateTime, nullable=True)
+    viewed_at = Column(DateTime, nullable=True)
+    responded_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    tenant = relationship("Tenant")
+    opportunity = relationship("Opportunity", back_populates="proposals")
+    generator = relationship("Agent", foreign_keys=[generated_by_agent_id])
+
+
+class Deal(Base):
+    """
+    A closed (won) Opportunity — the revenue record.
+
+    Deals are created when an Opportunity moves to ``closed_won``.
+    They track the actual revenue, payment status, and any recurring value.
+
+    This is the financial ground truth for the revenue dashboard.
+    """
+
+    __tablename__ = "deals"
+
+    # Primary key
+    id = Column(String(50), primary_key=True, index=True)
+
+    # Ownership
+    tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
+    opportunity_id = Column(String(50), ForeignKey("opportunities.id"), nullable=False, unique=True)
+    lead_id = Column(String(50), ForeignKey("leads.id"), nullable=True, index=True)   # Denormalised for fast lookup
+    closed_by_agent_id = Column(String(50), ForeignKey("agents.id"), nullable=True)
+
+    # Financials
+    value = Column(Numeric(12, 2), nullable=False)          # One-time or first payment (USD)
+    recurring_value = Column(Numeric(12, 2), nullable=True)  # Monthly recurring (USD)
+    currency = Column(String(10), nullable=False, default="USD")
+
+    # Payment
+    payment_status = Column(String(50), nullable=False, default="pending", index=True)
+    # pending | invoiced | paid | overdue | cancelled
+    invoice_number = Column(String(100), nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+
+    # Attribution
+    source_campaign = Column(String(255), nullable=True)   # Which campaign generated this deal
+    attributed_workforce_id = Column(String(50), ForeignKey("workforces.id"), nullable=True)
+
+    # Notes
+    notes = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    closed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    tenant = relationship("Tenant")
+    opportunity = relationship("Opportunity", back_populates="deal")
+    closed_by = relationship("Agent", foreign_keys=[closed_by_agent_id])
+    attributed_workforce = relationship("Workforce", foreign_keys=[attributed_workforce_id])
