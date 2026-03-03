@@ -13,6 +13,11 @@ import type {
   Transaction,
   DashboardStats,
   PaginatedResponse,
+  Lead,
+  Opportunity,
+  Proposal,
+  Deal,
+  RevenueDashboard,
 } from '../types';
 
 const BASE = '/api/v1';
@@ -192,6 +197,78 @@ export const dashboard = {
       };
     }
   },
+};
+
+// ---- Revenue Pipeline ----
+export const revenue = {
+  // Dashboard
+  dashboard: () => request<RevenueDashboard>('/revenue/dashboard'),
+
+  // Leads
+  listLeads: (params?: { status?: string; industry?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return request<PaginatedResponse<Lead>>(`/revenue/leads${qs ? '?' + qs : ''}`);
+  },
+  getLead: (id: string) => request<Lead>(`/revenue/leads/${id}`),
+  createLead: (data: Partial<Lead>) =>
+    request<Lead>('/revenue/leads', { method: 'POST', body: JSON.stringify(data) }),
+  updateLead: (id: string, data: Partial<Lead>) =>
+    request<Lead>(`/revenue/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteLead: (id: string) =>
+    request<void>(`/revenue/leads/${id}`, { method: 'DELETE' }),
+  qualifyLead: (id: string, params: { value_proposition: string; ideal_customer_profile: string }) =>
+    request<{ lead: Lead; opportunity?: Opportunity; qualification_score: number }>(
+      `/revenue/leads/${id}/qualify`,
+      { method: 'POST', body: JSON.stringify(params) }
+    ),
+
+  // Pipeline (Opportunities)
+  pipeline: (params?: { status?: string; limit?: number }) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return request<PaginatedResponse<Opportunity>>(`/revenue/pipeline${qs ? '?' + qs : ''}`);
+  },
+  getOpportunity: (id: string) => request<Opportunity>(`/revenue/opportunities/${id}`),
+
+  // Proposals
+  listProposals: (params?: { opportunity_id?: string; status?: string; limit?: number }) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return request<PaginatedResponse<Proposal>>(`/revenue/proposals${qs ? '?' + qs : ''}`);
+  },
+  generateProposal: (opportunity_id: string, params: { value_proposition: string }) =>
+    request<Proposal>(`/revenue/opportunities/${opportunity_id}/generate-proposal`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  // Deals
+  listDeals: (params?: { status?: string; limit?: number }) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return request<PaginatedResponse<Deal>>(`/revenue/deals${qs ? '?' + qs : ''}`);
+  },
+
+  // Full pipeline saga
+  runSaga: (lead_id: string, params: {
+    value_proposition: string;
+    ideal_customer_profile: string;
+    send_outreach?: boolean;
+  }) =>
+    request<{ opportunity_id?: string; proposal_id?: string; deal_id?: string; deal_value?: number }>(
+      '/revenue/run-deal-saga',
+      { method: 'POST', body: JSON.stringify({ lead_id, ...params }) }
+    ),
+};
+
+// ---- Workforces ----
+export const workforces = {
+  list: () => request<{ items: unknown[]; total: number }>('/workforces'),
+  get: (id: string) => request<unknown>(`/workforces/${id}`),
+  create: (data: { name: string; description?: string; agent_ids?: string[] }) =>
+    request<unknown>('/workforces', { method: 'POST', body: JSON.stringify(data) }),
+  runMission: (id: string, goal: string) =>
+    request<unknown>(`/workforces/${id}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ goal }),
+    }),
 };
 
 // ---- Health ----

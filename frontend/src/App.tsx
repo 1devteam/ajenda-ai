@@ -13,6 +13,7 @@ import EconomyPage from './components/economy/EconomyPage';
 import ObservabilityPage from './components/observability/ObservabilityPage';
 import IntelligencePage from './components/intelligence/IntelligencePage';
 import SettingsPage from './components/settings/SettingsPage';
+import RevenuePage from './components/revenue/RevenuePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="/observability" element={<ProtectedRoute><ObservabilityPage /></ProtectedRoute>} />
           <Route path="/intelligence" element={<ProtectedRoute><IntelligencePage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+          <Route path="/revenue" element={<ProtectedRoute><RevenuePage /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/overview" replace />} />
         </Routes>
