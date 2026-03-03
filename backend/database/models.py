@@ -231,3 +231,96 @@ class ExternalAPIKey(Base):
     # Relationships
     tenant = relationship("Tenant")
     creator = relationship("User", foreign_keys=[created_by])
+
+
+class Workforce(Base):
+    """
+    Workforce configuration — a named team of agents with assigned roles.
+
+    A Workforce is a persistent configuration that can be run multiple times.
+    Each run creates a WorkforceRun (tracked in-memory by WorkforceCoordinator
+    and persisted via EventStore events).
+
+    The ``roles`` JSON field defines which AgentRole values are active in this
+    workforce and maps each role to an optional agent_id override.
+    """
+
+    __tablename__ = "workforces"
+
+    # Primary key
+    id = Column(String(50), primary_key=True, index=True)
+
+    # Identity
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Ownership
+    tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
+    created_by = Column(String(50), ForeignKey("users.id"), nullable=False)
+
+    # Configuration
+    # e.g. [{"role": "researcher"}, {"role": "analyst"}, {"role": "writer"}]
+    roles = Column(JSON, nullable=False, default=list)
+
+    # Pipeline type: "sequential" | "parallel" | "mixed"
+    pipeline_type = Column(String(20), nullable=False, default="sequential")
+
+    # Optional default budget per run (credits)
+    default_budget = Column(Float, nullable=True)
+
+    # State
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    total_runs = Column(Integer, default=0, nullable=False)
+    successful_runs = Column(Integer, default=0, nullable=False)
+    failed_runs = Column(Integer, default=0, nullable=False)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    last_run_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    tenant = relationship("Tenant")
+    creator = relationship("User", foreign_keys=[created_by])
+    members = relationship(
+        "WorkforceMember", back_populates="workforce", cascade="all, delete-orphan"
+    )
+
+
+class WorkforceMember(Base):
+    """
+    A single agent assigned to a specific role within a Workforce.
+
+    Multiple members can share the same role (e.g. two researchers).
+    The ``priority`` field determines which member is selected first when
+    multiple members share a role.
+    """
+
+    __tablename__ = "workforce_members"
+
+    # Primary key
+    id = Column(String(50), primary_key=True, index=True)
+
+    # Foreign keys
+    workforce_id = Column(
+        String(50), ForeignKey("workforces.id"), nullable=False, index=True
+    )
+    agent_id = Column(String(50), ForeignKey("agents.id"), nullable=False, index=True)
+
+    # Role assignment
+    role = Column(String(50), nullable=False, index=True)   # AgentRole value
+
+    # Selection priority (lower = higher priority)
+    priority = Column(Integer, default=0, nullable=False)
+
+    # State
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    workforce = relationship("Workforce", back_populates="members")
+    agent = relationship("Agent")

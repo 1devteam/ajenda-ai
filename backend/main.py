@@ -42,6 +42,7 @@ from backend.api.routes import (
     scheduler as scheduler_router,
     vault as vault_router,
     campaigns as campaigns_router,
+    workforces as workforces_router,
 )
 
 # Import core services
@@ -76,6 +77,7 @@ event_bus: Optional[NATSEventBus] = None
 mission_executor: Optional[MissionExecutor] = None
 _scheduler_service_ref = None
 _vault_service_ref = None
+_workforce_coordinator_ref = None
 
 
 @asynccontextmanager
@@ -201,6 +203,20 @@ async def lifespan(app: FastAPI):
         logger.info("✅ VaultService initialised")
     except Exception as _vault_err:
         logger.warning(f"VaultService init failed (non-fatal): {_vault_err}")
+
+    # Initialize WorkforceCoordinator (Phase 4 — multi-agent coordination)
+    logger.info("Initializing WorkforceCoordinator...")
+    try:
+        from backend.orchestration.workforce_coordinator import WorkforceCoordinator
+        global _workforce_coordinator_ref
+        _workforce_coordinator_ref = WorkforceCoordinator(
+            mission_executor=mission_executor,
+            event_store=_event_store_ref,
+        )
+        app.state.workforce_coordinator = _workforce_coordinator_ref
+        logger.info("✅ WorkforceCoordinator initialised")
+    except Exception as _wfc_err:
+        logger.warning(f"WorkforceCoordinator init failed (non-fatal): {_wfc_err}")
 
     # Initialize SchedulerService (APScheduler-backed recurring missions)
     logger.info("Initializing SchedulerService...")
@@ -469,6 +485,14 @@ def get_vault_service():
     return _vault_service_ref
 
 
+def get_workforce_coordinator():
+    """
+    Dependency to get the WorkforceCoordinator instance.
+    Returns None if WorkforceCoordinator initialisation failed (non-fatal).
+    """
+    return _workforce_coordinator_ref
+
+
 # Health check endpoint
 @app.get("/health", tags=["system"])
 async def health_check():
@@ -538,6 +562,7 @@ app.include_router(integrations.router)
 app.include_router(scheduler_router.router)
 app.include_router(vault_router.router)
 app.include_router(campaigns_router.router)
+app.include_router(workforces_router.router)
 
 
 if __name__ == "__main__":
