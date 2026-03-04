@@ -67,9 +67,6 @@ def upgrade() -> None:
         ),
         sa.Column("last_run_at", sa.DateTime, nullable=True),
     )
-    op.create_index("ix_workforces_tenant_id", "workforces", ["tenant_id"])
-    op.create_index("ix_workforces_is_active", "workforces", ["is_active"])
-
     # ------------------------------------------------------------------
     # workforce_members
     # ------------------------------------------------------------------
@@ -100,16 +97,6 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
     )
-    op.create_index(
-        "ix_workforce_members_workforce_id", "workforce_members", ["workforce_id"]
-    )
-    op.create_index(
-        "ix_workforce_members_agent_id", "workforce_members", ["agent_id"]
-    )
-    op.create_index(
-        "ix_workforce_members_role", "workforce_members", ["role"]
-    )
-
 
 def downgrade() -> None:
     op.drop_table("workforce_members")
