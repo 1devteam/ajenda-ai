@@ -23,7 +23,8 @@ from pathlib import Path
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-REPO_ROOT = Path(__file__).parent
+# Script lives at scripts/bump_version.py — repo root is one level up
+REPO_ROOT = Path(__file__).parent.parent
 VERSION_FILE = REPO_ROOT / "VERSION"
 CHANGELOG_FILE = REPO_ROOT / "CHANGELOG.md"
 COMPOSE_FILE = REPO_ROOT / "docker-compose.staging.yml"
