@@ -1,3 +1,13 @@
+## [7.0.0] — 2026-03-04
+
+### Breaking Changes
+- ci: add auto-versioning system (Conventional Commits + semver) (`d2583c90`)
+
+### Bug Fixes & Improvements
+- fix(ci): correct REPO_ROOT path in bump_version.py (`10b80b69`)
+
+---
+
 # Changelog
 
 All notable changes to Omnipath will be documented in this file.
