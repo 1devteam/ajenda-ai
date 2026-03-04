@@ -29,12 +29,14 @@ VERSION_FILE = REPO_ROOT / "VERSION"
 CHANGELOG_FILE = REPO_ROOT / "CHANGELOG.md"
 COMPOSE_FILE = REPO_ROOT / "docker-compose.staging.yml"
 
+# BREAKING CHANGE must appear as a git trailer footer ("BREAKING CHANGE: ..."
+# or "BREAKING-CHANGE: ...") at the START of a line, not anywhere in body text.
 MAJOR_PATTERNS = [
     r"^feat!:",
     r"^fix!:",
     r"^refactor!:",
-    r"BREAKING CHANGE",
-    r"BREAKING-CHANGE",
+    r"^BREAKING CHANGE:",
+    r"^BREAKING-CHANGE:",
 ]
 MINOR_PATTERNS = [
     r"^feat:",
