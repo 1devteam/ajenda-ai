@@ -1,3 +1,10 @@
+## [7.0.1] — 2026-03-04
+
+### Bug Fixes & Improvements
+- fix(ci): tighten BREAKING CHANGE regex to footer-only match (`01d25d00`)
+
+---
+
 ## [7.0.0] — 2026-03-04
 
 ### Breaking Changes
