@@ -1,0 +1,81 @@
+# ============================================================
+# Citadel AI — Auto-Versioning Workflow
+# ============================================================
+# Triggers after CI passes on main.
+# Scans commits since last tag using Conventional Commits,
+# bumps VERSION, updates CHANGELOG.md and docker-compose,
+# commits the bump, and creates a git tag.
+#
+# Commit prefix → bump type:
+#   feat!: / BREAKING CHANGE → MAJOR
+#   feat:                    → MINOR
+#   fix: / perf: / refactor: → PATCH
+#   chore: / docs: / ci:     → (no bump)
+#
+# Built with Pride for Obex Blackvault
+# ============================================================
+
+name: Auto Version Bump
+
+on:
+  push:
+    branches:
+      - main
+    # Never trigger on the version bump commit itself
+    paths-ignore:
+      - "VERSION"
+      - "CHANGELOG.md"
+
+# Prevent concurrent version bumps
+concurrency:
+  group: auto-version
+  cancel-in-progress: false
+
+jobs:
+  version-bump:
+    name: Bump Version
+    runs-on: ubuntu-latest
+    # Skip if the commit message contains [skip ci] or [skip version]
+    if: |
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      !contains(github.event.head_commit.message, '[skip version]') &&
+      !contains(github.event.head_commit.message, 'chore(release):')
+
+    permissions:
+      contents: write  # Required to push commits and tags
+
+    steps:
+      - name: 📥 Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for git log since last tag
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 🔖 Configure git identity
+        run: |
+          git config user.email "citadel-autoversion@nested-ai.net"
+          git config user.name "Citadel AutoVersion"
+
+      - name: 🔢 Run version bump script
+        id: bump
+        run: |
+          python3 scripts/bump_version.py 2>&1
+          echo "new_version=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: 📋 Summary
+        if: steps.bump.outcome == 'success'
+        run: |
+          VERSION=$(cat VERSION)
+          echo "## 🔖 Version Bump" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "New version: **v${VERSION}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Tag: \`v${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Recent CHANGELOG" >> $GITHUB_STEP_SUMMARY
+          head -20 CHANGELOG.md >> $GITHUB_STEP_SUMMARY
