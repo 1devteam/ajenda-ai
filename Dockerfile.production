@@ -41,6 +41,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY backend/ ./backend/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY VERSION .
 
 # Copy environment template (will be overridden by secrets in production)
 COPY .env.example .env

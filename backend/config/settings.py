@@ -5,7 +5,16 @@ Centralized configuration with environment variable support and validation.
 
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator
+from pathlib import Path
 import secrets
+
+def _read_version() -> str:
+    """Read version from VERSION file at project root."""
+    version_file = Path(__file__).parent.parent.parent / "VERSION"
+    try:
+        return version_file.read_text().strip()
+    except FileNotFoundError:
+        return "0.0.0"
 
 
 class Settings(BaseSettings):
@@ -13,7 +22,7 @@ class Settings(BaseSettings):
 
     # Application
     APP_NAME: str = "Omnipath"
-    APP_VERSION: str = "5.0.0"
+    APP_VERSION: str = _read_version()
     DEBUG: bool = False
     ENVIRONMENT: str = Field(default="development", pattern="^(development|staging|production)$")
 
