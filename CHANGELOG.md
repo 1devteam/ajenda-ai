@@ -1,3 +1,10 @@
+## [7.0.2] — 2026-03-05
+
+### Bug Fixes & Improvements
+- fix(saga): replace append_event with append; bump version strings to 7.0.1 (`8c3847b8`)
+
+---
+
 ## [7.0.1] — 2026-03-04
 
 ### Bug Fixes & Improvements
