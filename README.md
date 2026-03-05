@@ -10,7 +10,7 @@ This is not a toy framework. It is a complete, working system built with the sam
 
 | | |
 |---|---|
-| **Version** | `5.0.0` |
+| **Version** | `7.0.1` |
 | **CI Status** | ✅ Passing |
 | **Test Coverage** | 37% (679 tests) |
 | **License** | Proprietary |

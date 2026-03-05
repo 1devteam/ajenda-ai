@@ -1082,10 +1082,11 @@ class SocialMediaPostingSaga:
         """Persist post metadata to the EventStore."""
         post_result = context.get("post_content_result", {})
 
-        await self.event_store.append_event(
+        await self.event_store.append(
             aggregate_id=context["campaign_id"],
+            aggregate_type="campaign",
             event_type="campaign.post_published",
-            payload={
+            data={
                 "campaign_id": context["campaign_id"],
                 "agent_id": context["agent_id"],
                 "platform": context["platform"],
@@ -1095,8 +1096,7 @@ class SocialMediaPostingSaga:
                 "simulated": post_result.get("simulated", False),
                 "char_count": context.get("draft_content_result", {}).get("char_count", 0),
             },
-            tenant_id=context["tenant_id"],
-            user_id=context["agent_id"],
+            metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
         )
 
         return {"recorded": True, "event_type": "campaign.post_published"}
@@ -1108,16 +1108,16 @@ class SocialMediaPostingSaga:
         EventStore events are immutable — record a compensation event instead.
         """
         if result and result.get("recorded"):
-            await self.event_store.append_event(
+            await self.event_store.append(
                 aggregate_id=context["campaign_id"],
+                aggregate_type="campaign",
                 event_type="campaign.post_compensated",
-                payload={
+                data={
                     "campaign_id": context["campaign_id"],
                     "post_index": context["post_index"],
                     "reason": "Saga compensation",
                 },
-                tenant_id=context["tenant_id"],
-                user_id=context["agent_id"],
+                metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
             )
 
     # ------------------------------------------------------------------
@@ -1143,10 +1143,11 @@ class SocialMediaPostingSaga:
 
         # The SchedulerService is accessed via app.state in the route layer.
         # Here we emit an event that the scheduler can pick up.
-        await self.event_store.append_event(
+        await self.event_store.append(
             aggregate_id=context["campaign_id"],
+            aggregate_type="campaign",
             event_type="campaign.next_post_scheduled",
-            payload={
+            data={
                 "campaign_id": context["campaign_id"],
                 "agent_id": context["agent_id"],
                 "next_post_index": next_index,
@@ -1154,8 +1155,7 @@ class SocialMediaPostingSaga:
                 "platform": context["platform"],
                 "brief": context["brief"],
             },
-            tenant_id=context["tenant_id"],
-            user_id=context["agent_id"],
+            metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
         )
 
         return {"scheduled": True, "next_post_index": next_index, "at": schedule_next_at}
@@ -1165,16 +1165,16 @@ class SocialMediaPostingSaga:
     ) -> None:
         """Record that the scheduled next post was cancelled."""
         if result and result.get("scheduled"):
-            await self.event_store.append_event(
+            await self.event_store.append(
                 aggregate_id=context["campaign_id"],
+                aggregate_type="campaign",
                 event_type="campaign.next_post_cancelled",
-                payload={
+                data={
                     "campaign_id": context["campaign_id"],
                     "next_post_index": result.get("next_post_index"),
                     "reason": "Saga compensation",
                 },
-                tenant_id=context["tenant_id"],
-                user_id=context["agent_id"],
+                metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
             )
 
 
@@ -1369,16 +1369,16 @@ class DealClosingSaga:
         context["estimated_value"] = est_value
         context["probability"] = prob
 
-        await self.event_store.append_event(
+        await self.event_store.append(
             aggregate_id=context["lead_id"],
+            aggregate_type="lead",
             event_type="lead.qualified",
-            payload={
+            data={
                 "lead_id": context["lead_id"],
                 "score": score,
                 "notes": notes,
             },
-            tenant_id=context["tenant_id"],
-            user_id=context["agent_id"],
+            metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
         )
 
         return {"score": score, "notes": notes}
@@ -1390,17 +1390,17 @@ class DealClosingSaga:
         opp_id = f"opp_{uuid.uuid4().hex[:12]}"
         context["opportunity_id"] = opp_id
 
-        await self.event_store.append_event(
+        await self.event_store.append(
             aggregate_id=opp_id,
+            aggregate_type="opportunity",
             event_type="opportunity.created",
-            payload={
+            data={
                 "opportunity_id": opp_id,
                 "lead_id": context["lead_id"],
                 "estimated_value": context.get("estimated_value"),
                 "probability": context.get("probability"),
             },
-            tenant_id=context["tenant_id"],
-            user_id=context["agent_id"],
+            metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
         )
 
         return {"opportunity_id": opp_id}
@@ -1438,16 +1438,16 @@ class DealClosingSaga:
         context["proposal_title"] = proposal.title
         context["proposal_body"] = proposal.body
 
-        await self.event_store.append_event(
+        await self.event_store.append(
             aggregate_id=proposal.id,
+            aggregate_type="proposal",
             event_type="proposal.generated",
-            payload={
+            data={
                 "proposal_id": proposal.id,
                 "opportunity_id": context["opportunity_id"],
                 "title": proposal.title,
             },
-            tenant_id=context["tenant_id"],
-            user_id=context["agent_id"],
+            metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
         )
 
         return {"proposal_id": proposal.id, "title": proposal.title}
@@ -1472,15 +1472,15 @@ class DealClosingSaga:
         sent = await self.revenue_agent._send_outreach(proposal=proposal)
 
         if sent:
-            await self.event_store.append_event(
+            await self.event_store.append(
                 aggregate_id=context["proposal_id"],
+                aggregate_type="proposal",
                 event_type="proposal.sent",
-                payload={
+                data={
                     "proposal_id": context["proposal_id"],
                     "sent_via": "email" if proposal.sent_to_email else "linkedin",
                 },
-                tenant_id=context["tenant_id"],
-                user_id=context["agent_id"],
+                metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
             )
 
         return {"sent": sent}
@@ -1494,15 +1494,15 @@ class DealClosingSaga:
         the saga completes optimistically and the response is recorded later
         via the proposals API when the prospect replies.
         """
-        await self.event_store.append_event(
+        await self.event_store.append(
             aggregate_id=context.get("proposal_id", context["lead_id"]),
+            aggregate_type="proposal",
             event_type="proposal.response_pending",
-            payload={
+            data={
                 "proposal_id": context.get("proposal_id"),
                 "opportunity_id": context.get("opportunity_id"),
             },
-            tenant_id=context["tenant_id"],
-            user_id=context["agent_id"],
+            metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
         )
         return {"response_status": "pending"}
 
@@ -1521,10 +1521,11 @@ class DealClosingSaga:
         context["deal_id"] = deal_id
         context["deal_value"] = deal_value
 
-        await self.event_store.append_event(
+        await self.event_store.append(
             aggregate_id=deal_id,
+            aggregate_type="deal",
             event_type="deal.created",
-            payload={
+            data={
                 "deal_id": deal_id,
                 "opportunity_id": context.get("opportunity_id"),
                 "lead_id": context["lead_id"],
@@ -1532,18 +1533,18 @@ class DealClosingSaga:
                 "currency": "USD",
                 "payment_status": "pending",
             },
-            tenant_id=context["tenant_id"],
-            user_id=context["agent_id"],
+            metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
         )
 
         return {"deal_id": deal_id, "value": deal_value}
 
     async def _record_revenue(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Emit the canonical revenue event to the EventStore."""
-        await self.event_store.append_event(
+        await self.event_store.append(
             aggregate_id=context["tenant_id"],
+            aggregate_type="revenue",
             event_type="revenue.recorded",
-            payload={
+            data={
                 "deal_id": context.get("deal_id"),
                 "opportunity_id": context.get("opportunity_id"),
                 "lead_id": context["lead_id"],
@@ -1551,8 +1552,7 @@ class DealClosingSaga:
                 "currency": "USD",
                 "agent_id": context["agent_id"],
             },
-            tenant_id=context["tenant_id"],
-            user_id=context["agent_id"],
+            metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
         )
         return {"revenue_recorded": True, "amount": context.get("deal_value", 0.0)}
 
@@ -1563,12 +1563,12 @@ class DealClosingSaga:
     async def _mark_lead_disqualified(
         self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
     ) -> None:
-        await self.event_store.append_event(
+        await self.event_store.append(
             aggregate_id=context["lead_id"],
+            aggregate_type="lead",
             event_type="lead.disqualified",
-            payload={"lead_id": context["lead_id"], "reason": "Saga compensation"},
-            tenant_id=context["tenant_id"],
-            user_id=context["agent_id"],
+            data={"lead_id": context["lead_id"], "reason": "Saga compensation"},
+            metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
         )
 
     async def _delete_opportunity(
@@ -1576,12 +1576,12 @@ class DealClosingSaga:
     ) -> None:
         opp_id = context.get("opportunity_id")
         if opp_id:
-            await self.event_store.append_event(
+            await self.event_store.append(
                 aggregate_id=opp_id,
+                aggregate_type="opportunity",
                 event_type="opportunity.cancelled",
-                payload={"opportunity_id": opp_id, "reason": "Saga compensation"},
-                tenant_id=context["tenant_id"],
-                user_id=context["agent_id"],
+                data={"opportunity_id": opp_id, "reason": "Saga compensation"},
+                metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
             )
 
     async def _delete_draft_proposal(
@@ -1589,12 +1589,12 @@ class DealClosingSaga:
     ) -> None:
         prop_id = context.get("proposal_id")
         if prop_id:
-            await self.event_store.append_event(
+            await self.event_store.append(
                 aggregate_id=prop_id,
+                aggregate_type="proposal",
                 event_type="proposal.cancelled",
-                payload={"proposal_id": prop_id, "reason": "Saga compensation"},
-                tenant_id=context["tenant_id"],
-                user_id=context["agent_id"],
+                data={"proposal_id": prop_id, "reason": "Saga compensation"},
+                metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
             )
 
     async def _mark_proposal_cancelled(
@@ -1602,12 +1602,12 @@ class DealClosingSaga:
     ) -> None:
         prop_id = context.get("proposal_id")
         if prop_id and result and result.get("sent"):
-            await self.event_store.append_event(
+            await self.event_store.append(
                 aggregate_id=prop_id,
+                aggregate_type="proposal",
                 event_type="proposal.outreach_cancelled",
-                payload={"proposal_id": prop_id, "reason": "Saga compensation"},
-                tenant_id=context["tenant_id"],
-                user_id=context["agent_id"],
+                data={"proposal_id": prop_id, "reason": "Saga compensation"},
+                metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
             )
 
     async def _reopen_opportunity(
@@ -1615,13 +1615,13 @@ class DealClosingSaga:
     ) -> None:
         opp_id = context.get("opportunity_id")
         if opp_id:
-            await self.event_store.append_event(
+            await self.event_store.append(
                 aggregate_id=opp_id,
+                aggregate_type="opportunity",
                 event_type="opportunity.reopened",
-                payload={
+                data={
                     "opportunity_id": opp_id,
                     "reason": "Saga compensation — deal close reversed",
                 },
-                tenant_id=context["tenant_id"],
-                user_id=context["agent_id"],
+                metadata={"tenant_id": context["tenant_id"], "user_id": context["agent_id"]},
             )
