@@ -170,7 +170,7 @@ services:
       DEBUG: "false"
       LOG_LEVEL: INFO
       APP_NAME: Citadel
-      APP_VERSION: 7.0.2
+      APP_VERSION: 7.1.0
 
       # LLM
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

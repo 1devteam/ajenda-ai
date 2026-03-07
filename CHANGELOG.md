@@ -1,3 +1,10 @@
+## [7.1.0] — 2026-03-07
+
+### Features
+- feat(frontend): build and serve React SPA via Docker (`caa6b37b`)
+
+---
+
 ## [7.0.2] — 2026-03-05
 
 ### Bug Fixes & Improvements
