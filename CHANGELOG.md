@@ -1,3 +1,10 @@
+## [7.2.1] — 2026-03-07
+
+### Bug Fixes & Improvements
+- fix(P0): harden production compose - add SECRET_KEY, remove internal ports, add nats-exporter (`3cb981d3`)
+
+---
+
 ## [7.2.0] — 2026-03-07
 
 ### Features
