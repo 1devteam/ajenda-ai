@@ -199,6 +199,27 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Citadel Frontend (React SPA)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: citadel-frontend
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost/health.txt"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - citadel-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
   # Nginx (Reverse Proxy — HTTPS with Let's Encrypt)
   nginx:
     image: nginx:alpine
