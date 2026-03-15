@@ -8,6 +8,7 @@ The module auto-detects the runtime environment:
 
 Built with Pride for Obex Blackvault
 """
+
 import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Generator
@@ -24,9 +25,8 @@ from backend.config.settings import settings
 _raw_url: str = os.getenv("DATABASE_URL", settings.DATABASE_URL)
 
 _DEFAULT_LOCAL_URL = "postgresql://omnipath:omnipath@localhost:5432/omnipath"
-_is_local_dev: bool = (
-    _raw_url == _DEFAULT_LOCAL_URL
-    or _raw_url.startswith("postgresql://omnipath:omnipath@localhost")
+_is_local_dev: bool = _raw_url == _DEFAULT_LOCAL_URL or _raw_url.startswith(
+    "postgresql://omnipath:omnipath@localhost"
 )
 
 if _is_local_dev:
@@ -39,10 +39,8 @@ else:
     _sync_url = _raw_url
     # Convert postgresql:// → postgresql+asyncpg:// for the async engine.
     # Also handle the postgres:// alias used by some hosting providers.
-    _async_url = (
-        _raw_url
-        .replace("postgresql://", "postgresql+asyncpg://", 1)
-        .replace("postgres://", "postgresql+asyncpg://", 1)
+    _async_url = _raw_url.replace("postgresql://", "postgresql+asyncpg://", 1).replace(
+        "postgres://", "postgresql+asyncpg://", 1
     )
 
 # ---------------------------------------------------------------------------

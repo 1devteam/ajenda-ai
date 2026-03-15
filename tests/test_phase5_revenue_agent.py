@@ -160,11 +160,11 @@ def _make_agent(
 
     if qualification_result is None:
         qualification_result = (
-            0.85,                          # score
+            0.85,  # score
             "Strong fit — SMB retail with clear pain point",  # notes
-            "VP of Operations",            # contact_title
-            25000.0,                       # estimated_value
-            0.7,                           # probability
+            "VP of Operations",  # contact_title
+            25000.0,  # estimated_value
+            0.7,  # probability
         )
 
     if proposal_result is None:
@@ -188,13 +188,15 @@ def _make_agent(
         if "analyst" in role_str:
             score, notes, title, value, prob = qualification_result
             return {
-                "result": json.dumps({
-                    "qualification_score": score,
-                    "qualification_notes": notes,
-                    "contact_title": title,
-                    "estimated_value": value,
-                    "probability": prob,
-                }),
+                "result": json.dumps(
+                    {
+                        "qualification_score": score,
+                        "qualification_notes": notes,
+                        "contact_title": title,
+                        "estimated_value": value,
+                        "probability": prob,
+                    }
+                ),
                 "status": "COMPLETED",
             }
 
@@ -370,9 +372,7 @@ async def test_run_pipeline_happy_path():
 @pytest.mark.asyncio
 async def test_run_pipeline_qualification_threshold():
     """Leads scoring below threshold should be DISQUALIFIED."""
-    agent = _make_agent(
-        qualification_result=(0.3, "Poor fit", None, None, None)
-    )
+    agent = _make_agent(qualification_result=(0.3, "Poor fit", None, None, None))
     result = await agent.run_pipeline(
         goal="Find retail leads",
         tenant_id="tenant_001",
@@ -417,6 +417,7 @@ async def test_run_pipeline_no_proposals():
 @pytest.mark.asyncio
 async def test_run_pipeline_discovery_failure():
     """When discovery raises, pipeline should complete with 0 leads."""
+
     async def _fail_run(*args, **kwargs):
         raise RuntimeError("Coordinator unavailable")
 
@@ -455,11 +456,15 @@ async def test_run_pipeline_qualification_failure():
         role_str = str(roles[0]) if roles else ""
         if "researcher" in role_str:
             return {
-                "result": json.dumps([{
-                    "company_name": "Fail Corp",
-                    "industry": "tech",
-                    "company_size": "smb",
-                }]),
+                "result": json.dumps(
+                    [
+                        {
+                            "company_name": "Fail Corp",
+                            "industry": "tech",
+                            "company_size": "smb",
+                        }
+                    ]
+                ),
                 "status": "COMPLETED",
             }
         # Analyst raises
@@ -607,14 +612,28 @@ def test_get_pipeline_summary_structure():
 
 def test_lead_model_columns():
     from backend.database.models import Lead
+
     cols = {c.name for c in Lead.__table__.columns}
     required = {
-        "id", "tenant_id", "created_by", "company_name",
-        "contact_name", "contact_email", "contact_title",
-        "contact_linkedin", "industry", "company_size",
-        "status", "qualification_score", "qualification_notes",
-        "research_data", "source", "estimated_value", "notes",
-        "created_at", "updated_at",
+        "id",
+        "tenant_id",
+        "created_by",
+        "company_name",
+        "contact_name",
+        "contact_email",
+        "contact_title",
+        "contact_linkedin",
+        "industry",
+        "company_size",
+        "status",
+        "qualification_score",
+        "qualification_notes",
+        "research_data",
+        "source",
+        "estimated_value",
+        "notes",
+        "created_at",
+        "updated_at",
     }
     assert required.issubset(cols), f"Missing Lead columns: {required - cols}"
 
@@ -626,12 +645,22 @@ def test_lead_model_columns():
 
 def test_opportunity_model_columns():
     from backend.database.models import Opportunity
+
     cols = {c.name for c in Opportunity.__table__.columns}
     required = {
-        "id", "tenant_id", "lead_id", "name",
-        "estimated_value", "probability", "stage", "status",
-        "close_reason", "actual_value", "closed_at",
-        "created_at", "updated_at",
+        "id",
+        "tenant_id",
+        "lead_id",
+        "name",
+        "estimated_value",
+        "probability",
+        "stage",
+        "status",
+        "close_reason",
+        "actual_value",
+        "closed_at",
+        "created_at",
+        "updated_at",
     }
     assert required.issubset(cols), f"Missing Opportunity columns: {required - cols}"
 
@@ -643,13 +672,24 @@ def test_opportunity_model_columns():
 
 def test_proposal_model_columns():
     from backend.database.models import Proposal
+
     cols = {c.name for c in Proposal.__table__.columns}
     required = {
-        "id", "tenant_id", "opportunity_id", "title",
-        "executive_summary", "body", "call_to_action",
-        "status", "sent_via", "sent_to_email", "sent_to_linkedin",
-        "response_received", "version",
-        "created_at", "updated_at",
+        "id",
+        "tenant_id",
+        "opportunity_id",
+        "title",
+        "executive_summary",
+        "body",
+        "call_to_action",
+        "status",
+        "sent_via",
+        "sent_to_email",
+        "sent_to_linkedin",
+        "response_received",
+        "version",
+        "created_at",
+        "updated_at",
     }
     assert required.issubset(cols), f"Missing Proposal columns: {required - cols}"
 
@@ -661,11 +701,19 @@ def test_proposal_model_columns():
 
 def test_deal_model_columns():
     from backend.database.models import Deal
+
     cols = {c.name for c in Deal.__table__.columns}
     required = {
-        "id", "tenant_id", "opportunity_id", "lead_id",
-        "value", "currency", "payment_status",
-        "closed_at", "created_at", "updated_at",
+        "id",
+        "tenant_id",
+        "opportunity_id",
+        "lead_id",
+        "value",
+        "currency",
+        "payment_status",
+        "closed_at",
+        "created_at",
+        "updated_at",
     }
     assert required.issubset(cols), f"Missing Deal columns: {required - cols}"
 
@@ -681,7 +729,8 @@ def test_phase5_migration_chain():
 
     migration_path = os.path.join(
         "/home/ubuntu/fresh_repo",
-        "alembic", "versions",
+        "alembic",
+        "versions",
         "d4e5f6a7b8c9_add_sales_pipeline_tables.py",
     )
     spec = importlib.util.spec_from_file_location(

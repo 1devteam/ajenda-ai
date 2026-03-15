@@ -312,12 +312,10 @@ Return as JSON with keys: title, executive_summary, body, call_to_action
             qualified: List[LeadRecord] = []
             for lead in leads:
                 try:
-                    score, notes, contact_title, est_value, prob = (
-                        await self._qualify_lead(
-                            lead=lead,
-                            value_proposition=value_proposition,
-                            ideal_customer_profile=ideal_customer_profile,
-                        )
+                    score, notes, contact_title, est_value, prob = await self._qualify_lead(
+                        lead=lead,
+                        value_proposition=value_proposition,
+                        ideal_customer_profile=ideal_customer_profile,
                     )
                     lead.qualification_score = score
                     lead.qualification_notes = notes
@@ -351,9 +349,7 @@ Return as JSON with keys: title, executive_summary, body, call_to_action
                     logger.warning(
                         f"[{run_id}] Qualification failed for {lead.company_name}: {exc}"
                     )
-                    result.errors.append(
-                        f"Qualification failed for {lead.company_name}: {exc}"
-                    )
+                    result.errors.append(f"Qualification failed for {lead.company_name}: {exc}")
 
             logger.info(
                 f"[{run_id}] Qualified {result.leads_qualified}/{result.leads_discovered} leads"
@@ -395,12 +391,9 @@ Return as JSON with keys: title, executive_summary, body, call_to_action
                             result.proposals_sent += 1
                     except Exception as exc:
                         logger.warning(
-                            f"[{run_id}] Outreach failed for proposal "
-                            f"{proposal.id}: {exc}"
+                            f"[{run_id}] Outreach failed for proposal " f"{proposal.id}: {exc}"
                         )
-                        result.errors.append(
-                            f"Outreach failed for proposal {proposal.id}: {exc}"
-                        )
+                        result.errors.append(f"Outreach failed for proposal {proposal.id}: {exc}")
 
             result.status = "completed"
 
@@ -566,9 +559,7 @@ Return as JSON with keys: title, executive_summary, body, call_to_action
         This is a no-op if no outreach channel is configured.
         """
         if not proposal.sent_to_email and not proposal.sent_to_linkedin:
-            logger.debug(
-                f"Skipping outreach for proposal {proposal.id} — no channel configured"
-            )
+            logger.debug(f"Skipping outreach for proposal {proposal.id} — no channel configured")
             return False
 
         channel = "email" if proposal.sent_to_email else "linkedin"
@@ -690,7 +681,5 @@ Return as JSON with keys: title, executive_summary, body, call_to_action
             ],
             "errors": result.errors,
             "started_at": result.started_at.isoformat(),
-            "completed_at": (
-                result.completed_at.isoformat() if result.completed_at else None
-            ),
+            "completed_at": (result.completed_at.isoformat() if result.completed_at else None),
         }

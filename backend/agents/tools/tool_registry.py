@@ -394,6 +394,7 @@ class ToolRegistry:
         # PlaywrightBrowserTool — optional, requires playwright
         try:
             from backend.integrations.tools.browser_tool import PlaywrightBrowserTool
+
             self.register_tool(PlaywrightBrowserTool())
         except ImportError:
             logger.info("PlaywrightBrowserTool skipped — playwright not installed")
@@ -403,6 +404,7 @@ class ToolRegistry:
         # TwitterTool — optional, requires tweepy
         try:
             from backend.integrations.tools.twitter_tool import TwitterTool
+
             self.register_tool(TwitterTool())
         except ImportError:
             logger.info("TwitterTool skipped — tweepy not installed")
@@ -412,6 +414,7 @@ class ToolRegistry:
         # RedditTool — optional, requires praw
         try:
             from backend.integrations.tools.reddit_tool import RedditTool
+
             self.register_tool(RedditTool())
         except ImportError:
             logger.info("RedditTool skipped — praw not installed")

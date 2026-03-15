@@ -52,22 +52,32 @@ REQUEST_TIMEOUT = 15.0
 # Falls back to httpx default (certifi) if the system bundle is not present.
 _SYSTEM_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 _SSL_VERIFY: object = (
-    _SYSTEM_CA_BUNDLE
-    if os.path.exists(_SYSTEM_CA_BUNDLE)
-    else True  # httpx default (certifi)
+    _SYSTEM_CA_BUNDLE if os.path.exists(_SYSTEM_CA_BUNDLE) else True  # httpx default (certifi)
 )
 
 # User-Agent string — identifies the agent to servers
-USER_AGENT = (
-    "OmnipathAgent/2.0 (Citadel AI Research Agent; "
-    "+https://nested-ai.net/agent-info)"
-)
+USER_AGENT = "OmnipathAgent/2.0 (Citadel AI Research Agent; " "+https://nested-ai.net/agent-info)"
 
 # HTML tags whose content is always stripped entirely (not just the tag)
 STRIP_TAGS = {
-    "script", "style", "noscript", "nav", "header", "footer",
-    "aside", "advertisement", "ads", "cookie-banner", "banner",
-    "iframe", "svg", "form", "button", "input", "select", "textarea",
+    "script",
+    "style",
+    "noscript",
+    "nav",
+    "header",
+    "footer",
+    "aside",
+    "advertisement",
+    "ads",
+    "cookie-banner",
+    "banner",
+    "iframe",
+    "svg",
+    "form",
+    "button",
+    "input",
+    "select",
+    "textarea",
 }
 
 # MIME types we will attempt to parse as HTML/text
@@ -85,9 +95,9 @@ _BLOCKED_NETWORKS = [
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),   # link-local
-    ipaddress.ip_network("::1/128"),           # IPv6 loopback
-    ipaddress.ip_network("fc00::/7"),          # IPv6 private
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local
+    ipaddress.ip_network("::1/128"),  # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),  # IPv6 private
 ]
 
 
@@ -309,8 +319,7 @@ class WebPageReaderTool(BaseTool):
             return {
                 "success": False,
                 "error": (
-                    f"Access denied: '{hostname}' resolves to a private or "
-                    "reserved IP address."
+                    f"Access denied: '{hostname}' resolves to a private or " "reserved IP address."
                 ),
                 "url": url,
             }

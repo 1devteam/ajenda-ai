@@ -119,9 +119,7 @@ class SearchMemoryTool(BaseTool):
         # Store in cache regardless of success so we do not retry failed queries
         self._cache[key] = result
         self._order.append(key)
-        logger.debug(
-            "search_memory: cached query=%r (total=%d)", query, len(self._cache)
-        )
+        logger.debug("search_memory: cached query=%r (total=%d)", query, len(self._cache))
         return result
 
     # ------------------------------------------------------------------

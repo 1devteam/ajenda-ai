@@ -38,13 +38,13 @@ logger = get_logger(__name__)
 class AgentRole(str, Enum):
     """Roles available in a workforce."""
 
-    COMMANDER = "commander"      # Decomposes goal, coordinates team
-    RESEARCHER = "researcher"    # Gathers information
-    ANALYST = "analyst"          # Processes and interprets data
-    WRITER = "writer"            # Produces content / reports
-    POSTER = "poster"            # Publishes to external platforms
-    REVIEWER = "reviewer"        # Quality-checks output before delivery
-    EXECUTOR = "executor"        # Generic task execution
+    COMMANDER = "commander"  # Decomposes goal, coordinates team
+    RESEARCHER = "researcher"  # Gathers information
+    ANALYST = "analyst"  # Processes and interprets data
+    WRITER = "writer"  # Produces content / reports
+    POSTER = "poster"  # Publishes to external platforms
+    REVIEWER = "reviewer"  # Quality-checks output before delivery
+    EXECUTOR = "executor"  # Generic task execution
 
 
 class WorkforceStatus(str, Enum):
@@ -85,7 +85,7 @@ class SubMission:
     role: AgentRole
     goal: str
     context: Dict[str, Any] = field(default_factory=dict)
-    depends_on: List[str] = field(default_factory=list)   # sub_mission_ids
+    depends_on: List[str] = field(default_factory=list)  # sub_mission_ids
     status: SubMissionStatus = SubMissionStatus.PENDING
     result: Optional[str] = None
     error: Optional[str] = None
@@ -106,7 +106,7 @@ class WorkforcePlan:
     workforce_id: str
     goal: str
     sub_missions: List[SubMission] = field(default_factory=list)
-    pipeline_type: str = "sequential"   # "sequential" | "parallel" | "mixed"
+    pipeline_type: str = "sequential"  # "sequential" | "parallel" | "mixed"
     created_at: datetime = field(default_factory=datetime.utcnow)
 
 
@@ -252,8 +252,7 @@ class WorkforceCoordinator:
 
             # Determine final status
             failed_count = sum(
-                1 for sm in run.sub_missions.values()
-                if sm.status == SubMissionStatus.FAILED
+                1 for sm in run.sub_missions.values() if sm.status == SubMissionStatus.FAILED
             )
             if failed_count == 0:
                 run.status = WorkforceStatus.COMPLETED
@@ -304,9 +303,7 @@ class WorkforceCoordinator:
     def list_runs(self, workforce_id: str) -> List[Dict[str, Any]]:
         """Return all runs for a given workforce_id."""
         return [
-            self._serialize_run(r)
-            for r in self._runs.values()
-            if r.workforce_id == workforce_id
+            self._serialize_run(r) for r in self._runs.values() if r.workforce_id == workforce_id
         ]
 
     # -----------------------------------------------------------------------
@@ -377,25 +374,18 @@ Rules:
             # Strip markdown code fences if present
             if raw.startswith("```"):
                 lines = raw.split("\n")
-                raw = "\n".join(
-                    line for line in lines
-                    if not line.startswith("```")
-                ).strip()
+                raw = "\n".join(line for line in lines if not line.startswith("```")).strip()
 
             import json
+
             plan_data = json.loads(raw)
 
         except Exception as exc:
-            logger.warning(
-                f"Commander planning LLM failed ({exc}), using default plan"
-            )
+            logger.warning(f"Commander planning LLM failed ({exc}), using default plan")
             # Fallback: one sub-mission per role, sequential
             plan_data = {
                 "pipeline_type": "sequential",
-                "sub_missions": [
-                    {"role": r.value, "goal": goal, "depends_on": []}
-                    for r in roles
-                ],
+                "sub_missions": [{"role": r.value, "goal": goal, "depends_on": []} for r in roles],
             }
 
         # Build SubMission objects
@@ -457,10 +447,7 @@ Rules:
 
         while pending:
             # Find all sub-missions whose dependencies are satisfied
-            ready = [
-                sm for sm in pending
-                if all(dep in completed_ids for dep in sm.depends_on)
-            ]
+            ready = [sm for sm in pending if all(dep in completed_ids for dep in sm.depends_on)]
 
             if not ready:
                 # Circular dependency or all remaining are blocked by failures
@@ -515,9 +502,7 @@ Rules:
         enriched_goal = sub_mission.goal
         if completed_results:
             context_block = "\n\n".join(
-                f"[Prior output]\n{result}"
-                for result in completed_results.values()
-                if result
+                f"[Prior output]\n{result}" for result in completed_results.values() if result
             )
             if context_block:
                 enriched_goal = (
@@ -601,7 +586,8 @@ Rules:
         coherent result using the Commander LLM.
         """
         completed = [
-            sm for sm in run.sub_missions.values()
+            sm
+            for sm in run.sub_missions.values()
             if sm.status == SubMissionStatus.COMPLETED and sm.result
         ]
 
@@ -613,8 +599,7 @@ Rules:
 
         # Build synthesis prompt
         outputs_block = "\n\n".join(
-            f"[{sm.role.value.upper()} OUTPUT]\n{sm.result}"
-            for sm in completed
+            f"[{sm.role.value.upper()} OUTPUT]\n{sm.result}" for sm in completed
         )
 
         llm = self.llm_service.get_llm("commander", tenant_id)
@@ -641,9 +626,7 @@ Rules:
         except Exception as exc:
             logger.error(f"Aggregation LLM failed: {exc}")
             # Fallback: concatenate outputs
-            return "\n\n---\n\n".join(
-                f"[{sm.role.value}]\n{sm.result}" for sm in completed
-            )
+            return "\n\n---\n\n".join(f"[{sm.role.value}]\n{sm.result}" for sm in completed)
 
     # -----------------------------------------------------------------------
     # EventStore integration
@@ -695,9 +678,7 @@ Rules:
                     "retry_count": sm.retry_count,
                     "depends_on": sm.depends_on,
                     "started_at": sm.started_at.isoformat() if sm.started_at else None,
-                    "completed_at": (
-                        sm.completed_at.isoformat() if sm.completed_at else None
-                    ),
+                    "completed_at": (sm.completed_at.isoformat() if sm.completed_at else None),
                 }
                 for sm in run.sub_missions.values()
             ],

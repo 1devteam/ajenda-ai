@@ -201,9 +201,7 @@ def _make_coordinator(
 ) -> WorkforceCoordinator:
     """Build a WorkforceCoordinator with mocked dependencies."""
     llm_mock = MagicMock()
-    llm_mock.ainvoke = AsyncMock(
-        return_value=MagicMock(content=llm_response)
-    )
+    llm_mock.ainvoke = AsyncMock(return_value=MagicMock(content=llm_response))
 
     executor_mock = MagicMock()
     executor_mock.execute_mission = AsyncMock(
@@ -236,7 +234,7 @@ def _make_coordinator(
 async def test_coordinator_sequential_run():
     coordinator = _make_coordinator(
         llm_response='{"sub_missions": [{"role": "researcher", "goal": "Research AI"},'
-                     '{"role": "analyst", "goal": "Analyse findings"}]}'
+        '{"role": "analyst", "goal": "Analyse findings"}]}'
     )
     result = await coordinator.run(
         workforce_id="wf_test",
@@ -264,7 +262,7 @@ async def test_coordinator_sequential_run():
 async def test_coordinator_parallel_run():
     coordinator = _make_coordinator(
         llm_response='{"sub_missions": [{"role": "researcher", "goal": "Research A"},'
-                     '{"role": "researcher", "goal": "Research B"}]}'
+        '{"role": "researcher", "goal": "Research B"}]}'
     )
     result = await coordinator.run(
         workforce_id="wf_parallel",
@@ -294,7 +292,7 @@ async def test_coordinator_partial_failure():
     llm_mock.ainvoke = AsyncMock(
         return_value=MagicMock(
             content='{"sub_missions": [{"role": "researcher", "goal": "Research the topic"},'
-                    '{"role": "analyst", "goal": "Analyse findings"}]}'
+            '{"role": "analyst", "goal": "Analyse findings"}]}'
         )
     )
 
@@ -400,12 +398,24 @@ async def test_list_runs_filters_by_workforce():
 
 def test_workforce_model_columns():
     from backend.database.models import Workforce
+
     cols = {c.name for c in Workforce.__table__.columns}
     required = {
-        "id", "name", "description", "tenant_id", "created_by",
-        "roles", "pipeline_type", "default_budget", "is_active",
-        "total_runs", "successful_runs", "failed_runs",
-        "created_at", "updated_at", "last_run_at",
+        "id",
+        "name",
+        "description",
+        "tenant_id",
+        "created_by",
+        "roles",
+        "pipeline_type",
+        "default_budget",
+        "is_active",
+        "total_runs",
+        "successful_runs",
+        "failed_runs",
+        "created_at",
+        "updated_at",
+        "last_run_at",
     }
     assert required.issubset(cols), f"Missing columns: {required - cols}"
 
@@ -417,10 +427,16 @@ def test_workforce_model_columns():
 
 def test_workforce_member_model_columns():
     from backend.database.models import WorkforceMember
+
     cols = {c.name for c in WorkforceMember.__table__.columns}
     required = {
-        "id", "workforce_id", "agent_id", "role", "priority",
-        "is_active", "created_at",
+        "id",
+        "workforce_id",
+        "agent_id",
+        "role",
+        "priority",
+        "is_active",
+        "created_at",
     }
     assert required.issubset(cols), f"Missing columns: {required - cols}"
 
@@ -433,9 +449,11 @@ def test_workforce_member_model_columns():
 def test_phase4_migration_chain():
     import importlib.util
     import os
+
     migration_path = os.path.join(
         "/home/ubuntu/fresh_repo",
-        "alembic", "versions",
+        "alembic",
+        "versions",
         "c3d4e5f6a7b8_add_workforce_tables.py",
     )
     spec = importlib.util.spec_from_file_location(
@@ -478,12 +496,16 @@ def _make_route_mocks():
     db.add = MagicMock()
     db.commit = MagicMock()
     db.refresh = MagicMock(side_effect=lambda obj: None)
-    db.query = MagicMock(return_value=MagicMock(
-        filter=MagicMock(return_value=MagicMock(
-            first=MagicMock(return_value=wf),
-            all=MagicMock(return_value=[wf]),
-        ))
-    ))
+    db.query = MagicMock(
+        return_value=MagicMock(
+            filter=MagicMock(
+                return_value=MagicMock(
+                    first=MagicMock(return_value=wf),
+                    all=MagicMock(return_value=[wf]),
+                )
+            )
+        )
+    )
     return user, db, wf
 
 
@@ -556,12 +578,14 @@ def test_workforce_to_response_empty_members():
 def test_workforce_run_request_requires_goal():
     from pydantic import ValidationError
     from backend.api.routes.workforces import WorkforceRunRequest
+
     with pytest.raises(ValidationError):
-        WorkforceRunRequest(goal="")   # min_length=1 should fail
+        WorkforceRunRequest(goal="")  # min_length=1 should fail
 
 
 def test_workforce_run_request_valid():
     from backend.api.routes.workforces import WorkforceRunRequest
+
     req = WorkforceRunRequest(goal="Produce a market report on AI")
     assert req.goal == "Produce a market report on AI"
     assert req.pipeline_type is None
@@ -595,6 +619,7 @@ async def test_coordinator_no_event_store():
 
 def test_workforce_member_create_validation():
     from backend.api.routes.workforces import WorkforceMemberCreate
+
     member = WorkforceMemberCreate(
         agent_id="agent_001",
         role="researcher",
@@ -612,6 +637,7 @@ def test_workforce_member_create_validation():
 
 def test_workforce_update_partial():
     from backend.api.routes.workforces import WorkforceUpdate
+
     update = WorkforceUpdate(name="New Name")
     data = update.dict(exclude_unset=True)
     assert "name" in data

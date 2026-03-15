@@ -176,6 +176,7 @@ async def lifespan(app: FastAPI):
     try:
         from backend.database.session import AsyncSessionLocal
         from backend.core.event_sourcing.event_store_impl import EventStore as ESImpl
+
         # Pass the session factory — EventStore opens its own session per operation
         _event_store = ESImpl(session_factory=AsyncSessionLocal)
         setup_cqrs(event_store=_event_store)
@@ -186,6 +187,7 @@ async def lifespan(app: FastAPI):
         _event_store_ref = _event_store
         # Start the SagaOrchestrator — manages distributed transactions
         from backend.core.saga.saga_orchestrator import SagaOrchestrator
+
         saga_orchestrator = SagaOrchestrator(event_store=_event_store)
         app.state.saga_orchestrator = saga_orchestrator
         logger.info("✅ CQRS buses initialised — EventStore and SagaOrchestrator wired")
@@ -197,6 +199,7 @@ async def lifespan(app: FastAPI):
     try:
         from backend.database.session import AsyncSessionLocal
         from backend.core.vault.vault_service import VaultService
+
         global _vault_service_ref
         _vault_service_ref = VaultService(
             session_factory=AsyncSessionLocal,
@@ -210,6 +213,7 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing RevenueAgent...")
     try:
         from backend.orchestration.revenue_agent import RevenueAgent
+
         global _revenue_agent_ref
         _revenue_agent_ref = RevenueAgent(
             llm_service=llm_service,
@@ -224,6 +228,7 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing WorkforceCoordinator...")
     try:
         from backend.orchestration.workforce_coordinator import WorkforceCoordinator
+
         global _workforce_coordinator_ref
         _workforce_coordinator_ref = WorkforceCoordinator(
             mission_executor=mission_executor,
@@ -239,6 +244,7 @@ async def lifespan(app: FastAPI):
     try:
         from backend.database.session import AsyncSessionLocal
         from backend.core.scheduler.scheduler_service import SchedulerService
+
         global _scheduler_service_ref
         _scheduler_service_ref = SchedulerService(
             session_factory=AsyncSessionLocal,

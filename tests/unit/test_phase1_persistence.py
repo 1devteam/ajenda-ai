@@ -393,8 +393,13 @@ class TestAgentHistoryEndpoint:
 
         event = response["events"][0]
         required_event_fields = [
-            "event_id", "event_type", "aggregate_id",
-            "aggregate_type", "version", "timestamp", "data",
+            "event_id",
+            "event_type",
+            "aggregate_id",
+            "aggregate_type",
+            "version",
+            "timestamp",
+            "data",
         ]
         for field in required_event_fields:
             assert field in event, f"Missing required field: {field}"
@@ -411,6 +416,6 @@ class TestAgentHistoryEndpoint:
         events = list(range(100))
         limit = 10
         offset = 20
-        page = events[offset: offset + limit]
+        page = events[offset : offset + limit]
         assert page == list(range(20, 30))
         assert len(page) == 10

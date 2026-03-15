@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/v1/revenue", tags=["revenue"])
 def _get_revenue_agent():
     try:
         from backend.main import get_revenue_agent
+
         return get_revenue_agent()
     except Exception:
         return None
@@ -39,6 +40,7 @@ def _get_revenue_agent():
 def _get_event_store():
     try:
         from backend.main import get_event_store
+
         return get_event_store()
     except Exception:
         return None
@@ -293,9 +295,7 @@ async def get_lead(
 ) -> LeadResponse:
     """Get a single lead by ID."""
     tenant_id = current_user.get("tenant_id", "default")
-    lead = db.query(Lead).filter(
-        Lead.id == lead_id, Lead.tenant_id == tenant_id
-    ).first()
+    lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     return _lead_to_response(lead)
@@ -310,9 +310,7 @@ async def update_lead(
 ) -> LeadResponse:
     """Update a lead."""
     tenant_id = current_user.get("tenant_id", "default")
-    lead = db.query(Lead).filter(
-        Lead.id == lead_id, Lead.tenant_id == tenant_id
-    ).first()
+    lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     update_data = payload.dict(exclude_unset=True)
@@ -332,9 +330,7 @@ async def delete_lead(
 ) -> None:
     """Delete a lead."""
     tenant_id = current_user.get("tenant_id", "default")
-    lead = db.query(Lead).filter(
-        Lead.id == lead_id, Lead.tenant_id == tenant_id
-    ).first()
+    lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     db.delete(lead)
@@ -353,9 +349,7 @@ async def qualify_lead(
     Updates the lead's qualification_score, notes, and estimated_value.
     """
     tenant_id = current_user.get("tenant_id", "default")
-    lead = db.query(Lead).filter(
-        Lead.id == lead_id, Lead.tenant_id == tenant_id
-    ).first()
+    lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
@@ -377,12 +371,10 @@ async def qualify_lead(
             company_size=lead.company_size,
             research_data=lead.research_data or {},
         )
-        score, notes, contact_title, est_value, prob = (
-            await revenue_agent._qualify_lead(
-                lead=lead_record,
-                value_proposition=payload.value_proposition,
-                ideal_customer_profile=payload.ideal_customer_profile,
-            )
+        score, notes, contact_title, est_value, prob = await revenue_agent._qualify_lead(
+            lead=lead_record,
+            value_proposition=payload.value_proposition,
+            ideal_customer_profile=payload.ideal_customer_profile,
         )
         lead.qualification_score = score
         lead.qualification_notes = notes
@@ -448,9 +440,11 @@ async def get_proposal(
 ) -> ProposalResponse:
     """Get a single proposal."""
     tenant_id = current_user.get("tenant_id", "default")
-    proposal = db.query(Proposal).filter(
-        Proposal.id == proposal_id, Proposal.tenant_id == tenant_id
-    ).first()
+    proposal = (
+        db.query(Proposal)
+        .filter(Proposal.id == proposal_id, Proposal.tenant_id == tenant_id)
+        .first()
+    )
     if not proposal:
         raise HTTPException(status_code=404, detail="Proposal not found")
     return _proposal_to_response(proposal)
@@ -496,9 +490,7 @@ async def run_deal_saga(
     """
     tenant_id = current_user.get("tenant_id", "default")
 
-    lead = db.query(Lead).filter(
-        Lead.id == payload.lead_id, Lead.tenant_id == tenant_id
-    ).first()
+    lead = db.query(Lead).filter(Lead.id == payload.lead_id, Lead.tenant_id == tenant_id).first()
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
@@ -581,40 +573,48 @@ async def get_revenue_dashboard(
     tenant_id = current_user.get("tenant_id", "default")
 
     total_leads = db.query(Lead).filter(Lead.tenant_id == tenant_id).count()
-    qualified_leads = db.query(Lead).filter(
-        Lead.tenant_id == tenant_id, Lead.status == "qualified"
-    ).count()
-    open_opps = db.query(Opportunity).filter(
-        Opportunity.tenant_id == tenant_id,
-        Opportunity.status.in_(["open", "proposal_sent", "negotiating"]),
-    ).count()
-    proposals_sent = db.query(Proposal).filter(
-        Proposal.tenant_id == tenant_id,
-        Proposal.status == "sent",
-    ).count()
+    qualified_leads = (
+        db.query(Lead).filter(Lead.tenant_id == tenant_id, Lead.status == "qualified").count()
+    )
+    open_opps = (
+        db.query(Opportunity)
+        .filter(
+            Opportunity.tenant_id == tenant_id,
+            Opportunity.status.in_(["open", "proposal_sent", "negotiating"]),
+        )
+        .count()
+    )
+    proposals_sent = (
+        db.query(Proposal)
+        .filter(
+            Proposal.tenant_id == tenant_id,
+            Proposal.status == "sent",
+        )
+        .count()
+    )
     deals = db.query(Deal).filter(Deal.tenant_id == tenant_id).all()
     deals_closed = len(deals)
     total_revenue = sum(d.value for d in deals if d.payment_status == "paid")
 
     # Pipeline value = sum of estimated values of open opportunities
-    open_opp_records = db.query(Opportunity).filter(
-        Opportunity.tenant_id == tenant_id,
-        Opportunity.status.in_(["open", "proposal_sent", "negotiating"]),
-    ).all()
+    open_opp_records = (
+        db.query(Opportunity)
+        .filter(
+            Opportunity.tenant_id == tenant_id,
+            Opportunity.status.in_(["open", "proposal_sent", "negotiating"]),
+        )
+        .all()
+    )
     pipeline_value = sum(
-        (o.estimated_value or 0.0) * (o.probability or 1.0)
-        for o in open_opp_records
+        (o.estimated_value or 0.0) * (o.probability or 1.0) for o in open_opp_records
     )
 
-    conversion_rate = (
-        deals_closed / total_leads if total_leads > 0 else 0.0
-    )
-    avg_deal_value = (
-        total_revenue / deals_closed if deals_closed > 0 else 0.0
-    )
+    conversion_rate = deals_closed / total_leads if total_leads > 0 else 0.0
+    avg_deal_value = total_revenue / deals_closed if deals_closed > 0 else 0.0
 
     # Top industries by lead count
     from sqlalchemy import func
+
     industry_counts = (
         db.query(Lead.industry, func.count(Lead.id).label("count"))
         .filter(Lead.tenant_id == tenant_id, Lead.industry.isnot(None))
@@ -623,10 +623,7 @@ async def get_revenue_dashboard(
         .limit(5)
         .all()
     )
-    top_industries = [
-        {"industry": row.industry, "count": row.count}
-        for row in industry_counts
-    ]
+    top_industries = [{"industry": row.industry, "count": row.count} for row in industry_counts]
 
     return RevenueDashboard(
         total_leads=total_leads,

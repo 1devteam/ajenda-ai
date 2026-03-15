@@ -126,6 +126,7 @@ def assemble_prompt(
     if scenario:
         try:
             from backend.agents.governance.few_shot_library import FewShotLibrary
+
             library = FewShotLibrary.get_instance()
             few_shot_block = library.format_examples_block(
                 scenario,
@@ -137,6 +138,7 @@ def assemble_prompt(
         except FileNotFoundError:
             # Library file not present — degrade gracefully, do not crash
             import logging
+
             logging.getLogger(__name__).warning(
                 "Few-shot library not found; skipping example injection for scenario: %s",
                 scenario,

@@ -948,9 +948,7 @@ class SocialMediaPostingSaga:
         if len(draft) > limit:
             draft = draft[:limit]
 
-        logger.info(
-            f"SocialMediaPostingSaga: drafted {len(draft)} chars for {platform}"
-        )
+        logger.info(f"SocialMediaPostingSaga: drafted {len(draft)} chars for {platform}")
         return {"draft": draft, "platform": platform, "char_count": len(draft)}
 
     async def _discard_draft(
@@ -975,7 +973,7 @@ class SocialMediaPostingSaga:
             f"Review this {context['platform']} post for policy compliance. "
             f"Check for: spam, misinformation, hate speech, or inappropriate content.\n\n"
             f"Post: {draft}\n\n"
-            f"Respond with JSON: {{\"approved\": true/false, \"reason\": \"...\"}}"
+            f'Respond with JSON: {{"approved": true/false, "reason": "..."}}'
         )
 
         result = await self.mission_executor.execute_mission(
@@ -986,10 +984,14 @@ class SocialMediaPostingSaga:
         )
 
         import json as _json
+
         try:
             validation = _json.loads(result.get("result", '{"approved": true}'))
         except _json.JSONDecodeError:
-            validation = {"approved": True, "reason": "Validation parse error — defaulting to approved"}
+            validation = {
+                "approved": True,
+                "reason": "Validation parse error — defaulting to approved",
+            }
 
         if not validation.get("approved", True):
             raise ValueError(
@@ -1054,9 +1056,7 @@ class SocialMediaPostingSaga:
         )
         return post_result
 
-    async def _delete_post(
-        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
-    ) -> None:
+    async def _delete_post(self, context: Dict[str, Any], result: Optional[Dict[str, Any]]) -> None:
         """
         Attempt to delete the post if it was published.
         Best-effort — platform APIs may not support deletion.
@@ -1160,9 +1160,7 @@ class SocialMediaPostingSaga:
 
         return {"scheduled": True, "next_post_index": next_index, "at": schedule_next_at}
 
-    async def _cancel_next(
-        self, context: Dict[str, Any], result: Optional[Dict[str, Any]]
-    ) -> None:
+    async def _cancel_next(self, context: Dict[str, Any], result: Optional[Dict[str, Any]]) -> None:
         """Record that the scheduled next post was cancelled."""
         if result and result.get("scheduled"):
             await self.event_store.append(
@@ -1348,12 +1346,10 @@ class DealClosingSaga:
             research_data=lead_data.get("research_data", {}),
         )
 
-        score, notes, contact_title, est_value, prob = (
-            await self.revenue_agent._qualify_lead(
-                lead=lead,
-                value_proposition=context["value_proposition"],
-                ideal_customer_profile=context["ideal_customer_profile"],
-            )
+        score, notes, contact_title, est_value, prob = await self.revenue_agent._qualify_lead(
+            lead=lead,
+            value_proposition=context["value_proposition"],
+            ideal_customer_profile=context["ideal_customer_profile"],
         )
 
         threshold = getattr(self.revenue_agent, "qualification_threshold", 0.6)

@@ -51,7 +51,7 @@ class Lead:
     name: str
     url: str
     snippet: str
-    score: float = 0.0          # 0.0 – 1.0 qualification score
+    score: float = 0.0  # 0.0 – 1.0 qualification score
     reasoning: str = ""
     enriched_text: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -225,9 +225,7 @@ Respond with ONLY valid JSON in this exact format:
     # Step 2: Enrich
     # ------------------------------------------------------------------
 
-    async def _enrich(
-        self, results: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+    async def _enrich(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Visit each result URL and extract page text."""
         enriched = []
         tasks = [self._enrich_one(r) for r in results]
@@ -268,9 +266,7 @@ Respond with ONLY valid JSON in this exact format:
         qualified = await asyncio.gather(*tasks, return_exceptions=True)
         return [item for item in qualified if isinstance(item, Lead)]
 
-    async def _qualify_one(
-        self, result: Dict[str, Any], criteria: str
-    ) -> Lead:
+    async def _qualify_one(self, result: Dict[str, Any], criteria: str) -> Lead:
         """Use LLM to score a single lead."""
         name = result.get("title", "Unknown")
         url = result.get("url", "")

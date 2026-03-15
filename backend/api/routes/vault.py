@@ -88,6 +88,7 @@ def _get_vault_service():
     """Retrieve the VaultService singleton from the main module."""
     try:
         from backend.main import get_vault_service
+
         return get_vault_service()
     except (ImportError, AttributeError):
         return None

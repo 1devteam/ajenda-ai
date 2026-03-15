@@ -27,6 +27,7 @@ def _get_event_store():
     """Lazy import to avoid circular dependency at module load time."""
     try:
         from backend.main import get_event_store
+
         return get_event_store()
     except Exception:
         return None
@@ -801,6 +802,7 @@ async def execute_developer_agent(
 # Agent History — Event Sourcing Read Endpoint
 # ============================================================================
 
+
 @router.get("/{agent_id}/history", response_model=Dict[str, Any])
 async def get_agent_history(
     agent_id: str,
@@ -860,17 +862,14 @@ async def get_agent_history(
         mission_events = await event_store.get_events_by_type(
             event_type="mission.started",
         )
-        agent_mission_events = [
-            e for e in mission_events
-            if e.data.get("agent_id") == agent_id
-        ]
+        agent_mission_events = [e for e in mission_events if e.data.get("agent_id") == agent_id]
 
         # Combine and sort chronologically
         all_events = events + agent_mission_events
         all_events.sort(key=lambda e: e.timestamp)
 
         total = len(all_events)
-        paginated = all_events[offset: offset + limit]
+        paginated = all_events[offset : offset + limit]
 
         serialised = [
             {

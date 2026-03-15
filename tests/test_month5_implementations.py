@@ -204,9 +204,7 @@ class TestEventStoreAppend:
         store = EventStore(session_factory=_mock_factory)
 
         # Patch the static _get_current_version to avoid a real DB call
-        with patch.object(
-            EventStore, "_get_current_version", new=AsyncMock(return_value=0)
-        ):
+        with patch.object(EventStore, "_get_current_version", new=AsyncMock(return_value=0)):
             await store.append(
                 aggregate_id="agent_001",
                 aggregate_type="Agent",
@@ -241,9 +239,7 @@ class TestEventStoreAppend:
 
         store = EventStore(session_factory=_mock_factory)
 
-        with patch.object(
-            EventStore, "_get_current_version", new=AsyncMock(return_value=2)
-        ):
+        with patch.object(EventStore, "_get_current_version", new=AsyncMock(return_value=2)):
             with pytest.raises(ConcurrencyError):
                 await store.append(
                     aggregate_id="agent_001",

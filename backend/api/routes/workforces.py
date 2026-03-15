@@ -45,6 +45,7 @@ def _get_workforce_coordinator():
     """Lazy import to avoid circular dependency at module load time."""
     try:
         from backend.main import get_workforce_coordinator
+
         return get_workforce_coordinator()
     except Exception:
         return None
@@ -86,9 +87,7 @@ class WorkforceUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     roles: Optional[List[WorkforceRoleConfig]] = None
-    pipeline_type: Optional[str] = Field(
-        None, pattern="^(sequential|parallel|mixed)$"
-    )
+    pipeline_type: Optional[str] = Field(None, pattern="^(sequential|parallel|mixed)$")
     default_budget: Optional[float] = Field(None, ge=0.0)
     is_active: Optional[bool] = None
 
@@ -105,9 +104,7 @@ class WorkforceRunRequest(BaseModel):
     """Schema for running a coordinated mission."""
 
     goal: str = Field(..., min_length=1, max_length=4000, description="Mission goal")
-    pipeline_type: Optional[str] = Field(
-        None, pattern="^(sequential|parallel|mixed)$"
-    )
+    pipeline_type: Optional[str] = Field(None, pattern="^(sequential|parallel|mixed)$")
     budget: Optional[float] = Field(None, ge=0.0)
 
 
@@ -230,9 +227,7 @@ async def list_workforces(
     db: Session = Depends(get_db),
 ) -> List[WorkforceResponse]:
     """List all workforces for the current tenant."""
-    query = db.query(Workforce).filter(
-        Workforce.tenant_id == current_user.tenant_id
-    )
+    query = db.query(Workforce).filter(Workforce.tenant_id == current_user.tenant_id)
     if not include_inactive:
         query = query.filter(Workforce.is_active.is_(True))
 
@@ -247,10 +242,14 @@ async def get_workforce(
     db: Session = Depends(get_db),
 ) -> WorkforceResponse:
     """Get a specific workforce by ID."""
-    wf = db.query(Workforce).filter(
-        Workforce.id == workforce_id,
-        Workforce.tenant_id == current_user.tenant_id,
-    ).first()
+    wf = (
+        db.query(Workforce)
+        .filter(
+            Workforce.id == workforce_id,
+            Workforce.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not wf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -267,10 +266,14 @@ async def update_workforce(
     db: Session = Depends(get_db),
 ) -> WorkforceResponse:
     """Update a workforce configuration."""
-    wf = db.query(Workforce).filter(
-        Workforce.id == workforce_id,
-        Workforce.tenant_id == current_user.tenant_id,
-    ).first()
+    wf = (
+        db.query(Workforce)
+        .filter(
+            Workforce.id == workforce_id,
+            Workforce.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not wf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -297,10 +300,14 @@ async def delete_workforce(
     db: Session = Depends(get_db),
 ) -> None:
     """Soft-delete a workforce (sets is_active=False)."""
-    wf = db.query(Workforce).filter(
-        Workforce.id == workforce_id,
-        Workforce.tenant_id == current_user.tenant_id,
-    ).first()
+    wf = (
+        db.query(Workforce)
+        .filter(
+            Workforce.id == workforce_id,
+            Workforce.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not wf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -323,10 +330,14 @@ async def add_member(
     db: Session = Depends(get_db),
 ) -> WorkforceMemberResponse:
     """Assign an agent to a role within a workforce."""
-    wf = db.query(Workforce).filter(
-        Workforce.id == workforce_id,
-        Workforce.tenant_id == current_user.tenant_id,
-    ).first()
+    wf = (
+        db.query(Workforce)
+        .filter(
+            Workforce.id == workforce_id,
+            Workforce.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not wf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -334,10 +345,14 @@ async def add_member(
         )
 
     # Verify agent belongs to the same tenant
-    agent = db.query(Agent).filter(
-        Agent.id == payload.agent_id,
-        Agent.tenant_id == current_user.tenant_id,
-    ).first()
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.id == payload.agent_id,
+            Agent.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not agent:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -379,10 +394,14 @@ async def remove_member(
     db: Session = Depends(get_db),
 ) -> None:
     """Remove a member from a workforce (soft-delete)."""
-    member = db.query(WorkforceMember).filter(
-        WorkforceMember.id == member_id,
-        WorkforceMember.workforce_id == workforce_id,
-    ).first()
+    member = (
+        db.query(WorkforceMember)
+        .filter(
+            WorkforceMember.id == member_id,
+            WorkforceMember.workforce_id == workforce_id,
+        )
+        .first()
+    )
     if not member:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -409,11 +428,15 @@ async def run_workforce(
 
     Returns immediately with a run_id. Poll GET /runs/{run_id} for status.
     """
-    wf = db.query(Workforce).filter(
-        Workforce.id == workforce_id,
-        Workforce.tenant_id == current_user.tenant_id,
-        Workforce.is_active.is_(True),
-    ).first()
+    wf = (
+        db.query(Workforce)
+        .filter(
+            Workforce.id == workforce_id,
+            Workforce.tenant_id == current_user.tenant_id,
+            Workforce.is_active.is_(True),
+        )
+        .first()
+    )
     if not wf:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -451,9 +474,7 @@ async def run_workforce(
         )
         # Update success/failure counters
         try:
-            wf_db = db.query(Workforce).filter(
-                Workforce.id == workforce_id
-            ).first()
+            wf_db = db.query(Workforce).filter(Workforce.id == workforce_id).first()
             if wf_db:
                 if result.get("status") in ("completed",):
                     wf_db.successful_runs += 1

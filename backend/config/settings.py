@@ -8,6 +8,7 @@ from pydantic import Field, validator
 from pathlib import Path
 import secrets
 
+
 def _read_version() -> str:
     """Read version from VERSION file at project root."""
     version_file = Path(__file__).parent.parent.parent / "VERSION"

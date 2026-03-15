@@ -133,9 +133,7 @@ class FewShotLibrary:
                 self._examples.append(example)
                 self._index.setdefault(example.scenario, []).append(example)
             except (KeyError, ValueError) as exc:
-                raise ValueError(
-                    f"Invalid few-shot example at index {i}: {exc}"
-                ) from exc
+                raise ValueError(f"Invalid few-shot example at index {i}: {exc}") from exc
 
         logger.info(
             "FewShotLibrary loaded: %d examples across %d scenarios",

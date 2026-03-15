@@ -162,21 +162,21 @@ class ScheduledJob(Base):
 
     # Trigger configuration
     trigger_type = Column(String(20), nullable=False)  # 'cron' | 'interval'
-    cron_expression = Column(String(100), nullable=True)   # e.g. "0 9 * * 1-5"
-    interval_seconds = Column(Integer, nullable=True)      # e.g. 3600
+    cron_expression = Column(String(100), nullable=True)  # e.g. "0 9 * * 1-5"
+    interval_seconds = Column(Integer, nullable=True)  # e.g. 3600
 
     # Mission payload — submitted to MissionExecutor on each trigger
     mission_payload = Column(JSON, nullable=False)
 
     # State
     is_active = Column(Boolean, default=True, nullable=False, index=True)
-    max_runs = Column(Integer, nullable=True)   # None = unlimited
+    max_runs = Column(Integer, nullable=True)  # None = unlimited
     run_count = Column(Integer, default=0, nullable=False)
 
     # Execution tracking
     last_run_at = Column(DateTime, nullable=True)
     next_run_at = Column(DateTime, nullable=True)
-    last_run_status = Column(String(50), nullable=True)   # 'success' | 'failed' | 'running'
+    last_run_status = Column(String(50), nullable=True)  # 'success' | 'failed' | 'running'
     last_run_mission_id = Column(String(50), nullable=True)
 
     # Timestamps
@@ -210,12 +210,12 @@ class ExternalAPIKey(Base):
     created_by = Column(String(50), ForeignKey("users.id"), nullable=False)
 
     # Key identity
-    service = Column(String(100), nullable=False, index=True)   # e.g. 'reddit'
-    key_name = Column(String(255), nullable=False)               # e.g. 'production'
+    service = Column(String(100), nullable=False, index=True)  # e.g. 'reddit'
+    key_name = Column(String(255), nullable=False)  # e.g. 'production'
 
     # Encrypted key material (AES-256-GCM)
-    encrypted_value = Column(Text, nullable=False)   # base64-encoded ciphertext+tag
-    nonce = Column(String(64), nullable=False)        # base64-encoded 12-byte nonce
+    encrypted_value = Column(Text, nullable=False)  # base64-encoded ciphertext+tag
+    nonce = Column(String(64), nullable=False)  # base64-encoded 12-byte nonce
 
     # Optional metadata (non-sensitive)
     # Note: 'metadata' is reserved by SQLAlchemy Declarative API — use 'key_metadata'
@@ -277,9 +277,7 @@ class Workforce(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     last_run_at = Column(DateTime, nullable=True)
 
     # Relationships
@@ -305,13 +303,11 @@ class WorkforceMember(Base):
     id = Column(String(50), primary_key=True, index=True)
 
     # Foreign keys
-    workforce_id = Column(
-        String(50), ForeignKey("workforces.id"), nullable=False, index=True
-    )
+    workforce_id = Column(String(50), ForeignKey("workforces.id"), nullable=False, index=True)
     agent_id = Column(String(50), ForeignKey("agents.id"), nullable=False, index=True)
 
     # Role assignment
-    role = Column(String(50), nullable=False, index=True)   # AgentRole value
+    role = Column(String(50), nullable=False, index=True)  # AgentRole value
 
     # Selection priority (lower = higher priority)
     priority = Column(Integer, default=0, nullable=False)
@@ -357,19 +353,21 @@ class Lead(Base):
     contact_name = Column(String(255), nullable=True)
     contact_email = Column(String(255), nullable=True, index=True)
     contact_title = Column(String(255), nullable=True)
-    contact_linkedin = Column(String(500), nullable=True)   # LinkedIn profile URL of contact
+    contact_linkedin = Column(String(500), nullable=True)  # LinkedIn profile URL of contact
     website = Column(String(500), nullable=True)
     linkedin_url = Column(String(500), nullable=True)
 
     # Classification
     industry = Column(String(100), nullable=True, index=True)
-    company_size = Column(String(50), nullable=True)   # 'startup' | 'smb' | 'mid-market' | 'enterprise'
+    company_size = Column(
+        String(50), nullable=True
+    )  # 'startup' | 'smb' | 'mid-market' | 'enterprise'
     location = Column(String(255), nullable=True)
 
     # Qualification
     status = Column(String(50), nullable=False, default="new", index=True)
     # new | researched | qualified | converted | disqualified
-    qualification_score = Column(Float, nullable=True)   # 0.0–1.0
+    qualification_score = Column(Float, nullable=True)  # 0.0–1.0
     qualification_notes = Column(Text, nullable=True)
     disqualification_reason = Column(String(255), nullable=True)
 
@@ -377,20 +375,18 @@ class Lead(Base):
     research_data = Column(JSON, default=dict, nullable=False)
 
     # Financials (denormalised from Opportunity for quick access)
-    estimated_value = Column(Numeric(12, 2), nullable=True)   # USD — set during qualification
+    estimated_value = Column(Numeric(12, 2), nullable=True)  # USD — set during qualification
 
     # Notes
     notes = Column(Text, nullable=True)
 
     # Source tracking
-    source = Column(String(100), nullable=True)   # 'web_search' | 'linkedin' | 'manual' | 'referral'
+    source = Column(String(100), nullable=True)  # 'web_search' | 'linkedin' | 'manual' | 'referral'
     source_url = Column(String(500), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     qualified_at = Column(DateTime, nullable=True)
     converted_at = Column(DateTime, nullable=True)
 
@@ -426,8 +422,8 @@ class Opportunity(Base):
     description = Column(Text, nullable=True)
 
     # Financials
-    estimated_value = Column(Numeric(12, 2), nullable=True)   # USD
-    probability = Column(Float, nullable=True)                  # 0.0–1.0
+    estimated_value = Column(Numeric(12, 2), nullable=True)  # USD
+    probability = Column(Float, nullable=True)  # 0.0–1.0
     expected_close_date = Column(DateTime, nullable=True)
 
     # Stage (detailed funnel position)
@@ -440,14 +436,12 @@ class Opportunity(Base):
 
     # Close tracking
     close_reason = Column(String(255), nullable=True)
-    actual_value = Column(Numeric(12, 2), nullable=True)   # Actual closed value (USD)
+    actual_value = Column(Numeric(12, 2), nullable=True)  # Actual closed value (USD)
     closed_at = Column(DateTime, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
     tenant = relationship("Tenant")
@@ -480,19 +474,19 @@ class Proposal(Base):
     # Content
     title = Column(String(255), nullable=False)
     executive_summary = Column(Text, nullable=True)
-    body = Column(Text, nullable=False)   # Full proposal markdown
+    body = Column(Text, nullable=False)  # Full proposal markdown
     call_to_action = Column(Text, nullable=True)
 
     # Delivery
     status = Column(String(50), nullable=False, default="draft", index=True)
     # draft | sent | viewed | accepted | rejected | expired
-    sent_via = Column(String(50), nullable=True)   # 'email' | 'linkedin' | 'twitter' | 'manual'
+    sent_via = Column(String(50), nullable=True)  # 'email' | 'linkedin' | 'twitter' | 'manual'
     sent_to_email = Column(String(255), nullable=True)
     sent_to_linkedin = Column(String(500), nullable=True)
 
     # Response tracking
     response_received = Column(Boolean, default=False, nullable=False)
-    response_sentiment = Column(String(50), nullable=True)   # 'positive' | 'neutral' | 'negative'
+    response_sentiment = Column(String(50), nullable=True)  # 'positive' | 'neutral' | 'negative'
     response_notes = Column(Text, nullable=True)
 
     # Version tracking
@@ -500,9 +494,7 @@ class Proposal(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     sent_at = Column(DateTime, nullable=True)
     viewed_at = Column(DateTime, nullable=True)
     responded_at = Column(DateTime, nullable=True)
@@ -532,11 +524,13 @@ class Deal(Base):
     # Ownership
     tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
     opportunity_id = Column(String(50), ForeignKey("opportunities.id"), nullable=False, unique=True)
-    lead_id = Column(String(50), ForeignKey("leads.id"), nullable=True, index=True)   # Denormalised for fast lookup
+    lead_id = Column(
+        String(50), ForeignKey("leads.id"), nullable=True, index=True
+    )  # Denormalised for fast lookup
     closed_by_agent_id = Column(String(50), ForeignKey("agents.id"), nullable=True)
 
     # Financials
-    value = Column(Numeric(12, 2), nullable=False)          # One-time or first payment (USD)
+    value = Column(Numeric(12, 2), nullable=False)  # One-time or first payment (USD)
     recurring_value = Column(Numeric(12, 2), nullable=True)  # Monthly recurring (USD)
     currency = Column(String(10), nullable=False, default="USD")
 
@@ -547,7 +541,7 @@ class Deal(Base):
     paid_at = Column(DateTime, nullable=True)
 
     # Attribution
-    source_campaign = Column(String(255), nullable=True)   # Which campaign generated this deal
+    source_campaign = Column(String(255), nullable=True)  # Which campaign generated this deal
     attributed_workforce_id = Column(String(50), ForeignKey("workforces.id"), nullable=True)
 
     # Notes
@@ -555,9 +549,7 @@ class Deal(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     closed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships

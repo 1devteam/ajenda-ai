@@ -180,6 +180,7 @@ class TestFewShotLibraryLoading:
 
     def setup_method(self):
         from backend.agents.governance.few_shot_library import FewShotLibrary
+
         FewShotLibrary.reset_instance()
 
     def test_loads_valid_library(self, tmp_path):
@@ -251,6 +252,7 @@ class TestFewShotLibraryRetrieval:
 
     def setup_method(self):
         from backend.agents.governance.few_shot_library import FewShotLibrary
+
         FewShotLibrary.reset_instance()
 
     def test_returns_empty_for_unknown_scenario(self, tmp_path):
@@ -333,6 +335,7 @@ class TestFewShotLibraryFormatting:
 
     def setup_method(self):
         from backend.agents.governance.few_shot_library import FewShotLibrary
+
         FewShotLibrary.reset_instance()
 
     def test_format_block_contains_proper_action_header(self, tmp_path):
@@ -397,6 +400,7 @@ class TestAssemblePromptIntegration:
 
     def setup_method(self):
         from backend.agents.governance.few_shot_library import FewShotLibrary
+
         FewShotLibrary.reset_instance()
 
     def test_no_scenario_returns_preamble_only(self):
@@ -491,6 +495,7 @@ class TestRealLibraryIntegration:
 
     def setup_method(self):
         from backend.agents.governance.few_shot_library import FewShotLibrary
+
         FewShotLibrary.reset_instance()
 
     def test_real_library_loads(self):
@@ -524,9 +529,9 @@ class TestRealLibraryIntegration:
 
         lib = FewShotLibrary.get_instance()
         for ex in lib._examples:
-            assert len(ex.explanation) > 50, (
-                f"Explanation too short for {ex.scenario}/{ex.type}: {ex.explanation!r}"
-            )
+            assert (
+                len(ex.explanation) > 50
+            ), f"Explanation too short for {ex.scenario}/{ex.type}: {ex.explanation!r}"
 
     def test_lead_qualification_examples_contain_json(self):
         """The qualification output examples must be valid JSON."""

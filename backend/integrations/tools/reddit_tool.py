@@ -227,8 +227,7 @@ class RedditTool(BaseTool):
         lines = [f"Search results for '{inp.query}' in r/{inp.subreddit}:"]
         for i, post in enumerate(results, 1):
             lines.append(
-                f"{i}. [{post.score}↑] {post.title}\n"
-                f"   https://reddit.com{post.permalink}"
+                f"{i}. [{post.score}↑] {post.title}\n" f"   https://reddit.com{post.permalink}"
             )
         return "\n".join(lines)
 
@@ -248,8 +247,7 @@ class RedditTool(BaseTool):
         lines = [f"Hot posts in r/{inp.subreddit}:"]
         for i, post in enumerate(posts, 1):
             lines.append(
-                f"{i}. [{post.score}↑] {post.title}\n"
-                f"   https://reddit.com{post.permalink}"
+                f"{i}. [{post.score}↑] {post.title}\n" f"   https://reddit.com{post.permalink}"
             )
         return "\n".join(lines)
 

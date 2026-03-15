@@ -112,6 +112,7 @@ def _get_scheduler_service():
     """
     try:
         from backend.main import get_scheduler_service
+
         return get_scheduler_service()
     except (ImportError, AttributeError):
         return None
@@ -286,9 +287,7 @@ async def update_job(
         if len(updates) > 1:  # More than just updated_at
             async with scheduler._session_factory() as session:
                 await session.execute(
-                    sa_update(ScheduledJob)
-                    .where(ScheduledJob.id == job_id)
-                    .values(**updates)
+                    sa_update(ScheduledJob).where(ScheduledJob.id == job_id).values(**updates)
                 )
                 await session.commit()
 
