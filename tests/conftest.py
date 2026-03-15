@@ -9,11 +9,19 @@ from typing import Generator, AsyncGenerator
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
+# Force lightweight, deterministic runtime for tests before importing app settings
+os.environ.setdefault("TESTING", "1")
+os.environ.setdefault("NATS_ENABLED", "false")
+os.environ.setdefault("OTEL_ENABLED", "false")
+os.environ.setdefault("PROMETHEUS_ENABLED", "false")
+
 from backend.main import app
 from backend.models.domain.user import User, UserRole
 from backend.middleware.auth.auth_middleware import create_access_token
 from backend.economy.resource_marketplace import ResourceMarketplace
 from backend.config.settings import Settings
+from backend.database.base import Base
+from backend.database.session import engine
 
 
 # ============================================================================
@@ -40,6 +48,14 @@ def test_settings():
     os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-tokens-do-not-use-in-production"
     os.environ["SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
     return Settings()
+
+
+
+@pytest.fixture(scope="session", autouse=True)
+def initialize_test_database():
+    """Ensure database schema exists for API/integration tests."""
+    Base.metadata.create_all(bind=engine)
+    yield
 
 
 # ============================================================================

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 import time
+import os
 
 # Import configuration
 from backend.config.settings import Settings
@@ -89,6 +90,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events
     """
     # Startup
+    _is_test_env = os.getenv("PYTEST_CURRENT_TEST") is not None or os.getenv("TESTING", "").lower() in {"1", "true", "yes"}
     logger.info("=" * 60)
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
 
@@ -156,7 +158,9 @@ async def lifespan(app: FastAPI):
     # Initialize Event Bus
     logger.info("Initializing NATS Event Bus...")
     event_bus = NATSEventBus(settings.NATS_URL)
-    if settings.NATS_ENABLED:
+    if _is_test_env:
+        logger.info("Skipping NATS connection in test environment; using stub mode")
+    elif settings.NATS_ENABLED:
         try:
             await event_bus.connect()
             logger.info("✅ NATS Event Bus connected")
@@ -240,30 +244,36 @@ async def lifespan(app: FastAPI):
         logger.warning(f"WorkforceCoordinator init failed (non-fatal): {_wfc_err}")
 
     # Initialize SchedulerService (APScheduler-backed recurring missions)
-    logger.info("Initializing SchedulerService...")
-    try:
-        from backend.database.session import AsyncSessionLocal
-        from backend.core.scheduler.scheduler_service import SchedulerService
+    if _is_test_env:
+        logger.info("Skipping SchedulerService initialization in test environment")
+    else:
+        logger.info("Initializing SchedulerService...")
+        try:
+            from backend.database.session import AsyncSessionLocal
+            from backend.core.scheduler.scheduler_service import SchedulerService
 
-        global _scheduler_service_ref
-        _scheduler_service_ref = SchedulerService(
-            session_factory=AsyncSessionLocal,
-            mission_executor=mission_executor,
-            event_store=_event_store_ref,
-        )
-        await _scheduler_service_ref.start()
-        app.state.scheduler_service = _scheduler_service_ref
-        logger.info("✅ SchedulerService started")
-    except Exception as _sched_err:
-        logger.warning(f"SchedulerService init failed (non-fatal): {_sched_err}")
+            global _scheduler_service_ref
+            _scheduler_service_ref = SchedulerService(
+                session_factory=AsyncSessionLocal,
+                mission_executor=mission_executor,
+                event_store=_event_store_ref,
+            )
+            await _scheduler_service_ref.start()
+            app.state.scheduler_service = _scheduler_service_ref
+            logger.info("✅ SchedulerService started")
+        except Exception as _sched_err:
+            logger.warning(f"SchedulerService init failed (non-fatal): {_sched_err}")
 
     # Initialize MCP subsystem
-    logger.info("Initializing MCP subsystem...")
-    try:
-        await setup_mcp()
-        logger.info("✅ MCP subsystem initialised")
-    except Exception as _mcp_err:
-        logger.warning(f"MCP setup failed (non-fatal): {_mcp_err}")
+    if _is_test_env:
+        logger.info("Skipping MCP subsystem initialization in test environment")
+    else:
+        logger.info("Initializing MCP subsystem...")
+        try:
+            await setup_mcp()
+            logger.info("✅ MCP subsystem initialised")
+        except Exception as _mcp_err:
+            logger.warning(f"MCP setup failed (non-fatal): {_mcp_err}")
 
     # -------------------------------------------------------------------------
     # Register the Pride Protocol as an immutable system-level governance policy.
