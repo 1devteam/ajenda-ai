@@ -2,7 +2,7 @@
 Pytest Configuration and Shared Fixtures
 Provides reusable test fixtures for all test modules
 """
-
+import os
 import pytest
 import asyncio
 from typing import Generator, AsyncGenerator
