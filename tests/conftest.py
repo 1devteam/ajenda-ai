@@ -2,12 +2,23 @@
 Pytest Configuration and Shared Fixtures
 Provides reusable test fixtures for all test modules
 """
+<<<<<<< ours
+=======
+
+>>>>>>> theirs
 import os
 import pytest
 import asyncio
 from typing import Generator, AsyncGenerator
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
+from sqlalchemy.engine.url import make_url
+
+# Force lightweight, deterministic runtime for tests before importing app settings
+os.environ.setdefault("TESTING", "1")
+os.environ.setdefault("NATS_ENABLED", "false")
+os.environ.setdefault("OTEL_ENABLED", "false")
+os.environ.setdefault("PROMETHEUS_ENABLED", "false")
 
 # Force lightweight, deterministic runtime for tests before importing app settings
 os.environ.setdefault("TESTING", "1")
@@ -45,15 +56,38 @@ def test_settings():
     """
     import os
 
-    os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-tokens-do-not-use-in-production"
+    os.environ["JWT_SECRET_KEY"] = (
+        "test-secret-key-for-jwt-tokens-do-not-use-in-production"
+    )
     os.environ["SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
     return Settings()
 
 
+<<<<<<< ours
 
 @pytest.fixture(scope="session", autouse=True)
 def initialize_test_database():
     """Ensure database schema exists for API/integration tests."""
+    db_url = str(engine.url)
+    parsed_url = make_url(db_url)
+
+    # Guard against accidental DDL on shared/staging/prod databases.
+    database_name = (parsed_url.database or "").lower()
+    is_sqlite = parsed_url.get_backend_name().startswith("sqlite")
+    is_test_database = "test" in database_name
+
+    if not (is_sqlite or is_test_database):
+        raise pytest.UsageError(
+            "Refusing to run test schema bootstrap on a non-test database. "
+            f"Current database: {db_url}. "
+            "Use a dedicated test DB (name containing 'test') or SQLite."
+        )
+
+=======
+@pytest.fixture(scope="session", autouse=True)
+def initialize_test_database():
+    """Ensure database schema exists for API/integration tests."""
+>>>>>>> theirs
     Base.metadata.create_all(bind=engine)
     yield
 
@@ -225,15 +259,23 @@ async def marketplace_with_data(
     tenant_id = mock_user.tenant_id
 
     # Create agents with different balances
-    await marketplace.charge(tenant_id, "agent_commander", 50.0, "llm_call", agent_type="commander")
+    await marketplace.charge(
+        tenant_id, "agent_commander", 50.0, "llm_call", agent_type="commander"
+    )
     await marketplace.reward(
         tenant_id, "agent_commander", 100.0, "mission_success", agent_type="commander"
     )
 
-    await marketplace.charge(tenant_id, "agent_guardian", 10.0, "llm_call", agent_type="guardian")
-    await marketplace.charge(tenant_id, "agent_guardian", 5.0, "compute", agent_type="guardian")
+    await marketplace.charge(
+        tenant_id, "agent_guardian", 10.0, "llm_call", agent_type="guardian"
+    )
+    await marketplace.charge(
+        tenant_id, "agent_guardian", 5.0, "compute", agent_type="guardian"
+    )
 
-    await marketplace.charge(tenant_id, "agent_archivist", 200.0, "storage", agent_type="archivist")
+    await marketplace.charge(
+        tenant_id, "agent_archivist", 200.0, "storage", agent_type="archivist"
+    )
     await marketplace.reward(
         tenant_id, "agent_archivist", 50.0, "quality_bonus", agent_type="archivist"
     )

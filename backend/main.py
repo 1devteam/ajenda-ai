@@ -90,7 +90,13 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events
     """
     # Startup
+<<<<<<< ours
     _is_test_env = os.getenv("PYTEST_CURRENT_TEST") is not None or os.getenv("TESTING", "").lower() in {"1", "true", "yes"}
+=======
+    _is_test_env = os.getenv("PYTEST_CURRENT_TEST") is not None or os.getenv(
+        "TESTING", ""
+    ).lower() in {"1", "true", "yes"}
+>>>>>>> theirs
     logger.info("=" * 60)
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
 
@@ -123,7 +129,9 @@ async def lifespan(app: FastAPI):
     if settings.PROMETHEUS_ENABLED:
         logger.info("✅ Prometheus metrics enabled")
         prom_metrics.enabled = True
-        prom_metrics.set_app_info(version=settings.APP_VERSION, environment=settings.ENVIRONMENT)
+        prom_metrics.set_app_info(
+            version=settings.APP_VERSION, environment=settings.ENVIRONMENT
+        )
     else:
         logger.info("Prometheus metrics disabled")
         prom_metrics.enabled = False
@@ -335,7 +343,9 @@ async def lifespan(app: FastAPI):
                 f"(v{PRIDE_PROTOCOL_VERSION}, immutable=True, priority=9999)"
             )
         else:
-            logger.info(f"✅ Pride Protocol policy already registered: {_pride_policy_id}")
+            logger.info(
+                f"✅ Pride Protocol policy already registered: {_pride_policy_id}"
+            )
     except Exception as _pride_err:
         # Log but do not crash — the preamble is still enforced at the code level
         # in assemble_prompt(). The policy registration is the audit layer.
