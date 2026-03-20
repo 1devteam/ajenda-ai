@@ -1,3 +1,10 @@
+## [7.2.2] — 2026-03-20
+
+### Bug Fixes & Improvements
+- refactor: start Ajenda AI runtime separation (`8c79127e`)
+
+---
+
 ## [7.2.1] — 2026-03-07
 
 ### Bug Fixes & Improvements
