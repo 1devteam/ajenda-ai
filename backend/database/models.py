@@ -559,6 +559,49 @@ class Deal(Base):
     attributed_workforce = relationship("Workforce", foreign_keys=[attributed_workforce_id])
 
 
+class WorkforceRunRecord(Base):
+    """
+    Durable workforce run envelope for transitional governed runtime migration.
+
+    Governed runtime is primary through:
+    - execution_tasks
+    - governed_execution_state
+
+    Legacy compatibility payload is retained in:
+    - sub_missions
+    """
+
+    __tablename__ = "workforce_runs"
+
+    id = Column(String(50), primary_key=True, index=True)
+    workforce_id = Column(String(50), ForeignKey("workforces.id"), nullable=False, index=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
+
+    goal = Column(Text, nullable=False)
+    status = Column(String(50), nullable=False, index=True, default="pending")
+    pipeline_type = Column(String(20), nullable=False, default="sequential")
+
+    cost = Column(Float, default=0.0, nullable=False)
+    final_output = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+
+    # Transitional compatibility storage only.
+    sub_missions = Column(JSON, default=list, nullable=False)
+
+    # Primary governed runtime view.
+    execution_tasks = Column(JSON, default=list, nullable=False)
+    governed_execution_state = Column(JSON, default=dict, nullable=False)
+    agents_used = Column(JSON, default=list, nullable=False)
+    runtime_metadata = Column("metadata", JSON, default=dict, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    tenant = relationship("Tenant")
+    workforce = relationship("Workforce")
+
+
 class WorkforceFleetRecord(Base):
     """Governed runtime workforce fleet state."""
 

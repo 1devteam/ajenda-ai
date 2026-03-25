@@ -498,8 +498,9 @@ async def get_run_status(
     Get the status of a workforce run.
 
     Transitional behavior:
-    - legacy workforce run envelope remains
-    - governed fleet/task/branch state is overlaid by coordinator.get_run_state()
+    - governed execution_tasks / governed_execution_state are the primary runtime view
+    - legacy_sub_missions / sub_missions remain for compatibility only
+    - coordinator.get_run_state() remains the runtime read seam
     """
     coordinator = _get_workforce_coordinator()
     if not coordinator:
@@ -527,4 +528,7 @@ async def get_run_status(
             detail="Access denied",
         )
 
+    # Response is intentionally governed-first:
+    # - execution_tasks / governed_execution_state are primary
+    # - legacy_sub_missions / sub_missions are compatibility payloads
     return run

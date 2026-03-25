@@ -181,6 +181,8 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Mission Executor...")
     runtime_db = SessionLocal()
     runtime_repository = ExecutionRuntimeRepository(runtime_db)
+    from backend.domain.control.repositories.workforce_run_repository import WorkforceRunRepository
+    workforce_run_repository = WorkforceRunRepository(runtime_db)
     execution_coordinator = ExecutionCoordinator(
         runtime_repository=runtime_repository
     )
@@ -230,20 +232,9 @@ async def lifespan(app: FastAPI):
     except Exception as _vault_err:
         logger.warning(f"VaultService init failed (non-fatal): {_vault_err}")
 
-    # Initialize RevenueAgent (Phase 5 — sales pipeline and deal closing)
-    logger.info("Initializing RevenueAgent...")
-    try:
-        from backend.orchestration.revenue_agent import RevenueAgent
-
-        global _revenue_agent_ref
-        _revenue_agent_ref = RevenueAgent(
-            llm_service=llm_service,
-            event_store=_event_store_ref,
-        )
-        app.state.revenue_agent = _revenue_agent_ref
-        logger.info("✅ RevenueAgent initialised")
-    except Exception as _rev_err:
-        logger.warning(f"RevenueAgent init failed (non-fatal): {_rev_err}")
+    # RevenueAgent startup skipped: legacy module archived and outside the
+    # governed-runtime migration path.
+    logger.info("RevenueAgent startup skipped: legacy module archived")
 
     # Initialize WorkforceCoordinator (Phase 4 — multi-agent coordination)
     logger.info("Initializing WorkforceCoordinator...")
@@ -257,6 +248,7 @@ async def lifespan(app: FastAPI):
             event_store=_event_store_ref,
             marketplace=marketplace,
             execution_coordinator=execution_coordinator,
+            workforce_run_repository=workforce_run_repository,
         )
         app.state.workforce_coordinator = _workforce_coordinator_ref
         logger.info("✅ WorkforceCoordinator initialised")

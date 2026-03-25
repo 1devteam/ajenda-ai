@@ -128,6 +128,10 @@ class MissionExecutor:
     async def _update_status(self, mission_id: str, status: str, **kwargs: Any) -> None:
         """
         Update mission status via callback and keep latest compatibility mission state.
+
+        Transitional behavior:
+        - active_missions is an ephemeral process-local cache only
+        - terminal statuses are removed after callback propagation
         """
         self._record_active_mission_state(mission_id, status, **kwargs)
 
@@ -136,6 +140,9 @@ class MissionExecutor:
                 await self.status_callback(mission_id, status, **kwargs)
             except Exception as e:
                 logger.error("Status callback failed: %s", e)
+
+        if status in {"COMPLETED", "FAILED", "REJECTED"}:
+            self.active_missions.pop(mission_id, None)
 
     def get_mission_state(self, mission_id: str) -> Dict[str, Any]:
         """Return the latest known compatibility mission state."""

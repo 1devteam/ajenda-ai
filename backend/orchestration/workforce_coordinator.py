@@ -26,6 +26,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.agents.governance import assemble_prompt
 from backend.core.logging_config import get_logger
+from backend.domain.control.repositories.workforce_run_repository import WorkforceRunRepository
 from backend.domain.control.services.execution_coordinator import ExecutionCoordinator
 from backend.models.domain.execution_task import ExecutionTask, ExecutionTaskStatus, ExecutionTaskType
 
@@ -101,13 +102,14 @@ class SubMission:
 class WorkforcePlan:
     """
     Execution plan produced by the Commander during the planning phase.
-    Contains an ordered list of sub-missions with dependency edges.
+    Contains governed execution tasks plus legacy compatibility sub-missions.
     """
 
     plan_id: str
     workforce_id: str
     goal: str
     sub_missions: List[SubMission] = field(default_factory=list)
+    execution_tasks: List[ExecutionTask] = field(default_factory=list)
     pipeline_type: str = "sequential"  # "sequential" | "parallel" | "mixed"
     created_at: datetime = field(default_factory=datetime.utcnow)
 
@@ -162,12 +164,14 @@ class WorkforceCoordinator:
         event_store: Any,
         marketplace: Any,
         execution_coordinator: Optional[ExecutionCoordinator] = None,
+        workforce_run_repository: Optional[WorkforceRunRepository] = None,
     ) -> None:
         self.llm_service = llm_service
         self.mission_executor = mission_executor
         self.event_store = event_store
         self.marketplace = marketplace
         self.execution_coordinator = execution_coordinator or ExecutionCoordinator()
+        self.workforce_run_repository = workforce_run_repository
 
         # Transitional compatibility seam:
         # keeps current workforce orchestration runnable while authoritative
@@ -214,6 +218,7 @@ class WorkforceCoordinator:
             status=WorkforceStatus.PENDING,
         )
         self._runs[run_id] = run
+        self._persist_run_state(run)
 
         await self._emit_event(
             run_id=run_id,
@@ -248,7 +253,8 @@ class WorkforceCoordinator:
             for sm in plan.sub_missions:
                 run.sub_missions[sm.sub_mission_id] = sm
 
-            self._sync_all_execution_tasks(run)
+            self._attach_planned_execution_tasks(run, plan)
+            self._persist_run_state(run)
 
             # Phase 2: Execute sub-missions in dependency order
             run.status = WorkforceStatus.RUNNING
@@ -269,6 +275,7 @@ class WorkforceCoordinator:
                 run.status = WorkforceStatus.FAILED
 
             run.completed_at = datetime.utcnow()
+            self._persist_run_state(run)
 
             await self._emit_event(
                 run_id=run_id,
@@ -289,6 +296,7 @@ class WorkforceCoordinator:
             run.status = WorkforceStatus.FAILED
             run.error = str(exc)
             run.completed_at = datetime.utcnow()
+            self._persist_run_state(run)
 
             await self._emit_event(
                 run_id=run_id,
@@ -425,11 +433,22 @@ Rules:
                 )
             )
 
+        execution_tasks = [
+            self._planned_sub_mission_to_execution_task(
+                run_id=run_id,
+                tenant_id=tenant_id,
+                created_at=datetime.utcnow(),
+                sub_mission=sub_mission,
+            )
+            for sub_mission in sub_missions
+        ]
+
         return WorkforcePlan(
             plan_id=str(uuid.uuid4()),
             workforce_id=run_id,
             goal=goal,
             sub_missions=sub_missions,
+            execution_tasks=execution_tasks,
             pipeline_type=plan_data.get("pipeline_type", "sequential"),
         )
 
@@ -446,57 +465,56 @@ Rules:
         """
         Execute sub-missions respecting dependency order.
 
-        Sub-missions with no unresolved dependencies are dispatched
-        concurrently. Each completion may unblock further sub-missions.
+        Governed ExecutionTask planning graph is the primary execution graph.
+        SubMission remains only as the dispatch compatibility shell.
         """
-        pending = list(run.sub_missions.values())
+        task_map = self._get_planned_task_map(run)
+        pending_ids: set[str] = set(task_map.keys()) or set(run.sub_missions.keys())
 
-        while pending:
+        while pending_ids:
             governed_completed_ids = self._dependency_ids_completed_in_governed_state(run)
+            ready_task_ids = self._resolve_ready_task_ids(
+                run=run,
+                pending_ids=pending_ids,
+                completed_ids=governed_completed_ids,
+            )
 
-            # Find all sub-missions whose dependencies are satisfied in governed task state
-            ready = [
-                sm
-                for sm in pending
-                if all(dep in governed_completed_ids for dep in sm.depends_on)
-            ]
-
-            if not ready:
-                # Circular dependency or all remaining are blocked by failures
+            if not ready_task_ids:
                 logger.warning(
                     f"Workforce run {run.run_id}: no ready sub-missions, "
                     f"breaking execution loop"
                 )
-                for sm in pending:
-                    sm.status = SubMissionStatus.SKIPPED
-                    self._sync_execution_task(run, sm)
+                for task_id in list(pending_ids):
+                    sm = run.sub_missions.get(task_id)
+                    if sm:
+                        sm.status = SubMissionStatus.SKIPPED
+                        self._sync_execution_task(run, sm)
                 break
 
-            # Dispatch ready sub-missions concurrently
+            completed_results = self._get_completed_results_from_governed_tasks(
+                run=run,
+                completed_ids=governed_completed_ids,
+            )
+
             tasks = [
                 self._execute_sub_mission(
                     run=run,
-                    sub_mission=sm,
+                    task_id=task_id,
                     tenant_id=tenant_id,
                     user_id=user_id,
-                    completed_results={
-                        sid: run.sub_missions[sid].result
-                        for sid in governed_completed_ids
-                        if sid in run.sub_missions and run.sub_missions[sid].result
-                    },
+                    completed_results=completed_results,
                 )
-                for sm in ready
+                for task_id in ready_task_ids
             ]
             await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Mark dispatched as no longer pending
-            for sm in ready:
-                pending.remove(sm)
+            for task_id in ready_task_ids:
+                pending_ids.discard(task_id)
 
     async def _execute_sub_mission(
         self,
         run: WorkforceRun,
-        sub_mission: SubMission,
+        task_id: str,
         tenant_id: str,
         user_id: str,
         completed_results: Dict[str, str],
@@ -504,9 +522,11 @@ Rules:
         """
         Execute a single sub-mission, with retry on failure.
 
-        Enriches the sub-mission goal with context from already-completed
-        sub-missions so each agent builds on prior work.
+        Dispatch is task-ID-first; legacy SubMission is resolved internally
+        as a compatibility shell during transition.
         """
+        sub_mission = run.sub_missions[task_id]
+
         sub_mission.status = SubMissionStatus.RUNNING
         sub_mission.started_at = datetime.utcnow()
         self._sync_execution_task(run, sub_mission)
@@ -515,7 +535,9 @@ Rules:
         enriched_goal = sub_mission.goal
         if completed_results:
             context_block = "\n\n".join(
-                f"[Prior output]\n{result}" for result in completed_results.values() if result
+                f"[Prior output]\n{result}"
+                for result in completed_results.values()
+                if result
             )
             if context_block:
                 enriched_goal = (
@@ -556,10 +578,7 @@ Rules:
                     )
                     return
 
-                else:
-                    raise RuntimeError(
-                        result.get("output", "Sub-mission returned non-success status")
-                    )
+                raise RuntimeError(result.get("output", "Sub-mission returned non-success status"))
 
             except Exception as exc:
                 sub_mission.retry_count += 1
@@ -601,24 +620,24 @@ Rules:
         tenant_id: str,
     ) -> str:
         """
-        Synthesise the outputs of all completed sub-missions into a final
+        Synthesise the outputs of all completed work units into a final
         coherent result using the Commander LLM.
+
+        Governed task outputs are the primary aggregation source.
         """
-        completed = [
-            sm
-            for sm in run.sub_missions.values()
-            if sm.status == SubMissionStatus.COMPLETED and sm.result
-        ]
+        completed = self._get_all_completed_results_from_governed_tasks(run)
 
         if not completed:
             return "No sub-missions completed successfully."
 
-        if len(completed) == 1:
-            return completed[0].result or ""
+        completed_items = list(completed.values())
 
-        # Build synthesis prompt
+        if len(completed_items) == 1:
+            return completed_items[0]["result"]
+
         outputs_block = "\n\n".join(
-            f"[{sm.role.value.upper()} OUTPUT]\n{sm.result}" for sm in completed
+            f"[{item['role'].upper()} OUTPUT]\n{item['result']}"
+            for item in completed_items
         )
 
         llm = self.llm_service.get_llm("commander", tenant_id)
@@ -644,8 +663,10 @@ Rules:
             return response.content.strip()
         except Exception as exc:
             logger.error(f"Aggregation LLM failed: {exc}")
-            # Fallback: concatenate outputs
-            return "\n\n---\n\n".join(f"[{sm.role.value}]\n{sm.result}" for sm in completed)
+            return "\n\n---\n\n".join(
+                f"[{item['role']}]\n{item['result']}"
+                for item in completed_items
+            )
 
     # -----------------------------------------------------------------------
     # EventStore integration
@@ -719,7 +740,9 @@ Rules:
             },
             output_payload={
                 "result": sub_mission.result,
-            } if sub_mission.result else {},
+            }
+            if sub_mission.result
+            else {},
             dependencies=sub_mission.depends_on,
             metadata={
                 "source": "workforce_coordinator",
@@ -733,6 +756,68 @@ Rules:
             error=sub_mission.error,
         )
 
+    def _planned_sub_mission_to_execution_task(
+        self,
+        *,
+        run_id: str,
+        tenant_id: str,
+        created_at: datetime,
+        sub_mission: SubMission,
+    ) -> ExecutionTask:
+        """
+        Build governed ExecutionTask during planning.
+
+        Transitional intent:
+        - make plan construction ExecutionTask-first
+        - retain SubMission as execution-loop compatibility shell
+        """
+        return ExecutionTask(
+            id=sub_mission.sub_mission_id,
+            mission_id=run_id,
+            tenant_id=tenant_id,
+            title=f"{sub_mission.role.value.title()} Task",
+            objective=sub_mission.goal,
+            status=ExecutionTaskStatus.PENDING,
+            task_type=self._map_role_to_task_type(sub_mission.role),
+            input_payload={
+                "goal": sub_mission.goal,
+                "context": sub_mission.context,
+            },
+            output_payload={},
+            dependencies=list(sub_mission.depends_on),
+            metadata={
+                "source": "workforce_coordinator.plan",
+                "legacy_role": sub_mission.role.value,
+                "retry_count": sub_mission.retry_count,
+                "max_retries": sub_mission.max_retries,
+            },
+            created_at=created_at,
+            started_at=None,
+            completed_at=None,
+            error=None,
+        )
+
+    def _attach_planned_execution_tasks(
+        self,
+        run: WorkforceRun,
+        plan: WorkforcePlan,
+    ) -> None:
+        """
+        Attach governed plan tasks before execution begins.
+
+        Purpose:
+        - persist/runtime-register governed work units at plan initialization
+        - keep later sync calls focused on state transitions
+        """
+        for task in plan.execution_tasks:
+            self.execution_coordinator.attach_task(
+                {
+                    "mission_id": run.run_id,
+                    "tenant_id": run.tenant_id,
+                    "objective": run.goal,
+                },
+                task,
+            )
 
     def _sync_execution_task(
         self,
@@ -809,9 +894,193 @@ Rules:
             if task_id in run.sub_missions and status == ExecutionTaskStatus.FAILED.value
         )
 
+    def _get_planned_task_map(self, run: WorkforceRun) -> Dict[str, ExecutionTask]:
+        """
+        Return planned governed tasks keyed by task ID.
+
+        Transitional intent:
+        - plan task graph becomes the primary execution graph
+        - SubMission remains only as dispatch compatibility state
+        """
+        if not run.plan:
+            return {}
+        return {task.id: task for task in run.plan.execution_tasks}
+
+    def _resolve_ready_sub_missions(
+        self,
+        run: WorkforceRun,
+        pending_ids: set[str],
+        completed_ids: set[str],
+    ) -> List[SubMission]:
+        """
+        Resolve ready governed tasks to legacy SubMission dispatch objects.
+        """
+        task_map = self._get_planned_task_map(run)
+        ready_task_ids = [
+            task_id
+            for task_id in pending_ids
+            if task_id in task_map
+            and all(dep in completed_ids for dep in task_map[task_id].dependencies)
+        ]
+        return [
+            run.sub_missions[task_id]
+            for task_id in ready_task_ids
+            if task_id in run.sub_missions
+        ]
+
+    def _resolve_ready_task_ids(
+        self,
+        run: WorkforceRun,
+        pending_ids: set[str],
+        completed_ids: set[str],
+    ) -> List[str]:
+        """
+        Resolve ready governed task IDs from the planned execution graph.
+        """
+        task_map = self._get_planned_task_map(run)
+        return [
+            task_id
+            for task_id in pending_ids
+            if task_id in task_map
+            and all(dep in completed_ids for dep in task_map[task_id].dependencies)
+            and task_id in run.sub_missions
+        ]
+
+    def _get_completed_results_from_governed_tasks(
+        self,
+        run: WorkforceRun,
+        completed_ids: set[str],
+    ) -> Dict[str, str]:
+        """
+        Return completed prior outputs from governed task state first.
+
+        Transitional behavior:
+        - governed ExecutionTask output_payload is the primary source
+        - legacy SubMission.result is fallback only
+        """
+        execution_state = self.execution_coordinator.get_authoritative_mission_execution_state(
+            run.run_id
+        )
+        task_items = execution_state.get("tasks", []) if isinstance(execution_state, dict) else []
+
+        governed_results: Dict[str, str] = {}
+        for task in task_items:
+            if not isinstance(task, dict):
+                continue
+            task_id = task.get("id")
+            if task_id not in completed_ids:
+                continue
+
+            output_payload = task.get("output_payload") or {}
+            result_value = None
+
+            if isinstance(output_payload, dict):
+                result_value = output_payload.get("result")
+
+            if not result_value and task_id in run.sub_missions:
+                result_value = run.sub_missions[task_id].result
+
+            if result_value:
+                governed_results[task_id] = result_value
+
+        return governed_results
+
+    def _get_all_completed_results_from_governed_tasks(
+        self,
+        run: WorkforceRun,
+    ) -> Dict[str, Dict[str, str]]:
+        """
+        Return all completed governed task outputs for aggregation.
+
+        Governed task output is primary; legacy SubMission fields are fallback.
+        """
+        execution_state = self.execution_coordinator.get_authoritative_mission_execution_state(
+            run.run_id
+        )
+        task_items = execution_state.get("tasks", []) if isinstance(execution_state, dict) else []
+
+        completed_results: Dict[str, Dict[str, str]] = {}
+
+        for task in task_items:
+            if not isinstance(task, dict):
+                continue
+
+            task_id = task.get("id")
+            status = task.get("status")
+            if not task_id or status != ExecutionTaskStatus.COMPLETED.value:
+                continue
+
+            output_payload = task.get("output_payload") or {}
+            result_value = None
+            if isinstance(output_payload, dict):
+                result_value = output_payload.get("result")
+
+            if not result_value and task_id in run.sub_missions:
+                result_value = run.sub_missions[task_id].result
+
+            if not result_value:
+                continue
+
+            role_value = "executor"
+            if task_id in run.sub_missions:
+                role_value = run.sub_missions[task_id].role.value
+
+            completed_results[task_id] = {
+                "role": role_value,
+                "result": result_value,
+            }
+
+        return completed_results
+
+    def _persist_run_state(self, run: WorkforceRun) -> None:
+        """
+        Durable persistence seam for WorkforceRun.
+
+        Purpose:
+        - move workforce run ownership toward durable runtime state
+        - preserve _runs as compatibility cache until callers migrate
+        """
+        if not self.workforce_run_repository:
+            return
+
+        serialized = self._serialize_run(run)
+        governed_execution_state = self.execution_coordinator.get_authoritative_mission_execution_state(
+            run.run_id
+        )
+
+        payload = {
+            **serialized,
+            "legacy_sub_missions": serialized.get("legacy_sub_missions", []),
+            "governed_execution_state": governed_execution_state,
+            "runtime_metadata": {
+                "source": "workforce_coordinator",
+                "compatibility_cache_present": True,
+                "legacy_sub_missions_compatibility_only": True,
+            },
+            "created_at": run.created_at,
+            "started_at": run.started_at,
+            "completed_at": run.completed_at,
+        }
+        self.workforce_run_repository.save_run(payload)
+
     def _serialize_run(self, run: WorkforceRun) -> Dict[str, Any]:
         """Convert a WorkforceRun to a JSON-serialisable dict."""
         execution_tasks = [task.model_dump() for task in self._sync_all_execution_tasks(run)]
+        legacy_sub_missions = [
+            {
+                "sub_mission_id": sm.sub_mission_id,
+                "role": sm.role.value,
+                "goal": sm.goal,
+                "status": sm.status.value,
+                "result": sm.result,
+                "error": sm.error,
+                "retry_count": sm.retry_count,
+                "depends_on": sm.depends_on,
+                "started_at": sm.started_at.isoformat() if sm.started_at else None,
+                "completed_at": sm.completed_at.isoformat() if sm.completed_at else None,
+            }
+            for sm in run.sub_missions.values()
+        ]
 
         return {
             "run_id": run.run_id,
@@ -823,22 +1092,11 @@ Rules:
             "error": run.error,
             "cost": run.cost,
             "agents_used": run.agents_used,
-            "sub_missions": [
-                {
-                    "sub_mission_id": sm.sub_mission_id,
-                    "role": sm.role.value,
-                    "goal": sm.goal,
-                    "status": sm.status.value,
-                    "result": sm.result,
-                    "error": sm.error,
-                    "retry_count": sm.retry_count,
-                    "depends_on": sm.depends_on,
-                    "started_at": sm.started_at.isoformat() if sm.started_at else None,
-                    "completed_at": (sm.completed_at.isoformat() if sm.completed_at else None),
-                }
-                for sm in run.sub_missions.values()
-            ],
+            # Governed primary runtime view
             "execution_tasks": execution_tasks,
+            # Transitional compatibility payload
+            "legacy_sub_missions": legacy_sub_missions,
+            "sub_missions": legacy_sub_missions,
             "created_at": run.created_at.isoformat(),
             "started_at": run.started_at.isoformat() if run.started_at else None,
             "completed_at": run.completed_at.isoformat() if run.completed_at else None,
@@ -847,12 +1105,41 @@ Rules:
     def get_run_state(self, run_id: str) -> Optional[Dict[str, Any]]:
         """Return serialized run state plus governed execution state for a run."""
         run = self._runs.get(run_id)
-        if not run:
+        if run:
+            serialized = self._serialize_run(run)
+            execution_state = self.execution_coordinator.get_authoritative_mission_execution_state(
+                run_id
+            )
+            serialized["governed_execution_state"] = execution_state
+            return serialized
+
+        if not self.workforce_run_repository:
             return None
 
-        serialized = self._serialize_run(run)
-        execution_state = self.execution_coordinator.get_authoritative_mission_execution_state(
-            run_id
-        )
-        serialized["governed_execution_state"] = execution_state
-        return serialized
+        record = self.workforce_run_repository.get_run(run_id)
+        if not record:
+            return None
+
+        legacy_sub_missions = list(record.sub_missions or [])
+        execution_tasks = list(record.execution_tasks or [])
+
+        return {
+            "run_id": record.id,
+            "workforce_id": record.workforce_id,
+            "goal": record.goal,
+            "tenant_id": record.tenant_id,
+            "status": record.status,
+            "final_output": record.final_output,
+            "error": record.error,
+            "cost": record.cost,
+            "agents_used": list(record.agents_used or []),
+            # Governed primary runtime view
+            "execution_tasks": execution_tasks,
+            # Transitional compatibility payload
+            "legacy_sub_missions": legacy_sub_missions,
+            "sub_missions": legacy_sub_missions,
+            "created_at": record.created_at.isoformat() if record.created_at else None,
+            "started_at": record.started_at.isoformat() if record.started_at else None,
+            "completed_at": record.completed_at.isoformat() if record.completed_at else None,
+            "governed_execution_state": dict(record.governed_execution_state or {}),
+        }

@@ -44,6 +44,10 @@ class ExecutionCoordinator:
         self.registry = registry or ExecutionRegistry()
         self.runtime_repository = runtime_repository
 
+    def _has_durable_runtime(self) -> bool:
+        """Return True when durable runtime persistence is available."""
+        return self.runtime_repository is not None
+
     def build_execution_context(
         self,
         *,
@@ -120,7 +124,7 @@ class ExecutionCoordinator:
 
         Transitional seam:
         - durable repository first
-        - registry fallback retained until all lifecycle surfaces are migrated
+        - registry fallback retained only as ephemeral compatibility behavior
         """
         return self.get_execution_state_for_mission(mission_id)
 
@@ -164,8 +168,14 @@ class ExecutionCoordinator:
         return updated
 
     def get_execution_state_for_mission(self, mission_id: str) -> Dict[str, Any]:
-        """Return governed execution objects for a mission, preferring durable state."""
-        if self.runtime_repository:
+        """
+        Return governed execution objects for a mission.
+
+        Authority policy:
+        - durable runtime repository is primary
+        - registry is ephemeral compatibility fallback only
+        """
+        if self._has_durable_runtime():
             fleets = self.runtime_repository.list_fleets_for_mission(mission_id)
             tasks = self.runtime_repository.list_tasks_for_mission(mission_id)
             branches = self.runtime_repository.list_branches_for_mission(mission_id)
@@ -191,8 +201,14 @@ class ExecutionCoordinator:
         }
 
     def get_fleet_tasks(self, fleet_id: str) -> Dict[str, Any]:
-        """Return a fleet and its tasks, preferring durable state."""
-        if self.runtime_repository:
+        """
+        Return a fleet and its tasks.
+
+        Authority policy:
+        - durable runtime repository is primary
+        - registry is ephemeral compatibility fallback only
+        """
+        if self._has_durable_runtime():
             fleet = self.runtime_repository.get_fleet(fleet_id)
             tasks = self.runtime_repository.list_tasks_for_fleet(fleet_id)
 
