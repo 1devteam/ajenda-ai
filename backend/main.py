@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 import time
 import os
@@ -23,7 +24,6 @@ from backend.integrations.observability.prometheus_metrics import (
 
 # Import API routes
 from backend.api.routes import (
-    economy,
     performance,
     metrics,
     meta_learning,
@@ -42,7 +42,6 @@ from backend.api.routes import (
     integrations,
     scheduler as scheduler_router,
     vault as vault_router,
-    campaigns as campaigns_router,
     workforces as workforces_router,
     revenue as revenue_router,
 )
@@ -52,6 +51,11 @@ from backend.integrations.llm.llm_service import LLMService
 from backend.economy.resource_marketplace import ResourceMarketplace
 from backend.core.event_bus.nats_bus import NATSEventBus
 from backend.orchestration.mission_executor import MissionExecutor
+from backend.domain.control.repositories.execution_runtime_repository import (
+    ExecutionRuntimeRepository,
+)
+from backend.domain.control.services.execution_coordinator import ExecutionCoordinator
+from backend.database.session import SessionLocal
 from backend.middleware.rate_limit import RateLimitMiddleware
 from backend.middleware.security_headers import SecurityHeadersMiddleware
 from backend.security.secrets_validator import validate_secrets
@@ -90,13 +94,9 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events
     """
     # Startup
-<<<<<<< ours
-    _is_test_env = os.getenv("PYTEST_CURRENT_TEST") is not None or os.getenv("TESTING", "").lower() in {"1", "true", "yes"}
-=======
     _is_test_env = os.getenv("PYTEST_CURRENT_TEST") is not None or os.getenv(
         "TESTING", ""
     ).lower() in {"1", "true", "yes"}
->>>>>>> theirs
     logger.info("=" * 60)
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
 
@@ -170,18 +170,27 @@ async def lifespan(app: FastAPI):
         logger.info("Skipping NATS connection in test environment; using stub mode")
     elif settings.NATS_ENABLED:
         try:
-            await event_bus.connect()
+            await asyncio.wait_for(event_bus.connect(), timeout=3.0)
             logger.info("✅ NATS Event Bus connected")
         except Exception as e:
-            logger.warning(f"NATS connection failed, using stub mode: {e}")
+            logger.warning(f"NATS connection failed or timed out, using stub mode: {e}")
     else:
         logger.info("NATS disabled, using stub mode")
 
     # Initialize Mission Executor (event_store wired in after CQRS init below)
     logger.info("Initializing Mission Executor...")
-    mission_executor = MissionExecutor(
-        marketplace=marketplace, event_bus=event_bus, llm_service=llm_service
+    runtime_db = SessionLocal()
+    runtime_repository = ExecutionRuntimeRepository(runtime_db)
+    execution_coordinator = ExecutionCoordinator(
+        runtime_repository=runtime_repository
     )
+    mission_executor = MissionExecutor(
+        marketplace=marketplace,
+        event_bus=event_bus,
+        llm_service=llm_service,
+        execution_coordinator=execution_coordinator,
+    )
+    app.state.runtime_db = runtime_db
     logger.info("✅ Mission Executor initialized")
     # Initialize CQRS buses and wire EventStore into MissionExecutor
     logger.info("Initializing CQRS buses...")
@@ -243,8 +252,11 @@ async def lifespan(app: FastAPI):
 
         global _workforce_coordinator_ref
         _workforce_coordinator_ref = WorkforceCoordinator(
+            llm_service=llm_service,
             mission_executor=mission_executor,
             event_store=_event_store_ref,
+            marketplace=marketplace,
+            execution_coordinator=execution_coordinator,
         )
         app.state.workforce_coordinator = _workforce_coordinator_ref
         logger.info("✅ WorkforceCoordinator initialised")
@@ -382,6 +394,15 @@ async def lifespan(app: FastAPI):
     await teardown_mcp()
     # Teardown CQRS buses
     teardown_cqrs()
+
+    # Close durable runtime DB session if present
+    runtime_db = getattr(app.state, "runtime_db", None)
+    if runtime_db is not None:
+        try:
+            runtime_db.close()
+            logger.info("✅ Runtime DB session closed")
+        except Exception as _runtime_db_close_err:
+            logger.warning(f"Runtime DB session close error: {_runtime_db_close_err}")
 
     telemetry.shutdown()
     logger.info("✅ Shutdown complete")
@@ -595,7 +616,6 @@ app.include_router(auth.router)
 app.include_router(tenants.router)
 app.include_router(agents.router)
 app.include_router(missions.router)
-app.include_router(economy.router)
 app.include_router(performance.router)
 app.include_router(metrics.router)
 
@@ -611,7 +631,6 @@ app.include_router(audit.router)
 app.include_router(integrations.router)
 app.include_router(scheduler_router.router)
 app.include_router(vault_router.router)
-app.include_router(campaigns_router.router)
 app.include_router(workforces_router.router)
 app.include_router(revenue_router.router)
 

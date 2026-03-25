@@ -3,24 +3,29 @@ Mission Execution Orchestrator
 Coordinates agents, manages economy, and executes missions end-to-end
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import uuid
 import logging
 from datetime import datetime
-from typing import Dict, Optional, Any
 from enum import Enum
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from backend.integrations.llm.llm_service import LLMService
-from backend.economy.resource_marketplace import ResourceType, ResourceMarketplace
-from backend.core.event_bus.nats_bus import NATSEventBus
-from backend.integrations.observability.telemetry import get_tracer, get_meter
-from backend.integrations.observability.prometheus_metrics import get_metrics
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from backend.agents.factory.agent_factory import AgentFactory
-from backend.agents.integration.governance_hooks import governance_hooks
 from backend.agents.governance import assemble_prompt
-from langchain_core.messages import SystemMessage, HumanMessage
-from typing import TYPE_CHECKING
+from backend.agents.integration.governance_hooks import governance_hooks
+from backend.core.event_bus.nats_bus import NATSEventBus
+from backend.domain.control.services.execution_coordinator import ExecutionCoordinator
+from backend.domain.control.services.workforce_provisioner import WorkforceProvisioner
+from backend.models.domain.execution_task import ExecutionTask, ExecutionTaskType
+from backend.economy.resource_marketplace import ResourceMarketplace, ResourceType
+from backend.integrations.llm.llm_service import LLMService
+from backend.integrations.observability.prometheus_metrics import get_metrics
+from backend.integrations.observability.telemetry import get_meter, get_tracer
 
 if TYPE_CHECKING:
     from backend.core.event_sourcing.event_store_impl import EventStore
@@ -28,21 +33,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
 meter = get_meter(__name__)
-# Get metrics instance inside methods to avoid early initialization issues
 
 
 class MissionComplexity(Enum):
-    """Mission complexity levels"""
+    """Mission complexity levels."""
 
-    SIMPLE = "simple"  # Single agent, single step
+    SIMPLE = "simple"      # Single agent, single step
     MODERATE = "moderate"  # Multiple steps, single agent
-    COMPLEX = "complex"  # Multiple agents, coordination required
-    SWARM = "swarm"  # Requires dynamic swarm formation
+    COMPLEX = "complex"    # Multiple agents, coordination required
+    SWARM = "swarm"        # Requires dynamic swarm formation
 
 
 class MissionExecutor:
     """
-    Orchestrates mission execution with full Agent Economy integration
+    Orchestrates mission execution with economy, governance, and telemetry integration.
+
+    Important architectural rule:
+    - mission execution may request workforce provisioning
+    - mission execution must not create agents directly
     """
 
     def __init__(
@@ -51,38 +59,91 @@ class MissionExecutor:
         event_bus: NATSEventBus,
         llm_service: LLMService,
         event_store: Optional["EventStore"] = None,
-    ):
+        execution_coordinator: Optional[ExecutionCoordinator] = None,
+    ) -> None:
         self.marketplace = marketplace
         self.event_bus = event_bus
         self.llm_service = llm_service
         self.event_store = event_store
+
         self.agent_factory = AgentFactory(llm_service)
+        self.workforce_provisioner = WorkforceProvisioner(self.agent_factory)
+        self.execution_coordinator = execution_coordinator or ExecutionCoordinator()
+
+        # Transitional compatibility seam:
+        # process-local mission cache retained only until authoritative mission
+        # lifecycle state is fully served from governed runtime ownership.
         self.active_missions: Dict[str, Dict[str, Any]] = {}
         self.status_callback = None
 
-    def set_status_callback(self, callback):
+    def _record_active_mission_state(
+        self,
+        mission_id: str,
+        status: str,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
         """
-        Set callback for status updates
+        Transitional compatibility seam for process-local mission state.
+
+        Purpose:
+        - preserve current callback-driven status flow
+        - centralize the only write path to in-memory mission state
+
+        Replacement target:
+        - coordinator/repository-backed mission status projection
+
+        Removal condition:
+        - all mission lifecycle reads come from governed runtime ownership
+
+        Removal milestone:
+        - Exit Transitional Runtime State
+        """
+        current_state = dict(self.active_missions.get(mission_id, {}))
+        current_state.update(kwargs)
+        current_state["mission_id"] = mission_id
+        current_state["status"] = status
+        self.active_missions[mission_id] = current_state
+        return dict(current_state)
+
+    def _get_active_mission_state(self, mission_id: str) -> Dict[str, Any]:
+        """Return a copy of the current compatibility mission cache entry."""
+        return dict(self.active_missions.get(mission_id, {}))
+
+    def _list_active_mission_states(self) -> Dict[str, Dict[str, Any]]:
+        """Return a copy of all compatibility mission cache entries."""
+        return {
+            mission_id: dict(state)
+            for mission_id, state in self.active_missions.items()
+        }
+
+    def set_status_callback(self, callback) -> None:
+        """
+        Set callback for status updates.
 
         Args:
             callback: Async function(mission_id, status, **kwargs)
         """
         self.status_callback = callback
 
-    async def _update_status(self, mission_id: str, status: str, **kwargs):
+    async def _update_status(self, mission_id: str, status: str, **kwargs: Any) -> None:
         """
-        Update mission status via callback
+        Update mission status via callback and keep latest compatibility mission state.
+        """
+        self._record_active_mission_state(mission_id, status, **kwargs)
 
-        Args:
-            mission_id: Mission identifier
-            status: New status
-            **kwargs: Additional data (result, error, execution_time, etc.)
-        """
         if self.status_callback:
             try:
                 await self.status_callback(mission_id, status, **kwargs)
             except Exception as e:
-                logger.error(f"Status callback failed: {e}")
+                logger.error("Status callback failed: %s", e)
+
+    def get_mission_state(self, mission_id: str) -> Dict[str, Any]:
+        """Return the latest known compatibility mission state."""
+        return self._get_active_mission_state(mission_id)
+
+    def list_active_mission_states(self) -> Dict[str, Dict[str, Any]]:
+        """Return all tracked compatibility mission states."""
+        return self._list_active_mission_states()
 
     async def execute_mission(
         self,
@@ -93,17 +154,7 @@ class MissionExecutor:
         budget: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Execute a mission end-to-end with full economy integration
-
-        Args:
-            mission_id: Unique mission identifier
-            goal: Mission objective in natural language
-            tenant_id: Tenant ID for multi-tenancy
-            user_id: User who created the mission
-            budget: Optional budget limit in credits
-
-        Returns:
-            Mission execution result with metrics
+        Execute a mission end-to-end with full economy integration.
         """
         start_time = datetime.utcnow()
 
@@ -112,10 +163,8 @@ class MissionExecutor:
             span.set_attribute("tenant_id", tenant_id)
 
             try:
-                # Initial status update
                 await self._update_status(mission_id, "RUNNING")
 
-                # Append mission.started event to the event store
                 if self.event_store:
                     try:
                         await self.event_store.append(
@@ -130,19 +179,13 @@ class MissionExecutor:
                                 "timestamp": start_time.isoformat(),
                             },
                         )
-                    except Exception as _ev_err:
-                        logger.warning(f"Event store append failed (non-fatal): {_ev_err}")
+                    except Exception as ev_err:
+                        logger.warning("Event store append failed (non-fatal): %s", ev_err)
 
-                # Governance hook: Check if mission can proceed.
-                # primary_agent_id is extracted from the plan after Phase 2 below.
-
-                # Phase 1: Guardian validates the mission
                 await self._update_status(mission_id, "RUNNING", step="validation")
                 validation_result = await self._validate_mission(mission_id, goal, tenant_id)
-                # Note: plan is created in Phase 2; agent_id is extracted below.
 
                 if not validation_result["is_safe"]:
-                    # Record rejected metric
                     get_metrics().record_mission_complete(
                         status="REJECTED",
                         complexity="unknown",
@@ -162,32 +205,33 @@ class MissionExecutor:
                         "risk_score": validation_result["risk_score"],
                     }
 
-                # Phase 2: Commander analyzes and plans
                 await self._update_status(mission_id, "RUNNING", step="planning")
                 plan = await self._create_execution_plan(mission_id, goal, tenant_id, budget)
 
-                # Update status to RUNNING with complexity
-                get_metrics().record_mission_start(complexity=plan.get("complexity", "unknown"))
+                get_metrics().record_mission_start(
+                    complexity=plan.get("complexity", "unknown")
+                )
 
-                # Phase 3: Execute based on complexity
                 await self._update_status(mission_id, "RUNNING", step="executing")
                 if plan["complexity"] == MissionComplexity.SWARM.value:
                     result = await self._execute_with_swarm(mission_id, plan, tenant_id)
                 else:
-                    # Use specialized agents with reasoning workflows
                     result = await self._execute_with_specialized_agents(
                         mission_id, goal, plan, tenant_id
                     )
 
-                # Phase 4: Archivist records everything
                 await self._update_status(mission_id, "RUNNING", step="archiving")
                 await self._archive_mission(mission_id, goal, plan, result, tenant_id)
 
-                # Phase 5: Reward successful agents
                 if result["status"] == "SUCCESS":
                     await self._distribute_rewards(mission_id, plan, result, tenant_id)
 
-                # Record metrics
+                execution_state = (
+                    self.execution_coordinator.get_authoritative_mission_execution_state(
+                        mission_id
+                    )
+                )
+
                 duration = (datetime.utcnow() - start_time).total_seconds()
                 get_metrics().record_mission_complete(
                     status=result["status"],
@@ -195,7 +239,6 @@ class MissionExecutor:
                     duration_seconds=duration,
                 )
 
-                # Update final status
                 final_status = "COMPLETED" if result["status"] == "SUCCESS" else "FAILED"
                 await self._update_status(
                     mission_id,
@@ -203,12 +246,12 @@ class MissionExecutor:
                     result=result.get("output"),
                     cost=result.get("cost", 0.0),
                     execution_time=duration,
+                    execution_state=execution_state,
                 )
 
-                # Append mission.completed or mission.failed event
                 if self.event_store:
                     try:
-                        _ev_type = (
+                        event_type = (
                             "mission.completed"
                             if result["status"] == "SUCCESS"
                             else "mission.failed"
@@ -216,7 +259,7 @@ class MissionExecutor:
                         await self.event_store.append(
                             aggregate_id=mission_id,
                             aggregate_type="mission",
-                            event_type=_ev_type,
+                            event_type=event_type,
                             data={
                                 "status": result["status"],
                                 "cost": result.get("cost", 0.0),
@@ -225,11 +268,9 @@ class MissionExecutor:
                                 "tenant_id": tenant_id,
                             },
                         )
-                    except Exception as _ev_err:
-                        logger.warning(f"Event store append failed (non-fatal): {_ev_err}")
+                    except Exception as ev_err:
+                        logger.warning("Event store append failed (non-fatal): %s", ev_err)
 
-                # Governance hook: Record mission completion — use the
-                # primary_agent_id that was embedded in the plan during Phase 2.
                 primary_agent_id = plan.get("primary_agent_id", f"agent_{mission_id}")
                 try:
                     asyncio.create_task(
@@ -242,7 +283,7 @@ class MissionExecutor:
                         )
                     )
                 except Exception as e:
-                    logger.warning(f"Governance hook failed (non-blocking): {e}")
+                    logger.warning("Governance hook failed (non-blocking): %s", e)
 
                 return {
                     "mission_id": mission_id,
@@ -251,25 +292,24 @@ class MissionExecutor:
                     "cost": result.get("cost", 0.0),
                     "duration_seconds": duration,
                     "agents_used": result.get("agents_used", []),
+                    "execution_state": execution_state,
                 }
 
             except Exception as e:
                 span.record_exception(e)
-                # Determine complexity for metric
-                comp = "unknown"
+
+                complexity = "unknown"
                 if "plan" in locals() and isinstance(plan, dict):
-                    comp = plan.get("complexity", "unknown")
+                    complexity = plan.get("complexity", "unknown")
 
                 get_metrics().record_mission_complete(
                     status="FAILED",
-                    complexity=comp,
+                    complexity=complexity,
                     duration_seconds=(datetime.utcnow() - start_time).total_seconds(),
                 )
 
-                # Update status to FAILED
                 await self._update_status(mission_id, "FAILED", error=str(e))
 
-                # Append mission.failed event on unexpected exception
                 if self.event_store:
                     try:
                         await self.event_store.append(
@@ -284,17 +324,21 @@ class MissionExecutor:
                                 ).total_seconds(),
                             },
                         )
-                    except Exception as _ev_err:
-                        logger.warning(f"Event store append failed (non-fatal): {_ev_err}")
+                    except Exception as ev_err:
+                        logger.warning("Event store append failed (non-fatal): %s", ev_err)
 
                 return {"mission_id": mission_id, "status": "ERROR", "error": str(e)}
 
-    async def _validate_mission(self, mission_id: str, goal: str, tenant_id: str) -> Dict[str, Any]:
-        """Guardian validates mission safety"""
+    async def _validate_mission(
+        self,
+        mission_id: str,
+        goal: str,
+        tenant_id: str,
+    ) -> Dict[str, Any]:
+        """Guardian validates mission safety."""
         with tracer.start_as_current_span("guardian_validate"):
             get_metrics().record_agent_invocation("guardian", "gpt-4-turbo")
 
-            # Get Guardian's LLM
             llm = self.llm_service.get_llm("guardian", tenant_id)
 
             guardian_role = (
@@ -327,11 +371,9 @@ class MissionExecutor:
 
             response = await llm.ainvoke(messages)
 
-            # Parse LLM response (simplified - production would use structured output)
             try:
                 result = json.loads(response.content)
             except Exception:
-                # Fallback if LLM doesn't return valid JSON
                 result = {
                     "is_safe": True,
                     "risk_score": 0.1,
@@ -340,7 +382,6 @@ class MissionExecutor:
                     "estimated_duration_seconds": 30,
                 }
 
-            # Publish validation event
             await self.event_bus.publish(
                 "mission.validated",
                 {
@@ -353,9 +394,13 @@ class MissionExecutor:
             return result
 
     async def _create_execution_plan(
-        self, mission_id: str, goal: str, tenant_id: str, budget: Optional[float]
+        self,
+        mission_id: str,
+        goal: str,
+        tenant_id: str,
+        budget: Optional[float],
     ) -> Dict[str, Any]:
-        """Commander creates execution plan"""
+        """Commander creates execution plan."""
         with tracer.start_as_current_span("commander_plan"):
             get_metrics().record_agent_invocation("commander", "gpt-4-turbo")
 
@@ -405,10 +450,6 @@ class MissionExecutor:
                     "requires_tools": [],
                 }
 
-            # Ensure a stable primary_agent_id is embedded in the plan so that
-            # governance hooks can reference a real agent identifier rather than
-            # a placeholder.  The id is deterministic for the mission so that
-            # repeated calls return the same value.
             if "primary_agent_id" not in plan:
                 plan["primary_agent_id"] = f"agent_{mission_id}"
 
@@ -424,84 +465,160 @@ class MissionExecutor:
             return plan
 
     async def _execute_with_specialized_agents(
-        self, mission_id: str, goal: str, plan: Dict[str, Any], tenant_id: str
+        self,
+        mission_id: str,
+        goal: str,
+        plan: Dict[str, Any],
+        tenant_id: str,
     ) -> Dict[str, Any]:
         """
-        Execute mission with specialized agents (Researcher, Analyst, Developer).
+        Execute mission with specialized agents.
 
-        This method intelligently selects the appropriate specialized agent based on
-        the mission goal and plan, then executes the mission using the agent's
-        reasoning workflow and tool-calling capabilities.
-
-        Args:
-            mission_id: Mission identifier
-            goal: Mission objective
-            plan: Execution plan from Commander
-            tenant_id: Tenant ID
-
-        Returns:
-            Mission execution result with outputs and costs
+        Architectural rule:
+        - this method requests provisioning
+        - this method must not create agents directly
         """
         with tracer.start_as_current_span("execute_specialized_agents"):
             try:
-                # Create appropriate specialized agent for this mission
-                agent = self.agent_factory.create_agent_for_mission(
-                    mission_goal=goal, plan=plan, tenant_id=tenant_id
+                plan_with_mission_id = dict(plan)
+                plan_with_mission_id["mission_id"] = mission_id
+
+                agent = await self.workforce_provisioner.provision_agent_for_mission(
+                    mission_goal=goal,
+                    plan=plan_with_mission_id,
+                    tenant_id=tenant_id,
                 )
 
-                # If no specialized agent needed, fall back to simple execution
                 if agent is None:
                     logger.info(
-                        f"Mission {mission_id}: Using simple execution (no specialized agent needed)"  # noqa: E501
+                        "Mission %s: Using simple execution (no specialized agent needed)",
+                        mission_id,
                     )
                     return await self._execute_with_agents(mission_id, plan, tenant_id)
 
-                # Log agent selection
                 agent_type = agent.agent_type
+                fleet_id = getattr(agent, "fleet_id", None)
+                branch_id = plan.get("branch_id")
+
                 logger.info(
-                    f"Mission {mission_id}: Using {agent_type} agent with reasoning workflow"
+                    "Mission %s: Using %s agent with reasoning workflow",
+                    mission_id,
+                    agent_type,
                 )
 
-                # Charge initial cost for agent invocation
                 await self.marketplace.charge(
                     tenant_id=tenant_id,
                     agent_id=agent.agent_id,
-                    amount=2.0,  # Base cost for specialized agent
+                    amount=2.0,
                     resource_type=ResourceType.LLM_CALL.value,
                     mission_id=mission_id,
                     agent_type=agent_type,
+                    fleet_id=fleet_id,
+                    branch_id=branch_id,
                 )
 
-                # Prepare task based on agent type
                 if agent_type == "researcher":
-                    task = {
-                        "query": goal,
-                        "depth": ("standard" if plan.get("complexity") != "complex" else "deep"),
-                    }
+                    task = ExecutionTask(
+                        id=f"task_{mission_id}_{agent.agent_id}",
+                        mission_id=mission_id,
+                        tenant_id=tenant_id,
+                        title="Research Task",
+                        objective=goal,
+                        task_type=ExecutionTaskType.RESEARCH,
+                        fleet_id=fleet_id,
+                        assigned_agent_id=agent.agent_id,
+                        branch_id=branch_id,
+                        input_payload={
+                            "query": goal,
+                            "depth": (
+                                "standard"
+                                if plan.get("complexity") != "complex"
+                                else "deep"
+                            ),
+                        },
+                        metadata={
+                            "source": "mission_executor",
+                            "agent_type": agent_type,
+                        },
+                    )
                 elif agent_type == "analyst":
-                    task = {
-                        "data": plan.get("data", {}),
-                        "analysis_type": "descriptive",  # Could be inferred from goal
-                    }
+                    task = ExecutionTask(
+                        id=f"task_{mission_id}_{agent.agent_id}",
+                        mission_id=mission_id,
+                        tenant_id=tenant_id,
+                        title="Analysis Task",
+                        objective=goal,
+                        task_type=ExecutionTaskType.ANALYSIS,
+                        fleet_id=fleet_id,
+                        assigned_agent_id=agent.agent_id,
+                        branch_id=branch_id,
+                        input_payload={
+                            "data": plan.get("data", {}),
+                            "analysis_type": "descriptive",
+                        },
+                        metadata={
+                            "source": "mission_executor",
+                            "agent_type": agent_type,
+                        },
+                    )
                 elif agent_type == "developer":
-                    task = {
-                        "task_type": "generate",  # Could be: generate, debug, review, test
-                        "specification": goal,
-                    }
+                    task = ExecutionTask(
+                        id=f"task_{mission_id}_{agent.agent_id}",
+                        mission_id=mission_id,
+                        tenant_id=tenant_id,
+                        title="Development Task",
+                        objective=goal,
+                        task_type=ExecutionTaskType.GENERATION,
+                        fleet_id=fleet_id,
+                        assigned_agent_id=agent.agent_id,
+                        branch_id=branch_id,
+                        input_payload={
+                            "task_type": "generate",
+                            "specification": goal,
+                        },
+                        metadata={
+                            "source": "mission_executor",
+                            "agent_type": agent_type,
+                        },
+                    )
                 else:
-                    task = {"query": goal}
+                    task = ExecutionTask(
+                        id=f"task_{mission_id}_{agent.agent_id}",
+                        mission_id=mission_id,
+                        tenant_id=tenant_id,
+                        title="Generic Task",
+                        objective=goal,
+                        task_type=ExecutionTaskType.GENERIC,
+                        fleet_id=fleet_id,
+                        assigned_agent_id=agent.agent_id,
+                        branch_id=branch_id,
+                        input_payload={"query": goal},
+                        metadata={
+                            "source": "mission_executor",
+                            "agent_type": agent_type,
+                        },
+                    )
 
-                # Execute with specialized agent
-                result = await agent.execute(task)
+                execution_context = self.execution_coordinator.build_task_execution_context(
+                    mission_id=mission_id,
+                    tenant_id=tenant_id,
+                    objective=goal,
+                    fleet=getattr(agent, "fleet", None),
+                    task=task,
+                    branch_id=branch_id,
+                    metadata={
+                        "source": "mission_executor",
+                        "agent_type": agent_type,
+                    },
+                )
 
-                # Calculate total cost (base + reasoning steps + tool usage)
-                # For now, use a simple cost model
+                result = await agent.execute(task.model_dump())
+
                 base_cost = 2.0
-                reasoning_cost = 1.0 * len(plan.get("steps", []))  # Cost per reasoning step
-                tool_cost = 0.5 * len(plan.get("requires_tools", []))  # Cost per tool
+                reasoning_cost = 1.0 * len(plan.get("steps", []))
+                tool_cost = 0.5 * len(plan.get("requires_tools", []))
                 total_cost = base_cost + reasoning_cost + tool_cost
 
-                # Charge additional costs if needed
                 if reasoning_cost + tool_cost > 0:
                     await self.marketplace.charge(
                         tenant_id=tenant_id,
@@ -510,22 +627,24 @@ class MissionExecutor:
                         resource_type=ResourceType.LLM_CALL.value,
                         mission_id=mission_id,
                         agent_type=agent_type,
+                        fleet_id=fleet_id,
+                        task_id=task.id,
+                        branch_id=branch_id,
                     )
 
-                # Format result
                 if result.get("success"):
-                    # Extract output based on agent type
                     if agent_type == "researcher":
                         output = result.get("synthesis", "")
-                        # Include sources in output
                         sources = result.get("sources", [])
                         if sources:
                             output += "\n\nSources:\n"
                             for i, source in enumerate(sources[:5], 1):
-                                output += f"{i}. {source.get('title', 'Unknown')} - {source.get('url', '')}\n"  # noqa: E501
+                                output += (
+                                    f"{i}. {source.get('title', 'Unknown')} - "
+                                    f"{source.get('url', '')}\n"
+                                )
                     elif agent_type == "analyst":
                         output = result.get("insights", "")
-                        # Include calculations
                         calculations = result.get("calculations", {})
                         if calculations:
                             output += "\n\nKey Metrics:\n"
@@ -544,51 +663,96 @@ class MissionExecutor:
                         "agent_type": agent_type,
                         "reasoning_used": True,
                         "tools_used": plan.get("requires_tools", []),
+                        "execution_context": execution_context,
+                        "fleet_id": fleet_id,
+                        "branch_id": branch_id,
                     }
-                else:
-                    # Agent execution failed, return error
-                    error_msg = result.get("error", "Unknown error")
-                    logger.error(f"Mission {mission_id}: {agent_type} agent failed: {error_msg}")
 
-                    return {
-                        "status": "FAILED",
-                        "output": f"Agent execution failed: {error_msg}",
-                        "cost": total_cost,
-                        "agents_used": ["commander", "guardian", agent_type],
-                        "error": error_msg,
-                    }
+                error_msg = result.get("error", "Unknown error")
+                logger.error(
+                    "Mission %s: %s agent failed: %s",
+                    mission_id,
+                    agent_type,
+                    error_msg,
+                )
+
+                return {
+                    "status": "FAILED",
+                    "output": f"Agent execution failed: {error_msg}",
+                    "cost": total_cost,
+                    "agents_used": ["commander", "guardian", agent_type],
+                    "error": error_msg,
+                    "execution_context": execution_context,
+                    "fleet_id": fleet_id,
+                    "branch_id": branch_id,
+                }
 
             except Exception as e:
-                logger.error(f"Mission {mission_id}: Specialized agent execution failed: {e}")
-                # Fall back to simple execution on error
-                logger.info(f"Mission {mission_id}: Falling back to simple execution")
+                logger.error(
+                    "Mission %s: Specialized agent execution failed: %s",
+                    mission_id,
+                    e,
+                )
+                logger.info("Mission %s: Falling back to simple execution", mission_id)
                 return await self._execute_with_agents(mission_id, plan, tenant_id)
 
     async def _execute_with_agents(
-        self, mission_id: str, plan: Dict[str, Any], tenant_id: str
+        self,
+        mission_id: str,
+        plan: Dict[str, Any],
+        tenant_id: str,
     ) -> Dict[str, Any]:
-        """Execute mission with standard agents"""
+        """Execute mission with standard agents."""
         with tracer.start_as_current_span("execute_agents"):
             total_cost = 0.0
             outputs = []
 
-            # Get LLM based on Commander's selection
-            # Force OpenAI for now (Quick Fix - Option A)
             model_name = "gpt-3.5-turbo"
             llm = self.llm_service.get_llm_by_model(model_name, tenant_id)
 
-            # Execute each step
+            task = ExecutionTask(
+                id=f"task_{mission_id}_executor",
+                mission_id=mission_id,
+                tenant_id=tenant_id,
+                title="Standard Mission Execution",
+                objective=plan.get("goal", "Execute standard mission plan"),
+                task_type=ExecutionTaskType.GENERIC,
+                branch_id=plan.get("branch_id"),
+                input_payload={
+                    "steps": plan.get("steps", []),
+                    "complexity": plan.get("complexity"),
+                },
+                metadata={
+                    "source": "mission_executor",
+                    "agent_type": "executor",
+                    "execution_mode": "standard",
+                },
+            )
+
+            execution_context = self.execution_coordinator.build_task_execution_context(
+                mission_id=mission_id,
+                tenant_id=tenant_id,
+                objective=task.objective,
+                task=task,
+                branch_id=plan.get("branch_id"),
+                metadata={
+                    "source": "mission_executor",
+                    "execution_mode": "standard",
+                },
+            )
+
             for i, step in enumerate(plan["steps"]):
                 get_metrics().record_agent_invocation("executor", model_name)
 
-                # Charge for resource usage
                 await self.marketplace.charge(
                     tenant_id=tenant_id,
                     agent_id=f"agent_executor_{i}",
-                    amount=1.0,  # Base cost, will be updated with actual
+                    amount=1.0,
                     resource_type=ResourceType.LLM_CALL.value,
-                    mission_id=None,
+                    mission_id=mission_id,
                     agent_type="executor",
+                    task_id=task.id,
+                    branch_id=plan.get("branch_id"),
                 )
                 cost = 1.0
 
@@ -610,14 +774,22 @@ class MissionExecutor:
                 "output": "\n\n".join(outputs),
                 "cost": total_cost,
                 "agents_used": ["commander", "guardian", "executor"],
+                "agent_type": "executor",
+                "reasoning_used": False,
+                "tools_used": plan.get("requires_tools", []),
+                "fleet_id": None,
+                "branch_id": plan.get("branch_id"),
+                "execution_context": execution_context,
             }
 
     async def _execute_with_swarm(
-        self, mission_id: str, plan: Dict[str, Any], tenant_id: str
+        self,
+        mission_id: str,
+        plan: Dict[str, Any],
+        tenant_id: str,
     ) -> Dict[str, Any]:
-        """Execute mission with dynamic swarm"""
+        """Execute mission with dynamic swarm."""
         with tracer.start_as_current_span("execute_swarm"):
-            # Spawn multiple agents in parallel
             tasks = []
             for step in plan["steps"]:
                 task = self._execute_swarm_agent(mission_id, step, tenant_id)
@@ -625,21 +797,65 @@ class MissionExecutor:
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Aggregate results
-            total_cost = sum(r.get("cost", 0) for r in results if isinstance(r, dict))
-            outputs = [r.get("output", "") for r in results if isinstance(r, dict)]
+            swarm_task = ExecutionTask(
+                id=f"task_{mission_id}_swarm",
+                mission_id=mission_id,
+                tenant_id=tenant_id,
+                title="Swarm Mission Execution",
+                objective=plan.get("goal", "Execute swarm mission plan"),
+                task_type=ExecutionTaskType.COORDINATION,
+                branch_id=plan.get("branch_id"),
+                input_payload={
+                    "steps": plan.get("steps", []),
+                    "complexity": plan.get("complexity"),
+                    "execution_mode": "swarm",
+                },
+                metadata={
+                    "source": "mission_executor",
+                    "agent_type": "swarm",
+                    "execution_mode": "swarm",
+                },
+            )
+
+            execution_context = self.execution_coordinator.build_task_execution_context(
+                mission_id=mission_id,
+                tenant_id=tenant_id,
+                objective=swarm_task.objective,
+                task=swarm_task,
+                branch_id=plan.get("branch_id"),
+                metadata={
+                    "source": "mission_executor",
+                    "execution_mode": "swarm",
+                },
+            )
+
+            total_cost = sum(
+                r.get("cost", 0) for r in results if isinstance(r, dict)
+            )
+            outputs = [
+                r.get("output", "") for r in results if isinstance(r, dict)
+            ]
 
             return {
                 "status": "SUCCESS",
                 "output": "\n\n".join(outputs),
                 "cost": total_cost,
                 "agents_used": ["swarm"] * len(results),
+                "agent_type": "swarm",
+                "reasoning_used": True,
+                "tools_used": plan.get("requires_tools", []),
+                "fleet_id": None,
+                "branch_id": plan.get("branch_id"),
+                "execution_context": execution_context,
             }
 
     async def _execute_swarm_agent(
-        self, mission_id: str, task: str, tenant_id: str
+        self,
+        mission_id: str,
+        task: str,
+        tenant_id: str,
     ) -> Dict[str, Any]:
-        """Execute a single swarm agent"""
+        """Execute a single swarm agent."""
         get_metrics().record_agent_invocation("swarm_agent", "gpt-3.5-turbo")
 
         llm = self.llm_service.get_llm_by_model("gpt-3.5-turbo", tenant_id)
@@ -649,8 +865,9 @@ class MissionExecutor:
             agent_id=f"swarm_agent_{uuid.uuid4().hex[:8]}",
             amount=0.5,
             resource_type=ResourceType.LLM_CALL.value,
-            mission_id=None,
+            mission_id=mission_id,
             agent_type="swarm_agent",
+            branch_id=None,
         )
         cost = 0.5
 
@@ -674,12 +891,17 @@ class MissionExecutor:
         plan: Dict[str, Any],
         result: Dict[str, Any],
         tenant_id: str,
-    ):
-        """Archivist records mission for future learning"""
+    ) -> None:
+        """Archivist records mission for future learning."""
         with tracer.start_as_current_span("archivist_archive"):
             get_metrics().record_agent_invocation("archivist", "gpt-4-turbo")
 
-            # Publish mission completion event
+            execution_state = (
+                self.execution_coordinator.get_authoritative_mission_execution_state(
+                    mission_id
+                )
+            )
+
             await self.event_bus.publish(
                 "mission.completed",
                 {
@@ -688,12 +910,11 @@ class MissionExecutor:
                     "status": result["status"],
                     "cost": result.get("cost", 0.0),
                     "complexity": plan["complexity"],
+                    "execution_state": execution_state,
                 },
             )
 
-            # In production, this would save to database
-            # For now, just log it
-            logger.info(f"Mission {mission_id} archived: {result['status']}")
+            logger.info("Mission %s archived: %s", mission_id, result["status"])
 
     async def _distribute_rewards(
         self,
@@ -701,10 +922,9 @@ class MissionExecutor:
         plan: Dict[str, Any],
         result: Dict[str, Any],
         tenant_id: str,
-    ):
-        """Distribute rewards to successful agents"""
+    ) -> None:
+        """Distribute rewards to successful agents."""
         with tracer.start_as_current_span("distribute_rewards"):
-            # Calculate reward based on mission complexity
             complexity_multiplier = {
                 "simple": 1.0,
                 "moderate": 1.5,
@@ -712,13 +932,12 @@ class MissionExecutor:
                 "swarm": 3.0,
             }
 
-            base_reward = 10.0  # Base credits
+            base_reward = 10.0
             multiplier = complexity_multiplier.get(plan["complexity"], 1.0)
             total_reward = base_reward * multiplier
 
-            # Reward each agent that participated
             agents_used = result.get("agents_used", [])
-            reward_per_agent = total_reward / len(agents_used) if agents_used else 0
+            reward_per_agent = total_reward / len(agents_used) if agents_used else 0.0
 
             for agent_name in agents_used:
                 await self.marketplace.reward(
@@ -730,7 +949,6 @@ class MissionExecutor:
                     agent_type="executor",
                 )
 
-            # Publish reward event
             await self.event_bus.publish(
                 "rewards.distributed",
                 {

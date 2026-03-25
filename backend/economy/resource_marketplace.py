@@ -1,13 +1,12 @@
 """
-Resource Marketplace - Agent Economy System
-Manages credits, transactions, and resource allocation for agents
+Resource Marketplace
+Manages credits, transactions, and resource allocation for runtime execution
 
 Persistence: Redis-backed with in-memory fallback.
 - Balances are stored in Redis hashes: economy:{tenant_id}:balance:{agent_id}
 - Transactions are stored in Redis lists: economy:{tenant_id}:txns
 - If Redis is unavailable, falls back to in-memory storage transparently.
 
-Built with Pride for Obex Blackvault
 """
 
 import asyncio
@@ -98,11 +97,11 @@ class ResourceMarketplace:
         url = self._redis_url
         if not url:
             try:
-                from backend.core.config import get_settings
+                from backend.config.settings import Settings
 
-                url = get_settings().redis_url
+                url = Settings().REDIS_URL
             except Exception:
-                url = "redis://localhost:6379/0"
+                url = None
 
         try:
             self._redis = aioredis.from_url(
@@ -290,6 +289,9 @@ class ResourceMarketplace:
         resource_type: str,
         mission_id: Optional[str] = None,
         agent_type: str = "unknown",
+        fleet_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        branch_id: Optional[str] = None,
     ) -> Dict:
         """
         Charge an agent for resource usage.
@@ -312,6 +314,9 @@ class ResourceMarketplace:
             "amount": amount,
             "resource_type": resource_type,
             "mission_id": mission_id,
+            "fleet_id": fleet_id,
+            "task_id": task_id,
+            "branch_id": branch_id,
             "timestamp": datetime.utcnow(),
         }
 
@@ -354,6 +359,9 @@ class ResourceMarketplace:
         resource_type: str,
         mission_id: Optional[str] = None,
         agent_type: str = "unknown",
+        fleet_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        branch_id: Optional[str] = None,
     ) -> Dict:
         """
         Reward an agent with credits.
@@ -376,6 +384,9 @@ class ResourceMarketplace:
             "amount": amount,
             "resource_type": resource_type,
             "mission_id": mission_id,
+            "fleet_id": fleet_id,
+            "task_id": task_id,
+            "branch_id": branch_id,
             "timestamp": datetime.utcnow(),
         }
 

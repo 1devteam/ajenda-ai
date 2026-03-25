@@ -107,3 +107,18 @@ env/
 
 # Archive
 archive/
+
+# Ajenda local secrets / runtime
+.env.ajenda-local
+*.bak.*
+
+# Local runtime / scratch
+.env.ajenda-local
+*.bak.*
+*.bak
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.sqlite
+*.sqlite3

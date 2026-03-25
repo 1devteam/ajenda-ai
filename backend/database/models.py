@@ -557,3 +557,108 @@ class Deal(Base):
     opportunity = relationship("Opportunity", back_populates="deal")
     closed_by = relationship("Agent", foreign_keys=[closed_by_agent_id])
     attributed_workforce = relationship("Workforce", foreign_keys=[attributed_workforce_id])
+
+
+class WorkforceFleetRecord(Base):
+    """Governed runtime workforce fleet state."""
+
+    __tablename__ = "workforce_fleets"
+
+    id = Column(String(50), primary_key=True, index=True)
+    mission_id = Column(String(50), ForeignKey("missions.id"), nullable=False, index=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
+
+    status = Column(String(50), nullable=False, index=True, default="pending")
+    fleet_type = Column(String(50), nullable=False, index=True, default="single")
+    objective = Column(Text, nullable=False)
+
+    primary_agent_id = Column(String(50), ForeignKey("agents.id"), nullable=True, index=True)
+    branch_id = Column(String(50), nullable=True, index=True)
+    parent_fleet_id = Column(String(50), ForeignKey("workforce_fleets.id"), nullable=True, index=True)
+
+    agent_ids = Column(JSON, default=list, nullable=False)
+    runtime_metadata = Column("metadata", JSON, default=dict, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    activated_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+
+    tenant = relationship("Tenant")
+    mission = relationship("Mission")
+    primary_agent = relationship("Agent", foreign_keys=[primary_agent_id])
+    parent_fleet = relationship("WorkforceFleetRecord", remote_side=[id])
+
+
+class ExecutionTaskRecord(Base):
+    """Governed runtime execution task state."""
+
+    __tablename__ = "execution_tasks"
+
+    id = Column(String(50), primary_key=True, index=True)
+    mission_id = Column(String(50), ForeignKey("missions.id"), nullable=False, index=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
+
+    title = Column(String(255), nullable=False)
+    objective = Column(Text, nullable=False)
+
+    status = Column(String(50), nullable=False, index=True, default="pending")
+    task_type = Column(String(50), nullable=False, index=True, default="generic")
+
+    fleet_id = Column(String(50), ForeignKey("workforce_fleets.id"), nullable=True, index=True)
+    assigned_agent_id = Column(String(50), ForeignKey("agents.id"), nullable=True, index=True)
+    parent_task_id = Column(String(50), ForeignKey("execution_tasks.id"), nullable=True, index=True)
+    branch_id = Column(String(50), nullable=True, index=True)
+
+    input_payload = Column(JSON, default=dict, nullable=False)
+    output_payload = Column(JSON, default=dict, nullable=False)
+    dependencies = Column(JSON, default=list, nullable=False)
+    runtime_metadata = Column("metadata", JSON, default=dict, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+
+    tenant = relationship("Tenant")
+    mission = relationship("Mission")
+    fleet = relationship("WorkforceFleetRecord")
+    assigned_agent = relationship("Agent", foreign_keys=[assigned_agent_id])
+    parent_task = relationship("ExecutionTaskRecord", remote_side=[id])
+
+
+class ExecutionBranchRecord(Base):
+    """Governed runtime execution branch state."""
+
+    __tablename__ = "execution_branches"
+
+    id = Column(String(50), primary_key=True, index=True)
+    mission_id = Column(String(50), ForeignKey("missions.id"), nullable=False, index=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id"), nullable=False, index=True)
+
+    branch_type = Column(String(50), nullable=False, index=True)
+    status = Column(String(50), nullable=False, index=True, default="pending")
+    objective = Column(Text, nullable=False)
+
+    source_task_id = Column(String(50), ForeignKey("execution_tasks.id"), nullable=True, index=True)
+    source_fleet_id = Column(String(50), ForeignKey("workforce_fleets.id"), nullable=True, index=True)
+    parent_branch_id = Column(String(50), ForeignKey("execution_branches.id"), nullable=True, index=True)
+
+    spawned_fleet_id = Column(String(50), ForeignKey("workforce_fleets.id"), nullable=True, index=True)
+    spawned_task_id = Column(String(50), ForeignKey("execution_tasks.id"), nullable=True, index=True)
+
+    reason = Column(Text, nullable=False)
+    runtime_metadata = Column("metadata", JSON, default=dict, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    activated_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+
+    tenant = relationship("Tenant")
+    mission = relationship("Mission")
+    source_task = relationship("ExecutionTaskRecord", foreign_keys=[source_task_id])
+    source_fleet = relationship("WorkforceFleetRecord", foreign_keys=[source_fleet_id])
+    parent_branch = relationship("ExecutionBranchRecord", remote_side=[id])
+    spawned_fleet = relationship("WorkforceFleetRecord", foreign_keys=[spawned_fleet_id])
+    spawned_task = relationship("ExecutionTaskRecord", foreign_keys=[spawned_task_id])

@@ -19,11 +19,10 @@ Built with Pride for Obex Blackvault.
 """
 
 import logging
-import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -415,18 +414,16 @@ async def remove_member(
 async def run_workforce(
     workforce_id: str,
     payload: WorkforceRunRequest,
-    background_tasks: BackgroundTasks,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
     Run a coordinated multi-agent mission against a workforce.
 
-    The workforce coordinator decomposes the goal into typed sub-missions,
-    assigns them to agent roles, executes them in dependency order, and
-    synthesises a final output.
-
-    Returns immediately with a run_id. Poll GET /runs/{run_id} for status.
+    Transitional behavior:
+    - returns the real coordinator-issued run_id
+    - keeps current in-memory run tracking runnable
+    - governed execution state is exposed via get_run_state()
     """
     wf = (
         db.query(Workforce)
@@ -450,53 +447,44 @@ async def run_workforce(
             detail="WorkforceCoordinator is not available",
         )
 
-    # Determine roles from workforce config
     roles = [r.get("role") for r in (wf.roles or []) if r.get("role")]
     pipeline_type = payload.pipeline_type or wf.pipeline_type
     budget = payload.budget or wf.default_budget
 
-    # Update run stats
     wf.total_runs += 1
     wf.last_run_at = datetime.utcnow()
     wf.updated_at = datetime.utcnow()
     db.commit()
 
-    # Dispatch as background task so the HTTP response is immediate
-    async def _run_and_update():
-        result = await coordinator.run(
-            workforce_id=workforce_id,
-            goal=payload.goal,
-            tenant_id=current_user.tenant_id,
-            user_id=current_user.id,
-            roles=roles,
-            pipeline_type=pipeline_type,
-            budget=budget,
-        )
-        # Update success/failure counters
-        try:
-            wf_db = db.query(Workforce).filter(Workforce.id == workforce_id).first()
-            if wf_db:
-                if result.get("status") in ("completed",):
-                    wf_db.successful_runs += 1
-                else:
-                    wf_db.failed_runs += 1
-                db.commit()
-        except Exception as exc:
-            logger.warning(f"Failed to update workforce run stats: {exc}")
+    result = await coordinator.run(
+        workforce_id=workforce_id,
+        goal=payload.goal,
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.id,
+        roles=roles,
+        pipeline_type=pipeline_type,
+        budget=budget,
+    )
 
-    background_tasks.add_task(_run_and_update)
-
-    # Generate a deterministic run_id preview (coordinator will assign the real one)
-    preview_run_id = f"run_{uuid.uuid4().hex[:16]}"
+    try:
+        wf_db = db.query(Workforce).filter(Workforce.id == workforce_id).first()
+        if wf_db:
+            if result.get("status") in ("completed",):
+                wf_db.successful_runs += 1
+            else:
+                wf_db.failed_runs += 1
+            db.commit()
+    except Exception as exc:
+        logger.warning(f"Failed to update workforce run stats: {exc}")
 
     return {
         "message": "Workforce run started",
         "workforce_id": workforce_id,
-        "run_id": preview_run_id,
+        "run_id": result["run_id"],
         "goal": payload.goal,
         "roles": roles,
         "pipeline_type": pipeline_type,
-        "status": "running",
+        "status": result.get("status", "running"),
     }
 
 
@@ -509,8 +497,9 @@ async def get_run_status(
     """
     Get the status of a workforce run.
 
-    The WorkforceCoordinator holds in-memory run state. For completed runs,
-    the full output and sub-mission results are returned.
+    Transitional behavior:
+    - legacy workforce run envelope remains
+    - governed fleet/task/branch state is overlaid by coordinator.get_run_state()
     """
     coordinator = _get_workforce_coordinator()
     if not coordinator:
@@ -519,14 +508,19 @@ async def get_run_status(
             detail="WorkforceCoordinator is not available",
         )
 
-    run = coordinator.get_run(run_id)
+    run = coordinator.get_run_state(run_id)
     if not run:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Run {run_id} not found",
         )
 
-    # Tenant isolation check
+    if run.get("workforce_id") != workforce_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found in workforce {workforce_id}",
+        )
+
     if run.get("tenant_id") != current_user.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
