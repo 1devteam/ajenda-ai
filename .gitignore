@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.python-version
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build
+build/
+dist/
+site/
+.eggs/
+*.egg
+*.egg-info/
+pip-wheel-metadata/
+
+# Test / coverage / type-check
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+pytestdebug.log
+
+# Logs / runtime files
+*.log
+logs/
+tmp/
+temp/
+*.pid
+*.pid.lock
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+!.env.prod.example
+*.pem
+*.key
+*.crt
+secrets/
+*.secret
+
+# Database / local state
+*.sqlite
+*.sqlite3
+
+# Docker / local volumes
+postgres_data/
+docker-data/
+
+# Alembic / migration artifacts
+alembic/versions/__pycache__/
+
+# Node / frontend artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Project outputs / generated files
+docs/snapshots/
+artifacts/
+reports/
+
+# Bytecode / caches anywhere
+**/__pycache__/
