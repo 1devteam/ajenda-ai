@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ajenda-api
+  namespace: ajenda
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ajenda-api
+  template:
+    metadata:
+      labels:
+        app: ajenda-api
+    spec:
+      containers:
+        - name: api
+          image: ajenda/api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: ajenda-config
+            - secretRef:
+                name: ajenda-secrets
+          readinessProbe:
+            httpGet:
+              path: /system/readiness
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /system/health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi

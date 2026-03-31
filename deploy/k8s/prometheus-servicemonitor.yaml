@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ajenda-api
+  namespace: ajenda
+spec:
+  selector:
+    matchLabels:
+      app: ajenda-api
+  namespaceSelector:
+    matchNames:
+      - ajenda
+  endpoints:
+    - port: http
+      path: /observability/metrics
+      interval: 15s

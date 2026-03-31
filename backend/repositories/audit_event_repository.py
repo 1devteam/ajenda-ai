@@ -1,0 +1,25 @@
+from __future__ import annotations
+
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from backend.domain.audit_event import AuditEvent
+
+
+class AuditEventRepository:
+    """Append-only audit event storage."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def append(self, event: AuditEvent) -> AuditEvent:
+        self._session.add(event)
+        self._session.flush()
+        self._session.refresh(event)
+        return event
+
+    def list_for_mission(self, mission_id: uuid.UUID) -> list[AuditEvent]:
+        stmt = select(AuditEvent).where(AuditEvent.mission_id == mission_id)
+        return list(self._session.scalars(stmt))

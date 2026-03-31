@@ -1,0 +1,20 @@
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from backend.db.base import Base
+from backend.services.api_key_service import ApiKeyService
+
+
+def _session() -> Session:
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)()
+
+
+def test_cross_tenant_machine_access_rejected() -> None:
+    session = _session()
+    service = ApiKeyService(session)
+    plaintext, record = service.create_key(tenant_id="tenant-a", scopes=())
+    with pytest.raises(ValueError):
+        service.authenticate_machine(tenant_id="tenant-b", key_id=record.key_id, plaintext=plaintext)

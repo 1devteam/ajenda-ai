@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ajenda-worker
+  namespace: ajenda
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ajenda-worker
+  template:
+    metadata:
+      labels:
+        app: ajenda-worker
+    spec:
+      containers:
+        - name: worker
+          image: ajenda/worker:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ajenda-config
+            - secretRef:
+                name: ajenda-secrets
+          readinessProbe:
+            exec:
+              command: ["/app/deploy/scripts/readinesscheck.sh"]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            exec:
+              command: ["/app/deploy/scripts/healthcheck.sh"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
