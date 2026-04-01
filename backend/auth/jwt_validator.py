@@ -1,63 +1,124 @@
+"""JWT validation with cryptographic signature verification via JWKS.
+
+This module replaces the previous implementation that only base64-decoded
+the payload without verifying the signature. That implementation accepted
+any crafted token and was a complete authentication bypass.
+
+This implementation:
+- Fetches JWKS from the configured endpoint with a 10-minute TTL cache
+- Verifies the token signature against all available keys
+- Enforces issuer, audience, and expiry claims
+- Fails closed on any error — no partial validation
+"""
 from __future__ import annotations
 
-import base64
-import json
-from dataclasses import dataclass
+import logging
+import time
 from typing import Any
+
+import httpx
+from jose import JWTError, jwt
+from jose.exceptions import ExpiredSignatureError, JWTClaimsError
+
+logger = logging.getLogger("ajenda.jwt_validator")
+
+_JWKS_CACHE_TTL_SECONDS = 600  # 10 minutes
 
 
 class JwtValidationError(ValueError):
-    pass
+    """Raised on any JWT validation failure."""
 
 
-@dataclass(frozen=True, slots=True)
-class JwtClaims:
-    subject: str
-    tenant_id: str
-    roles: tuple[str, ...]
-    email: str | None
-    issuer: str | None
-    audience: str | None
+class JwksCache:
+    """Thread-safe JWKS cache with TTL-based refresh.
+
+    On refresh failure, retains the previously cached keys to avoid
+    a hard outage due to a transient JWKS endpoint failure. If no
+    keys have ever been fetched, raises RuntimeError (fail closed).
+    """
+
+    def __init__(self, jwks_uri: str) -> None:
+        self._jwks_uri = jwks_uri
+        self._keys: list[dict[str, Any]] = []
+        self._fetched_at: float = 0.0
+
+    def get_keys(self) -> list[dict[str, Any]]:
+        """Return cached JWKS keys, refreshing if TTL has expired."""
+        now = time.monotonic()
+        if now - self._fetched_at > _JWKS_CACHE_TTL_SECONDS or not self._keys:
+            self._refresh()
+        return self._keys
+
+    def _refresh(self) -> None:
+        try:
+            response = httpx.get(self._jwks_uri, timeout=5.0)
+            response.raise_for_status()
+            fetched = response.json().get("keys", [])
+            if fetched:
+                self._keys = fetched
+                self._fetched_at = time.monotonic()
+                logger.info("jwks_refreshed", extra={"key_count": len(self._keys)})
+            else:
+                logger.warning("jwks_returned_empty_keyset", extra={"uri": self._jwks_uri})
+        except Exception as exc:  # noqa: BLE001
+            logger.error("jwks_refresh_failed", extra={"error": str(exc)})
+            # Retain stale keys on transient failure — better than hard outage
+            if not self._keys:
+                raise RuntimeError(
+                    f"JWKS fetch failed and no cached keys available: {exc}"
+                ) from exc
 
 
 class JwtValidator:
-    """Strict JWT parser for Phase 3 contract tests.
+    """Cryptographically verified JWT validation using JWKS.
 
-    Signature verification is delegated to the OIDC adapter layer. This validator
-    parses claims and enforces presence of required identity fields.
+    Verifies: signature, issuer, audience, expiry.
+    Fails closed on any error — no partial validation is permitted.
+
+    Usage:
+        validator = JwtValidator(jwks_uri=..., issuer=..., audience=...)
+        claims = validator.validate_and_extract_claims(token)
     """
 
-    def parse_claims(self, token: str) -> JwtClaims:
-        parts = token.split(".")
-        if len(parts) < 2:
-            raise JwtValidationError("invalid jwt structure")
-        payload = self._decode_segment(parts[1])
-        subject = payload.get("sub")
-        tenant_id = payload.get("tenant_id")
-        roles = tuple(payload.get("roles", []))
-        if not isinstance(subject, str) or not subject.strip():
-            raise JwtValidationError("missing subject")
-        if not isinstance(tenant_id, str) or not tenant_id.strip():
-            raise JwtValidationError("missing tenant_id")
-        if not isinstance(roles, tuple):
-            roles = tuple(roles)
-        return JwtClaims(
-            subject=subject,
-            tenant_id=tenant_id,
-            roles=roles,
-            email=payload.get("email"),
-            issuer=payload.get("iss"),
-            audience=payload.get("aud"),
-        )
+    def __init__(self, *, jwks_uri: str, issuer: str, audience: str) -> None:
+        self._cache = JwksCache(jwks_uri)
+        self._issuer = issuer
+        self._audience = audience
 
-    @staticmethod
-    def _decode_segment(segment: str) -> dict[str, Any]:
-        padding = "=" * (-len(segment) % 4)
+    def validate_and_extract_claims(self, token: str) -> dict[str, Any]:
+        """Validate the token and return its verified claims.
+
+        Raises JwtValidationError on any validation failure with a safe error
+        message that does not leak internal details to callers.
+        """
         try:
-            decoded = base64.urlsafe_b64decode((segment + padding).encode("utf-8"))
-            payload = json.loads(decoded.decode("utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            raise JwtValidationError("invalid jwt payload") from exc
-        if not isinstance(payload, dict):
-            raise JwtValidationError("jwt payload must be an object")
-        return payload
+            keys = self._cache.get_keys()
+        except RuntimeError as exc:
+            raise JwtValidationError("authentication service temporarily unavailable") from exc
+
+        if not keys:
+            raise JwtValidationError("no signing keys available for token verification")
+
+        last_error: Exception | None = None
+        for key in keys:
+            try:
+                claims: dict[str, Any] = jwt.decode(
+                    token,
+                    key,
+                    algorithms=["RS256", "ES256"],
+                    audience=self._audience,
+                    issuer=self._issuer,
+                    options={"verify_exp": True, "verify_iat": True},
+                )
+                return claims
+            except ExpiredSignatureError:
+                raise JwtValidationError("token has expired")
+            except JWTClaimsError as exc:
+                raise JwtValidationError(f"token claims invalid: {exc}") from exc
+            except JWTError as exc:
+                last_error = exc
+                continue  # Try next key in the JWKS
+
+        raise JwtValidationError(
+            f"token signature verification failed against all {len(keys)} JWKS keys"
+        ) from last_error

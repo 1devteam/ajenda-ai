@@ -1,0 +1,24 @@
+# PodDisruptionBudgets — ensure availability during node drains and rolling updates
+# Without PDBs, a node drain can kill all replicas simultaneously.
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ajenda-api-pdb
+  namespace: ajenda
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ajenda-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ajenda-worker-pdb
+  namespace: ajenda
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ajenda-worker
