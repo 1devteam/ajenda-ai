@@ -88,3 +88,4 @@ reports/
 
 # Bytecode / caches anywhere
 **/__pycache__/
+.github/workflows/

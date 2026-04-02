@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: ajenda-worker
   namespace: ajenda
+  labels:
+    app: ajenda-worker
+    version: "1.0.0"
 spec:
   replicas: 3
   selector:
@@ -12,26 +15,50 @@ spec:
     metadata:
       labels:
         app: ajenda-worker
+      annotations:
+        prometheus.io/scrape: "false"
     spec:
+      terminationGracePeriodSeconds: 60
       containers:
         - name: worker
-          image: ajenda/worker:latest
+          # Use immutable image tags in production — never :latest
+          # Override via Kustomize or Helm values: image: ajenda/worker:${GIT_SHA}
+          image: ajenda/worker:1.0.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: ajenda-config
             - secretRef:
                 name: ajenda-secrets
-          readinessProbe:
-            exec:
-              command: ["/app/deploy/scripts/readinesscheck.sh"]
-            initialDelaySeconds: 10
-            periodSeconds: 15
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          # Liveness probe: check the file that worker_loop.py touches every 10s.
+          # Previous defect: probe targeted localhost:8000 — the worker has no HTTP server.
+          # Workers were perpetually restarted by K8s as a result.
           livenessProbe:
             exec:
-              command: ["/app/deploy/scripts/healthcheck.sh"]
-            initialDelaySeconds: 20
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /tmp/worker-alive && test $(( $(date +%s) - $(stat -c %Y /tmp/worker-alive) )) -lt 60"
+            initialDelaySeconds: 30
             periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+          # Readiness probe: same file check — worker is ready when it has started its loop
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /tmp/worker-alive"
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 2
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 250m
@@ -39,3 +66,13 @@ spec:
             limits:
               cpu: 1000m
               memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      securityContext:
+        fsGroup: 1000

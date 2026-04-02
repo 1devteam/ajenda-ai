@@ -1,5 +1,18 @@
+"""Execution Coordinator — governs task queuing and dead-letter management.
+
+Previous defect: queue_task() checked decision.mode against a set that
+included RECOVERY but never checked decision.execution_allowed. Since
+RuntimeGovernor always returned execution_allowed=False, every task was
+silently blocked even in NORMAL mode.
+
+This implementation:
+- Checks decision.execution_allowed (the authoritative boolean)
+- Logs the decision mode for observability
+- Rolls back DB state if queue enqueue fails (prevents split-brain)
+"""
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -15,7 +28,9 @@ from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.governance_event_repository import GovernanceEventRepository
 from backend.runtime.transitions import transition_task
-from backend.services.runtime_governor import RuntimeGovernor, RuntimeMode
+from backend.services.runtime_governor import RuntimeGovernor
+
+logger = logging.getLogger("ajenda.execution_coordinator")
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,10 +52,26 @@ class ExecutionCoordinator:
 
     def queue_task(self, *, tenant_id: str, task_id: uuid.UUID) -> CoordinationResult:
         task = self._require_task(task_id=task_id, tenant_id=tenant_id)
+
         decision = self._governor.evaluate()
-        if decision.mode not in {RuntimeMode.NORMAL, RuntimeMode.RECOVERY}:
+        logger.info(
+            "governance_decision",
+            extra={
+                "task_id": str(task_id),
+                "mode": decision.mode,
+                "execution_allowed": decision.execution_allowed,
+            },
+        )
+
+        # Check the authoritative boolean — not a mode allowlist
+        if not decision.execution_allowed:
             self._emit_denial(task=task, tenant_id=tenant_id, reason=decision.reason)
-            return CoordinationResult(ok=False, task_id=task.id, state=task.status, reason=decision.reason)
+            return CoordinationResult(
+                ok=False,
+                task_id=task.id,
+                state=task.status,
+                reason=decision.reason,
+            )
 
         previous_state = task.status
         transition_task(task, ExecutionTaskState.QUEUED)
@@ -57,7 +88,14 @@ class ExecutionCoordinator:
                 enqueued_at=datetime.now(timezone.utc),
             )
         )
+
         if not enqueue_result.ok:
+            # Roll back DB state to prevent split-brain: task appears QUEUED in DB
+            # but was never placed on the queue.
+            logger.error(
+                "queue_enqueue_failed_rolling_back",
+                extra={"task_id": str(task_id), "reason": enqueue_result.reason},
+            )
             task.status = previous_state
             self._session.flush()
             raise ValueError(enqueue_result.reason or "queue enqueue failed")
@@ -70,13 +108,15 @@ class ExecutionCoordinator:
                 action="queued",
                 actor="execution_coordinator",
                 details=f"Task {task.id} queued for execution.",
-                payload_json={"task_id": str(task.id)},
+                payload_json={"task_id": str(task.id), "mode": decision.mode},
             )
         )
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status)
 
-    def mark_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> CoordinationResult:
+    def mark_dead_letter(
+        self, *, tenant_id: str, task_id: uuid.UUID, reason: str
+    ) -> CoordinationResult:
         task = self._require_task(task_id=task_id, tenant_id=tenant_id)
         transition_task(task, ExecutionTaskState.DEAD_LETTERED)
         self._session.flush()
