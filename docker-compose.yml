@@ -9,12 +9,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
   db:
     image: postgres:16
     environment:
       POSTGRES_DB: ajenda
       POSTGRES_USER: ajenda
-      POSTGRES_PASSWORD: ajenda
+      # POSTGRES_PASSWORD is read from the .env file (POSTGRES_PASSWORD variable)
+      # Never hardcode this value here. Copy .env.example to .env and set it there.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     ports:
       - "5432:5432"
     healthcheck:

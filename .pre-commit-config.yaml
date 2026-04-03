@@ -1,0 +1,63 @@
+# =============================================================================
+# Pre-commit hooks for Ajenda AI
+# =============================================================================
+# Setup (one-time per developer machine):
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run manually against all files:
+#   pre-commit run --all-files
+# =============================================================================
+
+repos:
+  # ---------------------------------------------------------------------------
+  # Secret detection — blocks commits containing credentials, tokens, or keys
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: detect-secrets (block credential commits)
+        args:
+          - "--baseline"
+          - ".secrets.baseline"
+        # Exclude example/template files — they contain placeholder values by design
+        exclude: |
+          (?x)^(
+            .*\.example$|
+            .*\.example\..*|
+            .*example.*\.env|
+            .*\.md$|
+            tests/.*
+          )$
+
+  # ---------------------------------------------------------------------------
+  # General hygiene
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ["--unsafe"]  # Allow custom YAML tags (K8s manifests)
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: detect-private-key
+        name: detect-private-key (block PEM/RSA key commits)
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+        name: no-direct-commits-to-main
+
+  # ---------------------------------------------------------------------------
+  # Python linting (fast pre-commit check — full lint runs in CI)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
