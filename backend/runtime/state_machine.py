@@ -1,3 +1,25 @@
+"""Centralized state transition validator for the Ajenda AI governed runtime.
+
+All state transitions for all domain entities are defined here.
+This is the single source of truth for what transitions are legal.
+
+Attempting an illegal transition raises InvalidTransitionError, which
+the service layer must handle (typically by returning a 409 Conflict).
+
+Task state machine (with 'recovering' state added in migration 0004):
+
+    planned → queued
+    queued → claimed | cancelled
+    claimed → running | cancelled
+    running → blocked | completed | failed | recovering
+    recovering → queued | dead_lettered
+    blocked → queued
+    failed → queued | dead_lettered
+
+The 'recovering' state is entered when a worker's lease expires while the
+task is in 'running' state. RuntimeMaintainer transitions running→recovering,
+then recovering→queued to re-enqueue for pickup by a healthy worker.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,7 +36,7 @@ class TransitionRule:
 
 
 class StateMachine:
-    """Centralized Phase 2 state transition validator."""
+    """Centralized state transition validator for all domain entities."""
 
     _MISSION_ALLOWED: dict[str, set[str]] = {
         "planned": {"approved"},
@@ -51,7 +73,8 @@ class StateMachine:
         "planned": {"queued"},
         "queued": {"claimed", "cancelled"},
         "claimed": {"running", "cancelled"},
-        "running": {"blocked", "completed", "failed"},
+        "running": {"blocked", "completed", "failed", "recovering"},
+        "recovering": {"queued", "dead_lettered"},   # Recovery path
         "blocked": {"queued"},
         "failed": {"queued", "dead_lettered"},
     }
@@ -95,6 +118,14 @@ class StateMachine:
         cls._ensure(cls._LEASE_ALLOWED, source, target, "lease")
 
     @staticmethod
-    def _ensure(allowed: dict[str, set[str]], source: str, target: str, kind: str) -> None:
+    def _ensure(
+        allowed: dict[str, set[str]],
+        source: str,
+        target: str,
+        kind: str,
+    ) -> None:
         if target not in allowed.get(source, set()):
-            raise InvalidTransitionError(f"invalid {kind} transition: {source} -> {target}")
+            raise InvalidTransitionError(
+                f"Invalid {kind} transition: {source!r} → {target!r}. "
+                f"Allowed from {source!r}: {sorted(allowed.get(source, set()))}"
+            )

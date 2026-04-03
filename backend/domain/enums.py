@@ -1,3 +1,9 @@
+"""Domain state enumerations for the Ajenda AI governed runtime.
+
+All state values are stored as lowercase strings in the database.
+The check constraints in migrations enforce the allowed values.
+State transitions are enforced by backend/runtime/state_machine.py.
+"""
 from __future__ import annotations
 
 from enum import StrEnum
@@ -13,6 +19,19 @@ class MissionState(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     ARCHIVED = "archived"
+
+
+class ExecutionTaskState(StrEnum):
+    PLANNED = "planned"
+    QUEUED = "queued"
+    CLAIMED = "claimed"
+    RUNNING = "running"
+    RECOVERING = "recovering"   # Lease expired; task being re-enqueued by RuntimeMaintainer
+    BLOCKED = "blocked"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    DEAD_LETTERED = "dead_lettered"
+    CANCELLED = "cancelled"
 
 
 class WorkforceFleetState(StrEnum):
@@ -37,25 +56,13 @@ class UserWorkforceAgentState(StrEnum):
     RETIRED = "retired"
 
 
-class ExecutionTaskState(StrEnum):
-    PLANNED = "planned"
-    QUEUED = "queued"
-    CLAIMED = "claimed"
-    RUNNING = "running"
-    BLOCKED = "blocked"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    DEAD_LETTERED = "dead_lettered"
-
-
 class ExecutionBranchState(StrEnum):
     OPEN = "open"
     RUNNING = "running"
-    SUPERSEDED = "superseded"
     SELECTED = "selected"
-    CLOSED = "closed"
+    SUPERSEDED = "superseded"
     FAILED = "failed"
+    CLOSED = "closed"
 
 
 class WorkerLeaseState(StrEnum):

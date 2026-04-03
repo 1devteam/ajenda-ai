@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ajenda-ai"
-version = "1.0.0"
+version = "1.1.0"
 description = "Ajenda AI — Production-grade governed-runtime backend"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -39,6 +39,8 @@ dev = [
   "anyio>=4.4,<5.0",
   "ruff>=0.6,<1.0",
   "mypy>=1.11,<2.0",
+  # Integration test infrastructure — real Postgres and Redis containers
+  "testcontainers[postgres,redis]>=4.8,<5.0",
 ]
 
 [tool.setuptools]
@@ -50,6 +52,10 @@ include = ["backend*"]
 [tool.pytest.ini_options]
 addopts = "-q -ra"
 testpaths = ["tests"]
+markers = [
+  "integration: marks tests as integration tests requiring Docker (deselect with -m 'not integration')",
+  "unit: marks tests as unit tests (no external dependencies required)",
+]
 
 [tool.ruff]
 line-length = 100
