@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+import sqlalchemy
 from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -47,6 +48,9 @@ class ExecutionTask(Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=ExecutionTaskState.PLANNED.value
     )
+    compliance_category: Mapped[str] = mapped_column(String(64), nullable=False, default="operational")
+    jurisdiction: Mapped[str] = mapped_column(String(64), nullable=False, default="US-ALL")
+    requires_human_review: Mapped[bool] = mapped_column(sqlalchemy.Boolean, nullable=False, default=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)

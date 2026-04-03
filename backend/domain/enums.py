@@ -5,8 +5,25 @@ The check constraints in migrations enforce the allowed values.
 State transitions are enforced by backend/runtime/state_machine.py.
 """
 from __future__ import annotations
-
 from enum import StrEnum
+
+
+class ComplianceCategory(StrEnum):
+    OPERATIONAL = "operational"
+    CONSUMER_INTERACTION = "consumer_interaction"
+    MARKETING = "marketing"
+    EMPLOYMENT = "employment"
+    FINANCIAL = "financial"
+    HEALTHCARE = "healthcare"
+    PUBLIC_CONTENT = "public_content"
+
+
+class ComplianceJurisdiction(StrEnum):
+    EU = "eu"
+    COLORADO = "colorado"
+    NYC = "nyc"
+    FEDERAL_US = "federal_us"
+    GLOBAL = "global"
 
 
 class MissionState(StrEnum):
@@ -26,12 +43,13 @@ class ExecutionTaskState(StrEnum):
     QUEUED = "queued"
     CLAIMED = "claimed"
     RUNNING = "running"
-    RECOVERING = "recovering"   # Lease expired; task being re-enqueued by RuntimeMaintainer
+    RECOVERING = "recovering"      # Lease expired; task being re-enqueued by RuntimeMaintainer
     BLOCKED = "blocked"
     COMPLETED = "completed"
     FAILED = "failed"
-    DEAD_LETTERED = "dead_lettered"
     CANCELLED = "cancelled"
+    DEAD_LETTERED = "dead_lettered"
+    PENDING_REVIEW = "pending_review"  # Compliance: requires human review before execution
 
 
 class WorkforceFleetState(StrEnum):
