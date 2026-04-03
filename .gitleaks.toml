@@ -1,0 +1,41 @@
+# =============================================================================
+# Gitleaks configuration for Ajenda AI
+# =============================================================================
+# Used by the security.yml GitHub Actions workflow to scan all commits
+# for accidentally committed secrets.
+#
+# Run locally: gitleaks detect --source . --config .gitleaks.toml
+# =============================================================================
+
+title = "Ajenda AI Gitleaks Config"
+
+[extend]
+# Use the default gitleaks ruleset as the base
+useDefault = true
+
+[allowlist]
+description = "Known safe patterns — placeholder values in example/template files"
+regexes = [
+  # Placeholder values in example files
+  "CHANGE_ME",
+  "change-this-now",
+  "changeme",
+  "your-.*-here",
+  "example\\.com",
+  # Test values in test files
+  "test-secret",
+  "test-token",
+  "test-password",
+]
+paths = [
+  # Example/template files contain intentional placeholder values
+  ".env.example",
+  ".env.prod.example",
+  "deploy/compose/.env.prod.example",
+  "deploy/k8s/secret.example.yaml",
+  # Test files use fake credentials
+  "tests/",
+  # Documentation
+  "ops/runbooks/",
+  "README.md",
+]

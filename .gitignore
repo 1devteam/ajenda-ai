@@ -52,7 +52,7 @@ temp/
 .DS_Store
 Thumbs.db
 
-# Env / secrets
+# Env / secrets — NEVER commit real env files
 .env
 .env.*
 !.env.example
@@ -62,6 +62,8 @@ Thumbs.db
 *.crt
 secrets/
 *.secret
+# Explicitly block the production env file even if someone tries to git add -f
+deploy/compose/.env.prod
 
 # Database / local state
 *.sqlite
@@ -88,4 +90,3 @@ reports/
 
 # Bytecode / caches anywhere
 **/__pycache__/
-.github/workflows/
