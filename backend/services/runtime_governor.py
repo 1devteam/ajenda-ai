@@ -18,7 +18,7 @@ from enum import StrEnum
 
 from sqlalchemy.orm import Session
 
-from backend.services.control_specialist import ControlSpecialist
+from backend.services.control_specialist import FoundationHealthChecker
 
 logger = logging.getLogger("ajenda.runtime_governor")
 
@@ -47,12 +47,12 @@ class RuntimeGovernor:
 
     def __init__(self, session: Session) -> None:
         self._session = session
-        self._control_specialist = ControlSpecialist(session)
+        self._health_checker = FoundationHealthChecker(session)
 
     def evaluate(self) -> RuntimeDecision:
         """Evaluate current system health and return a binding runtime decision."""
         try:
-            assessment = self._control_specialist.assess_foundation_health()
+            assessment = self._health_checker.assess_foundation_health()
         except Exception as exc:
             logger.error("runtime_governor_health_check_failed", extra={"error": str(exc)})
             return RuntimeDecision(
