@@ -59,6 +59,8 @@ def test_execution_task_states_are_canonical() -> None:
         "failed",
         "cancelled",
         "dead_lettered",
+        "recovering",
+        "pending_review",
     ]
 
 

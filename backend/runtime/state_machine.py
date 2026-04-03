@@ -74,7 +74,10 @@ class StateMachine:
         "queued": {"claimed", "cancelled"},
         "claimed": {"running", "cancelled"},
         "running": {"blocked", "completed", "failed", "recovering"},
-        "recovering": {"queued", "dead_lettered"},   # Recovery path
+        # recovering: transient state entered when a worker crashes mid-execution.
+        # The runtime_maintainer transitions stale running tasks into recovering
+        # before re-queuing them for retry or dead-lettering on max retries.
+        "recovering": {"queued", "dead_lettered"},
         "blocked": {"queued"},
         "failed": {"queued", "dead_lettered"},
     }
@@ -126,6 +129,6 @@ class StateMachine:
     ) -> None:
         if target not in allowed.get(source, set()):
             raise InvalidTransitionError(
-                f"Invalid {kind} transition: {source!r} → {target!r}. "
+                f"Invalid {kind} transition: {source!r} -> {target!r}. "
                 f"Allowed from {source!r}: {sorted(allowed.get(source, set()))}"
             )

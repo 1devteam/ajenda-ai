@@ -5,8 +5,33 @@ The check constraints in migrations enforce the allowed values.
 State transitions are enforced by backend/runtime/state_machine.py.
 """
 from __future__ import annotations
-
 from enum import StrEnum
+
+
+class ComplianceCategory(StrEnum):
+    """Categorizes the compliance domain of an ExecutionTask.
+
+    Used by PolicyGuardian to determine which regulatory rulesets apply.
+    """
+    OPERATIONAL = "operational"
+    CONSUMER_INTERACTION = "consumer_interaction"
+    MARKETING = "marketing"
+    EMPLOYMENT = "employment"
+    FINANCIAL = "financial"
+    HEALTHCARE = "healthcare"
+    PUBLIC_CONTENT = "public_content"
+
+
+class ComplianceJurisdiction(StrEnum):
+    """Identifies the regulatory jurisdiction governing an ExecutionTask.
+
+    Determines which specific regulations PolicyGuardian enforces.
+    """
+    EU = "eu"                    # EU AI Act
+    COLORADO = "colorado"        # Colorado SB24-205
+    NYC = "nyc"                  # NYC Local Law 144
+    FEDERAL_US = "federal_us"    # FTC Act / TCPA
+    GLOBAL = "global"            # Cross-jurisdictional baseline
 
 
 class MissionState(StrEnum):
@@ -26,12 +51,13 @@ class ExecutionTaskState(StrEnum):
     QUEUED = "queued"
     CLAIMED = "claimed"
     RUNNING = "running"
-    RECOVERING = "recovering"   # Lease expired; task being re-enqueued by RuntimeMaintainer
+    RECOVERING = "recovering"      # Lease expired; task being re-enqueued by RuntimeMaintainer
     BLOCKED = "blocked"
     COMPLETED = "completed"
     FAILED = "failed"
     DEAD_LETTERED = "dead_lettered"
     CANCELLED = "cancelled"
+    PENDING_REVIEW = "pending_review"  # Compliance: requires human review before execution
 
 
 class WorkforceFleetState(StrEnum):
