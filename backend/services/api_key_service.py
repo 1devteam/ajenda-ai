@@ -28,28 +28,27 @@ class ApiKeyService:
         self._audit = AuditEventRepository(session) if session is not None else None
         self._memory_store: dict[str, StoredApiKey] = {}
 
-    def create_key(self, *, tenant_id: str, scopes: tuple[str, ...]) -> tuple[str, ApiKeyRecordModel | StoredApiKey]:
+    def create_key(self, *, tenant_id: str, scopes: tuple[str, ...]) -> tuple[str, ApiKeyRecordModel]:
+        """Create a new API key for the given tenant.
+
+        Returns the plaintext secret (shown once) and the persisted ApiKeyRecordModel.
+        In memory-only mode (no DB session), stores in an in-process dict.
+        """
         plaintext, record = self._hasher.build_record(tenant_id=tenant_id, scopes=scopes)
-        if self._repo is not None:
-            db_record = self._repo.add(
-                ApiKeyRecordModel(
-                    tenant_id=tenant_id,
-                    key_id=record.key_id,
-                    hashed_secret=record.hashed_secret,
-                    scopes_json=list(record.scopes),
-                    revoked=False,
-                )
-            )
-            self._emit_audit(tenant_id=tenant_id, action="api_key_created", details=f"API key {db_record.key_id} created")
-            return plaintext, db_record
-        self._memory_store[record.key_id] = StoredApiKey(record=ApiKeyRecordModel(
+        mem_record = ApiKeyRecordModel(
             tenant_id=tenant_id,
             key_id=record.key_id,
             hashed_secret=record.hashed_secret,
             scopes_json=list(record.scopes),
             revoked=False,
-        ))
-        return plaintext, self._memory_store[record.key_id]
+        )
+        if self._repo is not None:
+            db_record = self._repo.add(mem_record)
+            self._emit_audit(tenant_id=tenant_id, action="api_key_created", details=f"API key {db_record.key_id} created")
+            return plaintext, db_record
+        # Memory-only mode: store the ApiKeyRecordModel directly in the wrapper
+        self._memory_store[record.key_id] = StoredApiKey(record=mem_record)
+        return plaintext, mem_record
 
     def revoke_key(self, *, key_id: str) -> None:
         if self._repo is not None:

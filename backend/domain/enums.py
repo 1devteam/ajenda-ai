@@ -43,12 +43,12 @@ class ExecutionTaskState(StrEnum):
     QUEUED = "queued"
     CLAIMED = "claimed"
     RUNNING = "running"
+    RECOVERING = "recovering"      # Lease expired; task being re-enqueued by RuntimeMaintainer
     BLOCKED = "blocked"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
     DEAD_LETTERED = "dead_lettered"
-    RECOVERING = "recovering"      # Lease expired; task being re-enqueued by RuntimeMaintainer
     PENDING_REVIEW = "pending_review"  # Compliance: requires human review before execution
 
 
@@ -77,10 +77,10 @@ class UserWorkforceAgentState(StrEnum):
 class ExecutionBranchState(StrEnum):
     OPEN = "open"
     RUNNING = "running"
-    SUPERSEDED = "superseded"
     SELECTED = "selected"
-    CLOSED = "closed"
+    SUPERSEDED = "superseded"
     FAILED = "failed"
+    CLOSED = "closed"
 
 
 class WorkerLeaseState(StrEnum):
