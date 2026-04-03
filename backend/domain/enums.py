@@ -9,10 +9,6 @@ from enum import StrEnum
 
 
 class ComplianceCategory(StrEnum):
-    """Categorizes the compliance domain of an ExecutionTask.
-
-    Used by PolicyGuardian to determine which regulatory rulesets apply.
-    """
     OPERATIONAL = "operational"
     CONSUMER_INTERACTION = "consumer_interaction"
     MARKETING = "marketing"
@@ -23,15 +19,11 @@ class ComplianceCategory(StrEnum):
 
 
 class ComplianceJurisdiction(StrEnum):
-    """Identifies the regulatory jurisdiction governing an ExecutionTask.
-
-    Determines which specific regulations PolicyGuardian enforces.
-    """
-    EU = "eu"                    # EU AI Act
-    COLORADO = "colorado"        # Colorado SB24-205
-    NYC = "nyc"                  # NYC Local Law 144
-    FEDERAL_US = "federal_us"    # FTC Act / TCPA
-    GLOBAL = "global"            # Cross-jurisdictional baseline
+    EU = "eu"
+    COLORADO = "colorado"
+    NYC = "nyc"
+    FEDERAL_US = "federal_us"
+    GLOBAL = "global"
 
 
 class MissionState(StrEnum):
@@ -51,12 +43,12 @@ class ExecutionTaskState(StrEnum):
     QUEUED = "queued"
     CLAIMED = "claimed"
     RUNNING = "running"
-    RECOVERING = "recovering"      # Lease expired; task being re-enqueued by RuntimeMaintainer
     BLOCKED = "blocked"
     COMPLETED = "completed"
     FAILED = "failed"
-    DEAD_LETTERED = "dead_lettered"
     CANCELLED = "cancelled"
+    DEAD_LETTERED = "dead_lettered"
+    RECOVERING = "recovering"      # Lease expired; task being re-enqueued by RuntimeMaintainer
     PENDING_REVIEW = "pending_review"  # Compliance: requires human review before execution
 
 
@@ -85,10 +77,10 @@ class UserWorkforceAgentState(StrEnum):
 class ExecutionBranchState(StrEnum):
     OPEN = "open"
     RUNNING = "running"
-    SELECTED = "selected"
     SUPERSEDED = "superseded"
-    FAILED = "failed"
+    SELECTED = "selected"
     CLOSED = "closed"
+    FAILED = "failed"
 
 
 class WorkerLeaseState(StrEnum):
