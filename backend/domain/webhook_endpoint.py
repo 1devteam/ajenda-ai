@@ -42,7 +42,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from backend.db.base import Base
 
 
-class StringArray(sa_types.TypeDecorator):
+class StringArray(sa_types.TypeDecorator[list[str]]):
     """A list-of-strings column that renders as ARRAY on PostgreSQL and JSON on SQLite.
 
     This allows unit tests to run against an in-memory SQLite database while
@@ -69,10 +69,10 @@ class StringArray(sa_types.TypeDecorator):
         if value is None:
             return []
         if dialect.name == "postgresql":
-            return value
+            return list(value)
         if isinstance(value, list):
-            return value
-        return json.loads(value)
+            return [str(v) for v in value]
+        return [str(v) for v in json.loads(value)]
 
 
 class WebhookEndpoint(Base):

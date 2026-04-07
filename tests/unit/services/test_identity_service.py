@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from backend.auth.oidc import OidcValidationResult
 from backend.auth.principal import PrincipalType, UserPrincipal
 from backend.services.identity_service import IdentityService
 
@@ -33,13 +34,18 @@ def test_identity_service_builds_user_principal() -> None:
         roles=frozenset(["tenant_admin"]),
         email="user@example.com",
     )
-    mock_oidc.authenticate.return_value = fake_principal
+    # OidcAuthenticator.validate_bearer_token returns an OidcValidationResult
+    mock_oidc.validate_bearer_token.return_value = OidcValidationResult(
+        claims={"sub": "user-1", "tenant_id": "tenant-a"},
+        principal=fake_principal,
+        provider="oidc",
+    )
 
     result = svc.authenticate_bearer(token="fake.jwt.token")
 
     assert result.subject_id == "user-1"
     assert result.tenant_id == "tenant-a"
-    mock_oidc.authenticate.assert_called_once_with("fake.jwt.token")
+    mock_oidc.validate_bearer_token.assert_called_once_with("fake.jwt.token")
 
 
 def test_identity_service_propagates_validation_error() -> None:
@@ -47,7 +53,7 @@ def test_identity_service_propagates_validation_error() -> None:
     from backend.auth.jwt_validator import JwtValidationError
 
     svc, mock_oidc = _make_service()
-    mock_oidc.authenticate.side_effect = JwtValidationError("token expired")
+    mock_oidc.validate_bearer_token.side_effect = JwtValidationError("token expired")
 
     with pytest.raises(JwtValidationError):
         svc.authenticate_bearer(token="expired.jwt.token")

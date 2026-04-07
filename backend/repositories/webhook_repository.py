@@ -15,6 +15,7 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import and_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from backend.domain.webhook_delivery import WebhookDelivery
@@ -69,7 +70,7 @@ class WebhookRepository:
 
     def disable_endpoint(self, endpoint_id: uuid.UUID, *, tenant_id: uuid.UUID) -> bool:
         """Set is_active=False on the endpoint. Returns True if a row was updated."""
-        result = self._session.execute(
+        cursor: CursorResult[tuple[()]] = self._session.execute(  # type: ignore[assignment]
             update(WebhookEndpoint)
             .where(
                 WebhookEndpoint.id == endpoint_id,
@@ -77,7 +78,7 @@ class WebhookRepository:
             )
             .values(is_active=False, updated_at=datetime.now(tz=UTC))
         )
-        return result.rowcount > 0
+        return bool(cursor.rowcount and cursor.rowcount > 0)
 
     def delete_endpoint(self, endpoint_id: uuid.UUID, *, tenant_id: uuid.UUID) -> bool:
         """Hard-delete an endpoint. Returns True if a row was deleted."""

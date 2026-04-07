@@ -168,6 +168,9 @@ class TenantRepository:
             self._session.flush()
             # Re-query in case a concurrent request inserted first
             usage = self._session.query(TenantUsage).filter_by(tenant_id=tenant_id, billing_period_start=period).first()
+        if usage is None:
+            # Should never happen: we just inserted and flushed above.
+            raise RuntimeError(f"Failed to create TenantUsage for tenant {tenant_id} period {period}")
         return usage
 
     def increment_usage(

@@ -30,9 +30,10 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 _IDEMPOTENCY_HEADER = "idempotency-key"
 _IDEMPOTENCY_TTL_SECONDS = 86_400  # 24 hours
@@ -109,15 +110,10 @@ class IdempotencyMiddleware:
     passes through normally (idempotency is opt-in, not required).
     """
 
-    def __init__(self, app: Callable[..., Awaitable[Any]]) -> None:
+    def __init__(self, app: ASGIApp) -> None:
         self._app = app
 
-    async def __call__(
-        self,
-        scope: dict[str, Any],
-        receive: Callable[[], Awaitable[Any]],
-        send: Callable[[dict[str, Any]], Awaitable[None]],
-    ) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self._app(scope, receive, send)
             return
@@ -174,7 +170,7 @@ class IdempotencyMiddleware:
         captured_headers: list[tuple[bytes, bytes]] = []
         captured_body_parts: list[bytes] = []
 
-        async def capturing_send(message: dict[str, Any]) -> None:
+        async def capturing_send(message: Any) -> None:
             nonlocal captured_status, captured_headers
             if message["type"] == "http.response.start":
                 captured_status = message["status"]

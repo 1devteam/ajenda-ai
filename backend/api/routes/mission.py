@@ -40,7 +40,7 @@ def queue_mission(
 
     # --- Count planned tasks that will actually be enqueued ---
     task_repo = ExecutionTaskRepository(db)
-    all_tasks = task_repo.list_for_mission(tenant_id=tenant_id, mission_id=mission_id)
+    all_tasks = task_repo.list_for_mission(mission_id=mission_id)
     planned_tasks = [t for t in all_tasks if t.status == ExecutionTaskState.PLANNED.value]
     planned_count = len(planned_tasks)
 

@@ -22,13 +22,14 @@ from collections.abc import Awaitable, Callable
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp
 
 from backend.app.config import get_settings
 from backend.rate_limit.limiter import RateLimiter, RateLimitKey
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, limiter: RateLimiter | None = None):
+    def __init__(self, app: ASGIApp, limiter: RateLimiter | None = None) -> None:
         super().__init__(app)
         if limiter is not None:
             # Injected limiter takes precedence (used in tests)

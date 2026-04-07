@@ -9,7 +9,8 @@ from backend.db.session import DatabaseRuntime
 
 
 def get_database_runtime(request: Request) -> DatabaseRuntime:
-    return request.app.state.database_runtime
+    runtime: DatabaseRuntime = request.app.state.database_runtime
+    return runtime
 
 
 def get_db_session(request: Request) -> Generator[Session, None, None]:
