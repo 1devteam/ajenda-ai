@@ -41,6 +41,7 @@ from backend.api.routes.runtime import router as runtime_router
 from backend.api.routes.system import router as system_router
 from backend.api.routes.task import router as task_router
 from backend.api.routes.workforce import router as workforce_router
+from backend.api.routes.admin import router as admin_router
 
 
 def build_api_router() -> APIRouter:
@@ -67,6 +68,7 @@ def build_api_router() -> APIRouter:
     v1.include_router(operations_router)     # /v1/operations/*
     v1.include_router(system_router)         # /v1/system/*
     v1.include_router(observability_router)  # /v1/observability/*
+    v1.include_router(admin_router)           # /v1/admin/* (platform control plane)
 
     root.include_router(v1)
     return root
