@@ -3,6 +3,8 @@ kind: Job
 metadata:
   name: ajenda-migrate
   namespace: ajenda
+  labels:
+    version: "1.1.0"
 spec:
   backoffLimit: 1
   template:
@@ -10,7 +12,9 @@ spec:
       restartPolicy: Never
       containers:
         - name: migrate
-          image: ajenda/migrate:latest
+          # Use immutable image tags in production — never :latest
+          # Override via Kustomize or Helm values: image: ajenda/migrate:${GIT_SHA}
+          image: ajenda/migrate:1.1.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:

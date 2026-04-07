@@ -6,19 +6,26 @@ This is the single source of truth for what transitions are legal.
 Attempting an illegal transition raises InvalidTransitionError, which
 the service layer must handle (typically by returning a 409 Conflict).
 
-Task state machine (with 'recovering' state added in migration 0004):
+Task state machine (with 'recovering' state added in migration 0004,
+'pending_review' added in migration 0008):
 
-    planned → queued
+    planned → queued | pending_review
     queued → claimed | cancelled
     claimed → running | cancelled
     running → blocked | completed | failed | recovering
     recovering → queued | dead_lettered
     blocked → queued
     failed → queued | dead_lettered
+    pending_review → queued | cancelled
 
 The 'recovering' state is entered when a worker's lease expires while the
 task is in 'running' state. RuntimeMaintainer transitions running→recovering,
 then recovering→queued to re-enqueue for pickup by a healthy worker.
+
+The 'pending_review' state is entered by PolicyGuardian when a task requires
+human review before execution (e.g. employment decisions, financial decisions
+in regulated jurisdictions). A human reviewer approves (→queued) or rejects
+(→cancelled) the task via the admin API.
 """
 
 from __future__ import annotations
@@ -72,7 +79,7 @@ class StateMachine:
     }
 
     _TASK_ALLOWED: ClassVar[dict[str, set[str]]] = {
-        "planned": {"queued"},
+        "planned": {"queued", "pending_review"},
         "queued": {"claimed", "cancelled"},
         "claimed": {"running", "cancelled"},
         "running": {"blocked", "completed", "failed", "recovering"},
@@ -82,6 +89,10 @@ class StateMachine:
         "recovering": {"queued", "dead_lettered"},
         "blocked": {"queued"},
         "failed": {"queued", "dead_lettered"},
+        # pending_review: entered by PolicyGuardian when a task requires human
+        # approval before execution (e.g. employment/financial decisions in
+        # regulated jurisdictions). Approved → queued; rejected → cancelled.
+        "pending_review": {"queued", "cancelled"},
     }
 
     _BRANCH_ALLOWED: ClassVar[dict[str, set[str]]] = {

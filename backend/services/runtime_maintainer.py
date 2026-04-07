@@ -118,7 +118,7 @@ class RuntimeMaintainer:
                 # Transition through 'recovering' to make the recovery visible
                 transition_task(task, ExecutionTaskState.RECOVERING)
 
-                retry_count = getattr(task, "retry_count", 0) or 0
+                retry_count = task.retry_count
                 if retry_count >= self._max_retries:
                     # Max retries exceeded — dead-letter the task
                     transition_task(task, ExecutionTaskState.DEAD_LETTERED)
@@ -149,7 +149,8 @@ class RuntimeMaintainer:
                         },
                     )
                 else:
-                    # Re-queue for pickup by a healthy worker
+                    # Re-queue for pickup by a healthy worker and increment retry counter
+                    task.retry_count = retry_count + 1
                     transition_task(task, ExecutionTaskState.QUEUED)
                     self._queue.enqueue_task(
                         QueueMessage(

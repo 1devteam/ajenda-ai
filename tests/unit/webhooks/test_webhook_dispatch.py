@@ -61,12 +61,16 @@ def _make_endpoint(
     is_active: bool = True,
     event_types: list[str] | None = None,
     secret_hash: str = "fakehash",
+    secret_ciphertext: str | None = None,
 ) -> WebhookEndpoint:
     ep = MagicMock(spec=WebhookEndpoint)
     ep.id = ENDPOINT_ID
     ep.tenant_id = TENANT_ID
     ep.url = "https://example.com/hook"
     ep.secret_hash = secret_hash
+    # None → legacy bcrypt-hash signing path (pre-migration-0009 endpoints).
+    # Pass a real Fernet ciphertext to test the encrypted-secret path.
+    ep.secret_ciphertext = secret_ciphertext
     ep.event_types = event_types or ["task.completed"]
     ep.is_active = is_active
     ep.created_at = datetime.now(tz=UTC)

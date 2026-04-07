@@ -23,7 +23,6 @@ import pytest
 
 from backend.domain.governance_event import GovernanceEvent
 from backend.domain.tenant import Tenant
-from backend.domain.tenant_usage import TenantUsage
 from backend.repositories.tenant_repository import (
     TenantDeletedError,
     TenantNotFoundError,

@@ -3,12 +3,23 @@
 Design decisions:
   - Each tenant can register multiple webhook endpoints (up to their plan limit).
   - Each endpoint has a randomly-generated HMAC-SHA256 signing secret stored
-    as a bcrypt hash. The plaintext secret is shown once at registration and
-    never stored in plaintext.
+    as Fernet-encrypted ciphertext. The plaintext secret is shown once at
+    registration and never stored in plaintext.
   - Tenants subscribe to specific event types (e.g. task.completed) rather
     than receiving all events, reducing noise and payload volume.
   - Endpoints can be disabled without deletion, preserving configuration.
   - Delivery attempts are tracked in WebhookDelivery (separate model).
+
+Secret storage (migration 0009):
+  The ``secret_ciphertext`` column stores the Fernet-encrypted plaintext secret.
+  At delivery time, the plaintext is decrypted and used as the HMAC-SHA256 key,
+  so tenants can verify signatures using their plaintext secret.
+
+  The legacy ``secret_hash`` column (bcrypt hash) is retained for backward
+  compatibility during the migration window. New endpoints use ``secret_ciphertext``
+  exclusively. The ``_sign`` method in WebhookDispatchService uses the decrypted
+  plaintext from ``secret_ciphertext`` when available, falling back to
+  ``secret_hash`` for endpoints created before migration 0009.
 
 Event type vocabulary (mirrors ExecutionTaskState transitions):
   task.queued          — task moved to QUEUED state
@@ -34,7 +45,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, String, Text, func
 from sqlalchemy import types as sa_types
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column
@@ -102,11 +113,30 @@ class WebhookEndpoint(Base):
         nullable=False,
         comment="HTTPS URL to deliver events to",
     )
-    # HMAC signing secret — stored as bcrypt hash; plaintext returned once at creation
+    # Legacy signing secret — bcrypt hash of the original plaintext secret.
+    # Retained for backward compatibility. New endpoints use secret_ciphertext.
+    # The HMAC key derived from this field is the bcrypt hash itself, which
+    # tenants cannot verify — this is the bug fixed by secret_ciphertext.
     secret_hash: Mapped[str] = mapped_column(
         String(256),
         nullable=False,
-        comment="bcrypt hash of the HMAC signing secret",
+        comment=(
+            "bcrypt hash of the HMAC signing secret (legacy). "
+            "New endpoints store the encrypted plaintext in secret_ciphertext instead."
+        ),
+    )
+    # Encrypted signing secret — Fernet ciphertext of the plaintext secret.
+    # When present, this is decrypted at delivery time and used as the HMAC key,
+    # allowing tenants to verify signatures using their plaintext secret.
+    # Added in migration 0009. NULL for endpoints created before the migration.
+    secret_ciphertext: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment=(
+            "Fernet-encrypted plaintext HMAC signing secret. "
+            "Decrypted at delivery time to produce a verifiable HMAC signature. "
+            "NULL for endpoints created before migration 0009."
+        ),
     )
     # Subscribed event types — ARRAY on PostgreSQL, JSON text on SQLite
     event_types: Mapped[list[str]] = mapped_column(
