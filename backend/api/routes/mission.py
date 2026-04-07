@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid as _uuid
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.domain.enums import ExecutionTaskState
 from backend.queue.base import QueueAdapter
@@ -22,8 +22,8 @@ router = APIRouter(prefix="/missions", tags=["missions"])
 def queue_mission(
     mission_id: UUID,
     request: Request,
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
     queue: QueueAdapter = Depends(get_queue_adapter),
 ) -> dict[str, list[str]]:
     """Queue all planned tasks for a mission.
@@ -36,8 +36,6 @@ def queue_mission(
     Returns HTTP 429 with structured body if the tenant has reached their
     plan limit.
     """
-    tenant_uuid = _uuid.UUID(tenant_id)
-
     # --- Count planned tasks that will actually be enqueued ---
     task_repo = ExecutionTaskRepository(db)
     all_tasks = task_repo.list_for_mission(mission_id=mission_id)
@@ -50,7 +48,7 @@ def queue_mission(
 
     # --- Quota check: consume N quota units for N tasks being queued ---
     try:
-        QuotaEnforcementService(db).check_and_record_task_creation(tenant_uuid, count=planned_count)
+        QuotaEnforcementService(db).check_and_record_task_creation(tenant_id, count=planned_count)
     except QuotaExceededError as exc:
         raise HTTPException(
             status_code=429,
@@ -69,7 +67,7 @@ def queue_mission(
 
     executor = MissionExecutor(db, ExecutionCoordinator(db, queue))
     try:
-        queued = executor.queue_all_planned_tasks(tenant_id=tenant_id, mission_id=mission_id)
+        queued = executor.queue_all_planned_tasks(tenant_id=str(tenant_id), mission_id=mission_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"queued_task_ids": [str(task_id) for task_id in queued]}

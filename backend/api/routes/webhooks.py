@@ -7,8 +7,10 @@ Route inventory:
   DELETE /v1/webhooks/{endpoint_id}                 — Delete an endpoint
   GET    /v1/webhooks/{endpoint_id}/deliveries      — List delivery history
 
-All routes require a valid X-Tenant-Id header and are gated behind the
-'webhooks' feature flag (starter plan and above).
+All routes are tenant-scoped. Tenant context is established by middleware and
+read via get_request_tenant_id — raw X-Tenant-Id header is not trusted as
+business truth. See:
+docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §5.2
 
 The signing secret is returned only on POST and never again. Tenants must
 store it securely at registration time.
@@ -19,11 +21,11 @@ from __future__ import annotations
 import uuid as _uuid
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
-from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.services.quota_enforcement import FeatureNotAvailableError
 from backend.services.webhook_dispatch import (
     WebhookDispatchService,
@@ -138,8 +140,9 @@ class WebhookDeliveryResponse(BaseModel):
 @router.post("/", response_model=RegisterWebhookResponse, status_code=201)
 def register_webhook(
     body: RegisterWebhookRequest,
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
 ) -> RegisterWebhookResponse:
     """Register a new webhook endpoint.
 
@@ -148,12 +151,11 @@ def register_webhook(
 
     Requires the 'webhooks' feature (starter plan and above).
     """
-    tenant_uuid = _uuid.UUID(tenant_id)
     service = WebhookDispatchService(db)
 
     try:
         endpoint, plaintext_secret = service.register_endpoint(
-            tenant_id=tenant_uuid,
+            tenant_id=tenant_id,
             url=body.url,
             event_types=body.event_types,
         )
@@ -188,13 +190,13 @@ def register_webhook(
 
 @router.get("/", response_model=list[WebhookEndpointResponse])
 def list_webhooks(
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
 ) -> list[WebhookEndpointResponse]:
-    """List all registered webhook endpoints for the tenant."""
-    tenant_uuid = _uuid.UUID(tenant_id)
+    """List all registered webhook endpoints for the authenticated tenant."""
     service = WebhookDispatchService(db)
-    endpoints = service.list_endpoints(tenant_uuid)
+    endpoints = service.list_endpoints(tenant_id)
 
     return [
         WebhookEndpointResponse(
@@ -213,15 +215,15 @@ def list_webhooks(
 @router.get("/{endpoint_id}", response_model=WebhookEndpointResponse)
 def get_webhook(
     endpoint_id: UUID,
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
 ) -> WebhookEndpointResponse:
-    """Get a single webhook endpoint by ID."""
-    tenant_uuid = _uuid.UUID(tenant_id)
+    """Get a single webhook endpoint by ID for the authenticated tenant."""
     service = WebhookDispatchService(db)
 
     try:
-        endpoint = service.get_endpoint(endpoint_id, tenant_id=tenant_uuid)
+        endpoint = service.get_endpoint(endpoint_id, tenant_id=tenant_id)
     except WebhookNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -239,18 +241,18 @@ def get_webhook(
 @router.delete("/{endpoint_id}", status_code=204)
 def delete_webhook(
     endpoint_id: UUID,
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
 ) -> None:
     """Delete a webhook endpoint.
 
     Delivery history is retained for audit purposes.
     """
-    tenant_uuid = _uuid.UUID(tenant_id)
     service = WebhookDispatchService(db)
 
     try:
-        service.delete_endpoint(endpoint_id, tenant_id=tenant_uuid)
+        service.delete_endpoint(endpoint_id, tenant_id=tenant_id)
     except WebhookNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -263,26 +265,26 @@ def delete_webhook(
 )
 def list_webhook_deliveries(
     endpoint_id: UUID,
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
 ) -> list[WebhookDeliveryResponse]:
     """List recent delivery attempts for a webhook endpoint.
 
     Returns the 50 most recent attempts, newest first.
+    Verifies endpoint ownership before returning delivery data.
     """
     from backend.repositories.webhook_repository import WebhookRepository
-
-    tenant_uuid = _uuid.UUID(tenant_id)
 
     # Verify endpoint ownership before returning delivery data
     service = WebhookDispatchService(db)
     try:
-        service.get_endpoint(endpoint_id, tenant_id=tenant_uuid)
+        service.get_endpoint(endpoint_id, tenant_id=tenant_id)
     except WebhookNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     repo = WebhookRepository(db)
-    deliveries = repo.list_deliveries_for_endpoint(endpoint_id, tenant_id=tenant_uuid, limit=50)
+    deliveries = repo.list_deliveries_for_endpoint(endpoint_id, tenant_id=tenant_id, limit=50)
 
     return [
         WebhookDeliveryResponse(

@@ -185,7 +185,7 @@ class TestMissionQueueRouteQuotaEnforcement:
             result = queue_mission(
                 mission_id=mission_id,
                 request=request,
-                tenant_id=tenant_id,
+                tenant_id=tenant_uuid,
                 db=db,
                 queue=queue,
             )
@@ -209,6 +209,7 @@ class TestMissionQueueRouteQuotaEnforcement:
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = []  # no tasks
 
+        tenant_uuid = uuid.UUID(tenant_id)
         with (
             patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
             patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
@@ -216,7 +217,7 @@ class TestMissionQueueRouteQuotaEnforcement:
             result = queue_mission(
                 mission_id=mission_id,
                 request=request,
-                tenant_id=tenant_id,
+                tenant_id=tenant_uuid,
                 db=db,
                 queue=queue,
             )
@@ -249,6 +250,7 @@ class TestMissionQueueRouteQuotaEnforcement:
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = tasks
 
+        tenant_uuid = uuid.UUID(tenant_id)
         with (
             patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
             patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
@@ -257,7 +259,7 @@ class TestMissionQueueRouteQuotaEnforcement:
                 queue_mission(
                     mission_id=mission_id,
                     request=request,
-                    tenant_id=tenant_id,
+                    tenant_id=tenant_uuid,
                     db=db,
                     queue=queue,
                 )
@@ -296,6 +298,7 @@ class TestMissionQueueRouteQuotaEnforcement:
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = [planned, already_queued, completed]
 
+        tenant_uuid = uuid.UUID(tenant_id)
         with (
             patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
             patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
@@ -305,7 +308,7 @@ class TestMissionQueueRouteQuotaEnforcement:
             queue_mission(
                 mission_id=mission_id,
                 request=request,
-                tenant_id=tenant_id,
+                tenant_id=tenant_uuid,
                 db=db,
                 queue=queue,
             )
