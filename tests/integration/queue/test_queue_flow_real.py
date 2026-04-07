@@ -12,7 +12,7 @@ which provides a real RedisQueueAdapter connected to a test Redis container.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -29,7 +29,7 @@ def _make_message(tenant_id: str = "tenant-queue-a") -> QueueMessage:
         fleet_id=None,
         branch_id=None,
         payload={"test": True},
-        enqueued_at=datetime.now(timezone.utc),
+        enqueued_at=datetime.now(UTC),
     )
 
 

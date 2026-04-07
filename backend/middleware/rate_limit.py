@@ -23,7 +23,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from backend.app.config import get_settings
-from backend.rate_limit.limiter import RateLimitKey, RateLimiter
+from backend.rate_limit.limiter import RateLimiter, RateLimitKey
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

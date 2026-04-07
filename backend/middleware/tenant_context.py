@@ -30,8 +30,7 @@ from __future__ import annotations
 
 import logging
 import uuid as _uuid_module
-from collections.abc import Callable
-from typing import Awaitable
+from collections.abc import Awaitable, Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -111,7 +110,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                         return JSONResponse(
                             status_code=404,
                             content={
-                                "detail": f"Tenant not found.",
+                                "detail": "Tenant not found.",
                                 "code": "TENANT_NOT_FOUND",
                             },
                         )

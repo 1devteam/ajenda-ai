@@ -6,7 +6,7 @@ overridden to use JSON for SQLite compatibility (JSONB is Postgres-only).
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine, event, JSON
+from sqlalchemy import JSON, create_engine, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -20,7 +20,7 @@ def _sqlite_session() -> Session:
 
     # Override JSONB -> JSON for SQLite compatibility
     @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_conn, connection_record):  # noqa: ANN001
+    def set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()

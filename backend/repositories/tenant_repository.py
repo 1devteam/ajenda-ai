@@ -15,7 +15,7 @@ Design decisions:
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -114,7 +114,7 @@ class TenantRepository:
         if tenant is None:
             raise TenantNotFoundError(f"Tenant {tenant_id} not found")
         tenant.status = "deleted"
-        tenant.deleted_at = datetime.now(tz=timezone.utc)
+        tenant.deleted_at = datetime.now(tz=UTC)
         return tenant
 
     def update_plan(self, tenant_id: uuid.UUID, *, new_plan: str) -> Tenant:

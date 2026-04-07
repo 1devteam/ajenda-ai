@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from backend.auth.api_keys import ApiKeyHasher
-from backend.auth.permissions import Permission
 from backend.auth.principal import MachinePrincipal, PrincipalType
 from backend.auth.rbac import RbacAuthorizer
 from backend.domain.api_key_record import ApiKeyRecordModel

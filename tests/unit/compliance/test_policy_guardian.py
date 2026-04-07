@@ -11,8 +11,11 @@ Tests cover all regulatory domains implemented in the compliance layer:
 - Human review enforcement for employment and financial categories
 """
 from __future__ import annotations
+
 from unittest.mock import MagicMock
+
 import pytest
+
 from backend.domain.enums import ComplianceCategory, ExecutionTaskState
 from backend.services.policy_guardian import PolicyDecision, PolicyGuardian
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid as _uuid
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -10,7 +12,6 @@ from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.services.api_key_service import ApiKeyService
 from backend.services.authorization_service import AuthorizationService
 from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
-import uuid as _uuid
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import threading
 import uuid
 from collections import deque
-from typing import Deque
 
 from backend.queue.base import QueueAdapter, QueueMessage, QueueOperationResult
 
@@ -13,7 +12,7 @@ class LocalQueueAdapter(QueueAdapter):
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._queue: Deque[QueueMessage] = deque()
+        self._queue: deque[QueueMessage] = deque()
         self._claims: dict[tuple[str, uuid.UUID], str] = {}
         self._dead_letter: list[tuple[str, uuid.UUID, str]] = []
 

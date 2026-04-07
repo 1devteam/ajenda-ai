@@ -31,16 +31,13 @@ Test coverage:
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 import pytest
 import requests as req_lib
 
-from backend.domain.webhook_delivery import WebhookDelivery
 from backend.domain.webhook_endpoint import WebhookEndpoint
 from backend.services.quota_enforcement import FeatureNotAvailableError
 from backend.services.webhook_dispatch import (
@@ -49,7 +46,6 @@ from backend.services.webhook_dispatch import (
     WebhookNotFoundError,
     WebhookRegistrationError,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,8 +68,8 @@ def _make_endpoint(
     ep.secret_hash = secret_hash
     ep.event_types = event_types or ["task.completed"]
     ep.is_active = is_active
-    ep.created_at = datetime.now(tz=timezone.utc)
-    ep.updated_at = datetime.now(tz=timezone.utc)
+    ep.created_at = datetime.now(tz=UTC)
+    ep.updated_at = datetime.now(tz=UTC)
     return ep
 
 

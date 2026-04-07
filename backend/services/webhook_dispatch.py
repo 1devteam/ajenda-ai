@@ -25,10 +25,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -37,9 +36,9 @@ from sqlalchemy.orm import Session
 
 from backend.domain.webhook_delivery import RESPONSE_BODY_MAX_CHARS, WebhookDelivery
 from backend.domain.webhook_endpoint import WebhookEndpoint
-from backend.repositories.webhook_repository import WebhookRepository
 from backend.repositories.tenant_repository import TenantRepository
-from backend.services.quota_enforcement import FeatureNotAvailableError, QuotaEnforcementService
+from backend.repositories.webhook_repository import WebhookRepository
+from backend.services.quota_enforcement import QuotaEnforcementService
 
 # Maximum consecutive failures before an endpoint is auto-disabled
 MAX_CONSECUTIVE_FAILURES = 5
@@ -62,7 +61,7 @@ class WebhookNotFoundError(Exception):
 class WebhookDispatchResult:
     """Result of a single delivery attempt."""
 
-    __slots__ = ("delivery_id", "succeeded", "http_status", "error")
+    __slots__ = ("delivery_id", "error", "http_status", "succeeded")
 
     def __init__(
         self,
@@ -264,7 +263,7 @@ class WebhookDispatchService:
                 "type": event_type,
                 "tenant_id": str(tenant_id),
                 "attempt": attempt_number,
-                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "timestamp": datetime.now(tz=UTC).isoformat(),
                 "data": payload,
             },
             separators=(",", ":"),
@@ -281,7 +280,7 @@ class WebhookDispatchService:
             payload=payload,
             status="delivering",
             attempt_number=attempt_number,
-            attempted_at=datetime.now(tz=timezone.utc),
+            attempted_at=datetime.now(tz=UTC),
         )
         self._repo.record_delivery(delivery)
 
@@ -311,7 +310,7 @@ class WebhookDispatchService:
             error_message = f"Delivery timed out after {DELIVERY_TIMEOUT_SECONDS}s"
         except requests.ConnectionError as exc:
             error_message = f"Connection error: {exc}"
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             error_message = f"Unexpected error: {exc}"
 
         # Update delivery record with outcome
@@ -320,7 +319,7 @@ class WebhookDispatchService:
         delivery.response_body = response_body
         delivery.error_message = error_message
         if succeeded:
-            delivery.delivered_at = datetime.now(tz=timezone.utc)
+            delivery.delivered_at = datetime.now(tz=UTC)
 
         # Auto-disable endpoint after too many consecutive failures
         if not succeeded:

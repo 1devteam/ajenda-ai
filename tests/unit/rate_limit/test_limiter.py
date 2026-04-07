@@ -1,4 +1,4 @@
-from backend.rate_limit.limiter import RateLimitKey, RateLimiter
+from backend.rate_limit.limiter import RateLimiter, RateLimitKey
 
 
 def test_rate_limiter_blocks_after_limit() -> None:

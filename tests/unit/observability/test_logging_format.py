@@ -5,7 +5,6 @@ from backend.observability.context import set_correlation_id
 from backend.observability.logging import StructuredFormatter
 
 
-
 def test_structured_formatter_includes_correlation_id_and_redacts() -> None:
     set_correlation_id("req-1")
     record = logging.LogRecord("test", logging.INFO, __file__, 1, "hello", (), None)

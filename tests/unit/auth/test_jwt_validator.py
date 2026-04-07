@@ -5,8 +5,9 @@ method to return a test RSA key, and tests JwtClaims.from_dict() directly.
 """
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from backend.auth.jwt_validator import JwtClaims, JwtValidationError, JwtValidator
 

@@ -20,7 +20,6 @@ from starlette.responses import JSONResponse, Response
 
 from backend.auth.jwt_validator import JwtValidationError
 from backend.auth.oidc import OidcAuthenticator
-from backend.repositories.api_key_repository import ApiKeyRepository
 from backend.services.api_key_service import ApiKeyService
 
 logger = logging.getLogger("ajenda.auth_context")
@@ -101,7 +100,6 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         # No in-memory fallback exists. This is intentional.
         db_runtime = request.app.state.database_runtime
         with db_runtime.session_scope() as session:
-            repo = ApiKeyRepository(session)
             service = ApiKeyService(session=session)
             try:
                 principal = service.authenticate_machine(

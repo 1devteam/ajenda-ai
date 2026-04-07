@@ -27,7 +27,6 @@ Usage:
 """
 from __future__ import annotations
 
-import os
 from collections.abc import Generator
 
 import pytest
@@ -40,11 +39,10 @@ pytest.importorskip(
     reason="testcontainers not installed. Run: pip install testcontainers[postgres,redis]",
 )
 
-from testcontainers.postgres import PostgresContainer  # noqa: E402
-from testcontainers.redis import RedisContainer  # noqa: E402
+from testcontainers.postgres import PostgresContainer
+from testcontainers.redis import RedisContainer
 
-from backend.db.base import Base  # noqa: E402
-
+from backend.db.base import Base
 
 # ---------------------------------------------------------------------------
 # Session-scoped containers — started once, shared across all integration tests

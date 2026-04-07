@@ -20,7 +20,6 @@ from starlette.testclient import TestClient
 
 from backend.middleware.idempotency import IdempotencyMiddleware, _store
 
-
 _call_count = 0
 
 

@@ -19,13 +19,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
 from backend.domain.governance_event import GovernanceEvent
 from backend.repositories.tenant_repository import (
-    TenantDeletedError,
     TenantNotFoundError,
     TenantRepository,
 )
@@ -99,7 +98,7 @@ class TenantLifecycleService:
         """
         if not reason or not reason.strip():
             raise ValueError("Suspension reason must be a non-empty string.")
-        tenant = self._tenants.suspend(tenant_id, reason=reason)
+        self._tenants.suspend(tenant_id, reason=reason)
 
         self._emit_event(
             tenant_id=str(tenant_id),
@@ -120,7 +119,7 @@ class TenantLifecycleService:
         Raises TenantNotFoundError or TenantDeletedError if the tenant
         cannot be reactivated. Caller must commit.
         """
-        tenant = self._tenants.reactivate(tenant_id)
+        self._tenants.reactivate(tenant_id)
 
         self._emit_event(
             tenant_id=str(tenant_id),
@@ -142,7 +141,7 @@ class TenantLifecycleService:
         Sets deleted_at and status='deleted'. Data is retained for the
         compliance retention period. Caller must commit.
         """
-        tenant = self._tenants.soft_delete(tenant_id)
+        self._tenants.soft_delete(tenant_id)
 
         self._emit_event(
             tenant_id=str(tenant_id),
@@ -200,6 +199,6 @@ class TenantLifecycleService:
             actor=actor,
             decision=decision,
             payload_json=payload,
-            created_at=datetime.now(tz=timezone.utc),
+            created_at=datetime.now(tz=UTC),
         )
         self._session.add(event)

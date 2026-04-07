@@ -11,7 +11,7 @@ caller. The caller is responsible for commit/rollback.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import and_, select, update
 from sqlalchemy.orm import Session
@@ -62,9 +62,8 @@ class WebhookRepository:
 
         Uses PostgreSQL ARRAY containment operator (@>) for efficient filtering.
         """
-        from sqlalchemy import cast
+        from sqlalchemy import String, cast
         from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
-        from sqlalchemy import String
 
         stmt = select(WebhookEndpoint).where(
             and_(
@@ -85,7 +84,7 @@ class WebhookRepository:
                 WebhookEndpoint.id == endpoint_id,
                 WebhookEndpoint.tenant_id == tenant_id,
             )
-            .values(is_active=False, updated_at=datetime.now(tz=timezone.utc))
+            .values(is_active=False, updated_at=datetime.now(tz=UTC))
         )
         return result.rowcount > 0
 

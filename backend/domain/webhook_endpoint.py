@@ -33,7 +33,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, String, Text, func
+from sqlalchemy import Boolean, DateTime, String, func
 from sqlalchemy import types as sa_types
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column

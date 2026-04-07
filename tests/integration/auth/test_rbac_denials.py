@@ -1,7 +1,8 @@
+import pytest
+
 from backend.auth.permissions import Permission
 from backend.auth.principal import Principal, PrincipalType
 from backend.services.authorization_service import AuthorizationService
-import pytest
 
 
 def test_cross_tenant_authorization_denied() -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -24,7 +24,7 @@ class ApiKeyRepository:
 
     def revoke(self, record: ApiKeyRecordModel) -> ApiKeyRecordModel:
         record.revoked = True
-        record.revoked_at = datetime.now(timezone.utc)
+        record.revoked_at = datetime.now(UTC)
         self._session.flush()
         return record
 

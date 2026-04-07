@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -83,7 +83,7 @@ class WorkerRuntimeService:
                     task_id=task.id,
                     status=WorkerLeaseState.CLAIMED.value,
                     holder_identity=worker_id,
-                    heartbeat_at=datetime.now(timezone.utc),
+                    heartbeat_at=datetime.now(UTC),
                 )
             )
             task.metadata_json = {**task.metadata_json, "worker_lease_id": str(lease.id)}
@@ -134,7 +134,7 @@ class WorkerRuntimeService:
 
         if lease.status == WorkerLeaseState.CLAIMED.value:
             transition_lease(lease, WorkerLeaseState.ACTIVE)
-        lease.heartbeat_at = datetime.now(timezone.utc)
+        lease.heartbeat_at = datetime.now(UTC)
         self._session.flush()
         return lease
 
@@ -170,7 +170,7 @@ class WorkerRuntimeService:
         if not result.ok:
             raise ValueError(result.reason or "complete rejected")
 
-        lease.heartbeat_at = datetime.now(timezone.utc)
+        lease.heartbeat_at = datetime.now(UTC)
         self._session.flush()
 
         self._audit.append(
@@ -218,7 +218,7 @@ class WorkerRuntimeService:
         if not result.ok:
             raise ValueError(result.reason or "fail rejected")
 
-        lease.heartbeat_at = datetime.now(timezone.utc)
+        lease.heartbeat_at = datetime.now(UTC)
         self._session.flush()
 
         self._audit.append(
@@ -251,7 +251,7 @@ class WorkerRuntimeService:
         if not result.ok:
             raise ValueError(result.reason or "release rejected")
 
-        lease.heartbeat_at = datetime.now(timezone.utc)
+        lease.heartbeat_at = datetime.now(UTC)
         self._session.flush()
         return lease
 

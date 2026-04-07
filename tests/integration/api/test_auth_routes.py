@@ -1,8 +1,8 @@
 import base64
 import json
 
-from fastapi.testclient import TestClient
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from backend.api.routes.auth import router
 
