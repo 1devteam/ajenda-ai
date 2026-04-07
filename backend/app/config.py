@@ -74,10 +74,50 @@ class Settings(BaseSettings):
         return {item.strip().lower() for item in self.redact_keys.split(",") if item.strip()}
 
     def validate_runtime_contract(self) -> None:
+        """Validate that the runtime configuration is safe and complete.
+
+        Raises ValueError on any misconfiguration that would result in an
+        insecure or non-functional production deployment.
+
+        Checks performed:
+          1. Redis queue URL required when adapter=redis
+          2. Local queue adapter forbidden in production
+          3. Production OIDC endpoints must not point at localhost
+          4. Rate limit parameters must be positive
+        """
+        # --- Queue adapter ---
         if self.queue_adapter == "redis" and (self.queue_url is None or not self.queue_url.strip()):
             raise ValueError("AJENDA_QUEUE_URL is required when AJENDA_QUEUE_ADAPTER=redis")
         if self.env == "production" and self.queue_adapter == "local":
             raise ValueError("AJENDA_QUEUE_ADAPTER=local is forbidden in production")
+
+        # --- OIDC / JWT — production must not use localhost defaults ---
+        if self.env == "production":
+            _localhost_markers = ("localhost", "127.0.0.1", "0.0.0.0")
+            if any(marker in self.oidc_jwks_uri for marker in _localhost_markers):
+                raise ValueError(
+                    "AJENDA_OIDC_JWKS_URI must not point to localhost in production. "
+                    f"Current value: {self.oidc_jwks_uri!r}. "
+                    "Set this to your identity provider's JWKS endpoint "
+                    "(e.g. https://your-idp.example.com/realms/ajenda/protocol/openid-connect/certs)."
+                )
+            if any(marker in self.oidc_issuer for marker in _localhost_markers):
+                raise ValueError(
+                    "AJENDA_OIDC_ISSUER must not point to localhost in production. "
+                    f"Current value: {self.oidc_issuer!r}. "
+                    "Set this to your identity provider's issuer URL."
+                )
+
+        # --- Rate limiting sanity ---
+        if self.rate_limit_requests <= 0:
+            raise ValueError(
+                f"AJENDA_RATE_LIMIT_REQUESTS must be a positive integer, got {self.rate_limit_requests}"
+            )
+        if self.rate_limit_window_seconds <= 0:
+            raise ValueError(
+                f"AJENDA_RATE_LIMIT_WINDOW_SECONDS must be a positive integer, "
+                f"got {self.rate_limit_window_seconds}"
+            )
 
 
 @lru_cache(maxsize=1)

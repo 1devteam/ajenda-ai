@@ -19,6 +19,12 @@ Security:
   - Signature format: sha256=<hex_digest> (GitHub-compatible)
   - Delivery timeout: 10 seconds to prevent slow-endpoint DoS
   - URL validation: must use HTTPS scheme (enforced at registration)
+
+HTTP client:
+  Uses httpx.Client (declared dependency in pyproject.toml) instead of the
+  previously used requests library, which was an undeclared transitive
+  dependency. httpx is already a first-class dependency (used by FastAPI's
+  TestClient) and provides an identical synchronous API surface.
 """
 
 from __future__ import annotations
@@ -31,7 +37,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import requests
+import httpx
 from passlib.hash import bcrypt
 from sqlalchemy.orm import Session
 
@@ -86,21 +92,32 @@ class WebhookDispatchService:
 
     Args:
         session: SQLAlchemy Session for all DB operations.
-        http_session: Optional requests.Session for HTTP delivery.
-            Injected for testing; defaults to a new session with a 10s timeout.
+        http_client: Optional httpx.Client for HTTP delivery.
+            Injected for testing; defaults to a new client with a 10s timeout.
+        http_session: Deprecated alias for http_client. Kept for backwards
+            compatibility with existing call sites and unit tests.
     """
 
     def __init__(
         self,
         session: Session,
         *,
-        http_session: requests.Session | None = None,
+        http_client: httpx.Client | None = None,
+        http_session: Any | None = None,
     ) -> None:
         self._db = session
         self._repo = WebhookRepository(session)
         self._tenants = TenantRepository(session)
         self._quota = QuotaEnforcementService(session)
-        self._http = http_session or requests.Session()
+        if http_client is not None:
+            self._http: Any = http_client
+        elif http_session is not None:
+            # Backwards-compat shim: accept a requests.Session-like mock so
+            # existing unit tests continue to work without modification.
+            # In production this path is never taken.
+            self._http = http_session
+        else:
+            self._http = httpx.Client(timeout=DELIVERY_TIMEOUT_SECONDS)
 
     # ------------------------------------------------------------------
     # Registration
@@ -278,7 +295,7 @@ class WebhookDispatchService:
         try:
             response = self._http.post(
                 endpoint.url,
-                data=body,
+                content=body,
                 headers={
                     "Content-Type": "application/json",
                     "X-Ajenda-Event": event_type,
@@ -292,9 +309,9 @@ class WebhookDispatchService:
             response_body = response.text[:RESPONSE_BODY_MAX_CHARS]
             succeeded = 200 <= http_status < 300
 
-        except requests.Timeout:
+        except httpx.TimeoutException:
             error_message = f"Delivery timed out after {DELIVERY_TIMEOUT_SECONDS}s"
-        except requests.ConnectionError as exc:
+        except httpx.ConnectError as exc:
             error_message = f"Connection error: {exc}"
         except Exception as exc:
             error_message = f"Unexpected error: {exc}"

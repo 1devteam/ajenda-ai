@@ -36,8 +36,8 @@ import uuid
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
-import requests as req_lib
 
 from backend.domain.webhook_endpoint import WebhookEndpoint
 from backend.services.quota_enforcement import FeatureNotAvailableError
@@ -84,10 +84,10 @@ def _make_service(
 ) -> tuple[WebhookDispatchService, MagicMock, MagicMock]:
     """Build a WebhookDispatchService with all dependencies mocked.
 
-    Returns (service, mock_repo, mock_http_session).
+    Returns (service, mock_repo, mock_http_client).
     """
     mock_db = MagicMock()
-    mock_http = MagicMock(spec=req_lib.Session)
+    mock_http = MagicMock(spec=httpx.Client)
 
     if http_raise is not None:
         mock_http.post.side_effect = http_raise
@@ -99,7 +99,7 @@ def _make_service(
         resp.text = "ok"
         mock_http.post.return_value = resp
 
-    service = WebhookDispatchService(mock_db, http_session=mock_http)
+    service = WebhookDispatchService(mock_db, http_client=mock_http)
 
     # Patch the repo
     mock_repo = MagicMock()
@@ -234,7 +234,7 @@ class TestDispatchEvent:
         ep = _make_endpoint()
         service, mock_repo, _ = _make_service(
             endpoints=[ep],
-            http_raise=req_lib.Timeout(),
+            http_raise=httpx.TimeoutException("timed out"),
         )
         results = service.dispatch_event(
             tenant_id=TENANT_ID,
@@ -249,7 +249,7 @@ class TestDispatchEvent:
         ep = _make_endpoint()
         service, mock_repo, _ = _make_service(
             endpoints=[ep],
-            http_raise=req_lib.ConnectionError("refused"),
+            http_raise=httpx.ConnectError("refused"),
         )
         results = service.dispatch_event(
             tenant_id=TENANT_ID,
