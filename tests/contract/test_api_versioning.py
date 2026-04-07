@@ -8,6 +8,7 @@ Verifies that:
 These tests import the router directly and inspect route paths without
 starting a live server, making them fast and dependency-free.
 """
+
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -56,8 +57,7 @@ class TestApiVersioning:
         for prefix in business_prefixes:
             matching = [p for p in self.paths if p.startswith(prefix)]
             assert matching, (
-                f"Expected at least one route under '{prefix}' but found none. "
-                f"All paths: {sorted(self.paths)}"
+                f"Expected at least one route under '{prefix}' but found none. All paths: {sorted(self.paths)}"
             )
 
     def test_no_unversioned_business_routes(self) -> None:
@@ -73,6 +73,4 @@ class TestApiVersioning:
         ]
         for path_prefix in unversioned_business:
             matching = [p for p in self.paths if p.startswith(path_prefix)]
-            assert not matching, (
-                f"Found unversioned business route(s) starting with '{path_prefix}': {matching}"
-            )
+            assert not matching, f"Found unversioned business route(s) starting with '{path_prefix}': {matching}"

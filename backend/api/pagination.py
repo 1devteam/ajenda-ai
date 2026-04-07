@@ -25,6 +25,7 @@ Usage in a route::
         tasks, next_cursor = task_repo.list_page(limit=limit, after_id=after_id)
         return PaginatedResponse.build(items=tasks, next_cursor=next_cursor, limit=limit)
 """
+
 from __future__ import annotations
 
 import base64

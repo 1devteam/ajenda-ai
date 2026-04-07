@@ -12,6 +12,7 @@ Design decisions:
   - Feature flags are stored as a JSON array of feature strings so that new
     features can be gated without schema migrations.
 """
+
 from __future__ import annotations
 
 import uuid

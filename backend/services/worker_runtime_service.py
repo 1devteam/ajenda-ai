@@ -12,6 +12,7 @@ This implementation:
 - Logs the compensation action for observability
 - The task remains QUEUED in DB and will be re-claimed by another worker
 """
+
 from __future__ import annotations
 
 import logging
@@ -114,21 +115,15 @@ class WorkerRuntimeService:
 
         return task
 
-    def heartbeat(
-        self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str
-    ) -> WorkerLease:
-        lease = self._get_owned_lease(
-            tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id
-        )
+    def heartbeat(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
+        lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         if lease.status not in {
             WorkerLeaseState.CLAIMED.value,
             WorkerLeaseState.ACTIVE.value,
         }:
             raise ValueError("lease is not heartbeat-eligible")
 
-        result = self._queue.heartbeat(
-            tenant_id=tenant_id, task_id=lease.task_id, worker_id=worker_id
-        )
+        result = self._queue.heartbeat(tenant_id=tenant_id, task_id=lease.task_id, worker_id=worker_id)
         if not result.ok:
             raise ValueError(result.reason or "heartbeat rejected")
 
@@ -138,24 +133,16 @@ class WorkerRuntimeService:
         self._session.flush()
         return lease
 
-    def start_execution(
-        self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str
-    ) -> ExecutionTask:
-        lease = self._get_owned_lease(
-            tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id
-        )
+    def start_execution(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> ExecutionTask:
+        lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         task = self._get_task_for_lease(lease)
         if task.status == ExecutionTaskState.CLAIMED.value:
             transition_task(task, ExecutionTaskState.RUNNING)
             self._session.flush()
         return task
 
-    def complete(
-        self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str
-    ) -> ExecutionTask:
-        lease = self._get_owned_lease(
-            tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id
-        )
+    def complete(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> ExecutionTask:
+        lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         task = self._get_task_for_lease(lease)
         if task.status != ExecutionTaskState.RUNNING.value:
             raise ValueError("task is not running")
@@ -164,9 +151,7 @@ class WorkerRuntimeService:
         if lease.status != WorkerLeaseState.RELEASED.value:
             transition_lease(lease, WorkerLeaseState.RELEASED)
 
-        result = self._queue.complete_task(
-            tenant_id=tenant_id, task_id=task.id, worker_id=worker_id
-        )
+        result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
         if not result.ok:
             raise ValueError(result.reason or "complete rejected")
 
@@ -194,9 +179,7 @@ class WorkerRuntimeService:
         worker_id: str,
         reason: str,
     ) -> ExecutionTask:
-        lease = self._get_owned_lease(
-            tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id
-        )
+        lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         task = self._get_task_for_lease(lease)
         if task.status not in {
             ExecutionTaskState.CLAIMED.value,
@@ -234,12 +217,8 @@ class WorkerRuntimeService:
         )
         return task
 
-    def release(
-        self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str
-    ) -> WorkerLease:
-        lease = self._get_owned_lease(
-            tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id
-        )
+    def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
+        lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         if lease.status != WorkerLeaseState.RELEASED.value:
             transition_lease(lease, WorkerLeaseState.RELEASED)
 
@@ -255,15 +234,9 @@ class WorkerRuntimeService:
         self._session.flush()
         return lease
 
-    def _get_owned_lease(
-        self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str
-    ) -> WorkerLease:
+    def _get_owned_lease(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
         lease = self._leases.get(lease_id)
-        if (
-            lease is None
-            or lease.tenant_id != tenant_id
-            or lease.holder_identity != worker_id
-        ):
+        if lease is None or lease.tenant_id != tenant_id or lease.holder_identity != worker_id:
             raise ValueError("lease not found for tenant worker")
         return lease
 
@@ -273,15 +246,11 @@ class WorkerRuntimeService:
             raise ValueError("task not found")
         return task
 
-    def _assert_no_active_lease(
-        self, *, tenant_id: str, task_id: uuid.UUID
-    ) -> None:
+    def _assert_no_active_lease(self, *, tenant_id: str, task_id: uuid.UUID) -> None:
         stmt = select(WorkerLease).where(
             WorkerLease.tenant_id == tenant_id,
             WorkerLease.task_id == task_id,
-            WorkerLease.status.in_(
-                [WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value]
-            ),
+            WorkerLease.status.in_([WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value]),
         )
         existing = self._session.scalars(stmt).first()
         if existing is not None:

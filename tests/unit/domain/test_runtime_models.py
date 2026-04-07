@@ -4,6 +4,7 @@ Tests structural properties of domain models — tenant scoping, required
 fields, and column presence. Does NOT rely on SQLAlchemy column defaults
 populating on Python instantiation (they only apply on DB flush).
 """
+
 from __future__ import annotations
 
 from backend.domain import (

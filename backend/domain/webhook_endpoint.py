@@ -26,6 +26,7 @@ SQLite compatibility:
   JSON on SQLite (for unit test compatibility). This is the same pattern used
   for JSONB columns elsewhere in the codebase.
 """
+
 from __future__ import annotations
 
 import json
@@ -139,7 +140,4 @@ class WebhookEndpoint(Base):
         return self.is_active and event_type in (self.event_types or [])
 
     def __repr__(self) -> str:
-        return (
-            f"<WebhookEndpoint id={self.id} tenant={self.tenant_id} "
-            f"url={self.url!r} active={self.is_active}>"
-        )
+        return f"<WebhookEndpoint id={self.id} tenant={self.tenant_id} url={self.url!r} active={self.is_active}>"

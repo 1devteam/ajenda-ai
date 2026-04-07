@@ -7,6 +7,7 @@ Verifies:
 - GET requests pass through without idempotency logic
 - Idempotency-Replayed header is set correctly
 """
+
 from __future__ import annotations
 
 import uuid

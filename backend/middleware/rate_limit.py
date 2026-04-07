@@ -14,6 +14,7 @@ monkeypatching.
 Rate limit decisions are keyed by (tenant_id, principal_id, route) so that
 different tenants and principals have independent buckets.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable

@@ -10,6 +10,7 @@ Tests cover all regulatory domains implemented in the compliance layer:
 - Adversarial misuse (missing fields, empty metadata, wrong types)
 - Human review enforcement for employment and financial categories
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -60,6 +61,7 @@ def _mission(
 # BASELINE: Operational tasks are always allowed
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestOperationalBaseline:
     def test_operational_task_is_always_allowed(self) -> None:
         """Operational tasks bypass all compliance checks."""
@@ -86,6 +88,7 @@ class TestOperationalBaseline:
 # ─────────────────────────────────────────────────────────────────────────────
 # HUMAN REVIEW ENFORCEMENT
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestHumanReviewEnforcement:
     def test_employment_task_without_human_review_is_blocked(self) -> None:
@@ -131,6 +134,7 @@ class TestHumanReviewEnforcement:
 # ─────────────────────────────────────────────────────────────────────────────
 # EU AI ACT
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestEuAiAct:
     def test_eu_employment_without_technical_doc_is_blocked(self) -> None:
@@ -216,6 +220,7 @@ class TestEuAiAct:
 # COLORADO SB24-205
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestColoradoSB24205:
     def test_co_employment_without_disclosure_is_blocked(self) -> None:
         """Colorado SB24-205: Consequential employment decision missing disclosure is blocked."""
@@ -288,6 +293,7 @@ class TestColoradoSB24205:
 # NYC LOCAL LAW 144
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestNycLocalLaw144:
     def test_nyc_employment_without_bias_audit_is_blocked(self) -> None:
         """NYC LL144: Employment tool without bias audit date is blocked."""
@@ -329,6 +335,7 @@ class TestNycLocalLaw144:
 # ─────────────────────────────────────────────────────────────────────────────
 # FTC CAN-SPAM / FCC TCPA
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestFtcCanSpamTcpa:
     def test_marketing_without_opt_out_is_blocked(self) -> None:
@@ -404,6 +411,7 @@ class TestFtcCanSpamTcpa:
 # JURISDICTION SWITCHING
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestJurisdictionSwitching:
     def test_same_task_allowed_in_us_all_blocked_in_eu(self) -> None:
         """The same employment task is allowed in US-ALL but blocked in EU without tech doc."""
@@ -466,6 +474,7 @@ class TestJurisdictionSwitching:
 # ─────────────────────────────────────────────────────────────────────────────
 # ADVERSARIAL MISUSE
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestAdversarialMisuse:
     def test_empty_metadata_blocks_regulated_categories(self) -> None:

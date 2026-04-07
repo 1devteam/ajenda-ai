@@ -10,6 +10,7 @@ This implementation:
 - Logs the decision mode for observability
 - Rolls back DB state if queue enqueue fails (prevents split-brain)
 """
+
 from __future__ import annotations
 
 import logging
@@ -114,9 +115,7 @@ class ExecutionCoordinator:
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status)
 
-    def mark_dead_letter(
-        self, *, tenant_id: str, task_id: uuid.UUID, reason: str
-    ) -> CoordinationResult:
+    def mark_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> CoordinationResult:
         task = self._require_task(task_id=task_id, tenant_id=tenant_id)
         transition_task(task, ExecutionTaskState.DEAD_LETTERED)
         self._session.flush()

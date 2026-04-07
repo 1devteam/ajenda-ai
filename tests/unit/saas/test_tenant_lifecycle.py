@@ -8,6 +8,7 @@ Tests cover:
   - Plan upgrade/downgrade via upgrade_plan()
   - Error propagation from repository
 """
+
 from __future__ import annotations
 
 import uuid
@@ -55,6 +56,7 @@ def _make_tenant(
 # ---------------------------------------------------------------------------
 # Provisioning
 # ---------------------------------------------------------------------------
+
 
 class TestTenantProvisioning:
     def test_provision_creates_tenant_and_returns_result(self):
@@ -106,6 +108,7 @@ class TestTenantProvisioning:
 # Suspension
 # ---------------------------------------------------------------------------
 
+
 class TestTenantSuspension:
     def test_suspend_active_tenant(self):
         svc, repo = _make_service_with_mock_repo()
@@ -151,6 +154,7 @@ class TestTenantSuspension:
 # Reactivation
 # ---------------------------------------------------------------------------
 
+
 class TestTenantReactivation:
     def test_reactivate_suspended_tenant(self):
         svc, repo = _make_service_with_mock_repo()
@@ -189,6 +193,7 @@ class TestTenantReactivation:
 # Soft delete
 # ---------------------------------------------------------------------------
 
+
 class TestTenantDelete:
     def test_delete_active_tenant(self):
         svc, repo = _make_service_with_mock_repo()
@@ -219,6 +224,7 @@ class TestTenantDelete:
 # ---------------------------------------------------------------------------
 # Plan changes
 # ---------------------------------------------------------------------------
+
 
 class TestPlanChanges:
     def test_upgrade_plan(self):

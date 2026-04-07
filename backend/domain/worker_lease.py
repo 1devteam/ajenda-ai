@@ -24,11 +24,11 @@ class WorkerLease(Base):
         nullable=False,
         index=True,
     )
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=WorkerLeaseState.CLAIMED.value
-    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=WorkerLeaseState.CLAIMED.value)
     holder_identity: Mapped[str] = mapped_column(String(255), nullable=False)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )

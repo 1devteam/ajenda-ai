@@ -44,9 +44,7 @@ class ExecutionTask(Base):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=ExecutionTaskState.PLANNED.value
-    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=ExecutionTaskState.PLANNED.value)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
     # --- Compliance fields (migration 0005) ---
@@ -76,4 +74,6 @@ class ExecutionTask(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )

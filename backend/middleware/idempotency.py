@@ -24,6 +24,7 @@ Usage (in main.py)::
     from backend.middleware.idempotency import IdempotencyMiddleware
     app.add_middleware(IdempotencyMiddleware)
 """
+
 from __future__ import annotations
 
 import threading
@@ -140,14 +141,16 @@ class IdempotencyMiddleware:
         if not _is_valid_uuid(key):
             # Malformed key — reject immediately
             error_body = b'{"detail":"Idempotency-Key must be a valid UUID v4."}'
-            await send({
-                "type": "http.response.start",
-                "status": 400,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(error_body)).encode()),
-                ],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 400,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(error_body)).encode()),
+                    ],
+                }
+            )
             await send({"type": "http.response.body", "body": error_body, "more_body": False})
             return
 
@@ -156,11 +159,13 @@ class IdempotencyMiddleware:
         if cached is not None:
             # Replay the stored response
             replay_headers = [*cached.headers, (b"idempotency-replayed", b"true")]
-            await send({
-                "type": "http.response.start",
-                "status": cached.status_code,
-                "headers": replay_headers,
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": cached.status_code,
+                    "headers": replay_headers,
+                }
+            )
             await send({"type": "http.response.body", "body": cached.body, "more_body": False})
             return
 

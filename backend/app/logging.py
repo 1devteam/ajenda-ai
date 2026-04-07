@@ -55,9 +55,7 @@ def configure_logging(settings: Settings) -> None:
     handler.addFilter(RedactionFilter(settings.redact_key_set))
 
     if settings.log_json:
-        formatter: logging.Formatter = JsonFormatter(
-            "%(asctime)s %(levelname)s %(name)s %(message)s"
-        )
+        formatter: logging.Formatter = JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     else:
         formatter = PlainFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
 

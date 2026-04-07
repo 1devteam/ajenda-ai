@@ -43,7 +43,9 @@ class ApiKeyService:
         )
         if self._repo is not None:
             db_record = self._repo.add(mem_record)
-            self._emit_audit(tenant_id=tenant_id, action="api_key_created", details=f"API key {db_record.key_id} created")
+            self._emit_audit(
+                tenant_id=tenant_id, action="api_key_created", details=f"API key {db_record.key_id} created"
+            )
             return plaintext, db_record
         # Memory-only mode: store the ApiKeyRecordModel directly in the wrapper
         self._memory_store[record.key_id] = StoredApiKey(record=mem_record)
@@ -55,7 +57,9 @@ class ApiKeyService:
             if record is None:
                 raise ValueError("api key not found")
             self._repo.revoke(record)
-            self._emit_audit(tenant_id=record.tenant_id, action="api_key_revoked", details=f"API key {record.key_id} revoked")
+            self._emit_audit(
+                tenant_id=record.tenant_id, action="api_key_revoked", details=f"API key {record.key_id} revoked"
+            )
             return
         stored = self._memory_store.get(key_id)
         if stored is None:

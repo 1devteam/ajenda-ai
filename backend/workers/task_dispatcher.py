@@ -16,6 +16,7 @@ Extension point:
     The framework here is intentionally minimal — it enforces the contract
     without prescribing the execution model.
 """
+
 from __future__ import annotations
 
 import logging
@@ -42,10 +43,12 @@ _HEARTBEAT_INTERVAL = 15.0  # seconds
 
 def register_handler(task_type: str) -> Callable[[TaskHandler], TaskHandler]:
     """Decorator to register a handler for a specific task type."""
+
     def decorator(fn: TaskHandler) -> TaskHandler:
         _HANDLER_REGISTRY[task_type] = fn
         logger.info("task_handler_registered", extra={"task_type": task_type})
         return fn
+
     return decorator
 
 
@@ -178,6 +181,7 @@ class TaskDispatcher:
         session = self.session_factory()
         try:
             from backend.repositories.execution_task_repository import ExecutionTaskRepository
+
             repo = ExecutionTaskRepository(session)
             return repo.get(task_id)
         except Exception as exc:

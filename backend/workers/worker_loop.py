@@ -11,6 +11,7 @@ This implementation:
 - Handles heartbeat loss gracefully (fail the task, don't crash the loop)
 - Separates the poll loop from the execution loop cleanly
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,9 +67,7 @@ class WorkerLoop:
         session = self.session_factory()
         try:
             runtime = WorkerRuntimeService(session, self.queue)
-            task = runtime.claim_next_task(
-                tenant_id=self.tenant_id, worker_id=self.worker_id
-            )
+            task = runtime.claim_next_task(tenant_id=self.tenant_id, worker_id=self.worker_id)
             if task is None:
                 session.rollback()
                 return None

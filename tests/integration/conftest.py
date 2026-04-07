@@ -25,6 +25,7 @@ Usage:
         # redis_client is a real redis.Redis client
         ...
 """
+
 from __future__ import annotations
 
 from collections.abc import Generator
@@ -47,6 +48,7 @@ from backend.db.base import Base
 # ---------------------------------------------------------------------------
 # Session-scoped containers — started once, shared across all integration tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def postgres_container():
@@ -74,7 +76,8 @@ def pg_engine(postgres_container):
     Runs all Alembic migrations once at session start to create the full schema.
     """
     url = postgres_container.get_connection_url().replace(
-        "psycopg2", "psycopg"  # Use psycopg v3
+        "psycopg2",
+        "psycopg",  # Use psycopg v3
     )
     engine = create_engine(url, pool_pre_ping=True)
 
@@ -102,6 +105,7 @@ def redis_url(redis_container) -> str:
 # ---------------------------------------------------------------------------
 # Function-scoped fixtures — fresh transaction per test, rolled back after
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def pg_session(pg_engine) -> Generator[Session, None, None]:
@@ -132,6 +136,7 @@ def pg_session(pg_engine) -> Generator[Session, None, None]:
 def redis_client(redis_url: str):
     """Provide a real Redis client connected to the test container."""
     import redis as redis_lib
+
     client = redis_lib.Redis.from_url(redis_url, decode_responses=True)
     yield client
     # Flush the test database after each test for isolation
@@ -162,6 +167,7 @@ def queue_adapter(redis_url: str):
 # ---------------------------------------------------------------------------
 # Environment variable injection for tests that use Settings directly
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=False)
 def inject_test_env(postgres_container, redis_url, monkeypatch):

@@ -25,9 +25,9 @@ class WorkforceFleet(Base):
         index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=WorkforceFleetState.PLANNED.value
-    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=WorkforceFleetState.PLANNED.value)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )

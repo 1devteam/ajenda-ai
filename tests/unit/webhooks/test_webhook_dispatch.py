@@ -29,6 +29,7 @@ Test coverage:
     - event_id is preserved across retry attempts
     - attempt_number is recorded correctly
 """
+
 from __future__ import annotations
 
 import uuid
@@ -115,9 +116,7 @@ def _make_service(
     # Patch quota enforcement
     mock_quota = MagicMock()
     if not feature_allowed:
-        mock_quota.require_feature.side_effect = FeatureNotAvailableError(
-            feature="webhooks", plan="free"
-        )
+        mock_quota.require_feature.side_effect = FeatureNotAvailableError(feature="webhooks", plan="free")
     service._quota = mock_quota
 
     return service, mock_repo, mock_http
@@ -336,9 +335,7 @@ class TestAutoDisable:
             event_type="task.completed",
             payload={},
         )
-        mock_repo.disable_endpoint.assert_called_once_with(
-            ep.id, tenant_id=TENANT_ID
-        )
+        mock_repo.disable_endpoint.assert_called_once_with(ep.id, tenant_id=TENANT_ID)
         delivery = mock_repo.record_delivery.call_args[0][0]
         assert delivery.status == "dead_lettered"
 

@@ -3,6 +3,7 @@
 Tests the middleware in isolation using a minimal FastAPI app with
 mocked app.state.settings so the middleware can resolve auth config.
 """
+
 from __future__ import annotations
 
 import base64
@@ -19,11 +20,7 @@ from backend.middleware.tenant_context import TenantContextMiddleware
 
 def _token(payload: dict[str, object]) -> str:
     """Build a fake Bearer token (not cryptographically valid - for middleware bypass testing)."""
-    encoded = (
-        base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8"))
-        .decode("utf-8")
-        .rstrip("=")
-    )
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
     return f"x.{encoded}.y"
 
 

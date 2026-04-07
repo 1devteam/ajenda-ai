@@ -54,8 +54,7 @@ def create_api_key(
                 "current": exc.current,
                 "plan": exc.plan,
                 "message": (
-                    f"You have reached the API key limit ({exc.limit}) "
-                    f"for the {exc.plan!r} plan. Upgrade to continue."
+                    f"You have reached the API key limit ({exc.limit}) for the {exc.plan!r} plan. Upgrade to continue."
                 ),
             },
         ) from exc

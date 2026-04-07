@@ -28,6 +28,7 @@ Routes at root (/):
   /readiness          — Readiness probe (DB ping, no auth required)
   /metrics            — Prometheus metrics scrape endpoint
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter
@@ -61,18 +62,18 @@ def build_api_router() -> APIRouter:
 
     # --- v1 versioned business routes ---
     v1 = APIRouter(prefix="/v1")
-    v1.include_router(auth_router)           # /v1/auth/*
-    v1.include_router(api_keys_router)       # /v1/api-keys/*
-    v1.include_router(mission_router)        # /v1/missions/*
-    v1.include_router(task_router)           # /v1/tasks/*
-    v1.include_router(workforce_router)      # /v1/workforce/*
-    v1.include_router(branch_router)         # /v1/branches/*
-    v1.include_router(runtime_router)        # /v1/runtime/*
-    v1.include_router(operations_router)     # /v1/operations/*
-    v1.include_router(system_router)         # /v1/system/*
+    v1.include_router(auth_router)  # /v1/auth/*
+    v1.include_router(api_keys_router)  # /v1/api-keys/*
+    v1.include_router(mission_router)  # /v1/missions/*
+    v1.include_router(task_router)  # /v1/tasks/*
+    v1.include_router(workforce_router)  # /v1/workforce/*
+    v1.include_router(branch_router)  # /v1/branches/*
+    v1.include_router(runtime_router)  # /v1/runtime/*
+    v1.include_router(operations_router)  # /v1/operations/*
+    v1.include_router(system_router)  # /v1/system/*
     v1.include_router(observability_router)  # /v1/observability/*
-    v1.include_router(webhooks_router)       # /v1/webhooks/*
-    v1.include_router(admin_router)          # /v1/admin/* (platform control plane)
+    v1.include_router(webhooks_router)  # /v1/webhooks/*
+    v1.include_router(admin_router)  # /v1/admin/* (platform control plane)
 
     root.include_router(v1)
     return root

@@ -9,6 +9,7 @@ Replaces the LocalAdapter-backed test_queue_flow.py which could not catch:
 This test uses the queue_adapter fixture from tests/integration/conftest.py
 which provides a real RedisQueueAdapter connected to a test Redis container.
 """
+
 from __future__ import annotations
 
 import uuid

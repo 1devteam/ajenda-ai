@@ -3,6 +3,7 @@
 Uses an in-memory SQLite database via SQLAlchemy. JSONB columns are
 overridden to use JSON for SQLite compatibility (JSONB is Postgres-only).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -42,9 +43,7 @@ def test_api_key_service_create_and_authenticate() -> None:
     service = ApiKeyService(session)
     plaintext, record = service.create_key(tenant_id="tenant-a", scopes=("execution:queue",))
     session.commit()
-    principal = service.authenticate_machine(
-        tenant_id="tenant-a", key_id=record.key_id, plaintext=plaintext
-    )
+    principal = service.authenticate_machine(tenant_id="tenant-a", key_id=record.key_id, plaintext=plaintext)
     assert principal.tenant_id == "tenant-a"
 
 
@@ -57,9 +56,7 @@ def test_api_key_service_rejects_revoked_key() -> None:
     service.revoke_key(key_id=record.key_id)
     session.commit()
     with pytest.raises(ValueError):
-        service.authenticate_machine(
-            tenant_id="tenant-a", key_id=record.key_id, plaintext=plaintext
-        )
+        service.authenticate_machine(tenant_id="tenant-a", key_id=record.key_id, plaintext=plaintext)
 
 
 def test_api_key_service_count_active_keys() -> None:
