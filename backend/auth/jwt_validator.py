@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -21,6 +22,57 @@ from jose import JWTError, jwt
 from jose.exceptions import ExpiredSignatureError, JWTClaimsError
 
 logger = logging.getLogger("ajenda.jwt_validator")
+
+
+@dataclass(frozen=True)
+class JwtClaims:
+    """Typed representation of verified JWT claims.
+
+    Produced by JwtValidator.validate_and_extract_claims() after full
+    cryptographic verification. All fields are guaranteed to be present
+    and valid when this object is returned.
+
+    The ``raw`` field contains the full claims dict for access to
+    custom/extension claims not represented as typed attributes.
+    """
+
+    sub: str
+    """Subject — the authenticated principal identifier."""
+
+    tenant_id: str
+    """Tenant identifier extracted from the token claims."""
+
+    roles: list[str] = field(default_factory=list)
+    """List of role strings granted to this principal."""
+
+    email: str | None = None
+    """Email address of the authenticated user, if present."""
+
+    raw: dict[str, Any] = field(default_factory=dict)
+    """Full raw claims dict for access to extension claims."""
+
+    @classmethod
+    def from_dict(cls, claims: dict[str, Any]) -> "JwtClaims":
+        """Build a JwtClaims from a raw verified claims dict.
+
+        Raises JwtValidationError if required claims are missing.
+        """
+        sub = claims.get("sub")
+        tenant_id = claims.get("tenant_id") or claims.get("tid")
+        if not sub:
+            raise JwtValidationError("token missing required 'sub' claim")
+        if not tenant_id:
+            raise JwtValidationError("token missing required 'tenant_id' claim")
+        roles = claims.get("roles") or claims.get("groups") or []
+        if isinstance(roles, str):
+            roles = [roles]
+        return cls(
+            sub=sub,
+            tenant_id=str(tenant_id),
+            roles=list(roles),
+            email=claims.get("email"),
+            raw=claims,
+        )
 
 _JWKS_CACHE_TTL_SECONDS = 600  # 10 minutes
 

@@ -9,6 +9,8 @@ from backend.auth.permissions import Permission
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.services.api_key_service import ApiKeyService
 from backend.services.authorization_service import AuthorizationService
+from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
+import uuid as _uuid
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
@@ -32,7 +34,31 @@ def create_api_key(
         permission=Permission.API_KEYS_CREATE,
         tenant_id=tenant_id,
     )
+    # --- Quota check: API key count ---
+    tenant_uuid = _uuid.UUID(tenant_id)
     service = ApiKeyService(db)
+    current_key_count = service.count_active_keys(tenant_id=tenant_id)
+    try:
+        QuotaEnforcementService(db).check_api_key_limit(
+            tenant_uuid,
+            current_key_count=current_key_count,
+        )
+    except QuotaExceededError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "QUOTA_EXCEEDED",
+                "field": exc.field,
+                "limit": exc.limit,
+                "current": exc.current,
+                "plan": exc.plan,
+                "message": (
+                    f"You have reached the API key limit ({exc.limit}) "
+                    f"for the {exc.plan!r} plan. Upgrade to continue."
+                ),
+            },
+        ) from exc
+
     plaintext, record = service.create_key(tenant_id=tenant_id, scopes=tuple(body.scopes))
     return {
         "key_id": record.key_id,

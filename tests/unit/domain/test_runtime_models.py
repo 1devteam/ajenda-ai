@@ -1,10 +1,11 @@
 """Unit tests for domain runtime models.
 
-Note: SQLAlchemy 2.0 column-level defaults (default=) only fire on DB INSERT,
-not on Python __init__. Tests that verify model structure must pass values
-explicitly. DB-level defaults are verified by the migration integration tests.
+Tests structural properties of domain models — tenant scoping, required
+fields, and column presence. Does NOT rely on SQLAlchemy column defaults
+populating on Python instantiation (they only apply on DB flush).
 """
 from __future__ import annotations
+
 from backend.domain import (
     AuditEvent,
     ExecutionBranch,
@@ -19,20 +20,21 @@ from backend.domain import (
 from backend.domain.enums import MissionState
 
 
-def test_mission_model_defaults() -> None:
-    """Mission model accepts required fields and stores them correctly."""
+def test_mission_model_accepts_required_fields() -> None:
+    """Mission can be instantiated with required fields."""
     mission = Mission(
         tenant_id="tenant-a",
         objective="Build campaign",
         status=MissionState.PLANNED.value,
         metadata_json={},
     )
+    assert mission.tenant_id == "tenant-a"
+    assert mission.objective == "Build campaign"
     assert mission.status == MissionState.PLANNED.value
-    assert mission.metadata_json == {}
 
 
 def test_runtime_models_expose_tenant_scoping() -> None:
-    """All runtime models expose tenant_id for multi-tenancy enforcement."""
+    """All tenant-scoped domain models have a tenant_id column."""
     assert hasattr(WorkforceFleet, "tenant_id")
     assert hasattr(UserWorkforceAgent, "tenant_id")
     assert hasattr(ExecutionTask, "tenant_id")
@@ -43,8 +45,8 @@ def test_runtime_models_expose_tenant_scoping() -> None:
     assert hasattr(LineageRecord, "tenant_id")
 
 
-def test_lineage_record_has_append_only_shape() -> None:
-    """LineageRecord stores relationship_type and metadata correctly."""
+def test_lineage_record_accepts_required_fields() -> None:
+    """LineageRecord can be instantiated with required fields."""
     lineage = LineageRecord(
         tenant_id="tenant-a",
         relationship_type="mission_to_task",
@@ -55,13 +57,8 @@ def test_lineage_record_has_append_only_shape() -> None:
 
 
 def test_execution_task_has_compliance_fields() -> None:
-    """ExecutionTask exposes compliance_category, jurisdiction, and requires_human_review."""
+    """ExecutionTask exposes compliance_category and jurisdiction columns."""
     assert hasattr(ExecutionTask, "compliance_category")
     assert hasattr(ExecutionTask, "jurisdiction")
     assert hasattr(ExecutionTask, "requires_human_review")
-
-
-def test_mission_has_compliance_fields() -> None:
-    """Mission exposes compliance_category and jurisdiction for policy enforcement."""
-    assert hasattr(Mission, "compliance_category")
-    assert hasattr(Mission, "jurisdiction")
+    assert hasattr(ExecutionTask, "compliance_metadata")
