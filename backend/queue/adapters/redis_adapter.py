@@ -45,7 +45,7 @@ class RedisQueueAdapter(QueueAdapter):
             response = self._execute(["PING"])
         except OSError:
             return False
-        return response == "PONG"
+        return bool(response == "PONG")
 
     def enqueue_task(self, message: QueueMessage) -> QueueOperationResult:
         try:
@@ -276,4 +276,5 @@ class RedisQueueAdapter(QueueAdapter):
         line = file_obj.readline()
         if not line.endswith(b"\r\n"):
             raise RedisProtocolError("malformed Redis line response")
-        return line[:-2].decode("utf-8")
+        decoded: str = line[:-2].decode("utf-8")
+        return decoded

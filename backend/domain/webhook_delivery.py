@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -74,7 +75,7 @@ class WebhookDelivery(Base):
         comment="Unique ID for this event — used for idempotency on retries",
     )
     # Payload delivered to the endpoint
-    payload: Mapped[dict] = mapped_column(
+    payload: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         comment="Full JSON payload sent in the POST body",

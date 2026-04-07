@@ -26,8 +26,9 @@ Design notes:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from typing import Any
+
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 # HSTS max-age: 1 year in seconds
 _HSTS_MAX_AGE = 31_536_000
@@ -60,21 +61,16 @@ class SecurityHeadersMiddleware:
     buffer response bodies and is safe to use with streaming endpoints.
     """
 
-    def __init__(self, app: Callable[..., Awaitable[Any]]) -> None:
+    def __init__(self, app: ASGIApp) -> None:
         self._app = app
 
-    async def __call__(
-        self,
-        scope: dict[str, Any],
-        receive: Callable[[], Awaitable[Any]],
-        send: Callable[[dict[str, Any]], Awaitable[None]],
-    ) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             # Pass through WebSocket and lifespan events unchanged
             await self._app(scope, receive, send)
             return
 
-        async def send_with_security_headers(message: dict[str, Any]) -> None:
+        async def send_with_security_headers(message: Any) -> None:
             if message["type"] == "http.response.start":
                 # Inject security headers before the response headers are sent.
                 # We append to the existing headers list rather than replacing it

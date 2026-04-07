@@ -80,7 +80,7 @@ def _require_admin(request: Request) -> None:
     principal = getattr(request.state, "principal", None)
     if principal is None:
         raise HTTPException(status_code=403, detail="Admin authentication required")
-    roles = getattr(principal, "roles", set())
+    roles: set[str] = getattr(principal, "roles", set())
     if "admin" not in roles:
         raise HTTPException(
             status_code=403,
@@ -127,7 +127,7 @@ def suspend_tenant(
     body: SuspendTenantRequest,
     request: Request,
     db: Session = Depends(get_db_session),
-) -> dict:
+) -> dict[str, str]:
     """Suspend a tenant. Blocks all mutation operations for that tenant."""
     _require_admin(request)
     actor = _get_actor(request)
@@ -148,7 +148,7 @@ def reactivate_tenant(
     tenant_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db_session),
-) -> dict:
+) -> dict[str, str]:
     """Reactivate a suspended tenant."""
     _require_admin(request)
     actor = _get_actor(request)
@@ -166,7 +166,7 @@ def delete_tenant(
     tenant_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db_session),
-) -> dict:
+) -> dict[str, str]:
     """Soft-delete a tenant. Irreversible within the compliance retention window."""
     _require_admin(request)
     actor = _get_actor(request)
@@ -185,7 +185,7 @@ def change_plan(
     body: ChangePlanRequest,
     request: Request,
     db: Session = Depends(get_db_session),
-) -> dict:
+) -> dict[str, str]:
     """Change the subscription plan for a tenant."""
     _require_admin(request)
     actor = _get_actor(request)
@@ -203,7 +203,7 @@ def get_quota_status(
     tenant_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db_session),
-) -> dict:
+) -> dict[str, object]:
     """Return the current quota consumption for a tenant."""
     _require_admin(request)
     try:

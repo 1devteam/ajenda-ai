@@ -62,7 +62,7 @@ class TenantPlan(Base):
 
     # --- Feature flags ---
     # JSON array of feature strings, e.g. ["compliance_layer", "custom_webhooks"]
-    features_enabled: Mapped[list] = mapped_column(
+    features_enabled: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
         default=list,

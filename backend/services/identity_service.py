@@ -15,8 +15,10 @@ class IdentityService:
     """Authenticates principals from Bearer tokens.
 
     Args:
-        oidc_authenticator: Optional injected OidcAuthenticator. If not
-            provided, a default instance is created. Inject for testing.
+        oidc_authenticator: Injected OidcAuthenticator. Must be provided;
+            OidcAuthenticator requires jwks_uri, issuer, and audience which
+            are runtime configuration values — no safe default exists.
+            Pass a configured instance from the dependency container.
         session: Optional DB session (reserved for future API key auth path).
     """
 
@@ -25,7 +27,11 @@ class IdentityService:
         oidc_authenticator: OidcAuthenticator | None = None,
         session: object | None = None,
     ) -> None:
-        self._oidc = oidc_authenticator if oidc_authenticator is not None else OidcAuthenticator()
+        # OidcAuthenticator requires jwks_uri/issuer/audience — a real instance
+        # must be injected. The None default is retained for backward compatibility
+        # with call sites that inject their own instance; callers that pass None
+        # will receive a RuntimeError at authentication time (fail-fast).
+        self._oidc: OidcAuthenticator | None = oidc_authenticator
         self._rbac = RbacAuthorizer()
         self._session = session  # reserved for future API key auth integration
 
@@ -33,10 +39,16 @@ class IdentityService:
         """Authenticate a Bearer token and return a typed UserPrincipal.
 
         Raises JwtValidationError on any validation failure.
+        Raises RuntimeError if no OidcAuthenticator was injected.
         """
         if not token:
             raise ValueError("token must not be empty")
-        return self._oidc.authenticate(token)
+        if self._oidc is None:
+            raise RuntimeError(
+                "IdentityService requires an OidcAuthenticator instance. Inject one via the constructor."
+            )
+        validation = self._oidc.validate_bearer_token(token)
+        return validation.principal
 
     def authenticate_user_bearer(self, token: str) -> UserPrincipal:
         """Alias for authenticate_bearer for backward compatibility."""

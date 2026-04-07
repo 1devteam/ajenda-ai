@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -34,6 +36,6 @@ class SystemStatusService:
             "leases": self._count_grouped(WorkerLease, tenant_id=tenant_id),
         }
 
-    def _count_grouped(self, model, *, tenant_id: str) -> dict[str, int]:
+    def _count_grouped(self, model: type[Any], *, tenant_id: str) -> dict[str, int]:
         stmt = select(model.status, func.count()).where(model.tenant_id == tenant_id).group_by(model.status)
         return {str(status): int(count) for status, count in self._session.execute(stmt).all()}

@@ -102,7 +102,7 @@ class TenantLifecycleService:
         self._tenants.suspend(tenant_id, reason=reason)
 
         self._emit_event(
-            tenant_id=str(tenant_id),
+            tenant_id=tenant_id,
             event_type="tenant_suspended",
             actor=actor,
             decision=f"Tenant suspended: {reason}",
@@ -123,7 +123,7 @@ class TenantLifecycleService:
         self._tenants.reactivate(tenant_id)
 
         self._emit_event(
-            tenant_id=str(tenant_id),
+            tenant_id=tenant_id,
             event_type="tenant_reactivated",
             actor=actor,
             decision="Tenant reactivated",
@@ -145,7 +145,7 @@ class TenantLifecycleService:
         self._tenants.soft_delete(tenant_id)
 
         self._emit_event(
-            tenant_id=str(tenant_id),
+            tenant_id=tenant_id,
             event_type="tenant_deleted",
             actor=actor,
             decision=f"Tenant soft-deleted: {reason}",
@@ -172,7 +172,7 @@ class TenantLifecycleService:
         self._tenants.update_plan(tenant_id, new_plan=new_plan)
 
         self._emit_event(
-            tenant_id=str(tenant_id),
+            tenant_id=tenant_id,
             event_type="tenant_plan_changed",
             actor=actor,
             decision=f"Plan changed from {old_plan!r} to {new_plan!r}",
@@ -190,7 +190,7 @@ class TenantLifecycleService:
         event_type: str,
         actor: str,
         decision: str,
-        payload: dict,
+        payload: dict[str, object],
     ) -> None:
         """Append a GovernanceEvent to the immutable audit trail."""
         event = GovernanceEvent(

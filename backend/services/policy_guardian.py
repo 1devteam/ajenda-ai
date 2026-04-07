@@ -65,7 +65,12 @@ class PolicyGuardian:
                 logger.warning(reason)
                 return PolicyDecision(False, reason)
 
-        return self._evaluate_jurisdiction_policy(task.compliance_category, task.jurisdiction, task.metadata_json)
+        # ExecutionTask.compliance_category and .jurisdiction are nullable;
+        # default to safe values if not set.
+        category = task.compliance_category or ComplianceCategory.OPERATIONAL
+        jurisdiction = task.jurisdiction or "US-ALL"
+        metadata = task.metadata_json or {}
+        return self._evaluate_jurisdiction_policy(category, jurisdiction, metadata)
 
     def _evaluate_jurisdiction_policy(
         self, category: str, jurisdiction: str, metadata: dict[str, Any]

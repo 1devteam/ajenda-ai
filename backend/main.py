@@ -25,6 +25,7 @@ all responses including error responses from inner middleware.
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -43,7 +44,7 @@ from backend.queue import build_queue_adapter
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager.
 
     Validates configuration, initialises shared resources, and ensures clean

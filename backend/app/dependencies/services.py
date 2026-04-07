@@ -21,10 +21,10 @@ from backend.services.runtime_governor import RuntimeGovernor
 
 def get_queue_adapter(request: Request) -> QueueAdapter:
     """Retrieve the queue adapter from app.state (set during lifespan startup)."""
-    queue_adapter = getattr(request.app.state, "queue_adapter", None)
-    if queue_adapter is None:
+    adapter: QueueAdapter | None = getattr(request.app.state, "queue_adapter", None)
+    if adapter is None:
         raise RuntimeError("Queue adapter not initialized. Ensure the app lifespan has completed startup.")
-    return queue_adapter
+    return adapter
 
 
 def get_runtime_governor(db: Session = Depends(get_db_session)) -> RuntimeGovernor:
