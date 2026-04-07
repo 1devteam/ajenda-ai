@@ -20,6 +20,8 @@ Route inventory under /v1/:
   /v1/operations/*    — Operational controls (pause, drain, resume)
   /v1/system/*        — System status and diagnostics
   /v1/observability/* — Observability endpoints (lineage, governance events)
+  /v1/webhooks/*      — Tenant webhook endpoint management
+  /v1/admin/*         — Platform admin control plane
 
 Routes at root (/):
   /health             — Liveness probe (no auth required)
@@ -42,6 +44,7 @@ from backend.api.routes.system import router as system_router
 from backend.api.routes.task import router as task_router
 from backend.api.routes.workforce import router as workforce_router
 from backend.api.routes.admin import router as admin_router
+from backend.api.routes.webhooks import router as webhooks_router
 
 
 def build_api_router() -> APIRouter:
@@ -68,7 +71,8 @@ def build_api_router() -> APIRouter:
     v1.include_router(operations_router)     # /v1/operations/*
     v1.include_router(system_router)         # /v1/system/*
     v1.include_router(observability_router)  # /v1/observability/*
-    v1.include_router(admin_router)           # /v1/admin/* (platform control plane)
+    v1.include_router(webhooks_router)       # /v1/webhooks/*
+    v1.include_router(admin_router)          # /v1/admin/* (platform control plane)
 
     root.include_router(v1)
     return root
