@@ -1,0 +1,86 @@
+name: Security — Vulnerability Scanning
+
+# Runs on PRs and weekly on main to catch newly disclosed CVEs.
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Every Monday at 08:00 UTC
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write   # upload SARIF results to GitHub Security tab
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 1: Trivy — scan the built Docker image for OS and library CVEs
+  # ─────────────────────────────────────────────────────────────────────────
+  trivy-image:
+    name: Trivy Image Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image for scanning
+        run: docker build -t ajenda-ai:scan .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ajenda-ai:scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 2: pip-audit — scan Python dependencies for known vulnerabilities
+  # ─────────────────────────────────────────────────────────────────────────
+  pip-audit:
+    name: pip-audit Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Install project dependencies
+        run: pip install ".[dev]"
+
+      - name: Run pip-audit
+        run: pip-audit --strict --desc on
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 3: Secret scanning — detect accidentally committed secrets
+  # ─────────────────────────────────────────────────────────────────────────
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

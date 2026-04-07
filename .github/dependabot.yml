@@ -1,0 +1,53 @@
+version: 2
+
+updates:
+  # Python dependencies — weekly check
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Group all minor/patch updates into a single PR to reduce noise
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions — weekly check
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "chore(ci)"
+
+  # Docker base image — weekly check
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: UTC
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "chore(docker)"

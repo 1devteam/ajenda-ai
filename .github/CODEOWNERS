@@ -1,0 +1,23 @@
+# CODEOWNERS — Ajenda AI
+# These owners are automatically requested for review when a PR touches
+# the corresponding paths.
+#
+# Format: <pattern> <owner> [<owner> ...]
+# Owners can be GitHub usernames (@user) or teams (@org/team).
+
+# Default: all files require review from the dev team
+*                           @1devteam
+
+# Core backend — requires senior review
+backend/                    @1devteam
+alembic/                    @1devteam
+
+# CI/CD and infrastructure — requires DevOps review
+.github/                    @1devteam
+infra/                      @1devteam
+Dockerfile                  @1devteam
+docker-compose.yml          @1devteam
+
+# Security-sensitive paths — requires security review
+backend/auth/               @1devteam
+backend/middleware/         @1devteam
