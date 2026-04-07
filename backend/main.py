@@ -102,15 +102,32 @@ def create_app() -> FastAPI:
     app.include_router(build_api_router())
 
     # --- Middleware stack (registered innermost-first) ---
+    #
+    # Starlette applies middleware in REVERSE registration order.
+    # The LAST middleware added here becomes the OUTERMOST wrapper.
+    #
+    # Execution order (outermost → innermost):
+    #   SecurityHeaders → Idempotency → RateLimit → Tenant → Auth → RequestContext → route
+    #
+    # Tenant MUST execute before Auth because:
+    #   - AuthContextMiddleware reads request.state.tenant_id (set by TenantContextMiddleware)
+    #     to scope API key lookups to the correct tenant.
+    #   - Without tenant_id, API key auth falls back to a tenant-agnostic lookup,
+    #     which is incorrect and a potential cross-tenant information leak.
+    #
+    # Auth MUST execute before RateLimit because:
+    #   - RateLimitMiddleware uses request.state.principal for per-principal bucketing.
 
-    # Innermost: request context (assigns request_id)
+    # Innermost: request context (assigns request_id to every request)
     app.add_middleware(RequestContextMiddleware)
 
-    # Tenant context: extracts X-Tenant-Id
-    app.add_middleware(TenantContextMiddleware)
-
-    # Auth context: resolves principal from JWT or API key
+    # Auth context: resolves principal from JWT or API key.
+    # Registered before Tenant so that Tenant executes first at runtime.
     app.add_middleware(AuthContextMiddleware)
+
+    # Tenant context: extracts X-Tenant-Id, validates tenant active status,
+    # enforces cross-tenant rejection. Executes before Auth at runtime.
+    app.add_middleware(TenantContextMiddleware)
 
     # Rate limiting: per-(tenant, principal, route) fixed-window
     app.add_middleware(RateLimitMiddleware)
@@ -118,7 +135,7 @@ def create_app() -> FastAPI:
     # Idempotency: deduplicates POST/PUT/PATCH by Idempotency-Key header
     app.add_middleware(IdempotencyMiddleware)
 
-    # Outermost: security headers — applied to ALL responses
+    # Outermost: security headers — applied to ALL responses including errors
     app.add_middleware(SecurityHeadersMiddleware)
 
     return app

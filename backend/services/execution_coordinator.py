@@ -9,6 +9,15 @@ This implementation:
 - Checks decision.execution_allowed (the authoritative boolean)
 - Logs the decision mode for observability
 - Rolls back DB state if queue enqueue fails (prevents split-brain)
+
+PolicyGuardian integration (Section 4 fix):
+- evaluate_task() is called before queuing. If the task's compliance category
+  requires human review, the task is transitioned to PENDING_REVIEW instead of
+  QUEUED. A governance event is emitted so the audit trail is complete.
+- evaluate_task() reads task.compliance_category and task.jurisdiction from the
+  domain model columns (migration 0005), NOT from task.metadata_json. This was
+  the bug: the previous evaluate_task() read from metadata_json which is an
+  unstructured bag — compliance fields belong in typed columns.
 """
 
 from __future__ import annotations
@@ -29,6 +38,7 @@ from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.governance_event_repository import GovernanceEventRepository
 from backend.runtime.transitions import transition_task
+from backend.services.policy_guardian import PolicyGuardian
 from backend.services.runtime_governor import RuntimeGovernor
 
 logger = logging.getLogger("ajenda.execution_coordinator")
@@ -50,10 +60,12 @@ class ExecutionCoordinator:
         self._audit = AuditEventRepository(session)
         self._governance = GovernanceEventRepository(session)
         self._governor = RuntimeGovernor(session)
+        self._policy = PolicyGuardian(session)
 
     def queue_task(self, *, tenant_id: str, task_id: uuid.UUID) -> CoordinationResult:
         task = self._require_task(task_id=task_id, tenant_id=tenant_id)
 
+        # --- Step 1: Runtime governance check (circuit breaker / maintenance mode) ---
         decision = self._governor.evaluate()
         logger.info(
             "governance_decision",
@@ -64,7 +76,6 @@ class ExecutionCoordinator:
             },
         )
 
-        # Check the authoritative boolean — not a mode allowlist
         if not decision.execution_allowed:
             self._emit_denial(task=task, tenant_id=tenant_id, reason=decision.reason)
             return CoordinationResult(
@@ -74,6 +85,68 @@ class ExecutionCoordinator:
                 reason=decision.reason,
             )
 
+        # --- Step 2: Compliance / policy check (PolicyGuardian) ---
+        # evaluate_task() reads from the typed domain model columns
+        # (compliance_category, jurisdiction, requires_human_review, compliance_metadata)
+        # NOT from metadata_json. This is the correct source of truth.
+        policy_decision = self._policy.evaluate_task(task)
+        logger.info(
+            "policy_decision",
+            extra={
+                "task_id": str(task_id),
+                "allowed": policy_decision.allowed,
+                "reason": policy_decision.reason,
+            },
+        )
+
+        if not policy_decision.allowed:
+            # Route to PENDING_REVIEW instead of silently blocking.
+            # A human reviewer will approve (→queued) or reject (→cancelled) via admin API.
+            transition_task(task, ExecutionTaskState.PENDING_REVIEW)
+            task.requires_human_review = True
+            self._session.flush()
+
+            self._governance.append(
+                GovernanceEvent(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    event_type="compliance_review_required",
+                    actor="policy_guardian",
+                    decision=policy_decision.reason,
+                    payload_json={
+                        "task_id": str(task.id),
+                        "compliance_category": task.compliance_category,
+                        "jurisdiction": task.jurisdiction,
+                        "reason": policy_decision.reason,
+                    },
+                )
+            )
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    category="compliance",
+                    action="task_pending_review",
+                    actor="policy_guardian",
+                    details=(
+                        f"Task {task.id} requires human review before execution. "
+                        f"Reason: {policy_decision.reason}"
+                    ),
+                    payload_json={
+                        "task_id": str(task.id),
+                        "reason": policy_decision.reason,
+                    },
+                )
+            )
+            self._session.flush()
+            return CoordinationResult(
+                ok=False,
+                task_id=task.id,
+                state=task.status,
+                reason=policy_decision.reason,
+            )
+
+        # --- Step 3: Enqueue ---
         previous_state = task.status
         transition_task(task, ExecutionTaskState.QUEUED)
         self._session.flush()

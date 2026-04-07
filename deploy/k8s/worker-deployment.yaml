@@ -5,7 +5,7 @@ metadata:
   namespace: ajenda
   labels:
     app: ajenda-worker
-    version: "1.0.0"
+    version: "1.1.0"
 spec:
   replicas: 3
   selector:
@@ -23,7 +23,7 @@ spec:
         - name: worker
           # Use immutable image tags in production — never :latest
           # Override via Kustomize or Helm values: image: ajenda/worker:${GIT_SHA}
-          image: ajenda/worker:1.0.0
+          image: ajenda/worker:1.1.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:

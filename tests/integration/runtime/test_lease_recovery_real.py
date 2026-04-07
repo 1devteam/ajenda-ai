@@ -156,7 +156,9 @@ class TestLeaseRecoveryReal:
         pg_session.flush()
 
         task = _make_task("tenant-recovery-d", mission.id, ExecutionTaskState.RUNNING.value)
-        task.metadata_json = {"retry_count": 3}  # Already at max
+        # Use the typed retry_count column (migration 0008), not metadata_json.
+        # RuntimeMaintainer reads task.retry_count directly.
+        task.retry_count = 3  # Already at max_retries=3
         pg_session.add(task)
         pg_session.flush()
 

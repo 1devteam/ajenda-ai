@@ -32,7 +32,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import secrets
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -46,6 +45,7 @@ from backend.domain.webhook_endpoint import WebhookEndpoint
 from backend.repositories.tenant_repository import TenantRepository
 from backend.repositories.webhook_repository import WebhookRepository
 from backend.services.quota_enforcement import QuotaEnforcementService
+from backend.services.webhook_secret_protector import WebhookSecretProtector
 
 # Maximum consecutive failures before an endpoint is auto-disabled
 MAX_CONSECUTIVE_FAILURES = 5
@@ -104,11 +104,13 @@ class WebhookDispatchService:
         *,
         http_client: httpx.Client | None = None,
         http_session: Any | None = None,
+        secret_protector: WebhookSecretProtector | None = None,
     ) -> None:
         self._db = session
         self._repo = WebhookRepository(session)
         self._tenants = TenantRepository(session)
         self._quota = QuotaEnforcementService(session)
+        self._protector = secret_protector or WebhookSecretProtector()
         if http_client is not None:
             self._http: Any = http_client
         elif http_session is not None:
@@ -153,8 +155,9 @@ class WebhookDispatchService:
         if not event_types:
             raise WebhookRegistrationError("At least one event_type must be specified.")
 
-        # Generate signing secret
-        plaintext_secret = secrets.token_hex(32)  # 64-char hex string
+        # Generate signing secret using the protector (encrypted-at-rest)
+        plaintext_secret, secret_ciphertext = self._protector.generate_secret()
+        # Also store a bcrypt hash for backward compatibility with legacy signing path
         secret_hash = bcrypt.hash(plaintext_secret)
 
         endpoint = WebhookEndpoint(
@@ -162,6 +165,7 @@ class WebhookDispatchService:
             tenant_id=tenant_id,
             url=url,
             secret_hash=secret_hash,
+            secret_ciphertext=secret_ciphertext,
             event_types=event_types,
             is_active=True,
         )
@@ -272,7 +276,17 @@ class WebhookDispatchService:
             separators=(",", ":"),
         ).encode("utf-8")
 
-        signature = self._sign(body, endpoint.secret_hash)
+        # Use decrypted plaintext secret when available (migration 0009+);
+        # fall back to legacy bcrypt hash for endpoints created before migration.
+        if endpoint.secret_ciphertext:
+            try:
+                signing_key = self._protector.decrypt_secret(endpoint.secret_ciphertext)
+            except ValueError:
+                # Decryption failed (key rotation without migration) — fall back
+                signing_key = endpoint.secret_hash
+        else:
+            signing_key = endpoint.secret_hash
+        signature = self._sign(body, signing_key)
 
         delivery = WebhookDelivery(
             id=uuid.uuid4(),
@@ -341,18 +355,18 @@ class WebhookDispatchService:
         )
 
     @staticmethod
-    def _sign(body: bytes, secret_hash: str) -> str:
+    def _sign(body: bytes, signing_key: str) -> str:
         """Generate the HMAC-SHA256 signature header value.
 
-        The signature is computed over the raw request body bytes using the
-        bcrypt hash as the HMAC key. This is intentional: the bcrypt hash is
-        deterministic for the same plaintext secret, so the tenant can verify
-        the signature using their plaintext secret on their end.
+        Args:
+            body: The raw request body bytes to sign.
+            signing_key: The HMAC key. For endpoints created after migration 0009
+                this is the decrypted plaintext secret, allowing tenants to verify
+                signatures using their plaintext secret. For legacy endpoints it
+                is the bcrypt hash (not verifiable by tenants).
 
-        Note: In a future iteration, the plaintext secret should be stored in
-        an encrypted secrets store (e.g. AWS Secrets Manager) so the HMAC key
-        is the actual plaintext secret rather than its hash. For the current
-        implementation, the bcrypt hash serves as a stable, non-reversible key.
+        Returns:
+            Signature string in the format ``sha256=<hex_digest>``.
         """
-        mac = hmac.new(secret_hash.encode("utf-8"), body, hashlib.sha256)
+        mac = hmac.new(signing_key.encode("utf-8"), body, hashlib.sha256)
         return f"sha256={mac.hexdigest()}"

@@ -12,5 +12,9 @@ spec:
       - ajenda
   endpoints:
     - port: http
-      path: /observability/metrics
+      # The observability router is mounted under /v1/ by build_api_router().
+      # Full path: /v1/observability/metrics
+      # This endpoint is in the AuthContextMiddleware public-path allowlist
+      # so no Authorization header is required for Prometheus scraping.
+      path: /v1/observability/metrics
       interval: 15s

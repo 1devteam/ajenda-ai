@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -71,6 +71,18 @@ class ExecutionTask(Base):
         nullable=False,
         default=dict,
         comment="Structured compliance evidence: technical_doc_url, bias_audit_date, opt_out_url, etc.",
+    )
+
+    # --- Retry tracking (migration 0008) ---
+    retry_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment=(
+            "Number of times this task has been retried after failure or lease expiry. "
+            "Incremented by RuntimeMaintainer on each recovering->queued re-enqueue. "
+            "When retry_count reaches the configured max, the task is dead-lettered."
+        ),
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

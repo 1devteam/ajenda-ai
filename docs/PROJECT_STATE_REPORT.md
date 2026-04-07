@@ -1,87 +1,100 @@
 # Ajenda AI — Project State Report
 
-**Date:** April 6, 2026  
-**Branch:** `main` (post-Phase 3, Compliance, and SaaS multi-tenancy merges)  
-**Version:** 1.1.0 (per `pyproject.toml`)  
+**Date:** April 7, 2026
+**Branch:** `main` (post-remediation: all six structural gaps resolved)
+**Version:** 1.1.0 (per `pyproject.toml`)
 
-This document provides a comprehensive assessment of the Ajenda AI codebase following the successful integration of the Phase 2 (Enterprise SaaS), Phase 3 (Advanced Architecture), Compliance, and SaaS Multi-tenancy feature branches. It evaluates the current architectural posture, testing matrix, and operational readiness, followed by prioritized strategic recommendations for the next phase of development.
+This document provides an accurate assessment of the Ajenda AI codebase following the six-section structural remediation. It supersedes the previous report, which contained several claims that were not yet backed by code.
 
 ---
 
 ## 1. Architectural Posture & Completeness
 
-The foundational Phase 1 repository has been successfully transformed into a production-grade, multi-tenant Enterprise SaaS platform. The core architectural requirements have been met and verified.
-
 ### 1.1. Multi-Tenancy and Isolation
-The system now enforces strict data isolation through PostgreSQL Row-Level Security (RLS) policies (`0003_row_level_security.py`). The application layer guarantees isolation via the `TenantContextMiddleware`, which intercepts the `X-Tenant-Id` header, validates it against the database, and establishes a secure execution context for all downstream operations. Cross-tenant access is cryptographically impossible at the database level and structurally prevented at the API layer.
+
+PostgreSQL Row-Level Security policies are defined in migration `0003_row_level_security.py`. **RLS is now activated at runtime**: `DatabaseRuntime.tenant_session_scope()` issues `SET LOCAL app.current_tenant_id = :tenant_id` at the start of every tenant-scoped DB operation, making the RLS policies effective. The `get_tenant_db_session` FastAPI dependency wraps this scope for route handlers.
+
+The `TenantContextMiddleware` intercepts `X-Tenant-Id`, validates it against the database, and sets `request.state.tenant_id`. The middleware registration order in `main.py` is correct: Tenant middleware executes before Auth middleware (Starlette reverses registration order), so API key lookups are always scoped to the validated tenant.
 
 ### 1.2. Authentication and Authorization
-The split-brain authentication issue from Phase 1 has been remediated. The system now utilizes a unified, DB-backed middleware stack (`AuthContextMiddleware`). It supports both OIDC/JWT tokens (for human users) and cryptographically hashed API keys (for machine-to-machine communication). Role-Based Access Control (RBAC) is fully implemented, with specific routes (e.g., `/v1/admin/*`) strictly gated to the `admin` role, and cross-tenant enforcement verified.
+
+`AuthContextMiddleware` supports OIDC/JWT tokens and cryptographically hashed API keys. The production runtime contract guard (`validate_runtime_contract`) blocks startup if `AJENDA_OIDC_JWKS_URI` or `AJENDA_OIDC_ISSUER` point to localhost in production mode. RBAC is enforced on `/v1/admin/*` routes. Cross-tenant rejection is verified by integration tests.
 
 ### 1.3. SaaS Governance and Quota Enforcement
-A complete SaaS lifecycle and billing enforcement layer is operational. The `TenantLifecycleService` handles provisioning, suspension, reactivation, and soft-deletion. The `QuotaEnforcementService` intercepts mutation routes (e.g., mission queuing, task creation, agent provisioning) to enforce plan limits (Free, Starter, Pro, Enterprise) in real-time. Recent fixes ensure that bulk operations (like queuing a mission with multiple tasks) correctly consume the exact number of quota units required, preventing bypasses.
+
+`TenantLifecycleService` handles provisioning, suspension, reactivation, and soft-deletion. `QuotaEnforcementService` enforces plan limits (Free, Starter, Pro, Enterprise) in real-time on all mutation routes. Integration tests against real Postgres cover the full tenant lifecycle.
 
 ### 1.4. Regulatory Compliance Layer
-The `PolicyGuardian` service has been integrated to handle complex regulatory requirements, including the EU AI Act, Colorado SB24-205, NYC LL144, and FTC/TCPA guidelines. Tasks are intercepted and evaluated against compliance policies before execution. Tasks requiring human oversight are placed into a `PENDING_REVIEW` state, ensuring an auditable human-in-the-loop (HITL) control plane.
+
+`PolicyGuardian.evaluate_task()` reads typed domain model columns (`compliance_category`, `jurisdiction`, `requires_human_review`) — not `metadata_json`. This is the correct source of truth for compliance decisions.
+
+`PolicyGuardian` is wired into `ExecutionCoordinator.queue_task()` as Step 2 of the queuing pipeline (after runtime governance, before enqueue). Tasks that fail the compliance check transition to `PENDING_REVIEW` (migration 0008, state machine updated) instead of being silently blocked. A `GovernanceEvent` and `AuditEvent` are emitted for every compliance hold.
+
+Human reviewers approve (`→queued`) or reject (`→cancelled`) held tasks via the admin API.
 
 ### 1.5. Resilient Execution Runtime
-The core execution engine has been hardened. The state machine now includes a `RECOVERING` state to handle worker lease expirations and node failures gracefully. The `RuntimeMaintainer` and `RuntimeGovernor` ensure that orphaned tasks are reclaimed and dead-lettered tasks are properly isolated for operator inspection. Idempotency middleware (`IdempotencyMiddleware`) prevents duplicate task queuing from retried network requests.
+
+**Lease recovery is now correct**: `RedisQueueAdapter.release_lease()` atomically returns the task payload to the `pending` queue using an `RPUSH` + `DEL` pipeline before deleting the lease key. Previously it only deleted the lease key, silently stranding tasks in the `processing` set.
+
+**Retry tracking is now correct**: `ExecutionTask.retry_count` is a typed `Integer` column (migration 0008, default 0). `RuntimeMaintainer` reads and increments this column directly. Tasks are dead-lettered after `max_retries` (default: 3). Previously `retry_count` was read via `getattr(task, "retry_count", 0)` which always returned 0, making the dead-letter threshold unreachable.
+
+### 1.6. Webhook Delivery
+
+Webhook secrets are stored as Fernet-encrypted ciphertext (`secret_ciphertext`, migration 0009) via `WebhookSecretProtector`. At delivery time, the ciphertext is decrypted to produce the plaintext HMAC-SHA256 signing key. Tenants can now verify delivery signatures using their plaintext secret. Legacy endpoints (created before migration 0009) fall back to the bcrypt hash as the signing key.
+
+### 1.7. Observability
+
+`GET /v1/observability/metrics` returns live Prometheus text format metrics computed from real DB COUNT queries (task status counts, lease counts, worker utilization). The `PrometheusExporter` renders the snapshot. The Prometheus `ServiceMonitor` scrape path is aligned: `path: /v1/observability/metrics`. All three K8s image tags are aligned to `1.1.0`.
 
 ---
 
 ## 2. Test Matrix and Quality Assurance
 
-The testing matrix is exceptionally robust, providing high confidence in the system's structural integrity.
+| Metric | Value |
+|--------|-------|
+| **Unit tests passing** | 269 |
+| **Failures** | 0 |
+| **Ruff lint errors** | 0 |
+| **Mypy type errors** | 0 |
 
-*   **Total Tests Passing:** 214
-*   **Failures:** 0
-*   **Coverage Areas:**
-    *   **Unit Tests:** Comprehensive coverage of domain models, state transitions, JWT validation, middleware logic, quota enforcement math, and service-level business rules.
-    *   **Integration Tests:** End-to-end verification of the middleware stack, database session lifecycle, API key hashing, RBAC denials, and cross-tenant rejection.
-    *   **Contract/Deployment Tests:** Verification of the queue adapter flows (including Redis runtime boot), lease recovery mechanisms, and dead-letter inspection.
-
-The test suite successfully utilizes `testcontainers` for integration tests, ensuring that database and queue interactions are verified against real infrastructure rather than mocks.
+**Coverage areas:**
+- Domain models, state transitions, JWT validation, middleware logic
+- Quota enforcement math, per-route rate limiting
+- Compliance policy evaluation (EU AI Act, Colorado SB24-205, NYC LL144, FTC/TCPA)
+- Webhook dispatch (httpx), HMAC signing, auto-disable on failure
+- Production runtime contract guards (OIDC localhost, rate limit parameters)
+- Integration tests: tenant lifecycle, webhook repository CRUD (real Postgres via testcontainers)
+- Integration tests: middleware stack, DB session lifecycle, RBAC, cross-tenant rejection, lease recovery
 
 ---
 
 ## 3. Operational and Deployment Readiness
 
-The repository contains the necessary artifacts for containerized deployment:
-*   `Dockerfile`: A multi-stage, production-ready image based on `python:3.12-slim`, running `uvicorn`.
-*   `docker-compose.yml`: Local development and testing orchestration, including the API and PostgreSQL 16 database with health checks.
-*   `alembic/`: Database migrations are up-to-date, including the new SaaS tenant tables and compliance fields.
-
-**Identified Gap:** While the application code is production-ready, the repository lacks a formalized CI/CD pipeline. The `.github/workflows/` directory currently only contains a `.gitkeep` placeholder.
+- `Dockerfile`: Multi-stage, production-ready image based on `python:3.12-slim`
+- `docker-compose.yml`: Local development orchestration (API + Postgres 16 + Redis)
+- `alembic/`: 9 migrations, current head is `0009_add_webhook_secret_ciphertext`
+- `.github/workflows/`: CI pipeline with PR gate (ruff, mypy, pytest) and release workflow
+- `deploy/k8s/`: Deployment manifests, ServiceMonitor, migration Job — all at version `1.1.0`
+- `infra/`: Terraform modules for ECS, RDS, ElastiCache, Secrets Manager, VPC
 
 ---
 
 ## 4. Prioritized Next Actions
 
-Based on the current state, the system is functionally complete for its stated enterprise SaaS requirements. The next phase should focus on operationalizing the platform, establishing deployment pipelines, and building the external-facing interfaces.
+### Priority 1: Admin API for PENDING_REVIEW Queue (Compliance UX)
 
-### Priority 1: CI/CD Pipeline Implementation (Ops/DevEx)
-**Rationale:** With 214 passing tests and a complex database migration strategy, automated validation is critical before any further feature work or team expansion.
-**Action:**
-1.  Implement GitHub Actions workflows for continuous integration.
-2.  **Workflow 1 (PR Gate):** Run `ruff` linting, `pytest` (unit and integration using service containers for Postgres/Redis), and Alembic downgrade/upgrade tests on every Pull Request.
-3.  **Workflow 2 (Release):** Automate semantic versioning tagging and Docker image building/publishing to a container registry upon merge to `main`.
+The `PENDING_REVIEW` state is now wired end-to-end, but there are no admin API endpoints to list held tasks, approve them (`→queued`), or reject them (`→cancelled`). Operators cannot act on compliance holds without direct DB access.
 
-### Priority 2: External API Gateway & Webhook System (Integration)
-**Rationale:** An Enterprise SaaS platform requires mechanisms for external systems to trigger workflows and receive asynchronous updates.
-**Action:**
-1.  Implement a webhook registration and delivery system for tenant applications to receive events (e.g., `task.completed`, `mission.failed`, `compliance.review_required`).
-2.  Build an API Gateway configuration (e.g., Kong, Tyk, or AWS API Gateway definitions) to handle external routing, TLS termination, and global rate limiting ahead of the FastAPI application.
+**Action:** Add `GET /v1/admin/review-queue` and `POST /v1/admin/tasks/{task_id}/approve|reject` endpoints with admin RBAC.
 
-### Priority 3: Administrative Dashboard (Frontend/Tooling)
-**Rationale:** The `/v1/admin/*` routes exist, but operators need a visual interface to manage tenants, review compliance flags, and inspect dead-letter queues.
-**Action:**
-1.  Initialize a React/Vite frontend project specifically for the Admin Control Plane.
-2.  Integrate OIDC authentication for internal operators.
-3.  Build views for Tenant Management (provisioning, plan upgrades), Quota Monitoring, and the Dead Letter / Compliance Review queues.
+### Priority 2: Tenant-Scoped DB Session Rollout
 
-### Priority 4: Production Infrastructure as Code (IaC)
-**Rationale:** `docker-compose.yml` is sufficient for local development, but production requires scalable infrastructure.
-**Action:**
-1.  Develop Terraform or Pulumi modules for deploying the Ajenda AI stack to AWS or GCP.
-2.  Define RDS/CloudSQL instances, ElastiCache/MemoryDB for the queue, and ECS/EKS/GKE cluster configurations for the API and Worker nodes.
-3.  Implement secret management (AWS Secrets Manager / HashiCorp Vault) integration to replace `.env` file reliance in production.
+`get_tenant_db_session` exists and activates RLS, but most existing routes still use `get_db_session`. The tenant-scoped dependency should be rolled out to all tenant-facing routes (`/v1/missions/*`, `/v1/tasks/*`, `/v1/webhooks/*`, etc.) to make RLS universally effective.
+
+### Priority 3: Webhook Secret Key Rotation
+
+`WebhookSecretProtector` uses a single Fernet key from `AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY`. A key rotation mechanism (re-encrypt all ciphertexts with the new key) is needed for production secret hygiene.
+
+### Priority 4: Admin Dashboard Frontend
+
+The `/v1/admin/*` routes exist but operators need a visual interface for tenant management, quota monitoring, compliance review queue, and dead-letter inspection.
