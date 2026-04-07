@@ -10,6 +10,7 @@ Tests cover:
   - FeatureNotAvailableError structure
   - Boundary conditions: exactly at limit, one over limit
 """
+
 from __future__ import annotations
 
 import uuid
@@ -26,6 +27,7 @@ from backend.services.quota_enforcement import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_tenant(plan: str = "free", status: str = "active"):
     t = MagicMock()
@@ -83,6 +85,7 @@ def _make_service(tenant, plan, usage):
 # Mission quota
 # ---------------------------------------------------------------------------
 
+
 class TestMissionQuota:
     def test_allows_when_under_limit(self):
         svc = _make_service(
@@ -139,6 +142,7 @@ class TestMissionQuota:
 # Task quota
 # ---------------------------------------------------------------------------
 
+
 class TestTaskQuota:
     def test_allows_when_under_limit(self):
         svc = _make_service(
@@ -171,6 +175,7 @@ class TestTaskQuota:
 # ---------------------------------------------------------------------------
 # Agent provisioning quota
 # ---------------------------------------------------------------------------
+
 
 class TestAgentProvisioningQuota:
     def test_allows_exact_limit(self):
@@ -221,6 +226,7 @@ class TestAgentProvisioningQuota:
 # API key quota (gauge, not rate)
 # ---------------------------------------------------------------------------
 
+
 class TestApiKeyQuota:
     def test_allows_when_under_limit(self):
         svc = _make_service(
@@ -263,6 +269,7 @@ class TestApiKeyQuota:
 # ---------------------------------------------------------------------------
 # Feature gating
 # ---------------------------------------------------------------------------
+
 
 class TestFeatureGating:
     def test_allows_feature_on_eligible_plan(self):
@@ -327,6 +334,7 @@ class TestFeatureGating:
 # QuotaExceededError structure
 # ---------------------------------------------------------------------------
 
+
 class TestQuotaExceededErrorStructure:
     def test_error_carries_all_fields(self):
         err = QuotaExceededError(
@@ -349,6 +357,7 @@ class TestQuotaExceededErrorStructure:
 # FeatureNotAvailableError structure
 # ---------------------------------------------------------------------------
 
+
 class TestFeatureNotAvailableErrorStructure:
     def test_error_carries_all_fields(self):
         err = FeatureNotAvailableError(feature="webhooks", plan="free")
@@ -364,15 +373,19 @@ class TestFeatureNotAvailableErrorStructure:
 # Plan boundary: exactly at limit vs one over
 # ---------------------------------------------------------------------------
 
+
 class TestPlanBoundaryConditions:
-    @pytest.mark.parametrize("current,limit,should_raise", [
-        (0, 3, False),
-        (2, 3, False),
-        (3, 3, True),   # at limit — blocked
-        (4, 3, True),   # over limit — blocked
-        (0, -1, False), # unlimited
-        (999999, -1, False),  # unlimited, huge usage
-    ])
+    @pytest.mark.parametrize(
+        "current,limit,should_raise",
+        [
+            (0, 3, False),
+            (2, 3, False),
+            (3, 3, True),  # at limit — blocked
+            (4, 3, True),  # over limit — blocked
+            (0, -1, False),  # unlimited
+            (999999, -1, False),  # unlimited, huge usage
+        ],
+    )
     def test_mission_boundary(self, current, limit, should_raise):
         svc = _make_service(
             _make_tenant("free"),

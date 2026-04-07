@@ -18,6 +18,7 @@ Retry policy:
   Attempt 5: 2 hours
   After 5 failures: endpoint disabled, operator notified via audit event
 """
+
 from __future__ import annotations
 
 import uuid

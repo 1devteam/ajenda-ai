@@ -15,6 +15,7 @@ Design decisions:
     new plan — plans are pre-seeded by migration 0006).
   - The service does not commit — callers own the transaction boundary.
 """
+
 from __future__ import annotations
 
 import uuid

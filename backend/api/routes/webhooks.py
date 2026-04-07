@@ -13,6 +13,7 @@ All routes require a valid X-Tenant-Id header and are gated behind the
 The signing secret is returned only on POST and never again. Tenants must
 store it securely at registration time.
 """
+
 from __future__ import annotations
 
 import uuid as _uuid
@@ -73,10 +74,7 @@ class RegisterWebhookRequest(BaseModel):
         }
         invalid = set(v) - valid
         if invalid:
-            raise ValueError(
-                f"Unknown event type(s): {sorted(invalid)}. "
-                f"Valid types: {sorted(valid)}"
-            )
+            raise ValueError(f"Unknown event type(s): {sorted(invalid)}. Valid types: {sorted(valid)}")
         return list(set(v))  # deduplicate
 
 
@@ -167,8 +165,7 @@ def register_webhook(
                 "feature": exc.feature,
                 "plan": exc.plan,
                 "message": (
-                    f"Webhooks are not available on the {exc.plan!r} plan. "
-                    "Upgrade to Starter or above to use webhooks."
+                    f"Webhooks are not available on the {exc.plan!r} plan. Upgrade to Starter or above to use webhooks."
                 ),
             },
         ) from exc
@@ -285,9 +282,7 @@ def list_webhook_deliveries(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     repo = WebhookRepository(db)
-    deliveries = repo.list_deliveries_for_endpoint(
-        endpoint_id, tenant_id=tenant_uuid, limit=50
-    )
+    deliveries = repo.list_deliveries_for_endpoint(endpoint_id, tenant_id=tenant_uuid, limit=50)
 
     return [
         WebhookDeliveryResponse(

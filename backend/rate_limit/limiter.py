@@ -5,6 +5,7 @@ replace with a Redis-backed sliding window implementation. The RateLimiter
 interface (evaluate method signature and RateLimitDecision return type) is
 stable — the middleware does not need to change when the backend is swapped.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

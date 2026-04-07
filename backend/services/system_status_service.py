@@ -35,9 +35,5 @@ class SystemStatusService:
         }
 
     def _count_grouped(self, model, *, tenant_id: str) -> dict[str, int]:
-        stmt = (
-            select(model.status, func.count())
-            .where(model.tenant_id == tenant_id)
-            .group_by(model.status)
-        )
+        stmt = select(model.status, func.count()).where(model.tenant_id == tenant_id).group_by(model.status)
         return {str(status): int(count) for status, count in self._session.execute(stmt).all()}

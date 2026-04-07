@@ -3,6 +3,7 @@
 Uses Argon2id via passlib for all secret storage.
 SHA-256 is explicitly NOT used — it is a fast hash and unsuitable for secret storage.
 """
+
 from __future__ import annotations
 
 import secrets

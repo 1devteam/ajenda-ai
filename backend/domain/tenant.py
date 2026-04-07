@@ -12,6 +12,7 @@ is the root of the SaaS hierarchy and governs:
 PostgreSQL RLS policies reference tenant_id on all child tables. The Tenant
 table itself is accessible only to the ajenda_admin role.
 """
+
 from __future__ import annotations
 
 import uuid

@@ -9,6 +9,7 @@ Replaces the mock-based test_lease_recovery.py which could not catch:
 This test requires Docker (via testcontainers). It is marked with
 pytest.mark.integration and skipped in unit test runs.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -53,9 +54,7 @@ def _make_expired_lease(task_id, worker_id: str = "worker-dead") -> WorkerLease:
 
 
 class TestLeaseRecoveryReal:
-    def test_running_task_transitions_through_recovering_to_queued(
-        self, pg_session, queue_adapter
-    ) -> None:
+    def test_running_task_transitions_through_recovering_to_queued(self, pg_session, queue_adapter) -> None:
         """A running task with an expired lease must go running→recovering→queued."""
         mission = _make_mission("tenant-recovery-a")
         pg_session.add(mission)
@@ -89,9 +88,7 @@ class TestLeaseRecoveryReal:
         pg_session.refresh(lease)
         assert lease.status == WorkerLeaseState.EXPIRED.value
 
-    def test_claimed_task_requeued_directly_without_recovering(
-        self, pg_session, queue_adapter
-    ) -> None:
+    def test_claimed_task_requeued_directly_without_recovering(self, pg_session, queue_adapter) -> None:
         """A claimed task (never started) must go directly claimed→queued."""
         mission = _make_mission("tenant-recovery-b")
         pg_session.add(mission)
@@ -152,9 +149,7 @@ class TestLeaseRecoveryReal:
         pg_session.refresh(task)
         assert task.status == ExecutionTaskState.RUNNING.value
 
-    def test_max_retries_exceeded_dead_letters_task(
-        self, pg_session, queue_adapter
-    ) -> None:
+    def test_max_retries_exceeded_dead_letters_task(self, pg_session, queue_adapter) -> None:
         """A task that has exceeded max_retries must be dead-lettered, not re-queued."""
         mission = _make_mission("tenant-recovery-d")
         pg_session.add(mission)

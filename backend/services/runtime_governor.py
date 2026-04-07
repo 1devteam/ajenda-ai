@@ -10,6 +10,7 @@ This implementation:
 - RESTRICTED: execution_allowed=False (operator-imposed halt)
 - RECOVERY: execution_allowed=False (active recovery in progress)
 """
+
 from __future__ import annotations
 
 import logging

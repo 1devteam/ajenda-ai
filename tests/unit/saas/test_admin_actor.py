@@ -5,6 +5,7 @@ field on the Principal dataclass) rather than the non-existent
 principal.subject attribute, which previously caused every authenticated
 admin call to record "unknown_admin" in governance events.
 """
+
 from __future__ import annotations
 
 from starlette.requests import Request
@@ -15,6 +16,7 @@ from backend.auth.principal import MachinePrincipal, PrincipalType, UserPrincipa
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_request(principal=None) -> Request:
     """Build a minimal Starlette Request with an optional principal on state."""
@@ -35,6 +37,7 @@ def _make_request(principal=None) -> Request:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestGetActor:
     def test_returns_subject_id_for_user_principal(self):
         """Authenticated admin user: actor must be the real subject_id."""
@@ -47,9 +50,7 @@ class TestGetActor:
         )
         request = _make_request(principal=principal)
         actor = _get_actor(request)
-        assert actor == "user-abc-123", (
-            "_get_actor must return principal.subject_id, not 'unknown_admin'"
-        )
+        assert actor == "user-abc-123", "_get_actor must return principal.subject_id, not 'unknown_admin'"
 
     def test_returns_subject_id_for_machine_principal(self):
         """Machine principal (service account): actor must be the real subject_id."""

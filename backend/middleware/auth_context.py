@@ -9,6 +9,7 @@ Keys created via the API are immediately visible to authentication.
 API Key format: ``X-Api-Key: <key_id>.<plaintext_secret>``
 Bearer format:  ``Authorization: Bearer <jwt>``
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,9 +47,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
     Internal errors return 500 — they never silently pass through.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         path = request.url.path
         if any(path.startswith(p) for p in _PUBLIC_PATH_PREFIXES):
             return await call_next(request)

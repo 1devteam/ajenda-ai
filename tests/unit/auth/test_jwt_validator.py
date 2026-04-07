@@ -3,6 +3,7 @@
 Tests the real JWKS-backed validator by mocking the JwksCache.get_keys()
 method to return a test RSA key, and tests JwtClaims.from_dict() directly.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch

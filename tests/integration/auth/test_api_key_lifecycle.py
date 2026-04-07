@@ -9,6 +9,7 @@ Replaces the SQLite-backed version which masked:
 This test uses the pg_session fixture from tests/integration/conftest.py
 which provides a real PostgreSQL connection that is rolled back after the test.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -96,7 +97,5 @@ class TestApiKeyLifecycle:
             scopes=("execution:queue",),
         )
         pg_session.flush()
-        assert record.key_hash.startswith("$argon2id$"), (
-            f"Expected Argon2id hash, got: {record.key_hash[:20]}..."
-        )
+        assert record.key_hash.startswith("$argon2id$"), f"Expected Argon2id hash, got: {record.key_hash[:20]}..."
         assert plaintext not in record.key_hash

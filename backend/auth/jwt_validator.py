@@ -10,6 +10,7 @@ This implementation:
 - Enforces issuer, audience, and expiry claims
 - Fails closed on any error — no partial validation
 """
+
 from __future__ import annotations
 
 import logging
@@ -74,6 +75,7 @@ class JwtClaims:
             raw=claims,
         )
 
+
 _JWKS_CACHE_TTL_SECONDS = 600  # 10 minutes
 
 
@@ -116,9 +118,7 @@ class JwksCache:
             logger.error("jwks_refresh_failed", extra={"error": str(exc)})
             # Retain stale keys on transient failure — better than hard outage
             if not self._keys:
-                raise RuntimeError(
-                    f"JWKS fetch failed and no cached keys available: {exc}"
-                ) from exc
+                raise RuntimeError(f"JWKS fetch failed and no cached keys available: {exc}") from exc
 
 
 class JwtValidator:

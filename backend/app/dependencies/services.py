@@ -7,6 +7,7 @@ Removed: get_control_specialist — FoundationHealthChecker (formerly ControlSpe
 is an internal delegate of RuntimeGovernor and must not be injected into routes.
 Routes that need health assessment must use RuntimeGovernor.evaluate().
 """
+
 from __future__ import annotations
 
 from fastapi import Depends, Request
@@ -22,9 +23,7 @@ def get_queue_adapter(request: Request) -> QueueAdapter:
     """Retrieve the queue adapter from app.state (set during lifespan startup)."""
     queue_adapter = getattr(request.app.state, "queue_adapter", None)
     if queue_adapter is None:
-        raise RuntimeError(
-            "Queue adapter not initialized. Ensure the app lifespan has completed startup."
-        )
+        raise RuntimeError("Queue adapter not initialized. Ensure the app lifespan has completed startup.")
     return queue_adapter
 
 

@@ -22,6 +22,7 @@ registration order. The last middleware added is the outermost wrapper. We
 register SecurityHeaders last so it wraps everything and injects headers on
 all responses including error responses from inner middleware.
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager

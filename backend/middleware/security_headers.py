@@ -23,6 +23,7 @@ Design notes:
 - Header values are computed once at class instantiation (not per-request) since
   they are static strings.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -33,20 +34,9 @@ _HSTS_MAX_AGE = 31_536_000
 
 # CSP for a pure API backend: deny all resource loading except self.
 # Adjust if a Swagger UI or ReDoc is served.
-_CSP = (
-    "default-src 'self'; "
-    "script-src 'none'; "
-    "object-src 'none'; "
-    "base-uri 'self'; "
-    "frame-ancestors 'none';"
-)
+_CSP = "default-src 'self'; script-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';"
 
-_PERMISSIONS_POLICY = (
-    "camera=(), "
-    "microphone=(), "
-    "geolocation=(), "
-    "interest-cohort=()"
-)
+_PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
 
 _STATIC_HEADERS: list[tuple[bytes, bytes]] = [
     (b"strict-transport-security", f"max-age={_HSTS_MAX_AGE}; includeSubDomains; preload".encode()),

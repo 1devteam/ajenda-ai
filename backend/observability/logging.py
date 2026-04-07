@@ -35,7 +35,6 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(payload, sort_keys=True)
 
 
-
 def _redact(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: dict[str, Any] = {}
@@ -62,7 +61,6 @@ class ObservabilityLogger:
 
     def error(self, message: str, *, category: str, payload: dict[str, Any] | None = None) -> None:
         self.logger.error(message, extra={"category": category, "payload": payload or {}})
-
 
 
 def get_observability_logger(name: str) -> ObservabilityLogger:

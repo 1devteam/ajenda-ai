@@ -20,6 +20,7 @@ Security:
   - Delivery timeout: 10 seconds to prevent slow-endpoint DoS
   - URL validation: must use HTTPS scheme (enforced at registration)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -77,10 +78,7 @@ class WebhookDispatchResult:
         self.error = error
 
     def __repr__(self) -> str:
-        return (
-            f"<WebhookDispatchResult delivery={self.delivery_id} "
-            f"ok={self.succeeded} status={self.http_status}>"
-        )
+        return f"<WebhookDispatchResult delivery={self.delivery_id} ok={self.succeeded} status={self.http_status}>"
 
 
 class WebhookDispatchService:
@@ -133,14 +131,10 @@ class WebhookDispatchService:
 
         # URL validation — must be HTTPS in all environments
         if not url.lower().startswith("https://"):
-            raise WebhookRegistrationError(
-                f"Webhook URL must use HTTPS. Got: {url!r}"
-            )
+            raise WebhookRegistrationError(f"Webhook URL must use HTTPS. Got: {url!r}")
 
         if not event_types:
-            raise WebhookRegistrationError(
-                "At least one event_type must be specified."
-            )
+            raise WebhookRegistrationError("At least one event_type must be specified.")
 
         # Generate signing secret
         plaintext_secret = secrets.token_hex(32)  # 64-char hex string
@@ -157,9 +151,7 @@ class WebhookDispatchService:
         self._repo.create_endpoint(endpoint)
         return endpoint, plaintext_secret
 
-    def get_endpoint(
-        self, endpoint_id: uuid.UUID, *, tenant_id: uuid.UUID
-    ) -> WebhookEndpoint:
+    def get_endpoint(self, endpoint_id: uuid.UUID, *, tenant_id: uuid.UUID) -> WebhookEndpoint:
         """Return a single endpoint, scoped to the tenant.
 
         Raises:
@@ -167,18 +159,14 @@ class WebhookDispatchService:
         """
         endpoint = self._repo.get_endpoint(endpoint_id, tenant_id=tenant_id)
         if endpoint is None:
-            raise WebhookNotFoundError(
-                f"Webhook endpoint {endpoint_id} not found for tenant {tenant_id}"
-            )
+            raise WebhookNotFoundError(f"Webhook endpoint {endpoint_id} not found for tenant {tenant_id}")
         return endpoint
 
     def list_endpoints(self, tenant_id: uuid.UUID) -> list[WebhookEndpoint]:
         """Return all registered endpoints for a tenant."""
         return self._repo.list_endpoints(tenant_id)
 
-    def delete_endpoint(
-        self, endpoint_id: uuid.UUID, *, tenant_id: uuid.UUID
-    ) -> None:
+    def delete_endpoint(self, endpoint_id: uuid.UUID, *, tenant_id: uuid.UUID) -> None:
         """Delete a webhook endpoint.
 
         Raises:
@@ -186,9 +174,7 @@ class WebhookDispatchService:
         """
         deleted = self._repo.delete_endpoint(endpoint_id, tenant_id=tenant_id)
         if not deleted:
-            raise WebhookNotFoundError(
-                f"Webhook endpoint {endpoint_id} not found for tenant {tenant_id}"
-            )
+            raise WebhookNotFoundError(f"Webhook endpoint {endpoint_id} not found for tenant {tenant_id}")
 
     # ------------------------------------------------------------------
     # Dispatch

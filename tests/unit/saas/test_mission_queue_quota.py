@@ -7,6 +7,7 @@ A mission with N planned tasks must consume N quota units, not 1.
 Also covers the extended check_and_record_task_creation(count=N) API on
 QuotaEnforcementService.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -22,6 +23,7 @@ from backend.services.quota_enforcement import (
 # ---------------------------------------------------------------------------
 # Helpers (mirrors test_quota_enforcement.py conventions)
 # ---------------------------------------------------------------------------
+
 
 def _make_tenant(plan: str = "free", status: str = "active"):
     t = MagicMock()
@@ -58,6 +60,7 @@ def _make_service(tenant, plan, usage) -> QuotaEnforcementService:
 # ---------------------------------------------------------------------------
 # QuotaEnforcementService.check_and_record_task_creation(count=N)
 # ---------------------------------------------------------------------------
+
 
 class TestCheckAndRecordTaskCreationWithCount:
     """Tests for the extended count parameter on check_and_record_task_creation."""
@@ -139,6 +142,7 @@ class TestCheckAndRecordTaskCreationWithCount:
 # Mission queue route: quota enforcement per-task (not per-call)
 # ---------------------------------------------------------------------------
 
+
 class TestMissionQueueRouteQuotaEnforcement:
     """Tests that the mission queue route passes the correct task count to quota."""
 
@@ -187,9 +191,7 @@ class TestMissionQueueRouteQuotaEnforcement:
             )
 
         # Quota must be called with count=3, not count=1
-        quota_svc.check_and_record_task_creation.assert_called_once_with(
-            tenant_uuid, count=3
-        )
+        quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_uuid, count=3)
         assert len(result["queued_task_ids"]) == 3
 
     def test_empty_mission_skips_quota_and_returns_empty(self):

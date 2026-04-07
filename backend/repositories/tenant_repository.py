@@ -12,6 +12,7 @@ Design decisions:
   - get_or_create_usage() uses INSERT ... ON CONFLICT DO NOTHING to handle
     the first request of a new billing period safely.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -156,11 +157,7 @@ class TenantRepository:
         INSERT ... ON CONFLICT DO NOTHING to handle concurrent first-requests.
         """
         period = billing_period or date.today().replace(day=1)
-        usage = (
-            self._session.query(TenantUsage)
-            .filter_by(tenant_id=tenant_id, billing_period_start=period)
-            .first()
-        )
+        usage = self._session.query(TenantUsage).filter_by(tenant_id=tenant_id, billing_period_start=period).first()
         if usage is None:
             usage = TenantUsage(
                 id=uuid.uuid4(),
@@ -170,11 +167,7 @@ class TenantRepository:
             self._session.add(usage)
             self._session.flush()
             # Re-query in case a concurrent request inserted first
-            usage = (
-                self._session.query(TenantUsage)
-                .filter_by(tenant_id=tenant_id, billing_period_start=period)
-                .first()
-            )
+            usage = self._session.query(TenantUsage).filter_by(tenant_id=tenant_id, billing_period_start=period).first()
         return usage
 
     def increment_usage(
@@ -203,9 +196,7 @@ class TenantRepository:
             "agents_provisioned",
         }
         if field not in allowed_fields:
-            raise ValueError(
-                f"Unknown usage field {field!r}. Allowed: {sorted(allowed_fields)}"
-            )
+            raise ValueError(f"Unknown usage field {field!r}. Allowed: {sorted(allowed_fields)}")
         period = billing_period or date.today().replace(day=1)
         # Ensure the row exists first
         self.get_or_create_usage(tenant_id, billing_period=period)

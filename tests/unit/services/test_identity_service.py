@@ -3,6 +3,7 @@
 Tests that IdentityService correctly delegates to OidcAuthenticator
 and builds UserPrincipal from validated claims.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock

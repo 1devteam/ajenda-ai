@@ -26,6 +26,7 @@ Design decisions:
   - If the app.state.database_runtime is not set (e.g., tests without lifespan),
     the DB check is skipped and only the header presence is enforced.
 """
+
 from __future__ import annotations
 
 import logging
@@ -127,8 +128,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                             status_code=403,
                             content={
                                 "detail": (
-                                    "This tenant account is currently suspended. "
-                                    "Contact support to restore access."
+                                    "This tenant account is currently suspended. Contact support to restore access."
                                 ),
                                 "code": "TENANT_SUSPENDED",
                             },
@@ -137,9 +137,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                 finally:
                     session.close()
             except Exception:
-                logger.exception(
-                    "tenant_lookup_failed", extra={"tenant_id": tenant_id_str}
-                )
+                logger.exception("tenant_lookup_failed", extra={"tenant_id": tenant_id_str})
                 return JSONResponse(
                     status_code=503,
                     content={

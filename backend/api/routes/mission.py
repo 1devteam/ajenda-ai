@@ -40,13 +40,8 @@ def queue_mission(
 
     # --- Count planned tasks that will actually be enqueued ---
     task_repo = ExecutionTaskRepository(db)
-    all_tasks = task_repo.list_for_mission(
-        tenant_id=tenant_id, mission_id=mission_id
-    )
-    planned_tasks = [
-        t for t in all_tasks
-        if t.status == ExecutionTaskState.PLANNED.value
-    ]
+    all_tasks = task_repo.list_for_mission(tenant_id=tenant_id, mission_id=mission_id)
+    planned_tasks = [t for t in all_tasks if t.status == ExecutionTaskState.PLANNED.value]
     planned_count = len(planned_tasks)
 
     # --- Early return: no planned tasks, nothing to do ---
@@ -55,9 +50,7 @@ def queue_mission(
 
     # --- Quota check: consume N quota units for N tasks being queued ---
     try:
-        QuotaEnforcementService(db).check_and_record_task_creation(
-            tenant_uuid, count=planned_count
-        )
+        QuotaEnforcementService(db).check_and_record_task_creation(tenant_uuid, count=planned_count)
     except QuotaExceededError as exc:
         raise HTTPException(
             status_code=429,

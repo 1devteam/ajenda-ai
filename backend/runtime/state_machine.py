@@ -20,6 +20,7 @@ The 'recovering' state is entered when a worker's lease expires while the
 task is in 'running' state. RuntimeMaintainer transitions running→recovering,
 then recovering→queued to re-enqueue for pickup by a healthy worker.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

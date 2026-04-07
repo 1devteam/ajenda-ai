@@ -3,6 +3,7 @@
 Verifies encode/decode roundtrip, error handling on malformed cursors,
 and PaginatedResponse.build() correctness.
 """
+
 from __future__ import annotations
 
 import uuid

@@ -14,6 +14,7 @@ Design decisions:
   - api_calls_count is incremented by the RateLimitMiddleware, not the
     quota service, to keep the hot path lightweight.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -35,9 +36,7 @@ class TenantUsage(Base):
     """
 
     __tablename__ = "tenant_usage"
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "billing_period_start", name="uq_tenant_usage_period"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "billing_period_start", name="uq_tenant_usage_period"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

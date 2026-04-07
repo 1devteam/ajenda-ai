@@ -7,6 +7,7 @@ kept as a deprecated alias to avoid breaking any external tooling.
 This is an internal service used exclusively by RuntimeGovernor.
 It is NOT exposed as a public API dependency.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from sqlalchemy.orm import Session
 @dataclass(frozen=True, slots=True)
 class ContinuityAssessment:
     """Result of a foundation health check."""
+
     dependency_healthy: bool
     continuity_floor_met: bool
     signal: str

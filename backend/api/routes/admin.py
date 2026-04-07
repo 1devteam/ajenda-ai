@@ -16,6 +16,7 @@ Endpoints:
   POST   /v1/admin/tenants/{tenant_id}/plan — Change subscription plan
   GET    /v1/admin/tenants/{tenant_id}/quota — Get quota status
 """
+
 from __future__ import annotations
 
 import uuid

@@ -25,6 +25,7 @@ Design decisions:
   - The TenantPlan.UNLIMITED sentinel (-1) bypasses all limit checks so that
     enterprise plans never hit artificial ceilings.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -64,8 +65,7 @@ class FeatureNotAvailableError(ValueError):
         self.feature = feature
         self.plan = plan
         super().__init__(
-            f"Feature {feature!r} is not available on plan {plan!r}. "
-            "Upgrade your plan to access this feature."
+            f"Feature {feature!r} is not available on plan {plan!r}. Upgrade your plan to access this feature."
         )
 
 
@@ -263,6 +263,7 @@ class QuotaEnforcementService:
         usage = self._tenants.get_or_create_usage(tenant_id)
 
         from datetime import date
+
         period = date.today().replace(day=1)
 
         return QuotaStatus(

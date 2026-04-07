@@ -12,14 +12,16 @@ from backend.domain.mission import Mission
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass(frozen=True, slots=True)
 class PolicyDecision:
     allowed: bool
     reason: str
 
+
 class PolicyGuardian:
     """Enforces governance and compliance policies on all workflows.
-    
+
     Acts as the final check before a task or mission is allowed to transition
     into a running state. It enforces jurisdictional compliance, disclosure
     requirements, and human-review constraints based on the task's
@@ -42,19 +44,17 @@ class PolicyGuardian:
         # Baseline operational missions are always allowed
         if mission.compliance_category == ComplianceCategory.OPERATIONAL:
             return PolicyDecision(True, "Operational mission allowed")
-            
+
         # Check jurisdiction-specific policies
         return self._evaluate_jurisdiction_policy(
-            mission.compliance_category, 
-            mission.jurisdiction, 
-            mission.metadata_json
+            mission.compliance_category, mission.jurisdiction, mission.metadata_json
         )
 
     def evaluate_task(self, task: ExecutionTask) -> PolicyDecision:
         """Evaluate if an execution task is compliant and allowed to run."""
         if task.compliance_category == ComplianceCategory.OPERATIONAL:
             return PolicyDecision(True, "Operational task allowed")
-            
+
         # For employment or credit decisions, human review is mandatory
         if task.compliance_category in (ComplianceCategory.EMPLOYMENT, ComplianceCategory.FINANCIAL):
             if not task.requires_human_review:
@@ -64,16 +64,14 @@ class PolicyGuardian:
                 )
                 logger.warning(reason)
                 return PolicyDecision(False, reason)
-                
-        return self._evaluate_jurisdiction_policy(
-            task.compliance_category,
-            task.jurisdiction,
-            task.metadata_json
-        )
 
-    def _evaluate_jurisdiction_policy(self, category: str, jurisdiction: str, metadata: dict[str, Any]) -> PolicyDecision:
+        return self._evaluate_jurisdiction_policy(task.compliance_category, task.jurisdiction, task.metadata_json)
+
+    def _evaluate_jurisdiction_policy(
+        self, category: str, jurisdiction: str, metadata: dict[str, Any]
+    ) -> PolicyDecision:
         """Evaluate specific jurisdictional compliance requirements."""
-        
+
         # EU AI Act (effective 2026/2027)
         if jurisdiction.startswith("EU"):
             if category in (

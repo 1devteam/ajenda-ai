@@ -22,6 +22,7 @@ Max retries:
   If task.retry_count >= max_retries, transition to DEAD_LETTERED instead
   of re-queuing. This prevents infinite retry loops for permanently broken tasks.
 """
+
 from __future__ import annotations
 
 import logging
@@ -86,9 +87,7 @@ class RuntimeMaintainer:
             select(WorkerLease, ExecutionTask)
             .join(ExecutionTask, WorkerLease.task_id == ExecutionTask.id)
             .where(
-                WorkerLease.status.in_(
-                    [WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value]
-                ),
+                WorkerLease.status.in_([WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value]),
                 WorkerLease.heartbeat_at.is_not(None),
                 WorkerLease.heartbeat_at < threshold,
             )
@@ -110,9 +109,7 @@ class RuntimeMaintainer:
                     "task_id": str(task.id),
                     "tenant_id": task.tenant_id,
                     "task_status": task.status,
-                    "heartbeat_age_seconds": (
-                        datetime.now(UTC) - lease.heartbeat_at
-                    ).total_seconds(),
+                    "heartbeat_age_seconds": (datetime.now(UTC) - lease.heartbeat_at).total_seconds(),
                 },
             )
 
@@ -134,8 +131,7 @@ class RuntimeMaintainer:
                             action="task_dead_lettered_max_retries",
                             actor="runtime_maintainer",
                             details=(
-                                f"Task {task.id} dead-lettered after {retry_count} retries. "
-                                f"Expired lease: {lease.id}."
+                                f"Task {task.id} dead-lettered after {retry_count} retries. Expired lease: {lease.id}."
                             ),
                             payload_json={
                                 "task_id": str(task.id),

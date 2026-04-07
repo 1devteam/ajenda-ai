@@ -4,6 +4,7 @@ All state values are stored as lowercase strings in the database.
 The check constraints in migrations enforce the allowed values.
 State transitions are enforced by backend/runtime/state_machine.py.
 """
+
 from __future__ import annotations
 
 from enum import StrEnum
@@ -44,7 +45,7 @@ class ExecutionTaskState(StrEnum):
     QUEUED = "queued"
     CLAIMED = "claimed"
     RUNNING = "running"
-    RECOVERING = "recovering"      # Lease expired; task being re-enqueued by RuntimeMaintainer
+    RECOVERING = "recovering"  # Lease expired; task being re-enqueued by RuntimeMaintainer
     BLOCKED = "blocked"
     COMPLETED = "completed"
     FAILED = "failed"

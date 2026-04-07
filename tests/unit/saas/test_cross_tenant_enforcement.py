@@ -8,6 +8,7 @@ Tests cover:
   - Principal tenant_id must match X-Tenant-Id header (cross-tenant rejection)
   - Worker cannot claim tasks belonging to a different tenant
 """
+
 from __future__ import annotations
 
 import uuid
@@ -18,6 +19,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # Cross-tenant principal validation
 # ---------------------------------------------------------------------------
+
 
 class TestCrossTenantPrincipalValidation:
     """The auth context must reject a principal whose tenant_id differs
@@ -44,8 +46,7 @@ class TestCrossTenantPrincipalValidation:
         # This is the guard condition — must evaluate to True to reject
         is_cross_tenant = principal.tenant_id != request_tenant
         assert is_cross_tenant, (
-            "Cross-tenant mismatch must be detected: "
-            f"principal={principal_tenant}, header={request_tenant}"
+            f"Cross-tenant mismatch must be detected: principal={principal_tenant}, header={request_tenant}"
         )
 
     def test_machine_principal_tenant_enforced(self):
@@ -64,6 +65,7 @@ class TestCrossTenantPrincipalValidation:
 # ---------------------------------------------------------------------------
 # Tenant lifecycle state enforcement
 # ---------------------------------------------------------------------------
+
 
 class TestTenantLifecycleStateEnforcement:
     """Suspended and deleted tenants must be rejected at the middleware layer,
@@ -96,14 +98,13 @@ class TestTenantLifecycleStateEnforcement:
         for bad_status in ("suspended", "deleted", "pending", "banned", ""):
             tenant = MagicMock()
             tenant.status = bad_status
-            assert tenant.status != "active", (
-                f"Status {bad_status!r} must not be treated as active"
-            )
+            assert tenant.status != "active", f"Status {bad_status!r} must not be treated as active"
 
 
 # ---------------------------------------------------------------------------
 # Public path exemptions
 # ---------------------------------------------------------------------------
+
 
 class TestPublicPathExemptions:
     """Health, readiness, and metrics endpoints must not require X-Tenant-Id."""
@@ -137,6 +138,7 @@ class TestPublicPathExemptions:
 # Quota enforcement at route layer
 # ---------------------------------------------------------------------------
 
+
 class TestRouteLayerQuotaEnforcement:
     """Quota checks must happen before business logic executes.
     These tests verify the call ordering contract."""
@@ -150,7 +152,9 @@ class TestRouteLayerQuotaEnforcement:
         quota_svc.check_and_record_task_creation.side_effect = lambda *a, **kw: call_order.append("quota")
 
         coordinator = MagicMock()
-        coordinator.queue_task.side_effect = lambda *a, **kw: call_order.append("coordinator") or MagicMock(ok=True, task_id=uuid.uuid4(), state="queued")
+        coordinator.queue_task.side_effect = lambda *a, **kw: (
+            call_order.append("coordinator") or MagicMock(ok=True, task_id=uuid.uuid4(), state="queued")
+        )
 
         # Simulate route handler logic
         quota_svc.check_and_record_task_creation(uuid.uuid4())
