@@ -52,7 +52,7 @@ class JwtClaims:
     """Full raw claims dict for access to extension claims."""
 
     @classmethod
-    def from_dict(cls, claims: dict[str, Any]) -> "JwtClaims":
+    def from_dict(cls, claims: dict[str, Any]) -> JwtClaims:
         """Build a JwtClaims from a raw verified claims dict.
 
         Raises JwtValidationError if required claims are missing.
@@ -112,7 +112,7 @@ class JwksCache:
                 logger.info("jwks_refreshed", extra={"key_count": len(self._keys)})
             else:
                 logger.warning("jwks_returned_empty_keyset", extra={"uri": self._jwks_uri})
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("jwks_refresh_failed", extra={"error": str(exc)})
             # Retain stale keys on transient failure — better than hard outage
             if not self._keys:
@@ -163,8 +163,8 @@ class JwtValidator:
                     options={"verify_exp": True, "verify_iat": True},
                 )
                 return claims
-            except ExpiredSignatureError:
-                raise JwtValidationError("token has expired")
+            except ExpiredSignatureError as exc:
+                raise JwtValidationError("token has expired") from exc
             except JWTClaimsError as exc:
                 raise JwtValidationError(f"token claims invalid: {exc}") from exc
             except JWTError as exc:

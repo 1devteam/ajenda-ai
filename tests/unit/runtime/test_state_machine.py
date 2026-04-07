@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import pytest
-from backend.runtime.state_machine import InvalidTransitionError, StateMachine
-from backend.runtime.transitions import transition_task
+
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
-from backend.domain.enums import ExecutionTaskState
+from backend.runtime.state_machine import InvalidTransitionError, StateMachine
+from backend.runtime.transitions import transition_task
 
 
 def test_valid_task_transition_passes() -> None:

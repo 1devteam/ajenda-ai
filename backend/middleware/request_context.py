@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
-from typing import Awaitable
+from collections.abc import Awaitable, Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request

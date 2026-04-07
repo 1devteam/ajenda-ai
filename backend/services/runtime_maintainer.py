@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -56,7 +56,7 @@ class RuntimeMaintainer:
     """Bounded recovery for expired leases and stale claimed/running work.
 
     This service is invoked by the worker loop on a schedule (typically every
-    30–60 seconds). It is idempotent: running it multiple times on the same
+    30-60 seconds). It is idempotent: running it multiple times on the same
     expired lease produces the same result (the lease stays EXPIRED, the task
     stays QUEUED or DEAD_LETTERED).
     """
@@ -80,7 +80,7 @@ class RuntimeMaintainer:
         Returns a RecoverySummary with counts of expired leases, re-queued
         tasks, and dead-lettered tasks.
         """
-        threshold = datetime.now(timezone.utc) - timedelta(seconds=self._expiry_seconds)
+        threshold = datetime.now(UTC) - timedelta(seconds=self._expiry_seconds)
 
         stmt = (
             select(WorkerLease, ExecutionTask)
@@ -111,7 +111,7 @@ class RuntimeMaintainer:
                     "tenant_id": task.tenant_id,
                     "task_status": task.status,
                     "heartbeat_age_seconds": (
-                        datetime.now(timezone.utc) - lease.heartbeat_at
+                        datetime.now(UTC) - lease.heartbeat_at
                     ).total_seconds(),
                 },
             )
@@ -163,7 +163,7 @@ class RuntimeMaintainer:
                             fleet_id=task.fleet_id,
                             branch_id=task.branch_id,
                             payload=task.metadata_json,
-                            enqueued_at=datetime.now(timezone.utc),
+                            enqueued_at=datetime.now(UTC),
                         )
                     )
                     requeued_count += 1
@@ -206,7 +206,7 @@ class RuntimeMaintainer:
                         fleet_id=task.fleet_id,
                         branch_id=task.branch_id,
                         payload=task.metadata_json,
-                        enqueued_at=datetime.now(timezone.utc),
+                        enqueued_at=datetime.now(UTC),
                     )
                 )
                 requeued_count += 1

@@ -5,11 +5,10 @@ and builds UserPrincipal from validated claims.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from backend.auth.jwt_validator import JwtClaims
 from backend.auth.principal import PrincipalType, UserPrincipal
 from backend.services.identity_service import IdentityService
 

@@ -3,10 +3,11 @@ Ajenda AI — Project Progress & Gap Visualization
 Generates a multi-panel dashboard PNG.
 """
 import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import FancyBboxPatch
 from matplotlib.ticker import MaxNLocator

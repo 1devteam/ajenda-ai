@@ -4,8 +4,9 @@ Wraps OidcAuthenticator and RbacAuthorizer to produce typed Principal objects.
 Accepts dependency-injected authenticator for testability.
 """
 from __future__ import annotations
+
 from backend.auth.oidc import OidcAuthenticator
-from backend.auth.principal import PrincipalType, UserPrincipal
+from backend.auth.principal import UserPrincipal
 from backend.auth.rbac import RbacAuthorizer
 
 

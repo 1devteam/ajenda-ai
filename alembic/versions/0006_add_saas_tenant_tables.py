@@ -26,11 +26,12 @@ ajenda_admin role in production.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers
 revision = "0006"
@@ -169,7 +170,7 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     # Seed standard plan tiers
     # ------------------------------------------------------------------
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     plans_table = sa.table(
         "tenant_plans",
         sa.column("id", postgresql.UUID(as_uuid=True)),

@@ -7,7 +7,6 @@ from typing import Any
 
 from backend.observability.context import get_correlation_id
 
-
 SENSITIVE_KEYS = {
     "password",
     "secret",

@@ -90,7 +90,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
         items: list[T],
         next_cursor: str | None,
         limit: int,
-    ) -> "PaginatedResponse[T]":
+    ) -> PaginatedResponse[T]:
         """Construct a PaginatedResponse from a list of items and an optional next cursor."""
         return cls(
             items=items,

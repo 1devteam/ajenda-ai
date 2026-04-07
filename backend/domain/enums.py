@@ -5,6 +5,7 @@ The check constraints in migrations enforce the allowed values.
 State transitions are enforced by backend/runtime/state_machine.py.
 """
 from __future__ import annotations
+
 from enum import StrEnum
 
 

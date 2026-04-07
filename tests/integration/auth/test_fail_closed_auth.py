@@ -6,7 +6,6 @@ from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
 
 
-
 def test_fail_closed_auth_blocks_unprotected_route_without_principal() -> None:
     app = FastAPI()
     app.add_middleware(RequestContextMiddleware)

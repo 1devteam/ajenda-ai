@@ -19,7 +19,7 @@ import uuid as _uuid
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_db_session

@@ -33,10 +33,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from backend.repositories.tenant_repository import (
-    TenantDeletedError,
-    TenantNotFoundError,
     TenantRepository,
-    TenantSuspendedError,
 )
 
 

@@ -15,8 +15,9 @@ Revises: 0001_initial_runtime_schema
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "0002_add_api_key_records"
 down_revision = "0001_initial_runtime_schema"

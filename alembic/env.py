@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from alembic import context
 from backend.app.config import get_settings
 from backend.db.base import Base
 from backend.domain import (  # noqa: F401
@@ -18,8 +18,8 @@ from backend.domain import (  # noqa: F401
     WorkerLease,
     WorkforceFleet,
 )
-from backend.domain.webhook_endpoint import WebhookEndpoint  # noqa: F401
 from backend.domain.webhook_delivery import WebhookDelivery  # noqa: F401
+from backend.domain.webhook_endpoint import WebhookEndpoint  # noqa: F401
 
 config = context.config
 settings = get_settings()

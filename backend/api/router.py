@@ -32,8 +32,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from backend.api.routes.auth import router as auth_router
+from backend.api.routes.admin import router as admin_router
 from backend.api.routes.api_keys import router as api_keys_router
+from backend.api.routes.auth import router as auth_router
 from backend.api.routes.branch import router as branch_router
 from backend.api.routes.health import router as health_router
 from backend.api.routes.mission import router as mission_router
@@ -42,9 +43,8 @@ from backend.api.routes.operations import router as operations_router
 from backend.api.routes.runtime import router as runtime_router
 from backend.api.routes.system import router as system_router
 from backend.api.routes.task import router as task_router
-from backend.api.routes.workforce import router as workforce_router
-from backend.api.routes.admin import router as admin_router
 from backend.api.routes.webhooks import router as webhooks_router
+from backend.api.routes.workforce import router as workforce_router
 
 
 def build_api_router() -> APIRouter:

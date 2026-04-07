@@ -11,17 +11,15 @@ Tests cover:
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from backend.repositories.tenant_repository import (
     TenantDeletedError,
     TenantNotFoundError,
-    TenantSuspendedError,
 )
 from backend.services.tenant_lifecycle import TenantLifecycleService, TenantProvisionResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers

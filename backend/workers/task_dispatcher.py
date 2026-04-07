@@ -20,13 +20,12 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from backend.domain.execution_task import ExecutionTask
 from backend.queue.base import QueueAdapter

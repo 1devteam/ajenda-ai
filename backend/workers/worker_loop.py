@@ -14,13 +14,12 @@ This implementation:
 from __future__ import annotations
 
 import logging
-import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from backend.domain.enums import ExecutionTaskState
 from backend.queue.base import QueueAdapter
@@ -108,8 +107,6 @@ class WorkerLoop:
 
     def _run_claimed_task(self, *, task_id: uuid.UUID, lease_id: uuid.UUID) -> None:
         """Dispatch real task execution and manage the heartbeat/completion lifecycle."""
-        last_heartbeat_at = time.monotonic()
-
         try:
             dispatcher = TaskDispatcher(
                 session_factory=self.session_factory,

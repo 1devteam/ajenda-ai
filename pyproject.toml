@@ -58,12 +58,21 @@ markers = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "RUF"]
-ignore = ["N818"]
+ignore = [
+  "N818",   # Exception names don't need Error suffix
+  "B008",   # FastAPI Depends() in function signatures is the canonical pattern
+  "UP046",  # Generic[T] subclass syntax — Python 3.12 type params not yet universal
+  "E501",   # Line length — enforced by formatter, not linter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"docs/**" = ["E741", "B007", "B905", "RUF005"]  # Visualization scripts — not production code
+"tests/**" = ["RUF059", "B017", "RUF012"]       # Test helpers — mock unpacking patterns are intentional
 
 [tool.mypy]
 python_version = "3.12"

@@ -11,7 +11,7 @@ pytest.mark.integration and skipped in unit test runs.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -48,7 +48,7 @@ def _make_expired_lease(task_id, worker_id: str = "worker-dead") -> WorkerLease:
         task_id=task_id,
         worker_id=worker_id,
         status=WorkerLeaseState.ACTIVE.value,
-        heartbeat_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        heartbeat_at=datetime.now(UTC) - timedelta(minutes=10),
     )
 
 
@@ -134,7 +134,7 @@ class TestLeaseRecoveryReal:
             task_id=task.id,
             worker_id="worker-alive",
             status=WorkerLeaseState.ACTIVE.value,
-            heartbeat_at=datetime.now(timezone.utc) - timedelta(seconds=5),
+            heartbeat_at=datetime.now(UTC) - timedelta(seconds=5),
         )
         pg_session.add(healthy_lease)
         pg_session.flush()

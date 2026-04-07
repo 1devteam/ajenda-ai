@@ -8,7 +8,7 @@ from __future__ import annotations
 import secrets
 import string
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from passlib.context import CryptContext
 
@@ -60,6 +60,6 @@ class ApiKeyHasher:
             hashed_secret=self.hash_secret(plaintext),
             scopes=scopes,
             revoked=False,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         return plaintext, record

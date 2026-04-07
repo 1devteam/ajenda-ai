@@ -7,5 +7,5 @@ class Base(DeclarativeBase):
     """Declarative base with deterministic table naming."""
 
     @declared_attr.directive
-    def __tablename__(cls) -> str:
+    def __tablename__(cls) -> str:  # noqa: N805 — declared_attr.directive uses cls, not self
         return cls.__name__.lower()

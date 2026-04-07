@@ -155,7 +155,7 @@ class IdempotencyMiddleware:
         cached = _store.get(key)
         if cached is not None:
             # Replay the stored response
-            replay_headers = list(cached.headers) + [(b"idempotency-replayed", b"true")]
+            replay_headers = [*cached.headers, (b"idempotency-replayed", b"true")]
             await send({
                 "type": "http.response.start",
                 "status": cached.status_code,
@@ -175,7 +175,7 @@ class IdempotencyMiddleware:
                 captured_status = message["status"]
                 captured_headers = list(message.get("headers", []))
                 # Add replay marker to live response
-                outgoing_headers = captured_headers + [(b"idempotency-replayed", b"false")]
+                outgoing_headers = [*captured_headers, (b"idempotency-replayed", b"false")]
                 await send({**message, "headers": outgoing_headers})
             elif message["type"] == "http.response.body":
                 body_chunk = message.get("body", b"")

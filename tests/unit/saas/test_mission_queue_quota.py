@@ -10,7 +10,7 @@ QuotaEnforcementService.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,7 +18,6 @@ from backend.services.quota_enforcement import (
     QuotaEnforcementService,
     QuotaExceededError,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers (mirrors test_quota_enforcement.py conventions)
@@ -226,6 +225,7 @@ class TestMissionQueueRouteQuotaEnforcement:
     def test_quota_exceeded_returns_429_with_correct_task_count(self):
         """When quota is exceeded for N tasks, the route must return 429."""
         from fastapi import HTTPException
+
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())

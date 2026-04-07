@@ -7,14 +7,10 @@ admin call to record "unknown_admin" in governance events.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 from starlette.requests import Request
-from starlette.testclient import TestClient
 
 from backend.api.routes.admin import _get_actor
 from backend.auth.principal import MachinePrincipal, PrincipalType, UserPrincipal
-
 
 # ---------------------------------------------------------------------------
 # Helpers
