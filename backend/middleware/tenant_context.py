@@ -6,12 +6,10 @@ at the HTTP layer. It runs on every request and enforces:
   1. Presence of X-Tenant-Id header on all non-public paths.
   2. Tenant exists in the database (not a phantom tenant_id).
   3. Tenant is active (not suspended or deleted).
-  4. Cross-tenant access rejection: if the authenticated principal's
-     tenant_id does not match the X-Tenant-Id header, the request is
-     rejected with HTTP 403 Forbidden.
-
 Public paths (exempt from X-Tenant-Id requirement):
-  /health, /ready, /readiness, /metrics — infrastructure probes
+  /health, /ready, /readiness — infrastructure probes (root-level)
+  /system/health, /system/readiness — infrastructure probes (system-prefixed)
+  /metrics — Prometheus scrape endpoint
   /v1/auth/*  — OIDC token exchange (tenant_id is in the token, not the header)
   /v1/admin/* — Admin control plane (cross-tenant by design, admin role required)
 
@@ -20,8 +18,8 @@ Design decisions:
     It is cached for the duration of the request on request.state.tenant.
   - Suspension check is done here (HTTP 403) rather than in the service layer
     to give a clear, consistent error before any business logic runs.
-  - The cross-tenant check compares the principal's tenant_id (from the JWT
-    or API key) against the X-Tenant-Id header. A mismatch is always a 403.
+  - Cross-tenant rejection is enforced in AuthContextMiddleware (which runs
+    after this middleware), where both the principal and tenant_id are available.
   - If the DB is unavailable, the middleware fails closed (HTTP 503).
   - If the app.state.database_runtime is not set (e.g., tests without lifespan),
     the DB check is skipped and only the header presence is enforced.
@@ -44,6 +42,10 @@ _PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/health",
     "/ready",
     "/readiness",
+    "/system/health",        # infrastructure health probe — no tenant context
+    "/system/readiness",     # infrastructure readiness probe — no tenant context
+    "/operations/recovery",  # cross-tenant lease recovery — no tenant context
+    "/v1/operations/recovery",  # same, with v1 prefix (production mount)
     "/metrics",
     "/v1/auth",
     "/v1/admin",
@@ -149,28 +151,9 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
             # No DB runtime (e.g., unit tests) — skip DB check
             request.state.tenant = None
 
-        # --- Cross-tenant rejection ---
-        principal = getattr(request.state, "principal", None)
-        if principal is not None:
-            principal_tenant = getattr(principal, "tenant_id", None)
-            if principal_tenant is not None and str(principal_tenant) != str(tenant_id_str):
-                logger.warning(
-                    "cross_tenant_access_rejected",
-                    extra={
-                        "principal_tenant": str(principal_tenant),
-                        "requested_tenant": tenant_id_str,
-                        "path": path,
-                    },
-                )
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "detail": "Cross-tenant access is not permitted.",
-                        "code": "CROSS_TENANT_REJECTED",
-                    },
-                )
-
         # --- Set tenant context on request state ---
+        # Cross-tenant rejection is handled by AuthContextMiddleware, which
+        # runs after this middleware and has access to the resolved principal.
         request.state.tenant_id = tenant_id_str
 
         return await call_next(request)

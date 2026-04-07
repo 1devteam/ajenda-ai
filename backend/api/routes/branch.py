@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import uuid as _uuid
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.services.branch_manager import BranchManager
 
 router = APIRouter(prefix="/branches", tags=["branches"])
@@ -21,12 +22,13 @@ class BranchCreateRequest(BaseModel):
 @router.post("")
 def create_branch(
     body: BranchCreateRequest,
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
 ) -> dict[str, str]:
     manager = BranchManager(db)
     branch = manager.create_branch(
-        tenant_id=tenant_id,
+        tenant_id=str(tenant_id),
         mission_id=body.mission_id,
         parent_branch_id=body.parent_branch_id,
         reason=body.reason,

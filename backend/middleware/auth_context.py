@@ -1,6 +1,16 @@
 """Authentication context middleware.
 
 Resolves and attaches an authenticated principal to every non-public request.
+Also enforces cross-tenant rejection: if the authenticated principal's
+tenant_id does not match the X-Tenant-Id header (set by TenantContextMiddleware),
+the request is rejected with HTTP 403 Forbidden.
+
+Cross-tenant check placement rationale:
+  TenantContextMiddleware runs BEFORE AuthContextMiddleware (Tenant is outer,
+  Auth is inner in the execution chain). Tenant sets request.state.tenant_id.
+  Auth then resolves the principal and can compare principal.tenant_id against
+  request.state.tenant_id. This is the only point in the middleware chain where
+  both values are available simultaneously.
 
 Auth split-brain fix: ApiKeyService is constructed with a scoped DB session
 resolved from app.state on every request. There is no in-memory fallback.
@@ -33,6 +43,8 @@ _PUBLIC_PATH_PREFIXES = (
     "/system/health",
     "/system/readiness",
     "/observability/metrics",
+    "/operations/recovery",     # cross-tenant lease recovery — no auth required
+    "/v1/operations/recovery",  # same, with v1 prefix (production mount)
     "/docs",
     "/openapi.json",
     "/redoc",
@@ -44,6 +56,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 
     Every request to a non-public path must present valid credentials.
     Missing, malformed, or invalid credentials always return 401.
+    Cross-tenant access (principal.tenant_id != X-Tenant-Id) returns 403.
     Internal errors return 500 — they never silently pass through.
     """
 
@@ -81,6 +94,38 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 content={"detail": "internal authentication error"},
             )
 
+    def _check_cross_tenant(
+        self,
+        request: Request,
+        principal_tenant_id: str | None,
+    ) -> JSONResponse | None:
+        """Return a 403 JSONResponse if the principal's tenant does not match
+        the request's X-Tenant-Id. Returns None if the check passes.
+
+        This check is only meaningful when both values are present. If either
+        is absent (e.g., public routes, admin routes), the check is skipped.
+        """
+        request_tenant_id: str | None = getattr(request.state, "tenant_id", None)
+        if request_tenant_id is None or principal_tenant_id is None:
+            return None
+        if str(principal_tenant_id) != str(request_tenant_id):
+            logger.warning(
+                "cross_tenant_access_rejected",
+                extra={
+                    "principal_tenant": str(principal_tenant_id),
+                    "requested_tenant": str(request_tenant_id),
+                    "path": request.url.path,
+                },
+            )
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "Cross-tenant access is not permitted.",
+                    "code": "CROSS_TENANT_REJECTED",
+                },
+            )
+        return None
+
     async def _handle_api_key(
         self,
         request: Request,
@@ -113,6 +158,14 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                     content={"detail": "invalid or revoked api key"},
                 )
 
+        # Cross-tenant check: API key's tenant must match X-Tenant-Id header
+        cross_tenant_error = self._check_cross_tenant(
+            request,
+            principal_tenant_id=getattr(principal, "tenant_id", None),
+        )
+        if cross_tenant_error is not None:
+            return cross_tenant_error
+
         request.state.principal = principal
         return await call_next(request)
 
@@ -136,6 +189,14 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 content={"detail": "invalid bearer token"},
             )
+
+        # Cross-tenant check: JWT's tenant_id must match X-Tenant-Id header
+        cross_tenant_error = self._check_cross_tenant(
+            request,
+            principal_tenant_id=getattr(result.principal, "tenant_id", None),
+        )
+        if cross_tenant_error is not None:
+            return cross_tenant_error
 
         request.state.principal = result.principal
         return await call_next(request)
