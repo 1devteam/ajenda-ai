@@ -1,6 +1,6 @@
 # Ajenda AI — Project State Report
 
-**Date:** April 7, 2026
+**Date:** April 10, 2026
 **Branch:** `main` (post-remediation: all six structural gaps resolved)
 **Version:** 1.1.0 (per `pyproject.toml`)
 
@@ -19,6 +19,12 @@ The `TenantContextMiddleware` intercepts `X-Tenant-Id`, validates it against the
 ### 1.2. Authentication and Authorization
 
 `AuthContextMiddleware` supports OIDC/JWT tokens and cryptographically hashed API keys. The production runtime contract guard (`validate_runtime_contract`) blocks startup if `AJENDA_OIDC_JWKS_URI` or `AJENDA_OIDC_ISSUER` point to localhost in production mode. RBAC is enforced on `/v1/admin/*` routes. Cross-tenant rejection is verified by integration tests.
+
+Authorization now includes a policy-as-code runway:
+- `AuthorizationService.from_settings()` selects authz mode from runtime config.
+- Supported modes: `rbac`, `shadow_opa`, `enforce_opa`.
+- OPA adapter (`OpaPolicyDecisionPoint`) is fail-closed and supports shadow divergence auditing.
+- Runtime guards validate OPA URL and timeout when OPA modes are enabled.
 
 ### 1.3. SaaS Governance and Quota Enforcement
 
@@ -41,6 +47,12 @@ Human reviewers approve (`→queued`) or reject (`→cancelled`) held tasks via 
 ### 1.6. Webhook Delivery
 
 Webhook secrets are stored as Fernet-encrypted ciphertext (`secret_ciphertext`, migration 0009) via `WebhookSecretProtector`. At delivery time, the ciphertext is decrypted to produce the plaintext HMAC-SHA256 signing key. Tenants can now verify delivery signatures using their plaintext secret. Legacy endpoints (created before migration 0009) fall back to the bcrypt hash as the signing key.
+
+Reliability operations are now tenant-facing:
+- Replay endpoint: `POST /v1/webhooks/{endpoint_id}/deliveries/{delivery_id}/replay`
+- Tenant summary endpoint: `GET /v1/webhooks/reliability/summary`
+- Endpoint summary endpoint: `GET /v1/webhooks/{endpoint_id}/reliability/summary`
+- Hourly reliability series is fixed-width and zero-filled for dashboard-safe charting.
 
 ### 1.7. Observability
 

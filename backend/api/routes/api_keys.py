@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
 from backend.repositories.audit_event_repository import AuditEventRepository
@@ -30,7 +31,11 @@ def create_api_key(
     principal = getattr(request.state, "principal", None)
     if principal is None:
         raise HTTPException(status_code=401, detail="missing authentication")
-    AuthorizationService(AuditEventRepository(db)).require(
+    settings = get_settings()
+    AuthorizationService.from_settings(
+        settings,
+        audit_repository=AuditEventRepository(db),
+    ).require(
         principal=principal,
         permission=Permission.API_KEYS_CREATE,
         tenant_id=str(tenant_id),
@@ -77,7 +82,11 @@ def revoke_api_key(
     principal = getattr(request.state, "principal", None)
     if principal is None:
         raise HTTPException(status_code=401, detail="missing authentication")
-    AuthorizationService(AuditEventRepository(db)).require(
+    settings = get_settings()
+    AuthorizationService.from_settings(
+        settings,
+        audit_repository=AuditEventRepository(db),
+    ).require(
         principal=principal,
         permission=Permission.API_KEYS_REVOKE,
         tenant_id=str(tenant_id),

@@ -46,6 +46,7 @@ from backend.services.webhook_dispatch import (
     WebhookDispatchService,
     WebhookNotFoundError,
     WebhookRegistrationError,
+    WebhookReplayNotAllowedError,
 )
 
 # ---------------------------------------------------------------------------
@@ -428,3 +429,156 @@ class TestEndpointManagement:
         service, mock_repo, _ = _make_service(endpoints=[ep1, ep2])
         result = service.list_endpoints(TENANT_ID)
         assert len(result) == 2
+
+
+class TestReplayDelivery:
+    def test_replay_delivery_reuses_event_and_increments_attempt(self):
+        ep = _make_endpoint()
+        service, mock_repo, _ = _make_service(
+            endpoints=[ep],
+            http_response=_make_http_response(200, "ok"),
+        )
+        prior_delivery = MagicMock()
+        prior_delivery.id = uuid.uuid4()
+        prior_delivery.endpoint_id = ep.id
+        prior_delivery.tenant_id = TENANT_ID
+        prior_delivery.event_type = "task.completed"
+        prior_delivery.event_id = uuid.uuid4()
+        prior_delivery.payload = {"task_id": "abc"}
+        prior_delivery.attempt_number = 2
+        prior_delivery.status = "failed"
+        mock_repo.get_delivery_for_endpoint.return_value = prior_delivery
+
+        result = service.replay_delivery(
+            tenant_id=TENANT_ID,
+            endpoint_id=ep.id,
+            delivery_id=prior_delivery.id,
+        )
+
+        assert result.succeeded is True
+        replayed = mock_repo.record_delivery.call_args[0][0]
+        assert replayed.event_id == prior_delivery.event_id
+        assert replayed.attempt_number == 3
+
+    def test_replay_delivery_raises_not_found_for_missing_delivery(self):
+        ep = _make_endpoint()
+        service, mock_repo, _ = _make_service(endpoints=[ep])
+        mock_repo.get_delivery_for_endpoint.return_value = None
+
+        with pytest.raises(WebhookNotFoundError):
+            service.replay_delivery(
+                tenant_id=TENANT_ID,
+                endpoint_id=ep.id,
+                delivery_id=uuid.uuid4(),
+            )
+
+    def test_replay_delivery_rejects_in_flight_attempt(self):
+        ep = _make_endpoint()
+        service, mock_repo, _ = _make_service(endpoints=[ep])
+        prior_delivery = MagicMock()
+        prior_delivery.id = uuid.uuid4()
+        prior_delivery.endpoint_id = ep.id
+        prior_delivery.tenant_id = TENANT_ID
+        prior_delivery.event_type = "task.completed"
+        prior_delivery.event_id = uuid.uuid4()
+        prior_delivery.payload = {"task_id": "abc"}
+        prior_delivery.attempt_number = 1
+        prior_delivery.status = "delivering"
+        mock_repo.get_delivery_for_endpoint.return_value = prior_delivery
+
+        with pytest.raises(WebhookReplayNotAllowedError):
+            service.replay_delivery(
+                tenant_id=TENANT_ID,
+                endpoint_id=ep.id,
+                delivery_id=prior_delivery.id,
+            )
+
+
+class TestReliabilitySummary:
+    def test_reliability_summary_aggregates_and_formats_values(self, monkeypatch: pytest.MonkeyPatch):
+        from datetime import datetime as dt
+
+        class _FixedDateTime(dt):
+            @classmethod
+            def now(cls, tz=None):  # type: ignore[override]
+                return dt(2026, 4, 8, 11, 15, tzinfo=UTC)
+
+        monkeypatch.setattr("backend.services.webhook_dispatch.datetime", _FixedDateTime)
+
+        service, mock_repo, _ = _make_service(endpoints=[])
+        mock_repo.get_delivery_reliability_metrics.return_value = (20, 15, 4, 1, 123.456, 250.987)
+        ep1 = uuid.uuid4()
+        ep2 = uuid.uuid4()
+        mock_repo.list_endpoint_failure_counts.return_value = [(ep1, 3), (ep2, 2)]
+        mock_repo.list_hourly_delivery_stats.return_value = [
+            (datetime(2026, 4, 8, 10, 0, tzinfo=UTC), 5, 1),
+            (datetime(2026, 4, 8, 11, 0, tzinfo=UTC), 4, 2),
+        ]
+
+        summary = service.get_reliability_summary(tenant_id=TENANT_ID, lookback_hours=24)
+
+        assert summary.total_attempts == 20
+        assert summary.delivered_attempts == 15
+        assert summary.failed_attempts == 4
+        assert summary.dead_lettered_attempts == 1
+        assert summary.success_rate == 0.75
+        assert summary.avg_delivery_latency_ms == 123.46
+        assert summary.p95_delivery_latency_ms == 250.99
+        assert len(summary.top_failing_endpoints) == 2
+        assert summary.top_failing_endpoints[0].endpoint_id == str(ep1)
+        assert summary.top_failing_endpoints[0].failure_count == 3
+        assert len(summary.hourly_series) == 24
+        assert summary.hourly_series[-2].window_start == "2026-04-08T10:00:00+00:00"
+        assert summary.hourly_series[-1].window_start == "2026-04-08T11:00:00+00:00"
+        assert summary.hourly_series[0].window_start == "2026-04-07T12:00:00+00:00"
+        assert summary.hourly_series[-2].delivered_attempts == 5
+        assert summary.hourly_series[-2].failed_attempts == 1
+        assert summary.hourly_series[-1].delivered_attempts == 4
+        assert summary.hourly_series[-1].failed_attempts == 2
+        # Empty bucket should be zero-filled.
+        assert summary.hourly_series[0].delivered_attempts == 0
+        assert summary.hourly_series[0].failed_attempts == 0
+
+    def test_reliability_summary_rejects_invalid_lookback(self):
+        service, _, _ = _make_service(endpoints=[])
+        with pytest.raises(ValueError, match="lookback_hours must be between 1 and 720"):
+            service.get_reliability_summary(tenant_id=TENANT_ID, lookback_hours=0)
+
+    def test_endpoint_reliability_summary_zero_fills_and_scopes(self, monkeypatch: pytest.MonkeyPatch):
+        from datetime import datetime as dt
+
+        class _FixedDateTime(dt):
+            @classmethod
+            def now(cls, tz=None):  # type: ignore[override]
+                return dt(2026, 4, 8, 11, 15, tzinfo=UTC)
+
+        monkeypatch.setattr("backend.services.webhook_dispatch.datetime", _FixedDateTime)
+
+        ep = _make_endpoint()
+        service, mock_repo, _ = _make_service(endpoints=[ep])
+        mock_repo.get_endpoint.return_value = ep
+        mock_repo.get_endpoint_delivery_reliability_metrics.return_value = (10, 7, 2, 1, 88.888, 140.111)
+        mock_repo.list_endpoint_hourly_delivery_stats.return_value = [
+            (datetime(2026, 4, 8, 10, 0, tzinfo=UTC), 3, 1),
+            (datetime(2026, 4, 8, 11, 0, tzinfo=UTC), 4, 1),
+        ]
+
+        summary = service.get_endpoint_reliability_summary(
+            tenant_id=TENANT_ID,
+            endpoint_id=ep.id,
+            lookback_hours=4,
+        )
+
+        assert summary.endpoint_id == str(ep.id)
+        assert summary.total_attempts == 10
+        assert summary.success_rate == 0.7
+        assert summary.avg_delivery_latency_ms == 88.89
+        assert summary.p95_delivery_latency_ms == 140.11
+        assert len(summary.hourly_series) == 4
+        assert summary.hourly_series[0].window_start == "2026-04-08T08:00:00+00:00"
+        assert summary.hourly_series[0].delivered_attempts == 0
+        assert summary.hourly_series[0].failed_attempts == 0
+        assert summary.hourly_series[-2].window_start == "2026-04-08T10:00:00+00:00"
+        assert summary.hourly_series[-2].delivered_attempts == 3
+        assert summary.hourly_series[-1].window_start == "2026-04-08T11:00:00+00:00"
+        assert summary.hourly_series[-1].failed_attempts == 1

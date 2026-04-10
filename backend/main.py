@@ -13,8 +13,8 @@ Middleware stack (outermost to innermost — applied in reverse registration ord
   1. SecurityHeadersMiddleware  — injects HSTS, CSP, X-Frame-Options, etc.
   2. IdempotencyMiddleware      — deduplicates mutating requests by Idempotency-Key header
   3. RateLimitMiddleware        — per-(tenant, principal, route) fixed-window rate limiting
-  4. AuthContextMiddleware      — resolves principal from JWT or API key, sets request.state
-  5. TenantContextMiddleware    — extracts and validates X-Tenant-Id header
+  4. TenantContextMiddleware    — extracts and validates X-Tenant-Id header
+  5. AuthContextMiddleware      — resolves principal from JWT or API key, sets request.state
   6. RequestContextMiddleware   — assigns a unique request_id to every request
 
 Note on middleware ordering: FastAPI/Starlette applies middleware in reverse
@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 
 from fastapi import FastAPI
 
@@ -41,6 +43,14 @@ from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.security_headers import SecurityHeadersMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
 from backend.queue import build_queue_adapter
+
+
+def _resolve_app_version() -> str:
+    """Return installed package version, with a safe local fallback."""
+    try:
+        return package_version("ajenda-ai")
+    except PackageNotFoundError:
+        return "0.0.0+local"
 
 
 @asynccontextmanager
@@ -90,7 +100,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
-        version="1.0.0",
+        version=_resolve_app_version(),
         lifespan=lifespan,
         # Disable docs in production to reduce attack surface
         docs_url="/docs" if settings.env != "production" else None,
