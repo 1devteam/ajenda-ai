@@ -43,6 +43,9 @@ def _settings(**overrides) -> Settings:
         "oidc_audience": "ajenda-api",
         "rate_limit_requests": 100,
         "rate_limit_window_seconds": 60,
+        "authz_policy_mode": "rbac",
+        "authz_opa_url": None,
+        "authz_opa_timeout_seconds": 2.0,
     }
     defaults.update(overrides)
     return Settings.model_construct(**defaults)
@@ -189,3 +192,24 @@ class TestRateLimitSanityGuards:
             settings = _settings(env=env, queue_adapter="redis", queue_url="redis://redis:6379/0", rate_limit_requests=0)
             with pytest.raises(ValueError, match="AJENDA_RATE_LIMIT_REQUESTS"):
                 settings.validate_runtime_contract()
+
+
+class TestAuthzPolicyAsCodeGuards:
+    def test_shadow_opa_requires_url(self) -> None:
+        settings = _settings(authz_policy_mode="shadow_opa", authz_opa_url=None)
+        with pytest.raises(ValueError, match="AJENDA_AUTHZ_OPA_URL is required"):
+            settings.validate_runtime_contract()
+
+    def test_enforce_opa_requires_url(self) -> None:
+        settings = _settings(authz_policy_mode="enforce_opa", authz_opa_url="")
+        with pytest.raises(ValueError, match="AJENDA_AUTHZ_OPA_URL is required"):
+            settings.validate_runtime_contract()
+
+    def test_rbac_mode_does_not_require_opa_url(self) -> None:
+        settings = _settings(authz_policy_mode="rbac", authz_opa_url=None)
+        settings.validate_runtime_contract()
+
+    def test_non_positive_opa_timeout_raises(self) -> None:
+        settings = _settings(authz_policy_mode="shadow_opa", authz_opa_url="http://opa:8181", authz_opa_timeout_seconds=0)
+        with pytest.raises(ValueError, match="AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS"):
+            settings.validate_runtime_contract()

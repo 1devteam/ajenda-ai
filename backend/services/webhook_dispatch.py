@@ -33,7 +33,8 @@ import hashlib
 import hmac
 import json
 import uuid
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -65,6 +66,10 @@ class WebhookNotFoundError(Exception):
     """Raised when a webhook endpoint is not found for the given tenant."""
 
 
+class WebhookReplayNotAllowedError(Exception):
+    """Raised when a delivery replay is not allowed for the selected attempt."""
+
+
 class WebhookDispatchResult:
     """Result of a single delivery attempt."""
 
@@ -85,6 +90,47 @@ class WebhookDispatchResult:
 
     def __repr__(self) -> str:
         return f"<WebhookDispatchResult delivery={self.delivery_id} ok={self.succeeded} status={self.http_status}>"
+
+
+@dataclass(frozen=True)
+class EndpointFailureSummary:
+    endpoint_id: str
+    failure_count: int
+
+
+@dataclass(frozen=True)
+class WebhookReliabilitySummary:
+    lookback_hours: int
+    total_attempts: int
+    delivered_attempts: int
+    failed_attempts: int
+    dead_lettered_attempts: int
+    success_rate: float
+    avg_delivery_latency_ms: float | None
+    p95_delivery_latency_ms: float | None
+    top_failing_endpoints: list[EndpointFailureSummary]
+    hourly_series: list[HourlyReliabilityPoint]
+
+
+@dataclass(frozen=True)
+class HourlyReliabilityPoint:
+    window_start: str
+    delivered_attempts: int
+    failed_attempts: int
+
+
+@dataclass(frozen=True)
+class EndpointReliabilitySummary:
+    endpoint_id: str
+    lookback_hours: int
+    total_attempts: int
+    delivered_attempts: int
+    failed_attempts: int
+    dead_lettered_attempts: int
+    success_rate: float
+    avg_delivery_latency_ms: float | None
+    p95_delivery_latency_ms: float | None
+    hourly_series: list[HourlyReliabilityPoint]
 
 
 class WebhookDispatchService:
@@ -244,6 +290,164 @@ class WebhookDispatchService:
             results.append(result)
 
         return results
+
+    def replay_delivery(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        endpoint_id: uuid.UUID,
+        delivery_id: uuid.UUID,
+    ) -> WebhookDispatchResult:
+        """Replay a prior delivery attempt to the same endpoint.
+
+        Reuses the original event_id/event_type/payload and increments the
+        attempt_number by one. The replay is blocked for in-flight deliveries.
+        """
+        endpoint = self.get_endpoint(endpoint_id, tenant_id=tenant_id)
+        delivery = self._repo.get_delivery_for_endpoint(
+            delivery_id,
+            endpoint_id=endpoint_id,
+            tenant_id=tenant_id,
+        )
+        if delivery is None:
+            raise WebhookNotFoundError(
+                f"Webhook delivery {delivery_id} not found for endpoint {endpoint_id} and tenant {tenant_id}"
+            )
+        if delivery.status in {"pending", "delivering"}:
+            raise WebhookReplayNotAllowedError(
+                f"Webhook delivery {delivery_id} is in progress and cannot be replayed yet."
+            )
+
+        return self._deliver(
+            endpoint=endpoint,
+            event_type=delivery.event_type,
+            event_id=delivery.event_id,
+            payload=delivery.payload,
+            attempt_number=delivery.attempt_number + 1,
+            tenant_id=tenant_id,
+        )
+
+    def get_reliability_summary(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        lookback_hours: int = 24,
+    ) -> WebhookReliabilitySummary:
+        """Return tenant-scoped reliability metrics for recent deliveries."""
+        if lookback_hours < 1 or lookback_hours > 24 * 30:
+            raise ValueError("lookback_hours must be between 1 and 720")
+        now = datetime.now(tz=UTC)
+        end_hour = now.replace(minute=0, second=0, microsecond=0)
+        start_hour = end_hour - timedelta(hours=lookback_hours - 1)
+        since = start_hour
+        total, delivered, failed, dead_lettered, avg_latency_ms, p95_latency_ms = self._repo.get_delivery_reliability_metrics(
+            tenant_id=tenant_id,
+            since=since,
+        )
+        success_rate = round((delivered / total), 4) if total > 0 else 0.0
+        top_failures = [
+            EndpointFailureSummary(endpoint_id=str(endpoint_id), failure_count=count)
+            for endpoint_id, count in self._repo.list_endpoint_failure_counts(
+                tenant_id=tenant_id,
+                since=since,
+                limit=5,
+            )
+        ]
+        raw_hourly = self._repo.list_hourly_delivery_stats(
+            tenant_id=tenant_id,
+            since=since,
+        )
+        hourly_map: dict[str, tuple[int, int]] = {}
+        for bucket_start, delivered_count, failed_count in raw_hourly:
+            bucket_key = bucket_start.astimezone(UTC).replace(minute=0, second=0, microsecond=0).isoformat()
+            hourly_map[bucket_key] = (delivered_count, failed_count)
+
+        hourly_series: list[HourlyReliabilityPoint] = []
+        for i in range(lookback_hours):
+            current_bucket = start_hour + timedelta(hours=i)
+            bucket_key = current_bucket.isoformat()
+            delivered_count, failed_count = hourly_map.get(bucket_key, (0, 0))
+            hourly_series.append(
+                HourlyReliabilityPoint(
+                    window_start=bucket_key,
+                    delivered_attempts=delivered_count,
+                    failed_attempts=failed_count,
+                )
+            )
+
+        return WebhookReliabilitySummary(
+            lookback_hours=lookback_hours,
+            total_attempts=total,
+            delivered_attempts=delivered,
+            failed_attempts=failed,
+            dead_lettered_attempts=dead_lettered,
+            success_rate=success_rate,
+            avg_delivery_latency_ms=round(avg_latency_ms, 2) if avg_latency_ms is not None else None,
+            p95_delivery_latency_ms=round(p95_latency_ms, 2) if p95_latency_ms is not None else None,
+            top_failing_endpoints=top_failures,
+            hourly_series=hourly_series,
+        )
+
+    def get_endpoint_reliability_summary(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        endpoint_id: uuid.UUID,
+        lookback_hours: int = 24,
+    ) -> EndpointReliabilitySummary:
+        """Return endpoint-scoped reliability summary with fixed hourly bins."""
+        if lookback_hours < 1 or lookback_hours > 24 * 30:
+            raise ValueError("lookback_hours must be between 1 and 720")
+
+        # Ownership check / not-found handling
+        self.get_endpoint(endpoint_id, tenant_id=tenant_id)
+
+        now = datetime.now(tz=UTC)
+        end_hour = now.replace(minute=0, second=0, microsecond=0)
+        start_hour = end_hour - timedelta(hours=lookback_hours - 1)
+        since = start_hour
+        total, delivered, failed, dead_lettered, avg_latency_ms, p95_latency_ms = self._repo.get_endpoint_delivery_reliability_metrics(
+            tenant_id=tenant_id,
+            endpoint_id=endpoint_id,
+            since=since,
+        )
+        success_rate = round((delivered / total), 4) if total > 0 else 0.0
+
+        raw_hourly = self._repo.list_endpoint_hourly_delivery_stats(
+            tenant_id=tenant_id,
+            endpoint_id=endpoint_id,
+            since=since,
+        )
+        hourly_map: dict[str, tuple[int, int]] = {}
+        for bucket_start, delivered_count, failed_count in raw_hourly:
+            bucket_key = bucket_start.astimezone(UTC).replace(minute=0, second=0, microsecond=0).isoformat()
+            hourly_map[bucket_key] = (delivered_count, failed_count)
+
+        hourly_series: list[HourlyReliabilityPoint] = []
+        for i in range(lookback_hours):
+            current_bucket = start_hour + timedelta(hours=i)
+            bucket_key = current_bucket.isoformat()
+            delivered_count, failed_count = hourly_map.get(bucket_key, (0, 0))
+            hourly_series.append(
+                HourlyReliabilityPoint(
+                    window_start=bucket_key,
+                    delivered_attempts=delivered_count,
+                    failed_attempts=failed_count,
+                )
+            )
+
+        return EndpointReliabilitySummary(
+            endpoint_id=str(endpoint_id),
+            lookback_hours=lookback_hours,
+            total_attempts=total,
+            delivered_attempts=delivered,
+            failed_attempts=failed,
+            dead_lettered_attempts=dead_lettered,
+            success_rate=success_rate,
+            avg_delivery_latency_ms=round(avg_latency_ms, 2) if avg_latency_ms is not None else None,
+            p95_delivery_latency_ms=round(p95_latency_ms, 2) if p95_latency_ms is not None else None,
+            hourly_series=hourly_series,
+        )
 
     # ------------------------------------------------------------------
     # Internal delivery

@@ -31,19 +31,25 @@ Enterprise-grade AI agent orchestration platform. Multi-tenant, compliance-aware
 # 1. Copy environment template
 cp .env.example .env
 
-# 2. Start infrastructure (Postgres + Redis)
+# 2. Install project in editable mode (keeps imports and package metadata consistent)
+pip install -e ".[dev]"
+
+# 3. Start infrastructure (Postgres + Redis)
 docker compose up -d
 
-# 3. Run migrations
+# 4. Run migrations
 alembic upgrade head
 
-# 4. Start the API
+# 5. Start the API
 uvicorn backend.main:app --reload
 
-# 5. Run tests
-pytest -m "not integration"          # unit tests only (no infra needed)
-pytest -m integration                # integration tests (requires Postgres + Redis)
-pytest                               # all tests
+# 6. Run tests (use python -m pytest for consistent module resolution)
+python -m pytest -m "not integration"  # unit tests only (no infra needed)
+python -m pytest -m integration         # integration tests (requires Postgres + Redis)
+python -m pytest                         # all tests
+
+# 7. Run static checks before opening a PR
+ruff check .
 ```
 
 ## Environment variables
