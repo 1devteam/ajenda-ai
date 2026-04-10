@@ -3,6 +3,7 @@
 Route inventory:
   POST   /v1/webhooks/                              — Register a new endpoint
   GET    /v1/webhooks/                              — List all endpoints
+  GET    /v1/webhooks/reliability/summary          — Tenant reliability summary
   GET    /v1/webhooks/{endpoint_id}                 — Get a single endpoint
   DELETE /v1/webhooks/{endpoint_id}                 — Delete an endpoint
   GET    /v1/webhooks/{endpoint_id}/deliveries      — List delivery history
@@ -26,11 +27,14 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.domain.audit_event import AuditEvent
+from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.services.quota_enforcement import FeatureNotAvailableError
 from backend.services.webhook_dispatch import (
     WebhookDispatchService,
     WebhookNotFoundError,
     WebhookRegistrationError,
+    WebhookReplayNotAllowedError,
 )
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -130,6 +134,53 @@ class WebhookDeliveryResponse(BaseModel):
     delivered_at: str | None
 
     model_config = {"from_attributes": True}
+
+
+class WebhookReplayResponse(BaseModel):
+    """Response schema for replaying a delivery attempt."""
+
+    replayed_from_delivery_id: str
+    new_delivery_id: str
+    status: str
+    http_status_code: int | None
+    error_message: str | None
+
+
+class EndpointFailureSummaryResponse(BaseModel):
+    endpoint_id: str
+    failure_count: int
+
+
+class HourlyReliabilityPointResponse(BaseModel):
+    window_start: str
+    delivered_attempts: int
+    failed_attempts: int
+
+
+class WebhookReliabilitySummaryResponse(BaseModel):
+    lookback_hours: int
+    total_attempts: int
+    delivered_attempts: int
+    failed_attempts: int
+    dead_lettered_attempts: int
+    success_rate: float
+    avg_delivery_latency_ms: float | None
+    p95_delivery_latency_ms: float | None
+    top_failing_endpoints: list[EndpointFailureSummaryResponse]
+    hourly_series: list[HourlyReliabilityPointResponse]
+
+
+class EndpointReliabilitySummaryResponse(BaseModel):
+    endpoint_id: str
+    lookback_hours: int
+    total_attempts: int
+    delivered_attempts: int
+    failed_attempts: int
+    dead_lettered_attempts: int
+    success_rate: float
+    avg_delivery_latency_ms: float | None
+    p95_delivery_latency_ms: float | None
+    hourly_series: list[HourlyReliabilityPointResponse]
 
 
 # ---------------------------------------------------------------------------
@@ -301,3 +352,156 @@ def list_webhook_deliveries(
         )
         for d in deliveries
     ]
+
+
+@router.post(
+    "/{endpoint_id}/deliveries/{delivery_id}/replay",
+    response_model=WebhookReplayResponse,
+)
+def replay_webhook_delivery(
+    endpoint_id: UUID,
+    delivery_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> WebhookReplayResponse:
+    """Replay a historical delivery attempt for a webhook endpoint."""
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Idempotency-Key header is required for replay operations.",
+        )
+    service = WebhookDispatchService(db)
+    try:
+        result = service.replay_delivery(
+            tenant_id=tenant_id,
+            endpoint_id=endpoint_id,
+            delivery_id=delivery_id,
+        )
+    except WebhookNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except WebhookReplayNotAllowedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    principal = getattr(request.state, "principal", None)
+    actor = getattr(principal, "subject_id", "unknown")
+    AuditEventRepository(db).append(
+        AuditEvent(
+            tenant_id=str(tenant_id),
+            mission_id=None,
+            category="webhook",
+            action="delivery_replay_requested",
+            actor=actor,
+            details=(
+                f"Replay requested for endpoint {endpoint_id} delivery {delivery_id} "
+                f"-> new delivery {result.delivery_id}"
+            ),
+            payload_json={
+                "endpoint_id": str(endpoint_id),
+                "replayed_from_delivery_id": str(delivery_id),
+                "new_delivery_id": str(result.delivery_id),
+                "idempotency_key": idempotency_key,
+                "status": "delivered" if result.succeeded else "failed",
+            },
+        )
+    )
+
+    db.commit()
+    status = "delivered" if result.succeeded else "failed"
+    return WebhookReplayResponse(
+        replayed_from_delivery_id=str(delivery_id),
+        new_delivery_id=str(result.delivery_id),
+        status=status,
+        http_status_code=result.http_status,
+        error_message=result.error,
+    )
+
+
+@router.get(
+    "/reliability/summary",
+    response_model=WebhookReliabilitySummaryResponse,
+)
+def get_webhook_reliability_summary(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    lookback_hours: int = 24,
+) -> WebhookReliabilitySummaryResponse:
+    """Return tenant-facing reliability metrics for webhook delivery health."""
+    service = WebhookDispatchService(db)
+    try:
+        summary = service.get_reliability_summary(
+            tenant_id=tenant_id,
+            lookback_hours=lookback_hours,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return WebhookReliabilitySummaryResponse(
+        lookback_hours=summary.lookback_hours,
+        total_attempts=summary.total_attempts,
+        delivered_attempts=summary.delivered_attempts,
+        failed_attempts=summary.failed_attempts,
+        dead_lettered_attempts=summary.dead_lettered_attempts,
+        success_rate=summary.success_rate,
+        avg_delivery_latency_ms=summary.avg_delivery_latency_ms,
+        p95_delivery_latency_ms=summary.p95_delivery_latency_ms,
+        top_failing_endpoints=[
+            EndpointFailureSummaryResponse(endpoint_id=item.endpoint_id, failure_count=item.failure_count)
+            for item in summary.top_failing_endpoints
+        ],
+        hourly_series=[
+            HourlyReliabilityPointResponse(
+                window_start=item.window_start,
+                delivered_attempts=item.delivered_attempts,
+                failed_attempts=item.failed_attempts,
+            )
+            for item in summary.hourly_series
+        ],
+    )
+
+
+@router.get(
+    "/{endpoint_id}/reliability/summary",
+    response_model=EndpointReliabilitySummaryResponse,
+)
+def get_webhook_endpoint_reliability_summary(
+    endpoint_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    lookback_hours: int = 24,
+) -> EndpointReliabilitySummaryResponse:
+    """Return endpoint-scoped reliability metrics for webhook delivery health."""
+    service = WebhookDispatchService(db)
+    try:
+        summary = service.get_endpoint_reliability_summary(
+            tenant_id=tenant_id,
+            endpoint_id=endpoint_id,
+            lookback_hours=lookback_hours,
+        )
+    except WebhookNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return EndpointReliabilitySummaryResponse(
+        endpoint_id=summary.endpoint_id,
+        lookback_hours=summary.lookback_hours,
+        total_attempts=summary.total_attempts,
+        delivered_attempts=summary.delivered_attempts,
+        failed_attempts=summary.failed_attempts,
+        dead_lettered_attempts=summary.dead_lettered_attempts,
+        success_rate=summary.success_rate,
+        avg_delivery_latency_ms=summary.avg_delivery_latency_ms,
+        p95_delivery_latency_ms=summary.p95_delivery_latency_ms,
+        hourly_series=[
+            HourlyReliabilityPointResponse(
+                window_start=item.window_start,
+                delivered_attempts=item.delivered_attempts,
+                failed_attempts=item.failed_attempts,
+            )
+            for item in summary.hourly_series
+        ],
+    )
