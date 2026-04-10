@@ -492,3 +492,29 @@ class TestReplayDelivery:
                 endpoint_id=ep.id,
                 delivery_id=prior_delivery.id,
             )
+
+
+class TestReliabilitySummary:
+    def test_reliability_summary_aggregates_and_formats_values(self):
+        service, mock_repo, _ = _make_service(endpoints=[])
+        mock_repo.get_delivery_reliability_metrics.return_value = (20, 15, 4, 1, 123.456)
+        ep1 = uuid.uuid4()
+        ep2 = uuid.uuid4()
+        mock_repo.list_endpoint_failure_counts.return_value = [(ep1, 3), (ep2, 2)]
+
+        summary = service.get_reliability_summary(tenant_id=TENANT_ID, lookback_hours=24)
+
+        assert summary.total_attempts == 20
+        assert summary.delivered_attempts == 15
+        assert summary.failed_attempts == 4
+        assert summary.dead_lettered_attempts == 1
+        assert summary.success_rate == 0.75
+        assert summary.avg_delivery_latency_ms == 123.46
+        assert len(summary.top_failing_endpoints) == 2
+        assert summary.top_failing_endpoints[0].endpoint_id == str(ep1)
+        assert summary.top_failing_endpoints[0].failure_count == 3
+
+    def test_reliability_summary_rejects_invalid_lookback(self):
+        service, _, _ = _make_service(endpoints=[])
+        with pytest.raises(ValueError, match="lookback_hours must be between 1 and 720"):
+            service.get_reliability_summary(tenant_id=TENANT_ID, lookback_hours=0)

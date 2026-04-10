@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -158,3 +158,69 @@ class WebhookRepository:
             )
             .count()
         )
+
+    def get_delivery_reliability_metrics(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        since: datetime,
+    ) -> tuple[int, int, int, int, float | None]:
+        """Return aggregate delivery reliability metrics since a timestamp."""
+        delivered_count = func.sum(case((WebhookDelivery.status == "delivered", 1), else_=0))
+        failed_count = func.sum(case((WebhookDelivery.status == "failed", 1), else_=0))
+        dead_lettered_count = func.sum(case((WebhookDelivery.status == "dead_lettered", 1), else_=0))
+        avg_latency_ms = func.avg(
+            case(
+                (
+                    WebhookDelivery.delivered_at.is_not(None),
+                    func.extract("epoch", WebhookDelivery.delivered_at - WebhookDelivery.attempted_at) * 1000.0,
+                ),
+                else_=None,
+            )
+        )
+
+        row = (
+            self._session.query(
+                func.count(WebhookDelivery.id),
+                delivered_count,
+                failed_count,
+                dead_lettered_count,
+                avg_latency_ms,
+            )
+            .filter(
+                WebhookDelivery.tenant_id == tenant_id,
+                WebhookDelivery.attempted_at >= since,
+            )
+            .one()
+        )
+        total = int(row[0] or 0)
+        delivered = int(row[1] or 0)
+        failed = int(row[2] or 0)
+        dead_lettered = int(row[3] or 0)
+        avg_ms = float(row[4]) if row[4] is not None else None
+        return total, delivered, failed, dead_lettered, avg_ms
+
+    def list_endpoint_failure_counts(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        since: datetime,
+        limit: int = 5,
+    ) -> list[tuple[uuid.UUID, int]]:
+        """Return endpoints ordered by failure count since timestamp."""
+        rows = (
+            self._session.query(
+                WebhookDelivery.endpoint_id,
+                func.count(WebhookDelivery.id).label("failure_count"),
+            )
+            .filter(
+                WebhookDelivery.tenant_id == tenant_id,
+                WebhookDelivery.attempted_at >= since,
+                WebhookDelivery.status.in_(("failed", "dead_lettered")),
+            )
+            .group_by(WebhookDelivery.endpoint_id)
+            .order_by(func.count(WebhookDelivery.id).desc())
+            .limit(limit)
+            .all()
+        )
+        return [(row[0], int(row[1])) for row in rows]

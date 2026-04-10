@@ -3,6 +3,7 @@
 Route inventory:
   POST   /v1/webhooks/                              — Register a new endpoint
   GET    /v1/webhooks/                              — List all endpoints
+  GET    /v1/webhooks/reliability/summary          — Tenant reliability summary
   GET    /v1/webhooks/{endpoint_id}                 — Get a single endpoint
   DELETE /v1/webhooks/{endpoint_id}                 — Delete an endpoint
   GET    /v1/webhooks/{endpoint_id}/deliveries      — List delivery history
@@ -141,6 +142,22 @@ class WebhookReplayResponse(BaseModel):
     status: str
     http_status_code: int | None
     error_message: str | None
+
+
+class EndpointFailureSummaryResponse(BaseModel):
+    endpoint_id: str
+    failure_count: int
+
+
+class WebhookReliabilitySummaryResponse(BaseModel):
+    lookback_hours: int
+    total_attempts: int
+    delivered_attempts: int
+    failed_attempts: int
+    dead_lettered_attempts: int
+    success_rate: float
+    avg_delivery_latency_ms: float | None
+    top_failing_endpoints: list[EndpointFailureSummaryResponse]
 
 
 # ---------------------------------------------------------------------------
@@ -346,4 +363,39 @@ def replay_webhook_delivery(
         status=status,
         http_status_code=result.http_status,
         error_message=result.error,
+    )
+
+
+@router.get(
+    "/reliability/summary",
+    response_model=WebhookReliabilitySummaryResponse,
+)
+def get_webhook_reliability_summary(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    lookback_hours: int = 24,
+) -> WebhookReliabilitySummaryResponse:
+    """Return tenant-facing reliability metrics for webhook delivery health."""
+    service = WebhookDispatchService(db)
+    try:
+        summary = service.get_reliability_summary(
+            tenant_id=tenant_id,
+            lookback_hours=lookback_hours,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return WebhookReliabilitySummaryResponse(
+        lookback_hours=summary.lookback_hours,
+        total_attempts=summary.total_attempts,
+        delivered_attempts=summary.delivered_attempts,
+        failed_attempts=summary.failed_attempts,
+        dead_lettered_attempts=summary.dead_lettered_attempts,
+        success_rate=summary.success_rate,
+        avg_delivery_latency_ms=summary.avg_delivery_latency_ms,
+        top_failing_endpoints=[
+            EndpointFailureSummaryResponse(endpoint_id=item.endpoint_id, failure_count=item.failure_count)
+            for item in summary.top_failing_endpoints
+        ],
     )

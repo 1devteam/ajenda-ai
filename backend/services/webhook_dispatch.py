@@ -33,7 +33,8 @@ import hashlib
 import hmac
 import json
 import uuid
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -89,6 +90,24 @@ class WebhookDispatchResult:
 
     def __repr__(self) -> str:
         return f"<WebhookDispatchResult delivery={self.delivery_id} ok={self.succeeded} status={self.http_status}>"
+
+
+@dataclass(frozen=True)
+class EndpointFailureSummary:
+    endpoint_id: str
+    failure_count: int
+
+
+@dataclass(frozen=True)
+class WebhookReliabilitySummary:
+    lookback_hours: int
+    total_attempts: int
+    delivered_attempts: int
+    failed_attempts: int
+    dead_lettered_attempts: int
+    success_rate: float
+    avg_delivery_latency_ms: float | None
+    top_failing_endpoints: list[EndpointFailureSummary]
 
 
 class WebhookDispatchService:
@@ -283,6 +302,40 @@ class WebhookDispatchService:
             payload=delivery.payload,
             attempt_number=delivery.attempt_number + 1,
             tenant_id=tenant_id,
+        )
+
+    def get_reliability_summary(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        lookback_hours: int = 24,
+    ) -> WebhookReliabilitySummary:
+        """Return tenant-scoped reliability metrics for recent deliveries."""
+        if lookback_hours < 1 or lookback_hours > 24 * 30:
+            raise ValueError("lookback_hours must be between 1 and 720")
+        since = datetime.now(tz=UTC) - timedelta(hours=lookback_hours)
+        total, delivered, failed, dead_lettered, avg_latency_ms = self._repo.get_delivery_reliability_metrics(
+            tenant_id=tenant_id,
+            since=since,
+        )
+        success_rate = round((delivered / total), 4) if total > 0 else 0.0
+        top_failures = [
+            EndpointFailureSummary(endpoint_id=str(endpoint_id), failure_count=count)
+            for endpoint_id, count in self._repo.list_endpoint_failure_counts(
+                tenant_id=tenant_id,
+                since=since,
+                limit=5,
+            )
+        ]
+        return WebhookReliabilitySummary(
+            lookback_hours=lookback_hours,
+            total_attempts=total,
+            delivered_attempts=delivered,
+            failed_attempts=failed,
+            dead_lettered_attempts=dead_lettered,
+            success_rate=success_rate,
+            avg_delivery_latency_ms=round(avg_latency_ms, 2) if avg_latency_ms is not None else None,
+            top_failing_endpoints=top_failures,
         )
 
     # ------------------------------------------------------------------
