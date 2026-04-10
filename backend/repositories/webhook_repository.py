@@ -164,12 +164,21 @@ class WebhookRepository:
         *,
         tenant_id: uuid.UUID,
         since: datetime,
-    ) -> tuple[int, int, int, int, float | None]:
+    ) -> tuple[int, int, int, int, float | None, float | None]:
         """Return aggregate delivery reliability metrics since a timestamp."""
         delivered_count = func.sum(case((WebhookDelivery.status == "delivered", 1), else_=0))
         failed_count = func.sum(case((WebhookDelivery.status == "failed", 1), else_=0))
         dead_lettered_count = func.sum(case((WebhookDelivery.status == "dead_lettered", 1), else_=0))
         avg_latency_ms = func.avg(
+            case(
+                (
+                    WebhookDelivery.delivered_at.is_not(None),
+                    func.extract("epoch", WebhookDelivery.delivered_at - WebhookDelivery.attempted_at) * 1000.0,
+                ),
+                else_=None,
+            )
+        )
+        p95_latency_ms = func.percentile_cont(0.95).within_group(
             case(
                 (
                     WebhookDelivery.delivered_at.is_not(None),
@@ -186,6 +195,7 @@ class WebhookRepository:
                 failed_count,
                 dead_lettered_count,
                 avg_latency_ms,
+                p95_latency_ms,
             )
             .filter(
                 WebhookDelivery.tenant_id == tenant_id,
@@ -198,7 +208,8 @@ class WebhookRepository:
         failed = int(row[2] or 0)
         dead_lettered = int(row[3] or 0)
         avg_ms = float(row[4]) if row[4] is not None else None
-        return total, delivered, failed, dead_lettered, avg_ms
+        p95_ms = float(row[5]) if row[5] is not None else None
+        return total, delivered, failed, dead_lettered, avg_ms, p95_ms
 
     def list_endpoint_failure_counts(
         self,
@@ -224,3 +235,112 @@ class WebhookRepository:
             .all()
         )
         return [(row[0], int(row[1])) for row in rows]
+
+    def list_hourly_delivery_stats(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        since: datetime,
+    ) -> list[tuple[datetime, int, int]]:
+        """Return hourly (delivered, failed/dead) delivery counts."""
+        bucket = func.date_trunc("hour", WebhookDelivery.attempted_at)
+        delivered_count = func.sum(case((WebhookDelivery.status == "delivered", 1), else_=0))
+        failed_count = func.sum(case((WebhookDelivery.status.in_(("failed", "dead_lettered")), 1), else_=0))
+        rows = (
+            self._session.query(
+                bucket.label("bucket_start"),
+                delivered_count.label("delivered_count"),
+                failed_count.label("failed_count"),
+            )
+            .filter(
+                WebhookDelivery.tenant_id == tenant_id,
+                WebhookDelivery.attempted_at >= since,
+            )
+            .group_by(bucket)
+            .order_by(bucket.asc())
+            .all()
+        )
+        return [(row[0], int(row[1] or 0), int(row[2] or 0)) for row in rows]
+
+    def get_endpoint_delivery_reliability_metrics(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        endpoint_id: uuid.UUID,
+        since: datetime,
+    ) -> tuple[int, int, int, int, float | None, float | None]:
+        """Return aggregate reliability metrics for a single endpoint."""
+        delivered_count = func.sum(case((WebhookDelivery.status == "delivered", 1), else_=0))
+        failed_count = func.sum(case((WebhookDelivery.status == "failed", 1), else_=0))
+        dead_lettered_count = func.sum(case((WebhookDelivery.status == "dead_lettered", 1), else_=0))
+        avg_latency_ms = func.avg(
+            case(
+                (
+                    WebhookDelivery.delivered_at.is_not(None),
+                    func.extract("epoch", WebhookDelivery.delivered_at - WebhookDelivery.attempted_at) * 1000.0,
+                ),
+                else_=None,
+            )
+        )
+        p95_latency_ms = func.percentile_cont(0.95).within_group(
+            case(
+                (
+                    WebhookDelivery.delivered_at.is_not(None),
+                    func.extract("epoch", WebhookDelivery.delivered_at - WebhookDelivery.attempted_at) * 1000.0,
+                ),
+                else_=None,
+            )
+        )
+
+        row = (
+            self._session.query(
+                func.count(WebhookDelivery.id),
+                delivered_count,
+                failed_count,
+                dead_lettered_count,
+                avg_latency_ms,
+                p95_latency_ms,
+            )
+            .filter(
+                WebhookDelivery.tenant_id == tenant_id,
+                WebhookDelivery.endpoint_id == endpoint_id,
+                WebhookDelivery.attempted_at >= since,
+            )
+            .one()
+        )
+        return (
+            int(row[0] or 0),
+            int(row[1] or 0),
+            int(row[2] or 0),
+            int(row[3] or 0),
+            float(row[4]) if row[4] is not None else None,
+            float(row[5]) if row[5] is not None else None,
+        )
+
+    def list_endpoint_hourly_delivery_stats(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        endpoint_id: uuid.UUID,
+        since: datetime,
+    ) -> list[tuple[datetime, int, int]]:
+        """Return hourly (delivered, failed/dead) counts for an endpoint."""
+        bucket = func.date_trunc("hour", WebhookDelivery.attempted_at)
+        delivered_count = func.sum(case((WebhookDelivery.status == "delivered", 1), else_=0))
+        failed_count = func.sum(case((WebhookDelivery.status.in_(("failed", "dead_lettered")), 1), else_=0))
+        rows = (
+            self._session.query(
+                bucket.label("bucket_start"),
+                delivered_count.label("delivered_count"),
+                failed_count.label("failed_count"),
+            )
+            .filter(
+                WebhookDelivery.tenant_id == tenant_id,
+                WebhookDelivery.endpoint_id == endpoint_id,
+                WebhookDelivery.attempted_at >= since,
+            )
+            .group_by(bucket)
+            .order_by(bucket.asc())
+            .all()
+        )
+        return [(row[0], int(row[1] or 0), int(row[2] or 0)) for row in rows]

@@ -28,8 +28,10 @@ Response headers
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 
+from prometheus_client import Counter
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -37,6 +39,8 @@ from starlette.types import ASGIApp
 
 from backend.app.config import get_settings
 from backend.rate_limit.limiter import RateLimiter, RateLimitKey, RoutePolicy
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Per-route policy defaults (tunable via Settings in a future iteration)
@@ -66,6 +70,20 @@ _PLAN_BURST_CREDIT: dict[str, int] = {
     "enterprise": 10,
 }
 
+_RATE_LIMIT_DECISIONS = Counter(
+    "ajenda_rate_limit_decisions_total",
+    "Rate-limit decisions by plan, route class, and outcome.",
+    ("plan", "route_class", "outcome"),
+)
+
+
+def _classify_route(path: str) -> str:
+    if path.startswith("/v1/admin"):
+        return "admin"
+    if path.startswith("/v1/webhooks"):
+        return "webhooks"
+    return "default"
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, limiter: RateLimiter | None = None) -> None:
@@ -87,6 +105,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         principal_id = getattr(principal, "subject_id", "anonymous")
         tenant = getattr(request.state, "tenant", None)
         plan_slug = getattr(tenant, "plan", None)
+        plan_label = str(plan_slug) if plan_slug else "unknown"
+        route_class = _classify_route(request.url.path)
         key = RateLimitKey(
             tenant_id=tenant_id,
             principal_id=principal_id,
@@ -103,12 +123,38 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             window_seconds=base_window,
         )
         if not decision.allowed:
+            _RATE_LIMIT_DECISIONS.labels(plan=plan_label, route_class=route_class, outcome="denied").inc()
+            logger.info(
+                "rate_limit_decision",
+                extra={
+                    "allowed": False,
+                    "tenant_id": tenant_id,
+                    "plan": plan_label,
+                    "route_class": route_class,
+                    "route": request.url.path,
+                    "effective_limit": effective_max,
+                    "retry_after_seconds": decision.retry_after_seconds,
+                },
+            )
             return JSONResponse(
                 status_code=429,
                 content={"detail": "rate limit exceeded", "retry_after": decision.retry_after_seconds},
                 headers={"Retry-After": str(decision.retry_after_seconds)},
             )
         response = await call_next(request)
+        _RATE_LIMIT_DECISIONS.labels(plan=plan_label, route_class=route_class, outcome="allowed").inc()
+        logger.info(
+            "rate_limit_decision",
+            extra={
+                "allowed": True,
+                "tenant_id": tenant_id,
+                "plan": plan_label,
+                "route_class": route_class,
+                "route": request.url.path,
+                "effective_limit": effective_max,
+                "remaining": decision.remaining,
+            },
+        )
         response.headers["X-RateLimit-Remaining"] = str(decision.remaining)
         response.headers["X-RateLimit-Limit"] = str(effective_max)
         if plan_slug:

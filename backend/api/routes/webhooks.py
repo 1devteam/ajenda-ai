@@ -27,6 +27,8 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.domain.audit_event import AuditEvent
+from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.services.quota_enforcement import FeatureNotAvailableError
 from backend.services.webhook_dispatch import (
     WebhookDispatchService,
@@ -149,6 +151,12 @@ class EndpointFailureSummaryResponse(BaseModel):
     failure_count: int
 
 
+class HourlyReliabilityPointResponse(BaseModel):
+    window_start: str
+    delivered_attempts: int
+    failed_attempts: int
+
+
 class WebhookReliabilitySummaryResponse(BaseModel):
     lookback_hours: int
     total_attempts: int
@@ -157,7 +165,22 @@ class WebhookReliabilitySummaryResponse(BaseModel):
     dead_lettered_attempts: int
     success_rate: float
     avg_delivery_latency_ms: float | None
+    p95_delivery_latency_ms: float | None
     top_failing_endpoints: list[EndpointFailureSummaryResponse]
+    hourly_series: list[HourlyReliabilityPointResponse]
+
+
+class EndpointReliabilitySummaryResponse(BaseModel):
+    endpoint_id: str
+    lookback_hours: int
+    total_attempts: int
+    delivered_attempts: int
+    failed_attempts: int
+    dead_lettered_attempts: int
+    success_rate: float
+    avg_delivery_latency_ms: float | None
+    p95_delivery_latency_ms: float | None
+    hourly_series: list[HourlyReliabilityPointResponse]
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +366,12 @@ def replay_webhook_delivery(
     db: Session = Depends(get_tenant_db_session),
 ) -> WebhookReplayResponse:
     """Replay a historical delivery attempt for a webhook endpoint."""
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Idempotency-Key header is required for replay operations.",
+        )
     service = WebhookDispatchService(db)
     try:
         result = service.replay_delivery(
@@ -354,6 +383,29 @@ def replay_webhook_delivery(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except WebhookReplayNotAllowedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    principal = getattr(request.state, "principal", None)
+    actor = getattr(principal, "subject_id", "unknown")
+    AuditEventRepository(db).append(
+        AuditEvent(
+            tenant_id=str(tenant_id),
+            mission_id=None,
+            category="webhook",
+            action="delivery_replay_requested",
+            actor=actor,
+            details=(
+                f"Replay requested for endpoint {endpoint_id} delivery {delivery_id} "
+                f"-> new delivery {result.delivery_id}"
+            ),
+            payload_json={
+                "endpoint_id": str(endpoint_id),
+                "replayed_from_delivery_id": str(delivery_id),
+                "new_delivery_id": str(result.delivery_id),
+                "idempotency_key": idempotency_key,
+                "status": "delivered" if result.succeeded else "failed",
+            },
+        )
+    )
 
     db.commit()
     status = "delivered" if result.succeeded else "failed"
@@ -394,8 +446,62 @@ def get_webhook_reliability_summary(
         dead_lettered_attempts=summary.dead_lettered_attempts,
         success_rate=summary.success_rate,
         avg_delivery_latency_ms=summary.avg_delivery_latency_ms,
+        p95_delivery_latency_ms=summary.p95_delivery_latency_ms,
         top_failing_endpoints=[
             EndpointFailureSummaryResponse(endpoint_id=item.endpoint_id, failure_count=item.failure_count)
             for item in summary.top_failing_endpoints
+        ],
+        hourly_series=[
+            HourlyReliabilityPointResponse(
+                window_start=item.window_start,
+                delivered_attempts=item.delivered_attempts,
+                failed_attempts=item.failed_attempts,
+            )
+            for item in summary.hourly_series
+        ],
+    )
+
+
+@router.get(
+    "/{endpoint_id}/reliability/summary",
+    response_model=EndpointReliabilitySummaryResponse,
+)
+def get_webhook_endpoint_reliability_summary(
+    endpoint_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    lookback_hours: int = 24,
+) -> EndpointReliabilitySummaryResponse:
+    """Return endpoint-scoped reliability metrics for webhook delivery health."""
+    service = WebhookDispatchService(db)
+    try:
+        summary = service.get_endpoint_reliability_summary(
+            tenant_id=tenant_id,
+            endpoint_id=endpoint_id,
+            lookback_hours=lookback_hours,
+        )
+    except WebhookNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return EndpointReliabilitySummaryResponse(
+        endpoint_id=summary.endpoint_id,
+        lookback_hours=summary.lookback_hours,
+        total_attempts=summary.total_attempts,
+        delivered_attempts=summary.delivered_attempts,
+        failed_attempts=summary.failed_attempts,
+        dead_lettered_attempts=summary.dead_lettered_attempts,
+        success_rate=summary.success_rate,
+        avg_delivery_latency_ms=summary.avg_delivery_latency_ms,
+        p95_delivery_latency_ms=summary.p95_delivery_latency_ms,
+        hourly_series=[
+            HourlyReliabilityPointResponse(
+                window_start=item.window_start,
+                delivered_attempts=item.delivered_attempts,
+                failed_attempts=item.failed_attempts,
+            )
+            for item in summary.hourly_series
         ],
     )

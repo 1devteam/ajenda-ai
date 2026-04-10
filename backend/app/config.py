@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     # Rate limiting
     rate_limit_requests: int = Field(default=100, alias="AJENDA_RATE_LIMIT_REQUESTS")
     rate_limit_window_seconds: int = Field(default=60, alias="AJENDA_RATE_LIMIT_WINDOW_SECONDS")
+    authz_policy_mode: Literal["rbac", "shadow_opa", "enforce_opa"] = Field(
+        default="rbac",
+        alias="AJENDA_AUTHZ_POLICY_MODE",
+    )
+    authz_opa_url: str | None = Field(default=None, alias="AJENDA_AUTHZ_OPA_URL")
+    authz_opa_timeout_seconds: float = Field(default=2.0, alias="AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS")
 
     @property
     def redact_key_set(self) -> set[str]:
@@ -117,6 +123,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"AJENDA_RATE_LIMIT_WINDOW_SECONDS must be a positive integer, "
                 f"got {self.rate_limit_window_seconds}"
+            )
+
+        # --- Authz policy-as-code ---
+        if self.authz_policy_mode in {"shadow_opa", "enforce_opa"}:
+            if self.authz_opa_url is None or not self.authz_opa_url.strip():
+                raise ValueError(
+                    "AJENDA_AUTHZ_OPA_URL is required when AJENDA_AUTHZ_POLICY_MODE is shadow_opa or enforce_opa"
+                )
+        if self.authz_opa_timeout_seconds <= 0:
+            raise ValueError(
+                "AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS must be a positive number, "
+                f"got {self.authz_opa_timeout_seconds}"
             )
 
 
