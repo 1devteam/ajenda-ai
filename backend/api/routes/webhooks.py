@@ -31,6 +31,7 @@ from backend.services.webhook_dispatch import (
     WebhookDispatchService,
     WebhookNotFoundError,
     WebhookRegistrationError,
+    WebhookReplayNotAllowedError,
 )
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -130,6 +131,16 @@ class WebhookDeliveryResponse(BaseModel):
     delivered_at: str | None
 
     model_config = {"from_attributes": True}
+
+
+class WebhookReplayResponse(BaseModel):
+    """Response schema for replaying a delivery attempt."""
+
+    replayed_from_delivery_id: str
+    new_delivery_id: str
+    status: str
+    http_status_code: int | None
+    error_message: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -301,3 +312,38 @@ def list_webhook_deliveries(
         )
         for d in deliveries
     ]
+
+
+@router.post(
+    "/{endpoint_id}/deliveries/{delivery_id}/replay",
+    response_model=WebhookReplayResponse,
+)
+def replay_webhook_delivery(
+    endpoint_id: UUID,
+    delivery_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> WebhookReplayResponse:
+    """Replay a historical delivery attempt for a webhook endpoint."""
+    service = WebhookDispatchService(db)
+    try:
+        result = service.replay_delivery(
+            tenant_id=tenant_id,
+            endpoint_id=endpoint_id,
+            delivery_id=delivery_id,
+        )
+    except WebhookNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except WebhookReplayNotAllowedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    db.commit()
+    status = "delivered" if result.succeeded else "failed"
+    return WebhookReplayResponse(
+        replayed_from_delivery_id=str(delivery_id),
+        new_delivery_id=str(result.delivery_id),
+        status=status,
+        http_status_code=result.http_status,
+        error_message=result.error,
+    )

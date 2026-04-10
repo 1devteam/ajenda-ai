@@ -46,6 +46,7 @@ from backend.services.webhook_dispatch import (
     WebhookDispatchService,
     WebhookNotFoundError,
     WebhookRegistrationError,
+    WebhookReplayNotAllowedError,
 )
 
 # ---------------------------------------------------------------------------
@@ -428,3 +429,66 @@ class TestEndpointManagement:
         service, mock_repo, _ = _make_service(endpoints=[ep1, ep2])
         result = service.list_endpoints(TENANT_ID)
         assert len(result) == 2
+
+
+class TestReplayDelivery:
+    def test_replay_delivery_reuses_event_and_increments_attempt(self):
+        ep = _make_endpoint()
+        service, mock_repo, _ = _make_service(
+            endpoints=[ep],
+            http_response=_make_http_response(200, "ok"),
+        )
+        prior_delivery = MagicMock()
+        prior_delivery.id = uuid.uuid4()
+        prior_delivery.endpoint_id = ep.id
+        prior_delivery.tenant_id = TENANT_ID
+        prior_delivery.event_type = "task.completed"
+        prior_delivery.event_id = uuid.uuid4()
+        prior_delivery.payload = {"task_id": "abc"}
+        prior_delivery.attempt_number = 2
+        prior_delivery.status = "failed"
+        mock_repo.get_delivery_for_endpoint.return_value = prior_delivery
+
+        result = service.replay_delivery(
+            tenant_id=TENANT_ID,
+            endpoint_id=ep.id,
+            delivery_id=prior_delivery.id,
+        )
+
+        assert result.succeeded is True
+        replayed = mock_repo.record_delivery.call_args[0][0]
+        assert replayed.event_id == prior_delivery.event_id
+        assert replayed.attempt_number == 3
+
+    def test_replay_delivery_raises_not_found_for_missing_delivery(self):
+        ep = _make_endpoint()
+        service, mock_repo, _ = _make_service(endpoints=[ep])
+        mock_repo.get_delivery_for_endpoint.return_value = None
+
+        with pytest.raises(WebhookNotFoundError):
+            service.replay_delivery(
+                tenant_id=TENANT_ID,
+                endpoint_id=ep.id,
+                delivery_id=uuid.uuid4(),
+            )
+
+    def test_replay_delivery_rejects_in_flight_attempt(self):
+        ep = _make_endpoint()
+        service, mock_repo, _ = _make_service(endpoints=[ep])
+        prior_delivery = MagicMock()
+        prior_delivery.id = uuid.uuid4()
+        prior_delivery.endpoint_id = ep.id
+        prior_delivery.tenant_id = TENANT_ID
+        prior_delivery.event_type = "task.completed"
+        prior_delivery.event_id = uuid.uuid4()
+        prior_delivery.payload = {"task_id": "abc"}
+        prior_delivery.attempt_number = 1
+        prior_delivery.status = "delivering"
+        mock_repo.get_delivery_for_endpoint.return_value = prior_delivery
+
+        with pytest.raises(WebhookReplayNotAllowedError):
+            service.replay_delivery(
+                tenant_id=TENANT_ID,
+                endpoint_id=ep.id,
+                delivery_id=prior_delivery.id,
+            )

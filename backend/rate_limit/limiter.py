@@ -133,17 +133,36 @@ class RateLimiter:
 
     def evaluate(self, key: RateLimitKey) -> RateLimitDecision:
         max_req, window_sec = self._resolve_policy(key.route)
+        return self.evaluate_with_policy(
+            key,
+            max_requests=max_req,
+            window_seconds=window_sec,
+        )
+
+    def evaluate_with_policy(
+        self,
+        key: RateLimitKey,
+        *,
+        max_requests: int,
+        window_seconds: int,
+    ) -> RateLimitDecision:
+        """Evaluate a request against explicit limits."""
+        if max_requests <= 0:
+            raise ValueError("max_requests must be positive")
+        if window_seconds <= 0:
+            raise ValueError("window_seconds must be positive")
+
         # Bucket key includes the effective limits so that policy changes
         # don't bleed across old and new buckets.
-        bucket_key = (key, max_req, window_sec)
+        bucket_key = (key, max_requests, window_seconds)
         now = monotonic()
         count, window_start = self._buckets.get(bucket_key, (0, now))
-        if now - window_start >= window_sec:
+        if now - window_start >= window_seconds:
             count = 0
             window_start = now
-        if count >= max_req:
-            retry_after = max(1, int(window_sec - (now - window_start)))
+        if count >= max_requests:
+            retry_after = max(1, int(window_seconds - (now - window_start)))
             return RateLimitDecision(False, 0, retry_after)
         count += 1
         self._buckets[bucket_key] = (count, window_start)
-        return RateLimitDecision(True, max_req - count, None)
+        return RateLimitDecision(True, max_requests - count, None)

@@ -107,6 +107,20 @@ class WebhookRepository:
         """Return a single delivery record by ID."""
         return self._session.get(WebhookDelivery, delivery_id)
 
+    def get_delivery_for_endpoint(
+        self,
+        delivery_id: uuid.UUID,
+        *,
+        endpoint_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> WebhookDelivery | None:
+        """Return a delivery record scoped to endpoint and tenant."""
+        return (
+            self._session.query(WebhookDelivery)
+            .filter_by(id=delivery_id, endpoint_id=endpoint_id, tenant_id=tenant_id)
+            .first()
+        )
+
     def list_deliveries_for_endpoint(
         self,
         endpoint_id: uuid.UUID,

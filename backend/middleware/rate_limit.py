@@ -49,6 +49,23 @@ _DEFAULT_ROUTE_POLICIES: dict[str, RoutePolicy] = {
     "/v1/admin": RoutePolicy(max_requests=20, window_seconds=60),
 }
 
+# Plan-aware adaptive policy:
+# - multiplier scales baseline route/global limits
+# - burst_credit adds a small fixed premium for short spikes
+# This is the first implementation step for tenant-aware adaptive limiting.
+_PLAN_RATE_MULTIPLIER: dict[str, float] = {
+    "free": 1.0,
+    "starter": 1.25,
+    "pro": 1.75,
+    "enterprise": 2.5,
+}
+_PLAN_BURST_CREDIT: dict[str, int] = {
+    "free": 0,
+    "starter": 2,
+    "pro": 5,
+    "enterprise": 10,
+}
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, limiter: RateLimiter | None = None) -> None:
@@ -68,14 +85,23 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         principal = getattr(request.state, "principal", None)
         tenant_id = getattr(request.state, "tenant_id", None) or "anonymous"
         principal_id = getattr(principal, "subject_id", "anonymous")
+        tenant = getattr(request.state, "tenant", None)
+        plan_slug = getattr(tenant, "plan", None)
         key = RateLimitKey(
             tenant_id=tenant_id,
             principal_id=principal_id,
             route=request.url.path,
         )
-        decision = self._limiter.evaluate(key)
-        # Resolve the effective limit for this route (for the header)
-        effective_max, _ = self._limiter._resolve_policy(request.url.path)
+        # Resolve baseline route policy, then adapt by tenant plan.
+        base_max, base_window = self._limiter._resolve_policy(request.url.path)
+        multiplier = _PLAN_RATE_MULTIPLIER.get(str(plan_slug), 1.0)
+        burst_credit = _PLAN_BURST_CREDIT.get(str(plan_slug), 0)
+        effective_max = max(1, int(base_max * multiplier) + burst_credit)
+        decision = self._limiter.evaluate_with_policy(
+            key,
+            max_requests=effective_max,
+            window_seconds=base_window,
+        )
         if not decision.allowed:
             return JSONResponse(
                 status_code=429,
@@ -85,4 +111,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["X-RateLimit-Remaining"] = str(decision.remaining)
         response.headers["X-RateLimit-Limit"] = str(effective_max)
+        if plan_slug:
+            response.headers["X-RateLimit-Plan"] = str(plan_slug)
         return response

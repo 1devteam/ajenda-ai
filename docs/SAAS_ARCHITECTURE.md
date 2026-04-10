@@ -42,3 +42,49 @@ This document defines the production-grade SaaS enforcement boundaries for the A
 
 ### 3.2 Control Plane
 - Internal admin routes (`/admin/tenants`) to manage lifecycle, plans, and overrides.
+
+## 4. SaaS-Grade Upgrade Roadmap (Integrated)
+
+The next strategic phase aligns platform hardening with monetization leverage and enterprise saleability.
+
+### 4.1 Tenant-Aware Adaptive Rate Limiting
+- **Current state**: Static fixed-window limits.
+- **Upgrade**: Add plan-aware burst credits, adaptive refill rates, and route-class weighting (e.g., expensive AI actions vs. reads).
+- **Business value**: Better fairness at scale, clearer premium-tier differentiation, lower noisy-neighbor risk.
+- **Implementation hooks**:
+  - Extend `TenantPlan` with burst/refill parameters.
+  - Introduce policy engine for `(tenant, principal, route_class)` decisions.
+  - Emit limit decision telemetry for billing analytics and CS visibility.
+
+### 4.2 Policy-as-Code Control Plane (Compliance Upsell)
+- **Current state**: App-embedded compliance logic.
+- **Upgrade**: Externalize authorization/compliance policy to OPA/Rego or Cedar-style policy bundles.
+- **Business value**: Enterprise governance controls, auditable policy versions, shorter compliance sales cycles.
+- **Implementation hooks**:
+  - Add policy decision point (PDP) adapter interface.
+  - Version and sign policy bundles; support dry-run mode.
+  - Record decision traces in audit logs for SOC2/ISO evidence.
+
+### 4.3 Customer Reliability Dashboard + Webhook Replay UX
+- **Current state**: Internal metrics and webhook delivery tables.
+- **Upgrade**: Tenant-facing SLO dashboard, per-endpoint delivery health, and one-click replay for failed webhook events.
+- **Business value**: Reduced support burden, improved trust, stronger integration stickiness.
+- **Implementation hooks**:
+  - Publish tenant-scoped reliability aggregates (latency, success rate, retry depth).
+  - Add signed replay endpoint with idempotent safeguards.
+  - Surface incident timeline and actionable remediation guidance.
+
+### 4.4 Progressive Delivery (Canary + SLO Auto-Rollback)
+- **Current state**: Conventional CI gates and image publishing.
+- **Upgrade**: Canary deployments with automated SLO guardrails and rollback policies.
+- **Business value**: Faster safe releases, lower production incident blast radius.
+- **Implementation hooks**:
+  - Define release metrics contract (`error_rate`, `p95_latency`, `queue_lag`).
+  - Add rollout controller integration (ECS/K8s compatible).
+  - Gate promotion on objective SLO thresholds.
+
+### 4.5 Sequencing Recommendation
+1. Adaptive rate limiting (direct revenue + platform stability).
+2. Reliability dashboard + webhook replay (customer-facing confidence win).
+3. Progressive delivery automation (operational safety multiplier).
+4. Policy-as-code control plane (enterprise compliance expansion).

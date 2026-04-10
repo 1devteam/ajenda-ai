@@ -65,6 +65,10 @@ class WebhookNotFoundError(Exception):
     """Raised when a webhook endpoint is not found for the given tenant."""
 
 
+class WebhookReplayNotAllowedError(Exception):
+    """Raised when a delivery replay is not allowed for the selected attempt."""
+
+
 class WebhookDispatchResult:
     """Result of a single delivery attempt."""
 
@@ -244,6 +248,42 @@ class WebhookDispatchService:
             results.append(result)
 
         return results
+
+    def replay_delivery(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        endpoint_id: uuid.UUID,
+        delivery_id: uuid.UUID,
+    ) -> WebhookDispatchResult:
+        """Replay a prior delivery attempt to the same endpoint.
+
+        Reuses the original event_id/event_type/payload and increments the
+        attempt_number by one. The replay is blocked for in-flight deliveries.
+        """
+        endpoint = self.get_endpoint(endpoint_id, tenant_id=tenant_id)
+        delivery = self._repo.get_delivery_for_endpoint(
+            delivery_id,
+            endpoint_id=endpoint_id,
+            tenant_id=tenant_id,
+        )
+        if delivery is None:
+            raise WebhookNotFoundError(
+                f"Webhook delivery {delivery_id} not found for endpoint {endpoint_id} and tenant {tenant_id}"
+            )
+        if delivery.status in {"pending", "delivering"}:
+            raise WebhookReplayNotAllowedError(
+                f"Webhook delivery {delivery_id} is in progress and cannot be replayed yet."
+            )
+
+        return self._deliver(
+            endpoint=endpoint,
+            event_type=delivery.event_type,
+            event_id=delivery.event_id,
+            payload=delivery.payload,
+            attempt_number=delivery.attempt_number + 1,
+            tenant_id=tenant_id,
+        )
 
     # ------------------------------------------------------------------
     # Internal delivery
