@@ -47,6 +47,9 @@ uvicorn backend.main:app --reload
 python -m pytest -m "not integration"  # unit tests only (no infra needed)
 python -m pytest -m integration         # integration tests (requires Postgres + Redis)
 python -m pytest                         # all tests
+
+# 7. Run static checks before opening a PR
+ruff check .
 ```
 
 ## Environment variables
