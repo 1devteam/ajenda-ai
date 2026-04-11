@@ -103,22 +103,40 @@ ROUTE_CASES = [
     ("api_keys:revoke", "POST", "/api-keys/some-key-id/revoke", None, TENANT_A),
     ("mission:queue", "POST", f"/missions/{uuid.uuid4()}/queue", None, TENANT_A),
     ("task:queue", "POST", f"/tasks/{uuid.uuid4()}/queue", None, TENANT_A),
-    ("workforce:provision", "POST", "/workforces/provision", {
-        "mission_id": str(uuid.uuid4()),
-        "fleet_name": "fleet-1",
-        "agents": [{"display_name": "Agent", "role_name": "executor"}],
-    }, TENANT_A),
-    ("branch:create", "POST", "/branches", {
-        "mission_id": str(uuid.uuid4()),
-        "reason": "test",
-    }, TENANT_A),
+    (
+        "workforce:provision",
+        "POST",
+        "/workforces/provision",
+        {
+            "mission_id": str(uuid.uuid4()),
+            "fleet_name": "fleet-1",
+            "agents": [{"display_name": "Agent", "role_name": "executor"}],
+        },
+        TENANT_A,
+    ),
+    (
+        "branch:create",
+        "POST",
+        "/branches",
+        {
+            "mission_id": str(uuid.uuid4()),
+            "reason": "test",
+        },
+        TENANT_A,
+    ),
     ("operations:dead_letter", "GET", "/operations/dead-letter", None, TENANT_A),
     ("operations:retry", "POST", f"/operations/dead-letter/{uuid.uuid4()}/retry", None, TENANT_A),
     ("system:status", "GET", "/system/status", None, TENANT_A),
-    ("webhooks:register", "POST", "/webhooks/", {
-        "url": "https://example.com/hook",
-        "event_types": ["task.completed"],
-    }, TENANT_A),
+    (
+        "webhooks:register",
+        "POST",
+        "/webhooks/",
+        {
+            "url": "https://example.com/hook",
+            "event_types": ["task.completed"],
+        },
+        TENANT_A,
+    ),
     ("webhooks:list", "GET", "/webhooks/", None, TENANT_A),
     ("webhooks:get", "GET", f"/webhooks/{uuid.uuid4()}", None, TENANT_A),
     ("webhooks:delete", "DELETE", f"/webhooks/{uuid.uuid4()}", None, TENANT_A),
@@ -144,6 +162,7 @@ def _all_routers():
 #
 # Tenant middleware runs first. No X-Tenant-Id → 400 before Auth processes.
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("label,method,path,body,tenant", ROUTE_CASES)
 def test_missing_tenant_header_returns_400(
@@ -190,6 +209,7 @@ def test_missing_tenant_header_returns_400(
 # between Tenant and Auth, simulating a successfully authenticated principal
 # from a different tenant.
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("label,method,path,body,tenant", ROUTE_CASES)
 def test_cross_tenant_bearer_returns_403(
@@ -258,6 +278,7 @@ def test_cross_tenant_bearer_returns_403(
 # Tenant runs first (validates header), then Auth runs and finds no credentials.
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("label,method,path,body,tenant", ROUTE_CASES)
 def test_no_auth_credentials_returns_401(
     label: str,
@@ -274,9 +295,7 @@ def test_no_auth_credentials_returns_401(
         kwargs["json"] = body
 
     resp = getattr(client, method.lower())(path, **kwargs)
-    assert resp.status_code == 401, (
-        f"[{label}] Expected 401 for missing auth, got {resp.status_code}: {resp.text}"
-    )
+    assert resp.status_code == 401, f"[{label}] Expected 401 for missing auth, got {resp.status_code}: {resp.text}"
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +303,7 @@ def test_no_auth_credentials_returns_401(
 #
 # Tenant middleware validates UUID format before Auth processes.
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("label,method,path,body,tenant", ROUTE_CASES)
 def test_invalid_tenant_uuid_returns_400(
@@ -314,6 +334,7 @@ def test_invalid_tenant_uuid_returns_400(
 # ---------------------------------------------------------------------------
 # Test: public routes are unaffected by tenant isolation
 # ---------------------------------------------------------------------------
+
 
 def test_system_health_requires_no_tenant_header() -> None:
     """GET /system/health must succeed without X-Tenant-Id (public route)."""
@@ -352,6 +373,7 @@ def test_operations_recovery_requires_no_tenant_header() -> None:
 #
 # Override the dependency to prove the route uses the DI path, not Header().
 # ---------------------------------------------------------------------------
+
 
 def test_api_keys_uses_get_request_tenant_id_dependency() -> None:
     """Verify api_keys route uses get_request_tenant_id dependency, not raw Header.

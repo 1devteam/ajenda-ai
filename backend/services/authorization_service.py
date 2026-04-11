@@ -101,9 +101,7 @@ class AuthorizationService:
                 category="authz",
                 action="shadow_decision",
                 actor=principal.subject_id,
-                details=(
-                    "shadow_policy_diverged" if diverged else "shadow_policy_aligned"
-                ),
+                details=("shadow_policy_diverged" if diverged else "shadow_policy_aligned"),
                 payload_json={
                     "permission": permission.value,
                     "enforced": {

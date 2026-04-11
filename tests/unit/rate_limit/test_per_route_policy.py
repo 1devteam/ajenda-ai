@@ -10,6 +10,7 @@ Verifies that:
     (keyed by (tenant_id, principal_id, route))
   - The default middleware route policies cover /v1/webhooks and /v1/admin
 """
+
 from __future__ import annotations
 
 import pytest

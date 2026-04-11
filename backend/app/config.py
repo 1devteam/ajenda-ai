@@ -116,13 +116,10 @@ class Settings(BaseSettings):
 
         # --- Rate limiting sanity ---
         if self.rate_limit_requests <= 0:
-            raise ValueError(
-                f"AJENDA_RATE_LIMIT_REQUESTS must be a positive integer, got {self.rate_limit_requests}"
-            )
+            raise ValueError(f"AJENDA_RATE_LIMIT_REQUESTS must be a positive integer, got {self.rate_limit_requests}")
         if self.rate_limit_window_seconds <= 0:
             raise ValueError(
-                f"AJENDA_RATE_LIMIT_WINDOW_SECONDS must be a positive integer, "
-                f"got {self.rate_limit_window_seconds}"
+                f"AJENDA_RATE_LIMIT_WINDOW_SECONDS must be a positive integer, got {self.rate_limit_window_seconds}"
             )
 
         # --- Authz policy-as-code ---
@@ -133,8 +130,7 @@ class Settings(BaseSettings):
                 )
         if self.authz_opa_timeout_seconds <= 0:
             raise ValueError(
-                "AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS must be a positive number, "
-                f"got {self.authz_opa_timeout_seconds}"
+                f"AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS must be a positive number, got {self.authz_opa_timeout_seconds}"
             )
 
 
