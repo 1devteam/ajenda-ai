@@ -17,6 +17,7 @@ Changes:
 from __future__ import annotations
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0008"
@@ -68,7 +69,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Restore the original CHECK constraint (without pending_review)
-    _TASK_STATES_V1 = (
+    task_states_v1 = (
         "planned",
         "queued",
         "claimed",
@@ -81,7 +82,7 @@ def downgrade() -> None:
         "recovering",
     )
     op.drop_constraint("ck_execution_tasks_status", "execution_tasks", type_="check")
-    formatted = ", ".join(f"'{v}'" for v in _TASK_STATES_V1)
+    formatted = ", ".join(f"'{v}'" for v in task_states_v1)
     op.create_check_constraint(
         "ck_execution_tasks_status",
         "execution_tasks",

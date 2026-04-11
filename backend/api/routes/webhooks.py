@@ -22,7 +22,7 @@ from __future__ import annotations
 import uuid as _uuid
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -289,13 +289,13 @@ def get_webhook(
     )
 
 
-@router.delete("/{endpoint_id}", status_code=204)
+@router.delete("/{endpoint_id}", status_code=204, response_class=Response)
 def delete_webhook(
     endpoint_id: UUID,
     request: Request,
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
-) -> None:
+) -> Response:
     """Delete a webhook endpoint.
 
     Delivery history is retained for audit purposes.
@@ -308,6 +308,7 @@ def delete_webhook(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     db.commit()
+    return Response(status_code=204)
 
 
 @router.get(
