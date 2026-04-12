@@ -39,15 +39,11 @@ def _collect_snapshot(session: Session) -> MetricsSnapshot:
     """
 
     def _count_tasks(status: str) -> int:
-        result = session.execute(
-            select(func.count()).where(ExecutionTask.status == status)
-        )
+        result = session.execute(select(func.count()).where(ExecutionTask.status == status))
         return result.scalar_one()
 
     def _count_leases(status: str) -> int:
-        result = session.execute(
-            select(func.count()).where(WorkerLease.status == status)
-        )
+        result = session.execute(select(func.count()).where(WorkerLease.status == status))
         return result.scalar_one()
 
     tasks_queued = _count_tasks(ExecutionTaskState.QUEUED.value)

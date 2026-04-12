@@ -129,8 +129,7 @@ class ExecutionCoordinator:
                     action="task_pending_review",
                     actor="policy_guardian",
                     details=(
-                        f"Task {task.id} requires human review before execution. "
-                        f"Reason: {policy_decision.reason}"
+                        f"Task {task.id} requires human review before execution. Reason: {policy_decision.reason}"
                     ),
                     payload_json={
                         "task_id": str(task.id),

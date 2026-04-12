@@ -12,6 +12,7 @@ These tests catch issues that the mock-backed unit tests cannot surface:
 
 All tests use the pg_session fixture from tests/integration/conftest.py.
 """
+
 from __future__ import annotations
 
 import uuid

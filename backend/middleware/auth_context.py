@@ -43,7 +43,7 @@ _PUBLIC_PATH_PREFIXES = (
     "/system/health",
     "/system/readiness",
     "/observability/metrics",
-    "/operations/recovery",     # cross-tenant lease recovery — no auth required
+    "/operations/recovery",  # cross-tenant lease recovery — no auth required
     "/v1/operations/recovery",  # same, with v1 prefix (production mount)
     "/docs",
     "/openapi.json",

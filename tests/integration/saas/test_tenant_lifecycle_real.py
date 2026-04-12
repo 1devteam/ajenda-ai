@@ -14,6 +14,7 @@ SQLite or MagicMock cannot surface:
 All tests use the pg_session fixture from tests/integration/conftest.py, which
 provides a real Postgres connection rolled back after each test.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -237,9 +238,7 @@ class TestTenantLifecycleServiceReal:
         pg_session.flush()
 
         events = (
-            pg_session.query(GovernanceEvent)
-            .filter_by(tenant_id=str(tenant_id), event_type="tenant_suspended")
-            .all()
+            pg_session.query(GovernanceEvent).filter_by(tenant_id=str(tenant_id), event_type="tenant_suspended").all()
         )
         assert len(events) == 1
         assert events[0].actor == "billing-bot"
@@ -253,9 +252,7 @@ class TestTenantLifecycleServiceReal:
         pg_session.flush()
 
         events = (
-            pg_session.query(GovernanceEvent)
-            .filter_by(tenant_id=str(tenant_id), event_type="tenant_reactivated")
-            .all()
+            pg_session.query(GovernanceEvent).filter_by(tenant_id=str(tenant_id), event_type="tenant_reactivated").all()
         )
         assert len(events) == 1
         assert events[0].actor == "operator-2"
@@ -266,9 +263,7 @@ class TestTenantLifecycleServiceReal:
         pg_session.flush()
 
         events = (
-            pg_session.query(GovernanceEvent)
-            .filter_by(tenant_id=str(tenant_id), event_type="tenant_deleted")
-            .all()
+            pg_session.query(GovernanceEvent).filter_by(tenant_id=str(tenant_id), event_type="tenant_deleted").all()
         )
         assert len(events) == 1
         assert "gdpr-erasure" in events[0].payload_json["reason"]
@@ -418,10 +413,10 @@ class TestTenantUsageReal:
 
 class TestQuotaEnforcementReal:
     """These tests rely on the plan rows seeded by migration 0006:
-      free:       max_tasks_per_month=100, max_missions_per_month=10
-      starter:    max_tasks_per_month=500, max_missions_per_month=50
-      pro:        max_tasks_per_month=2000, max_missions_per_month=200
-      enterprise: max_tasks_per_month=-1 (unlimited)
+    free:       max_tasks_per_month=100, max_missions_per_month=10
+    starter:    max_tasks_per_month=500, max_missions_per_month=50
+    pro:        max_tasks_per_month=2000, max_missions_per_month=200
+    enterprise: max_tasks_per_month=-1 (unlimited)
     """
 
     def _make_tenant(self, pg_session, plan: str = "free") -> uuid.UUID:

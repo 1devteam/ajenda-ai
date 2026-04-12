@@ -340,9 +340,11 @@ class WebhookDispatchService:
         end_hour = now.replace(minute=0, second=0, microsecond=0)
         start_hour = end_hour - timedelta(hours=lookback_hours - 1)
         since = start_hour
-        total, delivered, failed, dead_lettered, avg_latency_ms, p95_latency_ms = self._repo.get_delivery_reliability_metrics(
-            tenant_id=tenant_id,
-            since=since,
+        total, delivered, failed, dead_lettered, avg_latency_ms, p95_latency_ms = (
+            self._repo.get_delivery_reliability_metrics(
+                tenant_id=tenant_id,
+                since=since,
+            )
         )
         success_rate = round((delivered / total), 4) if total > 0 else 0.0
         top_failures = [
@@ -406,10 +408,12 @@ class WebhookDispatchService:
         end_hour = now.replace(minute=0, second=0, microsecond=0)
         start_hour = end_hour - timedelta(hours=lookback_hours - 1)
         since = start_hour
-        total, delivered, failed, dead_lettered, avg_latency_ms, p95_latency_ms = self._repo.get_endpoint_delivery_reliability_metrics(
-            tenant_id=tenant_id,
-            endpoint_id=endpoint_id,
-            since=since,
+        total, delivered, failed, dead_lettered, avg_latency_ms, p95_latency_ms = (
+            self._repo.get_endpoint_delivery_reliability_metrics(
+                tenant_id=tenant_id,
+                endpoint_id=endpoint_id,
+                since=since,
+            )
         )
         success_rate = round((delivered / total), 4) if total > 0 else 0.0
 

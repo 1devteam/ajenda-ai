@@ -11,6 +11,7 @@ that are insecure or non-functional in production:
 
 Also verifies that valid configurations pass without raising.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -105,16 +106,12 @@ class TestQueueAdapterGuards:
 
 class TestOidcLocalhostGuards:
     def test_localhost_jwks_uri_in_production_raises(self) -> None:
-        settings = _settings(
-            oidc_jwks_uri="http://localhost:8080/realms/ajenda/protocol/openid-connect/certs"
-        )
+        settings = _settings(oidc_jwks_uri="http://localhost:8080/realms/ajenda/protocol/openid-connect/certs")
         with pytest.raises(ValueError, match="AJENDA_OIDC_JWKS_URI must not point to localhost"):
             settings.validate_runtime_contract()
 
     def test_127_0_0_1_jwks_uri_in_production_raises(self) -> None:
-        settings = _settings(
-            oidc_jwks_uri="http://127.0.0.1:8080/realms/ajenda/protocol/openid-connect/certs"
-        )
+        settings = _settings(oidc_jwks_uri="http://127.0.0.1:8080/realms/ajenda/protocol/openid-connect/certs")
         with pytest.raises(ValueError, match="AJENDA_OIDC_JWKS_URI must not point to localhost"):
             settings.validate_runtime_contract()
 
@@ -129,9 +126,7 @@ class TestOidcLocalhostGuards:
             settings.validate_runtime_contract()
 
     def test_real_idp_jwks_uri_passes(self) -> None:
-        settings = _settings(
-            oidc_jwks_uri="https://auth.example.com/realms/ajenda/protocol/openid-connect/certs"
-        )
+        settings = _settings(oidc_jwks_uri="https://auth.example.com/realms/ajenda/protocol/openid-connect/certs")
         settings.validate_runtime_contract()  # Must not raise
 
     def test_real_idp_issuer_passes(self) -> None:
@@ -189,7 +184,9 @@ class TestRateLimitSanityGuards:
         """Rate limit sanity is environment-agnostic — invalid values must always raise."""
         for env in ("development", "test", "staging", "production"):
             # Use redis adapter with a URL so the queue guard does not fire first.
-            settings = _settings(env=env, queue_adapter="redis", queue_url="redis://redis:6379/0", rate_limit_requests=0)
+            settings = _settings(
+                env=env, queue_adapter="redis", queue_url="redis://redis:6379/0", rate_limit_requests=0
+            )
             with pytest.raises(ValueError, match="AJENDA_RATE_LIMIT_REQUESTS"):
                 settings.validate_runtime_contract()
 
@@ -210,6 +207,8 @@ class TestAuthzPolicyAsCodeGuards:
         settings.validate_runtime_contract()
 
     def test_non_positive_opa_timeout_raises(self) -> None:
-        settings = _settings(authz_policy_mode="shadow_opa", authz_opa_url="http://opa:8181", authz_opa_timeout_seconds=0)
+        settings = _settings(
+            authz_policy_mode="shadow_opa", authz_opa_url="http://opa:8181", authz_opa_timeout_seconds=0
+        )
         with pytest.raises(ValueError, match="AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS"):
             settings.validate_runtime_contract()
