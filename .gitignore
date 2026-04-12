@@ -90,3 +90,4 @@ reports/
 
 # Bytecode / caches anywhere
 **/__pycache__/
+.venv-audit/
