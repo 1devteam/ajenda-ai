@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
@@ -14,7 +15,9 @@ COPY backend /app/backend
 COPY alembic.ini /app/
 COPY alembic /app/alembic
 
-RUN pip install --upgrade pip && pip install .
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir . \
+    && rm -rf /root/.cache/pip
 
 EXPOSE 8000
 
