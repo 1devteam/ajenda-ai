@@ -79,3 +79,7 @@ python_version = "3.12"
 strict = true
 warn_unused_configs = true
 packages = ["backend"]
+[[tool.mypy.overrides]]
+module = ["passlib.*", "jose", "jose.*"]
+ignore_missing_imports = true
+
