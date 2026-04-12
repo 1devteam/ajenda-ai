@@ -41,11 +41,11 @@ class ApiKeyHasher:
 
     def hash_secret(self, secret: str) -> str:
         """Hash a plaintext secret using Argon2id. Returns the full hash string."""
-        return _PWD_CONTEXT.hash(secret)
+        return str(_PWD_CONTEXT.hash(secret))
 
     def verify(self, *, plaintext: str, hashed_secret: str) -> bool:
         """Constant-time verification of a plaintext secret against a stored Argon2 hash."""
-        return _PWD_CONTEXT.verify(plaintext, hashed_secret)
+        return bool(_PWD_CONTEXT.verify(plaintext, hashed_secret))
 
     def build_record(self, *, tenant_id: str, scopes: tuple[str, ...]) -> tuple[str, ApiKeyRecord]:
         """Generate a new key pair. Returns (plaintext_secret, ApiKeyRecord).
