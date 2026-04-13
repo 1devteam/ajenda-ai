@@ -23,6 +23,7 @@ RLS: The tenants table is NOT covered by the tenant RLS policy (migration 0003)
 because it is a cross-tenant admin table. It is accessible only to the
 ajenda_admin role in production.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -92,18 +93,16 @@ def upgrade() -> None:
         # Limits (-1 = unlimited)
         sa.Column("max_missions_per_month", sa.Integer, nullable=False, server_default="10"),
         sa.Column("max_tasks_per_month", sa.Integer, nullable=False, server_default="100"),
-        sa.Column("max_agents_per_fleet", sa.Integer, nullable=False, server_default="5"),
-        sa.Column("max_concurrent_workers", sa.Integer, nullable=False, server_default="2"),
-        sa.Column("max_api_keys", sa.Integer, nullable=False, server_default="3"),
-        sa.Column(
-            "max_monthly_api_calls", sa.BigInteger, nullable=False, server_default="10000"
-        ),
+        sa.Column("max_agents_per_fleet", sa.Integer, nullable=False, server_default="2"),
+        sa.Column("max_concurrent_workers", sa.Integer, nullable=False, server_default="1"),
+        sa.Column("max_api_keys", sa.Integer, nullable=False, server_default="2"),
+        sa.Column("max_monthly_api_calls", sa.BigInteger, nullable=False, server_default="10000"),
         # Feature flags
         sa.Column(
             "features_enabled",
             postgresql.JSONB,
             nullable=False,
-            server_default="'[]'::jsonb",
+            server_default=sa.text("'[]'::jsonb"),
             comment="Array of feature flag strings enabled for this plan",
         ),
         sa.Column(
@@ -193,8 +192,8 @@ def upgrade() -> None:
                 "id": uuid.uuid4(),
                 "slug": "free",
                 "display_name": "Free",
-                "max_missions_per_month": 5,
-                "max_tasks_per_month": 50,
+                "max_missions_per_month": 10,
+                "max_tasks_per_month": 100,
                 "max_agents_per_fleet": 2,
                 "max_concurrent_workers": 1,
                 "max_api_keys": 2,

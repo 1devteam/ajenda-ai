@@ -43,7 +43,7 @@ class TenantUsage(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    tenant_id: Mapped[str] = mapped_column(
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         nullable=False,
         index=True,

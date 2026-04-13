@@ -60,18 +60,28 @@ class JwtClaims:
         """
         sub = claims.get("sub")
         tenant_id = claims.get("tenant_id") or claims.get("tid")
-        if not sub:
+        if not isinstance(sub, str) or not sub.strip():
             raise JwtValidationError("token missing required 'sub' claim")
-        if not tenant_id:
+        if not isinstance(tenant_id, str) or not str(tenant_id).strip():
             raise JwtValidationError("token missing required 'tenant_id' claim")
+
         roles = claims.get("roles") or claims.get("groups") or []
         if isinstance(roles, str):
             roles = [roles]
+        elif isinstance(roles, tuple):
+            roles = list(roles)
+        elif not isinstance(roles, list):
+            roles = []
+
+        normalized_roles = [str(role) for role in roles]
+        email = claims.get("email")
+        normalized_email = str(email) if isinstance(email, str) else None
+
         return cls(
             sub=sub,
             tenant_id=str(tenant_id),
-            roles=list(roles),
-            email=claims.get("email"),
+            roles=normalized_roles,
+            email=normalized_email,
             raw=claims,
         )
 
@@ -137,8 +147,8 @@ class JwtValidator:
         self._issuer = issuer
         self._audience = audience
 
-    def validate_and_extract_claims(self, token: str) -> dict[str, Any]:
-        """Validate the token and return its verified claims.
+    def validate_and_extract_claims(self, token: str) -> JwtClaims:
+        """Validate the token and return its verified typed claims.
 
         Raises JwtValidationError on any validation failure with a safe error
         message that does not leak internal details to callers.
@@ -154,7 +164,7 @@ class JwtValidator:
         last_error: Exception | None = None
         for key in keys:
             try:
-                claims: dict[str, Any] = jwt.decode(
+                raw_claims: dict[str, Any] = jwt.decode(
                     token,
                     key,
                     algorithms=["RS256", "ES256"],
@@ -162,7 +172,7 @@ class JwtValidator:
                     issuer=self._issuer,
                     options={"verify_exp": True, "verify_iat": True},
                 )
-                return claims
+                return JwtClaims.from_dict(raw_claims)
             except ExpiredSignatureError as exc:
                 raise JwtValidationError("token has expired") from exc
             except JWTClaimsError as exc:

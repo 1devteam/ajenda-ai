@@ -19,8 +19,8 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision = "0002_add_api_key_records"
-down_revision = "0001_initial_runtime_schema"
+revision = "0002"
+down_revision = "0001"
 branch_labels = None
 depends_on = None
 
@@ -42,9 +42,14 @@ def upgrade() -> None:
             "scopes_json",
             postgresql.JSONB(astext_type=sa.Text()),
             nullable=False,
-            server_default="'[]'::jsonb",
+            server_default=sa.text("'[]'::jsonb"),
         ),
-        sa.Column("revoked", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column(
+            "revoked",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

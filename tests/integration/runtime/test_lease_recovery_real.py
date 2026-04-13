@@ -43,11 +43,12 @@ def _make_task(tenant_id: str, mission_id, status: str) -> ExecutionTask:
     )
 
 
-def _make_expired_lease(task_id, worker_id: str = "worker-dead") -> WorkerLease:
+def _make_expired_lease(task_id, tenant_id: str, worker_id: str = "worker-dead") -> WorkerLease:
     """Create a lease with a heartbeat 10 minutes in the past (expired)."""
     return WorkerLease(
+        tenant_id=tenant_id,
         task_id=task_id,
-        worker_id=worker_id,
+        holder_identity=worker_id,
         status=WorkerLeaseState.ACTIVE.value,
         heartbeat_at=datetime.now(UTC) - timedelta(minutes=10),
     )
@@ -64,7 +65,7 @@ class TestLeaseRecoveryReal:
         pg_session.add(task)
         pg_session.flush()
 
-        lease = _make_expired_lease(task.id)
+        lease = _make_expired_lease(task.id, "tenant-recovery-a")
         pg_session.add(lease)
         pg_session.flush()
 
@@ -98,7 +99,7 @@ class TestLeaseRecoveryReal:
         pg_session.add(task)
         pg_session.flush()
 
-        lease = _make_expired_lease(task.id)
+        lease = _make_expired_lease(task.id, "tenant-recovery-b")
         pg_session.add(lease)
         pg_session.flush()
 
@@ -128,8 +129,9 @@ class TestLeaseRecoveryReal:
 
         # Healthy lease — heartbeat 5 seconds ago
         healthy_lease = WorkerLease(
+            tenant_id="tenant-recovery-c",
             task_id=task.id,
-            worker_id="worker-alive",
+            holder_identity="worker-alive",
             status=WorkerLeaseState.ACTIVE.value,
             heartbeat_at=datetime.now(UTC) - timedelta(seconds=5),
         )
@@ -162,7 +164,7 @@ class TestLeaseRecoveryReal:
         pg_session.add(task)
         pg_session.flush()
 
-        lease = _make_expired_lease(task.id)
+        lease = _make_expired_lease(task.id, "tenant-recovery-d")
         pg_session.add(lease)
         pg_session.flush()
 

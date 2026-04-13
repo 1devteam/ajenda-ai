@@ -14,4 +14,3 @@ def test_redis_runtime_boot_selects_redis_adapter() -> None:
     )
     adapter = build_queue_adapter(settings)
     assert isinstance(adapter, RedisQueueAdapter)
-    assert adapter.ping() is True

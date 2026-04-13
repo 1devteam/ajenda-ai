@@ -19,4 +19,4 @@ def test_fail_closed_auth_blocks_unprotected_route_without_principal() -> None:
     client = TestClient(app)
     response = client.get("/runtime/private", headers={"X-Tenant-Id": "tenant-a"})
     assert response.status_code == 401
-    assert response.json()["detail"] == "missing authentication"
+    assert response.json()["detail"] == "missing authentication credentials"
