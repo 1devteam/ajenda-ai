@@ -40,7 +40,7 @@ dev = [
   "ruff>=0.6,<1.0",
   "mypy>=1.11,<2.0",
   # Integration test infrastructure — real Postgres and Redis containers
-  "testcontainers[postgres,redis]>=4.8,<5.0",
+  "testcontainers[postgres,redis]>=4.14.2,<5.0",
 ]
 
 [tool.setuptools]
