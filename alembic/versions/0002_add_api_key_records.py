@@ -19,8 +19,8 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision = "0002"
-down_revision = "0001"
+revision = "0002_add_api_key_records"
+down_revision = "0001_initial_runtime_schema"
 branch_labels = None
 depends_on = None
 

@@ -14,8 +14,8 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "0005"
-down_revision = "0004"
+revision = '0005_add_compliance_fields'
+down_revision = '0004_add_recovering_task_state'
 branch_labels = None
 depends_on = None
 

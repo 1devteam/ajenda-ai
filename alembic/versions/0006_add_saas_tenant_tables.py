@@ -36,7 +36,7 @@ from alembic import op
 
 # revision identifiers
 revision = "0006"
-down_revision = "0005"
+down_revision = "0005_add_compliance_fields"
 branch_labels = None
 depends_on = None
 
