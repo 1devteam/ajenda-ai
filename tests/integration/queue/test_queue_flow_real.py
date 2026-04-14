@@ -1,13 +1,8 @@
 """Integration test: queue adapter flow against a real Redis instance.
 
-Replaces the LocalAdapter-backed test_queue_flow.py which could not catch:
-- Redis LMOVE atomicity behavior
-- Dead-letter list behavior under real Redis
-- Key expiry and TTL behavior
-- Connection failure handling
-
-This test uses the queue_adapter fixture from tests/integration/conftest.py
-which provides a real RedisQueueAdapter connected to a test Redis container.
+Validates the authoritative queue adapter contract against a real Redis
+instance. This test covers enqueue, claim, release, dead-letter, and
+tenant-scoped FIFO behaviour using the actual runtime API.
 """
 
 from __future__ import annotations
@@ -35,66 +30,69 @@ def _make_message(tenant_id: str = "tenant-queue-a") -> QueueMessage:
 
 
 class TestQueueFlowReal:
-    def test_enqueue_and_dequeue(self, queue_adapter) -> None:
-        """A message enqueued must be dequeued by a worker."""
+    def test_enqueue_and_claim(self, queue_adapter) -> None:
         msg = _make_message()
-        queue_adapter.enqueue_task(msg)
+        result = queue_adapter.enqueue_task(msg)
+        assert result.ok is True
 
-        dequeued = queue_adapter.dequeue_task(timeout_seconds=2)
-        assert dequeued is not None
-        assert dequeued.task_id == msg.task_id
-        assert dequeued.tenant_id == msg.tenant_id
+        claimed = queue_adapter.claim_task(tenant_id=msg.tenant_id, worker_id="worker-1")
+        assert claimed is not None
+        assert claimed.task_id == msg.task_id
+        assert claimed.tenant_id == msg.tenant_id
 
-    def test_dequeue_empty_queue_returns_none(self, queue_adapter) -> None:
-        """Dequeuing from an empty queue must return None, not block forever."""
-        result = queue_adapter.dequeue_task(timeout_seconds=1)
+    def test_claim_empty_queue_returns_none(self, queue_adapter) -> None:
+        result = queue_adapter.claim_task(tenant_id="tenant-empty", worker_id="worker-1")
         assert result is None
 
-    def test_fifo_ordering(self, queue_adapter) -> None:
-        """Messages must be dequeued in FIFO order."""
-        msg1 = _make_message("tenant-fifo-a")
-        msg2 = _make_message("tenant-fifo-b")
-        msg3 = _make_message("tenant-fifo-c")
+    def test_fifo_ordering_within_tenant(self, queue_adapter) -> None:
+        tenant_id = "tenant-fifo-a"
+        msg1 = _make_message(tenant_id)
+        msg2 = _make_message(tenant_id)
+        msg3 = _make_message(tenant_id)
 
-        queue_adapter.enqueue_task(msg1)
-        queue_adapter.enqueue_task(msg2)
-        queue_adapter.enqueue_task(msg3)
+        assert queue_adapter.enqueue_task(msg1).ok is True
+        assert queue_adapter.enqueue_task(msg2).ok is True
+        assert queue_adapter.enqueue_task(msg3).ok is True
 
-        d1 = queue_adapter.dequeue_task(timeout_seconds=1)
-        d2 = queue_adapter.dequeue_task(timeout_seconds=1)
-        d3 = queue_adapter.dequeue_task(timeout_seconds=1)
+        c1 = queue_adapter.claim_task(tenant_id=tenant_id, worker_id="worker-1")
+        c2 = queue_adapter.claim_task(tenant_id=tenant_id, worker_id="worker-1")
+        c3 = queue_adapter.claim_task(tenant_id=tenant_id, worker_id="worker-1")
 
-        assert d1 is not None and d1.task_id == msg1.task_id
-        assert d2 is not None and d2.task_id == msg2.task_id
-        assert d3 is not None and d3.task_id == msg3.task_id
+        assert c1 is not None and c1.task_id == msg1.task_id
+        assert c2 is not None and c2.task_id == msg2.task_id
+        assert c3 is not None and c3.task_id == msg3.task_id
 
     def test_dead_letter_on_explicit_failure(self, queue_adapter) -> None:
-        """Explicitly dead-lettering a message must move it to the DLQ."""
         msg = _make_message()
-        queue_adapter.enqueue_task(msg)
+        assert queue_adapter.enqueue_task(msg).ok is True
 
-        dequeued = queue_adapter.dequeue_task(timeout_seconds=2)
-        assert dequeued is not None
+        claimed = queue_adapter.claim_task(tenant_id=msg.tenant_id, worker_id="worker-1")
+        assert claimed is not None
 
-        # Dead-letter the message
-        queue_adapter.dead_letter_task(dequeued, reason="test_explicit_failure")
+        result = queue_adapter.move_to_dead_letter(
+            tenant_id=claimed.tenant_id,
+            task_id=claimed.task_id,
+            reason="test_explicit_failure",
+        )
+        assert result.ok is True
 
-        # The main queue must now be empty
-        next_msg = queue_adapter.dequeue_task(timeout_seconds=1)
+        next_msg = queue_adapter.claim_task(tenant_id=msg.tenant_id, worker_id="worker-1")
         assert next_msg is None
 
     def test_release_returns_message_to_queue(self, queue_adapter) -> None:
-        """Releasing a message (e.g., on worker crash) must return it to the queue."""
         msg = _make_message()
-        queue_adapter.enqueue_task(msg)
+        assert queue_adapter.enqueue_task(msg).ok is True
 
-        dequeued = queue_adapter.dequeue_task(timeout_seconds=2)
-        assert dequeued is not None
+        claimed = queue_adapter.claim_task(tenant_id=msg.tenant_id, worker_id="worker-1")
+        assert claimed is not None
 
-        # Release (re-queue) the message
-        queue_adapter.release_task(dequeued)
+        result = queue_adapter.release_lease(
+            tenant_id=claimed.tenant_id,
+            task_id=claimed.task_id,
+            worker_id="worker-1",
+        )
+        assert result.ok is True
 
-        # Must be dequeue-able again
-        requeued = queue_adapter.dequeue_task(timeout_seconds=2)
+        requeued = queue_adapter.claim_task(tenant_id=msg.tenant_id, worker_id="worker-1")
         assert requeued is not None
         assert requeued.task_id == msg.task_id

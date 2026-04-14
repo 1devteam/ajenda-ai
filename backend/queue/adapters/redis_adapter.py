@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import socket
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -61,9 +61,11 @@ class RedisQueueAdapter(QueueAdapter):
         try:
             result = self._execute(
                 [
-                    "BRPOPLPUSH",
+                    "BLMOVE",
                     self._pending_key(tenant_id),
                     self._processing_key(tenant_id),
+                    "LEFT",
+                    "RIGHT",
                     str(self._block_seconds),
                 ]
             )
@@ -110,7 +112,7 @@ class RedisQueueAdapter(QueueAdapter):
                     "task_id": str(task_id),
                     "worker_id": worker_id,
                     "reason": reason,
-                    "failed_at": datetime.utcnow().isoformat() + "Z",
+                    "failed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                     "payload": json.loads(payload),
                 },
                 separators=(",", ":"),
@@ -161,7 +163,7 @@ class RedisQueueAdapter(QueueAdapter):
                 {
                     "task_id": str(task_id),
                     "reason": reason,
-                    "moved_at": datetime.utcnow().isoformat() + "Z",
+                    "moved_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                     "payload": json.loads(payload),
                 },
                 separators=(",", ":"),

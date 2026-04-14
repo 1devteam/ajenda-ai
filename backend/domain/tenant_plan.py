@@ -55,9 +55,9 @@ class TenantPlan(Base):
     # -1 = unlimited
     max_missions_per_month: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     max_tasks_per_month: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
-    max_agents_per_fleet: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
-    max_concurrent_workers: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
-    max_api_keys: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    max_agents_per_fleet: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    max_concurrent_workers: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    max_api_keys: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     max_monthly_api_calls: Mapped[int] = mapped_column(BigInteger, nullable=False, default=10_000)
 
     # --- Feature flags ---

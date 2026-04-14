@@ -158,6 +158,18 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                     content={"detail": "invalid or revoked api key"},
                 )
 
+        if principal is None:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "invalid or revoked api key"},
+            )
+
+        if principal is None:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "invalid or revoked api key"},
+            )
+
         # Cross-tenant check: API key's tenant must match X-Tenant-Id header
         cross_tenant_error = self._check_cross_tenant(
             request,

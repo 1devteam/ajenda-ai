@@ -66,14 +66,17 @@ class ApiKeyService:
             raise ValueError("api key not found")
         stored.record.revoked = True
 
-    def authenticate_machine(self, *, tenant_id: str, key_id: str, plaintext: str) -> MachinePrincipal:
-        record = self._load_record(key_id)
+    def authenticate_machine(self, *, tenant_id: str, key_id: str, plaintext: str) -> MachinePrincipal | None:
+        try:
+            record = self._load_record(key_id)
+        except ValueError:
+            return None
         if record.tenant_id != tenant_id:
-            raise ValueError("cross-tenant api key use denied")
+            return None
         if record.revoked:
-            raise ValueError("api key revoked")
+            return None
         if not self._hasher.verify(plaintext=plaintext, hashed_secret=record.hashed_secret):
-            raise ValueError("invalid api key")
+            return None
         permissions = self._rbac.resolve_permissions(("machine_executor",))
         self._emit_audit(tenant_id=tenant_id, action="api_key_authenticated", details=f"API key {record.key_id} used")
         return MachinePrincipal(

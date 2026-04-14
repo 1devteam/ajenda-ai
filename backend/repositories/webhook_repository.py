@@ -56,14 +56,11 @@ class WebhookRepository:
 
         Uses PostgreSQL ARRAY containment operator (@>) for efficient filtering.
         """
-        from sqlalchemy import String, cast
-        from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
-
         stmt = select(WebhookEndpoint).where(
             and_(
                 WebhookEndpoint.tenant_id == tenant_id,
                 WebhookEndpoint.is_active.is_(True),
-                WebhookEndpoint.event_types.contains(cast([event_type], PG_ARRAY(String))),
+                WebhookEndpoint.event_types.op("@>")([event_type]),
             )
         )
         return list(self._session.execute(stmt).scalars().all())

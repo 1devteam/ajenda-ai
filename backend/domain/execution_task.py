@@ -48,15 +48,17 @@ class ExecutionTask(Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
     # --- Compliance fields (migration 0005) ---
-    compliance_category: Mapped[str | None] = mapped_column(
+    compliance_category: Mapped[str] = mapped_column(
         String(64),
-        nullable=True,
+        nullable=False,
+        default="operational",
         index=True,
         comment="ComplianceCategory enum value - drives PolicyGuardian enforcement",
     )
-    jurisdiction: Mapped[str | None] = mapped_column(
+    jurisdiction: Mapped[str] = mapped_column(
         String(32),
-        nullable=True,
+        nullable=False,
+        default="US-ALL",
         index=True,
         comment="ComplianceJurisdiction enum value - determines which regulatory ruleset applies",
     )

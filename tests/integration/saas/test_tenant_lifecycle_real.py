@@ -332,7 +332,7 @@ class TestTenantUsageReal:
         pg_session.flush()
 
         assert usage is not None
-        assert usage.tenant_id == str(tenant_id)
+        assert usage.tenant_id == tenant_id
         assert usage.missions_created == 0
         assert usage.tasks_created == 0
 

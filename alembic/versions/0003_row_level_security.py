@@ -60,8 +60,8 @@ from __future__ import annotations
 from alembic import op
 
 # revision identifiers, used by Alembic
-revision: str = "0003"
-down_revision: str = "0002"
+revision = "0003_row_level_security"
+down_revision = "0002_add_api_key_records"
 branch_labels = None
 depends_on = None
 

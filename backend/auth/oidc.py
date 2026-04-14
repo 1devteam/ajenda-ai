@@ -7,15 +7,14 @@ The OidcAuthenticator is the single entry point for all Bearer token validation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
-from backend.auth.jwt_validator import JwtValidationError, JwtValidator
+from backend.auth.jwt_validator import JwtClaims, JwtValidationError, JwtValidator
 from backend.auth.principal import PrincipalType, UserPrincipal
 
 
 @dataclass(frozen=True, slots=True)
 class OidcValidationResult:
-    claims: dict[str, Any]
+    claims: JwtClaims
     principal: UserPrincipal
     provider: str
 
@@ -49,20 +48,17 @@ class OidcAuthenticator:
         """
         claims = self._validator.validate_and_extract_claims(token)
 
-        subject = claims.get("sub")
-        tenant_id = claims.get("tenant_id")
-        if not isinstance(subject, str) or not subject.strip():
+        if not claims.sub.strip():
             raise JwtValidationError("token missing required 'sub' claim")
-        if not isinstance(tenant_id, str) or not tenant_id.strip():
+        if not claims.tenant_id.strip():
             raise JwtValidationError("token missing required 'tenant_id' claim")
 
-        roles: tuple[str, ...] = tuple(claims.get("roles", []))
         principal = UserPrincipal(
-            subject_id=subject,
-            tenant_id=tenant_id,
+            subject_id=claims.sub,
+            tenant_id=claims.tenant_id,
             principal_type=PrincipalType.USER,
-            roles=roles,
-            email=claims.get("email"),
+            roles=tuple(claims.roles),
+            email=claims.email,
         )
         return OidcValidationResult(
             claims=claims,

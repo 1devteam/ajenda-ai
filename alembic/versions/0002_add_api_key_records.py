@@ -42,9 +42,14 @@ def upgrade() -> None:
             "scopes_json",
             postgresql.JSONB(astext_type=sa.Text()),
             nullable=False,
-            server_default="'[]'::jsonb",
+            server_default=sa.text("'[]'::jsonb"),
         ),
-        sa.Column("revoked", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column(
+            "revoked",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
