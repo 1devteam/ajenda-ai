@@ -45,7 +45,7 @@ _COLLECTION_ENV_DEFAULTS = {
     "AJENDA_APP_NAME": "Ajenda AI Test",
     "AJENDA_OIDC_ISSUER": "",
     "AJENDA_OIDC_AUDIENCE": "ajenda-api",
-    "AJENDA_QUEUE_ADAPTER": "redis",
+    "AJENDA_QUEUE_ADAPTER": "local",
     "AJENDA_RATE_LIMIT_REQUESTS": "10000",
     "AJENDA_RATE_LIMIT_WINDOW_SECONDS": "60",
     "AJENDA_REDACT_KEYS": "password,secret,token,api_key,authorization,cookie,set-cookie",
@@ -58,9 +58,10 @@ get_settings.cache_clear()
 
 def _set_env(pg_url: str, redis_url: str) -> dict[str, str | None]:
     keys = {
-        "AJENDA_DATABASE_URL": pg_url,
-        "AJENDA_QUEUE_URL": redis_url,
         **_COLLECTION_ENV_DEFAULTS,
+        "AJENDA_DATABASE_URL": pg_url,
+        "AJENDA_QUEUE_ADAPTER": "redis",
+        "AJENDA_QUEUE_URL": redis_url,
     }
     previous = {key: os.environ.get(key) for key in keys}
     for key, value in keys.items():
