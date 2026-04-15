@@ -6,7 +6,6 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
-from backend.app.config import get_settings
 from backend.db.base import Base
 from backend.domain import (  # noqa: F401
     AuditEvent,
@@ -25,8 +24,12 @@ from backend.domain.webhook_endpoint import WebhookEndpoint  # noqa: F401
 os.environ["AJENDA_MIGRATION_CONTEXT"] = "1"
 
 config = context.config
-settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+
+database_url = os.getenv("AJENDA_DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+if not database_url:
+    raise RuntimeError("AJENDA_DATABASE_URL or sqlalchemy.url must be set for Alembic migrations")
+
+config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -36,7 +39,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

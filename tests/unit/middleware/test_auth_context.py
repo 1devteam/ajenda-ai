@@ -231,3 +231,122 @@ def test_valid_bearer_sets_principal(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert request.state.principal is not None
+
+
+def test_api_key_value_error_returns_401(monkeypatch) -> None:
+    class _FakeApiKeyService:
+        def __init__(self, session: object) -> None:
+            self.session = session
+
+        def authenticate_machine(self, tenant_id: str, key_id: str, plaintext: str):
+            raise ValueError("bad key")
+
+    monkeypatch.setattr("backend.middleware.auth_context.ApiKeyService", _FakeApiKeyService)
+
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"X-Api-Key": "kid.secret"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 401
+    assert b"invalid or revoked api key" in response.body
+
+
+def test_cross_tenant_bearer_returns_403(monkeypatch) -> None:
+    class _FakeOidcAuthenticator:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def validate_bearer_token(self, token: str):
+            return SimpleNamespace(principal=_Principal("tenant-b"))
+
+    monkeypatch.setattr("backend.middleware.auth_context.OidcAuthenticator", _FakeOidcAuthenticator)
+
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"Authorization": "Bearer good-token"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(
+            settings=SimpleNamespace(
+                oidc_jwks_uri="https://example.test/jwks",
+                oidc_issuer="https://example.test/issuer",
+                oidc_audience="ajenda-api",
+            )
+        ),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 403
+    assert b"CROSS_TENANT_REJECTED" in response.body
+
+
+def test_valid_bearer_without_request_tenant_skips_cross_tenant_check(monkeypatch) -> None:
+    class _FakeOidcAuthenticator:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def validate_bearer_token(self, token: str):
+            return SimpleNamespace(principal=_Principal("tenant-a"))
+
+    monkeypatch.setattr("backend.middleware.auth_context.OidcAuthenticator", _FakeOidcAuthenticator)
+
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"Authorization": "Bearer good-token"},
+        tenant_id=None,
+        app_state=SimpleNamespace(
+            settings=SimpleNamespace(
+                oidc_jwks_uri="https://example.test/jwks",
+                oidc_issuer="https://example.test/issuer",
+                oidc_audience="ajenda-api",
+            )
+        ),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 200
+    assert request.state.principal is not None
+
+
+def test_check_cross_tenant_skips_when_principal_tenant_missing() -> None:
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(tenant_id="tenant-a")
+
+    response = middleware._check_cross_tenant(request, principal_tenant_id=None)
+
+    assert response is None
+
+
+def test_dispatch_unexpected_error_returns_500(monkeypatch) -> None:
+    class _ExplodingOidcAuthenticator:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def validate_bearer_token(self, token: str):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("backend.middleware.auth_context.OidcAuthenticator", _ExplodingOidcAuthenticator)
+
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"Authorization": "Bearer trigger-500"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(
+            settings=SimpleNamespace(
+                oidc_jwks_uri="https://example.test/jwks",
+                oidc_issuer="https://example.test/issuer",
+                oidc_audience="ajenda-api",
+            )
+        ),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 500
+    assert b"internal authentication error" in response.body
