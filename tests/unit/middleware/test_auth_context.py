@@ -1,84 +1,233 @@
-"""Unit tests for AuthContextMiddleware.
-
-Tests the middleware in isolation using a minimal FastAPI app with
-mocked app.state.settings so the middleware can resolve auth config.
-"""
-
 from __future__ import annotations
 
-import base64
-import json
-from unittest.mock import MagicMock
+import asyncio
+from types import SimpleNamespace
 
-from fastapi import FastAPI, Request
-from fastapi.testclient import TestClient
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 
+from backend.auth.jwt_validator import JwtValidationError
 from backend.middleware.auth_context import AuthContextMiddleware
-from backend.middleware.request_context import RequestContextMiddleware
-from backend.middleware.tenant_context import TenantContextMiddleware
 
 
-def _token(payload: dict[str, object]) -> str:
-    """Build a fake Bearer token (not cryptographically valid - for middleware bypass testing)."""
-    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
-    return f"x.{encoded}.y"
+def _request(
+    path: str = "/runtime/private",
+    headers: dict[str, str] | None = None,
+    *,
+    tenant_id: str | None = None,
+    app_state: object | None = None,
+) -> Request:
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": path,
+        "headers": [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in (headers or {}).items()],
+        "app": SimpleNamespace(state=app_state or SimpleNamespace()),
+    }
+    request = Request(scope)
+    request.state.tenant_id = tenant_id
+    request.state.principal = None
+    return request
 
 
-def _app() -> FastAPI:
-    """Build a minimal test app with the full middleware stack."""
-    app = FastAPI()
-
-    # Wire mock settings onto app.state so AuthContextMiddleware can resolve config
-    mock_settings = MagicMock()
-    mock_settings.oidc_issuer = "https://example.com/"
-    mock_settings.oidc_audience = "ajenda-api"
-    mock_settings.oidc_jwks_uri = "https://example.com/.well-known/jwks.json"
-    app.state.settings = mock_settings
-
-    # Wire mock database_runtime so ApiKeyService can be constructed
-    mock_db = MagicMock()
-    mock_db.session.return_value.__enter__ = MagicMock(return_value=MagicMock())
-    mock_db.session.return_value.__exit__ = MagicMock(return_value=False)
-    app.state.database_runtime = mock_db
-
-    app.add_middleware(RequestContextMiddleware)
-    app.add_middleware(TenantContextMiddleware)
-    app.add_middleware(AuthContextMiddleware)
-
-    @app.get("/protected")
-    def protected(request: Request) -> dict[str, str]:
-        principal = request.state.principal
-        return {"subject_id": principal.subject_id}
-
-    @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
-
-    return app
-
-
-def test_auth_context_denies_missing_auth_by_default() -> None:
-    """Requests without Authorization header receive HTTP 401."""
-    client = TestClient(_app())
-    response = client.get("/protected", headers={"X-Tenant-Id": "tenant-a"})
-    assert response.status_code == 401
-    # Accept either error message variant (implementation may vary)
-    assert "missing authentication" in response.json()["detail"].lower()
-
-
-def test_auth_context_allows_public_health_without_auth() -> None:
-    """Health probe path is exempt from authentication requirements."""
-    client = TestClient(_app())
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
-
-
-def test_auth_context_rejects_malformed_bearer_token() -> None:
-    """Malformed Bearer tokens (not valid JWT format) receive HTTP 401."""
-    client = TestClient(_app())
-    response = client.get(
-        "/protected",
-        headers={"Authorization": "Bearer not-a-valid-token", "X-Tenant-Id": "tenant-a"},
+async def _call_next(request: Request) -> Response:
+    return JSONResponse(
+        {
+            "ok": True,
+            "principal": getattr(request.state, "principal", None) is not None,
+            "tenant_id": getattr(request.state, "tenant_id", None),
+        }
     )
+
+
+class _FakeSessionScope:
+    def __init__(self, session: object) -> None:
+        self._session = session
+
+    def __enter__(self) -> object:
+        return self._session
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+class _FakeDatabaseRuntime:
+    def __init__(self, session: object) -> None:
+        self._session = session
+
+    def session_scope(self) -> _FakeSessionScope:
+        return _FakeSessionScope(self._session)
+
+
+class _Principal:
+    def __init__(self, tenant_id: str) -> None:
+        self.tenant_id = tenant_id
+
+
+def test_private_path_without_auth_returns_401() -> None:
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request()
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
     assert response.status_code == 401
+    assert b"missing authentication credentials" in response.body
+
+
+def test_public_path_bypasses_auth() -> None:
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(path="/health")
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 200
+
+
+def test_api_key_missing_tenant_returns_400() -> None:
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(headers={"X-Api-Key": "kid.secret"})
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 400
+    assert b"X-Tenant-Id header required" in response.body
+
+
+def test_malformed_api_key_returns_401() -> None:
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"X-Api-Key": "malformed"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 401
+    assert b"malformed api key" in response.body
+
+
+def test_invalid_api_key_returns_401(monkeypatch) -> None:
+    class _FakeApiKeyService:
+        def __init__(self, session: object) -> None:
+            self.session = session
+
+        def authenticate_machine(self, tenant_id: str, key_id: str, plaintext: str):
+            return None
+
+    monkeypatch.setattr("backend.middleware.auth_context.ApiKeyService", _FakeApiKeyService)
+
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"X-Api-Key": "kid.secret"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 401
+    assert b"invalid or revoked api key" in response.body
+
+
+def test_valid_api_key_sets_principal(monkeypatch) -> None:
+    class _FakeApiKeyService:
+        def __init__(self, session: object) -> None:
+            self.session = session
+
+        def authenticate_machine(self, tenant_id: str, key_id: str, plaintext: str):
+            return _Principal("tenant-a")
+
+    monkeypatch.setattr("backend.middleware.auth_context.ApiKeyService", _FakeApiKeyService)
+
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"X-Api-Key": "kid.secret"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 200
+    assert request.state.principal is not None
+
+
+def test_cross_tenant_api_key_returns_403(monkeypatch) -> None:
+    class _FakeApiKeyService:
+        def __init__(self, session: object) -> None:
+            self.session = session
+
+        def authenticate_machine(self, tenant_id: str, key_id: str, plaintext: str):
+            return _Principal("tenant-b")
+
+    monkeypatch.setattr("backend.middleware.auth_context.ApiKeyService", _FakeApiKeyService)
+
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"X-Api-Key": "kid.secret"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 403
+
+
+def test_invalid_bearer_returns_401(monkeypatch) -> None:
+    class _FakeOidcAuthenticator:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def validate_bearer_token(self, token: str):
+            raise JwtValidationError("bad token")
+
+    monkeypatch.setattr("backend.middleware.auth_context.OidcAuthenticator", _FakeOidcAuthenticator)
+
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"Authorization": "Bearer bad-token"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(
+            settings=SimpleNamespace(
+                oidc_jwks_uri="https://example.test/jwks",
+                oidc_issuer="https://example.test/issuer",
+                oidc_audience="ajenda-api",
+            )
+        ),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 401
+    assert b"invalid bearer token" in response.body
+
+
+def test_valid_bearer_sets_principal(monkeypatch) -> None:
+    class _FakeOidcAuthenticator:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def validate_bearer_token(self, token: str):
+            return SimpleNamespace(principal=_Principal("tenant-a"))
+
+    monkeypatch.setattr("backend.middleware.auth_context.OidcAuthenticator", _FakeOidcAuthenticator)
+
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"Authorization": "Bearer good-token"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(
+            settings=SimpleNamespace(
+                oidc_jwks_uri="https://example.test/jwks",
+                oidc_issuer="https://example.test/issuer",
+                oidc_audience="ajenda-api",
+            )
+        ),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 200
+    assert request.state.principal is not None

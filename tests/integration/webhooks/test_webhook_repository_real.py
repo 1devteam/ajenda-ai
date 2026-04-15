@@ -357,3 +357,62 @@ class TestWebhookDeliveryPersistence:
         assert retrieved is not None
         assert retrieved.payload["task_id"] == "abc-123"
         assert retrieved.payload["nested"]["key"] == "value"
+
+
+# ---------------------------------------------------------------------------
+# Aggregate reliability metrics — empty result contracts
+# ---------------------------------------------------------------------------
+
+
+class TestWebhookDeliveryAggregateMetrics:
+    def test_delivery_reliability_metrics_empty_returns_zeros_and_none(self, pg_session) -> None:
+        repo = WebhookRepository(pg_session)
+
+        total, delivered, failed, dead_lettered, avg_ms, p95_ms = repo.get_delivery_reliability_metrics(
+            tenant_id=uuid.uuid4(),
+            since=datetime.now(tz=UTC),
+        )
+
+        assert total == 0
+        assert delivered == 0
+        assert failed == 0
+        assert dead_lettered == 0
+        assert avg_ms is None
+        assert p95_ms is None
+
+    def test_endpoint_delivery_reliability_metrics_empty_returns_zeros_and_none(self, pg_session) -> None:
+        repo = WebhookRepository(pg_session)
+
+        total, delivered, failed, dead_lettered, avg_ms, p95_ms = repo.get_endpoint_delivery_reliability_metrics(
+            tenant_id=uuid.uuid4(),
+            endpoint_id=uuid.uuid4(),
+            since=datetime.now(tz=UTC),
+        )
+
+        assert total == 0
+        assert delivered == 0
+        assert failed == 0
+        assert dead_lettered == 0
+        assert avg_ms is None
+        assert p95_ms is None
+
+    def test_hourly_delivery_stats_empty_returns_empty_list(self, pg_session) -> None:
+        repo = WebhookRepository(pg_session)
+
+        rows = repo.list_hourly_delivery_stats(
+            tenant_id=uuid.uuid4(),
+            since=datetime.now(tz=UTC),
+        )
+
+        assert rows == []
+
+    def test_endpoint_hourly_delivery_stats_empty_returns_empty_list(self, pg_session) -> None:
+        repo = WebhookRepository(pg_session)
+
+        rows = repo.list_endpoint_hourly_delivery_stats(
+            tenant_id=uuid.uuid4(),
+            endpoint_id=uuid.uuid4(),
+            since=datetime.now(tz=UTC),
+        )
+
+        assert rows == []
