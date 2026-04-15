@@ -55,7 +55,10 @@ Rollback safety:
 The down() migration disables RLS and drops all policies. This is safe because
 the data itself is not modified — only the access policy is removed.
 """
+
 from __future__ import annotations
+
+import sqlalchemy as sa
 
 from alembic import op
 
@@ -80,23 +83,31 @@ _TENANT_SCOPED_TABLES: list[str] = [
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+    conn.execute(
+        sa.text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_admin'
+                ) THEN
+                    CREATE ROLE ajenda_admin;
+                END IF;
+            END
+            $$;
+            """
+        )
+    )
     """Enable Row-Level Security on all tenant-scoped tables."""
     conn = op.get_bind()
 
     for table in _TENANT_SCOPED_TABLES:
         # Step 1: Enable RLS on the table
-        conn.execute(
-            __import__("sqlalchemy").text(
-                f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"
-            )
-        )
+        conn.execute(__import__("sqlalchemy").text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
 
         # Step 2: Force RLS even for the table owner (prevents owner bypass)
-        conn.execute(
-            __import__("sqlalchemy").text(
-                f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"
-            )
-        )
+        conn.execute(__import__("sqlalchemy").text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
 
         # Step 3: Create the tenant isolation policy
         # current_setting('app.current_tenant_id', true) returns NULL if unset,
@@ -151,18 +162,6 @@ def downgrade() -> None:
 
     for table in _TENANT_SCOPED_TABLES:
         # Drop policies first, then disable RLS
-        conn.execute(
-            __import__("sqlalchemy").text(
-                f"DROP POLICY IF EXISTS tenant_isolation ON {table}"
-            )
-        )
-        conn.execute(
-            __import__("sqlalchemy").text(
-                f"DROP POLICY IF EXISTS admin_bypass ON {table}"
-            )
-        )
-        conn.execute(
-            __import__("sqlalchemy").text(
-                f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY"
-            )
-        )
+        conn.execute(__import__("sqlalchemy").text(f"DROP POLICY IF EXISTS tenant_isolation ON {table}"))
+        conn.execute(__import__("sqlalchemy").text(f"DROP POLICY IF EXISTS admin_bypass ON {table}"))
+        conn.execute(__import__("sqlalchemy").text(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY"))
