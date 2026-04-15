@@ -26,7 +26,6 @@ class ApiKeyRecordModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-
     @property
     def key_hash(self) -> str:
         return self.hashed_secret
