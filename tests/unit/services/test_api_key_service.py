@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from backend.services.api_key_service import ApiKeyService
 
 
@@ -16,12 +14,17 @@ def test_api_key_service_create_and_authenticate() -> None:
 
 
 def test_api_key_service_rejects_revoked_key() -> None:
-    """ApiKeyService raises ValueError when authenticating a revoked key."""
+    """ApiKeyService returns None when authenticating a revoked key."""
     service = ApiKeyService()
     plaintext, record = service.create_key(tenant_id="tenant-a", scopes=())
     service.revoke_key(key_id=record.key_id)
-    with pytest.raises(ValueError):
-        service.authenticate_machine(tenant_id="tenant-a", key_id=record.key_id, plaintext=plaintext)
+
+    result = service.authenticate_machine(
+        tenant_id="tenant-a",
+        key_id=record.key_id,
+        plaintext=plaintext,
+    )
+    assert result is None
 
 
 def test_api_key_service_count_active_keys() -> None:
