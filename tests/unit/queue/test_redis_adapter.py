@@ -499,3 +499,332 @@ def test_read_line_raises_on_malformed_response() -> None:
 
     with pytest.raises(RedisProtocolError, match="malformed Redis line response"):
         adapter._read_line(_FakeFile())
+
+
+def test_init_rejects_non_redis_url() -> None:
+    with pytest.raises(ValueError, match="Redis queue adapter requires redis:// URL"):
+        RedisQueueAdapter("http://localhost:6379/0")
+
+
+def test_complete_task_returns_failure_on_exception(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+
+    def _boom(**kwargs):
+        raise RuntimeError("complete exploded")
+
+    monkeypatch.setattr(adapter, "_find_processing_payload", _boom)
+
+    result = adapter.complete_task(tenant_id="tenant-a", task_id=uuid.uuid4(), worker_id="worker-1")
+
+    assert result.ok is False
+    assert result.reason == "complete_task failed: complete exploded"
+
+
+def test_fail_task_returns_failure_on_exception(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+
+    def _boom(**kwargs):
+        raise RuntimeError("fail exploded")
+
+    monkeypatch.setattr(adapter, "_find_processing_payload", _boom)
+
+    result = adapter.fail_task(
+        tenant_id="tenant-a",
+        task_id=uuid.uuid4(),
+        worker_id="worker-1",
+        reason="boom",
+    )
+
+    assert result.ok is False
+    assert result.reason == "fail_task failed: fail exploded"
+
+
+def test_release_lease_returns_failure_on_exception(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+
+    def _boom(**kwargs):
+        raise RuntimeError("release exploded")
+
+    monkeypatch.setattr(adapter, "_find_processing_payload", _boom)
+
+    result = adapter.release_lease(tenant_id="tenant-a", task_id=uuid.uuid4(), worker_id="worker-1")
+
+    assert result.ok is False
+    assert result.reason == "release_lease failed: release exploded"
+
+
+def test_move_to_dead_letter_returns_failure_on_exception(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+
+    def _boom(**kwargs):
+        raise RuntimeError("dead letter exploded")
+
+    monkeypatch.setattr(adapter, "_find_processing_payload", _boom)
+
+    result = adapter.move_to_dead_letter(tenant_id="tenant-a", task_id=uuid.uuid4(), reason="bad")
+
+    assert result.ok is False
+    assert result.reason == "move_to_dead_letter failed: dead letter exploded"
+
+
+def test_find_processing_payload_returns_none_when_no_match(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    monkeypatch.setattr(
+        adapter,
+        "_execute",
+        lambda command: [
+            json.dumps({"task_id": str(uuid.uuid4())}),
+            json.dumps({"task_id": str(uuid.uuid4())}),
+        ],
+    )
+
+    result = adapter._find_processing_payload(tenant_id="tenant-a", task_id=uuid.uuid4())
+
+    assert result is None
+
+
+def test_execute_sends_auth_select_and_command(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://:secret@redis.example:6380/2")
+
+    writes: list[bytes] = []
+
+    class _FakeFile:
+        def __init__(self) -> None:
+            self.responses = [
+                b"+OK\r\n",  # AUTH
+                b"+OK\r\n",  # SELECT
+                b"+PONG\r\n",  # final command
+            ]
+            self.read_buf = b""
+
+        def write(self, data: bytes) -> None:
+            writes.append(data)
+
+        def flush(self) -> None:
+            return None
+
+        def read(self, n: int = -1) -> bytes:
+            if not self.read_buf and self.responses:
+                self.read_buf = self.responses.pop(0)
+            if n == -1:
+                n = len(self.read_buf)
+            chunk = self.read_buf[:n]
+            self.read_buf = self.read_buf[n:]
+            return chunk
+
+        def readline(self) -> bytes:
+            if not self.read_buf and self.responses:
+                self.read_buf = self.responses.pop(0)
+            idx = self.read_buf.index(b"\r\n") + 2
+            chunk = self.read_buf[:idx]
+            self.read_buf = self.read_buf[idx:]
+            return chunk
+
+    class _FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def settimeout(self, timeout: float) -> None:
+            return None
+
+        def makefile(self, mode: str):
+            return _FakeFile()
+
+    monkeypatch.setattr(
+        "backend.queue.adapters.redis_adapter.socket.create_connection", lambda *args, **kwargs: _FakeConn()
+    )
+
+    result = adapter._execute(["PING"])
+
+    assert result == "PONG"
+    assert len(writes) == 3
+    assert b"AUTH" in writes[0]
+    assert b"SELECT" in writes[1]
+    assert b"PING" in writes[2]
+
+
+def test_execute_raises_when_auth_fails(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://:secret@redis.example:6379/0")
+
+    class _FakeFile:
+        def __init__(self) -> None:
+            self.responses = [b"-ERR invalid password\r\n"]
+            self.read_buf = b""
+
+        def write(self, data: bytes) -> None:
+            return None
+
+        def flush(self) -> None:
+            return None
+
+        def read(self, n: int = -1) -> bytes:
+            if not self.read_buf and self.responses:
+                self.read_buf = self.responses.pop(0)
+            if n == -1:
+                n = len(self.read_buf)
+            chunk = self.read_buf[:n]
+            self.read_buf = self.read_buf[n:]
+            return chunk
+
+        def readline(self) -> bytes:
+            if not self.read_buf and self.responses:
+                self.read_buf = self.responses.pop(0)
+            idx = self.read_buf.index(b"\r\n") + 2
+            chunk = self.read_buf[:idx]
+            self.read_buf = self.read_buf[idx:]
+            return chunk
+
+    class _FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def settimeout(self, timeout: float) -> None:
+            return None
+
+        def makefile(self, mode: str):
+            return _FakeFile()
+
+    monkeypatch.setattr(
+        "backend.queue.adapters.redis_adapter.socket.create_connection", lambda *args, **kwargs: _FakeConn()
+    )
+
+    with pytest.raises(RedisProtocolError, match="ERR invalid password|AUTH failed"):
+        adapter._execute(["PING"])
+
+
+def test_execute_raises_when_select_fails(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://redis.example:6379/2")
+
+    class _FakeFile:
+        def __init__(self) -> None:
+            self.responses = [b"-ERR bad db\r\n"]
+            self.read_buf = b""
+
+        def write(self, data: bytes) -> None:
+            return None
+
+        def flush(self) -> None:
+            return None
+
+        def read(self, n: int = -1) -> bytes:
+            if not self.read_buf and self.responses:
+                self.read_buf = self.responses.pop(0)
+            if n == -1:
+                n = len(self.read_buf)
+            chunk = self.read_buf[:n]
+            self.read_buf = self.read_buf[n:]
+            return chunk
+
+        def readline(self) -> bytes:
+            if not self.read_buf and self.responses:
+                self.read_buf = self.responses.pop(0)
+            idx = self.read_buf.index(b"\r\n") + 2
+            chunk = self.read_buf[:idx]
+            self.read_buf = self.read_buf[idx:]
+            return chunk
+
+    class _FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def settimeout(self, timeout: float) -> None:
+            return None
+
+        def makefile(self, mode: str):
+            return _FakeFile()
+
+    monkeypatch.setattr(
+        "backend.queue.adapters.redis_adapter.socket.create_connection", lambda *args, **kwargs: _FakeConn()
+    )
+
+    with pytest.raises(RedisProtocolError, match="ERR bad db|SELECT failed"):
+        adapter._execute(["PING"])
+
+
+def test_write_command_writes_resp_bytes() -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+
+    class _FakeFile:
+        def __init__(self) -> None:
+            self.buffer = b""
+            self.flushed = False
+
+        def write(self, data: bytes) -> None:
+            self.buffer += data
+
+        def flush(self) -> None:
+            self.flushed = True
+
+    file_obj = _FakeFile()
+    adapter._write_command(file_obj, ["SET", "key", "value"])
+
+    assert file_obj.buffer == b"*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n"
+    assert file_obj.flushed is True
+
+
+def test_read_response_raises_on_empty_response() -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+
+    class _FakeFile:
+        def read(self, n: int = -1) -> bytes:
+            return b""
+
+    with pytest.raises(RedisProtocolError, match="empty response from Redis"):
+        adapter._read_response(_FakeFile())
+
+
+def test_read_response_returns_none_for_null_bulk_string() -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+
+    class _FakeFile:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+            self._pos = 0
+
+        def read(self, n: int = -1) -> bytes:
+            if n == -1:
+                n = len(self._data) - self._pos
+            chunk = self._data[self._pos : self._pos + n]
+            self._pos += len(chunk)
+            return chunk
+
+        def readline(self) -> bytes:
+            idx = self._data.index(b"\r\n", self._pos) + 2
+            chunk = self._data[self._pos : idx]
+            self._pos = idx
+            return chunk
+
+    assert adapter._read_response(_FakeFile(b"$-1\r\n")) is None
+
+
+def test_read_response_returns_none_for_null_array() -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+
+    class _FakeFile:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+            self._pos = 0
+
+        def read(self, n: int = -1) -> bytes:
+            if n == -1:
+                n = len(self._data) - self._pos
+            chunk = self._data[self._pos : self._pos + n]
+            self._pos += len(chunk)
+            return chunk
+
+        def readline(self) -> bytes:
+            idx = self._data.index(b"\r\n", self._pos) + 2
+            chunk = self._data[self._pos : idx]
+            self._pos = idx
+            return chunk
+
+    assert adapter._read_response(_FakeFile(b"*-1\r\n")) is None
