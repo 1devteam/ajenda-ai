@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -34,6 +35,37 @@ from backend.auth.oidc import OidcAuthenticator
 from backend.services.api_key_service import ApiKeyService
 
 logger = logging.getLogger("ajenda.auth_context")
+
+
+@contextmanager
+def _db_session_context(db_runtime):
+    if hasattr(db_runtime, "session_context"):
+        with db_runtime.session_context() as session:
+            yield session
+        return
+
+    scope = db_runtime.session_scope()
+
+    if hasattr(scope, "__enter__") and hasattr(scope, "__exit__"):
+        with scope as session:
+            yield session
+        return
+
+    session = next(scope)
+    try:
+        yield session
+    except Exception as exc:
+        try:
+            scope.throw(type(exc), exc, exc.__traceback__)
+        except StopIteration:
+            pass
+        raise
+    else:
+        try:
+            next(scope)
+        except StopIteration:
+            pass
+
 
 # Paths that bypass authentication entirely.
 # Prometheus scraper and health probes must never be blocked.
@@ -140,10 +172,8 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             )
         key_id, plaintext = api_key_header.split(".", 1)
 
-        # Resolve a DB session from app.state — the single source of truth.
-        # No in-memory fallback exists. This is intentional.
         db_runtime = request.app.state.database_runtime
-        with db_runtime.session_scope() as session:
+        with _db_session_context(db_runtime) as session:
             service = ApiKeyService(session=session)
             try:
                 principal = service.authenticate_machine(
@@ -152,7 +182,6 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                     plaintext=plaintext,
                 )
             except ValueError:
-                # Intentionally generic — prevents key enumeration
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "invalid or revoked api key"},
@@ -164,7 +193,6 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 content={"detail": "invalid or revoked api key"},
             )
 
-        # Cross-tenant check: API key's tenant must match X-Tenant-Id header
         cross_tenant_error = self._check_cross_tenant(
             request,
             principal_tenant_id=getattr(principal, "tenant_id", None),
@@ -196,7 +224,6 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 content={"detail": "invalid bearer token"},
             )
 
-        # Cross-tenant check: JWT's tenant_id must match X-Tenant-Id header
         cross_tenant_error = self._check_cross_tenant(
             request,
             principal_tenant_id=getattr(result.principal, "tenant_id", None),
