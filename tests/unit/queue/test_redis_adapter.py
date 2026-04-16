@@ -378,13 +378,13 @@ def test_read_response_handles_simple_string() -> None:
         def read(self, n: int = -1) -> bytes:
             if n == -1:
                 n = len(self._data) - self._pos
-            chunk = self._data[self._pos:self._pos + n]
+            chunk = self._data[self._pos : self._pos + n]
             self._pos += len(chunk)
             return chunk
 
         def readline(self) -> bytes:
             idx = self._data.index(b"\r\n", self._pos) + 2
-            chunk = self._data[self._pos:idx]
+            chunk = self._data[self._pos : idx]
             self._pos = idx
             return chunk
 
@@ -402,13 +402,13 @@ def test_read_response_handles_integer() -> None:
         def read(self, n: int = -1) -> bytes:
             if n == -1:
                 n = len(self._data) - self._pos
-            chunk = self._data[self._pos:self._pos + n]
+            chunk = self._data[self._pos : self._pos + n]
             self._pos += len(chunk)
             return chunk
 
         def readline(self) -> bytes:
             idx = self._data.index(b"\r\n", self._pos) + 2
-            chunk = self._data[self._pos:idx]
+            chunk = self._data[self._pos : idx]
             self._pos = idx
             return chunk
 
@@ -426,13 +426,13 @@ def test_read_response_handles_bulk_string_and_array() -> None:
         def read(self, n: int = -1) -> bytes:
             if n == -1:
                 n = len(self._data) - self._pos
-            chunk = self._data[self._pos:self._pos + n]
+            chunk = self._data[self._pos : self._pos + n]
             self._pos += len(chunk)
             return chunk
 
         def readline(self) -> bytes:
             idx = self._data.index(b"\r\n", self._pos) + 2
-            chunk = self._data[self._pos:idx]
+            chunk = self._data[self._pos : idx]
             self._pos = idx
             return chunk
 
@@ -451,13 +451,13 @@ def test_read_response_raises_on_error_prefix() -> None:
         def read(self, n: int = -1) -> bytes:
             if n == -1:
                 n = len(self._data) - self._pos
-            chunk = self._data[self._pos:self._pos + n]
+            chunk = self._data[self._pos : self._pos + n]
             self._pos += len(chunk)
             return chunk
 
         def readline(self) -> bytes:
             idx = self._data.index(b"\r\n", self._pos) + 2
-            chunk = self._data[self._pos:idx]
+            chunk = self._data[self._pos : idx]
             self._pos = idx
             return chunk
 
@@ -476,13 +476,13 @@ def test_read_response_raises_on_unsupported_prefix() -> None:
         def read(self, n: int = -1) -> bytes:
             if n == -1:
                 n = len(self._data) - self._pos
-            chunk = self._data[self._pos:self._pos + n]
+            chunk = self._data[self._pos : self._pos + n]
             self._pos += len(chunk)
             return chunk
 
         def readline(self) -> bytes:
             idx = self._data.index(b"\r\n", self._pos) + 2
-            chunk = self._data[self._pos:idx]
+            chunk = self._data[self._pos : idx]
             self._pos = idx
             return chunk
 
