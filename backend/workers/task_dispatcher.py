@@ -210,3 +210,8 @@ def default_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, A
     )
     # Phase 2: dispatch to AI agent here
     return {"status": "completed", "handler": "default"}
+
+
+@register_handler("force_fail")
+def force_fail_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, Any]:
+    raise RuntimeError("intentional failure for runtime validation")

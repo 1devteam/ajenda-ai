@@ -47,7 +47,6 @@ _PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/operations/recovery",  # cross-tenant lease recovery — no tenant context
     "/v1/operations/recovery",  # same, with v1 prefix (production mount)
     "/metrics",
-    "/v1/auth",
     "/v1/admin",
     "/docs",
     "/redoc",

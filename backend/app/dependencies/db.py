@@ -26,7 +26,8 @@ def get_db_session(request: Request) -> Generator[Session, None, None]:
     See: docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md
     """
     runtime = get_database_runtime(request)
-    yield from runtime.session_scope()
+    with runtime.session_scope() as session:
+        yield session
 
 
 def get_tenant_db_session(request: Request) -> Generator[Session, None, None]:
@@ -47,7 +48,8 @@ def get_tenant_db_session(request: Request) -> Generator[Session, None, None]:
     if not tenant_id:
         raise HTTPException(status_code=400, detail="Missing tenant context on request state.")
     runtime = get_database_runtime(request)
-    yield from runtime.tenant_session_scope(tenant_id)
+    with runtime.tenant_session_scope(tenant_id) as session:
+        yield session
 
 
 def get_request_tenant_id(request: Request) -> uuid.UUID:

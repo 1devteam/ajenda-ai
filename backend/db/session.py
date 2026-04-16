@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from contextlib import contextmanager
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -42,6 +43,7 @@ class DatabaseRuntime:
             )
         return self._session_factory
 
+    @contextmanager
     def session_scope(self) -> Generator[Session, None, None]:
         """Yield a transactional session without tenant context.
 
@@ -58,6 +60,7 @@ class DatabaseRuntime:
         finally:
             session.close()
 
+    @contextmanager
     def tenant_session_scope(self, tenant_id: str) -> Generator[Session, None, None]:
         """Yield a transactional session with Row-Level Security activated.
 
@@ -85,7 +88,7 @@ class DatabaseRuntime:
             # Activate RLS for this transaction. SET LOCAL is scoped to the
             # current transaction and is automatically reset on commit/rollback.
             session.execute(
-                text("SET LOCAL app.current_tenant_id = :tenant_id"),
+                text("SELECT set_config('app.current_tenant_id', :tenant_id, true)"),
                 {"tenant_id": tenant_id},
             )
             yield session
