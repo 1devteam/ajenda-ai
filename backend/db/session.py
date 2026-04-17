@@ -4,7 +4,6 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import Settings
@@ -21,7 +20,7 @@ class DatabaseRuntime:
             pool_timeout=settings.db_pool_timeout,
             pool_recycle=settings.db_pool_recycle,
         )
-        self._session_factory = sessionmaker(
+        self._session_factory: sessionmaker[Session] = sessionmaker(
             bind=self._engine,
             autoflush=False,
             autocommit=False,
@@ -30,7 +29,7 @@ class DatabaseRuntime:
         )
 
     @property
-    def session_factory(self) -> sessionmaker:
+    def session_factory(self) -> sessionmaker[Session]:
         return self._session_factory
 
     def session_scope(self) -> Generator[Session, None, None]:

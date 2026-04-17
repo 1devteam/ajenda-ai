@@ -148,8 +148,7 @@ class WorkerRuntimeService:
             raise ValueError("task is not running")
 
         transition_task(task, ExecutionTaskState.COMPLETED)
-        if lease.status != WorkerLeaseState.RELEASED.value:
-            transition_lease(lease, WorkerLeaseState.RELEASED)
+        self._transition_lease_to_released(lease)
 
         result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
         if not result.ok:
@@ -189,8 +188,7 @@ class WorkerRuntimeService:
             raise ValueError("task is not fail-eligible")
 
         transition_task(task, ExecutionTaskState.FAILED)
-        if lease.status != WorkerLeaseState.RELEASED.value:
-            transition_lease(lease, WorkerLeaseState.RELEASED)
+        self._transition_lease_to_released(lease)
 
         result = self._queue.fail_task(
             tenant_id=tenant_id,
@@ -219,8 +217,7 @@ class WorkerRuntimeService:
 
     def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
-        if lease.status != WorkerLeaseState.RELEASED.value:
-            transition_lease(lease, WorkerLeaseState.RELEASED)
+        self._transition_lease_to_released(lease)
 
         result = self._queue.release_lease(
             tenant_id=tenant_id,
@@ -255,3 +252,15 @@ class WorkerRuntimeService:
         existing = self._session.scalars(stmt).first()
         if existing is not None:
             raise ValueError("task already has an active lease")
+
+    def _transition_lease_to_released(self, lease: WorkerLease) -> None:
+        """Apply canonical lease transitions before RELEASED.
+
+        Legal chain is claimed -> active -> released. If the lease is already
+        active, transition directly to released. If already released, no-op.
+        """
+        if lease.status == WorkerLeaseState.RELEASED.value:
+            return
+        if lease.status == WorkerLeaseState.CLAIMED.value:
+            transition_lease(lease, WorkerLeaseState.ACTIVE)
+        transition_lease(lease, WorkerLeaseState.RELEASED)

@@ -26,7 +26,9 @@ Route inventory under /v1/:
 Routes at root (/):
   /health             — Liveness probe (no auth required)
   /readiness          — Readiness probe (DB ping, no auth required)
-  /metrics            — Prometheus metrics scrape endpoint
+
+Metrics route:
+  /v1/observability/metrics — Prometheus metrics scrape endpoint
 """
 
 from __future__ import annotations
