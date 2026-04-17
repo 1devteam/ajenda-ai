@@ -7,6 +7,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 SELECTED_SCENARIOS=()
 RUN_GROUP="all"
+VALID_SCENARIOS=(RG-01 RG-02 RG-03 RG-04 RG-06 RG-07 RG-08 RG-09 RG-10 RG-11 RG-12)
 
 usage() {
   cat <<USAGE
@@ -45,6 +46,28 @@ case "$RUN_GROUP" in
     exit 2
     ;;
 esac
+
+is_valid_scenario() {
+  local candidate="$1"
+  local s
+  for s in "${VALID_SCENARIOS[@]}"; do
+    [[ "$s" == "$candidate" ]] && return 0
+  done
+  return 1
+}
+
+validate_selected_scenarios() {
+  local s
+  for s in "${SELECTED_SCENARIOS[@]}"; do
+    if ! is_valid_scenario "$s"; then
+      echo "Invalid --scenario value: $s" >&2
+      usage
+      exit 2
+    fi
+  done
+}
+
+validate_selected_scenarios
 
 scenario_enabled() {
   local id="$1"
@@ -91,12 +114,19 @@ run_rg02_system_status() {
   local saved_tenant="${AJENDA_TENANT_ID:-}"
   local saved_auth="${AJENDA_AUTH_HEADER:-}"
 
-  unset AJENDA_TENANT_ID
-  unset AJENDA_AUTH_HEADER
+  AJENDA_TENANT_ID=""
+  AJENDA_AUTH_HEADER=""
   s3="$(api_call GET /v1/system/status "$d/system_status_missing_tenant")"
 
+  if [[ -z "$saved_tenant" ]]; then
+    fail "$id requires AJENDA_TENANT_ID to validate missing-auth status probe"
+    AJENDA_TENANT_ID="$saved_tenant"
+    AJENDA_AUTH_HEADER="$saved_auth"
+    return 0
+  fi
+
   AJENDA_TENANT_ID="$saved_tenant"
-  unset AJENDA_AUTH_HEADER
+  AJENDA_AUTH_HEADER=""
   s4="$(api_call GET /v1/system/status "$d/system_status_missing_auth")"
 
   AJENDA_AUTH_HEADER="$saved_auth"
@@ -164,7 +194,20 @@ run_rg06_happy_execution() {
   log_evidence 'task_completed|task_dispatch_complete' "$d/worker_log.txt" || true
   redis_cmd "$d/processing_len.txt" LLEN "ajenda:queue:${AJENDA_TENANT_ID}:processing" || true
 
-  pass "$id happy execution evidence captured"
+  if [[ ! -s "$d/task_state.tsv" ]]; then
+    fail "$id missing task state evidence"
+    return 0
+  fi
+  if [[ ! -s "$d/audit_task_completed.tsv" ]]; then
+    fail "$id missing task_completed audit evidence"
+    return 0
+  fi
+  if ! grep -Eq '(^|[[:space:]])completed([[:space:]]|$)' "$d/task_state.tsv"; then
+    fail "$id expected completed state evidence"
+    return 0
+  fi
+
+  pass "$id happy execution evidence verified"
 }
 
 run_rg07_forced_failure() {
@@ -182,7 +225,20 @@ run_rg07_forced_failure() {
   redis_cmd "$d/dead_letter_len.txt" LLEN "ajenda:queue:${AJENDA_TENANT_ID}:dead_letter" || true
   log_evidence 'task_failed|task_dispatch_handler_failed' "$d/worker_log.txt" || true
 
-  pass "$id forced failure evidence captured"
+  if [[ ! -s "$d/task_state.tsv" ]]; then
+    fail "$id missing task state evidence"
+    return 0
+  fi
+  if [[ ! -s "$d/audit_task_failed.tsv" ]]; then
+    fail "$id missing task_failed audit evidence"
+    return 0
+  fi
+  if ! grep -Eq 'failed|dead_lettered' "$d/task_state.tsv"; then
+    fail "$id expected failed or dead_lettered state evidence"
+    return 0
+  fi
+
+  pass "$id forced failure evidence verified"
 }
 
 run_rg08_claimed_recovery() {
