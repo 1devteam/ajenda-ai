@@ -35,7 +35,7 @@ def test_rg_dead_letter_retry_illegal_transition_keeps_state(pg_session, queue_a
     pg_session.flush()
 
     svc = OperationsService(pg_session, queue_adapter)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid task transition"):
         svc.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
 
     pg_session.refresh(task)

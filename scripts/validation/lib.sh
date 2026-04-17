@@ -32,6 +32,15 @@ require_cmd() {
   return 0
 }
 
+require_env() {
+  local var_name="$1"
+  if [[ -z "${!var_name:-}" ]]; then
+    fail "missing required environment variable: ${var_name}"
+    return 1
+  fi
+  return 0
+}
+
 validate_environment() {
   log "Validation artifact dir: $ARTIFACT_DIR"
   require_cmd curl || true

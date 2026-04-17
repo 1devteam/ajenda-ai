@@ -76,14 +76,28 @@ run_rg02_system_status() {
   scenario_enabled "$id" "$group" || return 0
   local d; d="$(scenario_dir "$id")"
 
-  local s1 s2 s3
+  local s1 s2 s3 s4
   s1="$(api_call GET /v1/system/health "$d/system_health")"
   s2="$(api_call GET /v1/system/readiness "$d/system_readiness")"
-  s3="$(api_call GET /v1/system/status "$d/system_status")"
-  if assert_status_in "$s1" 200 && assert_status_in "$s2" 200 && assert_status_in "$s3" 200 400 401 403; then
-    pass "$id system route envelope validated"
+  local saved_tenant="${AJENDA_TENANT_ID:-}"
+  local saved_auth="${AJENDA_AUTH_HEADER:-}"
+
+  unset AJENDA_TENANT_ID
+  unset AJENDA_AUTH_HEADER
+  s3="$(api_call GET /v1/system/status "$d/system_status_missing_tenant")"
+
+  AJENDA_TENANT_ID="$saved_tenant"
+  unset AJENDA_AUTH_HEADER
+  s4="$(api_call GET /v1/system/status "$d/system_status_missing_auth")"
+
+  AJENDA_AUTH_HEADER="$saved_auth"
+  if assert_status_in "$s1" 200 && \
+     assert_status_in "$s2" 200 && \
+     assert_status_in "$s3" 400 && \
+     assert_status_in "$s4" 401; then
+    pass "$id system route envelope strict checks passed"
   else
-    fail "$id unexpected status codes: $s1/$s2/$s3"
+    fail "$id unexpected status codes: health=$s1 readiness=$s2 status_missing_tenant=$s3 status_missing_auth=$s4"
   fi
 }
 
@@ -107,8 +121,7 @@ run_rg04_queue_admission() {
   local d; d="$(scenario_dir "$id")"
 
   local task_id="${AJENDA_SAMPLE_TASK_ID:-}"
-  if [[ -z "$task_id" ]]; then
-    warn "$id skipped: AJENDA_SAMPLE_TASK_ID not provided"
+  if ! require_env AJENDA_SAMPLE_TASK_ID || ! require_env AJENDA_TENANT_ID || ! require_env AJENDA_AUTH_HEADER; then
     return 0
   fi
 
@@ -132,7 +145,9 @@ run_rg06_happy_execution() {
   local d; d="$(scenario_dir "$id")"
 
   local task_id="${AJENDA_SAMPLE_TASK_ID:-}"
-  [[ -n "$task_id" ]] || { warn "$id skipped: AJENDA_SAMPLE_TASK_ID not provided"; return 0; }
+  if ! require_env AJENDA_SAMPLE_TASK_ID || ! require_env AJENDA_TENANT_ID; then
+    return 0
+  fi
 
   db_query "SELECT status,retry_count FROM execution_tasks WHERE id='${task_id}';" "$d/task_state.tsv" || true
   db_query "SELECT id::text,status,holder_identity FROM worker_leases WHERE task_id='${task_id}' ORDER BY created_at DESC LIMIT 5;" "$d/lease_state.tsv" || true
@@ -149,7 +164,9 @@ run_rg07_forced_failure() {
   local d; d="$(scenario_dir "$id")"
 
   local task_id="${AJENDA_FORCE_FAIL_TASK_ID:-}"
-  [[ -n "$task_id" ]] || { warn "$id skipped: AJENDA_FORCE_FAIL_TASK_ID not provided"; return 0; }
+  if ! require_env AJENDA_FORCE_FAIL_TASK_ID || ! require_env AJENDA_TENANT_ID; then
+    return 0
+  fi
 
   db_query "SELECT status,retry_count FROM execution_tasks WHERE id='${task_id}';" "$d/task_state.tsv" || true
   audit_lookup "$AJENDA_TENANT_ID" "task_failed" "$d/audit_task_failed.tsv" || true
@@ -196,7 +213,9 @@ run_rg10_dead_letter_retry_legality() {
   local d; d="$(scenario_dir "$id")"
 
   local task_id="${AJENDA_DEAD_LETTER_TASK_ID:-}"
-  [[ -n "$task_id" ]] || { warn "$id skipped: AJENDA_DEAD_LETTER_TASK_ID not provided"; return 0; }
+  if ! require_env AJENDA_DEAD_LETTER_TASK_ID || ! require_env AJENDA_TENANT_ID || ! require_env AJENDA_AUTH_HEADER; then
+    return 0
+  fi
 
   local status
   status="$(api_call POST "/v1/operations/dead-letter/${task_id}/retry" "$d")"
@@ -213,11 +232,24 @@ run_rg11_recovery_safety() {
   scenario_enabled "$id" "$group" || return 0
   local d; d="$(scenario_dir "$id")"
 
-  local status
+  local status expired_count
+  local before="$d/task_distribution_before.tsv"
+  local after="$d/task_distribution_after.tsv"
+  db_query "SELECT tenant_id,status,count(*) FROM execution_tasks GROUP BY tenant_id,status ORDER BY tenant_id,status;" "$before" || true
   status="$(api_call POST /v1/operations/recovery "$d")"
-  db_query "SELECT tenant_id,status,count(*) FROM execution_tasks GROUP BY tenant_id,status ORDER BY tenant_id,status;" "$d/task_distribution.tsv" || true
+  db_query "SELECT tenant_id,status,count(*) FROM execution_tasks GROUP BY tenant_id,status ORDER BY tenant_id,status;" "$after" || true
+
+  expired_count="$(jq -r '.expired_lease_count // empty' "$d/body.txt" 2>/dev/null || true)"
   if assert_status_in "$status" 200; then
-    pass "$id recovery safety evidence captured"
+    if [[ "${expired_count}" == "0" ]] && [[ -f "$before" ]] && [[ -f "$after" ]]; then
+      if cmp -s "$before" "$after"; then
+        pass "$id recovery safety verified: no expired leases, no task distribution drift"
+      else
+        fail "$id recovery safety failed: no expired leases but task distribution changed"
+      fi
+    else
+      pass "$id recovery safety evidence captured (expired_lease_count=${expired_count:-unknown})"
+    fi
   else
     fail "$id expected 200, got $status"
   fi
@@ -229,7 +261,9 @@ run_rg12_pending_review() {
   local d; d="$(scenario_dir "$id")"
 
   local task_id="${AJENDA_PENDING_REVIEW_TASK_ID:-}"
-  [[ -n "$task_id" ]] || { warn "$id skipped: AJENDA_PENDING_REVIEW_TASK_ID not provided"; return 0; }
+  if ! require_env AJENDA_PENDING_REVIEW_TASK_ID || ! require_env AJENDA_TENANT_ID || ! require_env AJENDA_AUTH_HEADER; then
+    return 0
+  fi
 
   local status
   status="$(api_call POST "/v1/tasks/${task_id}/queue" "$d")"

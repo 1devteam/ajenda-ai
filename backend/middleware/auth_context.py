@@ -23,9 +23,12 @@ Bearer format:  ``Authorization: Bearer <jwt>``
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
-from contextlib import contextmanager
+from collections.abc import Awaitable, Callable, Generator, Iterator
+from contextlib import AbstractContextManager, contextmanager
+from types import TracebackType
+from typing import Protocol
 
+from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -37,8 +40,27 @@ from backend.services.api_key_service import ApiKeyService
 logger = logging.getLogger("ajenda.auth_context")
 
 
+class _SessionScopeLike(Protocol):
+    def __iter__(self) -> Iterator[Session]: ...
+
+    def __next__(self) -> Session: ...
+
+    def throw(
+        self,
+        typ: type[BaseException],
+        val: BaseException | None = None,
+        tb: TracebackType | None = None,
+    ) -> Session: ...
+
+
+class _DatabaseRuntimeLike(Protocol):
+    def session_context(self) -> AbstractContextManager[Session]: ...
+
+    def session_scope(self) -> _SessionScopeLike | AbstractContextManager[Session]: ...
+
+
 @contextmanager
-def _db_session_context(db_runtime):
+def _db_session_context(db_runtime: _DatabaseRuntimeLike) -> Generator[Session, None, None]:
     if hasattr(db_runtime, "session_context"):
         with db_runtime.session_context() as session:
             yield session

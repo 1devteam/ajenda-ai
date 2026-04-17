@@ -18,17 +18,12 @@ class _FakeSession:
         return None
 
 
-class _FakeDbRuntime:
-    def session_scope(self):
-        yield _FakeSession()
-
-
 def _build_app() -> FastAPI:
     app = FastAPI()
     app.state.settings = MagicMock(
         oidc_jwks_uri="https://example/jwks", oidc_issuer="https://example", oidc_audience="ajenda"
     )
-    app.state.database_runtime = _FakeDbRuntime()
+    app.state.database_runtime = None
 
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(AuthContextMiddleware)
@@ -63,6 +58,13 @@ def test_rg_system_status_envelope() -> None:
     assert client.get("/v1/system/health").status_code == 200
     assert client.get("/v1/system/readiness").status_code == 200
 
-    # Tenant-scoped status must reject invalid envelope (missing tenant/auth).
-    status = client.get("/v1/system/status")
-    assert status.status_code in {400, 401}
+    # Missing tenant context should fail at tenant middleware.
+    missing_tenant = client.get("/v1/system/status")
+    assert missing_tenant.status_code == 400
+
+    # Tenant present but missing auth should fail closed in auth middleware.
+    missing_auth = client.get(
+        "/v1/system/status",
+        headers={"X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"},
+    )
+    assert missing_auth.status_code == 401
