@@ -99,8 +99,8 @@ def _restore_env(previous: dict[str, str | None]) -> None:
 
 @pytest.fixture(scope="session")
 def postgres_container() -> Generator[Any, None, None]:
-    PostgresContainer, _ = _testcontainer_classes()
-    with PostgresContainer(
+    postgres_container_cls, _ = _testcontainer_classes()
+    with postgres_container_cls(
         image="postgres:16-alpine",
         username="ajenda_test",
         password="ajenda_test",
@@ -111,8 +111,8 @@ def postgres_container() -> Generator[Any, None, None]:
 
 @pytest.fixture(scope="session")
 def redis_container() -> Generator[Any, None, None]:
-    _, RedisContainer = _testcontainer_classes()
-    with RedisContainer(image="redis:7-alpine") as redis:
+    _, redis_container_cls = _testcontainer_classes()
+    with redis_container_cls(image="redis:7-alpine") as redis:
         yield redis
 
 
