@@ -74,7 +74,10 @@ _PUBLIC_PATH_PREFIXES = (
     "/readiness",
     "/system/health",
     "/system/readiness",
+    "/v1/system/health",
+    "/v1/system/readiness",
     "/observability/metrics",
+    "/v1/observability/metrics",
     "/operations/recovery",  # cross-tenant lease recovery — no auth required
     "/v1/operations/recovery",  # same, with v1 prefix (production mount)
     "/docs",
