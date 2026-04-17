@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from alembic.config import Config as AlembicConfig
@@ -19,19 +20,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from alembic import command as alembic_command
 from backend.app.config import get_settings
 from backend.queue import build_queue_adapter
-
-# Fail cleanly if testcontainers is unavailable.
-testcontainers_postgres = pytest.importorskip(
-    "testcontainers.postgres",
-    reason="testcontainers not installed. Run: pip install testcontainers[postgres,redis]",
-)
-testcontainers_redis = pytest.importorskip(
-    "testcontainers.redis",
-    reason="testcontainers not installed. Run: pip install testcontainers[postgres,redis]",
-)
-
-PostgresContainer = testcontainers_postgres.PostgresContainer
-RedisContainer = testcontainers_redis.RedisContainer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,6 +42,36 @@ _COLLECTION_ENV_DEFAULTS = {
 for _key, _value in _COLLECTION_ENV_DEFAULTS.items():
     os.environ.setdefault(_key, _value)
 get_settings.cache_clear()
+
+
+def _testcontainer_classes() -> tuple[type[Any], type[Any]]:
+    """Load testcontainer classes only when integration fixtures are requested."""
+    docker_module = pytest.importorskip(
+        "docker",
+        reason="docker SDK not installed. Run: pip install testcontainers[postgres,redis]",
+    )
+    docker_client = None
+    try:
+        docker_client = docker_module.from_env()
+        docker_client.ping()
+    except Exception as exc:  # pragma: no cover - environment dependent
+        pytest.skip(f"Docker daemon unavailable for testcontainers: {exc}")
+    finally:
+        try:
+            if docker_client is not None:
+                docker_client.close()
+        except Exception:
+            pass
+
+    testcontainers_postgres = pytest.importorskip(
+        "testcontainers.postgres",
+        reason="testcontainers not installed. Run: pip install testcontainers[postgres,redis]",
+    )
+    testcontainers_redis = pytest.importorskip(
+        "testcontainers.redis",
+        reason="testcontainers not installed. Run: pip install testcontainers[postgres,redis]",
+    )
+    return testcontainers_postgres.PostgresContainer, testcontainers_redis.RedisContainer
 
 
 def _set_env(pg_url: str, redis_url: str) -> dict[str, str | None]:
@@ -80,7 +98,8 @@ def _restore_env(previous: dict[str, str | None]) -> None:
 
 
 @pytest.fixture(scope="session")
-def postgres_container() -> Generator[PostgresContainer, None, None]:
+def postgres_container() -> Generator[Any, None, None]:
+    PostgresContainer, _ = _testcontainer_classes()
     with PostgresContainer(
         image="postgres:16-alpine",
         username="ajenda_test",
@@ -91,18 +110,19 @@ def postgres_container() -> Generator[PostgresContainer, None, None]:
 
 
 @pytest.fixture(scope="session")
-def redis_container() -> Generator[RedisContainer, None, None]:
+def redis_container() -> Generator[Any, None, None]:
+    _, RedisContainer = _testcontainer_classes()
     with RedisContainer(image="redis:7-alpine") as redis:
         yield redis
 
 
 @pytest.fixture(scope="session")
-def pg_url(postgres_container: PostgresContainer) -> str:
+def pg_url(postgres_container: Any) -> str:
     return postgres_container.get_connection_url().replace("psycopg2", "psycopg")
 
 
 @pytest.fixture(scope="session")
-def redis_url(redis_container: RedisContainer) -> str:
+def redis_url(redis_container: Any) -> str:
     host = redis_container.get_container_host_ip()
     port = redis_container.get_exposed_port(6379)
     return f"redis://{host}:{port}/0"
