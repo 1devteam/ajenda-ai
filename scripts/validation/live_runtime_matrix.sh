@@ -37,6 +37,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+case "$RUN_GROUP" in
+  all|read-only|tenant-mutations|global-mutations) ;;
+  *)
+    echo "Invalid --group value: $RUN_GROUP" >&2
+    usage
+    exit 2
+    ;;
+esac
+
 scenario_enabled() {
   local id="$1"
   local group="$2"

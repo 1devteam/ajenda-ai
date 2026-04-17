@@ -64,6 +64,8 @@ api_call() {
   local path="$1"; shift
   local outdir="$1"; shift
 
+  mkdir -p "$outdir"
+
   local body="${1:-}"
   local headers_file="$outdir/headers.txt"
   local body_file="$outdir/body.txt"
