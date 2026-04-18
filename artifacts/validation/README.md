@@ -30,6 +30,11 @@ Artifacts are written under:
 
 - `artifacts/validation/<timestamp>/<scenario-id>/...`
 
+Run-level artifacts now also include:
+
+- `artifacts/validation/<timestamp>/scenario_results.tsv`
+- `artifacts/validation/<timestamp>/summary.json`
+
 Example:
 
 - `artifacts/validation/20260418T000000Z/RG-06/...`
@@ -39,10 +44,47 @@ Each scenario directory may contain combinations of:
 - `status.txt`
 - `headers.txt`
 - `body.txt`
+- `run_outcome.txt`
+- `evidence_status.txt`
+- `notes.txt`
+- `validation_env.txt`
 - DB snapshots (`*.tsv`)
 - Redis snapshots (`*.txt`)
 - audit/governance extracts
 - worker log evidence
+
+---
+
+## Run-level manifest files
+
+### `scenario_results.tsv`
+
+This is the per-run scenario ledger.
+
+It records, for each executed scenario:
+
+- scenario ID
+- run outcome
+- evidence status
+- validation environment
+- artifact path
+- notes
+
+This gives the run a single machine-readable ledger across scenario folders.
+
+### `summary.json`
+
+This is the run-level summary manifest.
+
+It records:
+
+- validation timestamp
+- artifact directory
+- validation environment
+- aggregate outcome counts
+- path to the scenario ledger
+
+This gives each validation run one authoritative summary surface in addition to the per-scenario artifact directories.
 
 ---
 
@@ -117,6 +159,7 @@ This prevents weak proof from masquerading as authoritative proof.
 | `AJENDA_TENANT_ID` | Tenant UUID for tenant-scoped scenarios |
 | `AJENDA_AUTH_HEADER` | Auth header for protected endpoints |
 | `AJENDA_LOG_SOURCE` | Worker log file path or Docker container name |
+| `AJENDA_VALIDATION_ENV` | Validation environment classification (`local`, `ci`, `shared_dev`, `isolated`, `staging`) |
 
 Optional scenario-specific IDs:
 
