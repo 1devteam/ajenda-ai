@@ -283,7 +283,7 @@ Current release-gating set: `RG-01` through `RG-12`
 
 Broader matrix rows expand operational truth beyond release gates. They are important even when they are not promotion-blocking.
 
-Current broader scenario count: **34**
+Current broader scenario count: **35**
 
 ### Control plane
 
@@ -321,6 +321,7 @@ Current broader scenario count: **34**
 | EX-10 | resilience_plane | queue interruption during enqueue rolls back authoritative state cleanly | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | task is queue-admissible but enqueue path fails before queue placement | attempt queue admission while queue adapter returns enqueue failure | task reverts to pre-queue state and no false queued audit is written | task remains authoritatively queued in DB without queue placement or emits false queued audit | DB, audit | `backend/services/execution_coordinator.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | EX-11 | resilience_plane | transient enqueue interruption clears and subsequent retry queues cleanly | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | task is queue-admissible and first enqueue attempt fails transiently before queue availability returns | fail first enqueue attempt, then retry queue admission after queue availability is restored | first attempt rolls back cleanly; second attempt reaches authoritative queued state with a single truthful queued audit | repeated retry leaves task stranded in pre-queue state or emits duplicate/false queued audit | DB, Redis, audit | `backend/services/execution_coordinator.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | EX-12 | resilience_plane | queued work survives service restart boundary and remains claimable exactly once | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | task has already reached authoritative queued state before service/session boundary is recreated | recreate service/session boundary, then claim queued work from fresh runtime context | queued task remains authoritative across restart boundary, produces a real lease on first claim, and is not claimable a second time | restart boundary loses queued work or allows duplicate post-restart claim | DB, Redis | `backend/services/execution_coordinator.py`, `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
+| EX-13 | resilience_plane | claimed lease survives service restart boundary and continues to a single clean completion | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | task is already claimed with authoritative lease before service/session boundary is recreated | recreate service/session boundary, continue execution under same lease, then complete from fresh runtime context | claimed lease and task survive restart boundary, complete once, release lease, and reject any second completion attempt | restart boundary loses claimed authority or allows duplicate completion after restart | DB, Redis, audit | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 
 ### Failure + retry plane
 
@@ -412,6 +413,7 @@ The strongest current matrix surfaces are:
 - authoritative enqueue rollback on queue interruption
 - transient queue reconnect recovery at the admission boundary
 - queued-state persistence across service restart boundary with single post-restart claim
+- claimed-lease continuity across service restart boundary with single clean completion
 
 ### What remains less mature
 
