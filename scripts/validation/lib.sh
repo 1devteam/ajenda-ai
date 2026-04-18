@@ -11,17 +11,89 @@ AJENDA_REDIS_URL="${AJENDA_REDIS_URL:-}"
 AJENDA_LOG_SOURCE="${AJENDA_LOG_SOURCE:-}"
 AJENDA_TENANT_ID="${AJENDA_TENANT_ID:-}"
 AJENDA_AUTH_HEADER="${AJENDA_AUTH_HEADER:-}"
+AJENDA_VALIDATION_ENV="${AJENDA_VALIDATION_ENV:-local}"
 
 mkdir -p "$ARTIFACT_DIR"
 
 PASS_COUNT=0
 FAIL_COUNT=0
 WARN_COUNT=0
+SKIP_COUNT=0
+BLOCKED_COUNT=0
+INVALID_RUN_COUNT=0
+ENVIRONMENT_INELIGIBLE_COUNT=0
+EVIDENCE_INCOMPLETE_COUNT=0
 
 log() { printf '%s\n' "$*"; }
-warn() { printf '[WARN] %s\n' "$*"; WARN_COUNT=$((WARN_COUNT + 1)); }
-pass() { printf '[PASS] %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
-fail() { printf '[FAIL] %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
+
+_increment_result_counter() {
+  local outcome="$1"
+  case "$outcome" in
+    pass) PASS_COUNT=$((PASS_COUNT + 1)) ;;
+    fail) FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
+    warn) WARN_COUNT=$((WARN_COUNT + 1)) ;;
+    skip) SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
+    blocked) BLOCKED_COUNT=$((BLOCKED_COUNT + 1)) ;;
+    invalid_run) INVALID_RUN_COUNT=$((INVALID_RUN_COUNT + 1)) ;;
+    environment_ineligible) ENVIRONMENT_INELIGIBLE_COUNT=$((ENVIRONMENT_INELIGIBLE_COUNT + 1)) ;;
+    evidence_incomplete) EVIDENCE_INCOMPLETE_COUNT=$((EVIDENCE_INCOMPLETE_COUNT + 1)) ;;
+  esac
+}
+
+_result_prefix() {
+  local outcome="$1"
+  case "$outcome" in
+    pass) printf '[PASS]' ;;
+    fail) printf '[FAIL]' ;;
+    warn) printf '[WARN]' ;;
+    skip) printf '[SKIP]' ;;
+    blocked) printf '[BLOCKED]' ;;
+    invalid_run) printf '[INVALID_RUN]' ;;
+    environment_ineligible) printf '[ENVIRONMENT_INELIGIBLE]' ;;
+    evidence_incomplete) printf '[EVIDENCE_INCOMPLETE]' ;;
+    *) printf '[INFO]' ;;
+  esac
+}
+
+write_result_metadata() {
+  local outdir="$1"
+  local outcome="$2"
+  local evidence_status="$3"
+  local message="$4"
+  mkdir -p "$outdir"
+  printf '%s\n' "$outcome" > "$outdir/run_outcome.txt"
+  printf '%s\n' "$evidence_status" > "$outdir/evidence_status.txt"
+  printf '%s\n' "$message" > "$outdir/notes.txt"
+  printf '%s\n' "$AJENDA_VALIDATION_ENV" > "$outdir/validation_env.txt"
+}
+
+scenario_result() {
+  local outcome="$1"
+  local evidence_status="$2"
+  local outdir="$3"
+  local message="$4"
+  _increment_result_counter "$outcome"
+  log "$(_result_prefix "$outcome") $message"
+  write_result_metadata "$outdir" "$outcome" "$evidence_status" "$message"
+}
+
+pass() { _increment_result_counter pass; log "[PASS] $*"; }
+fail() { _increment_result_counter fail; log "[FAIL] $*"; }
+warn() { _increment_result_counter warn; log "[WARN] $*"; }
+
+scenario_pass() { scenario_result pass complete "$1" "$2"; }
+scenario_fail() { scenario_result fail complete "$1" "$2"; }
+scenario_warn() { scenario_result warn partial "$1" "$2"; }
+scenario_skip() { scenario_result skip missing "$1" "$2"; }
+scenario_blocked() { scenario_result blocked missing "$1" "$2"; }
+scenario_invalid_run() { scenario_result invalid_run missing "$1" "$2"; }
+scenario_environment_ineligible() { scenario_result environment_ineligible missing "$1" "$2"; }
+scenario_evidence_incomplete() {
+  local outdir="$1"
+  local message="$2"
+  local evidence_status="${3:-partial}"
+  scenario_result evidence_incomplete "$evidence_status" "$outdir" "$message"
+}
 
 require_cmd() {
   local cmd="$1"
@@ -41,8 +113,42 @@ require_env() {
   return 0
 }
 
+require_env_for_scenario() {
+  local outdir="$1"
+  shift
+  local missing_vars=()
+  local var_name
+  for var_name in "$@"; do
+    if [[ -z "${!var_name:-}" ]]; then
+      missing_vars+=("$var_name")
+    fi
+  done
+  if [[ ${#missing_vars[@]} -gt 0 ]]; then
+    scenario_blocked "$outdir" "missing required environment variable(s): ${missing_vars[*]}"
+    return 1
+  fi
+  return 0
+}
+
+require_validation_env_for_scenario() {
+  local outdir="$1"
+  shift
+  local allowed_envs=("$@")
+  local allowed
+  for allowed in "${allowed_envs[@]}"; do
+    if [[ "$AJENDA_VALIDATION_ENV" == "$allowed" ]]; then
+      return 0
+    fi
+  done
+  scenario_environment_ineligible \
+    "$outdir" \
+    "scenario requires validation environment in [${allowed_envs[*]}], got ${AJENDA_VALIDATION_ENV}"
+  return 1
+}
+
 validate_environment() {
   log "Validation artifact dir: $ARTIFACT_DIR"
+  log "Validation environment: $AJENDA_VALIDATION_ENV"
   require_cmd curl || true
   require_cmd jq || true
   require_cmd python || true
@@ -152,9 +258,9 @@ assert_status_in() {
 
 print_summary() {
   log "----"
-  log "Validation summary: pass=$PASS_COUNT fail=$FAIL_COUNT warn=$WARN_COUNT"
+  log "Validation summary: pass=$PASS_COUNT fail=$FAIL_COUNT warn=$WARN_COUNT skip=$SKIP_COUNT blocked=$BLOCKED_COUNT invalid_run=$INVALID_RUN_COUNT environment_ineligible=$ENVIRONMENT_INELIGIBLE_COUNT evidence_incomplete=$EVIDENCE_INCOMPLETE_COUNT"
   log "Artifacts: $ARTIFACT_DIR"
-  if [[ "$FAIL_COUNT" -gt 0 ]]; then
+  if [[ "$FAIL_COUNT" -gt 0 || "$BLOCKED_COUNT" -gt 0 || "$INVALID_RUN_COUNT" -gt 0 || "$ENVIRONMENT_INELIGIBLE_COUNT" -gt 0 || "$EVIDENCE_INCOMPLETE_COUNT" -gt 0 ]]; then
     return 1
   fi
   return 0
