@@ -283,7 +283,7 @@ Current release-gating set: `RG-01` through `RG-12`
 
 Broader matrix rows expand operational truth beyond release gates. They are important even when they are not promotion-blocking.
 
-Current broader scenario count: **31**
+Current broader scenario count: **32**
 
 ### Control plane
 
@@ -318,6 +318,7 @@ Current broader scenario count: **31**
 | EX-07 | integrity_plane | duplicate active lease claim rejected | P0 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | active lease exists | attempt second claim | duplicate claim rejected and queue claim compensated without a new lease | two active authoritative claimants or queue claim stranded in processing | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | EX-08 | resilience_plane | long-running dispatch maintains mid-flight heartbeat until completion | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | running task dispatched through a long-lived handler | execute long-running handler under dispatcher heartbeat loop | task stays running with advancing heartbeat, then completes cleanly | healthy long-running work loses lease liveness or recovers while still executing | DB, audit | `backend/workers/task_dispatcher.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | EX-09 | resilience_plane | started work interrupted before completion recovers safely on lease expiry | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | task has started execution and worker disappears before complete/fail | let started work go stale, then run bounded stale-lease recovery | task re-queues with retry increment, lease expires, and no false terminal success/failure audit is written | interrupted running work strands forever or is mutated into false terminal success/failure | DB, Redis, audit | `backend/services/worker_runtime_service.py`, `backend/services/runtime_maintainer.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
+| EX-10 | resilience_plane | queue interruption during enqueue rolls back authoritative state cleanly | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | task is queue-admissible but enqueue path fails before queue placement | attempt queue admission while queue adapter returns enqueue failure | task reverts to pre-queue state and no false queued audit is written | task remains authoritatively queued in DB without queue placement or emits false queued audit | DB, audit | `backend/services/execution_coordinator.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 
 ### Failure + retry plane
 
@@ -406,6 +407,7 @@ The strongest current matrix surfaces are:
 - duplicate completion rejection without processing regression
 - mid-flight heartbeat maintenance during long-running dispatch
 - interrupted started-work recovery through bounded stale-lease recovery
+- authoritative enqueue rollback on queue interruption
 
 ### What remains less mature
 
