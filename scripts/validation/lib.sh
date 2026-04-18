@@ -4,6 +4,8 @@ set -euo pipefail
 VALIDATION_ROOT="${VALIDATION_ROOT:-artifacts/validation}"
 VALIDATION_TS="${VALIDATION_TS:-$(date -u +%Y%m%dT%H%M%SZ)}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$VALIDATION_ROOT/$VALIDATION_TS}"
+RESULTS_TSV="$ARTIFACT_DIR/scenario_results.tsv"
+SUMMARY_JSON="$ARTIFACT_DIR/summary.json"
 
 AJENDA_API_URL="${AJENDA_API_URL:-http://localhost:8000}"
 AJENDA_DB_URL="${AJENDA_DB_URL:-}"
@@ -14,6 +16,7 @@ AJENDA_AUTH_HEADER="${AJENDA_AUTH_HEADER:-}"
 AJENDA_VALIDATION_ENV="${AJENDA_VALIDATION_ENV:-local}"
 
 mkdir -p "$ARTIFACT_DIR"
+printf 'scenario_id\trun_outcome\tevidence_status\tvalidation_env\tartifact_path\tnotes\n' > "$RESULTS_TSV"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -67,6 +70,22 @@ write_result_metadata() {
   printf '%s\n' "$AJENDA_VALIDATION_ENV" > "$outdir/validation_env.txt"
 }
 
+record_scenario_result() {
+  local outdir="$1"
+  local outcome="$2"
+  local evidence_status="$3"
+  local message="$4"
+  local scenario_id
+  scenario_id="$(basename "$outdir")"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$scenario_id" \
+    "$outcome" \
+    "$evidence_status" \
+    "$AJENDA_VALIDATION_ENV" \
+    "$outdir" \
+    "$message" >> "$RESULTS_TSV"
+}
+
 scenario_result() {
   local outcome="$1"
   local evidence_status="$2"
@@ -75,6 +94,7 @@ scenario_result() {
   _increment_result_counter "$outcome"
   log "$(_result_prefix "$outcome") $message"
   write_result_metadata "$outdir" "$outcome" "$evidence_status" "$message"
+  record_scenario_result "$outdir" "$outcome" "$evidence_status" "$message"
 }
 
 pass() { _increment_result_counter pass; log "[PASS] $*"; }
@@ -256,10 +276,34 @@ assert_status_in() {
   return 1
 }
 
+write_summary_manifest() {
+  cat > "$SUMMARY_JSON" <<EOF
+{
+  "validation_ts": "$VALIDATION_TS",
+  "artifact_dir": "$ARTIFACT_DIR",
+  "validation_env": "$AJENDA_VALIDATION_ENV",
+  "counts": {
+    "pass": $PASS_COUNT,
+    "fail": $FAIL_COUNT,
+    "warn": $WARN_COUNT,
+    "skip": $SKIP_COUNT,
+    "blocked": $BLOCKED_COUNT,
+    "invalid_run": $INVALID_RUN_COUNT,
+    "environment_ineligible": $ENVIRONMENT_INELIGIBLE_COUNT,
+    "evidence_incomplete": $EVIDENCE_INCOMPLETE_COUNT
+  },
+  "scenario_results_tsv": "$RESULTS_TSV"
+}
+EOF
+}
+
 print_summary() {
+  write_summary_manifest
   log "----"
   log "Validation summary: pass=$PASS_COUNT fail=$FAIL_COUNT warn=$WARN_COUNT skip=$SKIP_COUNT blocked=$BLOCKED_COUNT invalid_run=$INVALID_RUN_COUNT environment_ineligible=$ENVIRONMENT_INELIGIBLE_COUNT evidence_incomplete=$EVIDENCE_INCOMPLETE_COUNT"
   log "Artifacts: $ARTIFACT_DIR"
+  log "Scenario ledger: $RESULTS_TSV"
+  log "Run manifest: $SUMMARY_JSON"
   if [[ "$FAIL_COUNT" -gt 0 || "$BLOCKED_COUNT" -gt 0 || "$INVALID_RUN_COUNT" -gt 0 || "$ENVIRONMENT_INELIGIBLE_COUNT" -gt 0 || "$EVIDENCE_INCOMPLETE_COUNT" -gt 0 ]]; then
     return 1
   fi
