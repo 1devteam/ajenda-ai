@@ -22,7 +22,10 @@ pytestmark = pytest.mark.integration
 
 def _create_tenant(pg_session, tenant_id: str) -> Tenant:
     tenant = Tenant(
-        id=uuid.UUID(tenant_id), name=f"Tenant-{tenant_id[:8]}", slug=f"tenant-{tenant_id[:8]}", plan="free"
+        id=uuid.UUID(tenant_id),
+        name=f"Tenant-{tenant_id[:8]}",
+        slug=f"tenant-{tenant_id[:8]}",
+        plan="free",
     )
     pg_session.add(tenant)
     pg_session.flush()
@@ -30,7 +33,11 @@ def _create_tenant(pg_session, tenant_id: str) -> Tenant:
 
 
 def _create_task(
-    pg_session, tenant_id: str, *, status: ExecutionTaskState = ExecutionTaskState.PLANNED, **kwargs
+    pg_session,
+    tenant_id: str,
+    *,
+    status: ExecutionTaskState = ExecutionTaskState.PLANNED,
+    **kwargs,
 ) -> ExecutionTask:
     mission = Mission(tenant_id=tenant_id, objective="RG mission", status="running")
     pg_session.add(mission)
@@ -223,6 +230,50 @@ def test_rg_recovery_safety_only_stale_mutates(pg_session, queue_adapter) -> Non
     assert stale_lease.status == WorkerLeaseState.EXPIRED.value
     assert healthy.status == ExecutionTaskState.RUNNING.value
     assert healthy_lease.status == WorkerLeaseState.ACTIVE.value
+
+
+def test_rg_duplicate_active_lease_claim_rejected_with_queue_compensation(
+    pg_session,
+    queue_adapter,
+    redis_client,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    worker_id = "worker-duplicate-claim"
+    _create_tenant(pg_session, tenant_id)
+    task = _create_task(pg_session, tenant_id)
+
+    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+    ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
+
+    existing_lease = WorkerLease(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        holder_identity="worker-existing",
+        status=WorkerLeaseState.ACTIVE.value,
+        heartbeat_at=datetime.now(UTC),
+    )
+    pg_session.add(existing_lease)
+    pg_session.flush()
+
+    runtime = WorkerRuntimeService(pg_session, queue_adapter)
+    with pytest.raises(ValueError, match="task already has an active lease"):
+        runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+
+    pg_session.refresh(task)
+    leases = pg_session.scalars(
+        select(WorkerLease).where(
+            WorkerLease.tenant_id == tenant_id,
+            WorkerLease.task_id == task.id,
+        )
+    ).all()
+
+    assert task.status == ExecutionTaskState.QUEUED.value
+    assert len(leases) == 1
+    assert leases[0].id == existing_lease.id
+    assert leases[0].status == WorkerLeaseState.ACTIVE.value
+    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task.id}") is None
 
 
 def test_rg_pending_review_policy_gate(pg_session, queue_adapter, redis_client) -> None:
