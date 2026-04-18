@@ -268,7 +268,7 @@ Current release-gating set: `RG-01` through `RG-12`
 | RG-02 | control_plane | system probes public; system status envelope strict | P1 | SAFE_READ_ONLY | authoritative_gate | runner_and_contract | app reachable; tenant/auth available for protected branch when applicable | GET `/v1/system/health`, `/v1/system/readiness`, `/v1/system/status` under valid and invalid envelopes | public probes succeed; invalid protected envelope rejected | protected status exposed without required envelope | API | `backend/api/routes/system.py`, middleware, runner RG-02, contract tests | CI/local/shared_dev |
 | RG-03 | operational_plane | metrics route exposed correctly | P1 | SAFE_READ_ONLY | authoritative_gate | contract_test | app reachable | GET `/v1/observability/metrics` | 200 with Prometheus text | metrics route blocked or non-Prometheus output | API | `backend/api/routes/observability.py`, metrics contract test | CI/local/shared_dev |
 | RG-04 | execution_plane | queue admission succeeds for valid tenant-scoped task | P1 | TENANT_SCOPED_MUTATION | authoritative_gate | runner_and_integration | valid auth, tenant, queue-admissible task | POST `/v1/tasks/{task_id}/queue` | task queued and evidenced in DB/audit/Redis | enqueue without authoritative queued state or tenant mismatch | API, DB, Redis, audit | `backend/api/routes/task.py`, `backend/services/execution_coordinator.py`, integration + runner RG-04 | local/isolated/shared_dev with care |
-| RG-05 | auth_tenant_envelope | invalid or missing envelope is rejected without side effects | P0 | SAFE_READ_ONLY | authoritative_gate | contract_test | tenant-scoped route available | invoke protected routes with missing/invalid tenant/auth | request rejected with no mutation | mutation or enqueue on invalid envelope | API | `backend/middleware/tenant_context.py`, `backend/middleware/auth_context.py`, tenant isolation contract tests | CI/local/shared_dev |
+| RG-05 | auth_tenant_envelope | invalid or missing envelope is rejected without side effects | P0 | SAFE_READ_ONLY | authoritative_gate | runner_and_contract | tenant-scoped route available | invoke protected routes with missing/invalid tenant/auth | request rejected with no mutation | mutation or enqueue on invalid envelope | API | `backend/middleware/tenant_context.py`, `backend/middleware/auth_context.py`, tenant isolation contract tests + runner RG-05 | CI/local/shared_dev |
 | RG-06 | execution_plane | queued task completes cleanly | P1 | TENANT_SCOPED_MUTATION | authoritative_gate | runner_and_integration | valid queued task and worker path | exercise worker completion path | task reaches completed, lease released, audit/log evidence present | duplicate completion, stuck processing, missing release path | DB, Redis, audit, logs | `backend/services/worker_runtime_service.py`, runtime integration + runner RG-06 | local/isolated/shared_dev with care |
 | RG-07 | failure_plane | forced failure reaches valid failure terminal path | P1 | TENANT_SCOPED_MUTATION | authoritative_gate | runner_and_integration | deterministic fail task available | exercise failure path | task enters `failed` or valid dead-letter terminal state with evidence | silent failure, missing audit, invalid terminal path | DB, Redis, audit, logs | worker runtime + dispatcher + runner RG-07 | local/isolated/shared_dev with care |
 | RG-08 | recovery_plane | stale claimed lease recovery re-queues safely | P1 | GLOBAL_MUTATION | authoritative_gate | runner_and_integration | expired claimed lease exists | POST `/v1/operations/recovery` | claimed task re-queued and lease expired | no-op on expired claimed work; unsafe mutation patterns | API, DB, audit | `backend/services/runtime_maintainer.py`, recovery integration + runner RG-08 | isolated_env_only |
@@ -325,7 +325,7 @@ Current broader scenario count: **29**
 | FR-02 | recovery_plane | stale claimed lease recovers claimed to queued | P1 | GLOBAL_MUTATION | evidence_backed | runner_and_integration | expired claimed lease | run recovery | re-queued claimed task | stale claimed task stranded | API, DB, audit | runtime maintainer | isolated_env_only |
 | FR-03 | recovery_plane | stale running lease recovers with retry increment | P1 | GLOBAL_MUTATION | evidence_backed | runner_and_integration | expired running lease with retries remaining | run recovery | queued with incremented retry count | recovery without retry accounting | API, DB, audit | runtime maintainer | isolated_env_only |
 | FR-04 | recovery_plane | retry exhaustion dead-letters stale running work | P1 | GLOBAL_MUTATION | evidence_backed | integration_test | expired running lease at retry ceiling | run recovery | dead-lettered state | infinite recovery loop | DB, audit | runtime maintainer | isolated_env_only |
-| FR-05 | recovery_plane | recovery is idempotent for already-resolved expired work | P0 | GLOBAL_MUTATION | partial | integration_test | recovered or expired/resolved work present | run recovery again | no double increment / no double enqueue | repeated mutation of resolved work | DB, Redis, audit | runtime maintainer | isolated_env_only |
+| FR-05 | recovery_plane | recovery is idempotent for already-resolved expired work | P0 | GLOBAL_MUTATION | evidence_backed | integration_test | recovered or expired/resolved work present | run recovery again | no double increment / no double enqueue | repeated mutation of resolved work | DB, Redis, audit | runtime maintainer, `tests/integration/runtime/test_lease_recovery_real.py` | isolated_env_only |
 
 ### Dead-letter plane
 
@@ -364,6 +364,7 @@ The runner currently supports:
 - RG-02
 - RG-03
 - RG-04
+- RG-05
 - RG-06
 - RG-07
 - RG-08
@@ -380,8 +381,7 @@ The current runner also emits:
 
 This means:
 
-- most release-gating runtime paths are executable through the runner
-- RG-05 remains gate-critical but is primarily backed through contract-style validation surfaces rather than direct runner support today
+- the complete current release-gating set is executable through the runner
 - current runner executions now have one machine-readable whole-run summary surface in addition to scenario directories
 
 ---
@@ -399,6 +399,7 @@ The strongest current matrix surfaces are:
 - recovery safety
 - pending-review denial path
 - core tenant/auth boundary rejections
+- repeated recovery idempotency for already-resolved work
 
 ### What remains less mature
 
