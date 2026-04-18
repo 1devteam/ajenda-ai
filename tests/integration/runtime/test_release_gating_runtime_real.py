@@ -215,6 +215,52 @@ def test_rg_long_running_dispatcher_maintains_midflight_heartbeat(
         final_session.close()
 
 
+def test_rg_started_work_interrupted_before_completion_recovers_safely(
+    pg_session,
+    queue_adapter,
+    redis_client,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    worker_id = "worker-rg-interrupted"
+    _create_tenant(pg_session, tenant_id)
+    task = _create_task(pg_session, tenant_id)
+
+    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+    ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
+
+    runtime = WorkerRuntimeService(pg_session, queue_adapter)
+    claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+    assert claimed is not None
+
+    lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+    runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+    started = runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+    assert started.status == ExecutionTaskState.RUNNING.value
+
+    lease = pg_session.get(WorkerLease, lease_id)
+    assert lease is not None
+    lease.heartbeat_at = datetime.now(UTC) - timedelta(minutes=10)
+    pg_session.flush()
+
+    summary = RuntimeMaintainer(pg_session, queue_adapter, expiry_seconds=30, max_retries=3).recover_expired_leases()
+    pg_session.flush()
+
+    pg_session.refresh(task)
+    pg_session.refresh(lease)
+    actions = _audit_actions(pg_session, tenant_id)
+
+    assert summary.expired_lease_count == 1
+    assert summary.requeued_task_count == 1
+    assert summary.dead_lettered_count == 0
+    assert task.status == ExecutionTaskState.QUEUED.value
+    assert task.retry_count == 1
+    assert lease.status == WorkerLeaseState.EXPIRED.value
+    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+    assert "lease_expired_task_requeued" in actions
+    assert "task_completed" not in actions
+    assert "task_failed" not in actions
+
+
 def test_rg_duplicate_completion_rejected_without_processing_regression(
     pg_session,
     queue_adapter,
