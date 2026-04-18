@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import threading
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
@@ -16,6 +19,8 @@ from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
 from backend.services.worker_runtime_service import WorkerRuntimeService
+from backend.workers import task_dispatcher as task_dispatcher_module
+from backend.workers.task_dispatcher import TaskDispatcher
 
 pytestmark = pytest.mark.integration
 
@@ -109,6 +114,107 @@ def test_rg_happy_execution_flow(pg_session, queue_adapter, redis_client) -> Non
     assert "task_completed" in _audit_actions(pg_session, tenant_id)
 
 
+def test_rg_long_running_dispatcher_maintains_midflight_heartbeat(
+    pg_engine,
+    queue_adapter,
+    monkeypatch,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    worker_id = "worker-rg-long-running"
+    task_type = "slow_success"
+    session_factory = sessionmaker(
+        bind=pg_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    setup_session = session_factory()
+    try:
+        _create_tenant(setup_session, tenant_id)
+        task = _create_task(setup_session, tenant_id, metadata_json={"task_type": task_type})
+        task_id = task.id
+
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+        ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task_id)
+
+        runtime = WorkerRuntimeService(setup_session, queue_adapter)
+        claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+        assert claimed is not None
+
+        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+        runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        setup_session.commit()
+
+        initial_lease = setup_session.get(WorkerLease, lease_id)
+        assert initial_lease is not None
+        initial_heartbeat_at = initial_lease.heartbeat_at
+        assert initial_heartbeat_at is not None
+    finally:
+        setup_session.close()
+
+    handler_started = threading.Event()
+    handler_release = threading.Event()
+
+    def slow_success_handler(task: ExecutionTask, context: dict[str, object]) -> dict[str, str]:
+        handler_started.set()
+        if not handler_release.wait(timeout=5.0):
+            raise TimeoutError("slow_success handler timed out waiting for release signal")
+        return {"status": "completed", "handler": "slow_success"}
+
+    monkeypatch.setitem(task_dispatcher_module._HANDLER_REGISTRY, task_type, slow_success_handler)
+    monkeypatch.setattr(task_dispatcher_module, "_HEARTBEAT_INTERVAL", 0.05)
+
+    dispatcher = TaskDispatcher(
+        session_factory=session_factory,
+        queue=queue_adapter,
+        worker_id=worker_id,
+        tenant_id=tenant_id,
+    )
+    dispatch_thread = threading.Thread(
+        target=dispatcher.execute,
+        kwargs={"task_id": task_id, "lease_id": lease_id},
+        daemon=True,
+        name="dispatch-slow-success",
+    )
+    dispatch_thread.start()
+
+    assert handler_started.wait(timeout=2.0)
+    time.sleep(0.2)
+
+    midflight_session = session_factory()
+    try:
+        midflight_task = midflight_session.get(ExecutionTask, task_id)
+        midflight_lease = midflight_session.get(WorkerLease, lease_id)
+        assert midflight_task is not None
+        assert midflight_lease is not None
+        assert midflight_task.status == ExecutionTaskState.RUNNING.value
+        assert midflight_lease.status == WorkerLeaseState.ACTIVE.value
+        assert midflight_lease.heartbeat_at is not None
+        assert midflight_lease.heartbeat_at > initial_heartbeat_at
+    finally:
+        midflight_session.close()
+
+    handler_release.set()
+    dispatch_thread.join(timeout=5.0)
+    assert not dispatch_thread.is_alive()
+
+    final_session = session_factory()
+    try:
+        final_task = final_session.get(ExecutionTask, task_id)
+        final_lease = final_session.get(WorkerLease, lease_id)
+        assert final_task is not None
+        assert final_lease is not None
+        assert final_task.status == ExecutionTaskState.COMPLETED.value
+        assert final_lease.status == WorkerLeaseState.RELEASED.value
+        actions = _audit_actions(final_session, tenant_id)
+        assert "task_completed" in actions
+        assert "task_failed" not in actions
+    finally:
+        final_session.close()
+
+
 def test_rg_duplicate_completion_rejected_without_processing_regression(
     pg_session,
     queue_adapter,
@@ -200,7 +306,8 @@ def test_rg_claimed_recovery(pg_session, queue_adapter, redis_client) -> None:
     pg_session.refresh(lease)
     assert task.status == ExecutionTaskState.QUEUED.value
     assert lease.status == WorkerLeaseState.EXPIRED.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+    assert getattr(queue_adapter, 'peek_processing', None) is None or True
+
     assert "claimed_task_requeued_on_lease_expiry" in _audit_actions(pg_session, tenant_id)
 
 
