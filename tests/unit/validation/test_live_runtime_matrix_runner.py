@@ -39,7 +39,11 @@ print('200', end='')
     )
 
 
-def _run_runner(tmp_path: Path, *args: str, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run_runner(
+    tmp_path: Path,
+    *args: str,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _install_fake_curl(bin_dir)
@@ -66,7 +70,9 @@ def _artifact_root(tmp_path: Path) -> Path:
     return tmp_path / "artifacts" / "20260418T010203Z"
 
 
-def test_global_mutation_scenario_is_environment_ineligible_outside_isolated_or_staging(tmp_path: Path) -> None:
+def test_global_mutation_scenario_is_environment_ineligible_outside_isolated_or_staging(
+    tmp_path: Path,
+) -> None:
     result = _run_runner(
         tmp_path,
         "--scenario",
@@ -78,8 +84,14 @@ def test_global_mutation_scenario_is_environment_ineligible_outside_isolated_or_
     artifact_root = _artifact_root(tmp_path)
     scenario_dir = artifact_root / "RG-08"
 
-    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "environment_ineligible"
-    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "missing"
+    assert (
+        (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip()
+        == "environment_ineligible"
+    )
+    assert (
+        (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip()
+        == "missing"
+    )
 
     scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
     assert "RG-08\tenvironment_ineligible\tmissing\tlocal" in scenario_results
@@ -89,15 +101,23 @@ def test_global_mutation_scenario_is_environment_ineligible_outside_isolated_or_
     assert summary["counts"]["fail"] == 0
 
 
-def test_tenant_mutation_scenario_is_blocked_when_required_environment_variables_are_missing(tmp_path: Path) -> None:
+def test_tenant_mutation_scenario_is_blocked_when_required_environment_variables_are_missing(
+    tmp_path: Path,
+) -> None:
     result = _run_runner(tmp_path, "--scenario", "RG-04")
 
     assert result.returncode == 1
     artifact_root = _artifact_root(tmp_path)
     scenario_dir = artifact_root / "RG-04"
 
-    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "blocked"
-    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "missing"
+    assert (
+        (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip()
+        == "blocked"
+    )
+    assert (
+        (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip()
+        == "missing"
+    )
     notes = (scenario_dir / "notes.txt").read_text(encoding="utf-8")
     assert "AJENDA_SAMPLE_TASK_ID" in notes
     assert "AJENDA_TENANT_ID" in notes
@@ -108,7 +128,9 @@ def test_tenant_mutation_scenario_is_blocked_when_required_environment_variables
     assert summary["counts"]["pass"] == 0
 
 
-def test_queue_admission_records_evidence_incomplete_when_required_proof_surfaces_are_missing(tmp_path: Path) -> None:
+def test_queue_admission_records_evidence_incomplete_when_required_proof_surfaces_are_missing(
+    tmp_path: Path,
+) -> None:
     result = _run_runner(
         tmp_path,
         "--scenario",
@@ -124,8 +146,14 @@ def test_queue_admission_records_evidence_incomplete_when_required_proof_surface
     artifact_root = _artifact_root(tmp_path)
     scenario_dir = artifact_root / "RG-04"
 
-    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "evidence_incomplete"
-    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "partial"
+    assert (
+        (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip()
+        == "evidence_incomplete"
+    )
+    assert (
+        (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip()
+        == "partial"
+    )
     assert (scenario_dir / "status.txt").read_text(encoding="utf-8").strip() == "200"
 
     scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
