@@ -70,6 +70,20 @@ Dynamic fields:
 - `evidence_status`
 - `artifact_path`
 - `notes`
+- `validation_env`
+
+Current runner-generated dynamic artifact surfaces include:
+
+- per-scenario files:
+  - `run_outcome.txt`
+  - `evidence_status.txt`
+  - `notes.txt`
+  - `validation_env.txt`
+- run-level files:
+  - `scenario_results.tsv`
+  - `summary.json`
+
+This keeps dynamic run truth inspectable at both the scenario level and the whole-run level.
 
 ---
 
@@ -227,6 +241,11 @@ Recommended policy:
 - not suitable for casual shared-environment use
 - environment eligibility must be checked before interpreting results
 
+Current runner behavior:
+
+- global-mutation scenarios are gated by `AJENDA_VALIDATION_ENV`
+- current allowed environments for those scenarios are `isolated` and `staging`
+
 ---
 
 ## Validation methods
@@ -353,10 +372,17 @@ The runner currently supports:
 - RG-11
 - RG-12
 
+The current runner also emits:
+
+- per-scenario dynamic result metadata
+- a run-level `scenario_results.tsv` ledger
+- a run-level `summary.json` manifest
+
 This means:
 
 - most release-gating runtime paths are executable through the runner
 - RG-05 remains gate-critical but is primarily backed through contract-style validation surfaces rather than direct runner support today
+- current runner executions now have one machine-readable whole-run summary surface in addition to scenario directories
 
 ---
 
