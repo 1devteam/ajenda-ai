@@ -44,7 +44,11 @@ def _make_task(tenant_id: str, mission_id, status: str) -> ExecutionTask:
     )
 
 
-def _make_expired_lease(task_id, tenant_id: str, worker_id: str = "worker-dead") -> WorkerLease:
+def _make_expired_lease(
+    task_id,
+    tenant_id: str,
+    worker_id: str = "worker-dead",
+) -> WorkerLease:
     """Create a lease with a heartbeat 10 minutes in the past (expired)."""
     return WorkerLease(
         tenant_id=tenant_id,
@@ -56,7 +60,11 @@ def _make_expired_lease(task_id, tenant_id: str, worker_id: str = "worker-dead")
 
 
 class TestLeaseRecoveryReal:
-    def test_running_task_transitions_through_recovering_to_queued(self, pg_session, queue_adapter) -> None:
+    def test_running_task_transitions_through_recovering_to_queued(
+        self,
+        pg_session,
+        queue_adapter,
+    ) -> None:
         """A running task with an expired lease must go running→recovering→queued."""
         mission = _make_mission("tenant-recovery-a")
         pg_session.add(mission)
@@ -184,7 +192,11 @@ class TestLeaseRecoveryReal:
         pg_session.refresh(task)
         assert task.status == ExecutionTaskState.DEAD_LETTERED.value
 
-    def test_repeated_recovery_does_not_requeue_or_mutate_already_resolved_work(self, pg_session, queue_adapter) -> None:
+    def test_repeated_recovery_does_not_requeue_or_mutate_already_resolved_work(
+        self,
+        pg_session,
+        queue_adapter,
+    ) -> None:
         """A second recovery run must not re-enqueue or re-mutate the same recovered task."""
         mission = _make_mission("tenant-recovery-e")
         pg_session.add(mission)
@@ -208,20 +220,28 @@ class TestLeaseRecoveryReal:
         first_summary = maintainer.recover_expired_leases()
         first_retry_count = task.retry_count
 
-        first_audit_count = pg_session.query(AuditEvent).filter(
-            AuditEvent.action == "lease_expired_task_requeued",
-            AuditEvent.payload_json["task_id"].astext == str(task.id),
-        ).count()
+        first_audit_count = (
+            pg_session.query(AuditEvent)
+            .filter(
+                AuditEvent.action == "lease_expired_task_requeued",
+                AuditEvent.payload_json["task_id"].astext == str(task.id),
+            )
+            .count()
+        )
 
         second_summary = maintainer.recover_expired_leases()
 
         pg_session.refresh(task)
         pg_session.refresh(lease)
 
-        second_audit_count = pg_session.query(AuditEvent).filter(
-            AuditEvent.action == "lease_expired_task_requeued",
-            AuditEvent.payload_json["task_id"].astext == str(task.id),
-        ).count()
+        second_audit_count = (
+            pg_session.query(AuditEvent)
+            .filter(
+                AuditEvent.action == "lease_expired_task_requeued",
+                AuditEvent.payload_json["task_id"].astext == str(task.id),
+            )
+            .count()
+        )
 
         assert first_summary.expired_lease_count == 1
         assert first_summary.requeued_task_count == 1
