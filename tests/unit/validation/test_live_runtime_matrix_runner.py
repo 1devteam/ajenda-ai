@@ -6,7 +6,6 @@ import stat
 import subprocess
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER = REPO_ROOT / "scripts" / "validation" / "live_runtime_matrix.sh"
 
@@ -26,15 +25,49 @@ import sys
 from pathlib import Path
 
 args = sys.argv[1:]
-headers_file = Path(args[args.index('-D') + 1])
-body_file = Path(args[args.index('-o') + 1])
-url = args[-2]
-headers_file.write_text('HTTP/1.1 200 OK\\n', encoding='utf-8')
-if url.endswith('/v1/observability/metrics'):
-    body_file.write_text('ajenda_up 1\\n', encoding='utf-8')
-else:
-    body_file.write_text('{"status":"ok"}\\n', encoding='utf-8')
-print('200', end='')
+headers_file = Path(args[args.index("-D") + 1])
+body_file = Path(args[args.index("-o") + 1])
+
+url = None
+for idx, value in enumerate(args):
+    if value in {"GET", "POST", "DELETE"} and idx + 1 < len(args):
+        url = args[idx + 1]
+        break
+if url is None:
+    raise SystemExit("unable to determine request URL")
+
+tenant_header = None
+auth_header = None
+for idx, value in enumerate(args):
+    if value == "-H" and idx + 1 < len(args):
+        header = args[idx + 1]
+        if header.startswith("X-Tenant-Id: "):
+            tenant_header = header.split(": ", 1)[1]
+        elif header.startswith("Authorization: "):
+            auth_header = header.split(": ", 1)[1]
+
+status = "200"
+body = '{"status":"ok"}\\n'
+
+if url.endswith("/v1/observability/metrics"):
+    body = "ajenda_up 1\\n"
+elif url.endswith("/v1/system/status"):
+    if not tenant_header:
+        status = "400"
+        body = '{"detail":"MISSING_TENANT_ID"}\\n'
+    elif tenant_header == "not-a-uuid":
+        status = "400"
+        body = '{"detail":"INVALID_TENANT_ID"}\\n'
+    elif not auth_header:
+        status = "401"
+        body = '{"detail":"AUTHENTICATION_REQUIRED"}\\n'
+elif "/v1/tasks/" in url and url.endswith("/queue"):
+    status = "200"
+    body = '{"status":"queued"}\\n'
+
+headers_file.write_text(f"HTTP/1.1 {status} OK\\n", encoding="utf-8")
+body_file.write_text(body, encoding="utf-8")
+print(status, end="")
 """,
     )
 
@@ -84,20 +117,34 @@ def test_global_mutation_scenario_is_environment_ineligible_outside_isolated_or_
     artifact_root = _artifact_root(tmp_path)
     scenario_dir = artifact_root / "RG-08"
 
-    assert (
-        (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip()
-        == "environment_ineligible"
-    )
-    assert (
-        (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip()
-        == "missing"
-    )
+    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "environment_ineligible"
+    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "missing"
 
     scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
     assert "RG-08\tenvironment_ineligible\tmissing\tlocal" in scenario_results
 
     summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"]["environment_ineligible"] == 1
+    assert summary["counts"]["fail"] == 0
+
+
+def test_rg05_invalid_envelope_runner_support_records_pass_and_manifest_entries(
+    tmp_path: Path,
+) -> None:
+    result = _run_runner(tmp_path, "--scenario", "RG-05")
+
+    assert result.returncode == 0
+    artifact_root = _artifact_root(tmp_path)
+    scenario_dir = artifact_root / "RG-05"
+
+    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "pass"
+    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "complete"
+
+    scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
+    assert "RG-05\tpass\tcomplete\tlocal" in scenario_results
+
+    summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["counts"]["pass"] == 1
     assert summary["counts"]["fail"] == 0
 
 
@@ -110,14 +157,8 @@ def test_tenant_mutation_scenario_is_blocked_when_required_environment_variables
     artifact_root = _artifact_root(tmp_path)
     scenario_dir = artifact_root / "RG-04"
 
-    assert (
-        (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip()
-        == "blocked"
-    )
-    assert (
-        (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip()
-        == "missing"
-    )
+    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "blocked"
+    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "missing"
     notes = (scenario_dir / "notes.txt").read_text(encoding="utf-8")
     assert "AJENDA_SAMPLE_TASK_ID" in notes
     assert "AJENDA_TENANT_ID" in notes
@@ -146,14 +187,8 @@ def test_queue_admission_records_evidence_incomplete_when_required_proof_surface
     artifact_root = _artifact_root(tmp_path)
     scenario_dir = artifact_root / "RG-04"
 
-    assert (
-        (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip()
-        == "evidence_incomplete"
-    )
-    assert (
-        (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip()
-        == "partial"
-    )
+    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "evidence_incomplete"
+    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "partial"
     assert (scenario_dir / "status.txt").read_text(encoding="utf-8").strip() == "200"
 
     scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")

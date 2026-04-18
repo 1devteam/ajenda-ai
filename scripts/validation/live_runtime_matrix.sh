@@ -12,6 +12,7 @@ SUPPORTED_SCENARIOS=(
   "RG-02"
   "RG-03"
   "RG-04"
+  "RG-05"
   "RG-06"
   "RG-07"
   "RG-08"
@@ -191,6 +192,84 @@ run_rg04_queue_admission() {
   fi
 
   scenario_pass "$d" "$id API+DB+audit+redis evidence captured"
+}
+
+run_rg05_invalid_envelope() {
+  local id="RG-05"; local group="read-only"
+  scenario_enabled "$id" "$group" || return 0
+  local d; d="$(scenario_dir "$id")"
+
+  local saved_tenant="${AJENDA_TENANT_ID:-}"
+  local saved_auth="${AJENDA_AUTH_HEADER:-}"
+  local missing_tenant_status missing_auth_status malformed_tenant_status
+  local valid_tenant="${saved_tenant:-00000000-0000-0000-0000-000000000001}"
+
+  missing_tenant_status="$(
+    AJENDA_TENANT_ID="" AJENDA_AUTH_HEADER="" \
+      api_call GET /v1/system/status "$d/missing_tenant"
+  )"
+
+  missing_auth_status="$(
+    AJENDA_TENANT_ID="$valid_tenant" AJENDA_AUTH_HEADER="" \
+      api_call GET /v1/system/status "$d/missing_auth"
+  )"
+
+  malformed_tenant_status="$(
+    AJENDA_TENANT_ID="not-a-uuid" AJENDA_AUTH_HEADER="" \
+      api_call GET /v1/system/status "$d/malformed_tenant"
+  )"
+
+  if assert_status_in "$missing_tenant_status" 400 && \
+     assert_status_in "$missing_auth_status" 401 && \
+     assert_status_in "$malformed_tenant_status" 400; then
+    scenario_pass "$d" "$id invalid envelope rejection checks passed"
+  else
+    scenario_fail \
+      "$d" \
+      "$id unexpected statuses: missing_tenant=$missing_tenant_status missing_auth=$missing_auth_status malformed_tenant=$malformed_tenant_status"
+  fi
+
+  AJENDA_TENANT_ID="$saved_tenant"
+  AJENDA_AUTH_HEADER="$saved_auth"
+}
+
+run_rg05_invalid_envelope() {
+  local id="RG-05"; local group="read-only"
+  scenario_enabled "$id" "$group" || return 0
+  local d; d="$(scenario_dir "$id")"
+
+  local saved_tenant="${AJENDA_TENANT_ID:-}"
+  local saved_auth="${AJENDA_AUTH_HEADER:-}"
+  local missing_tenant_status missing_auth_status malformed_tenant_status
+  local valid_tenant="${saved_tenant:-00000000-0000-0000-0000-000000000001}"
+
+  missing_tenant_status="$(
+    AJENDA_TENANT_ID="" AJENDA_AUTH_HEADER="" \
+      api_call GET /v1/system/status "$d/missing_tenant"
+  )"
+
+  missing_auth_status="$(
+    AJENDA_TENANT_ID="$valid_tenant" AJENDA_AUTH_HEADER="" \
+      api_call GET /v1/system/status "$d/missing_auth"
+  )"
+
+  malformed_tenant_status="$(
+    AJENDA_TENANT_ID="not-a-uuid" AJENDA_AUTH_HEADER="" \
+      api_call GET /v1/system/status "$d/malformed_tenant"
+  )"
+
+  if assert_status_in "$missing_tenant_status" 400 && \
+     assert_status_in "$missing_auth_status" 401 && \
+     assert_status_in "$malformed_tenant_status" 400; then
+    scenario_pass "$d" "$id invalid envelope rejection checks passed"
+  else
+    scenario_fail \
+      "$d" \
+      "$id unexpected statuses: missing_tenant=$missing_tenant_status missing_auth=$missing_auth_status malformed_tenant=$malformed_tenant_status"
+  fi
+
+  AJENDA_TENANT_ID="$saved_tenant"
+  AJENDA_AUTH_HEADER="$saved_auth"
 }
 
 run_rg06_happy_execution() {
@@ -380,6 +459,7 @@ main() {
   run_rg02_system_status
   run_rg03_metrics
   run_rg04_queue_admission
+  run_rg05_invalid_envelope
   run_rg06_happy_execution
   run_rg07_forced_failure
   run_rg08_claimed_recovery
