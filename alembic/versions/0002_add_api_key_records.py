@@ -12,6 +12,7 @@ This migration also adds:
 Revision ID: 0002_add_api_key_records
 Revises: 0001_initial_runtime_schema
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa

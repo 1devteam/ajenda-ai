@@ -14,6 +14,7 @@ Design notes:
   - webhook_deliveries is append-only; retries create new rows.
   - Both tables include tenant_id for RLS policy enforcement.
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -178,18 +179,10 @@ def upgrade() -> None:
             comment="When a 2xx response was received",
         ),
     )
-    op.create_index(
-        "ix_webhook_deliveries_endpoint_id", "webhook_deliveries", ["endpoint_id"]
-    )
-    op.create_index(
-        "ix_webhook_deliveries_tenant_id", "webhook_deliveries", ["tenant_id"]
-    )
-    op.create_index(
-        "ix_webhook_deliveries_event_id", "webhook_deliveries", ["event_id"]
-    )
-    op.create_index(
-        "ix_webhook_deliveries_status", "webhook_deliveries", ["status"]
-    )
+    op.create_index("ix_webhook_deliveries_endpoint_id", "webhook_deliveries", ["endpoint_id"])
+    op.create_index("ix_webhook_deliveries_tenant_id", "webhook_deliveries", ["tenant_id"])
+    op.create_index("ix_webhook_deliveries_event_id", "webhook_deliveries", ["event_id"])
+    op.create_index("ix_webhook_deliveries_status", "webhook_deliveries", ["status"])
     op.create_index(
         "ix_webhook_deliveries_tenant_status",
         "webhook_deliveries",

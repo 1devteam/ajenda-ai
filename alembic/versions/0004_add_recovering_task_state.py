@@ -42,6 +42,7 @@ This is safe because:
 - The window between constraint drop and recreate is within the same
   migration transaction, so concurrent writes see a consistent state
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -60,7 +61,7 @@ _TASK_STATES_V2: tuple[str, ...] = (
     "queued",
     "claimed",
     "running",
-    "recovering",   # NEW
+    "recovering",  # NEW
     "blocked",
     "completed",
     "failed",
@@ -96,19 +97,12 @@ def upgrade() -> None:
 
     # Step 1: Drop the existing check constraint
     # Use IF EXISTS to be idempotent in case of partial migration reruns
-    conn.execute(
-        sa.text(
-            f"ALTER TABLE {_TABLE_NAME} "
-            f"DROP CONSTRAINT IF EXISTS {_CONSTRAINT_NAME}"
-        )
-    )
+    conn.execute(sa.text(f"ALTER TABLE {_TABLE_NAME} DROP CONSTRAINT IF EXISTS {_CONSTRAINT_NAME}"))
 
     # Step 2: Recreate with the new state set
     conn.execute(
         sa.text(
-            f"ALTER TABLE {_TABLE_NAME} "
-            f"ADD CONSTRAINT {_CONSTRAINT_NAME} "
-            f"CHECK ({_make_check_values(_TASK_STATES_V2)})"
+            f"ALTER TABLE {_TABLE_NAME} ADD CONSTRAINT {_CONSTRAINT_NAME} CHECK ({_make_check_values(_TASK_STATES_V2)})"
         )
     )
 
@@ -129,9 +123,7 @@ def downgrade() -> None:
     conn = op.get_bind()
 
     # Refuse downgrade if any tasks are currently in 'recovering' state
-    result = conn.execute(
-        sa.text(f"SELECT COUNT(*) FROM {_TABLE_NAME} WHERE status = 'recovering'")
-    ).scalar()
+    result = conn.execute(sa.text(f"SELECT COUNT(*) FROM {_TABLE_NAME} WHERE status = 'recovering'")).scalar()
     if result and result > 0:
         raise RuntimeError(
             f"Cannot downgrade: {result} task(s) are in 'recovering' state. "
@@ -142,16 +134,9 @@ def downgrade() -> None:
     op.drop_index("ix_execution_tasks_tenant_status", table_name=_TABLE_NAME)
 
     # Restore the original check constraint
+    conn.execute(sa.text(f"ALTER TABLE {_TABLE_NAME} DROP CONSTRAINT IF EXISTS {_CONSTRAINT_NAME}"))
     conn.execute(
         sa.text(
-            f"ALTER TABLE {_TABLE_NAME} "
-            f"DROP CONSTRAINT IF EXISTS {_CONSTRAINT_NAME}"
-        )
-    )
-    conn.execute(
-        sa.text(
-            f"ALTER TABLE {_TABLE_NAME} "
-            f"ADD CONSTRAINT {_CONSTRAINT_NAME} "
-            f"CHECK ({_make_check_values(_TASK_STATES_V1)})"
+            f"ALTER TABLE {_TABLE_NAME} ADD CONSTRAINT {_CONSTRAINT_NAME} CHECK ({_make_check_values(_TASK_STATES_V1)})"
         )
     )
