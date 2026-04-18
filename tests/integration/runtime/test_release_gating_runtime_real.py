@@ -109,6 +109,52 @@ def test_rg_happy_execution_flow(pg_session, queue_adapter, redis_client) -> Non
     assert "task_completed" in _audit_actions(pg_session, tenant_id)
 
 
+def test_rg_duplicate_completion_rejected_without_processing_regression(
+    pg_session,
+    queue_adapter,
+    redis_client,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    worker_id = "worker-rg-duplicate-complete"
+    _create_tenant(pg_session, tenant_id)
+    task = _create_task(pg_session, tenant_id)
+
+    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+    ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
+
+    runtime = WorkerRuntimeService(pg_session, queue_adapter)
+    claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+    assert claimed is not None
+
+    lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+    runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+    runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+    runtime.complete(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+    pg_session.flush()
+
+    first_completed_audit_count = len(
+        [action for action in _audit_actions(pg_session, tenant_id) if action == "task_completed"]
+    )
+
+    with pytest.raises(ValueError, match="task is not running"):
+        runtime.complete(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+
+    pg_session.refresh(task)
+    lease = pg_session.get(WorkerLease, lease_id)
+    assert lease is not None
+
+    second_completed_audit_count = len(
+        [action for action in _audit_actions(pg_session, tenant_id) if action == "task_completed"]
+    )
+
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task.id}") is None
+    assert first_completed_audit_count == 1
+    assert second_completed_audit_count == 1
+
+
 def test_rg_forced_failure_path(pg_session, queue_adapter, redis_client) -> None:
     tenant_id = str(uuid.uuid4())
     worker_id = "worker-rg-fail"
