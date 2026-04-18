@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
@@ -182,3 +183,55 @@ class TestLeaseRecoveryReal:
 
         pg_session.refresh(task)
         assert task.status == ExecutionTaskState.DEAD_LETTERED.value
+
+    def test_repeated_recovery_does_not_requeue_or_mutate_already_resolved_work(self, pg_session, queue_adapter) -> None:
+        """A second recovery run must not re-enqueue or re-mutate the same recovered task."""
+        mission = _make_mission("tenant-recovery-e")
+        pg_session.add(mission)
+        pg_session.flush()
+
+        task = _make_task("tenant-recovery-e", mission.id, ExecutionTaskState.RUNNING.value)
+        pg_session.add(task)
+        pg_session.flush()
+
+        lease = _make_expired_lease(task.id, "tenant-recovery-e")
+        pg_session.add(lease)
+        pg_session.flush()
+
+        maintainer = RuntimeMaintainer(
+            session=pg_session,
+            queue=queue_adapter,
+            expiry_seconds=30,
+            max_retries=3,
+        )
+
+        first_summary = maintainer.recover_expired_leases()
+        first_retry_count = task.retry_count
+
+        first_audit_count = pg_session.query(AuditEvent).filter(
+            AuditEvent.action == "lease_expired_task_requeued",
+            AuditEvent.payload_json["task_id"].astext == str(task.id),
+        ).count()
+
+        second_summary = maintainer.recover_expired_leases()
+
+        pg_session.refresh(task)
+        pg_session.refresh(lease)
+
+        second_audit_count = pg_session.query(AuditEvent).filter(
+            AuditEvent.action == "lease_expired_task_requeued",
+            AuditEvent.payload_json["task_id"].astext == str(task.id),
+        ).count()
+
+        assert first_summary.expired_lease_count == 1
+        assert first_summary.requeued_task_count == 1
+        assert first_summary.dead_lettered_count == 0
+        assert second_summary.expired_lease_count == 0
+        assert second_summary.requeued_task_count == 0
+        assert second_summary.dead_lettered_count == 0
+
+        assert task.status == ExecutionTaskState.QUEUED.value
+        assert lease.status == WorkerLeaseState.EXPIRED.value
+        assert task.retry_count == first_retry_count == 1
+        assert first_audit_count == 1
+        assert second_audit_count == 1
