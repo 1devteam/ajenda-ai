@@ -15,6 +15,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
+from backend.queue.base import QueueOperationResult
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
@@ -84,6 +85,35 @@ def test_rg_queue_admission_end_to_end(pg_session, queue_adapter, redis_client) 
     pending_len = redis_client.llen(f"ajenda:queue:{tenant_id}:pending")
     assert pending_len >= 1
     assert "queued" in _audit_actions(pg_session, tenant_id)
+
+
+def test_rg_queue_interruption_rolls_back_authoritative_state(
+    pg_session,
+    queue_adapter,
+    monkeypatch,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    _create_tenant(pg_session, tenant_id)
+    task = _create_task(pg_session, tenant_id)
+
+    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+
+    def interrupted_enqueue(*args, **kwargs) -> QueueOperationResult:
+        return QueueOperationResult(ok=False, reason="redis unavailable during enqueue")
+
+    monkeypatch.setattr(queue_adapter, "enqueue_task", interrupted_enqueue)
+
+    coordinator = ExecutionCoordinator(pg_session, queue_adapter)
+    with pytest.raises(ValueError, match="redis unavailable during enqueue"):
+        coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+
+    pg_session.refresh(task)
+    actions = _audit_actions(pg_session, tenant_id)
+
+    assert task.status == ExecutionTaskState.PLANNED.value
+    assert task.retry_count == 0
+    assert "queued" not in actions
+    assert "task_pending_review" not in actions
 
 
 def test_rg_happy_execution_flow(pg_session, queue_adapter, redis_client) -> None:
