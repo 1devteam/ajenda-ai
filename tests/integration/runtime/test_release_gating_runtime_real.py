@@ -158,6 +158,68 @@ def test_rg_queue_retry_after_transient_interruption_succeeds_cleanly(
     assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
 
 
+def test_rg_queued_work_survives_service_restart_boundary_and_claims_once(
+    pg_engine,
+    queue_adapter,
+    redis_client,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    worker_id = "worker-rg-restart-boundary"
+    session_factory = sessionmaker(
+        bind=pg_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    setup_session = session_factory()
+    try:
+        _create_tenant(setup_session, tenant_id)
+        task = _create_task(setup_session, tenant_id)
+        task_id = task.id
+
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+        result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            tenant_id=tenant_id,
+            task_id=task_id,
+        )
+        assert result.ok is True
+        setup_session.commit()
+    finally:
+        setup_session.close()
+
+    restart_session = session_factory()
+    try:
+        queued_task = restart_session.get(ExecutionTask, task_id)
+        assert queued_task is not None
+        assert queued_task.status == ExecutionTaskState.QUEUED.value
+        assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+
+        restarted_runtime = WorkerRuntimeService(restart_session, queue_adapter)
+        claimed = restarted_runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+        assert claimed is not None
+        restart_session.flush()
+
+        claimed_task = restart_session.get(ExecutionTask, task_id)
+        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+        lease = restart_session.get(WorkerLease, lease_id)
+
+        assert claimed_task is not None
+        assert claimed_task.status == ExecutionTaskState.CLAIMED.value
+        assert claimed_task.metadata_json["worker_lease_id"] == str(lease_id)
+        assert lease is not None
+        assert lease.status == WorkerLeaseState.CLAIMED.value
+    finally:
+        restart_session.close()
+
+    second_restart_session = session_factory()
+    try:
+        second_runtime = WorkerRuntimeService(second_restart_session, queue_adapter)
+        assert second_runtime.claim_next_task(tenant_id=tenant_id, worker_id="worker-rg-second-claim") is None
+    finally:
+        second_restart_session.close()
+
+
 def test_rg_happy_execution_flow(pg_session, queue_adapter, redis_client) -> None:
     tenant_id = str(uuid.uuid4())
     worker_id = "worker-rg-happy"
