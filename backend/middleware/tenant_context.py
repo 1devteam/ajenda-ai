@@ -44,9 +44,13 @@ _PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/readiness",
     "/system/health",  # infrastructure health probe — no tenant context
     "/system/readiness",  # infrastructure readiness probe — no tenant context
+    "/v1/system/health",  # versioned infrastructure health probe
+    "/v1/system/readiness",  # versioned infrastructure readiness probe
     "/operations/recovery",  # cross-tenant lease recovery — no tenant context
     "/v1/operations/recovery",  # same, with v1 prefix (production mount)
     "/metrics",
+    "/observability/metrics",
+    "/v1/observability/metrics",
     "/v1/admin",
     "/docs",
     "/redoc",
