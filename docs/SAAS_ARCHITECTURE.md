@@ -1,90 +1,207 @@
 # Ajenda AI — SaaS Structural Enforcement Architecture
 
-This document defines the production-grade SaaS enforcement boundaries for the Ajenda AI governed runtime. It ensures absolute tenant isolation, subscription tier enforcement, and usage metering across all layers of the system.
+This document defines the production-grade SaaS enforcement boundaries for Ajenda AI and explains how those guarantees relate to the governed runtime and its validation model.
 
-## 1. Tenant Isolation Boundaries
+Ajenda is not only intended to enforce tenant, policy, and operational boundaries. It is intended to prove that those boundaries hold through explicit validation and evidence collection.
 
-### 1.1 Database Layer (PostgreSQL RLS)
-- **Mechanism**: PostgreSQL Row-Level Security (RLS).
-- **Enforcement**: `app.current_tenant_id` session variable is set immediately upon connection checkout via SQLAlchemy events.
-- **Fail-Closed**: If the variable is unset, the RLS policy evaluates to `false` and returns 0 rows.
-- **Admin Bypass**: The `ajenda_admin` role bypasses RLS for system-wide operations (migrations, global metrics).
+---
 
-### 1.2 API Layer (Middleware)
-- **Mechanism**: `TenantContextMiddleware`.
-- **Enforcement**: Extracts `X-Tenant-Id` header (or from JWT claims). Validates it against the authenticated principal.
-- **Cross-Tenant Rejection**: If a user authenticated as Tenant A attempts to pass `X-Tenant-Id: Tenant B`, the request is rejected with HTTP 403 Forbidden before reaching any route logic.
+## 1. Purpose
 
-### 1.3 Service & Repository Layer
-- **Mechanism**: Explicit `tenant_id` parameters on all repository methods.
-- **Enforcement**: Repositories append `AND tenant_id = :tenant_id` to all queries, acting as a secondary defense-in-depth measure above RLS.
+Ajenda AI is a multi-tenant execution platform with SaaS governance requirements that include:
 
-### 1.4 Queue & Worker Layer
-- **Mechanism**: Tenant-partitioned queues or explicit `tenant_id` payload fields.
-- **Enforcement**: Workers assert the `tenant_id` of the claimed task matches the context they are operating under.
+- strong tenant isolation
+- subscription and quota enforcement
+- compliance-aware task admission
+- safe runtime execution and recovery
+- auditability and release confidence
 
-## 2. Subscription & Plan Enforcement
+The goal of the SaaS architecture is not only to describe enforcement boundaries, but to ensure those boundaries can be evaluated and trusted in production-like runtime conditions.
 
-### 2.1 Domain Models
-- `TenantPlan`: Defines limits (e.g., `max_agents`, `max_tasks_per_month`, `features_enabled`).
-- `TenantUsage`: Tracks current consumption.
+---
 
-### 2.2 Quota Middleware / Interceptors
-- **Mechanism**: `QuotaEnforcementService` injected into mutation routes (e.g., `POST /tasks`, `POST /workforces/provision`).
-- **Enforcement**: Checks `TenantUsage` against `TenantPlan`. Rejects with HTTP 402 Payment Required if limits are exceeded.
+## 2. Tenant isolation boundaries
 
-## 3. Tenant Lifecycle Management
+### 2.1 Database layer
 
-### 3.1 States
-- `ACTIVE`: Normal operation.
-- `SUSPENDED`: Read-only access, queue consumption paused, API mutations rejected (HTTP 403).
-- `DELETED`: Soft-deleted, data retained for compliance period, all access revoked.
+**Mechanism:** PostgreSQL Row-Level Security  
+**Intent:** tenant-scoped row visibility and mutation boundaries
 
-### 3.2 Control Plane
-- Internal admin routes (`/admin/tenants`) to manage lifecycle, plans, and overrides.
+Tenant-aware session context is required for RLS to be meaningful. If tenant context is absent, the isolation posture should fail closed.
 
-## 4. SaaS-Grade Upgrade Roadmap (Integrated)
+### 2.2 API layer
 
-The next strategic phase aligns platform hardening with monetization leverage and enterprise saleability.
+**Mechanism:** tenant-envelope and auth middleware
 
-### 4.1 Tenant-Aware Adaptive Rate Limiting
-- **Current state**: Static fixed-window limits.
-- **Upgrade**: Add plan-aware burst credits, adaptive refill rates, and route-class weighting (e.g., expensive AI actions vs. reads).
-- **Business value**: Better fairness at scale, clearer premium-tier differentiation, lower noisy-neighbor risk.
-- **Implementation hooks**:
-  - Extend `TenantPlan` with burst/refill parameters.
-  - Introduce policy engine for `(tenant, principal, route_class)` decisions.
-  - Emit limit decision telemetry for billing analytics and CS visibility.
+The API layer is responsible for:
 
-### 4.2 Policy-as-Code Control Plane (Compliance Upsell)
-- **Current state**: App-embedded compliance logic.
-- **Upgrade**: Externalize authorization/compliance policy to OPA/Rego or Cedar-style policy bundles.
-- **Business value**: Enterprise governance controls, auditable policy versions, shorter compliance sales cycles.
-- **Implementation hooks**:
-  - Add policy decision point (PDP) adapter interface.
-  - Version and sign policy bundles; support dry-run mode.
-  - Record decision traces in audit logs for SOC2/ISO evidence.
+- requiring tenant context where appropriate
+- rejecting malformed tenant IDs
+- rejecting suspended/deleted tenants
+- rejecting cross-tenant principals
+- preserving explicitly public routes where public access is intentional
 
-### 4.3 Customer Reliability Dashboard + Webhook Replay UX
-- **Current state**: Internal metrics and webhook delivery tables.
-- **Upgrade**: Tenant-facing SLO dashboard, per-endpoint delivery health, and one-click replay for failed webhook events.
-- **Business value**: Reduced support burden, improved trust, stronger integration stickiness.
-- **Implementation hooks**:
-  - Publish tenant-scoped reliability aggregates (latency, success rate, retry depth).
-  - Add signed replay endpoint with idempotent safeguards.
-  - Surface incident timeline and actionable remediation guidance.
+### 2.3 Service and repository layer
 
-### 4.4 Progressive Delivery (Canary + SLO Auto-Rollback)
-- **Current state**: Conventional CI gates and image publishing.
-- **Upgrade**: Canary deployments with automated SLO guardrails and rollback policies.
-- **Business value**: Faster safe releases, lower production incident blast radius.
-- **Implementation hooks**:
-  - Define release metrics contract (`error_rate`, `p95_latency`, `queue_lag`).
-  - Add rollout controller integration (ECS/K8s compatible).
-  - Gate promotion on objective SLO thresholds.
+**Mechanism:** tenant-aware business logic and repository access patterns
 
-### 4.5 Sequencing Recommendation
-1. Adaptive rate limiting (direct revenue + platform stability).
-2. Reliability dashboard + webhook replay (customer-facing confidence win).
-3. Progressive delivery automation (operational safety multiplier).
-4. Policy-as-code control plane (enterprise compliance expansion).
+This acts as defense in depth above the HTTP and database boundaries.
+
+### 2.4 Queue and worker layer
+
+**Mechanism:** tenant-aware queue partitioning / tenant-scoped payload handling and worker checks
+
+Workers must not execute out-of-scope tenant work.
+
+---
+
+## 3. Subscription and plan enforcement
+
+### 3.1 Domain model posture
+
+Ajenda’s SaaS model includes tenant plans, tenant usage, and route-level or operation-level quota enforcement.
+
+### 3.2 Enforcement posture
+
+Quota and feature enforcement should reject disallowed mutation paths before work enters authoritative runtime processing.
+
+This keeps monetization and fairness controls aligned with runtime safety.
+
+---
+
+## 4. Tenant lifecycle management
+
+Lifecycle states include:
+
+- `ACTIVE`
+- `SUSPENDED`
+- `DELETED`
+
+Lifecycle state affects:
+
+- access
+- mutation legality
+- operational behavior
+- tenant-scoped runtime expectations
+
+---
+
+## 5. Compliance and governance posture
+
+Ajenda includes a compliance-aware queue admission path.
+
+This means:
+
+- unsafe or review-required work does not simply enter the queue unchecked
+- policy evaluation can route work into `PENDING_REVIEW`
+- governance and audit evidence are part of the system truth
+
+This is important for enterprise saleability because governance cannot be a detached afterthought. It must participate in runtime authority.
+
+---
+
+## 6. Runtime authority and SaaS correctness
+
+The SaaS architecture is inseparable from runtime authority.
+
+Ajenda’s runtime correctness depends on:
+
+- queue admission correctness
+- lease ownership correctness
+- completion/failure correctness
+- recovery correctness
+- tenant-safe recovery and mutation behavior
+
+A SaaS system that enforces plans but cannot prove runtime safety is not enterprise-complete.
+
+---
+
+## 7. Runtime proof model
+
+Ajenda now includes a live runtime validation layer intended to validate critical guarantees across:
+
+- control plane
+- auth and tenant envelope
+- execution plane
+- recovery plane
+- integrity plane
+- observability/compliance plane
+
+That validation layer is the mechanism by which architecture intent becomes runtime evidence.
+
+This matters because:
+
+- tenant isolation must be proved, not assumed
+- recovery safety must be proved, not assumed
+- release decisions should be based on evidence, not architecture prose alone
+
+---
+
+## 8. Validation linkage for SaaS guarantees
+
+The most important SaaS guarantees should be tied to validation rows and evidence surfaces.
+
+Examples include:
+
+- public-vs-protected route correctness
+- missing tenant rejection
+- cross-tenant rejection
+- tenant-scoped queue admission
+- tenant-safe recovery behavior
+- no unauthorized cross-tenant runtime mutation
+- governance hold behavior for pending-review tasks
+- audit and evidence consistency
+
+This linkage is what turns the architecture into an operational trust model.
+
+---
+
+## 9. Current architecture-to-validation principle
+
+The right operating principle for Ajenda is:
+
+- architecture documents define intended guarantees
+- implementation defines actual behavior
+- validation matrix and artifacts define trusted proof of behavior
+
+All three matter, but release confidence should come from the last two, not the first alone.
+
+---
+
+## 10. SaaS-grade upgrade posture
+
+Ajenda’s longer-term SaaS/enterprise leverage still includes areas such as:
+
+- adaptive tenant-aware rate limiting
+- stronger policy-as-code control plane
+- tenant-facing operational/reliability visibility
+- progressive delivery with stronger release controls
+
+Those remain valuable, but they should build on a trusted runtime-proof foundation rather than substitute for it.
+
+---
+
+## 11. Current next architectural priority
+
+The next highest-value architectural move is to strengthen the runtime validation and release-governance layer so the SaaS guarantees described in this document are tied to explicit proof surfaces.
+
+That means:
+
+- a more authoritative validation matrix
+- clearer release semantics
+- stronger coverage/maturity classification
+- more deliberate proof of resilience, isolation, integrity, and forbidden outcomes
+
+---
+
+## 12. Summary
+
+Ajenda’s SaaS architecture should be understood as:
+
+- tenant enforcement boundaries
+- plan and lifecycle governance
+- compliance-aware runtime admission
+- queue/lease/recovery safety
+- and an evidence-backed runtime-proof model that validates whether those guarantees still hold
+
+That final layer is what moves the system toward enterprise-grade operational credibility.
