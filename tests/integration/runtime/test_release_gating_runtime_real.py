@@ -220,6 +220,261 @@ def test_rg_queued_work_survives_service_restart_boundary_and_claims_once(
         second_restart_session.close()
 
 
+def test_rg_claimed_lease_survives_restart_boundary_and_completes_once(
+    pg_engine,
+    queue_adapter,
+    redis_client,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    worker_id = "worker-rg-claimed-restart"
+    session_factory = sessionmaker(
+        bind=pg_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    setup_session = session_factory()
+    try:
+        _create_tenant(setup_session, tenant_id)
+        task = _create_task(setup_session, tenant_id)
+        task_id = task.id
+
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+        result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            tenant_id=tenant_id,
+            task_id=task_id,
+        )
+        assert result.ok is True
+
+        runtime = WorkerRuntimeService(setup_session, queue_adapter)
+        claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+        assert claimed is not None
+        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+        setup_session.commit()
+    finally:
+        setup_session.close()
+
+    restart_session = session_factory()
+    try:
+        claimed_task = restart_session.get(ExecutionTask, task_id)
+        lease = restart_session.get(WorkerLease, lease_id)
+        assert claimed_task is not None
+        assert lease is not None
+        assert claimed_task.status == ExecutionTaskState.CLAIMED.value
+        assert lease.status == WorkerLeaseState.CLAIMED.value
+
+        restarted_runtime = WorkerRuntimeService(restart_session, queue_adapter)
+        started = restarted_runtime.start_execution(
+            tenant_id=tenant_id,
+            lease_id=lease_id,
+            worker_id=worker_id,
+        )
+        assert started.status == ExecutionTaskState.RUNNING.value
+
+        completed = restarted_runtime.complete(
+            tenant_id=tenant_id,
+            lease_id=lease_id,
+            worker_id=worker_id,
+        )
+        restart_session.flush()
+
+        final_task = restart_session.get(ExecutionTask, task_id)
+        final_lease = restart_session.get(WorkerLease, lease_id)
+        actions = _audit_actions(restart_session, tenant_id)
+
+        assert completed.status == ExecutionTaskState.COMPLETED.value
+        assert final_task is not None
+        assert final_task.status == ExecutionTaskState.COMPLETED.value
+        assert final_lease is not None
+        assert final_lease.status == WorkerLeaseState.RELEASED.value
+        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
+        assert actions.count("task_completed") == 1
+    finally:
+        restart_session.close()
+
+    second_restart_session = session_factory()
+    try:
+        second_runtime = WorkerRuntimeService(second_restart_session, queue_adapter)
+        with pytest.raises(ValueError, match="task is not running"):
+            second_runtime.complete(
+                tenant_id=tenant_id,
+                lease_id=lease_id,
+                worker_id=worker_id,
+            )
+    finally:
+        second_restart_session.close()
+
+
+def test_rg_concurrent_claim_timing_yields_one_claim_and_one_lease(
+    pg_engine,
+    queue_adapter,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    session_factory = sessionmaker(
+        bind=pg_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    setup_session = session_factory()
+    try:
+        _create_tenant(setup_session, tenant_id)
+        task = _create_task(setup_session, tenant_id)
+        task_id = task.id
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+        result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            tenant_id=tenant_id,
+            task_id=task_id,
+        )
+        assert result.ok is True
+        setup_session.commit()
+    finally:
+        setup_session.close()
+
+    barrier = threading.Barrier(2)
+    results: dict[str, object] = {}
+
+    def claim(worker_name: str) -> None:
+        session = session_factory()
+        try:
+            runtime = WorkerRuntimeService(session, queue_adapter)
+            barrier.wait(timeout=5.0)
+            claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_name)
+            if claimed is not None:
+                session.flush()
+                results[worker_name] = str(claimed.id)
+            else:
+                results[worker_name] = None
+        finally:
+            session.close()
+
+    thread_a = threading.Thread(target=claim, args=("worker-rg-race-a",), daemon=True)
+    thread_b = threading.Thread(target=claim, args=("worker-rg-race-b",), daemon=True)
+    thread_a.start()
+    thread_b.start()
+    thread_a.join(timeout=5.0)
+    thread_b.join(timeout=5.0)
+    assert not thread_a.is_alive()
+    assert not thread_b.is_alive()
+
+    success_ids = [value for value in results.values() if value is not None]
+    assert success_ids == [str(task_id)]
+
+    verify_session = session_factory()
+    try:
+        verified_task = verify_session.get(ExecutionTask, task_id)
+        assert verified_task is not None
+        assert verified_task.status == ExecutionTaskState.CLAIMED.value
+        leases = verify_session.scalars(
+            select(WorkerLease).where(
+                WorkerLease.tenant_id == tenant_id,
+                WorkerLease.task_id == task_id,
+            )
+        ).all()
+        assert len(leases) == 1
+        assert leases[0].status == WorkerLeaseState.CLAIMED.value
+    finally:
+        verify_session.close()
+
+
+def test_rg_mixed_tenant_concurrent_claims_remain_isolated(
+    pg_engine,
+    queue_adapter,
+) -> None:
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    session_factory = sessionmaker(
+        bind=pg_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    setup_session = session_factory()
+    try:
+        _create_tenant(setup_session, tenant_a)
+        _create_tenant(setup_session, tenant_b)
+        task_a = _create_task(setup_session, tenant_a)
+        task_b = _create_task(setup_session, tenant_b)
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
+        result_a = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            tenant_id=tenant_a,
+            task_id=task_a.id,
+        )
+        result_b = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            tenant_id=tenant_b,
+            task_id=task_b.id,
+        )
+        assert result_a.ok is True
+        assert result_b.ok is True
+        setup_session.commit()
+    finally:
+        setup_session.close()
+
+    barrier = threading.Barrier(2)
+    results: dict[str, str | None] = {}
+
+    def claim(tenant_id: str, worker_name: str) -> None:
+        session = session_factory()
+        try:
+            runtime = WorkerRuntimeService(session, queue_adapter)
+            barrier.wait(timeout=5.0)
+            claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_name)
+            if claimed is not None:
+                session.flush()
+                results[tenant_id] = str(claimed.id)
+            else:
+                results[tenant_id] = None
+        finally:
+            session.close()
+
+    thread_a = threading.Thread(target=claim, args=(tenant_a, "worker-rg-tenant-a"), daemon=True)
+    thread_b = threading.Thread(target=claim, args=(tenant_b, "worker-rg-tenant-b"), daemon=True)
+    thread_a.start()
+    thread_b.start()
+    thread_a.join(timeout=5.0)
+    thread_b.join(timeout=5.0)
+    assert not thread_a.is_alive()
+    assert not thread_b.is_alive()
+
+    assert results[tenant_a] == str(task_a.id)
+    assert results[tenant_b] == str(task_b.id)
+
+    verify_session = session_factory()
+    try:
+        verified_task_a = verify_session.get(ExecutionTask, task_a.id)
+        verified_task_b = verify_session.get(ExecutionTask, task_b.id)
+        assert verified_task_a is not None
+        assert verified_task_b is not None
+        assert verified_task_a.tenant_id == tenant_a
+        assert verified_task_b.tenant_id == tenant_b
+        assert verified_task_a.status == ExecutionTaskState.CLAIMED.value
+        assert verified_task_b.status == ExecutionTaskState.CLAIMED.value
+
+        leases_a = verify_session.scalars(
+            select(WorkerLease).where(
+                WorkerLease.tenant_id == tenant_a,
+                WorkerLease.task_id == task_a.id,
+            )
+        ).all()
+        leases_b = verify_session.scalars(
+            select(WorkerLease).where(
+                WorkerLease.tenant_id == tenant_b,
+                WorkerLease.task_id == task_b.id,
+            )
+        ).all()
+        assert len(leases_a) == 1
+        assert len(leases_b) == 1
+        assert leases_a[0].task_id == task_a.id
+        assert leases_b[0].task_id == task_b.id
+    finally:
+        verify_session.close()
+
+
 def test_rg_happy_execution_flow(pg_session, queue_adapter, redis_client) -> None:
     tenant_id = str(uuid.uuid4())
     worker_id = "worker-rg-happy"
