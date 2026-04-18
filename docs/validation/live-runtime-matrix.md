@@ -315,7 +315,7 @@ Current broader scenario count: **29**
 | EX-04 | execution_plane | claim creates lease and records lease linkage | P1 | TENANT_SCOPED_MUTATION | implemented | integration_test | queued task and worker context | claim work | lease exists; task metadata links lease | claim without authoritative lease | DB | worker runtime service | local/isolated |
 | EX-05 | execution_plane | start execution transitions claimed to running | P1 | TENANT_SCOPED_MUTATION | implemented | integration_test | claimed task exists | start execution | running state | claimed work runs without transition | DB | worker runtime service | local/isolated |
 | EX-06 | execution_plane | complete transitions running to completed and drains processing | P1 | TENANT_SCOPED_MUTATION | evidence_backed | runner_and_integration | running task exists | complete work | completed + no processing leftovers | completed task still treated as in-flight | DB, Redis, audit, logs | worker runtime service | local/isolated |
-| EX-07 | integrity_plane | duplicate active lease claim rejected | P0 | TENANT_SCOPED_MUTATION | implemented | integration_test | active lease exists | attempt second claim | duplicate claim rejected | two active authoritative claimants | DB | `_assert_no_active_lease` in worker runtime service | local/isolated |
+| EX-07 | integrity_plane | duplicate active lease claim rejected | P0 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | active lease exists | attempt second claim | duplicate claim rejected and queue claim compensated without a new lease | two active authoritative claimants or queue claim stranded in processing | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 
 ### Failure + retry plane
 
@@ -338,7 +338,7 @@ Current broader scenario count: **29**
 
 | ID | Domain | Scenario | Priority | Safety Class | Matrix Status | Validation Backing | Preconditions | Action | Expected Result | Forbidden Result | Evidence Sources | Implementation Mapping | Execution Policy |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| IN-01 | integrity_plane | no duplicate active lease for same task | P0 | TENANT_SCOPED_MUTATION | implemented | integration_test | existing active lease | attempt second active ownership | duplicate ownership prevented | two active authoritative leases | DB | worker runtime service | local/isolated |
+| IN-01 | integrity_plane | no duplicate active lease for same task | P0 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | existing active lease | attempt second active ownership | duplicate ownership prevented and queue claim compensated cleanly | two active authoritative leases or queue claim stranded in processing | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | IN-02 | integrity_plane | completion leaves no queue-processing leftovers | P0 | TENANT_SCOPED_MUTATION | evidence_backed | runner_and_integration | completed task exists | inspect post-completion state | no processing leftovers | completed task remains in processing | DB, Redis | worker runtime service + runner RG-06 | local/isolated |
 | IN-03 | recovery_plane | recovery does not mutate healthy leases/tasks | P0 | GLOBAL_MUTATION | evidence_backed | runner_and_integration | healthy work present | run recovery | only stale work changes | healthy task drift | API, DB, audit | runtime maintainer + runner RG-11 | isolated_env_only |
 
@@ -400,6 +400,7 @@ The strongest current matrix surfaces are:
 - pending-review denial path
 - core tenant/auth boundary rejections
 - repeated recovery idempotency for already-resolved work
+- duplicate active lease rejection with clean queue compensation
 
 ### What remains less mature
 
