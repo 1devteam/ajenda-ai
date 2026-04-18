@@ -306,8 +306,6 @@ def test_rg_claimed_recovery(pg_session, queue_adapter, redis_client) -> None:
     pg_session.refresh(lease)
     assert task.status == ExecutionTaskState.QUEUED.value
     assert lease.status == WorkerLeaseState.EXPIRED.value
-    assert getattr(queue_adapter, 'peek_processing', None) is None or True
-
     assert "claimed_task_requeued_on_lease_expiry" in _audit_actions(pg_session, tenant_id)
 
 
