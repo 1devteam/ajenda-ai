@@ -283,7 +283,7 @@ Current release-gating set: `RG-01` through `RG-12`
 
 Broader matrix rows expand operational truth beyond release gates. They are important even when they are not promotion-blocking.
 
-Current broader scenario count: **35**
+Current broader scenario count: **37**
 
 ### Control plane
 
@@ -322,6 +322,8 @@ Current broader scenario count: **35**
 | EX-11 | resilience_plane | transient enqueue interruption clears and subsequent retry queues cleanly | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | task is queue-admissible and first enqueue attempt fails transiently before queue availability returns | fail first enqueue attempt, then retry queue admission after queue availability is restored | first attempt rolls back cleanly; second attempt reaches authoritative queued state with a single truthful queued audit | repeated retry leaves task stranded in pre-queue state or emits duplicate/false queued audit | DB, Redis, audit | `backend/services/execution_coordinator.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | EX-12 | resilience_plane | queued work survives service restart boundary and remains claimable exactly once | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | task has already reached authoritative queued state before service/session boundary is recreated | recreate service/session boundary, then claim queued work from fresh runtime context | queued task remains authoritative across restart boundary, produces a real lease on first claim, and is not claimable a second time | restart boundary loses queued work or allows duplicate post-restart claim | DB, Redis | `backend/services/execution_coordinator.py`, `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | EX-13 | resilience_plane | claimed lease survives service restart boundary and continues to a single clean completion | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | task is already claimed with authoritative lease before service/session boundary is recreated | recreate service/session boundary, continue execution under same lease, then complete from fresh runtime context | claimed lease and task survive restart boundary, complete once, release lease, and reject any second completion attempt | restart boundary loses claimed authority or allows duplicate completion after restart | DB, Redis, audit | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
+| EX-14 | resilience_plane | concurrent same-tenant claim timing yields exactly one claim and one authoritative lease | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a single queued task exists while two fresh runtime contexts attempt claim at the same time | issue concurrent claim attempts against the same tenant/task window | exactly one claim succeeds, the other gets no task, and only one claimed lease exists | timing race creates duplicate claimed authority or duplicate lease rows for the same task | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
+| EX-15 | resilience_plane | mixed-tenant concurrent claim pressure remains tenant-isolated | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | two tenants each have their own queued task while fresh runtime contexts claim concurrently | issue concurrent claim attempts for separate tenants at the same time | each worker claims only its own tenant task and each tenant gets exactly one lease for its own task | cross-tenant claim bleed or lease/task mismatch across tenants under concurrent pressure | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 
 ### Failure + retry plane
 
@@ -414,13 +416,15 @@ The strongest current matrix surfaces are:
 - transient queue reconnect recovery at the admission boundary
 - queued-state persistence across service restart boundary with single post-restart claim
 - claimed-lease continuity across service restart boundary with single clean completion
+- concurrent same-tenant claim timing yielding one claim and one lease
+- mixed-tenant concurrent claim isolation under live claim pressure
 
 ### What remains less mature
 
 The less mature current matrix areas are:
 
 - broader resilience-plane coverage
-- deeper mixed-tenant concurrency proof
+- deeper mixed-tenant concurrency proof beyond core claim isolation
 - stronger negative-space scenarios beyond core lease/recovery protections
 - broader dead-letter inspection/operational visibility proof
 - richer operational semantics around stale evidence and environment eligibility
