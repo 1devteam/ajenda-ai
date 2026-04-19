@@ -283,7 +283,7 @@ Current release-gating set: `RG-01` through `RG-12`
 
 Broader matrix rows expand operational truth beyond release gates. They are important even when they are not promotion-blocking.
 
-Current broader scenario count: **38**
+Current broader scenario count: **39**
 
 ### Control plane
 
@@ -325,6 +325,7 @@ Current broader scenario count: **38**
 | EX-14 | resilience_plane | concurrent same-tenant claim timing yields exactly one claim and one authoritative lease | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a single queued task exists while two fresh runtime contexts attempt claim at the same time | issue concurrent claim attempts against the same tenant/task window | exactly one claim succeeds, the other gets no task, and only one claimed lease exists | timing race creates duplicate claimed authority or duplicate lease rows for the same task | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | EX-15 | resilience_plane | mixed-tenant concurrent claim pressure remains tenant-isolated | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | two tenants each have their own queued task while fresh runtime contexts claim concurrently | issue concurrent claim attempts for separate tenants at the same time | each worker claims only its own tenant task and each tenant gets exactly one lease for its own task | cross-tenant claim bleed or lease/task mismatch across tenants under concurrent pressure | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | EX-16 | resilience_plane | same-tenant concurrent claim race leaves no duplicate processing residue after the losing side exits | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a single queued task exists while two fresh runtime contexts attempt a same-tenant claim race | issue concurrent claim attempts, let one win, then inspect processing and lease surfaces after the losing side exits | exactly one processing entry remains, exactly one lease key remains, and exactly one claimed DB lease exists for the task | losing-side race residue leaves duplicate processing state, duplicate lease markers, or lease/task mismatch | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_concurrent_claim_cleanup_real.py` | local/isolated |
+| EX-17 | resilience_plane | same-tenant claim-race winner later expires and recovery requeues once without recreating duplicate residue | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a same-tenant claim race has already resolved to one authoritative claimed lease and that winning lease later goes stale | expire the winning lease after the race, run bounded recovery, then inspect queue and lease surfaces | the task requeues once with one retry increment, processing residue is cleared, lease key is cleared, and no duplicate residue is recreated | post-race recovery duplicates requeue state, leaves stale processing markers, or recreates extra lease residue | DB, Redis | `backend/services/runtime_maintainer.py`, `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_concurrent_claim_cleanup_real.py` | local/isolated |
 
 ### Failure + retry plane
 
@@ -420,6 +421,7 @@ The strongest current matrix surfaces are:
 - concurrent same-tenant claim timing yielding one claim and one lease
 - mixed-tenant concurrent claim isolation under live claim pressure
 - same-tenant claim-race cleanup leaving one processing entry and one lease artifact set
+- post-race recovery requeue leaving no duplicate residue recreation
 
 ### What remains less mature
 
