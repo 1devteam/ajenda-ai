@@ -283,7 +283,7 @@ Current release-gating set: `RG-01` through `RG-12`
 
 Broader matrix rows expand operational truth beyond release gates. They are important even when they are not promotion-blocking.
 
-Current broader scenario count: **40**
+Current broader scenario count: **41**
 
 ### Control plane
 
@@ -327,6 +327,7 @@ Current broader scenario count: **40**
 | EX-16 | resilience_plane | same-tenant concurrent claim race leaves no duplicate processing residue after the losing side exits | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a single queued task exists while two fresh runtime contexts attempt a same-tenant claim race | issue concurrent claim attempts, let one win, then inspect processing and lease surfaces after the losing side exits | exactly one processing entry remains, exactly one lease key remains, and exactly one claimed DB lease exists for the task | losing-side race residue leaves duplicate processing state, duplicate lease markers, or lease/task mismatch | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_concurrent_claim_cleanup_real.py` | local/isolated |
 | EX-17 | resilience_plane | same-tenant claim-race winner later expires and recovery requeues once without recreating duplicate residue | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a same-tenant claim race has already resolved to one authoritative claimed lease and that winning lease later goes stale | expire the winning lease after the race, run bounded recovery, then inspect queue and lease surfaces | the task requeues once with one retry increment, processing residue is cleared, lease key is cleared, and no duplicate residue is recreated | post-race recovery duplicates requeue state, leaves stale processing markers, or recreates extra lease residue | DB, Redis | `backend/services/runtime_maintainer.py`, `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_concurrent_claim_cleanup_real.py` | local/isolated |
 | EX-18 | resilience_plane | previously raced work reaches retry exhaustion and dead-letters once without duplicate residue | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a same-tenant claim race has already resolved to one authoritative claimed lease and the winning work has reached retry exhaustion before stale-lease recovery runs | expire the winning exhausted lease after the race, run bounded recovery, then inspect dead-letter, queue, and lease surfaces | the task dead-letters once, no requeue occurs, processing residue is cleared, lease key is cleared, and no duplicate dead-letter residue is created | post-race exhaustion causes duplicate dead-lettering, duplicate requeue, stale processing markers, or extra lease residue | DB, Redis | `backend/services/runtime_maintainer.py`, `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_concurrent_claim_dead_letter_real.py` | local/isolated |
+| EX-19 | resilience_plane | same-tenant claim-race winner later completes cleanly without leaving duplicate terminal residue | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a same-tenant claim race has already resolved to one authoritative claimed lease and the winning claimant later completes the work | continue the winning task from the claimed lease through running to completion, then inspect processing, lease, and DB terminal surfaces | the task completes once, processing is drained, the lease key is cleared, and the single authoritative lease is released with no duplicate terminal residue | post-race completion leaves stale processing state, stale lease markers, or allows duplicate terminal cleanup artifacts | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_concurrent_claim_cleanup_real.py` | local/isolated |
 
 ### Failure + retry plane
 
@@ -424,6 +425,7 @@ The strongest current matrix surfaces are:
 - same-tenant claim-race cleanup leaving one processing entry and one lease artifact set
 - post-race recovery requeue leaving no duplicate residue recreation
 - post-race dead-letter exhaustion leaving one bounded terminal outcome with no duplicate residue
+- post-race completion leaving one clean terminal cleanup path with no duplicate residue
 
 ### What remains less mature
 
