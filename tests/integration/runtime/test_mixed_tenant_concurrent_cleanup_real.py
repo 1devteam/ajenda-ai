@@ -225,3 +225,80 @@ def test_rg_mixed_tenant_post_race_recovery_cleanup_stays_isolated(
         assert len(leases_b) == 1 and leases_b[0].status == WorkerLeaseState.EXPIRED.value
     finally:
         verify_session.close()
+
+
+def test_rg_mixed_tenant_post_race_dead_letter_cleanup_stays_isolated(
+    pg_engine,
+    queue_adapter,
+    redis_client,
+) -> None:
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    session_factory = sessionmaker(
+        bind=pg_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    setup_session = session_factory()
+    try:
+        _create_tenant(setup_session, tenant_a)
+        _create_tenant(setup_session, tenant_b)
+        task_a = _create_task(setup_session, tenant_a)
+        task_b = _create_task(setup_session, tenant_b)
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
+        assert ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_a, task_id=task_a.id).ok is True
+        assert ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_b, task_id=task_b.id).ok is True
+        setup_session.commit()
+    finally:
+        setup_session.close()
+
+    results = _claim_concurrently(session_factory, queue_adapter, (tenant_a, tenant_b))
+    assert results[tenant_a] == str(task_a.id)
+    assert results[tenant_b] == str(task_b.id)
+
+    recovery_session = session_factory()
+    try:
+        task_row_a = recovery_session.get(ExecutionTask, task_a.id)
+        task_row_b = recovery_session.get(ExecutionTask, task_b.id)
+        assert task_row_a is not None
+        assert task_row_b is not None
+        task_row_a.retry_count = 3
+        task_row_b.retry_count = 3
+        lease_a = recovery_session.get(WorkerLease, uuid.UUID(str(task_row_a.metadata_json["worker_lease_id"])))
+        lease_b = recovery_session.get(WorkerLease, uuid.UUID(str(task_row_b.metadata_json["worker_lease_id"])))
+        assert lease_a is not None
+        assert lease_b is not None
+        lease_a.heartbeat_at = datetime.now(UTC) - timedelta(minutes=10)
+        lease_b.heartbeat_at = datetime.now(UTC) - timedelta(minutes=10)
+        recovery_session.flush()
+
+        summary = RuntimeMaintainer(recovery_session, queue_adapter, expiry_seconds=30, max_retries=3).recover_expired_leases()
+        recovery_session.flush()
+        assert summary.expired_lease_count == 2
+        assert summary.requeued_task_count == 0
+        assert summary.dead_lettered_count == 2
+    finally:
+        recovery_session.close()
+
+    assert redis_client.llen(f"ajenda:queue:{tenant_a}:processing") == 0
+    assert redis_client.llen(f"ajenda:queue:{tenant_b}:processing") == 0
+    assert redis_client.get(f"ajenda:queue:{tenant_a}:lease:{task_a.id}") is None
+    assert redis_client.get(f"ajenda:queue:{tenant_b}:lease:{task_b.id}") is None
+    assert redis_client.llen(f"ajenda:queue:{tenant_a}:pending") == 0
+    assert redis_client.llen(f"ajenda:queue:{tenant_b}:pending") == 0
+
+    verify_session = session_factory()
+    try:
+        verified_a = verify_session.get(ExecutionTask, task_a.id)
+        verified_b = verify_session.get(ExecutionTask, task_b.id)
+        assert verified_a is not None and verified_a.status == ExecutionTaskState.DEAD_LETTERED.value
+        assert verified_b is not None and verified_b.status == ExecutionTaskState.DEAD_LETTERED.value
+        leases_a = verify_session.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_a, WorkerLease.task_id == task_a.id)).all()
+        leases_b = verify_session.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_b, WorkerLease.task_id == task_b.id)).all()
+        assert len(leases_a) == 1 and leases_a[0].status == WorkerLeaseState.EXPIRED.value
+        assert len(leases_b) == 1 and leases_b[0].status == WorkerLeaseState.EXPIRED.value
+    finally:
+        verify_session.close()
