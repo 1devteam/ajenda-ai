@@ -303,7 +303,7 @@ Current broader scenario count: **42**
 | AT-02 | auth_tenant_envelope | invalid tenant UUID rejected | P0 | SAFE_READ_ONLY | evidence_backed | contract_test | protected route available | send malformed tenant ID | 400 | malformed tenant passes envelope | API | tenant middleware | CI/local/shared_dev |
 | AT-03 | auth_tenant_envelope | missing auth rejected | P0 | SAFE_READ_ONLY | evidence_backed | contract_test | protected route available | omit auth on protected route | 401 | protected route accessible without auth | API | auth middleware | CI/local/shared_dev |
 | AT-04 | auth_tenant_envelope | cross-tenant principal rejected | P0 | SAFE_READ_ONLY | evidence_backed | contract_test | tenant A principal, tenant B envelope | invoke protected route | 403 | cross-tenant access allowed | API | auth middleware cross-tenant check | CI/local/shared_dev |
-| AT-05 | auth_tenant_envelope | public health/readiness/recovery remain publicly accessible | P1 | SAFE_READ_ONLY | partial | runner_and_contract | app reachable | invoke public routes without envelope | expected public access preserved | public infra/control routes inadvertently protected | API | tenant/auth public allowlists | CI/local/shared_dev |
+| AT-05 | auth_tenant_envelope | public health/readiness/recovery remain publicly accessible | P1 | partial | runner_and_contract | app reachable | invoke public routes without envelope | expected public access preserved | public infra/control routes inadvertently protected | API | tenant/auth public allowlists | CI/local/shared_dev |
 
 ### Execution plane
 
@@ -344,7 +344,7 @@ Current broader scenario count: **42**
 
 | ID | Domain | Scenario | Priority | Safety Class | Matrix Status | Validation Backing | Preconditions | Action | Expected Result | Forbidden Result | Evidence Sources | Implementation Mapping | Execution Policy |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| DL-01 | dead_letter_plane | dead-letter inspection is tenant-scoped | P1 | SAFE_READ_ONLY | documented | docs_only | dead-lettered work exists across tenants | inspect dead-letter data | tenant-scoped visibility only | cross-tenant dead-letter exposure | API, DB | operations/webhook visibility surfaces as applicable | CI/local/shared_dev |
+| DL-01 | dead_letter_plane | dead-letter inspection is tenant-scoped | P1 | SAFE_READ_ONLY | evidence_backed | contract_and_integration | dead-lettered work exists across tenants | inspect dead-letter data | tenant-scoped visibility only | cross-tenant dead-letter exposure | API, DB | `backend/api/routes/operations.py`, `backend/services/operations_service.py`, `tests/contract/operations/test_dead_letter_inspection_contract.py`, `tests/integration/operations/test_dead_letter_inspection_real.py` | CI/local/shared_dev |
 | DL-02 | dead_letter_plane | dead-letter retry legality enforced | P1 | TENANT_SCOPED_MUTATION | evidence_backed | contract_and_integration | illegal retry target | invoke retry | 400 and unchanged state | illegal mutation or enqueue | API, DB | operations service + contract/integration tests | local/isolated |
 
 ### Integrity plane
@@ -428,6 +428,7 @@ The strongest current matrix surfaces are:
 - post-race dead-letter exhaustion leaving one bounded terminal outcome with no duplicate residue
 - post-race completion leaving one clean terminal cleanup path with no duplicate residue
 - mixed-tenant post-race cleanup symmetry preserving isolated completion and recovery cleanup surfaces
+- tenant-scoped dead-letter inspection with contract and integration backing
 
 ### What remains less mature
 
@@ -436,7 +437,6 @@ The less mature current matrix areas are:
 - broader resilience-plane coverage
 - deeper mixed-tenant concurrency proof beyond core claim isolation
 - stronger negative-space scenarios beyond core lease/recovery protections
-- broader dead-letter inspection/operational visibility proof
 - richer operational semantics around stale evidence and environment eligibility
 
 These rows should remain visible rather than omitted.
