@@ -283,7 +283,7 @@ Current release-gating set: `RG-01` through `RG-12`
 
 Broader matrix rows expand operational truth beyond release gates. They are important even when they are not promotion-blocking.
 
-Current broader scenario count: **42**
+Current broader scenario count: **43**
 
 ### Control plane
 
@@ -329,6 +329,7 @@ Current broader scenario count: **42**
 | EX-18 | resilience_plane | previously raced work reaches retry exhaustion and dead-letters once without duplicate residue | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a same-tenant claim race has already resolved to one authoritative claimed lease and the winning work has reached retry exhaustion before stale-lease recovery runs | expire the winning exhausted lease after the race, run bounded recovery, then inspect dead-letter, queue, and lease surfaces | the task dead-letters once, no requeue occurs, processing residue is cleared, lease key is cleared, and no duplicate dead-letter residue is created | post-race exhaustion causes duplicate dead-lettering, duplicate requeue, stale processing markers, or extra lease residue | DB, Redis | `backend/services/runtime_maintainer.py`, `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_concurrent_claim_dead_letter_real.py` | local/isolated |
 | EX-19 | resilience_plane | same-tenant claim-race winner later completes cleanly without leaving duplicate terminal residue | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | a same-tenant claim race has already resolved to one authoritative claimed lease and the winning claimant later completes the work | continue the winning task from the claimed lease through running to completion, then inspect processing, lease, and DB terminal surfaces | the task completes once, processing is drained, the lease key is cleared, and the single authoritative lease is released with no duplicate terminal residue | post-race completion leaves stale processing state, stale lease markers, or allows duplicate terminal cleanup artifacts | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_concurrent_claim_cleanup_real.py` | local/isolated |
 | EX-20 | resilience_plane | mixed-tenant post-race cleanup symmetry preserves isolated completion and recovery cleanup surfaces | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | two tenants each have their own queued task, concurrent claims have resolved one authoritative lease per tenant, and each tenant then advances through its own cleanup path | continue one mixed-tenant race pair through completion cleanup and another through stale-lease recovery cleanup, then inspect per-tenant processing, lease, and terminal/requeue surfaces | each tenant cleans up only its own processing and lease surfaces, terminal or recovery outcomes stay isolated, and no cross-tenant cleanup bleed or residue appears | cleanup for one tenant drains, releases, expires, or requeues artifacts belonging to the other tenant, or leaves cross-tenant residue after mixed post-race cleanup | DB, Redis | `backend/services/runtime_maintainer.py`, `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_mixed_tenant_concurrent_cleanup_real.py` | local/isolated |
+| EX-21 | resilience_plane | mixed-tenant post-race dead-letter exhaustion stays isolated across cleanup surfaces | P1 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | two tenants each have their own queued task, concurrent claims have resolved one authoritative lease per tenant, and both winning tasks reach retry exhaustion before stale-lease recovery runs | expire both mixed-tenant winning leases at retry ceiling, run bounded recovery, then inspect per-tenant dead-letter, processing, lease-key, and pending surfaces | each tenant dead-letters only its own task once, processing and lease-key residue clears per tenant, no pending requeue appears, and no cross-tenant dead-letter cleanup bleed occurs | dead-letter cleanup for one tenant mutates, clears, or recreates queue or lease residue for the other tenant, or creates duplicate terminal residue across tenants | DB, Redis | `backend/services/runtime_maintainer.py`, `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_mixed_tenant_concurrent_cleanup_real.py` | local/isolated |
 
 ### Failure + retry plane
 
@@ -428,6 +429,7 @@ The strongest current matrix surfaces are:
 - post-race dead-letter exhaustion leaving one bounded terminal outcome with no duplicate residue
 - post-race completion leaving one clean terminal cleanup path with no duplicate residue
 - mixed-tenant post-race cleanup symmetry preserving isolated completion and recovery cleanup surfaces
+- mixed-tenant post-race dead-letter exhaustion preserving isolated terminal cleanup surfaces
 - tenant-scoped dead-letter inspection with contract and integration backing
 
 ### What remains less mature
