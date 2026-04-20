@@ -80,3 +80,16 @@ def test_dead_letter_inspection_excludes_non_dead_letter_rows_for_same_tenant(pg
             "status": ExecutionTaskState.DEAD_LETTERED.value,
         }
     ]
+
+
+def test_dead_letter_inspection_returns_empty_for_tenant_without_dead_letter_rows(pg_session, queue_adapter) -> None:
+    tenant_id = str(uuid.uuid4())
+    _create_tenant(pg_session, tenant_id)
+    _create_task(pg_session, tenant_id, status=ExecutionTaskState.COMPLETED)
+    _create_task(pg_session, tenant_id, status=ExecutionTaskState.QUEUED)
+    _create_task(pg_session, tenant_id, status=ExecutionTaskState.FAILED)
+    pg_session.flush()
+
+    rows = OperationsService(pg_session, queue_adapter).inspect_dead_letter(tenant_id=tenant_id)
+
+    assert rows == []
