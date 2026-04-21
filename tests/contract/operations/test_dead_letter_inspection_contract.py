@@ -27,7 +27,7 @@ class _EmptyInspectionOpsService:
         return []
 
 
-def _build_client(service) -> TestClient:
+def _build_client(monkeypatch, service: object) -> TestClient:
     app = FastAPI()
     app.include_router(router, prefix="/v1")
 
@@ -43,26 +43,16 @@ def _build_client(service) -> TestClient:
     app.dependency_overrides[get_request_tenant_id] = _tenant_dep
     app.dependency_overrides[get_tenant_db_session] = _db_dep
     app.dependency_overrides[get_queue_adapter] = _queue_dep
-    app.dependency_overrides.clear
 
-    app.router.on_startup.clear()
-    app.router.on_shutdown.clear()
-
-    app.dependency_overrides[get_request_tenant_id] = _tenant_dep
-    app.dependency_overrides[get_tenant_db_session] = _db_dep
-    app.dependency_overrides[get_queue_adapter] = _queue_dep
-
-    original_service = router
-    _ = original_service
-
-    import backend.api.routes.operations as operations_module
-
-    operations_module.OperationsService = lambda *_args, **_kwargs: service
+    monkeypatch.setattr(
+        "backend.api.routes.operations.OperationsService",
+        lambda *_args, **_kwargs: service,
+    )
     return TestClient(app, raise_server_exceptions=False)
 
 
-def test_dead_letter_inspection_route_returns_tenant_scoped_payload() -> None:
-    client = _build_client(_InspectionOpsService())
+def test_dead_letter_inspection_route_returns_tenant_scoped_payload(monkeypatch) -> None:
+    client = _build_client(monkeypatch, _InspectionOpsService())
     response = client.get("/v1/operations/dead-letter")
 
     assert response.status_code == 200
@@ -73,8 +63,8 @@ def test_dead_letter_inspection_route_returns_tenant_scoped_payload() -> None:
     assert "mission_id" in payload[0]
 
 
-def test_dead_letter_inspection_route_returns_empty_payload_when_no_dead_letter_rows_exist() -> None:
-    client = _build_client(_EmptyInspectionOpsService())
+def test_dead_letter_inspection_route_returns_empty_payload_when_no_dead_letter_rows_exist(monkeypatch) -> None:
+    client = _build_client(monkeypatch, _EmptyInspectionOpsService())
     response = client.get("/v1/operations/dead-letter")
 
     assert response.status_code == 200
