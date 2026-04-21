@@ -11,7 +11,7 @@ Task state machine (with 'recovering' state added in migration 0004,
 
     planned → queued | pending_review
     queued → claimed | cancelled
-    claimed → queued | running | cancelled
+    claimed → queued | running | cancelled | dead_lettered
     running → blocked | completed | failed | recovering
     recovering → queued | dead_lettered
     blocked → queued
@@ -21,6 +21,11 @@ Task state machine (with 'recovering' state added in migration 0004,
 The 'recovering' state is entered when a worker's lease expires while the
 task is in 'running' state. RuntimeMaintainer transitions running→recovering,
 then recovering→queued to re-enqueue for pickup by a healthy worker.
+
+A direct claimed→dead_lettered path is also permitted for bounded recovery
+when a task never started execution but has already exhausted its retry budget.
+This allows the runtime maintainer to terminalize stale claimed work without
+inventing a fake running/recovering history.
 
 The 'pending_review' state is entered by PolicyGuardian when a task requires
 human review before execution (e.g. employment decisions, financial decisions
@@ -81,7 +86,7 @@ class StateMachine:
     _TASK_ALLOWED: ClassVar[dict[str, set[str]]] = {
         "planned": {"queued", "pending_review"},
         "queued": {"claimed", "cancelled"},
-        "claimed": {"queued", "running", "cancelled"},
+        "claimed": {"queued", "running", "cancelled", "dead_lettered"},
         "running": {"blocked", "completed", "failed", "recovering"},
         # recovering: transient state entered when a worker crashes mid-execution.
         # The runtime_maintainer transitions stale running tasks into recovering
