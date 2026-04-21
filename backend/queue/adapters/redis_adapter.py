@@ -125,19 +125,6 @@ class RedisQueueAdapter(QueueAdapter):
             return QueueOperationResult(ok=False, reason=f"fail_task failed: {exc}")
 
     def release_lease(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
-        """Return a processing-queue payload back to pending and delete the lease key.
-
-        Steps:
-          1. Find the payload in the processing list.
-          2. If found, LREM it from processing and RPUSH it back to pending so the
-             task is retried rather than stranded forever.
-          3. DEL the lease heartbeat key regardless of whether the payload was found
-             (a concurrent maintainer may have already moved it).
-
-        This fixes the previous bug where only the lease key was deleted, leaving
-        the payload stranded in the processing list with no DB lease — invisible to
-        both workers and the RuntimeMaintainer.
-        """
         try:
             payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
             if payload is not None:
@@ -154,17 +141,23 @@ class RedisQueueAdapter(QueueAdapter):
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
         try:
             payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
-            if payload is None:
-                return QueueOperationResult(ok=False, reason="task not found in processing queue")
-            removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
-            if not isinstance(removed, int) or removed < 1:
-                return QueueOperationResult(ok=False, reason="processing payload was not removed")
+            if payload is not None:
+                removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
+                if not isinstance(removed, int) or removed < 1:
+                    return QueueOperationResult(ok=False, reason="processing payload was not removed")
+                envelope_payload: Any = json.loads(payload)
+            else:
+                envelope_payload = {
+                    "tenant_id": tenant_id,
+                    "task_id": str(task_id),
+                    "source": "runtime_recovery_without_processing_payload",
+                }
             envelope = json.dumps(
                 {
                     "task_id": str(task_id),
                     "reason": reason,
                     "moved_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                    "payload": json.loads(payload),
+                    "payload": envelope_payload,
                 },
                 separators=(",", ":"),
                 sort_keys=True,
