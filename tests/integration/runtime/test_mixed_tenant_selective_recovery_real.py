@@ -53,7 +53,11 @@ def _create_task(pg_session, tenant_id: str) -> ExecutionTask:
     return task
 
 
-def _claim_concurrently(session_factory, queue_adapter, tenant_ids: tuple[str, str]) -> dict[str, str | None]:
+def _claim_concurrently(
+    session_factory,
+    queue_adapter,
+    tenant_ids: tuple[str, str],
+) -> dict[str, str | None]:
     barrier = threading.Barrier(2)
     results: dict[str, str | None] = {}
 
@@ -62,7 +66,10 @@ def _claim_concurrently(session_factory, queue_adapter, tenant_ids: tuple[str, s
         try:
             runtime = WorkerRuntimeService(session, queue_adapter)
             barrier.wait(timeout=5.0)
-            claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_name)
+            claimed = runtime.claim_next_task(
+                tenant_id=tenant_id,
+                worker_id=worker_name,
+            )
             if claimed is not None:
                 session.flush()
                 results[tenant_id] = str(claimed.id)
@@ -72,8 +79,16 @@ def _claim_concurrently(session_factory, queue_adapter, tenant_ids: tuple[str, s
         finally:
             session.close()
 
-    thread_a = threading.Thread(target=claim, args=(tenant_ids[0], "worker-rg-mixed-a"), daemon=True)
-    thread_b = threading.Thread(target=claim, args=(tenant_ids[1], "worker-rg-mixed-b"), daemon=True)
+    thread_a = threading.Thread(
+        target=claim,
+        args=(tenant_ids[0], "worker-rg-mixed-a"),
+        daemon=True,
+    )
+    thread_b = threading.Thread(
+        target=claim,
+        args=(tenant_ids[1], "worker-rg-mixed-b"),
+        daemon=True,
+    )
     thread_a.start()
     thread_b.start()
     thread_a.join(timeout=5.0)
@@ -103,10 +118,26 @@ def test_rg_mixed_tenant_selective_recovery_leaves_healthy_claim_untouched(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
-        assert ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_a, task_id=task_a.id).ok is True
-        assert ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_b, task_id=task_b.id).ok is True
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(
+            uuid.UUID(tenant_a)
+        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(
+            uuid.UUID(tenant_b)
+        )
+        assert (
+            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+                tenant_id=tenant_a,
+                task_id=task_a.id,
+            ).ok
+            is True
+        )
+        assert (
+            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+                tenant_id=tenant_b,
+                task_id=task_b.id,
+            ).ok
+            is True
+        )
         setup_session.commit()
     finally:
         setup_session.close()
@@ -121,14 +152,25 @@ def test_rg_mixed_tenant_selective_recovery_leaves_healthy_claim_untouched(
         task_row_b = recovery_session.get(ExecutionTask, task_b.id)
         assert task_row_a is not None
         assert task_row_b is not None
-        lease_a = recovery_session.get(WorkerLease, uuid.UUID(str(task_row_a.metadata_json["worker_lease_id"])))
-        lease_b = recovery_session.get(WorkerLease, uuid.UUID(str(task_row_b.metadata_json["worker_lease_id"])))
+        lease_a = recovery_session.get(
+            WorkerLease,
+            uuid.UUID(str(task_row_a.metadata_json["worker_lease_id"])),
+        )
+        lease_b = recovery_session.get(
+            WorkerLease,
+            uuid.UUID(str(task_row_b.metadata_json["worker_lease_id"])),
+        )
         assert lease_a is not None
         assert lease_b is not None
         lease_b.heartbeat_at = datetime.now(UTC) - timedelta(minutes=10)
         recovery_session.flush()
 
-        summary = RuntimeMaintainer(recovery_session, queue_adapter, expiry_seconds=30, max_retries=3).recover_expired_leases()
+        summary = RuntimeMaintainer(
+            recovery_session,
+            queue_adapter,
+            expiry_seconds=30,
+            max_retries=3,
+        ).recover_expired_leases()
         recovery_session.flush()
         assert summary.expired_lease_count == 1
         assert summary.requeued_task_count == 1
@@ -147,12 +189,28 @@ def test_rg_mixed_tenant_selective_recovery_leaves_healthy_claim_untouched(
     try:
         verified_a = verify_session.get(ExecutionTask, task_a.id)
         verified_b = verify_session.get(ExecutionTask, task_b.id)
-        assert verified_a is not None and verified_a.status == ExecutionTaskState.CLAIMED.value and verified_a.retry_count == 0
-        assert verified_b is not None and verified_b.status == ExecutionTaskState.QUEUED.value and verified_b.retry_count == 1
-        leases_a = verify_session.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_a, WorkerLease.task_id == task_a.id)).all()
-        leases_b = verify_session.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_b, WorkerLease.task_id == task_b.id)).all()
-        assert len(leases_a) == 1 and leases_a[0].status == WorkerLeaseState.CLAIMED.value
-        assert len(leases_b) == 1 and leases_b[0].status == WorkerLeaseState.EXPIRED.value
+        assert verified_a is not None
+        assert verified_a.status == ExecutionTaskState.CLAIMED.value
+        assert verified_a.retry_count == 0
+        assert verified_b is not None
+        assert verified_b.status == ExecutionTaskState.QUEUED.value
+        assert verified_b.retry_count == 1
+        leases_a = verify_session.scalars(
+            select(WorkerLease).where(
+                WorkerLease.tenant_id == tenant_a,
+                WorkerLease.task_id == task_a.id,
+            )
+        ).all()
+        leases_b = verify_session.scalars(
+            select(WorkerLease).where(
+                WorkerLease.tenant_id == tenant_b,
+                WorkerLease.task_id == task_b.id,
+            )
+        ).all()
+        assert len(leases_a) == 1
+        assert leases_a[0].status == WorkerLeaseState.CLAIMED.value
+        assert len(leases_b) == 1
+        assert leases_b[0].status == WorkerLeaseState.EXPIRED.value
     finally:
         verify_session.close()
 
@@ -177,10 +235,26 @@ def test_rg_mixed_tenant_selective_recovery_dead_letters_only_expired_tenant(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
-        assert ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_a, task_id=task_a.id).ok is True
-        assert ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_b, task_id=task_b.id).ok is True
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(
+            uuid.UUID(tenant_a)
+        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(
+            uuid.UUID(tenant_b)
+        )
+        assert (
+            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+                tenant_id=tenant_a,
+                task_id=task_a.id,
+            ).ok
+            is True
+        )
+        assert (
+            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+                tenant_id=tenant_b,
+                task_id=task_b.id,
+            ).ok
+            is True
+        )
         setup_session.commit()
     finally:
         setup_session.close()
@@ -195,15 +269,26 @@ def test_rg_mixed_tenant_selective_recovery_dead_letters_only_expired_tenant(
         task_row_b = recovery_session.get(ExecutionTask, task_b.id)
         assert task_row_a is not None
         assert task_row_b is not None
-        lease_a = recovery_session.get(WorkerLease, uuid.UUID(str(task_row_a.metadata_json["worker_lease_id"])))
-        lease_b = recovery_session.get(WorkerLease, uuid.UUID(str(task_row_b.metadata_json["worker_lease_id"])))
+        lease_a = recovery_session.get(
+            WorkerLease,
+            uuid.UUID(str(task_row_a.metadata_json["worker_lease_id"])),
+        )
+        lease_b = recovery_session.get(
+            WorkerLease,
+            uuid.UUID(str(task_row_b.metadata_json["worker_lease_id"])),
+        )
         assert lease_a is not None
         assert lease_b is not None
         task_row_b.retry_count = 3
         lease_b.heartbeat_at = datetime.now(UTC) - timedelta(minutes=10)
         recovery_session.flush()
 
-        summary = RuntimeMaintainer(recovery_session, queue_adapter, expiry_seconds=30, max_retries=3).recover_expired_leases()
+        summary = RuntimeMaintainer(
+            recovery_session,
+            queue_adapter,
+            expiry_seconds=30,
+            max_retries=3,
+        ).recover_expired_leases()
         recovery_session.flush()
         assert summary.expired_lease_count == 1
         assert summary.requeued_task_count == 0
@@ -222,12 +307,28 @@ def test_rg_mixed_tenant_selective_recovery_dead_letters_only_expired_tenant(
     try:
         verified_a = verify_session.get(ExecutionTask, task_a.id)
         verified_b = verify_session.get(ExecutionTask, task_b.id)
-        assert verified_a is not None and verified_a.status == ExecutionTaskState.CLAIMED.value and verified_a.retry_count == 0
-        assert verified_b is not None and verified_b.status == ExecutionTaskState.DEAD_LETTERED.value and verified_b.retry_count == 3
-        leases_a = verify_session.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_a, WorkerLease.task_id == task_a.id)).all()
-        leases_b = verify_session.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_b, WorkerLease.task_id == task_b.id)).all()
-        assert len(leases_a) == 1 and leases_a[0].status == WorkerLeaseState.CLAIMED.value
-        assert len(leases_b) == 1 and leases_b[0].status == WorkerLeaseState.EXPIRED.value
+        assert verified_a is not None
+        assert verified_a.status == ExecutionTaskState.CLAIMED.value
+        assert verified_a.retry_count == 0
+        assert verified_b is not None
+        assert verified_b.status == ExecutionTaskState.DEAD_LETTERED.value
+        assert verified_b.retry_count == 3
+        leases_a = verify_session.scalars(
+            select(WorkerLease).where(
+                WorkerLease.tenant_id == tenant_a,
+                WorkerLease.task_id == task_a.id,
+            )
+        ).all()
+        leases_b = verify_session.scalars(
+            select(WorkerLease).where(
+                WorkerLease.tenant_id == tenant_b,
+                WorkerLease.task_id == task_b.id,
+            )
+        ).all()
+        assert len(leases_a) == 1
+        assert leases_a[0].status == WorkerLeaseState.CLAIMED.value
+        assert len(leases_b) == 1
+        assert leases_b[0].status == WorkerLeaseState.EXPIRED.value
     finally:
         verify_session.close()
 
@@ -252,10 +353,26 @@ def test_rg_mixed_tenant_selective_recovery_preserves_healthy_running_tenant(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
-        assert ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_a, task_id=task_a.id).ok is True
-        assert ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_b, task_id=task_b.id).ok is True
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(
+            uuid.UUID(tenant_a)
+        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(
+            uuid.UUID(tenant_b)
+        )
+        assert (
+            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+                tenant_id=tenant_a,
+                task_id=task_a.id,
+            ).ok
+            is True
+        )
+        assert (
+            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+                tenant_id=tenant_b,
+                task_id=task_b.id,
+            ).ok
+            is True
+        )
         setup_session.commit()
     finally:
         setup_session.close()
@@ -271,17 +388,32 @@ def test_rg_mixed_tenant_selective_recovery_preserves_healthy_running_tenant(
         task_row_b = mutation_session.get(ExecutionTask, task_b.id)
         assert task_row_a is not None
         assert task_row_b is not None
-        lease_a = mutation_session.get(WorkerLease, uuid.UUID(str(task_row_a.metadata_json["worker_lease_id"])))
-        lease_b = mutation_session.get(WorkerLease, uuid.UUID(str(task_row_b.metadata_json["worker_lease_id"])))
+        lease_a = mutation_session.get(
+            WorkerLease,
+            uuid.UUID(str(task_row_a.metadata_json["worker_lease_id"])),
+        )
+        lease_b = mutation_session.get(
+            WorkerLease,
+            uuid.UUID(str(task_row_b.metadata_json["worker_lease_id"])),
+        )
         assert lease_a is not None
         assert lease_b is not None
 
-        runtime.start_execution(tenant_id=tenant_a, lease_id=lease_a.id, worker_id="worker-rg-mixed-a")
+        runtime.start_execution(
+            tenant_id=tenant_a,
+            lease_id=lease_a.id,
+            worker_id="worker-rg-mixed-a",
+        )
         task_row_b.retry_count = 3
         lease_b.heartbeat_at = datetime.now(UTC) - timedelta(minutes=10)
         mutation_session.flush()
 
-        summary = RuntimeMaintainer(mutation_session, queue_adapter, expiry_seconds=30, max_retries=3).recover_expired_leases()
+        summary = RuntimeMaintainer(
+            mutation_session,
+            queue_adapter,
+            expiry_seconds=30,
+            max_retries=3,
+        ).recover_expired_leases()
         mutation_session.flush()
         assert summary.expired_lease_count == 1
         assert summary.requeued_task_count == 0
@@ -300,11 +432,27 @@ def test_rg_mixed_tenant_selective_recovery_preserves_healthy_running_tenant(
     try:
         verified_a = verify_session.get(ExecutionTask, task_a.id)
         verified_b = verify_session.get(ExecutionTask, task_b.id)
-        assert verified_a is not None and verified_a.status == ExecutionTaskState.RUNNING.value and verified_a.retry_count == 0
-        assert verified_b is not None and verified_b.status == ExecutionTaskState.DEAD_LETTERED.value and verified_b.retry_count == 3
-        leases_a = verify_session.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_a, WorkerLease.task_id == task_a.id)).all()
-        leases_b = verify_session.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_b, WorkerLease.task_id == task_b.id)).all()
-        assert len(leases_a) == 1 and leases_a[0].status == WorkerLeaseState.ACTIVE.value
-        assert len(leases_b) == 1 and leases_b[0].status == WorkerLeaseState.EXPIRED.value
+        assert verified_a is not None
+        assert verified_a.status == ExecutionTaskState.RUNNING.value
+        assert verified_a.retry_count == 0
+        assert verified_b is not None
+        assert verified_b.status == ExecutionTaskState.DEAD_LETTERED.value
+        assert verified_b.retry_count == 3
+        leases_a = verify_session.scalars(
+            select(WorkerLease).where(
+                WorkerLease.tenant_id == tenant_a,
+                WorkerLease.task_id == task_a.id,
+            )
+        ).all()
+        leases_b = verify_session.scalars(
+            select(WorkerLease).where(
+                WorkerLease.tenant_id == tenant_b,
+                WorkerLease.task_id == task_b.id,
+            )
+        ).all()
+        assert len(leases_a) == 1
+        assert leases_a[0].status == WorkerLeaseState.ACTIVE.value
+        assert len(leases_b) == 1
+        assert leases_b[0].status == WorkerLeaseState.EXPIRED.value
     finally:
         verify_session.close()
