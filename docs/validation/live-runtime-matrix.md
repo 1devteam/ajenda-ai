@@ -283,7 +283,7 @@ Current release-gating set: `RG-01` through `RG-12`
 
 Broader matrix rows expand operational truth beyond release gates. They are important even when they are not promotion-blocking.
 
-Current broader scenario count: **48**
+Current broader scenario count: **49**
 
 ### Control plane
 
@@ -352,6 +352,7 @@ Current broader scenario count: **48**
 | DL-01 | dead_letter_plane | dead-letter inspection is tenant-scoped | P1 | SAFE_READ_ONLY | evidence_backed | contract_and_integration | dead-lettered work exists across tenants | inspect dead-letter data | tenant-scoped visibility only | cross-tenant dead-letter exposure | API, DB | `backend/api/routes/operations.py`, `backend/services/operations_service.py`, `tests/contract/operations/test_dead_letter_inspection_contract.py`, `tests/integration/operations/test_dead_letter_inspection_real.py` | CI/local/shared_dev |
 | DL-02 | dead_letter_plane | dead-letter retry legality enforced | P1 | TENANT_SCOPED_MUTATION | evidence_backed | contract_and_integration | illegal retry target | invoke retry | 400 and unchanged state | illegal mutation or enqueue | API, DB | operations service + contract/integration tests | local/isolated |
 | DL-03 | dead_letter_plane | dead-letter inspection excludes non-dead-letter rows even when the tenant has mixed terminal and non-terminal work | P2 | SAFE_READ_ONLY | evidence_backed | integration_test | a tenant has dead-letter, completed, queued, and failed tasks at the same time | inspect dead-letter data for that tenant | only dead-lettered rows are returned for that tenant | inspection leaks non-dead-letter rows into dead-letter operational visibility | DB | `backend/services/operations_service.py`, `tests/integration/operations/test_dead_letter_inspection_real.py` | CI/local/shared_dev |
+| DL-04 | dead_letter_plane | dead-letter inspection returns an empty result for a tenant with no dead-lettered work | P2 | SAFE_READ_ONLY | evidence_backed | integration_test | a tenant has terminal or in-flight work but no dead-letter rows | inspect dead-letter data for that tenant | empty result set is returned | inspection fabricates dead-letter visibility or leaks non-dead-letter rows when none exist | DB | `backend/services/operations_service.py`, `tests/integration/operations/test_dead_letter_inspection_real.py` | CI/local/shared_dev |
 
 ### Integrity plane
 
@@ -441,6 +442,7 @@ The strongest current matrix surfaces are:
 - mixed-tenant selective recovery preserving a healthy running tenant while terminalizing only the expired exhausted peer
 - tenant-scoped dead-letter inspection with contract and integration backing
 - dead-letter inspection filtering out non-dead-letter rows under mixed tenant task states
+- dead-letter inspection returning an empty result when a tenant has no dead-letter work
 
 ### What remains less mature
 
