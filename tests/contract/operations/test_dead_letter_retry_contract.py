@@ -26,7 +26,7 @@ class _RecordingRetryOpsService:
 
     def retry_dead_letter(self, **kwargs):
         self.calls.append(kwargs)
-        return {"ok": True}
+        return {"task_id": str(kwargs["task_id"]), "status": "queued"}
 
 
 def test_rg_dead_letter_retry_returns_400_on_illegal_transition(monkeypatch) -> None:
