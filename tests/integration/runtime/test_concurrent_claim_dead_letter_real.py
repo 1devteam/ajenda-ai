@@ -71,7 +71,9 @@ def test_rg_previously_raced_work_dead_letters_once_at_recovery_exhaustion(
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(
+            uuid.UUID(tenant_id)
+        )
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -89,7 +91,10 @@ def test_rg_previously_raced_work_dead_letters_once_at_recovery_exhaustion(
         try:
             runtime = WorkerRuntimeService(session, queue_adapter)
             barrier.wait(timeout=5.0)
-            claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_name)
+            claimed = runtime.claim_next_task(
+                tenant_id=tenant_id,
+                worker_id=worker_name,
+            )
             if claimed is not None:
                 session.flush()
                 results[worker_name] = str(claimed.id)
@@ -99,8 +104,16 @@ def test_rg_previously_raced_work_dead_letters_once_at_recovery_exhaustion(
         finally:
             session.close()
 
-    thread_a = threading.Thread(target=claim, args=("worker-rg-dead-letter-a",), daemon=True)
-    thread_b = threading.Thread(target=claim, args=("worker-rg-dead-letter-b",), daemon=True)
+    thread_a = threading.Thread(
+        target=claim,
+        args=("worker-rg-dead-letter-a",),
+        daemon=True,
+    )
+    thread_b = threading.Thread(
+        target=claim,
+        args=("worker-rg-dead-letter-b",),
+        daemon=True,
+    )
     thread_a.start()
     thread_b.start()
     thread_a.join(timeout=5.0)
@@ -108,7 +121,11 @@ def test_rg_previously_raced_work_dead_letters_once_at_recovery_exhaustion(
     assert not thread_a.is_alive()
     assert not thread_b.is_alive()
 
-    winners = [worker_name for worker_name, task_value in results.items() if task_value == str(task_id)]
+    winners = [
+        worker_name
+        for worker_name, task_value in results.items()
+        if task_value == str(task_id)
+    ]
     assert len(winners) == 1
 
     exhaust_session = session_factory()
@@ -122,7 +139,12 @@ def test_rg_previously_raced_work_dead_letters_once_at_recovery_exhaustion(
         lease.heartbeat_at = datetime.now(UTC) - timedelta(minutes=10)
         exhaust_session.flush()
 
-        summary = RuntimeMaintainer(exhaust_session, queue_adapter, expiry_seconds=30, max_retries=3).recover_expired_leases()
+        summary = RuntimeMaintainer(
+            exhaust_session,
+            queue_adapter,
+            expiry_seconds=30,
+            max_retries=3,
+        ).recover_expired_leases()
         exhaust_session.flush()
 
         assert summary.expired_lease_count == 1
