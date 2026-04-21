@@ -283,7 +283,7 @@ Current release-gating set: `RG-01` through `RG-12`
 
 Broader matrix rows expand operational truth beyond release gates. They are important even when they are not promotion-blocking.
 
-Current broader scenario count: **51**
+Current broader scenario count: **52**
 
 ### Control plane
 
@@ -344,6 +344,7 @@ Current broader scenario count: **51**
 | FR-03 | recovery_plane | stale running lease recovers with retry increment | P1 | GLOBAL_MUTATION | evidence_backed | runner_and_integration | expired running lease with retries remaining | run recovery | queued with incremented retry count | recovery without retry accounting | API, DB, audit | runtime maintainer | isolated_env_only |
 | FR-04 | recovery_plane | retry exhaustion dead-letters stale running work | P1 | GLOBAL_MUTATION | evidence_backed | integration_test | expired running lease at retry ceiling | run recovery | dead-lettered state | infinite recovery loop | DB, audit | runtime maintainer | isolated_env_only |
 | FR-05 | recovery_plane | recovery is idempotent for already-resolved expired work | P0 | GLOBAL_MUTATION | evidence_backed | integration_test | recovered or expired/resolved work present | run recovery again | no double increment / no double enqueue | repeated mutation of resolved work | DB, Redis, audit | runtime maintainer, `tests/integration/runtime/test_lease_recovery_real.py` | isolated_env_only |
+| FR-06 | recovery_plane | recovery route returns the full bounded summary including dead-letter outcomes | P2 | SAFE_READ_ONLY | evidence_backed | contract_test | recovery route is invoked through the API boundary and the service returns a populated recovery summary | POST `/v1/operations/recovery` and inspect the response payload | response exposes `expired_lease_count`, `requeued_task_count`, and `dead_lettered_count` exactly as returned by the service boundary | recovery route drops dead-letter outcomes or rewrites the bounded summary emitted by the service | API | `backend/api/routes/operations.py`, `tests/contract/operations/test_recovery_contract.py` | CI/local/shared_dev |
 
 ### Dead-letter plane
 
@@ -419,6 +420,7 @@ The strongest current matrix surfaces are:
 - completion/failure evidence
 - claimed/running recovery paths
 - recovery safety
+- recovery route summary exposure including bounded dead-letter counts
 - pending-review denial path
 - core tenant/auth boundary rejections
 - repeated recovery idempotency for already-resolved work
