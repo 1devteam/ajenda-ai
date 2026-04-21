@@ -25,8 +25,17 @@ def _create_tenant(pg_session, tenant_id: str) -> Tenant:
     return tenant
 
 
-def _create_task(pg_session, tenant_id: str, *, status: ExecutionTaskState) -> ExecutionTask:
-    mission = Mission(tenant_id=tenant_id, objective="dead letter mission", status="running")
+def _create_task(
+    pg_session,
+    tenant_id: str,
+    *,
+    status: ExecutionTaskState,
+) -> ExecutionTask:
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="dead letter mission",
+        status="running",
+    )
     pg_session.add(mission)
     pg_session.flush()
     task = ExecutionTask(
@@ -45,16 +54,29 @@ def _create_task(pg_session, tenant_id: str, *, status: ExecutionTaskState) -> E
     return task
 
 
-def test_dead_letter_inspection_returns_only_requested_tenant_rows(pg_session, queue_adapter) -> None:
+def test_dead_letter_inspection_returns_only_requested_tenant_rows(
+    pg_session,
+    queue_adapter,
+) -> None:
     tenant_a = str(uuid.uuid4())
     tenant_b = str(uuid.uuid4())
     _create_tenant(pg_session, tenant_a)
     _create_tenant(pg_session, tenant_b)
-    task_a = _create_task(pg_session, tenant_a, status=ExecutionTaskState.DEAD_LETTERED)
-    _create_task(pg_session, tenant_b, status=ExecutionTaskState.DEAD_LETTERED)
+    task_a = _create_task(
+        pg_session,
+        tenant_a,
+        status=ExecutionTaskState.DEAD_LETTERED,
+    )
+    _create_task(
+        pg_session,
+        tenant_b,
+        status=ExecutionTaskState.DEAD_LETTERED,
+    )
     pg_session.flush()
 
-    rows = OperationsService(pg_session, queue_adapter).inspect_dead_letter(tenant_id=tenant_a)
+    rows = OperationsService(pg_session, queue_adapter).inspect_dead_letter(
+        tenant_id=tenant_a,
+    )
 
     assert len(rows) == 1
     assert rows[0]["task_id"] == str(task_a.id)
@@ -62,16 +84,37 @@ def test_dead_letter_inspection_returns_only_requested_tenant_rows(pg_session, q
     assert rows[0]["status"] == ExecutionTaskState.DEAD_LETTERED.value
 
 
-def test_dead_letter_inspection_excludes_non_dead_letter_rows_for_same_tenant(pg_session, queue_adapter) -> None:
+def test_dead_letter_inspection_excludes_non_dead_letter_rows_for_same_tenant(
+    pg_session,
+    queue_adapter,
+) -> None:
     tenant_id = str(uuid.uuid4())
     _create_tenant(pg_session, tenant_id)
-    dead_letter_task = _create_task(pg_session, tenant_id, status=ExecutionTaskState.DEAD_LETTERED)
-    _create_task(pg_session, tenant_id, status=ExecutionTaskState.COMPLETED)
-    _create_task(pg_session, tenant_id, status=ExecutionTaskState.QUEUED)
-    _create_task(pg_session, tenant_id, status=ExecutionTaskState.FAILED)
+    dead_letter_task = _create_task(
+        pg_session,
+        tenant_id,
+        status=ExecutionTaskState.DEAD_LETTERED,
+    )
+    _create_task(
+        pg_session,
+        tenant_id,
+        status=ExecutionTaskState.COMPLETED,
+    )
+    _create_task(
+        pg_session,
+        tenant_id,
+        status=ExecutionTaskState.QUEUED,
+    )
+    _create_task(
+        pg_session,
+        tenant_id,
+        status=ExecutionTaskState.FAILED,
+    )
     pg_session.flush()
 
-    rows = OperationsService(pg_session, queue_adapter).inspect_dead_letter(tenant_id=tenant_id)
+    rows = OperationsService(pg_session, queue_adapter).inspect_dead_letter(
+        tenant_id=tenant_id,
+    )
 
     assert rows == [
         {
@@ -82,29 +125,63 @@ def test_dead_letter_inspection_excludes_non_dead_letter_rows_for_same_tenant(pg
     ]
 
 
-def test_dead_letter_inspection_returns_empty_for_tenant_without_dead_letter_rows(pg_session, queue_adapter) -> None:
+def test_dead_letter_inspection_returns_empty_for_tenant_without_dead_letter_rows(
+    pg_session,
+    queue_adapter,
+) -> None:
     tenant_id = str(uuid.uuid4())
     _create_tenant(pg_session, tenant_id)
-    _create_task(pg_session, tenant_id, status=ExecutionTaskState.COMPLETED)
-    _create_task(pg_session, tenant_id, status=ExecutionTaskState.QUEUED)
-    _create_task(pg_session, tenant_id, status=ExecutionTaskState.FAILED)
+    _create_task(
+        pg_session,
+        tenant_id,
+        status=ExecutionTaskState.COMPLETED,
+    )
+    _create_task(
+        pg_session,
+        tenant_id,
+        status=ExecutionTaskState.QUEUED,
+    )
+    _create_task(
+        pg_session,
+        tenant_id,
+        status=ExecutionTaskState.FAILED,
+    )
     pg_session.flush()
 
-    rows = OperationsService(pg_session, queue_adapter).inspect_dead_letter(tenant_id=tenant_id)
+    rows = OperationsService(pg_session, queue_adapter).inspect_dead_letter(
+        tenant_id=tenant_id,
+    )
 
     assert rows == []
 
 
-def test_dead_letter_inspection_returns_empty_when_only_other_tenant_has_dead_letter_rows(pg_session, queue_adapter) -> None:
+def test_dead_letter_inspection_returns_empty_when_only_other_tenant_has_dead_letter_rows(
+    pg_session,
+    queue_adapter,
+) -> None:
     tenant_a = str(uuid.uuid4())
     tenant_b = str(uuid.uuid4())
     _create_tenant(pg_session, tenant_a)
     _create_tenant(pg_session, tenant_b)
-    _create_task(pg_session, tenant_a, status=ExecutionTaskState.COMPLETED)
-    _create_task(pg_session, tenant_a, status=ExecutionTaskState.FAILED)
-    _create_task(pg_session, tenant_b, status=ExecutionTaskState.DEAD_LETTERED)
+    _create_task(
+        pg_session,
+        tenant_a,
+        status=ExecutionTaskState.COMPLETED,
+    )
+    _create_task(
+        pg_session,
+        tenant_a,
+        status=ExecutionTaskState.FAILED,
+    )
+    _create_task(
+        pg_session,
+        tenant_b,
+        status=ExecutionTaskState.DEAD_LETTERED,
+    )
     pg_session.flush()
 
-    rows = OperationsService(pg_session, queue_adapter).inspect_dead_letter(tenant_id=tenant_a)
+    rows = OperationsService(pg_session, queue_adapter).inspect_dead_letter(
+        tenant_id=tenant_a,
+    )
 
     assert rows == []
