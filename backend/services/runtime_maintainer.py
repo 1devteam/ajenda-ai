@@ -12,7 +12,7 @@ Recovery path (with 'recovering' state from migration 0004):
        claimed → queued      (direct re-queue, no recovering intermediate)
   4. Use the queue adapter as the runtime authority to either release the lease
      back to pending or move the payload to dead-letter.
-  5. Write an AuditEvent for observability.
+  5. Persist the bounded control-plane operation and write an AuditEvent.
 
 The 'recovering' intermediate state provides:
 - Observability: operators can see tasks being recovered vs freshly queued
@@ -265,6 +265,7 @@ class RuntimeMaintainer:
                     )
 
         self._session.flush()
+        self._session.commit()
 
         logger.info(
             "runtime_maintainer_recovery_complete",
