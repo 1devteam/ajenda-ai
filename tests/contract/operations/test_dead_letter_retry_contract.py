@@ -22,7 +22,7 @@ class _RejectingOpsService:
 
 class _RecordingRetryOpsService:
     def __init__(self) -> None:
-        self.calls: list[dict[str, str]] = []
+        self.calls: list[dict[str, object]] = []
 
     def retry_dead_letter(self, **kwargs):
         self.calls.append(kwargs)
@@ -87,7 +87,7 @@ def test_rg_dead_letter_retry_route_passes_request_tenant_and_task_to_service(mo
     response = client.post(f"/v1/operations/dead-letter/{task_id}/retry")
 
     assert response.status_code == 200
-    assert service.calls == [{"tenant_id": str(tenant_id), "task_id": str(task_id)}]
+    assert service.calls == [{"tenant_id": str(tenant_id), "task_id": task_id}]
 
 
 class _SessionStub:
