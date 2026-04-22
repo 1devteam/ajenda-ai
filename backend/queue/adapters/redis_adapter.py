@@ -127,10 +127,14 @@ class RedisQueueAdapter(QueueAdapter):
     def release_lease(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
         try:
             payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
-            if payload is not None:
-                removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
-                if isinstance(removed, int) and removed >= 1:
-                    self._execute(["RPUSH", self._pending_key(tenant_id), payload])
+            if payload is None:
+                return QueueOperationResult(ok=False, reason="task not found in processing queue")
+            removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
+            if not isinstance(removed, int) or removed < 1:
+                return QueueOperationResult(ok=False, reason="processing payload was not removed")
+            requeued = self._execute(["RPUSH", self._pending_key(tenant_id), payload])
+            if not isinstance(requeued, int):
+                return QueueOperationResult(ok=False, reason="redis did not confirm requeue")
             deleted = self._execute(["DEL", self._lease_key(tenant_id, task_id)])
             if not isinstance(deleted, int):
                 return QueueOperationResult(ok=False, reason="lease delete returned unexpected result")
