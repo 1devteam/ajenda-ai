@@ -104,3 +104,26 @@ def test_rg_recovery_route_remains_public_under_middleware_stack() -> None:
         "requeued_task_count": 1,
         "dead_lettered_count": 1,
     }
+
+
+def test_rg_dead_letter_routes_require_valid_tenant_and_auth_envelope() -> None:
+    app = _build_app()
+    client = TestClient(app, raise_server_exceptions=False)
+
+    task_id = "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"
+
+    missing_tenant_inspection = client.get("/v1/operations/dead-letter")
+    missing_tenant_retry = client.post(f"/v1/operations/dead-letter/{task_id}/retry")
+    assert missing_tenant_inspection.status_code == 400
+    assert missing_tenant_retry.status_code == 400
+
+    missing_auth_inspection = client.get(
+        "/v1/operations/dead-letter",
+        headers={"X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"},
+    )
+    missing_auth_retry = client.post(
+        f"/v1/operations/dead-letter/{task_id}/retry",
+        headers={"X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"},
+    )
+    assert missing_auth_inspection.status_code == 401
+    assert missing_auth_retry.status_code == 401
