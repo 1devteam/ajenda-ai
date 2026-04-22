@@ -25,7 +25,7 @@ def queue_mission(
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
     queue: QueueAdapter = Depends(get_queue_adapter),
-) -> dict[str, list[str]]:
+) -> dict[str, object]:
     """Queue all planned tasks for a mission.
 
     Enforces task creation quota before queuing. The quota check uses the
@@ -44,7 +44,11 @@ def queue_mission(
 
     # --- Early return: no planned tasks, nothing to do ---
     if planned_count == 0:
-        return {"queued_task_ids": []}
+        return {
+            "queued_task_ids": [],
+            "pending_review_task_ids": [],
+            "denied_tasks": [],
+        }
 
     # --- Quota check: consume N quota units for N tasks being queued ---
     try:
@@ -67,7 +71,18 @@ def queue_mission(
 
     executor = MissionExecutor(db, ExecutionCoordinator(db, queue))
     try:
-        queued = executor.queue_all_planned_tasks(tenant_id=str(tenant_id), mission_id=mission_id)
+        summary = executor.queue_all_planned_tasks(tenant_id=str(tenant_id), mission_id=mission_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"queued_task_ids": [str(task_id) for task_id in queued]}
+    return {
+        "queued_task_ids": [str(task_id) for task_id in summary.queued_task_ids],
+        "pending_review_task_ids": [str(task_id) for task_id in summary.pending_review_task_ids],
+        "denied_tasks": [
+            {
+                "task_id": str(item.task_id),
+                "state": item.state,
+                "reason": item.reason,
+            }
+            for item in summary.denied_tasks
+        ],
+    }
