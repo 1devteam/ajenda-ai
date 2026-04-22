@@ -68,7 +68,10 @@ class WorkerRuntimeService:
                 "claim_db_failed_releasing_queue_claim",
                 extra={"task_id": str(task.id), "worker_id": worker_id, "error": str(exc)},
             )
-            savepoint.rollback()
+            if savepoint.is_active:
+                savepoint.rollback()
+            else:
+                self._session.rollback()
             try:
                 self._queue.release_lease(
                     tenant_id=tenant_id,
