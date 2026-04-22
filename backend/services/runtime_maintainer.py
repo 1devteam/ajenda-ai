@@ -166,7 +166,7 @@ class RuntimeMaintainer:
                     result = self._queue.release_lease(
                         tenant_id=task.tenant_id,
                         task_id=task.id,
-                        worker_id="runtime_maintainer",
+                        worker_id=lease.holder_identity,
                     )
                     if not result.ok:
                         raise RuntimeError(
@@ -237,7 +237,7 @@ class RuntimeMaintainer:
                     result = self._queue.release_lease(
                         tenant_id=task.tenant_id,
                         task_id=task.id,
-                        worker_id="runtime_maintainer",
+                        worker_id=lease.holder_identity,
                     )
                     if not result.ok:
                         raise RuntimeError(
