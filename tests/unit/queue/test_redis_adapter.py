@@ -239,10 +239,30 @@ def test_fail_task_pushes_dead_letter_envelope(monkeypatch) -> None:
     assert parsed["reason"] == "boom"
 
 
-def test_release_lease_returns_failure_when_del_result_is_unexpected(monkeypatch) -> None:
+def test_release_lease_returns_failure_when_payload_missing(monkeypatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
     monkeypatch.setattr(adapter, "_find_processing_payload", lambda **kwargs: None)
-    monkeypatch.setattr(adapter, "_execute", lambda command: "bad")
+
+    result = adapter.release_lease(tenant_id="tenant-a", task_id=uuid.uuid4(), worker_id="worker-1")
+
+    assert result.ok is False
+    assert result.reason == "task not found in processing queue"
+
+
+def test_release_lease_returns_failure_when_del_result_is_unexpected(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    monkeypatch.setattr(adapter, "_find_processing_payload", lambda **kwargs: '{"task_id":"x"}')
+
+    def _execute(command):
+        if command[0] == "LREM":
+            return 1
+        if command[0] == "RPUSH":
+            return 1
+        if command[0] == "DEL":
+            return "bad"
+        return 1
+
+    monkeypatch.setattr(adapter, "_execute", _execute)
 
     result = adapter.release_lease(tenant_id="tenant-a", task_id=uuid.uuid4(), worker_id="worker-1")
 
