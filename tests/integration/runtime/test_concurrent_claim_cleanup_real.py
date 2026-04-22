@@ -71,9 +71,7 @@ def test_rg_concurrent_claim_race_leaves_no_duplicate_processing_residue(
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_id)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -162,9 +160,7 @@ def test_rg_concurrent_claim_winner_completes_with_clean_terminal_cleanup(
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_id)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -211,11 +207,7 @@ def test_rg_concurrent_claim_winner_completes_with_clean_terminal_cleanup(
     assert not thread_a.is_alive()
     assert not thread_b.is_alive()
 
-    winners = [
-        worker_name
-        for worker_name, task_value in results.items()
-        if task_value == str(task_id)
-    ]
+    winners = [worker_name for worker_name, task_value in results.items() if task_value == str(task_id)]
     assert len(winners) == 1
     winning_worker = winners[0]
 
@@ -279,9 +271,7 @@ def test_rg_concurrent_claim_winner_recovery_requeues_once_without_duplicate_res
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_id)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -329,11 +319,7 @@ def test_rg_concurrent_claim_winner_recovery_requeues_once_without_duplicate_res
     assert not thread_a.is_alive()
     assert not thread_b.is_alive()
 
-    winners = [
-        worker_name
-        for worker_name, task_value in results.items()
-        if task_value == str(task_id)
-    ]
+    winners = [worker_name for worker_name, task_value in results.items() if task_value == str(task_id)]
     assert len(winners) == 1
 
     stale_session = session_factory()
