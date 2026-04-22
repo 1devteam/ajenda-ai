@@ -151,11 +151,18 @@ class RedisQueueAdapter(QueueAdapter):
                     return QueueOperationResult(ok=False, reason="processing payload was not removed")
                 envelope_payload: Any = json.loads(payload)
             else:
-                envelope_payload = {
-                    "tenant_id": tenant_id,
-                    "task_id": str(task_id),
-                    "source": "runtime_recovery_without_processing_payload",
-                }
+                pending_payload = self._find_pending_payload(tenant_id=tenant_id, task_id=task_id)
+                if pending_payload is not None:
+                    removed = self._execute(["LREM", self._pending_key(tenant_id), "1", pending_payload])
+                    if not isinstance(removed, int) or removed < 1:
+                        return QueueOperationResult(ok=False, reason="pending payload was not removed")
+                    envelope_payload = json.loads(pending_payload)
+                else:
+                    envelope_payload = {
+                        "tenant_id": tenant_id,
+                        "task_id": str(task_id),
+                        "source": "runtime_recovery_without_processing_payload",
+                    }
             envelope = json.dumps(
                 {
                     "task_id": str(task_id),
@@ -186,7 +193,19 @@ class RedisQueueAdapter(QueueAdapter):
             raise RedisProtocolError("lease heartbeat SET did not return OK")
 
     def _find_processing_payload(self, *, tenant_id: str, task_id: uuid.UUID) -> str | None:
-        values = self._execute(["LRANGE", self._processing_key(tenant_id), "0", "-1"])
+        return self._find_payload(
+            key=self._processing_key(tenant_id),
+            task_id=task_id,
+        )
+
+    def _find_pending_payload(self, *, tenant_id: str, task_id: uuid.UUID) -> str | None:
+        return self._find_payload(
+            key=self._pending_key(tenant_id),
+            task_id=task_id,
+        )
+
+    def _find_payload(self, *, key: str, task_id: uuid.UUID) -> str | None:
+        values = self._execute(["LRANGE", key, "0", "-1"])
         if not isinstance(values, list):
             raise RedisProtocolError("LRANGE returned unexpected type")
         task_id_str = str(task_id)
