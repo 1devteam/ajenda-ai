@@ -46,6 +46,7 @@ class WorkerRuntimeService:
             )
             return None
 
+        savepoint = self._session.begin_nested()
         try:
             self._assert_no_active_lease(tenant_id=tenant_id, task_id=task.id)
             transition_task(task, ExecutionTaskState.CLAIMED)
@@ -60,13 +61,14 @@ class WorkerRuntimeService:
             )
             task.metadata_json = {**task.metadata_json, "worker_lease_id": str(lease.id)}
             self._session.flush()
+            savepoint.commit()
             self._session.commit()
         except Exception as exc:
             logger.error(
                 "claim_db_failed_releasing_queue_claim",
                 extra={"task_id": str(task.id), "worker_id": worker_id, "error": str(exc)},
             )
-            self._session.rollback()
+            savepoint.rollback()
             try:
                 self._queue.release_lease(
                     tenant_id=tenant_id,
