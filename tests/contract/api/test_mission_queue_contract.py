@@ -48,8 +48,15 @@ def test_mission_queue_contract_returns_empty_shape_when_no_planned_tasks() -> N
 
     task_repo = MagicMock()
     task_repo.list_for_mission.return_value = []
+    quota_svc = MagicMock()
+    executor = MagicMock()
 
-    with patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo):
+    with (
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission.MissionExecutor", return_value=executor),
+        patch("backend.api.routes.mission.ExecutionCoordinator"),
+    ):
         response = client.post(f"/v1/missions/{mission_id}/queue")
 
     assert response.status_code == 200
@@ -58,6 +65,8 @@ def test_mission_queue_contract_returns_empty_shape_when_no_planned_tasks() -> N
         "pending_review_task_ids": [],
         "denied_tasks": [],
     }
+    quota_svc.check_and_record_task_creation.assert_not_called()
+    executor.queue_all_planned_tasks.assert_not_called()
 
 
 def test_mission_queue_contract_returns_truthful_mixed_outcome_summary() -> None:
