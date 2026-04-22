@@ -98,3 +98,28 @@ def test_task_queue_contract_returns_400_when_service_rejects_queue_attempt() ->
 
     assert response.status_code == 400
     assert response.json() == {"detail": "task queue rejected by policy"}
+
+
+def test_task_queue_contract_returns_400_when_task_is_routed_to_pending_review() -> None:
+    tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+    coordinator.queue_task.return_value = CoordinationResult(
+        ok=False,
+        task_id=task_id,
+        state="pending_review",
+        reason="human review required",
+    )
+
+    with (
+        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
+    ):
+        response = client.post(f"/v1/tasks/{task_id}/queue")
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "human review required"}
