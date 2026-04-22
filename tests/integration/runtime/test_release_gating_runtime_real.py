@@ -845,7 +845,8 @@ def test_rg_duplicate_active_lease_claim_rejected_with_queue_compensation(
     with pytest.raises(ValueError, match="task already has an active lease"):
         runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
 
-    pg_session.refresh(task)
+    task = pg_session.get(ExecutionTask, task.id)
+    assert task is not None
     leases = pg_session.scalars(
         select(WorkerLease).where(
             WorkerLease.tenant_id == tenant_id,
