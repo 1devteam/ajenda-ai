@@ -125,17 +125,21 @@ def test_rg_mixed_tenant_selective_recovery_leaves_healthy_claim_untouched(
             uuid.UUID(tenant_b)
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_a,
                 task_id=task_a.id,
-            ).ok
+            )
+            .ok
             is True
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_b,
                 task_id=task_b.id,
-            ).ok
+            )
+            .ok
             is True
         )
         setup_session.commit()
@@ -242,17 +246,21 @@ def test_rg_mixed_tenant_selective_recovery_dead_letters_only_expired_tenant(
             uuid.UUID(tenant_b)
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_a,
                 task_id=task_a.id,
-            ).ok
+            )
+            .ok
             is True
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_b,
                 task_id=task_b.id,
-            ).ok
+            )
+            .ok
             is True
         )
         setup_session.commit()
@@ -360,17 +368,21 @@ def test_rg_mixed_tenant_selective_recovery_preserves_healthy_running_tenant(
             uuid.UUID(tenant_b)
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_a,
                 task_id=task_a.id,
-            ).ok
+            )
+            .ok
             is True
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_b,
                 task_id=task_b.id,
-            ).ok
+            )
+            .ok
             is True
         )
         setup_session.commit()
@@ -444,14 +456,14 @@ def test_rg_mixed_tenant_selective_recovery_preserves_healthy_running_tenant(
                 WorkerLease.task_id == task_a.id,
             )
         ).all()
+        assert len(leases_a) == 1
+        assert leases_a[0].status == WorkerLeaseState.ACTIVE.value
         leases_b = verify_session.scalars(
             select(WorkerLease).where(
                 WorkerLease.tenant_id == tenant_b,
                 WorkerLease.task_id == task_b.id,
             )
         ).all()
-        assert len(leases_a) == 1
-        assert leases_a[0].status == WorkerLeaseState.ACTIVE.value
         assert len(leases_b) == 1
         assert leases_b[0].status == WorkerLeaseState.EXPIRED.value
     finally:
