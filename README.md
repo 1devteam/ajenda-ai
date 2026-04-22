@@ -116,6 +116,8 @@ The validation system currently includes:
 - broader runtime scenarios
 - evidence capture across API, DB, Redis, audit, and worker logs
 - safety classes for read-only, tenant-scoped mutation, and global mutation scenarios
+- recovery summary validation that includes dead-letter outcomes
+- focused GitHub-side verification for recovery hardening and runtime-validation paths
 
 Validation artifacts are written to:
 
@@ -237,10 +239,17 @@ The current top priority is not random feature growth.
 
 The current hardening focus is:
 
-- turning the live runtime validation matrix into a more authoritative release-control artifact
-- normalizing matrix structure and semantics
-- clarifying evidence and execution-policy rules
-- tightening the mapping between docs, runner behavior, tests, and implementation truth
+- keeping README, architecture docs, validation docs, tests, and implementation aligned
+- preserving authoritative runtime proof for recovery, dead-letter, and lease-bound execution paths
+- expanding high-value resilience and isolation scenarios without weakening existing release gates
+- tightening release confidence around real runtime evidence rather than doc-only posture
+
+Recent hardening work already merged on `main` includes:
+
+- recovery route visibility for `dead_lettered_count`
+- targeted recovery-hardening verification workflow coverage
+- runtime and queue hardening for bounded stale-lease recovery paths
+- integration and contract coverage expansion across recovery and dead-letter behavior
 
 ---
 
