@@ -106,6 +106,7 @@ def test_rg_mixed_tenant_concurrent_completion_cleanup_remains_isolated(
                 worker_id=worker_name,
             )
             session.flush()
+            session.commit()
         finally:
             session.close()
 
