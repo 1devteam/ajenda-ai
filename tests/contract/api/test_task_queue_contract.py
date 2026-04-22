@@ -53,6 +53,8 @@ def test_task_queue_contract_returns_success_payload() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"task_id": str(task_id), "state": "queued"}
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
 def test_task_queue_contract_returns_400_when_task_not_found_for_tenant() -> None:
@@ -73,6 +75,8 @@ def test_task_queue_contract_returns_400_when_task_not_found_for_tenant() -> Non
 
     assert response.status_code == 400
     assert response.json() == {"detail": "task not found for tenant"}
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
 def test_task_queue_contract_returns_400_when_service_rejects_queue_attempt() -> None:
@@ -98,6 +102,8 @@ def test_task_queue_contract_returns_400_when_service_rejects_queue_attempt() ->
 
     assert response.status_code == 400
     assert response.json() == {"detail": "task queue rejected by policy"}
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
 def test_task_queue_contract_returns_400_when_task_is_routed_to_pending_review() -> None:
@@ -123,3 +129,5 @@ def test_task_queue_contract_returns_400_when_task_is_routed_to_pending_review()
 
     assert response.status_code == 400
     assert response.json() == {"detail": "human review required"}
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
