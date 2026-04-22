@@ -29,20 +29,25 @@ def queue_mission(
     """Queue all planned tasks for a mission.
 
     Enforces task creation quota before queuing. The quota check uses the
-    actual number of planned tasks that will be enqueued — not a flat 1 —
-    so that tenants cannot bypass max_tasks_per_month by batching large
-    missions into a single call.
+    actual number of tenant-owned planned tasks that will be enqueued — not a
+    flat 1 — so that tenants cannot bypass max_tasks_per_month by batching
+    large missions into a single call.
 
     Returns HTTP 429 with structured body if the tenant has reached their
     plan limit.
     """
-    # --- Count planned tasks that will actually be enqueued ---
+    # --- Count tenant-owned planned tasks that will actually be enqueued ---
     task_repo = ExecutionTaskRepository(db)
     all_tasks = task_repo.list_for_mission(mission_id=mission_id)
-    planned_tasks = [t for t in all_tasks if t.status == ExecutionTaskState.PLANNED.value]
+    tenant_id_str = str(tenant_id)
+    planned_tasks = [
+        t
+        for t in all_tasks
+        if t.tenant_id == tenant_id_str and t.status == ExecutionTaskState.PLANNED.value
+    ]
     planned_count = len(planned_tasks)
 
-    # --- Early return: no planned tasks, nothing to do ---
+    # --- Early return: no tenant-owned planned tasks, nothing to do ---
     if planned_count == 0:
         return {
             "queued_task_ids": [],
@@ -50,7 +55,7 @@ def queue_mission(
             "denied_tasks": [],
         }
 
-    # --- Quota check: consume N quota units for N tasks being queued ---
+    # --- Quota check: consume N quota units for N tenant-owned planned tasks ---
     try:
         QuotaEnforcementService(db).check_and_record_task_creation(tenant_id, count=planned_count)
     except QuotaExceededError as exc:
@@ -71,7 +76,7 @@ def queue_mission(
 
     executor = MissionExecutor(db, ExecutionCoordinator(db, queue))
     try:
-        summary = executor.queue_all_planned_tasks(tenant_id=str(tenant_id), mission_id=mission_id)
+        summary = executor.queue_all_planned_tasks(tenant_id=tenant_id_str, mission_id=mission_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
