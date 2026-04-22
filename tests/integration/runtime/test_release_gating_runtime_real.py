@@ -15,7 +15,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
-from backend.queue.base import QueueOperationResult
+from backend.queue.base import QueueMessage, QueueOperationResult
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
@@ -67,6 +67,30 @@ def _create_task(
 def _audit_actions(pg_session, tenant_id: str) -> list[str]:
     rows = pg_session.scalars(select(AuditEvent).where(AuditEvent.tenant_id == tenant_id)).all()
     return [row.action for row in rows]
+
+
+def _prime_processing_payload(
+    queue_adapter,
+    *,
+    tenant_id: str,
+    task_id,
+    mission_id,
+    worker_id: str,
+) -> None:
+    message = QueueMessage(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=mission_id,
+        fleet_id=None,
+        branch_id=None,
+        payload={},
+        enqueued_at=datetime.now(UTC),
+    )
+    enqueue_result = queue_adapter.enqueue_task(message)
+    assert enqueue_result.ok is True
+    claimed = queue_adapter.claim_task(tenant_id=tenant_id, worker_id=worker_id)
+    assert claimed is not None
+    assert claimed.task_id == task_id
 
 
 def test_rg_queue_admission_end_to_end(pg_session, queue_adapter, redis_client) -> None:
@@ -731,6 +755,13 @@ def test_rg_claimed_recovery(pg_session, queue_adapter, redis_client) -> None:
     )
     pg_session.add(lease)
     pg_session.flush()
+    _prime_processing_payload(
+        queue_adapter,
+        tenant_id=tenant_id,
+        task_id=task.id,
+        mission_id=task.mission_id,
+        worker_id=lease.holder_identity,
+    )
 
     summary = RuntimeMaintainer(pg_session, queue_adapter, expiry_seconds=30).recover_expired_leases()
     pg_session.flush()
@@ -768,6 +799,20 @@ def test_rg_running_recovery_and_retry_exhaustion(pg_session, queue_adapter) -> 
     )
     pg_session.add_all([stale_a, stale_b])
     pg_session.flush()
+    _prime_processing_payload(
+        queue_adapter,
+        tenant_id=tenant_id,
+        task_id=requeue_task.id,
+        mission_id=requeue_task.mission_id,
+        worker_id=stale_a.holder_identity,
+    )
+    _prime_processing_payload(
+        queue_adapter,
+        tenant_id=tenant_id,
+        task_id=exhaust_task.id,
+        mission_id=exhaust_task.mission_id,
+        worker_id=stale_b.holder_identity,
+    )
 
     summary = RuntimeMaintainer(pg_session, queue_adapter, expiry_seconds=30, max_retries=3).recover_expired_leases()
     pg_session.flush()
@@ -803,6 +848,13 @@ def test_rg_recovery_safety_only_stale_mutates(pg_session, queue_adapter) -> Non
     )
     pg_session.add_all([stale_lease, healthy_lease])
     pg_session.flush()
+    _prime_processing_payload(
+        queue_adapter,
+        tenant_id=tenant_id,
+        task_id=stale.id,
+        mission_id=stale.mission_id,
+        worker_id=stale_lease.holder_identity,
+    )
 
     RuntimeMaintainer(pg_session, queue_adapter, expiry_seconds=60).recover_expired_leases()
     pg_session.flush()
