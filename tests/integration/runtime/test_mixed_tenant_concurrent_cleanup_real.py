@@ -125,17 +125,21 @@ def test_rg_mixed_tenant_post_race_completion_cleanup_stays_isolated(
             uuid.UUID(tenant_b)
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_a,
                 task_id=task_a.id,
-            ).ok
+            )
+            .ok
             is True
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_b,
                 task_id=task_b.id,
-            ).ok
+            )
+            .ok
             is True
         )
         setup_session.commit()
@@ -240,17 +244,21 @@ def test_rg_mixed_tenant_post_race_recovery_cleanup_stays_isolated(
             uuid.UUID(tenant_b)
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_a,
                 task_id=task_a.id,
-            ).ok
+            )
+            .ok
             is True
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_b,
                 task_id=task_b.id,
-            ).ok
+            )
+            .ok
             is True
         )
         setup_session.commit()
@@ -358,17 +366,21 @@ def test_rg_mixed_tenant_post_race_dead_letter_cleanup_stays_isolated(
             uuid.UUID(tenant_b)
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_a,
                 task_id=task_a.id,
-            ).ok
+            )
+            .ok
             is True
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_b,
                 task_id=task_b.id,
-            ).ok
+            )
+            .ok
             is True
         )
         setup_session.commit()
@@ -476,17 +488,21 @@ def test_rg_mixed_tenant_asymmetric_post_race_cleanup_stays_isolated(
             uuid.UUID(tenant_b)
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_a,
                 task_id=task_a.id,
-            ).ok
+            )
+            .ok
             is True
         )
         assert (
-            ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            ExecutionCoordinator(setup_session, queue_adapter)
+            .queue_task(
                 tenant_id=tenant_b,
                 task_id=task_b.id,
-            ).ok
+            )
+            .ok
             is True
         )
         setup_session.commit()
