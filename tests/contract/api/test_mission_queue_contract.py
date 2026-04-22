@@ -107,3 +107,5 @@ def test_mission_queue_contract_returns_truthful_mixed_outcome_summary() -> None
             }
         ],
     }
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=3)
+    executor.queue_all_planned_tasks.assert_called_once_with(tenant_id=str(tenant_id), mission_id=mission_id)
