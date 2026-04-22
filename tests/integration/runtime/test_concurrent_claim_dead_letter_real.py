@@ -71,9 +71,7 @@ def test_rg_previously_raced_work_dead_letters_once_at_recovery_exhaustion(
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_id)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -121,11 +119,7 @@ def test_rg_previously_raced_work_dead_letters_once_at_recovery_exhaustion(
     assert not thread_a.is_alive()
     assert not thread_b.is_alive()
 
-    winners = [
-        worker_name
-        for worker_name, task_value in results.items()
-        if task_value == str(task_id)
-    ]
+    winners = [worker_name for worker_name, task_value in results.items() if task_value == str(task_id)]
     assert len(winners) == 1
 
     exhaust_session = session_factory()
