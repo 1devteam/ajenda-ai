@@ -118,12 +118,8 @@ def test_rg_mixed_tenant_post_race_completion_cleanup_stays_isolated(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_a)
-        )
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_b)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -237,12 +233,8 @@ def test_rg_mixed_tenant_post_race_recovery_cleanup_stays_isolated(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_a)
-        )
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_b)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -359,12 +351,8 @@ def test_rg_mixed_tenant_post_race_dead_letter_cleanup_stays_isolated(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_a)
-        )
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_b)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -481,12 +469,8 @@ def test_rg_mixed_tenant_asymmetric_post_race_cleanup_stays_isolated(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_a)
-        )
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_b)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
