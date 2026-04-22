@@ -1,6 +1,6 @@
 # Ajenda AI — Project State Report
 
-**Date:** April 18, 2026  
+**Date:** April 22, 2026  
 **Branch:** `main`  
 **Version:** `1.1.0`
 
@@ -23,6 +23,7 @@ Current posture:
 - policy/compliance gating before queue admission
 - tenant-scoped SaaS and quota controls
 - live runtime validation matrix with evidence capture
+- merged recovery-visibility and targeted validation-workflow hardening on `main`
 
 ---
 
@@ -88,6 +89,7 @@ Ajenda includes a bounded recovery model for expired leases:
 - stale running work transitions through `recovering`
 - retry count is tracked
 - tasks can be dead-lettered when retry ceilings are reached
+- recovery API summaries expose dead-letter outcomes as part of the bounded result
 
 This is one of the core runtime safety properties.
 
@@ -128,6 +130,7 @@ This layer provides:
 - a broader runtime scenario inventory
 - scenario evidence capture across API / DB / Redis / audit / worker logs
 - safety classes for read-only, tenant-scoped mutation, and global mutation validation
+- targeted GitHub-side verification for recovery-hardening and runtime-validation paths
 
 This is a meaningful architectural step because it shifts Ajenda from “tested platform” toward “runtime-proof and release-governed platform.”
 
@@ -144,6 +147,7 @@ Ajenda’s strongest current properties are:
 - policy/compliance-aware queue admission
 - practical observability and audit surfaces
 - real validation artifacts tied to runtime scenarios
+- stronger recovery visibility and dead-letter summary alignment at the API boundary
 
 ---
 
@@ -153,18 +157,17 @@ The current highest-leverage work is not random new feature implementation.
 
 The current highest-leverage work is:
 
-## Matrix hardening and release-governance hardening
+## Documentation / validation / implementation truth alignment
 
 This means:
 
-- normalizing the live runtime matrix
-- tightening matrix semantics
-- strengthening evidence requirements
-- clarifying execution policy by safety class
-- improving doc/runner/test/implementation alignment
-- expanding weak runtime-proof domains such as resilience, deeper isolation, and negative-space validation
+- keeping top-level docs and architecture docs aligned with merged runtime truth
+- preserving the validation matrix as an authoritative release-control artifact
+- strengthening evidence requirements where proof is still weaker than runtime importance
+- extending resilience and isolation coverage without regressing existing release gates
+- tightening the relationship between docs, runner behavior, tests, and implementation truth
 
-This is the most important current documentation and governance priority because it affects release confidence across the whole platform.
+The recently merged recovery and validation hardening work moved several previously “in progress” areas into current repo truth rather than future intent.
 
 ---
 
@@ -177,6 +180,7 @@ Ajenda uses multiple proof surfaces:
 - integration tests
 - live validation scenarios
 - runtime artifacts
+- targeted GitHub Actions verification for recovery hardening paths
 
 These do not serve the same role.
 
@@ -203,31 +207,33 @@ Startup is fail-fast around queue availability, which is an important operationa
 
 ## 8. Prioritized next actions
 
-### Priority 1 — Enterprise matrix hardening
+### Priority 1 — Documentation truth maintenance
 
-Turn the live runtime validation matrix into a more authoritative release-control artifact.
+Keep top-level docs, architecture summaries, and validation-facing docs aligned with current runtime and validation truth on `main`.
 
 Includes:
 
-- normalization
-- explicit semantics
-- maturity/backing classification
-- release-decision rules
-- safety execution policy
-- runner/doc/test/implementation alignment
+- README / state-report alignment
+- architecture-doc wording refresh where hardening has already landed
+- removing “future tense” language for already-merged recovery validation work
 
 ### Priority 2 — Broader runtime-proof expansion
 
-After matrix normalization, deliberately expand weak runtime-proof areas:
+Expand weak runtime-proof areas deliberately:
 
-- resilience
+- deeper resilience
 - deeper isolation
 - integrity contradictions / forbidden outcomes
 - operational recovery and observability scenarios
 
-### Priority 3 — Documentation alignment
+### Priority 3 — Validation maturity hardening
 
-Bring top-level docs and architecture docs into alignment with the current runtime-proof model so future work is grounded in the current build, not stale summaries.
+Continue strengthening:
+
+- maturity/backing classification
+- release-decision semantics
+- execution-policy clarity by safety class
+- runner/doc/test/implementation alignment
 
 ### Priority 4 — Remaining platform hardening
 
@@ -247,6 +253,6 @@ Ajenda AI is currently best described as:
 - a governed multi-tenant execution platform
 - with queue-backed runtime authority
 - bounded recovery and compliance-aware task admission
-- and an emerging runtime-proof / release-governance layer that now deserves first-class architectural attention
+- and a runtime-proof / release-governance layer that now has merged recovery-visibility and targeted verification hardening on `main`
 
-That runtime-proof layer is the most important current hardening frontier.
+The next documentation frontier is no longer inventing the posture. It is keeping the written posture synchronized with the code and validation truth already merged.
