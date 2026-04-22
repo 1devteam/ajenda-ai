@@ -49,6 +49,7 @@ def test_dead_letter_inspection_contract_returns_service_payload() -> None:
 
     assert response.status_code == 200
     assert response.json() == service.inspect_dead_letter.return_value
+    service.inspect_dead_letter.assert_called_once_with(tenant_id=str(tenant_id))
 
 
 def test_dead_letter_retry_contract_returns_service_payload() -> None:
@@ -68,6 +69,7 @@ def test_dead_letter_retry_contract_returns_service_payload() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"task_id": str(task_id), "state": "queued"}
+    service.retry_dead_letter.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
 def test_dead_letter_retry_contract_returns_400_on_illegal_retry() -> None:
@@ -84,3 +86,4 @@ def test_dead_letter_retry_contract_returns_400_on_illegal_retry() -> None:
 
     assert response.status_code == 400
     assert response.json() == {"detail": "task is not in dead-letter state"}
+    service.retry_dead_letter.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
