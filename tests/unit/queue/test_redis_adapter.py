@@ -303,6 +303,8 @@ def test_move_to_dead_letter_without_processing_payload_pushes_bounded_recovery_
 
     def _execute(command):
         commands.append(command)
+        if command[0] == "LRANGE":
+            return []
         if command[0] in {"LPUSH", "DEL"}:
             return 1
         return 1
