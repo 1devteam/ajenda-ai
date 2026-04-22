@@ -12,7 +12,6 @@ pytest.mark.integration and skipped in unit test runs.
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
