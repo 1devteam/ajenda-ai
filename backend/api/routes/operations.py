@@ -55,4 +55,5 @@ def trigger_recovery(
     return {
         "expired_lease_count": summary.expired_lease_count,
         "requeued_task_count": summary.requeued_task_count,
+        "dead_lettered_count": summary.dead_lettered_count,
     }

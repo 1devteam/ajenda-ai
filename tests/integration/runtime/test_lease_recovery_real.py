@@ -16,10 +16,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
+from backend.queue.base import QueueMessage
 from backend.services.runtime_maintainer import RuntimeMaintainer
 
 pytestmark = pytest.mark.integration
@@ -43,7 +45,11 @@ def _make_task(tenant_id: str, mission_id, status: str) -> ExecutionTask:
     )
 
 
-def _make_expired_lease(task_id, tenant_id: str, worker_id: str = "worker-dead") -> WorkerLease:
+def _make_expired_lease(
+    task_id,
+    tenant_id: str,
+    worker_id: str = "worker-dead",
+) -> WorkerLease:
     """Create a lease with a heartbeat 10 minutes in the past (expired)."""
     return WorkerLease(
         tenant_id=tenant_id,
@@ -54,8 +60,29 @@ def _make_expired_lease(task_id, tenant_id: str, worker_id: str = "worker-dead")
     )
 
 
+def _prime_processing_payload(queue_adapter, tenant_id: str, task_id, mission_id, worker_id: str) -> None:
+    message = QueueMessage(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=mission_id,
+        fleet_id=None,
+        branch_id=None,
+        payload={},
+        enqueued_at=datetime.now(UTC),
+    )
+    enqueue_result = queue_adapter.enqueue_task(message)
+    assert enqueue_result.ok is True
+    claimed = queue_adapter.claim_task(tenant_id=tenant_id, worker_id=worker_id)
+    assert claimed is not None
+    assert claimed.task_id == task_id
+
+
 class TestLeaseRecoveryReal:
-    def test_running_task_transitions_through_recovering_to_queued(self, pg_session, queue_adapter) -> None:
+    def test_running_task_transitions_through_recovering_to_queued(
+        self,
+        pg_session,
+        queue_adapter,
+    ) -> None:
         """A running task with an expired lease must go running→recovering→queued."""
         mission = _make_mission("tenant-recovery-a")
         pg_session.add(mission)
@@ -68,6 +95,7 @@ class TestLeaseRecoveryReal:
         lease = _make_expired_lease(task.id, "tenant-recovery-a")
         pg_session.add(lease)
         pg_session.flush()
+        _prime_processing_payload(queue_adapter, task.tenant_id, task.id, mission.id, lease.holder_identity)
 
         maintainer = RuntimeMaintainer(
             session=pg_session,
@@ -102,6 +130,7 @@ class TestLeaseRecoveryReal:
         lease = _make_expired_lease(task.id, "tenant-recovery-b")
         pg_session.add(lease)
         pg_session.flush()
+        _prime_processing_payload(queue_adapter, task.tenant_id, task.id, mission.id, lease.holder_identity)
 
         maintainer = RuntimeMaintainer(
             session=pg_session,
@@ -182,3 +211,68 @@ class TestLeaseRecoveryReal:
 
         pg_session.refresh(task)
         assert task.status == ExecutionTaskState.DEAD_LETTERED.value
+
+    def test_repeated_recovery_does_not_requeue_or_mutate_already_resolved_work(
+        self,
+        pg_session,
+        queue_adapter,
+    ) -> None:
+        """A second recovery run must not re-enqueue or re-mutate the same recovered task."""
+        mission = _make_mission("tenant-recovery-e")
+        pg_session.add(mission)
+        pg_session.flush()
+
+        task = _make_task("tenant-recovery-e", mission.id, ExecutionTaskState.RUNNING.value)
+        pg_session.add(task)
+        pg_session.flush()
+
+        lease = _make_expired_lease(task.id, "tenant-recovery-e")
+        pg_session.add(lease)
+        pg_session.flush()
+        _prime_processing_payload(queue_adapter, task.tenant_id, task.id, mission.id, lease.holder_identity)
+
+        maintainer = RuntimeMaintainer(
+            session=pg_session,
+            queue=queue_adapter,
+            expiry_seconds=30,
+            max_retries=3,
+        )
+
+        first_summary = maintainer.recover_expired_leases()
+        first_retry_count = task.retry_count
+
+        first_audit_count = (
+            pg_session.query(AuditEvent)
+            .filter(
+                AuditEvent.action == "lease_expired_task_requeued",
+                AuditEvent.payload_json["task_id"].astext == str(task.id),
+            )
+            .count()
+        )
+
+        second_summary = maintainer.recover_expired_leases()
+
+        pg_session.refresh(task)
+        pg_session.refresh(lease)
+
+        second_audit_count = (
+            pg_session.query(AuditEvent)
+            .filter(
+                AuditEvent.action == "lease_expired_task_requeued",
+                AuditEvent.payload_json["task_id"].astext == str(task.id),
+            )
+            .count()
+        )
+
+        assert first_summary.expired_lease_count == 1
+        assert first_summary.requeued_task_count == 1
+        assert first_summary.dead_lettered_count == 0
+        assert second_summary.expired_lease_count == 0
+        assert second_summary.requeued_task_count == 0
+        assert second_summary.dead_lettered_count == 0
+
+        assert task.status == ExecutionTaskState.QUEUED.value
+        assert lease.status == WorkerLeaseState.EXPIRED.value
+        assert task.retry_count == first_retry_count == 1
+        assert first_audit_count == 1
+        assert second_audit_count == 1

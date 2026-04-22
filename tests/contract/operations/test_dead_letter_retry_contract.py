@@ -20,6 +20,15 @@ class _RejectingOpsService:
         raise ValueError("Invalid task transition: 'dead_lettered' -> 'queued'.")
 
 
+class _RecordingRetryOpsService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def retry_dead_letter(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"task_id": str(kwargs["task_id"]), "status": "queued"}
+
+
 def test_rg_dead_letter_retry_returns_400_on_illegal_transition(monkeypatch) -> None:
     app = FastAPI()
     app.include_router(router, prefix="/v1")
@@ -47,6 +56,38 @@ def test_rg_dead_letter_retry_returns_400_on_illegal_transition(monkeypatch) -> 
 
     assert response.status_code == 400
     assert "dead_lettered" in str(response.json())
+
+
+def test_rg_dead_letter_retry_route_passes_request_tenant_and_task_to_service(monkeypatch) -> None:
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+    tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    service = _RecordingRetryOpsService()
+
+    def _tenant_dep() -> uuid.UUID:
+        return tenant_id
+
+    def _db_dep():
+        yield MagicMock()
+
+    def _queue_dep():
+        return MagicMock()
+
+    app.dependency_overrides[get_request_tenant_id] = _tenant_dep
+    app.dependency_overrides[get_tenant_db_session] = _db_dep
+    app.dependency_overrides[get_queue_adapter] = _queue_dep
+
+    monkeypatch.setattr(
+        "backend.api.routes.operations.OperationsService",
+        lambda *_args, **_kwargs: service,
+    )
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(f"/v1/operations/dead-letter/{task_id}/retry")
+
+    assert response.status_code == 200
+    assert service.calls == [{"tenant_id": str(tenant_id), "task_id": task_id}]
 
 
 class _SessionStub:

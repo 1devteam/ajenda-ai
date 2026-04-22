@@ -1,18 +1,3 @@
-"""Worker Runtime Service — manages task claim, execution, heartbeat, and completion.
-
-Atomicity fix: The previous implementation performed a Redis claim followed by
-a PostgreSQL lease creation as two separate, non-atomic operations. A crash
-between them would leave the task claimed in Redis but with no DB lease,
-permanently losing the task with no recovery path.
-
-This implementation:
-- Claims from queue first (Redis)
-- Creates the DB lease in a try/except
-- On DB failure, releases the Redis claim (compensation rollback)
-- Logs the compensation action for observability
-- The task remains QUEUED in DB and will be re-claimed by another worker
-"""
-
 from __future__ import annotations
 
 import logging
@@ -44,26 +29,12 @@ class WorkerRuntimeService:
         self._audit = AuditEventRepository(session)
 
     def claim_next_task(self, *, tenant_id: str, worker_id: str) -> ExecutionTask | None:
-        """Claim the next available task with atomic compensation on DB failure.
-
-        Sequence:
-        1. Claim from queue (Redis LMOVE or equivalent)
-        2. Validate task exists in DB
-        3. Assert no duplicate active lease
-        4. Transition task to CLAIMED in DB
-        5. Create WorkerLease in DB
-        6. Flush DB
-
-        On step 4-6 failure: release the queue claim so the task remains
-        available for another worker. Log the compensation.
-        """
         message = self._queue.claim_task(tenant_id=tenant_id, worker_id=worker_id)
         if message is None:
             return None
 
         task = self._tasks.get(message.task_id)
         if task is None or task.tenant_id != tenant_id:
-            # Task missing from DB — release the queue claim and skip
             logger.error(
                 "claim_task_not_in_db",
                 extra={"task_id": str(message.task_id), "worker_id": worker_id},
@@ -75,6 +46,7 @@ class WorkerRuntimeService:
             )
             return None
 
+        savepoint = self._session.begin_nested()
         try:
             self._assert_no_active_lease(tenant_id=tenant_id, task_id=task.id)
             transition_task(task, ExecutionTaskState.CLAIMED)
@@ -89,13 +61,17 @@ class WorkerRuntimeService:
             )
             task.metadata_json = {**task.metadata_json, "worker_lease_id": str(lease.id)}
             self._session.flush()
-
+            savepoint.commit()
+            self._session.commit()
         except Exception as exc:
-            # Compensation: release the queue claim so the task can be re-claimed
             logger.error(
                 "claim_db_failed_releasing_queue_claim",
                 extra={"task_id": str(task.id), "worker_id": worker_id, "error": str(exc)},
             )
+            if savepoint.is_active:
+                savepoint.rollback()
+            else:
+                self._session.rollback()
             try:
                 self._queue.release_lease(
                     tenant_id=tenant_id,
@@ -117,10 +93,7 @@ class WorkerRuntimeService:
 
     def heartbeat(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
-        if lease.status not in {
-            WorkerLeaseState.CLAIMED.value,
-            WorkerLeaseState.ACTIVE.value,
-        }:
+        if lease.status not in {WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value}:
             raise ValueError("lease is not heartbeat-eligible")
 
         result = self._queue.heartbeat(tenant_id=tenant_id, task_id=lease.task_id, worker_id=worker_id)
@@ -131,14 +104,19 @@ class WorkerRuntimeService:
             transition_lease(lease, WorkerLeaseState.ACTIVE)
         lease.heartbeat_at = datetime.now(UTC)
         self._session.flush()
+        self._session.commit()
         return lease
 
     def start_execution(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> ExecutionTask:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         task = self._get_task_for_lease(lease)
         if task.status == ExecutionTaskState.CLAIMED.value:
+            if lease.status == WorkerLeaseState.CLAIMED.value:
+                transition_lease(lease, WorkerLeaseState.ACTIVE)
+            lease.heartbeat_at = datetime.now(UTC)
             transition_task(task, ExecutionTaskState.RUNNING)
             self._session.flush()
+            self._session.commit()
         return task
 
     def complete(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> ExecutionTask:
@@ -149,14 +127,12 @@ class WorkerRuntimeService:
 
         transition_task(task, ExecutionTaskState.COMPLETED)
         self._transition_lease_to_released(lease)
-
         result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
         if not result.ok:
+            self._session.rollback()
             raise ValueError(result.reason or "complete rejected")
 
         lease.heartbeat_at = datetime.now(UTC)
-        self._session.flush()
-
         self._audit.append(
             AuditEvent(
                 tenant_id=tenant_id,
@@ -168,6 +144,8 @@ class WorkerRuntimeService:
                 payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
             )
         )
+        self._session.flush()
+        self._session.commit()
         return task
 
     def fail(
@@ -189,7 +167,6 @@ class WorkerRuntimeService:
 
         transition_task(task, ExecutionTaskState.FAILED)
         self._transition_lease_to_released(lease)
-
         result = self._queue.fail_task(
             tenant_id=tenant_id,
             task_id=task.id,
@@ -197,11 +174,10 @@ class WorkerRuntimeService:
             reason=reason,
         )
         if not result.ok:
+            self._session.rollback()
             raise ValueError(result.reason or "fail rejected")
 
         lease.heartbeat_at = datetime.now(UTC)
-        self._session.flush()
-
         self._audit.append(
             AuditEvent(
                 tenant_id=tenant_id,
@@ -213,22 +189,24 @@ class WorkerRuntimeService:
                 payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
             )
         )
+        self._session.flush()
+        self._session.commit()
         return task
 
     def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         self._transition_lease_to_released(lease)
-
         result = self._queue.release_lease(
             tenant_id=tenant_id,
             task_id=lease.task_id,
             worker_id=worker_id,
         )
         if not result.ok:
+            self._session.rollback()
             raise ValueError(result.reason or "release rejected")
-
         lease.heartbeat_at = datetime.now(UTC)
         self._session.flush()
+        self._session.commit()
         return lease
 
     def _get_owned_lease(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
@@ -254,11 +232,6 @@ class WorkerRuntimeService:
             raise ValueError("task already has an active lease")
 
     def _transition_lease_to_released(self, lease: WorkerLease) -> None:
-        """Apply canonical lease transitions before RELEASED.
-
-        Legal chain is claimed -> active -> released. If the lease is already
-        active, transition directly to released. If already released, no-op.
-        """
         if lease.status == WorkerLeaseState.RELEASED.value:
             return
         if lease.status == WorkerLeaseState.CLAIMED.value:

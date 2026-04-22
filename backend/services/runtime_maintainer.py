@@ -10,8 +10,9 @@ Recovery path (with 'recovering' state from migration 0004):
        recovering → queued   (re-enqueue for pickup by a healthy worker)
      For tasks in CLAIMED state (worker died before starting):
        claimed → queued      (direct re-queue, no recovering intermediate)
-  4. Enqueue a new QueueMessage for the task.
-  5. Write an AuditEvent for observability.
+  4. Use the queue adapter as the runtime authority to either release the lease
+     back to pending or move the payload to dead-letter.
+  5. Persist the bounded control-plane operation and write an AuditEvent.
 
 The 'recovering' intermediate state provides:
 - Observability: operators can see tasks being recovered vs freshly queued
@@ -36,13 +37,12 @@ from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
-from backend.queue.base import QueueAdapter, QueueMessage
+from backend.queue.base import QueueAdapter
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.runtime.transitions import transition_lease, transition_task
 
 logger = logging.getLogger("ajenda.runtime_maintainer")
 
-# Default maximum number of recovery attempts before dead-lettering
 DEFAULT_MAX_RETRIES: int = 3
 
 
@@ -87,7 +87,12 @@ class RuntimeMaintainer:
             select(WorkerLease, ExecutionTask)
             .join(ExecutionTask, WorkerLease.task_id == ExecutionTask.id)
             .where(
-                WorkerLease.status.in_([WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value]),
+                WorkerLease.status.in_(
+                    [
+                        WorkerLeaseState.CLAIMED.value,
+                        WorkerLeaseState.ACTIVE.value,
+                    ]
+                ),
                 WorkerLease.heartbeat_at.is_not(None),
                 WorkerLease.heartbeat_at < threshold,
             )
@@ -98,134 +103,173 @@ class RuntimeMaintainer:
         dead_lettered_count = 0
 
         for lease, task in self._session.execute(stmt).all():
-            # Step 1: Expire the lease
-            transition_lease(lease, WorkerLeaseState.EXPIRED)
-            expired_count += 1
+            try:
+                transition_lease(lease, WorkerLeaseState.EXPIRED)
+                expired_count += 1
 
-            logger.info(
-                "runtime_maintainer_lease_expired",
-                extra={
-                    "lease_id": str(lease.id),
-                    "task_id": str(task.id),
-                    "tenant_id": task.tenant_id,
-                    "task_status": task.status,
-                    "heartbeat_age_seconds": (datetime.now(UTC) - lease.heartbeat_at).total_seconds(),
-                },
-            )
-
-            # Step 2: Determine recovery path based on current task state
-            if task.status == ExecutionTaskState.RUNNING.value:
-                # Transition through 'recovering' to make the recovery visible
-                transition_task(task, ExecutionTaskState.RECOVERING)
+                logger.info(
+                    "runtime_maintainer_lease_expired",
+                    extra={
+                        "lease_id": str(lease.id),
+                        "task_id": str(task.id),
+                        "tenant_id": task.tenant_id,
+                        "task_status": task.status,
+                        "heartbeat_age_seconds": (datetime.now(UTC) - lease.heartbeat_at).total_seconds(),
+                    },
+                )
 
                 retry_count = task.retry_count
-                if retry_count >= self._max_retries:
-                    # Max retries exceeded — dead-letter the task
-                    transition_task(task, ExecutionTaskState.DEAD_LETTERED)
-                    dead_lettered_count += 1
-                    self._audit.append(
-                        AuditEvent(
-                            tenant_id=task.tenant_id,
-                            mission_id=task.mission_id,
-                            category="runtime_recovery",
-                            action="task_dead_lettered_max_retries",
-                            actor="runtime_maintainer",
-                            details=(
-                                f"Task {task.id} dead-lettered after {retry_count} retries. Expired lease: {lease.id}."
-                            ),
-                            payload_json={
-                                "task_id": str(task.id),
-                                "lease_id": str(lease.id),
-                                "retry_count": retry_count,
-                            },
-                        )
-                    )
-                    logger.warning(
-                        "runtime_maintainer_task_dead_lettered",
-                        extra={
-                            "task_id": str(task.id),
-                            "retry_count": retry_count,
-                            "max_retries": self._max_retries,
-                        },
-                    )
-                else:
-                    # Re-queue for pickup by a healthy worker and increment retry counter
-                    task.retry_count = retry_count + 1
-                    transition_task(task, ExecutionTaskState.QUEUED)
-                    self._queue.enqueue_task(
-                        QueueMessage(
+                should_dead_letter = retry_count >= self._max_retries
+
+                if task.status == ExecutionTaskState.RUNNING.value:
+                    transition_task(task, ExecutionTaskState.RECOVERING)
+
+                    if should_dead_letter:
+                        transition_task(task, ExecutionTaskState.DEAD_LETTERED)
+                        result = self._queue.move_to_dead_letter(
                             tenant_id=task.tenant_id,
                             task_id=task.id,
-                            mission_id=task.mission_id,
-                            fleet_id=task.fleet_id,
-                            branch_id=task.branch_id,
-                            payload=task.metadata_json,
-                            enqueued_at=datetime.now(UTC),
+                            reason=f"max retries exceeded during recovery ({retry_count}/{self._max_retries})",
                         )
-                    )
-                    requeued_count += 1
-                    self._audit.append(
-                        AuditEvent(
-                            tenant_id=task.tenant_id,
-                            mission_id=task.mission_id,
-                            category="runtime_recovery",
-                            action="lease_expired_task_requeued",
-                            actor="runtime_maintainer",
-                            details=(
-                                f"Expired lease {lease.id} caused task {task.id} to be "
-                                f"recovered (running→recovering→queued). "
-                                f"Retry {retry_count + 1}/{self._max_retries}."
-                            ),
-                            payload_json={
+                        if not result.ok:
+                            raise RuntimeError(
+                                f"runtime maintainer failed to move task {task.id} to dead-letter: {result.reason}"
+                            )
+                        dead_lettered_count += 1
+                        self._audit.append(
+                            AuditEvent(
+                                tenant_id=task.tenant_id,
+                                mission_id=task.mission_id,
+                                category="runtime_recovery",
+                                action="task_dead_lettered_max_retries",
+                                actor="runtime_maintainer",
+                                details=(
+                                    f"Task {task.id} dead-lettered after {retry_count} retries. Expired lease: {lease.id}."
+                                ),
+                                payload_json={
+                                    "task_id": str(task.id),
+                                    "lease_id": str(lease.id),
+                                    "retry_count": retry_count,
+                                },
+                            )
+                        )
+                        logger.warning(
+                            "runtime_maintainer_task_dead_lettered",
+                            extra={
                                 "task_id": str(task.id),
-                                "lease_id": str(lease.id),
                                 "retry_count": retry_count,
+                                "max_retries": self._max_retries,
                             },
                         )
-                    )
-                    logger.info(
-                        "runtime_maintainer_task_requeued",
-                        extra={
-                            "task_id": str(task.id),
-                            "retry_count": retry_count + 1,
-                        },
-                    )
+                    else:
+                        task.retry_count = retry_count + 1
+                        transition_task(task, ExecutionTaskState.QUEUED)
+                        result = self._queue.release_lease(
+                            tenant_id=task.tenant_id,
+                            task_id=task.id,
+                            worker_id=lease.holder_identity,
+                        )
+                        if not result.ok:
+                            raise RuntimeError(
+                                f"runtime maintainer failed to release lease for task {task.id}: {result.reason}"
+                            )
+                        requeued_count += 1
+                        self._audit.append(
+                            AuditEvent(
+                                tenant_id=task.tenant_id,
+                                mission_id=task.mission_id,
+                                category="runtime_recovery",
+                                action="lease_expired_task_requeued",
+                                actor="runtime_maintainer",
+                                details=(
+                                    f"Expired lease {lease.id} caused task {task.id} to be "
+                                    f"recovered (running→recovering→queued). "
+                                    f"Retry {retry_count + 1}/{self._max_retries}."
+                                ),
+                                payload_json={
+                                    "task_id": str(task.id),
+                                    "lease_id": str(lease.id),
+                                    "retry_count": retry_count,
+                                },
+                            )
+                        )
+                        logger.info(
+                            "runtime_maintainer_task_requeued",
+                            extra={
+                                "task_id": str(task.id),
+                                "retry_count": retry_count + 1,
+                            },
+                        )
 
-            elif task.status == ExecutionTaskState.CLAIMED.value:
-                # Worker died before starting — direct claimed→queued re-queue
-                # No 'recovering' intermediate needed (task never ran)
-                transition_task(task, ExecutionTaskState.QUEUED)
-                self._queue.enqueue_task(
-                    QueueMessage(
-                        tenant_id=task.tenant_id,
-                        task_id=task.id,
-                        mission_id=task.mission_id,
-                        fleet_id=task.fleet_id,
-                        branch_id=task.branch_id,
-                        payload=task.metadata_json,
-                        enqueued_at=datetime.now(UTC),
-                    )
-                )
-                requeued_count += 1
-                self._audit.append(
-                    AuditEvent(
-                        tenant_id=task.tenant_id,
-                        mission_id=task.mission_id,
-                        category="runtime_recovery",
-                        action="claimed_task_requeued_on_lease_expiry",
-                        actor="runtime_maintainer",
-                        details=(
-                            f"Expired lease {lease.id}: task {task.id} was claimed "
-                            f"but never started. Re-queued directly (claimed→queued)."
-                        ),
-                        payload_json={
-                            "task_id": str(task.id),
-                            "lease_id": str(lease.id),
-                        },
-                    )
-                )
+                elif task.status == ExecutionTaskState.CLAIMED.value:
+                    if should_dead_letter:
+                        transition_task(task, ExecutionTaskState.DEAD_LETTERED)
+                        result = self._queue.move_to_dead_letter(
+                            tenant_id=task.tenant_id,
+                            task_id=task.id,
+                            reason=f"max retries exceeded during claimed recovery ({retry_count}/{self._max_retries})",
+                        )
+                        if not result.ok:
+                            raise RuntimeError(
+                                f"runtime maintainer failed to move claimed task {task.id} to dead-letter: {result.reason}"
+                            )
+                        dead_lettered_count += 1
+                        self._audit.append(
+                            AuditEvent(
+                                tenant_id=task.tenant_id,
+                                mission_id=task.mission_id,
+                                category="runtime_recovery",
+                                action="claimed_task_dead_lettered_max_retries",
+                                actor="runtime_maintainer",
+                                details=(
+                                    f"Expired claimed lease {lease.id}: task {task.id} dead-lettered after "
+                                    f"{retry_count} retries without starting."
+                                ),
+                                payload_json={
+                                    "task_id": str(task.id),
+                                    "lease_id": str(lease.id),
+                                    "retry_count": retry_count,
+                                },
+                            )
+                        )
+                    else:
+                        task.retry_count = retry_count + 1
+                        transition_task(task, ExecutionTaskState.QUEUED)
+                        result = self._queue.release_lease(
+                            tenant_id=task.tenant_id,
+                            task_id=task.id,
+                            worker_id=lease.holder_identity,
+                        )
+                        if not result.ok:
+                            raise RuntimeError(
+                                f"runtime maintainer failed to release claimed task {task.id}: {result.reason}"
+                            )
+                        requeued_count += 1
+                        self._audit.append(
+                            AuditEvent(
+                                tenant_id=task.tenant_id,
+                                mission_id=task.mission_id,
+                                category="runtime_recovery",
+                                action="claimed_task_requeued_on_lease_expiry",
+                                actor="runtime_maintainer",
+                                details=(
+                                    f"Expired lease {lease.id}: task {task.id} was claimed "
+                                    f"but never started. Re-queued directly (claimed→queued). "
+                                    f"Retry {retry_count + 1}/{self._max_retries}."
+                                ),
+                                payload_json={
+                                    "task_id": str(task.id),
+                                    "lease_id": str(lease.id),
+                                    "retry_count": retry_count,
+                                },
+                            )
+                        )
 
-        self._session.flush()
+                self._session.flush()
+                self._session.commit()
+            except Exception:
+                self._session.rollback()
+                raise
 
         logger.info(
             "runtime_maintainer_recovery_complete",

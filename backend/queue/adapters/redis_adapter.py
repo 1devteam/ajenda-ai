@@ -125,25 +125,16 @@ class RedisQueueAdapter(QueueAdapter):
             return QueueOperationResult(ok=False, reason=f"fail_task failed: {exc}")
 
     def release_lease(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
-        """Return a processing-queue payload back to pending and delete the lease key.
-
-        Steps:
-          1. Find the payload in the processing list.
-          2. If found, LREM it from processing and RPUSH it back to pending so the
-             task is retried rather than stranded forever.
-          3. DEL the lease heartbeat key regardless of whether the payload was found
-             (a concurrent maintainer may have already moved it).
-
-        This fixes the previous bug where only the lease key was deleted, leaving
-        the payload stranded in the processing list with no DB lease — invisible to
-        both workers and the RuntimeMaintainer.
-        """
         try:
             payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
-            if payload is not None:
-                removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
-                if isinstance(removed, int) and removed >= 1:
-                    self._execute(["RPUSH", self._pending_key(tenant_id), payload])
+            if payload is None:
+                return QueueOperationResult(ok=False, reason="task not found in processing queue")
+            removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
+            if not isinstance(removed, int) or removed < 1:
+                return QueueOperationResult(ok=False, reason="processing payload was not removed")
+            requeued = self._execute(["RPUSH", self._pending_key(tenant_id), payload])
+            if not isinstance(requeued, int):
+                return QueueOperationResult(ok=False, reason="redis did not confirm requeue")
             deleted = self._execute(["DEL", self._lease_key(tenant_id, task_id)])
             if not isinstance(deleted, int):
                 return QueueOperationResult(ok=False, reason="lease delete returned unexpected result")
@@ -154,17 +145,30 @@ class RedisQueueAdapter(QueueAdapter):
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
         try:
             payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
-            if payload is None:
-                return QueueOperationResult(ok=False, reason="task not found in processing queue")
-            removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
-            if not isinstance(removed, int) or removed < 1:
-                return QueueOperationResult(ok=False, reason="processing payload was not removed")
+            if payload is not None:
+                removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
+                if not isinstance(removed, int) or removed < 1:
+                    return QueueOperationResult(ok=False, reason="processing payload was not removed")
+                envelope_payload: Any = json.loads(payload)
+            else:
+                pending_payload = self._find_pending_payload(tenant_id=tenant_id, task_id=task_id)
+                if pending_payload is not None:
+                    removed = self._execute(["LREM", self._pending_key(tenant_id), "1", pending_payload])
+                    if not isinstance(removed, int) or removed < 1:
+                        return QueueOperationResult(ok=False, reason="pending payload was not removed")
+                    envelope_payload = json.loads(pending_payload)
+                else:
+                    envelope_payload = {
+                        "tenant_id": tenant_id,
+                        "task_id": str(task_id),
+                        "source": "runtime_recovery_without_processing_payload",
+                    }
             envelope = json.dumps(
                 {
                     "task_id": str(task_id),
                     "reason": reason,
                     "moved_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                    "payload": json.loads(payload),
+                    "payload": envelope_payload,
                 },
                 separators=(",", ":"),
                 sort_keys=True,
@@ -189,7 +193,19 @@ class RedisQueueAdapter(QueueAdapter):
             raise RedisProtocolError("lease heartbeat SET did not return OK")
 
     def _find_processing_payload(self, *, tenant_id: str, task_id: uuid.UUID) -> str | None:
-        values = self._execute(["LRANGE", self._processing_key(tenant_id), "0", "-1"])
+        return self._find_payload(
+            key=self._processing_key(tenant_id),
+            task_id=task_id,
+        )
+
+    def _find_pending_payload(self, *, tenant_id: str, task_id: uuid.UUID) -> str | None:
+        return self._find_payload(
+            key=self._pending_key(tenant_id),
+            task_id=task_id,
+        )
+
+    def _find_payload(self, *, key: str, task_id: uuid.UUID) -> str | None:
+        values = self._execute(["LRANGE", key, "0", "-1"])
         if not isinstance(values, list):
             raise RedisProtocolError("LRANGE returned unexpected type")
         task_id_str = str(task_id)
