@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from backend.services.mission_executor import MissionQueueSummary, MissionTaskDenial
 from backend.services.quota_enforcement import (
     QuotaEnforcementService,
     QuotaExceededError,
@@ -171,7 +172,11 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         quota_svc = MagicMock()
         executor = MagicMock()
-        executor.queue_all_planned_tasks.return_value = [t.id for t in tasks]
+        executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
+            queued_task_ids=[t.id for t in tasks],
+            pending_review_task_ids=[],
+            denied_tasks=[],
+        )
 
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = tasks
@@ -193,6 +198,8 @@ class TestMissionQueueRouteQuotaEnforcement:
         # Quota must be called with count=3, not count=1
         quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_uuid, count=3)
         assert len(result["queued_task_ids"]) == 3
+        assert result["pending_review_task_ids"] == []
+        assert result["denied_tasks"] == []
 
     def test_empty_mission_skips_quota_and_returns_empty(self):
         """A mission with no planned tasks must skip quota entirely and return []."""
@@ -223,7 +230,11 @@ class TestMissionQueueRouteQuotaEnforcement:
             )
 
         quota_svc.check_and_record_task_creation.assert_not_called()
-        assert result == {"queued_task_ids": []}
+        assert result == {
+            "queued_task_ids": [],
+            "pending_review_task_ids": [],
+            "denied_tasks": [],
+        }
 
     def test_quota_exceeded_returns_429_with_correct_task_count(self):
         """When quota is exceeded for N tasks, the route must return 429."""
@@ -293,7 +304,11 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         quota_svc = MagicMock()
         executor = MagicMock()
-        executor.queue_all_planned_tasks.return_value = [planned.id]
+        executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
+            queued_task_ids=[planned.id],
+            pending_review_task_ids=[],
+            denied_tasks=[],
+        )
 
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = [planned, already_queued, completed]
@@ -316,3 +331,62 @@ class TestMissionQueueRouteQuotaEnforcement:
         # Only 1 planned task — quota must be called with count=1, not count=3
         call_args = quota_svc.check_and_record_task_creation.call_args
         assert call_args.kwargs.get("count") == 1
+
+    def test_mixed_mission_queue_outcomes_are_reported_truthfully(self):
+        """Mission queue response must expose queued, pending-review, and denied paths separately."""
+        from backend.api.routes.mission import queue_mission
+
+        tenant_id = str(uuid.uuid4())
+        mission_id = uuid.uuid4()
+        tenant_uuid = uuid.UUID(tenant_id)
+
+        queued_task = self._make_planned_task(tenant_id, mission_id)
+        pending_review_task = self._make_planned_task(tenant_id, mission_id)
+        denied_task = self._make_planned_task(tenant_id, mission_id)
+
+        db = MagicMock()
+        queue = MagicMock()
+        request = MagicMock()
+
+        quota_svc = MagicMock()
+        executor = MagicMock()
+        executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
+            queued_task_ids=[queued_task.id],
+            pending_review_task_ids=[pending_review_task.id],
+            denied_tasks=[
+                MissionTaskDenial(
+                    task_id=denied_task.id,
+                    state="blocked",
+                    reason="runtime governor denied execution",
+                )
+            ],
+        )
+
+        task_repo = MagicMock()
+        task_repo.list_for_mission.return_value = [queued_task, pending_review_task, denied_task]
+
+        with (
+            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission.MissionExecutor", return_value=executor),
+            patch("backend.api.routes.mission.ExecutionCoordinator"),
+        ):
+            result = queue_mission(
+                mission_id=mission_id,
+                request=request,
+                tenant_id=tenant_uuid,
+                db=db,
+                queue=queue,
+            )
+
+        assert result == {
+            "queued_task_ids": [str(queued_task.id)],
+            "pending_review_task_ids": [str(pending_review_task.id)],
+            "denied_tasks": [
+                {
+                    "task_id": str(denied_task.id),
+                    "state": "blocked",
+                    "reason": "runtime governor denied execution",
+                }
+            ],
+        }
