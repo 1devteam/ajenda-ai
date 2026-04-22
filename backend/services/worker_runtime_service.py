@@ -60,11 +60,13 @@ class WorkerRuntimeService:
             )
             task.metadata_json = {**task.metadata_json, "worker_lease_id": str(lease.id)}
             self._session.flush()
+            self._session.commit()
         except Exception as exc:
             logger.error(
                 "claim_db_failed_releasing_queue_claim",
                 extra={"task_id": str(task.id), "worker_id": worker_id, "error": str(exc)},
             )
+            self._session.rollback()
             try:
                 self._queue.release_lease(
                     tenant_id=tenant_id,
@@ -97,6 +99,7 @@ class WorkerRuntimeService:
             transition_lease(lease, WorkerLeaseState.ACTIVE)
         lease.heartbeat_at = datetime.now(UTC)
         self._session.flush()
+        self._session.commit()
         return lease
 
     def start_execution(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> ExecutionTask:
@@ -108,6 +111,7 @@ class WorkerRuntimeService:
             lease.heartbeat_at = datetime.now(UTC)
             transition_task(task, ExecutionTaskState.RUNNING)
             self._session.flush()
+            self._session.commit()
         return task
 
     def complete(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> ExecutionTask:
@@ -120,10 +124,10 @@ class WorkerRuntimeService:
         self._transition_lease_to_released(lease)
         result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
         if not result.ok:
+            self._session.rollback()
             raise ValueError(result.reason or "complete rejected")
 
         lease.heartbeat_at = datetime.now(UTC)
-        self._session.flush()
         self._audit.append(
             AuditEvent(
                 tenant_id=tenant_id,
@@ -135,6 +139,8 @@ class WorkerRuntimeService:
                 payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
             )
         )
+        self._session.flush()
+        self._session.commit()
         return task
 
     def fail(
@@ -163,10 +169,10 @@ class WorkerRuntimeService:
             reason=reason,
         )
         if not result.ok:
+            self._session.rollback()
             raise ValueError(result.reason or "fail rejected")
 
         lease.heartbeat_at = datetime.now(UTC)
-        self._session.flush()
         self._audit.append(
             AuditEvent(
                 tenant_id=tenant_id,
@@ -178,6 +184,8 @@ class WorkerRuntimeService:
                 payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
             )
         )
+        self._session.flush()
+        self._session.commit()
         return task
 
     def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
@@ -189,9 +197,11 @@ class WorkerRuntimeService:
             worker_id=worker_id,
         )
         if not result.ok:
+            self._session.rollback()
             raise ValueError(result.reason or "release rejected")
         lease.heartbeat_at = datetime.now(UTC)
         self._session.flush()
+        self._session.commit()
         return lease
 
     def _get_owned_lease(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
