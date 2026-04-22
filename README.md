@@ -6,6 +6,16 @@ This repository contains both the application runtime and the runtime-proof laye
 
 ---
 
+## Repository legal status
+
+This repository is proprietary.
+
+- copyright ownership is documented in `COPYRIGHT`
+- repository use restrictions and reserved-rights posture are documented in `NOTICE`
+- no open-source license grant is provided in this repository
+
+---
+
 ## What Ajenda AI is
 
 Ajenda AI is designed to safely accept tenant-scoped work, enforce authentication and policy boundaries, move work through authoritative task and lease transitions, recover from worker/runtime failure without corrupting execution state, and preserve auditability across control-plane and runtime operations.
