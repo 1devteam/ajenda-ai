@@ -177,6 +177,7 @@ def test_rg_mixed_tenant_post_race_completion_cleanup_stays_isolated(
             worker_id="worker-rg-mixed-b",
         )
         completion_session.flush()
+        completion_session.commit()
     finally:
         completion_session.close()
 
