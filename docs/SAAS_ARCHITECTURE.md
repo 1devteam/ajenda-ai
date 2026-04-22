@@ -181,16 +181,18 @@ Those remain valuable, but they should build on a trusted runtime-proof foundati
 
 ---
 
-## 11. Current next architectural priority
+## 11. Current architectural priority
 
-The next highest-value architectural move is to strengthen the runtime validation and release-governance layer so the SaaS guarantees described in this document are tied to explicit proof surfaces.
+The current highest-value architectural posture is to keep the SaaS guarantees in this document tied to current runtime-proof surfaces rather than letting the architecture drift ahead of implementation truth.
 
 That means:
 
-- a more authoritative validation matrix
-- clearer release semantics
-- stronger coverage/maturity classification
-- more deliberate proof of resilience, isolation, integrity, and forbidden outcomes
+- keeping architecture docs synchronized with merged runtime and validation truth
+- preserving an authoritative validation matrix and artifact model
+- extending proof of resilience, isolation, integrity, and forbidden outcomes where coverage is still thinner than the importance of the guarantee
+- treating recovery visibility, bounded dead-letter behavior, and targeted validation workflow coverage as current repo truth rather than future intent
+
+The next architectural moves should build on that already-merged runtime-proof foundation, not re-describe work that has already landed.
 
 ---
 
@@ -204,4 +206,4 @@ Ajenda’s SaaS architecture should be understood as:
 - queue/lease/recovery safety
 - and an evidence-backed runtime-proof model that validates whether those guarantees still hold
 
-That final layer is what moves the system toward enterprise-grade operational credibility.
+That final layer is what moves the system toward enterprise-grade operational credibility, and the current priority is to keep the architecture narrative synchronized with the runtime and validation truth already present on `main`.
