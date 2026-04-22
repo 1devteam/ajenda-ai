@@ -37,6 +37,11 @@ def test_task_queue_contract_returns_success_payload() -> None:
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
 
+    task = MagicMock()
+    task.tenant_id = str(tenant_id)
+
+    task_repo = MagicMock()
+    task_repo.get.return_value = task
     quota_svc = MagicMock()
     coordinator = MagicMock()
     coordinator.queue_task.return_value = CoordinationResult(
@@ -46,6 +51,7 @@ def test_task_queue_contract_returns_success_payload() -> None:
     )
 
     with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
@@ -63,11 +69,13 @@ def test_task_queue_contract_returns_400_when_task_not_found_for_tenant() -> Non
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
 
+    task_repo = MagicMock()
+    task_repo.get.return_value = None
     quota_svc = MagicMock()
     coordinator = MagicMock()
-    coordinator.queue_task.side_effect = ValueError("task not found for tenant")
 
     with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
@@ -75,8 +83,36 @@ def test_task_queue_contract_returns_400_when_task_not_found_for_tenant() -> Non
 
     assert response.status_code == 400
     assert response.json() == {"detail": "task not found for tenant"}
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
-    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
+    quota_svc.check_and_record_task_creation.assert_not_called()
+    coordinator.queue_task.assert_not_called()
+
+
+def test_task_queue_contract_returns_400_when_task_belongs_to_other_tenant() -> None:
+    tenant_id = uuid.uuid4()
+    other_tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    task = MagicMock()
+    task.tenant_id = str(other_tenant_id)
+
+    task_repo = MagicMock()
+    task_repo.get.return_value = task
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+
+    with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
+    ):
+        response = client.post(f"/v1/tasks/{task_id}/queue")
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "task not found for tenant"}
+    quota_svc.check_and_record_task_creation.assert_not_called()
+    coordinator.queue_task.assert_not_called()
 
 
 def test_task_queue_contract_returns_400_when_service_rejects_queue_attempt() -> None:
@@ -85,6 +121,11 @@ def test_task_queue_contract_returns_400_when_service_rejects_queue_attempt() ->
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
 
+    task = MagicMock()
+    task.tenant_id = str(tenant_id)
+
+    task_repo = MagicMock()
+    task_repo.get.return_value = task
     quota_svc = MagicMock()
     coordinator = MagicMock()
     coordinator.queue_task.return_value = CoordinationResult(
@@ -95,6 +136,7 @@ def test_task_queue_contract_returns_400_when_service_rejects_queue_attempt() ->
     )
 
     with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
@@ -112,6 +154,11 @@ def test_task_queue_contract_returns_400_when_task_is_routed_to_pending_review()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
 
+    task = MagicMock()
+    task.tenant_id = str(tenant_id)
+
+    task_repo = MagicMock()
+    task_repo.get.return_value = task
     quota_svc = MagicMock()
     coordinator = MagicMock()
     coordinator.queue_task.return_value = CoordinationResult(
@@ -122,6 +169,7 @@ def test_task_queue_contract_returns_400_when_task_is_routed_to_pending_review()
     )
 
     with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
