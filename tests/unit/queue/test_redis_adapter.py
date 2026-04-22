@@ -274,14 +274,31 @@ def test_release_lease_requeues_payload_when_found(monkeypatch) -> None:
     assert [command[0] for command in commands] == ["LREM", "RPUSH", "DEL"]
 
 
-def test_move_to_dead_letter_returns_not_found_when_payload_missing(monkeypatch) -> None:
+def test_move_to_dead_letter_without_processing_payload_pushes_bounded_recovery_envelope(monkeypatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    task_id = uuid.uuid4()
+    commands: list[list[str]] = []
+
     monkeypatch.setattr(adapter, "_find_processing_payload", lambda **kwargs: None)
 
-    result = adapter.move_to_dead_letter(tenant_id="tenant-a", task_id=uuid.uuid4(), reason="bad")
+    def _execute(command):
+        commands.append(command)
+        if command[0] in {"LPUSH", "DEL"}:
+            return 1
+        return 1
 
-    assert result.ok is False
-    assert result.reason == "task not found in processing queue"
+    monkeypatch.setattr(adapter, "_execute", _execute)
+
+    result = adapter.move_to_dead_letter(tenant_id="tenant-a", task_id=task_id, reason="bad")
+
+    assert result.ok is True
+    envelope = next(command[2] for command in commands if command[0] == "LPUSH")
+    parsed = json.loads(envelope)
+    assert parsed["task_id"] == str(task_id)
+    assert parsed["reason"] == "bad"
+    assert parsed["payload"]["tenant_id"] == "tenant-a"
+    assert parsed["payload"]["task_id"] == str(task_id)
+    assert parsed["payload"]["source"] == "runtime_recovery_without_processing_payload"
 
 
 def test_move_to_dead_letter_returns_failure_when_lrem_does_not_remove(monkeypatch) -> None:
