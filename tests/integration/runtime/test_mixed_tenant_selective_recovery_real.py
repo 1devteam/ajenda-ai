@@ -118,12 +118,8 @@ def test_rg_mixed_tenant_selective_recovery_leaves_healthy_claim_untouched(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_a)
-        )
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_b)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -239,12 +235,8 @@ def test_rg_mixed_tenant_selective_recovery_dead_letters_only_expired_tenant(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_a)
-        )
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_b)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -361,12 +353,8 @@ def test_rg_mixed_tenant_selective_recovery_preserves_healthy_running_tenant(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_a)
-        )
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(
-            uuid.UUID(tenant_b)
-        )
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
