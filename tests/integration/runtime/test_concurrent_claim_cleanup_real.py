@@ -95,6 +95,7 @@ def test_rg_concurrent_claim_race_leaves_no_duplicate_processing_residue(
             )
             if claimed is not None:
                 session.flush()
+                session.commit()
                 results[worker_name] = str(claimed.id)
             else:
                 results[worker_name] = None
@@ -184,6 +185,7 @@ def test_rg_concurrent_claim_winner_completes_with_clean_terminal_cleanup(
             )
             if claimed is not None:
                 session.flush()
+                session.commit()
                 results[worker_name] = str(claimed.id)
             else:
                 results[worker_name] = None
@@ -229,6 +231,7 @@ def test_rg_concurrent_claim_winner_completes_with_clean_terminal_cleanup(
             worker_id=winning_worker,
         )
         completion_session.flush()
+        completion_session.commit()
         assert completed.status == ExecutionTaskState.COMPLETED.value
     finally:
         completion_session.close()
