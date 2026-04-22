@@ -12,6 +12,7 @@ pytest.mark.integration and skipped in unit test runs.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -21,6 +22,7 @@ from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
+from backend.queue.base import QueueMessage
 from backend.services.runtime_maintainer import RuntimeMaintainer
 
 pytestmark = pytest.mark.integration
@@ -59,6 +61,23 @@ def _make_expired_lease(
     )
 
 
+def _prime_processing_payload(queue_adapter, tenant_id: str, task_id, mission_id, worker_id: str) -> None:
+    message = QueueMessage(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=mission_id,
+        fleet_id=None,
+        branch_id=None,
+        payload={},
+        enqueued_at=datetime.now(UTC),
+    )
+    enqueue_result = queue_adapter.enqueue_task(message)
+    assert enqueue_result.ok is True
+    claimed = queue_adapter.claim_task(tenant_id=tenant_id, worker_id=worker_id)
+    assert claimed is not None
+    assert claimed.task_id == task_id
+
+
 class TestLeaseRecoveryReal:
     def test_running_task_transitions_through_recovering_to_queued(
         self,
@@ -77,6 +96,7 @@ class TestLeaseRecoveryReal:
         lease = _make_expired_lease(task.id, "tenant-recovery-a")
         pg_session.add(lease)
         pg_session.flush()
+        _prime_processing_payload(queue_adapter, task.tenant_id, task.id, mission.id, lease.holder_identity)
 
         maintainer = RuntimeMaintainer(
             session=pg_session,
@@ -111,6 +131,7 @@ class TestLeaseRecoveryReal:
         lease = _make_expired_lease(task.id, "tenant-recovery-b")
         pg_session.add(lease)
         pg_session.flush()
+        _prime_processing_payload(queue_adapter, task.tenant_id, task.id, mission.id, lease.holder_identity)
 
         maintainer = RuntimeMaintainer(
             session=pg_session,
@@ -209,6 +230,7 @@ class TestLeaseRecoveryReal:
         lease = _make_expired_lease(task.id, "tenant-recovery-e")
         pg_session.add(lease)
         pg_session.flush()
+        _prime_processing_payload(queue_adapter, task.tenant_id, task.id, mission.id, lease.holder_identity)
 
         maintainer = RuntimeMaintainer(
             session=pg_session,
