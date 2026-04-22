@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.routes import health as health_module
+from backend.api.routes import operations as operations_module
 from backend.api.routes import system as system_module
 from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.services import get_queue_adapter
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
@@ -16,6 +18,13 @@ from backend.middleware.tenant_context import TenantContextMiddleware
 class _FakeSession:
     def execute(self, *_args, **_kwargs):
         return None
+
+
+class _RecoverySummary:
+    def __init__(self, *, expired_lease_count: int, requeued_task_count: int, dead_lettered_count: int) -> None:
+        self.expired_lease_count = expired_lease_count
+        self.requeued_task_count = requeued_task_count
+        self.dead_lettered_count = dead_lettered_count
 
 
 def _build_app() -> FastAPI:
@@ -31,11 +40,16 @@ def _build_app() -> FastAPI:
 
     app.include_router(health_module.router)
     app.include_router(system_module.router, prefix="/v1")
+    app.include_router(operations_module.router, prefix="/v1")
 
     def _override_db():
         yield _FakeSession()
 
+    def _override_queue():
+        return MagicMock()
+
     app.dependency_overrides[get_db_session] = _override_db
+    app.dependency_overrides[get_queue_adapter] = _override_queue
     return app
 
 
@@ -68,3 +82,25 @@ def test_rg_system_status_envelope() -> None:
         headers={"X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"},
     )
     assert missing_auth.status_code == 401
+
+
+def test_rg_recovery_route_remains_public_under_middleware_stack() -> None:
+    app = _build_app()
+    client = TestClient(app, raise_server_exceptions=False)
+
+    service = MagicMock()
+    service.trigger_recovery.return_value = _RecoverySummary(
+        expired_lease_count=2,
+        requeued_task_count=1,
+        dead_lettered_count=1,
+    )
+
+    with patch("backend.api.routes.operations.OperationsService", return_value=service):
+        response = client.post("/v1/operations/recovery")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "expired_lease_count": 2,
+        "requeued_task_count": 1,
+        "dead_lettered_count": 1,
+    }
