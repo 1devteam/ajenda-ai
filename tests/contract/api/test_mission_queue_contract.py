@@ -10,6 +10,7 @@ from backend.api.routes import mission as mission_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.services.mission_executor import MissionQueueSummary, MissionTaskDenial
+from backend.services.quota_enforcement import QuotaExceededError
 
 
 def _build_app(tenant_id: uuid.UUID) -> FastAPI:
@@ -239,3 +240,55 @@ def test_mission_queue_contract_counts_only_local_planned_tasks_when_mission_con
     }
     quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
     executor.queue_all_planned_tasks.assert_called_once_with(tenant_id=str(tenant_id), mission_id=mission_id)
+
+
+def test_mission_queue_contract_quota_exceeded_counts_only_local_tasks_when_mission_contains_foreign_work() -> None:
+    tenant_id = uuid.uuid4()
+    other_tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    local_planned_task = _make_task(
+        tenant_id=str(tenant_id),
+        mission_id=mission_id,
+        status="planned",
+    )
+    foreign_planned_task = _make_task(
+        tenant_id=str(other_tenant_id),
+        mission_id=mission_id,
+        status="planned",
+    )
+
+    task_repo = MagicMock()
+    task_repo.list_for_mission.return_value = [local_planned_task, foreign_planned_task]
+    quota_svc = MagicMock()
+    quota_svc.check_and_record_task_creation.side_effect = QuotaExceededError(
+        field="tasks_per_month",
+        limit=50,
+        current=49,
+        plan="free",
+    )
+    executor = MagicMock()
+
+    with (
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission.MissionExecutor", return_value=executor),
+        patch("backend.api.routes.mission.ExecutionCoordinator"),
+    ):
+        response = client.post(f"/v1/missions/{mission_id}/queue")
+
+    assert response.status_code == 429
+    assert response.json() == {
+        "detail": {
+            "code": "QUOTA_EXCEEDED",
+            "field": "tasks_per_month",
+            "limit": 50,
+            "current": 49,
+            "plan": "free",
+            "message": "You have reached the tasks_per_month limit (50) for the 'free' plan. Upgrade to continue.",
+        }
+    }
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
+    executor.queue_all_planned_tasks.assert_not_called()
