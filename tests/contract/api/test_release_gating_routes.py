@@ -117,6 +117,33 @@ def test_rg_recovery_route_fails_closed_on_service_exception() -> None:
     service.trigger_recovery.assert_called_once_with()
 
 
+def test_rg_dead_letter_inspection_route_succeeds_under_full_middleware_stack() -> None:
+    app = _build_app()
+    client = TestClient(app, raise_server_exceptions=False)
+
+    service = MagicMock()
+    service.inspect_dead_letter.return_value = [
+        {
+            "task_id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8",
+            "mission_id": "b478e9f7-24a2-4af4-b73f-7b0d03f3d20d",
+            "status": "dead_lettered",
+        }
+    ]
+
+    with patch("backend.api.routes.operations.OperationsService", return_value=service):
+        response = client.get(
+            "/v1/operations/dead-letter",
+            headers={
+                "X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8",
+                "Authorization": "Bearer test-token",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == service.inspect_dead_letter.return_value
+    service.inspect_dead_letter.assert_called_once()
+
+
 def test_rg_dead_letter_inspection_route_fails_closed_on_service_exception() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
