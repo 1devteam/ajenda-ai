@@ -115,6 +115,34 @@ def test_task_queue_contract_returns_400_when_task_belongs_to_other_tenant() -> 
     coordinator.queue_task.assert_not_called()
 
 
+def test_task_queue_contract_returns_400_when_coordinator_raises_value_error_after_quota() -> None:
+    tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    task = MagicMock()
+    task.tenant_id = str(tenant_id)
+
+    task_repo = MagicMock()
+    task_repo.get.return_value = task
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+    coordinator.queue_task.side_effect = ValueError("task is not queueable")
+
+    with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
+    ):
+        response = client.post(f"/v1/tasks/{task_id}/queue")
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "task is not queueable"}
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
+
+
 def test_task_queue_contract_returns_400_when_service_rejects_queue_attempt() -> None:
     tenant_id = uuid.uuid4()
     task_id = uuid.uuid4()
