@@ -68,15 +68,12 @@ def test_rg_system_status_envelope() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
 
-    # Public system probes should not require tenant/auth.
     assert client.get("/v1/system/health").status_code == 200
     assert client.get("/v1/system/readiness").status_code == 200
 
-    # Missing tenant context should fail at tenant middleware.
     missing_tenant = client.get("/v1/system/status")
     assert missing_tenant.status_code == 400
 
-    # Tenant present but missing auth should fail closed in auth middleware.
     missing_auth = client.get(
         "/v1/system/status",
         headers={"X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"},
@@ -104,6 +101,20 @@ def test_rg_recovery_route_remains_public_under_middleware_stack() -> None:
         "requeued_task_count": 1,
         "dead_lettered_count": 1,
     }
+
+
+def test_rg_recovery_route_fails_closed_on_service_exception() -> None:
+    app = _build_app()
+    client = TestClient(app, raise_server_exceptions=False)
+
+    service = MagicMock()
+    service.trigger_recovery.side_effect = RuntimeError("recovery failed")
+
+    with patch("backend.api.routes.operations.OperationsService", return_value=service):
+        response = client.post("/v1/operations/recovery")
+
+    assert response.status_code == 500
+    service.trigger_recovery.assert_called_once_with()
 
 
 def test_rg_dead_letter_routes_require_valid_tenant_and_auth_envelope() -> None:
