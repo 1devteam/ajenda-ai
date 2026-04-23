@@ -91,7 +91,7 @@ def test_rg_dead_letter_retry_route_passes_request_tenant_and_task_to_service(mo
 
 
 class _SessionStub:
-    def __init__(self, task: ExecutionTask) -> None:
+    def __init__(self, task: ExecutionTask | None) -> None:
         self._task = task
         self.flush_count = 0
 
@@ -123,6 +123,41 @@ class _FailingQueueStub:
         self.enqueued = True
         self.messages.append(message)
         return MagicMock(ok=False, reason="queue enqueue failed")
+
+
+def test_retry_dead_letter_contract_rejects_missing_task_for_tenant() -> None:
+    tenant_id = str(uuid.uuid4())
+    queue = _QueueStub()
+    service = OperationsService(_SessionStub(None), queue)
+    service._audit = MagicMock()
+
+    with pytest.raises(ValueError, match="task not found for tenant"):
+        service.retry_dead_letter(tenant_id=tenant_id, task_id=uuid.uuid4())
+
+    assert queue.enqueued is False
+    service._audit.append.assert_not_called()
+
+
+def test_retry_dead_letter_contract_rejects_foreign_tenant_task_before_side_effects() -> None:
+    tenant_id = str(uuid.uuid4())
+    other_tenant_id = str(uuid.uuid4())
+    task = ExecutionTask(
+        tenant_id=other_tenant_id,
+        mission_id=uuid.uuid4(),
+        title="task",
+        description="task",
+        status=ExecutionTaskState.DEAD_LETTERED.value,
+        metadata_json={},
+    )
+    queue = _QueueStub()
+    service = OperationsService(_SessionStub(task), queue)
+    service._audit = MagicMock()
+
+    with pytest.raises(ValueError, match="task not found for tenant"):
+        service.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
+
+    assert queue.enqueued is False
+    service._audit.append.assert_not_called()
 
 
 def test_retry_dead_letter_contract_rejects_illegal_dead_lettered_transition() -> None:
