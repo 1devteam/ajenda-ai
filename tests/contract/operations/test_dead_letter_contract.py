@@ -125,3 +125,22 @@ def test_dead_letter_inspection_service_scopes_query_by_tenant_and_dead_lettered
     assert "execution_tasks.status" in compiled
     assert params["tenant_id_1"] == tenant_id
     assert params["status_1"] == ExecutionTaskState.DEAD_LETTERED.value
+
+
+def test_trigger_recovery_delegates_directly_to_runtime_maintainer() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    service = OperationsService(session, queue)
+
+    expected_summary = MagicMock(
+        expired_lease_count=2,
+        requeued_task_count=1,
+        dead_lettered_count=1,
+    )
+    service._maintainer = MagicMock()
+    service._maintainer.recover_expired_leases.return_value = expected_summary
+
+    result = service.trigger_recovery()
+
+    assert result is expected_summary
+    service._maintainer.recover_expired_leases.assert_called_once_with()
