@@ -142,9 +142,10 @@ def test_retry_dead_letter_contract_rejects_illegal_dead_lettered_transition() -
 
 def test_retry_dead_letter_contract_returns_queued_status_and_appends_audit_on_success() -> None:
     tenant_id = str(uuid.uuid4())
+    mission_id = uuid.uuid4()
     task = ExecutionTask(
         tenant_id=tenant_id,
-        mission_id=uuid.uuid4(),
+        mission_id=mission_id,
         title="task",
         description="task",
         status=ExecutionTaskState.DEAD_LETTERED.value,
@@ -162,6 +163,13 @@ def test_retry_dead_letter_contract_returns_queued_status_and_appends_audit_on_s
     assert session.flush_count == 2
     assert result == {"task_id": str(task.id), "status": ExecutionTaskState.QUEUED.value}
     service._audit.append.assert_called_once()
+    audit_event = service._audit.append.call_args.args[0]
+    assert audit_event.tenant_id == tenant_id
+    assert audit_event.mission_id == mission_id
+    assert audit_event.category == "operations"
+    assert audit_event.action == "retry_dead_letter"
+    assert audit_event.actor == "operations_service"
+    assert audit_event.payload_json == {"task_id": str(task.id)}
 
 
 def test_retry_dead_letter_contract_rolls_back_to_dead_lettered_when_enqueue_fails() -> None:
