@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -143,4 +144,18 @@ def test_trigger_recovery_delegates_directly_to_runtime_maintainer() -> None:
     result = service.trigger_recovery()
 
     assert result is expected_summary
+    service._maintainer.recover_expired_leases.assert_called_once_with()
+
+
+def test_trigger_recovery_propagates_runtime_maintainer_failure() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    service = OperationsService(session, queue)
+
+    service._maintainer = MagicMock()
+    service._maintainer.recover_expired_leases.side_effect = RuntimeError("recovery failed")
+
+    with pytest.raises(RuntimeError, match="recovery failed"):
+        service.trigger_recovery()
+
     service._maintainer.recover_expired_leases.assert_called_once_with()
