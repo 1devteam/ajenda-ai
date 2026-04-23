@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 from backend.api.routes import operations as operations_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.domain.enums import ExecutionTaskState
+from backend.domain.execution_task import ExecutionTask
+from backend.services.operations_service import OperationsService
 
 
 def _build_app(tenant_id: uuid.UUID) -> FastAPI:
@@ -87,3 +90,38 @@ def test_dead_letter_retry_contract_returns_400_on_illegal_retry() -> None:
     assert response.status_code == 400
     assert response.json() == {"detail": "task is not in dead-letter state"}
     service.retry_dead_letter.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
+
+
+def test_dead_letter_inspection_service_scopes_query_by_tenant_and_dead_lettered_status() -> None:
+    tenant_id = str(uuid.uuid4())
+
+    task = ExecutionTask(
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        title="dead-lettered task",
+        description="dead-lettered task",
+        status=ExecutionTaskState.DEAD_LETTERED.value,
+        metadata_json={},
+    )
+
+    session = MagicMock()
+    session.scalars.return_value = [task]
+    service = OperationsService(session, MagicMock())
+
+    result = service.inspect_dead_letter(tenant_id=tenant_id)
+
+    assert result == [
+        {
+            "task_id": str(task.id),
+            "mission_id": str(task.mission_id),
+            "status": ExecutionTaskState.DEAD_LETTERED.value,
+        }
+    ]
+
+    stmt = session.scalars.call_args.args[0]
+    compiled = str(stmt)
+    params = stmt.compile().params
+    assert "execution_tasks.tenant_id" in compiled
+    assert "execution_tasks.status" in compiled
+    assert params["tenant_id_1"] == tenant_id
+    assert params["status_1"] == ExecutionTaskState.DEAD_LETTERED.value
