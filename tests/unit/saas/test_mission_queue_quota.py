@@ -69,7 +69,7 @@ class TestCheckAndRecordTaskCreationWithCount:
     def test_single_task_default_count_still_works(self):
         """Existing single-task callers must continue to work without changes."""
         svc = _make_service(_make_tenant(), _make_plan(max_tasks=50), _make_usage(tasks=10))
-        svc.check_and_record_task_creation(uuid.uuid4())  # count defaults to 1
+        svc.check_and_record_task_creation(uuid.uuid4())
         svc._tenants.increment_usage.assert_called_once_with(
             svc._tenants.increment_usage.call_args.args[0],
             field="tasks_created",
@@ -93,12 +93,12 @@ class TestCheckAndRecordTaskCreationWithCount:
         err = exc_info.value
         assert err.field == "tasks_per_month"
         assert err.limit == 50
-        assert err.current == 48  # reports current usage, not projected
+        assert err.current == 48
 
     def test_allows_batch_that_exactly_fills_remaining_quota(self):
         """usage=45, count=5, limit=50 → exactly at limit after → allowed."""
         svc = _make_service(_make_tenant("free"), _make_plan(max_tasks=50), _make_usage(tasks=45))
-        svc.check_and_record_task_creation(uuid.uuid4(), count=5)  # should not raise
+        svc.check_and_record_task_creation(uuid.uuid4(), count=5)
         svc._tenants.increment_usage.assert_called_once()
 
     def test_blocks_when_single_task_would_exceed_limit(self):
@@ -114,7 +114,7 @@ class TestCheckAndRecordTaskCreationWithCount:
             _make_plan(max_tasks=-1),
             _make_usage(tasks=999_999),
         )
-        svc.check_and_record_task_creation(uuid.uuid4(), count=1_000)  # should not raise
+        svc.check_and_record_task_creation(uuid.uuid4(), count=1_000)
 
     def test_invalid_count_raises_value_error(self):
         """count=0 is nonsensical and must raise ValueError immediately."""
@@ -136,12 +136,7 @@ class TestCheckAndRecordTaskCreationWithCount:
         repo.get_active.return_value = _make_tenant("unknown_plan")
         repo.get_plan.return_value = None
         svc._tenants = repo
-        svc.check_and_record_task_creation(uuid.uuid4(), count=100)  # should not raise
-
-
-# ---------------------------------------------------------------------------
-# Mission queue route: quota enforcement per-task (not per-call)
-# ---------------------------------------------------------------------------
+        svc.check_and_record_task_creation(uuid.uuid4(), count=100)
 
 
 class TestMissionQueueRouteQuotaEnforcement:
@@ -156,19 +151,16 @@ class TestMissionQueueRouteQuotaEnforcement:
         return t
 
     def test_quota_checked_with_correct_task_count(self):
-        """POST /missions/{id}/queue must pass count=N (not count=1) to quota service."""
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
         mission_id = uuid.uuid4()
         tenant_uuid = uuid.UUID(tenant_id)
-
         tasks = [self._make_planned_task(tenant_id, mission_id) for _ in range(3)]
 
         db = MagicMock()
         queue = MagicMock()
         request = MagicMock()
-
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
@@ -176,7 +168,6 @@ class TestMissionQueueRouteQuotaEnforcement:
             pending_review_task_ids=[],
             denied_tasks=[],
         )
-
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = tasks
 
@@ -200,16 +191,13 @@ class TestMissionQueueRouteQuotaEnforcement:
         assert result["denied_tasks"] == []
 
     def test_empty_mission_skips_quota_and_returns_empty(self):
-        """A mission with no planned tasks must skip quota entirely and return []."""
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
         mission_id = uuid.uuid4()
-
         db = MagicMock()
         queue = MagicMock()
         request = MagicMock()
-
         quota_svc = MagicMock()
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = []
@@ -235,20 +223,16 @@ class TestMissionQueueRouteQuotaEnforcement:
         }
 
     def test_quota_exceeded_returns_429_with_correct_task_count(self):
-        """When quota is exceeded for N tasks, the route must return 429."""
         from fastapi import HTTPException
-
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
         mission_id = uuid.uuid4()
-
         tasks = [self._make_planned_task(tenant_id, mission_id) for _ in range(10)]
 
         db = MagicMock()
         queue = MagicMock()
         request = MagicMock()
-
         quota_svc = MagicMock()
         quota_svc.check_and_record_task_creation.side_effect = QuotaExceededError(
             field="tasks_per_month",
@@ -281,25 +265,20 @@ class TestMissionQueueRouteQuotaEnforcement:
         assert detail["current"] == 45
 
     def test_only_planned_tasks_counted_for_quota(self):
-        """Tasks in non-PLANNED states must not be counted toward the quota check."""
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
         mission_id = uuid.uuid4()
-
         planned = self._make_planned_task(tenant_id, mission_id)
         planned.status = "planned"
-
         already_queued = self._make_planned_task(tenant_id, mission_id)
         already_queued.status = "queued"
-
         completed = self._make_planned_task(tenant_id, mission_id)
         completed.status = "completed"
 
         db = MagicMock()
         queue = MagicMock()
         request = MagicMock()
-
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
@@ -307,7 +286,6 @@ class TestMissionQueueRouteQuotaEnforcement:
             pending_review_task_ids=[],
             denied_tasks=[],
         )
-
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = [planned, already_queued, completed]
 
@@ -330,20 +308,17 @@ class TestMissionQueueRouteQuotaEnforcement:
         assert call_args.kwargs.get("count") == 1
 
     def test_foreign_tenant_planned_tasks_do_not_consume_quota_or_execution(self):
-        """Foreign-tenant planned tasks in the same mission must be ignored entirely."""
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
         other_tenant_id = str(uuid.uuid4())
         mission_id = uuid.uuid4()
         tenant_uuid = uuid.UUID(tenant_id)
-
         foreign_planned = self._make_planned_task(other_tenant_id, mission_id)
 
         db = MagicMock()
         queue = MagicMock()
         request = MagicMock()
-
         quota_svc = MagicMock()
         executor = MagicMock()
         task_repo = MagicMock()
@@ -372,21 +347,18 @@ class TestMissionQueueRouteQuotaEnforcement:
         executor.queue_all_planned_tasks.assert_not_called()
 
     def test_mixed_local_and_foreign_planned_tasks_count_only_local_quota(self):
-        """Mixed local+foreign planned tasks must charge quota only for the local subset."""
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
         other_tenant_id = str(uuid.uuid4())
         mission_id = uuid.uuid4()
         tenant_uuid = uuid.UUID(tenant_id)
-
         local_planned = self._make_planned_task(tenant_id, mission_id)
         foreign_planned = self._make_planned_task(other_tenant_id, mission_id)
 
         db = MagicMock()
         queue = MagicMock()
         request = MagicMock()
-
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
@@ -419,14 +391,64 @@ class TestMissionQueueRouteQuotaEnforcement:
         quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_uuid, count=1)
         executor.queue_all_planned_tasks.assert_called_once_with(tenant_id=tenant_id, mission_id=mission_id)
 
+    def test_quota_exceeded_counts_only_local_tasks_when_mission_contains_foreign_work(self):
+        from fastapi import HTTPException
+        from backend.api.routes.mission import queue_mission
+
+        tenant_id = str(uuid.uuid4())
+        other_tenant_id = str(uuid.uuid4())
+        mission_id = uuid.uuid4()
+        tenant_uuid = uuid.UUID(tenant_id)
+        local_planned = self._make_planned_task(tenant_id, mission_id)
+        foreign_planned = self._make_planned_task(other_tenant_id, mission_id)
+
+        db = MagicMock()
+        queue = MagicMock()
+        request = MagicMock()
+        quota_svc = MagicMock()
+        quota_svc.check_and_record_task_creation.side_effect = QuotaExceededError(
+            field="tasks_per_month",
+            limit=50,
+            current=49,
+            plan="free",
+        )
+        executor = MagicMock()
+        task_repo = MagicMock()
+        task_repo.list_for_mission.return_value = [local_planned, foreign_planned]
+
+        with (
+            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission.MissionExecutor", return_value=executor),
+            patch("backend.api.routes.mission.ExecutionCoordinator"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                queue_mission(
+                    mission_id=mission_id,
+                    request=request,
+                    tenant_id=tenant_uuid,
+                    db=db,
+                    queue=queue,
+                )
+
+        assert exc_info.value.status_code == 429
+        assert exc_info.value.detail == {
+            "code": "QUOTA_EXCEEDED",
+            "field": "tasks_per_month",
+            "limit": 50,
+            "current": 49,
+            "plan": "free",
+            "message": "You have reached the tasks_per_month limit (50) for the 'free' plan. Upgrade to continue.",
+        }
+        quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_uuid, count=1)
+        executor.queue_all_planned_tasks.assert_not_called()
+
     def test_mixed_mission_queue_outcomes_are_reported_truthfully(self):
-        """Mission queue response must expose queued, pending-review, and denied paths separately."""
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
         mission_id = uuid.uuid4()
         tenant_uuid = uuid.UUID(tenant_id)
-
         queued_task = self._make_planned_task(tenant_id, mission_id)
         pending_review_task = self._make_planned_task(tenant_id, mission_id)
         denied_task = self._make_planned_task(tenant_id, mission_id)
@@ -434,7 +456,6 @@ class TestMissionQueueRouteQuotaEnforcement:
         db = MagicMock()
         queue = MagicMock()
         request = MagicMock()
-
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
@@ -448,7 +469,6 @@ class TestMissionQueueRouteQuotaEnforcement:
                 )
             ],
         )
-
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = [queued_task, pending_review_task, denied_task]
 
