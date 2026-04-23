@@ -61,14 +61,14 @@ def test_dead_letter_retry_contract_returns_service_payload() -> None:
     service = MagicMock()
     service.retry_dead_letter.return_value = {
         "task_id": str(task_id),
-        "state": "queued",
+        "status": "queued",
     }
 
     with patch("backend.api.routes.operations.OperationsService", return_value=service):
         response = client.post(f"/v1/operations/dead-letter/{task_id}/retry")
 
     assert response.status_code == 200
-    assert response.json() == {"task_id": str(task_id), "state": "queued"}
+    assert response.json() == {"task_id": str(task_id), "status": "queued"}
     service.retry_dead_letter.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
