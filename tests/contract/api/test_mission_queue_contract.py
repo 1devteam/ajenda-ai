@@ -319,3 +319,29 @@ def test_mission_queue_contract_returns_400_when_executor_raises_value_error_aft
     assert response.json() == {"detail": "mission not queueable"}
     quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
     executor.queue_all_planned_tasks.assert_called_once_with(tenant_id=str(tenant_id), mission_id=mission_id)
+
+
+def test_mission_queue_contract_returns_500_when_executor_raises_unexpected_exception_after_quota() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    planned_task = _make_task(tenant_id=str(tenant_id), mission_id=mission_id, status="planned")
+    task_repo = MagicMock()
+    task_repo.list_for_mission.return_value = [planned_task]
+    quota_svc = MagicMock()
+    executor = MagicMock()
+    executor.queue_all_planned_tasks.side_effect = RuntimeError("mission queue blew up")
+
+    with (
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission.MissionExecutor", return_value=executor),
+        patch("backend.api.routes.mission.ExecutionCoordinator"),
+    ):
+        response = client.post(f"/v1/missions/{mission_id}/queue")
+
+    assert response.status_code == 500
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
+    executor.queue_all_planned_tasks.assert_called_once_with(tenant_id=str(tenant_id), mission_id=mission_id)
