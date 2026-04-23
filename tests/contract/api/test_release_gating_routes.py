@@ -137,6 +137,26 @@ def test_rg_dead_letter_inspection_route_fails_closed_on_service_exception() -> 
     service.inspect_dead_letter.assert_called_once()
 
 
+def test_rg_dead_letter_retry_route_fails_closed_on_unexpected_service_exception() -> None:
+    app = _build_app()
+    client = TestClient(app, raise_server_exceptions=False)
+
+    service = MagicMock()
+    service.retry_dead_letter.side_effect = RuntimeError("retry failed")
+
+    with patch("backend.api.routes.operations.OperationsService", return_value=service):
+        response = client.post(
+            "/v1/operations/dead-letter/3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8/retry",
+            headers={
+                "X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8",
+                "Authorization": "Bearer test-token",
+            },
+        )
+
+    assert response.status_code == 500
+    service.retry_dead_letter.assert_called_once()
+
+
 def test_rg_dead_letter_routes_require_valid_tenant_and_auth_envelope() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
