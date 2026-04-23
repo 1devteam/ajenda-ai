@@ -256,3 +256,47 @@ def test_queue_task_route_returns_400_when_service_rejects_non_queueable_state()
     assert exc_info.value.detail == "task queue rejected by policy"
     quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
+
+
+def test_queue_task_route_returns_400_when_task_is_routed_to_pending_review() -> None:
+    from backend.api.routes.task import queue_task
+
+    tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+
+    db = MagicMock()
+    queue = MagicMock()
+    request = MagicMock()
+
+    task = MagicMock()
+    task.tenant_id = str(tenant_id)
+
+    task_repo = MagicMock()
+    task_repo.get.return_value = task
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+    coordinator.queue_task.return_value = CoordinationResult(
+        ok=False,
+        task_id=task_id,
+        state="pending_review",
+        reason="human review required",
+    )
+
+    with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            queue_task(
+                task_id=task_id,
+                request=request,
+                tenant_id=tenant_id,
+                db=db,
+                queue=queue,
+            )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "human review required"
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
