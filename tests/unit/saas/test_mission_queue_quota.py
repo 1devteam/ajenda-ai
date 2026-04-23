@@ -163,7 +163,6 @@ class TestMissionQueueRouteQuotaEnforcement:
         mission_id = uuid.uuid4()
         tenant_uuid = uuid.UUID(tenant_id)
 
-        # Build 3 planned tasks for the mission
         tasks = [self._make_planned_task(tenant_id, mission_id) for _ in range(3)]
 
         db = MagicMock()
@@ -371,6 +370,54 @@ class TestMissionQueueRouteQuotaEnforcement:
         }
         quota_svc.check_and_record_task_creation.assert_not_called()
         executor.queue_all_planned_tasks.assert_not_called()
+
+    def test_mixed_local_and_foreign_planned_tasks_count_only_local_quota(self):
+        """Mixed local+foreign planned tasks must charge quota only for the local subset."""
+        from backend.api.routes.mission import queue_mission
+
+        tenant_id = str(uuid.uuid4())
+        other_tenant_id = str(uuid.uuid4())
+        mission_id = uuid.uuid4()
+        tenant_uuid = uuid.UUID(tenant_id)
+
+        local_planned = self._make_planned_task(tenant_id, mission_id)
+        foreign_planned = self._make_planned_task(other_tenant_id, mission_id)
+
+        db = MagicMock()
+        queue = MagicMock()
+        request = MagicMock()
+
+        quota_svc = MagicMock()
+        executor = MagicMock()
+        executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
+            queued_task_ids=[local_planned.id],
+            pending_review_task_ids=[],
+            denied_tasks=[],
+        )
+        task_repo = MagicMock()
+        task_repo.list_for_mission.return_value = [local_planned, foreign_planned]
+
+        with (
+            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission.MissionExecutor", return_value=executor),
+            patch("backend.api.routes.mission.ExecutionCoordinator"),
+        ):
+            result = queue_mission(
+                mission_id=mission_id,
+                request=request,
+                tenant_id=tenant_uuid,
+                db=db,
+                queue=queue,
+            )
+
+        assert result == {
+            "queued_task_ids": [str(local_planned.id)],
+            "pending_review_task_ids": [],
+            "denied_tasks": [],
+        }
+        quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_uuid, count=1)
+        executor.queue_all_planned_tasks.assert_called_once_with(tenant_id=tenant_id, mission_id=mission_id)
 
     def test_mixed_mission_queue_outcomes_are_reported_truthfully(self):
         """Mission queue response must expose queued, pending-review, and denied paths separately."""
