@@ -57,6 +57,11 @@ def test_task_queue_contract_returns_structured_429_on_quota_exceeded() -> None:
     app = _build_task_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
 
+    task = MagicMock()
+    task.tenant_id = str(tenant_id)
+
+    task_repo = MagicMock()
+    task_repo.get.return_value = task
     quota_svc = MagicMock()
     quota_svc.check_and_record_task_creation.side_effect = QuotaExceededError(
         field="tasks_per_month",
@@ -65,7 +70,10 @@ def test_task_queue_contract_returns_structured_429_on_quota_exceeded() -> None:
         plan="free",
     )
 
-    with patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc):
+    with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
+    ):
         response = client.post(f"/v1/tasks/{task_id}/queue")
 
     assert response.status_code == 429
