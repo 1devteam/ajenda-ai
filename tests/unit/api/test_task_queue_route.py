@@ -214,6 +214,43 @@ def test_queue_task_route_returns_400_when_coordinator_raises_value_error_after_
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
+def test_queue_task_route_returns_500_when_coordinator_raises_unexpected_exception_after_quota() -> None:
+    from backend.api.routes.task import queue_task
+
+    tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+
+    db = MagicMock()
+    queue = MagicMock()
+    request = MagicMock()
+
+    task = MagicMock()
+    task.tenant_id = str(tenant_id)
+
+    task_repo = MagicMock()
+    task_repo.get.return_value = task
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+    coordinator.queue_task.side_effect = RuntimeError("queue path blew up")
+
+    with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
+    ):
+        with pytest.raises(RuntimeError, match="queue path blew up"):
+            queue_task(
+                task_id=task_id,
+                request=request,
+                tenant_id=tenant_id,
+                db=db,
+                queue=queue,
+            )
+
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
+
+
 def test_queue_task_route_returns_400_when_service_rejects_non_queueable_state() -> None:
     from backend.api.routes.task import queue_task
 
