@@ -140,6 +140,30 @@ def test_retry_dead_letter_contract_rejects_illegal_dead_lettered_transition() -
     assert queue.enqueued is False
 
 
+def test_retry_dead_letter_contract_returns_queued_status_and_appends_audit_on_success() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = ExecutionTask(
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        title="task",
+        description="task",
+        status=ExecutionTaskState.DEAD_LETTERED.value,
+        metadata_json={},
+    )
+    session = _SessionStub(task)
+    queue = _QueueStub()
+    service = OperationsService(session, queue)
+    service._audit = MagicMock()
+
+    result = service.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
+
+    assert queue.enqueued is True
+    assert task.status == ExecutionTaskState.QUEUED.value
+    assert session.flush_count == 2
+    assert result == {"task_id": str(task.id), "status": ExecutionTaskState.QUEUED.value}
+    service._audit.append.assert_called_once()
+
+
 def test_retry_dead_letter_contract_rolls_back_to_dead_lettered_when_enqueue_fails() -> None:
     tenant_id = str(uuid.uuid4())
     task = ExecutionTask(
