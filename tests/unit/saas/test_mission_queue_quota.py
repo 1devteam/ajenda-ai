@@ -443,6 +443,44 @@ class TestMissionQueueRouteQuotaEnforcement:
         quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_uuid, count=1)
         executor.queue_all_planned_tasks.assert_not_called()
 
+    def test_queue_mission_returns_400_when_executor_raises_value_error_after_quota(self):
+        from fastapi import HTTPException
+        from backend.api.routes.mission import queue_mission
+
+        tenant_id = str(uuid.uuid4())
+        mission_id = uuid.uuid4()
+        tenant_uuid = uuid.UUID(tenant_id)
+        planned = self._make_planned_task(tenant_id, mission_id)
+
+        db = MagicMock()
+        queue = MagicMock()
+        request = MagicMock()
+        quota_svc = MagicMock()
+        executor = MagicMock()
+        executor.queue_all_planned_tasks.side_effect = ValueError("mission not queueable")
+        task_repo = MagicMock()
+        task_repo.list_for_mission.return_value = [planned]
+
+        with (
+            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission.MissionExecutor", return_value=executor),
+            patch("backend.api.routes.mission.ExecutionCoordinator"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                queue_mission(
+                    mission_id=mission_id,
+                    request=request,
+                    tenant_id=tenant_uuid,
+                    db=db,
+                    queue=queue,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "mission not queueable"
+        quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_uuid, count=1)
+        executor.queue_all_planned_tasks.assert_called_once_with(tenant_id=tenant_id, mission_id=mission_id)
+
     def test_mixed_mission_queue_outcomes_are_reported_truthfully(self):
         from backend.api.routes.mission import queue_mission
 
