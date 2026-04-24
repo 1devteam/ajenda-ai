@@ -113,12 +113,15 @@ def _assert_failed_without_output(
         assert final_task.status == ExecutionTaskState.FAILED.value
         assert final_lease is not None
         assert final_lease.status == WorkerLeaseState.RELEASED.value
-        assert _lineage_count(
-            session=verify_session,
-            tenant_id=tenant_id,
-            task_id=task_id,
-            lease_id=lease_id,
-        ) == 0
+        assert (
+            _lineage_count(
+                session=verify_session,
+                tenant_id=tenant_id,
+                task_id=task_id,
+                lease_id=lease_id,
+            )
+            == 0
+        )
         assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:
