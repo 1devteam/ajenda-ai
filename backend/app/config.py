@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 import os
 import socket
 from functools import lru_cache
 from typing import Literal
 
+from cryptography.fernet import Fernet
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -74,6 +76,14 @@ class Settings(BaseSettings):
     )
     authz_opa_url: str | None = Field(default=None, alias="AJENDA_AUTHZ_OPA_URL")
     authz_opa_timeout_seconds: float = Field(default=2.0, alias="AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS")
+    webhook_secret_encryption_key: str | None = Field(
+        default=None,
+        alias="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
+    )
+    webhook_secret_encryption_key_prev: str | None = Field(
+        default=None,
+        alias="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
+    )
 
     @property
     def redact_key_set(self) -> set[str]:
@@ -115,6 +125,18 @@ class Settings(BaseSettings):
                     f"Current value: {self.oidc_issuer!r}. "
                     "Set this to your identity provider's issuer URL."
                 )
+            if self.worker_tenant_id == "default" or not self.worker_tenant_id.strip():
+                raise ValueError("AJENDA_WORKER_TENANT_ID must be explicitly configured in production")
+            self._validate_required_fernet_key(
+                value=self.webhook_secret_encryption_key,
+                env_name="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
+            )
+
+        if self.webhook_secret_encryption_key_prev is not None and self.webhook_secret_encryption_key_prev.strip():
+            self._validate_optional_fernet_key(
+                value=self.webhook_secret_encryption_key_prev,
+                env_name="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
+            )
 
         # --- Rate limiting sanity ---
         if self.rate_limit_requests <= 0:
@@ -134,6 +156,27 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS must be a positive number, got {self.authz_opa_timeout_seconds}"
             )
+
+    @staticmethod
+    def _validate_required_fernet_key(*, value: str | None, env_name: str) -> None:
+        if value is None or not value.strip():
+            raise ValueError(f"{env_name} is required in production")
+        Settings._validate_optional_fernet_key(value=value, env_name=env_name)
+
+    @staticmethod
+    def _validate_optional_fernet_key(*, value: str, env_name: str) -> None:
+        normalized_value = value.strip()
+        if normalized_value != value or any(character.isspace() for character in value):
+            raise ValueError(f"{env_name} must not contain surrounding or embedded whitespace")
+
+        try:
+            Fernet(normalized_value.encode())
+        except Exception as exc:
+            raise ValueError(f"{env_name} must be a valid Fernet key") from exc
+
+        deterministic_test_key = base64.urlsafe_b64encode(b"\x00" * 32).decode()
+        if normalized_value == deterministic_test_key:
+            raise ValueError(f"{env_name} must not use the deterministic development/test key")
 
 
 @lru_cache(maxsize=1)
