@@ -29,7 +29,9 @@ from typing import Any
 from sqlalchemy.orm import sessionmaker
 
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.lineage_record import LineageRecord
 from backend.queue.base import QueueAdapter
+from backend.repositories.lineage_record_repository import LineageRecordRepository
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 logger = logging.getLogger("ajenda.task_dispatcher")
@@ -98,6 +100,7 @@ class TaskDispatcher:
                 "worker_id": self.worker_id,
                 "tenant_id": self.tenant_id,
                 "lease_id": str(lease_id),
+                "session_factory": self.session_factory,
             }
             result = handler(task, context)
             logger.info(
@@ -215,3 +218,48 @@ def default_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, A
 @register_handler("force_fail")
 def force_fail_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, Any]:
     raise RuntimeError("intentional failure for runtime validation")
+
+
+@register_handler("echo")
+def echo_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, Any]:
+    """Persist a minimal proof-of-work output for runtime validation."""
+
+    payload = task.metadata_json.get("input", {})
+    if not isinstance(payload, dict):
+        raise ValueError("echo task input must be an object")
+
+    output = {
+        "handler": "echo",
+        "input": payload,
+        "output": payload,
+        "status": "completed",
+    }
+
+    session_factory = context.get("session_factory")
+    if session_factory is None:
+        raise ValueError("echo handler requires session_factory in context")
+
+    session = session_factory()
+    try:
+        lineage_repo = LineageRecordRepository(session)
+        lineage_repo.append(
+            LineageRecord(
+                tenant_id=task.tenant_id,
+                mission_id=task.mission_id,
+                fleet_id=task.fleet_id,
+                branch_id=task.branch_id,
+                task_id=task.id,
+                worker_lease_id=uuid.UUID(str(context["lease_id"])),
+                relationship_type="task_output",
+                relationship_reason="echo handler completed",
+                metadata_json=output,
+            )
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    return output
