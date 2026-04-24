@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -127,7 +128,7 @@ class WorkerRuntimeService:
         tenant_id: str,
         lease_id: uuid.UUID,
         worker_id: str,
-        task_output: dict | None = None,
+        task_output: dict[str, Any] | None = None,
         output_reason: str | None = None,
     ) -> ExecutionTask:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
