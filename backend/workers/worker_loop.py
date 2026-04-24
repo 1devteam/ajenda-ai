@@ -1,14 +1,14 @@
-"""Worker loop — claim, execute, heartbeat, complete/fail cycle.
+"""Worker loop — claim, start, dispatch cycle.
 
-Previous defect: _run_claimed_task() used time.sleep(45) as a placeholder
-for real task execution. No actual work was ever dispatched. The worker
-appeared to function correctly but produced no real output.
+The worker loop owns polling and claim/start orchestration. Real task execution,
+heartbeats during execution, completion, failure, and output persistence are owned
+by TaskDispatcher and WorkerRuntimeService.
 
 This implementation:
 - Dispatches real task execution via TaskDispatcher
 - Maintains a liveness file at /tmp/worker-alive for K8s probes
 - Uses structured logging (not print())
-- Handles heartbeat loss gracefully (fail the task, don't crash the loop)
+- Handles dispatcher failures with one fail-path compensation attempt
 - Separates the poll loop from the execution loop cleanly
 """
 
@@ -22,7 +22,6 @@ from pathlib import Path
 
 from sqlalchemy.orm import sessionmaker
 
-from backend.domain.enums import ExecutionTaskState
 from backend.queue.base import QueueAdapter
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
@@ -37,8 +36,8 @@ _LIVENESS_UPDATE_INTERVAL = 10.0  # seconds
 class WorkerLoop:
     """Main worker execution loop.
 
-    Polls the queue for tasks, claims them, dispatches real execution,
-    heartbeats during execution, and marks tasks complete or failed.
+    Polls the queue for tasks, claims them, starts execution, and delegates
+    execution lifecycle authority to TaskDispatcher.
     """
 
     session_factory: sessionmaker  # type: ignore[type-arg]
@@ -105,7 +104,7 @@ class WorkerLoop:
             session.close()
 
     def _run_claimed_task(self, *, task_id: uuid.UUID, lease_id: uuid.UUID) -> None:
-        """Dispatch real task execution and manage the heartbeat/completion lifecycle."""
+        """Dispatch real task execution and compensate if dispatcher raises."""
         try:
             dispatcher = TaskDispatcher(
                 session_factory=self.session_factory,
@@ -113,8 +112,6 @@ class WorkerLoop:
                 worker_id=self.worker_id,
                 tenant_id=self.tenant_id,
             )
-            # Run the task. The dispatcher is responsible for calling
-            # runtime.complete() or runtime.fail() when done.
             dispatcher.execute(task_id=task_id, lease_id=lease_id)
 
         except Exception as exc:
@@ -123,49 +120,6 @@ class WorkerLoop:
                 extra={"task_id": str(task_id), "error": str(exc)},
             )
             self._fail_once(lease_id=lease_id, reason=str(exc))
-
-    def _heartbeat_once(self, *, lease_id: uuid.UUID) -> bool:
-        session = self.session_factory()
-        try:
-            runtime = WorkerRuntimeService(session, self.queue)
-            runtime.heartbeat(
-                tenant_id=self.tenant_id,
-                lease_id=lease_id,
-                worker_id=self.worker_id,
-            )
-            session.commit()
-            return True
-        except Exception as exc:
-            session.rollback()
-            logger.error(
-                "worker_heartbeat_failed",
-                extra={"lease_id": str(lease_id), "error": str(exc)},
-            )
-            self._fail_once(lease_id=lease_id, reason=f"heartbeat failure: {exc}")
-            return False
-        finally:
-            session.close()
-
-    def _complete_once(self, *, lease_id: uuid.UUID) -> None:
-        session = self.session_factory()
-        try:
-            runtime = WorkerRuntimeService(session, self.queue)
-            runtime.complete(
-                tenant_id=self.tenant_id,
-                lease_id=lease_id,
-                worker_id=self.worker_id,
-            )
-            session.commit()
-            logger.info("task_completed", extra={"lease_id": str(lease_id)})
-        except Exception as exc:
-            session.rollback()
-            logger.error(
-                "worker_completion_failed",
-                extra={"lease_id": str(lease_id), "error": str(exc)},
-            )
-            self._fail_once(lease_id=lease_id, reason=f"completion failure: {exc}")
-        finally:
-            session.close()
 
     def _fail_once(self, *, lease_id: uuid.UUID, reason: str) -> None:
         session = self.session_factory()
@@ -185,24 +139,6 @@ class WorkerLoop:
                 "worker_fail_path_failed",
                 extra={"lease_id": str(lease_id), "error": str(exc)},
             )
-        finally:
-            session.close()
-
-    def _task_is_still_running(self, *, task_id: uuid.UUID) -> bool:
-        session = self.session_factory()
-        try:
-            runtime = WorkerRuntimeService(session, self.queue)
-            task = runtime._tasks.get(task_id)
-            if task is None:
-                return False
-            return task.status == ExecutionTaskState.RUNNING.value
-        except Exception as exc:
-            session.rollback()
-            logger.error(
-                "worker_task_state_check_failed",
-                extra={"task_id": str(task_id), "error": str(exc)},
-            )
-            return False
         finally:
             session.close()
 
