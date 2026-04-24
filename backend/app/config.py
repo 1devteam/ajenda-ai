@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import os
 import socket
 from functools import lru_cache
@@ -170,13 +171,21 @@ class Settings(BaseSettings):
             raise ValueError(f"{env_name} must not contain surrounding or embedded whitespace")
 
         try:
+            decoded_key = base64.urlsafe_b64decode(normalized_value.encode())
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError(f"{env_name} must be a valid Fernet key") from exc
+
+        canonical_value = base64.urlsafe_b64encode(decoded_key).decode()
+        if canonical_value != normalized_value:
+            raise ValueError(f"{env_name} must be canonical URL-safe base64")
+
+        if decoded_key == b"\x00" * 32:
+            raise ValueError(f"{env_name} must not use the deterministic development/test key")
+
+        try:
             Fernet(normalized_value.encode())
         except Exception as exc:
             raise ValueError(f"{env_name} must be a valid Fernet key") from exc
-
-        deterministic_test_key = base64.urlsafe_b64encode(b"\x00" * 32).decode()
-        if normalized_value == deterministic_test_key:
-            raise ValueError(f"{env_name} must not use the deterministic development/test key")
 
 
 @lru_cache(maxsize=1)
