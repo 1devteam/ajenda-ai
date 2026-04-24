@@ -70,8 +70,18 @@ jobs:
       - name: Show installed packages
         run: python -m pip list
 
-      - name: Run pip-audit against local environment
-        run: pip-audit --local --desc on
+      - name: Export application dependency audit set
+        run: |
+          python -m pip freeze \
+            --exclude ajenda-ai \
+            --exclude pip \
+            --exclude setuptools \
+            --exclude wheel \
+            > audit-requirements.txt
+          cat audit-requirements.txt
+
+      - name: Run pip-audit against application dependency set
+        run: pip-audit -r audit-requirements.txt --desc on
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 3: Secret scanning — detect accidentally committed secrets
