@@ -19,6 +19,38 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
+api_port() {
+  python - <<'PY' "$API_BASE_URL"
+from __future__ import annotations
+
+import sys
+from urllib.parse import urlparse
+
+parsed = urlparse(sys.argv[1])
+if parsed.port is not None:
+    print(parsed.port)
+elif parsed.scheme == "https":
+    print(443)
+else:
+    print(80)
+PY
+}
+
+assert_api_port_available() {
+  local port="$1"
+  python - <<'PY' "$port" || fail "API bind port ${port} is already in use; stop the process/container using it or run the proof after freeing port ${port}"
+from __future__ import annotations
+
+import socket
+import sys
+
+port = int(sys.argv[1])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("0.0.0.0", port))
+PY
+}
+
 wait_for_http_ok() {
   local url="$1"
   local deadline=$((SECONDS + TIMEOUT_SECONDS))
@@ -33,6 +65,7 @@ wait_for_http_ok() {
 
 require_command docker
 require_command curl
+require_command python
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   fail "compose file not found: $COMPOSE_FILE"
@@ -41,6 +74,9 @@ fi
 if [[ ! -f deploy/compose/.env.prod ]]; then
   fail "deploy/compose/.env.prod not found; copy .env.prod.example and provide valid production-like values first"
 fi
+
+API_PORT="$(api_port)"
+assert_api_port_available "$API_PORT"
 
 log "starting compose services"
 docker compose -f "$COMPOSE_FILE" up -d --build db redis migrate api worker
