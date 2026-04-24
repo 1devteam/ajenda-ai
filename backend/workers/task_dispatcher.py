@@ -8,7 +8,7 @@ It provides a structured execution framework where:
 - The execution contract (complete/fail) is always honored
 
 Handler registration:
-    Register handlers via @TaskDispatcher.register_handler("task_type")
+    Register handlers via @register_handler("task_type")
     Each handler receives (task, context) and returns a result dict.
 
 Extension point:
@@ -24,7 +24,7 @@ import threading
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 from sqlalchemy.orm import sessionmaker
 
@@ -34,22 +34,70 @@ from backend.services.worker_runtime_service import WorkerRuntimeService
 
 logger = logging.getLogger("ajenda.task_dispatcher")
 
-# Type alias for task handler functions
-TaskHandler = Callable[[ExecutionTask, dict[str, Any]], dict[str, Any]]
+
+class TaskHandlerContext(TypedDict):
+    """Runtime context passed into task handlers."""
+
+    worker_id: str
+    tenant_id: str
+    lease_id: str
+    session_factory: Any
+
+
+TaskHandler = Callable[[ExecutionTask, TaskHandlerContext], dict[str, Any]]
 
 _HANDLER_REGISTRY: dict[str, TaskHandler] = {}
+_OUTPUT_REASON_BY_TASK_TYPE: dict[str, str] = {}
 _HEARTBEAT_INTERVAL = 15.0  # seconds
 
 
-def register_handler(task_type: str) -> Callable[[TaskHandler], TaskHandler]:
+def register_handler(
+    task_type: str,
+    *,
+    output_reason: str | None = None,
+) -> Callable[[TaskHandler], TaskHandler]:
     """Decorator to register a handler for a specific task type."""
 
+    normalized_task_type = _normalize_task_type(task_type)
+    normalized_output_reason = _normalize_output_reason(output_reason)
+
     def decorator(fn: TaskHandler) -> TaskHandler:
-        _HANDLER_REGISTRY[task_type] = fn
-        logger.info("task_handler_registered", extra={"task_type": task_type})
+        if normalized_task_type in _HANDLER_REGISTRY:
+            raise ValueError(f"task handler already registered for task_type='{normalized_task_type}'")
+
+        _HANDLER_REGISTRY[normalized_task_type] = fn
+        if normalized_output_reason is not None:
+            _OUTPUT_REASON_BY_TASK_TYPE[normalized_task_type] = normalized_output_reason
+
+        logger.info("task_handler_registered", extra={"task_type": normalized_task_type})
         return fn
 
     return decorator
+
+
+def _normalize_task_type(task_type: str) -> str:
+    normalized_task_type = task_type.strip()
+    if not normalized_task_type:
+        raise ValueError("task_type must be a non-empty string")
+    return normalized_task_type
+
+
+def _normalize_output_reason(output_reason: str | None) -> str | None:
+    if output_reason is None:
+        return None
+    normalized_output_reason = output_reason.strip()
+    if not normalized_output_reason:
+        raise ValueError("output_reason must be a non-empty string when provided")
+    return normalized_output_reason
+
+
+def _task_type_for_task(task: ExecutionTask) -> str:
+    raw_task_type = task.metadata_json.get("task_type", "default")
+    if raw_task_type is None:
+        raw_task_type = "default"
+    if not isinstance(raw_task_type, str):
+        raise ValueError("task metadata task_type must be a string")
+    return _normalize_task_type(raw_task_type)
 
 
 @dataclass(slots=True)
@@ -69,7 +117,12 @@ class TaskDispatcher:
             self._fail(lease_id=lease_id, reason="task not found at dispatch time")
             return
 
-        task_type = task.metadata_json.get("task_type", "default")
+        try:
+            task_type = _task_type_for_task(task)
+        except ValueError as exc:
+            self._fail(lease_id=lease_id, reason=str(exc))
+            return
+
         handler = _HANDLER_REGISTRY.get(task_type) or _HANDLER_REGISTRY.get("default")
 
         if handler is None:
@@ -94,21 +147,26 @@ class TaskDispatcher:
                 "task_dispatch_start",
                 extra={"task_id": str(task_id), "task_type": task_type},
             )
-            context: dict[str, Any] = {
+            context: TaskHandlerContext = {
                 "worker_id": self.worker_id,
                 "tenant_id": self.tenant_id,
                 "lease_id": str(lease_id),
                 "session_factory": self.session_factory,
             }
             result = handler(task, context)
+            if not isinstance(result, dict):
+                raise ValueError("task handler must return a result object")
+
             logger.info(
                 "task_dispatch_complete",
                 extra={"task_id": str(task_id), "result_keys": list(result.keys())},
             )
+            output_reason = _OUTPUT_REASON_BY_TASK_TYPE.get(task_type)
             self._complete(
                 lease_id=lease_id,
                 task=task,
-                result=result if task_type == "echo" else None,
+                result=result if output_reason is not None else None,
+                output_reason=output_reason,
             )
 
         except Exception as exc:
@@ -149,6 +207,7 @@ class TaskDispatcher:
         lease_id: uuid.UUID,
         task: ExecutionTask,
         result: dict[str, Any] | None = None,
+        output_reason: str | None = None,
     ) -> None:
         session = self.session_factory()
         try:
@@ -158,7 +217,7 @@ class TaskDispatcher:
                 lease_id=lease_id,
                 worker_id=self.worker_id,
                 task_output=result,
-                output_reason="echo handler completed" if result is not None else None,
+                output_reason=output_reason,
             )
         except Exception as exc:
             session.rollback()
@@ -207,7 +266,7 @@ class TaskDispatcher:
 # Default handler — logs and completes the task.
 # Replace this in Phase 2 with real AI agent dispatch.
 @register_handler("default")
-def default_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, Any]:
+def default_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
     """Default task handler. Logs task metadata and marks complete.
 
     This is the extension point for Phase 2 AI agent dispatch.
@@ -226,12 +285,12 @@ def default_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, A
 
 
 @register_handler("force_fail")
-def force_fail_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, Any]:
+def force_fail_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
     raise RuntimeError("intentional failure for runtime validation")
 
 
-@register_handler("echo")
-def echo_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, Any]:
+@register_handler("echo", output_reason="echo handler completed")
+def echo_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
     """Return minimal proof-of-work output for persistence after completion succeeds."""
 
     payload = task.metadata_json.get("input", {})
