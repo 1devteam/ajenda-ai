@@ -96,3 +96,58 @@ def test_task_type_for_task_rejects_non_string_metadata_value() -> None:
 
     with pytest.raises(ValueError, match="task metadata task_type must be a string"):
         task_dispatcher._task_type_for_task(task)
+
+
+def test_validate_handler_result_accepts_canonical_completed_result() -> None:
+    assert task_dispatcher._validate_handler_result({"handler": "echo", "status": "completed"}) == {
+        "handler": "echo",
+        "status": "completed",
+    }
+
+
+@pytest.mark.parametrize("result", [None, [], "completed"])
+def test_validate_handler_result_rejects_non_object_result(result: object) -> None:
+    with pytest.raises(ValueError, match="task handler must return a result object"):
+        task_dispatcher._validate_handler_result(result)
+
+
+def test_validate_handler_result_rejects_non_string_keys() -> None:
+    with pytest.raises(ValueError, match="task handler result keys must be strings"):
+        task_dispatcher._validate_handler_result({"handler": "echo", "status": "completed", 1: "bad"})
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"status": "completed"},
+        {"handler": "", "status": "completed"},
+        {"handler": 123, "status": "completed"},
+    ],
+)
+def test_validate_handler_result_requires_non_empty_handler(result: object) -> None:
+    with pytest.raises(ValueError, match='must include non-empty "handler"'):
+        task_dispatcher._validate_handler_result(result)
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"handler": "echo"},
+        {"handler": "echo", "status": ""},
+        {"handler": "echo", "status": 123},
+    ],
+)
+def test_validate_handler_result_requires_non_empty_status(result: object) -> None:
+    with pytest.raises(ValueError, match='must include non-empty "status"'):
+        task_dispatcher._validate_handler_result(result)
+
+
+@pytest.mark.parametrize("status", [" complete ", "unknown"])
+def test_validate_handler_result_rejects_unknown_status(status: str) -> None:
+    with pytest.raises(ValueError, match="status must be one of"):
+        task_dispatcher._validate_handler_result({"handler": "echo", "status": status})
+
+
+def test_validate_handler_result_rejects_non_json_serializable_payload() -> None:
+    with pytest.raises(ValueError, match="must be JSON serializable"):
+        task_dispatcher._validate_handler_result({"handler": "echo", "status": "completed", "bad": {object()}})
