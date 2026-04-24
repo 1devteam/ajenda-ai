@@ -264,6 +264,18 @@ class TestWebhookSecretEncryptionGuards:
         with pytest.raises(ValueError, match="must not contain surrounding or embedded whitespace"):
             settings.validate_runtime_contract()
 
+    def test_noncanonical_deterministic_test_webhook_secret_encryption_key_raises(self) -> None:
+        disguised_test_key = "AAAA!AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        settings = _settings(webhook_secret_encryption_key=disguised_test_key)
+        with pytest.raises(ValueError, match="must be canonical URL-safe base64"):
+            settings.validate_runtime_contract()
+
+    def test_previous_webhook_secret_encryption_key_must_be_canonical_base64(self) -> None:
+        disguised_test_key = "AAAA!AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        settings = _settings(webhook_secret_encryption_key_prev=disguised_test_key)
+        with pytest.raises(ValueError, match="must be canonical URL-safe base64"):
+            settings.validate_runtime_contract()
+
     def test_valid_previous_webhook_secret_encryption_key_passes(self) -> None:
         settings = _settings(webhook_secret_encryption_key_prev=_VALID_WEBHOOK_KEY_PREV)
         settings.validate_runtime_contract()
