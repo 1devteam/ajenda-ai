@@ -107,7 +107,11 @@ class TaskDispatcher:
                 "task_dispatch_complete",
                 extra={"task_id": str(task_id), "result_keys": list(result.keys())},
             )
-            self._complete(lease_id=lease_id)
+            self._complete(
+                lease_id=lease_id,
+                task=task,
+                result=result if task_type == "echo" else None,
+            )
 
         except Exception as exc:
             logger.error(
@@ -141,7 +145,13 @@ class TaskDispatcher:
             finally:
                 session.close()
 
-    def _complete(self, *, lease_id: uuid.UUID) -> None:
+    def _complete(
+        self,
+        *,
+        lease_id: uuid.UUID,
+        task: ExecutionTask,
+        result: dict[str, Any] | None = None,
+    ) -> None:
         session = self.session_factory()
         try:
             runtime = WorkerRuntimeService(session, self.queue)
@@ -150,6 +160,21 @@ class TaskDispatcher:
                 lease_id=lease_id,
                 worker_id=self.worker_id,
             )
+            if result is not None:
+                lineage_repo = LineageRecordRepository(session)
+                lineage_repo.append(
+                    LineageRecord(
+                        tenant_id=task.tenant_id,
+                        mission_id=task.mission_id,
+                        fleet_id=task.fleet_id,
+                        branch_id=task.branch_id,
+                        task_id=task.id,
+                        worker_lease_id=lease_id,
+                        relationship_type="task_output",
+                        relationship_reason="echo handler completed",
+                        metadata_json=result,
+                    )
+                )
             session.commit()
         except Exception as exc:
             session.rollback()
@@ -157,6 +182,7 @@ class TaskDispatcher:
                 "dispatcher_complete_failed",
                 extra={"lease_id": str(lease_id), "error": str(exc)},
             )
+            raise
         finally:
             session.close()
 
@@ -222,44 +248,15 @@ def force_fail_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str
 
 @register_handler("echo")
 def echo_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, Any]:
-    """Persist a minimal proof-of-work output for runtime validation."""
+    """Return minimal proof-of-work output for persistence after completion succeeds."""
 
     payload = task.metadata_json.get("input", {})
     if not isinstance(payload, dict):
         raise ValueError("echo task input must be an object")
 
-    output = {
+    return {
         "handler": "echo",
         "input": payload,
         "output": payload,
         "status": "completed",
     }
-
-    session_factory = context.get("session_factory")
-    if session_factory is None:
-        raise ValueError("echo handler requires session_factory in context")
-
-    session = session_factory()
-    try:
-        lineage_repo = LineageRecordRepository(session)
-        lineage_repo.append(
-            LineageRecord(
-                tenant_id=task.tenant_id,
-                mission_id=task.mission_id,
-                fleet_id=task.fleet_id,
-                branch_id=task.branch_id,
-                task_id=task.id,
-                worker_lease_id=uuid.UUID(str(context["lease_id"])),
-                relationship_type="task_output",
-                relationship_reason="echo handler completed",
-                metadata_json=output,
-            )
-        )
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-    return output
