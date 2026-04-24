@@ -10,10 +10,12 @@ from sqlalchemy.orm import Session
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.lineage_record import LineageRecord
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
+from backend.repositories.lineage_record_repository import LineageRecordRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.transitions import transition_lease, transition_task
 
@@ -119,7 +121,15 @@ class WorkerRuntimeService:
             self._session.commit()
         return task
 
-    def complete(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> ExecutionTask:
+    def complete(
+        self,
+        *,
+        tenant_id: str,
+        lease_id: uuid.UUID,
+        worker_id: str,
+        task_output: dict | None = None,
+        output_reason: str | None = None,
+    ) -> ExecutionTask:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         task = self._get_task_for_lease(lease)
         if task.status != ExecutionTaskState.RUNNING.value:
@@ -133,6 +143,21 @@ class WorkerRuntimeService:
             raise ValueError(result.reason or "complete rejected")
 
         lease.heartbeat_at = datetime.now(UTC)
+        if task_output is not None:
+            LineageRecordRepository(self._session).append(
+                LineageRecord(
+                    tenant_id=task.tenant_id,
+                    mission_id=task.mission_id,
+                    fleet_id=task.fleet_id,
+                    branch_id=task.branch_id,
+                    task_id=task.id,
+                    worker_lease_id=lease.id,
+                    relationship_type="task_output",
+                    relationship_reason=output_reason,
+                    metadata_json=task_output,
+                )
+            )
+
         self._audit.append(
             AuditEvent(
                 tenant_id=tenant_id,

@@ -29,9 +29,7 @@ from typing import Any
 from sqlalchemy.orm import sessionmaker
 
 from backend.domain.execution_task import ExecutionTask
-from backend.domain.lineage_record import LineageRecord
 from backend.queue.base import QueueAdapter
-from backend.repositories.lineage_record_repository import LineageRecordRepository
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 logger = logging.getLogger("ajenda.task_dispatcher")
@@ -159,23 +157,9 @@ class TaskDispatcher:
                 tenant_id=self.tenant_id,
                 lease_id=lease_id,
                 worker_id=self.worker_id,
+                task_output=result,
+                output_reason="echo handler completed" if result is not None else None,
             )
-            if result is not None:
-                lineage_repo = LineageRecordRepository(session)
-                lineage_repo.append(
-                    LineageRecord(
-                        tenant_id=task.tenant_id,
-                        mission_id=task.mission_id,
-                        fleet_id=task.fleet_id,
-                        branch_id=task.branch_id,
-                        task_id=task.id,
-                        worker_lease_id=lease_id,
-                        relationship_type="task_output",
-                        relationship_reason="echo handler completed",
-                        metadata_json=result,
-                    )
-                )
-            session.commit()
         except Exception as exc:
             session.rollback()
             logger.error(
