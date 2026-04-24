@@ -19,12 +19,13 @@ Extension point:
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from sqlalchemy.orm import sessionmaker
 
@@ -46,6 +47,7 @@ class TaskHandlerContext(TypedDict):
 
 TaskHandler = Callable[[ExecutionTask, TaskHandlerContext], dict[str, Any]]
 
+_ALLOWED_HANDLER_STATUSES = frozenset({"blocked", "completed", "failed"})
 _HANDLER_REGISTRY: dict[str, TaskHandler] = {}
 _OUTPUT_REASON_BY_TASK_TYPE: dict[str, str] = {}
 _HEARTBEAT_INTERVAL = 15.0  # seconds
@@ -98,6 +100,33 @@ def _task_type_for_task(task: ExecutionTask) -> str:
     if not isinstance(raw_task_type, str):
         raise ValueError("task metadata task_type must be a string")
     return _normalize_task_type(raw_task_type)
+
+
+def _validate_handler_result(result: object) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        raise ValueError("task handler must return a result object")
+
+    if not all(isinstance(key, str) for key in result):
+        raise ValueError("task handler result keys must be strings")
+
+    handler = result.get("handler")
+    if not isinstance(handler, str) or not handler.strip():
+        raise ValueError('task handler result must include non-empty "handler"')
+
+    status = result.get("status")
+    if not isinstance(status, str) or not status.strip():
+        raise ValueError('task handler result must include non-empty "status"')
+
+    if status != status.strip() or status not in _ALLOWED_HANDLER_STATUSES:
+        allowed_statuses = ", ".join(sorted(_ALLOWED_HANDLER_STATUSES))
+        raise ValueError(f"task handler result status must be one of: {allowed_statuses}")
+
+    try:
+        json.dumps(result)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("task handler result must be JSON serializable") from exc
+
+    return cast("dict[str, Any]", result)
 
 
 @dataclass(slots=True)
@@ -153,9 +182,7 @@ class TaskDispatcher:
                 "lease_id": str(lease_id),
                 "session_factory": self.session_factory,
             }
-            result = handler(task, context)
-            if not isinstance(result, dict):
-                raise ValueError("task handler must return a result object")
+            result = _validate_handler_result(handler(task, context))
 
             logger.info(
                 "task_dispatch_complete",
