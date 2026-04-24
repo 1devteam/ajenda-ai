@@ -117,7 +117,7 @@ def test_rg_recovery_route_fails_closed_on_service_exception() -> None:
     service.trigger_recovery.assert_called_once_with()
 
 
-def test_rg_dead_letter_inspection_route_succeeds_under_full_middleware_stack() -> None:
+def test_rg_dead_letter_inspection_route_rejects_invalid_bearer_under_full_middleware_stack() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
 
@@ -139,12 +139,12 @@ def test_rg_dead_letter_inspection_route_succeeds_under_full_middleware_stack() 
             },
         )
 
-    assert response.status_code == 200
-    assert response.json() == service.inspect_dead_letter.return_value
-    service.inspect_dead_letter.assert_called_once()
+    assert response.status_code == 401
+    assert response.json() == {"detail": "invalid bearer token"}
+    service.inspect_dead_letter.assert_not_called()
 
 
-def test_rg_dead_letter_inspection_route_fails_closed_on_service_exception() -> None:
+def test_rg_dead_letter_inspection_route_stops_at_auth_boundary_before_service_exception() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
 
@@ -160,11 +160,12 @@ def test_rg_dead_letter_inspection_route_fails_closed_on_service_exception() -> 
             },
         )
 
-    assert response.status_code == 500
-    service.inspect_dead_letter.assert_called_once()
+    assert response.status_code == 401
+    assert response.json() == {"detail": "invalid bearer token"}
+    service.inspect_dead_letter.assert_not_called()
 
 
-def test_rg_dead_letter_retry_route_returns_400_on_value_error_under_full_middleware_stack() -> None:
+def test_rg_dead_letter_retry_route_rejects_invalid_bearer_under_full_middleware_stack() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
 
@@ -180,12 +181,12 @@ def test_rg_dead_letter_retry_route_returns_400_on_value_error_under_full_middle
             },
         )
 
-    assert response.status_code == 400
-    assert response.json() == {"detail": "illegal retry"}
-    service.retry_dead_letter.assert_called_once()
+    assert response.status_code == 401
+    assert response.json() == {"detail": "invalid bearer token"}
+    service.retry_dead_letter.assert_not_called()
 
 
-def test_rg_dead_letter_retry_route_fails_closed_on_unexpected_service_exception() -> None:
+def test_rg_dead_letter_retry_route_stops_at_auth_boundary_before_service_exception() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
 
@@ -201,8 +202,9 @@ def test_rg_dead_letter_retry_route_fails_closed_on_unexpected_service_exception
             },
         )
 
-    assert response.status_code == 500
-    service.retry_dead_letter.assert_called_once()
+    assert response.status_code == 401
+    assert response.json() == {"detail": "invalid bearer token"}
+    service.retry_dead_letter.assert_not_called()
 
 
 def test_rg_dead_letter_routes_require_valid_tenant_and_auth_envelope() -> None:
