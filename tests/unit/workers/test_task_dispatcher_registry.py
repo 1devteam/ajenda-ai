@@ -32,11 +32,16 @@ def test_register_handler_rejects_blank_task_type() -> None:
         register_handler("   ")
 
 
+def test_register_handler_rejects_blank_output_reason() -> None:
+    with pytest.raises(ValueError, match="output_reason must be a non-empty string"):
+        register_handler("custom", output_reason="   ")
+
+
 def test_register_handler_rejects_duplicate_task_type(monkeypatch: pytest.MonkeyPatch) -> None:
     registry: dict[str, task_dispatcher.TaskHandler] = {}
-    output_types: set[str] = set()
+    output_reasons: dict[str, str] = {}
     monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", registry)
-    monkeypatch.setattr(task_dispatcher, "_OUTPUT_PERSISTING_TASK_TYPES", output_types)
+    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", output_reasons)
 
     def first_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
         return {"handler": "first"}
@@ -52,19 +57,19 @@ def test_register_handler_rejects_duplicate_task_type(monkeypatch: pytest.Monkey
     assert registry["custom"] is first_handler
 
 
-def test_register_handler_tracks_output_persisting_task_types(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_handler_tracks_output_reason_by_task_type(monkeypatch: pytest.MonkeyPatch) -> None:
     registry: dict[str, task_dispatcher.TaskHandler] = {}
-    output_types: set[str] = set()
+    output_reasons: dict[str, str] = {}
     monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", registry)
-    monkeypatch.setattr(task_dispatcher, "_OUTPUT_PERSISTING_TASK_TYPES", output_types)
+    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", output_reasons)
 
     def handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
         return {"handler": "output"}
 
-    register_handler("output-task", persists_output=True)(handler)
+    register_handler("output-task", output_reason="output task completed")(handler)
 
     assert registry["output-task"] is handler
-    assert output_types == {"output-task"}
+    assert output_reasons == {"output-task": "output task completed"}
 
 
 def test_task_type_for_task_defaults_when_missing() -> None:
