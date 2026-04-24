@@ -247,6 +247,24 @@ class TestWebhookSecretEncryptionGuards:
         with pytest.raises(ValueError, match="must not use the deterministic development/test key"):
             settings.validate_runtime_contract()
 
+    def test_webhook_secret_encryption_key_with_surrounding_whitespace_raises(self) -> None:
+        settings = _settings(webhook_secret_encryption_key=f" {_VALID_WEBHOOK_KEY} ")
+        with pytest.raises(ValueError, match="must not contain surrounding or embedded whitespace"):
+            settings.validate_runtime_contract()
+
+    def test_webhook_secret_encryption_key_with_embedded_newline_raises(self) -> None:
+        split_key = f"{_VALID_WEBHOOK_KEY[:10]}\n{_VALID_WEBHOOK_KEY[10:]}"
+        settings = _settings(webhook_secret_encryption_key=split_key)
+        with pytest.raises(ValueError, match="must not contain surrounding or embedded whitespace"):
+            settings.validate_runtime_contract()
+
+    def test_deterministic_test_webhook_secret_encryption_key_with_whitespace_raises(self) -> None:
+        deterministic_test_key = " AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= "
+        settings = _settings(webhook_secret_encryption_key=deterministic_test_key)
+        with pytest.raises(ValueError, match="must not contain surrounding or embedded whitespace"):
+            settings.validate_runtime_contract()
+
+
     def test_valid_previous_webhook_secret_encryption_key_passes(self) -> None:
         settings = _settings(webhook_secret_encryption_key_prev=_VALID_WEBHOOK_KEY_PREV)
         settings.validate_runtime_contract()

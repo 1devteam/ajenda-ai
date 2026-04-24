@@ -165,13 +165,17 @@ class Settings(BaseSettings):
 
     @staticmethod
     def _validate_optional_fernet_key(*, value: str, env_name: str) -> None:
+        normalized_value = value.strip()
+        if normalized_value != value or any(character.isspace() for character in value):
+            raise ValueError(f"{env_name} must not contain surrounding or embedded whitespace")
+
         try:
-            Fernet(value.encode())
+            Fernet(normalized_value.encode())
         except Exception as exc:
             raise ValueError(f"{env_name} must be a valid Fernet key") from exc
 
         deterministic_test_key = base64.urlsafe_b64encode(b"\x00" * 32).decode()
-        if value == deterministic_test_key:
+        if normalized_value == deterministic_test_key:
             raise ValueError(f"{env_name} must not use the deterministic development/test key")
 
 
