@@ -142,12 +142,25 @@ def test_validate_handler_result_requires_non_empty_status(result: object) -> No
         task_dispatcher._validate_handler_result(result)
 
 
-@pytest.mark.parametrize("status", [" complete ", "unknown"])
-def test_validate_handler_result_rejects_unknown_status(status: str) -> None:
-    with pytest.raises(ValueError, match="status must be one of"):
+@pytest.mark.parametrize("status", ["blocked", "failed", " complete ", "unknown"])
+def test_validate_handler_result_rejects_non_completed_status(status: str) -> None:
+    with pytest.raises(ValueError, match='status must be "completed"'):
         task_dispatcher._validate_handler_result({"handler": "echo", "status": status})
 
 
-def test_validate_handler_result_rejects_non_json_serializable_payload() -> None:
+def test_validate_handler_result_allows_non_json_serializable_non_persisted_payload() -> None:
+    assert (
+        task_dispatcher._validate_handler_result(
+            {"handler": "default", "status": "completed", "transient": {object()}},
+            require_json_serializable=False,
+        )["handler"]
+        == "default"
+    )
+
+
+def test_validate_handler_result_rejects_non_json_serializable_persisted_payload() -> None:
     with pytest.raises(ValueError, match="must be JSON serializable"):
-        task_dispatcher._validate_handler_result({"handler": "echo", "status": "completed", "bad": {object()}})
+        task_dispatcher._validate_handler_result(
+            {"handler": "echo", "status": "completed", "bad": {object()}},
+            require_json_serializable=True,
+        )
