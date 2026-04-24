@@ -149,10 +149,13 @@ def test_validate_handler_result_rejects_non_completed_status(status: str) -> No
 
 
 def test_validate_handler_result_allows_non_json_serializable_non_persisted_payload() -> None:
-    assert task_dispatcher._validate_handler_result(
-        {"handler": "default", "status": "completed", "transient": {object()}},
-        require_json_serializable=False,
-    )["handler"] == "default"
+    assert (
+        task_dispatcher._validate_handler_result(
+            {"handler": "default", "status": "completed", "transient": {object()}},
+            require_json_serializable=False,
+        )["handler"]
+        == "default"
+    )
 
 
 def test_validate_handler_result_rejects_non_json_serializable_persisted_payload() -> None:
