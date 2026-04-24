@@ -19,8 +19,6 @@ spec:
     spec:
       containers:
         - name: api
-          # Use immutable image tags in production — never :latest
-          # Override via Kustomize or Helm values: image: ajenda/api:${GIT_SHA}
           image: ajenda/api:1.1.0
           imagePullPolicy: IfNotPresent
           ports:
@@ -32,13 +30,13 @@ spec:
                 name: ajenda-secrets
           readinessProbe:
             httpGet:
-              path: /system/readiness
+              path: /readiness
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /system/health
+              path: /health
               port: 8000
             initialDelaySeconds: 20
             periodSeconds: 20
