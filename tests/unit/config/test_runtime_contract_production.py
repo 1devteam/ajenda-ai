@@ -15,8 +15,12 @@ Also verifies that valid configurations pass without raising.
 from __future__ import annotations
 
 import pytest
+from cryptography.fernet import Fernet
 
 from backend.app.config import Settings
+
+_VALID_WEBHOOK_KEY = Fernet.generate_key().decode()
+_VALID_WEBHOOK_KEY_PREV = Fernet.generate_key().decode()
 
 
 def _settings(**overrides) -> Settings:
@@ -38,7 +42,7 @@ def _settings(**overrides) -> Settings:
         "queue_url": "redis://redis:6379/0",
         "worker_poll_interval_seconds": 2.0,
         "worker_identity": "worker-1",
-        "worker_tenant_id": "default",
+        "worker_tenant_id": "00000000-0000-0000-0000-000000000001",
         "oidc_jwks_uri": "https://idp.example.com/realms/ajenda/protocol/openid-connect/certs",
         "oidc_issuer": "https://idp.example.com/realms/ajenda",
         "oidc_audience": "ajenda-api",
@@ -47,6 +51,8 @@ def _settings(**overrides) -> Settings:
         "authz_policy_mode": "rbac",
         "authz_opa_url": None,
         "authz_opa_timeout_seconds": 2.0,
+        "webhook_secret_encryption_key": _VALID_WEBHOOK_KEY,
+        "webhook_secret_encryption_key_prev": None,
     }
     defaults.update(overrides)
     return Settings.model_construct(**defaults)
@@ -211,4 +217,62 @@ class TestAuthzPolicyAsCodeGuards:
             authz_policy_mode="shadow_opa", authz_opa_url="http://opa:8181", authz_opa_timeout_seconds=0
         )
         with pytest.raises(ValueError, match="AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS"):
+            settings.validate_runtime_contract()
+
+
+# ---------------------------------------------------------------------------
+# Production webhook secret encryption guards
+# ---------------------------------------------------------------------------
+
+
+class TestWebhookSecretEncryptionGuards:
+    def test_missing_webhook_secret_encryption_key_in_production_raises(self) -> None:
+        settings = _settings(webhook_secret_encryption_key=None)
+        with pytest.raises(ValueError, match="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY is required in production"):
+            settings.validate_runtime_contract()
+
+    def test_empty_webhook_secret_encryption_key_in_production_raises(self) -> None:
+        settings = _settings(webhook_secret_encryption_key="   ")
+        with pytest.raises(ValueError, match="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY is required in production"):
+            settings.validate_runtime_contract()
+
+    def test_invalid_webhook_secret_encryption_key_in_production_raises(self) -> None:
+        settings = _settings(webhook_secret_encryption_key="not-a-valid-fernet-key")
+        with pytest.raises(ValueError, match="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY must be a valid Fernet key"):
+            settings.validate_runtime_contract()
+
+    def test_deterministic_test_webhook_secret_encryption_key_in_production_raises(self) -> None:
+        deterministic_test_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        settings = _settings(webhook_secret_encryption_key=deterministic_test_key)
+        with pytest.raises(ValueError, match="must not use the deterministic development/test key"):
+            settings.validate_runtime_contract()
+
+    def test_valid_previous_webhook_secret_encryption_key_passes(self) -> None:
+        settings = _settings(webhook_secret_encryption_key_prev=_VALID_WEBHOOK_KEY_PREV)
+        settings.validate_runtime_contract()
+
+    def test_invalid_previous_webhook_secret_encryption_key_raises(self) -> None:
+        settings = _settings(webhook_secret_encryption_key_prev="invalid-prev-key")
+        with pytest.raises(ValueError, match="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV must be a valid Fernet key"):
+            settings.validate_runtime_contract()
+
+    def test_development_allows_missing_webhook_secret_encryption_key(self) -> None:
+        settings = _settings(
+            env="development",
+            queue_adapter="local",
+            queue_url=None,
+            webhook_secret_encryption_key=None,
+        )
+        settings.validate_runtime_contract()
+
+
+class TestWorkerTenantProductionGuards:
+    def test_default_worker_tenant_id_in_production_raises(self) -> None:
+        settings = _settings(worker_tenant_id="default")
+        with pytest.raises(ValueError, match="AJENDA_WORKER_TENANT_ID must be explicitly configured in production"):
+            settings.validate_runtime_contract()
+
+    def test_empty_worker_tenant_id_in_production_raises(self) -> None:
+        settings = _settings(worker_tenant_id="   ")
+        with pytest.raises(ValueError, match="AJENDA_WORKER_TENANT_ID must be explicitly configured in production"):
             settings.validate_runtime_contract()
