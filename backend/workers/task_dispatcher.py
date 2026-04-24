@@ -47,7 +47,6 @@ class TaskHandlerContext(TypedDict):
 
 TaskHandler = Callable[[ExecutionTask, TaskHandlerContext], dict[str, Any]]
 
-_ALLOWED_HANDLER_STATUSES = frozenset({"blocked", "completed", "failed"})
 _HANDLER_REGISTRY: dict[str, TaskHandler] = {}
 _OUTPUT_REASON_BY_TASK_TYPE: dict[str, str] = {}
 _HEARTBEAT_INTERVAL = 15.0  # seconds
@@ -102,7 +101,11 @@ def _task_type_for_task(task: ExecutionTask) -> str:
     return _normalize_task_type(raw_task_type)
 
 
-def _validate_handler_result(result: object) -> dict[str, Any]:
+def _validate_handler_result(
+    result: object,
+    *,
+    require_json_serializable: bool = False,
+) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise ValueError("task handler must return a result object")
 
@@ -117,14 +120,14 @@ def _validate_handler_result(result: object) -> dict[str, Any]:
     if not isinstance(status, str) or not status.strip():
         raise ValueError('task handler result must include non-empty "status"')
 
-    if status != status.strip() or status not in _ALLOWED_HANDLER_STATUSES:
-        allowed_statuses = ", ".join(sorted(_ALLOWED_HANDLER_STATUSES))
-        raise ValueError(f"task handler result status must be one of: {allowed_statuses}")
+    if status != "completed":
+        raise ValueError('task handler result status must be "completed"')
 
-    try:
-        json.dumps(result)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("task handler result must be JSON serializable") from exc
+    if require_json_serializable:
+        try:
+            json.dumps(result)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("task handler result must be JSON serializable") from exc
 
     return cast("dict[str, Any]", result)
 
@@ -182,13 +185,16 @@ class TaskDispatcher:
                 "lease_id": str(lease_id),
                 "session_factory": self.session_factory,
             }
-            result = _validate_handler_result(handler(task, context))
+            output_reason = _OUTPUT_REASON_BY_TASK_TYPE.get(task_type)
+            result = _validate_handler_result(
+                handler(task, context),
+                require_json_serializable=output_reason is not None,
+            )
 
             logger.info(
                 "task_dispatch_complete",
                 extra={"task_id": str(task_id), "result_keys": list(result.keys())},
             )
-            output_reason = _OUTPUT_REASON_BY_TASK_TYPE.get(task_type)
             self._complete(
                 lease_id=lease_id,
                 task=task,
