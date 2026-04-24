@@ -41,9 +41,7 @@ def queue_mission(
     all_tasks = task_repo.list_for_mission(mission_id=mission_id)
     tenant_id_str = str(tenant_id)
     planned_tasks = [
-        t
-        for t in all_tasks
-        if t.tenant_id == tenant_id_str and t.status == ExecutionTaskState.PLANNED.value
+        t for t in all_tasks if t.tenant_id == tenant_id_str and t.status == ExecutionTaskState.PLANNED.value
     ]
     planned_count = len(planned_tasks)
 

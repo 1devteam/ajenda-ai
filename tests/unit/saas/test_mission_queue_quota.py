@@ -224,6 +224,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
     def test_quota_exceeded_returns_429_with_correct_task_count(self):
         from fastapi import HTTPException
+
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
@@ -393,6 +394,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
     def test_quota_exceeded_counts_only_local_tasks_when_mission_contains_foreign_work(self):
         from fastapi import HTTPException
+
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
@@ -445,6 +447,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
     def test_queue_mission_returns_400_when_executor_raises_value_error_after_quota(self):
         from fastapi import HTTPException
+
         from backend.api.routes.mission import queue_mission
 
         tenant_id = str(uuid.uuid4())
