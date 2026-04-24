@@ -96,10 +96,14 @@ docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli PING | grep -q '^PONG$
 
 log "queueing real echo task for configured worker tenant and waiting for worker completion"
 proof_json="$(
-  docker compose -f "$COMPOSE_FILE" exec -T api python - <<'PY'
+  docker compose -f "$COMPOSE_FILE" exec -T \
+    -e AJENDA_PROOF_TIMEOUT_SECONDS="$TIMEOUT_SECONDS" \
+    -e AJENDA_PROOF_POLL_SECONDS="$POLL_SECONDS" \
+    api python - <<'PY'
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 
@@ -123,8 +127,9 @@ settings.validate_runtime_contract()
 queue_adapter = build_queue_adapter(settings)
 database_runtime = DatabaseRuntime(settings)
 worker_tenant_id = settings.worker_tenant_id
-worker_id = settings.worker_identity
 slug_suffix = uuid.uuid4().hex[:10]
+timeout_seconds = float(os.environ["AJENDA_PROOF_TIMEOUT_SECONDS"])
+poll_seconds = float(os.environ["AJENDA_PROOF_POLL_SECONDS"])
 
 def scalar_count(session, stmt) -> int:
     return int(session.scalar(stmt) or 0)
@@ -177,7 +182,7 @@ try:
     finally:
         session.close()
 
-    deadline = time.monotonic() + 90
+    deadline = time.monotonic() + timeout_seconds
     final = None
     while time.monotonic() < deadline:
         session = database_runtime.session_factory()
@@ -192,7 +197,7 @@ try:
                 break
         finally:
             session.close()
-        time.sleep(2)
+        time.sleep(poll_seconds)
 
     if final != ExecutionTaskState.COMPLETED.value:
         raise RuntimeError(f"proof task did not complete; final_status={final!r}; task_id={task_id}")
@@ -211,6 +216,7 @@ try:
             raise RuntimeError("proof lease disappeared")
         if lease.status != WorkerLeaseState.RELEASED.value:
             raise RuntimeError(f"proof lease was not released: {lease.status}")
+        actual_worker_id = lease.holder_identity
 
         lineage_count = scalar_count(
             session,
@@ -233,7 +239,7 @@ try:
             .where(
                 AuditEvent.tenant_id == worker_tenant_id,
                 AuditEvent.action == "task_completed",
-                AuditEvent.actor == worker_id,
+                AuditEvent.actor == actual_worker_id,
                 AuditEvent.payload_json["task_id"].astext == str(task_id),
                 AuditEvent.payload_json["lease_id"].astext == str(lease_id),
             ),
@@ -245,7 +251,7 @@ try:
             json.dumps(
                 {
                     "tenant_id": worker_tenant_id,
-                    "worker_id": worker_id,
+                    "worker_id": actual_worker_id,
                     "task_id": str(task_id),
                     "lease_id": str(lease_id),
                     "task_status": task.status,
