@@ -64,12 +64,6 @@ jobs:
       - name: Install project dependencies
         run: python -m pip install ".[dev]"
 
-      - name: Install pip-audit
-        run: python -m pip install pip-audit
-
-      - name: Show installed packages
-        run: python -m pip list
-
       - name: Export application dependency audit set
         run: |
           python -m pip freeze \
@@ -79,6 +73,12 @@ jobs:
             --exclude wheel \
             > audit-requirements.txt
           cat audit-requirements.txt
+
+      - name: Install pip-audit
+        run: python -m pip install pip-audit
+
+      - name: Show installed packages
+        run: python -m pip list
 
       - name: Run pip-audit against application dependency set
         run: pip-audit -r audit-requirements.txt --desc on
