@@ -47,26 +47,27 @@ class TaskHandlerContext(TypedDict):
 TaskHandler = Callable[[ExecutionTask, TaskHandlerContext], dict[str, Any]]
 
 _HANDLER_REGISTRY: dict[str, TaskHandler] = {}
-_OUTPUT_PERSISTING_TASK_TYPES: set[str] = set()
+_OUTPUT_REASON_BY_TASK_TYPE: dict[str, str] = {}
 _HEARTBEAT_INTERVAL = 15.0  # seconds
 
 
 def register_handler(
     task_type: str,
     *,
-    persists_output: bool = False,
+    output_reason: str | None = None,
 ) -> Callable[[TaskHandler], TaskHandler]:
     """Decorator to register a handler for a specific task type."""
 
     normalized_task_type = _normalize_task_type(task_type)
+    normalized_output_reason = _normalize_output_reason(output_reason)
 
     def decorator(fn: TaskHandler) -> TaskHandler:
         if normalized_task_type in _HANDLER_REGISTRY:
             raise ValueError(f"task handler already registered for task_type='{normalized_task_type}'")
 
         _HANDLER_REGISTRY[normalized_task_type] = fn
-        if persists_output:
-            _OUTPUT_PERSISTING_TASK_TYPES.add(normalized_task_type)
+        if normalized_output_reason is not None:
+            _OUTPUT_REASON_BY_TASK_TYPE[normalized_task_type] = normalized_output_reason
 
         logger.info("task_handler_registered", extra={"task_type": normalized_task_type})
         return fn
@@ -79,6 +80,15 @@ def _normalize_task_type(task_type: str) -> str:
     if not normalized_task_type:
         raise ValueError("task_type must be a non-empty string")
     return normalized_task_type
+
+
+def _normalize_output_reason(output_reason: str | None) -> str | None:
+    if output_reason is None:
+        return None
+    normalized_output_reason = output_reason.strip()
+    if not normalized_output_reason:
+        raise ValueError("output_reason must be a non-empty string when provided")
+    return normalized_output_reason
 
 
 def _task_type_for_task(task: ExecutionTask) -> str:
@@ -151,10 +161,12 @@ class TaskDispatcher:
                 "task_dispatch_complete",
                 extra={"task_id": str(task_id), "result_keys": list(result.keys())},
             )
+            output_reason = _OUTPUT_REASON_BY_TASK_TYPE.get(task_type)
             self._complete(
                 lease_id=lease_id,
                 task=task,
-                result=result if task_type in _OUTPUT_PERSISTING_TASK_TYPES else None,
+                result=result if output_reason is not None else None,
+                output_reason=output_reason,
             )
 
         except Exception as exc:
@@ -195,6 +207,7 @@ class TaskDispatcher:
         lease_id: uuid.UUID,
         task: ExecutionTask,
         result: dict[str, Any] | None = None,
+        output_reason: str | None = None,
     ) -> None:
         session = self.session_factory()
         try:
@@ -204,7 +217,7 @@ class TaskDispatcher:
                 lease_id=lease_id,
                 worker_id=self.worker_id,
                 task_output=result,
-                output_reason="echo handler completed" if result is not None else None,
+                output_reason=output_reason,
             )
         except Exception as exc:
             session.rollback()
@@ -276,7 +289,7 @@ def force_fail_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict
     raise RuntimeError("intentional failure for runtime validation")
 
 
-@register_handler("echo", persists_output=True)
+@register_handler("echo", output_reason="echo handler completed")
 def echo_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
     """Return minimal proof-of-work output for persistence after completion succeeds."""
 
