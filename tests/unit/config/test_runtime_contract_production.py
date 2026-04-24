@@ -264,7 +264,6 @@ class TestWebhookSecretEncryptionGuards:
         with pytest.raises(ValueError, match="must not contain surrounding or embedded whitespace"):
             settings.validate_runtime_contract()
 
-
     def test_valid_previous_webhook_secret_encryption_key_passes(self) -> None:
         settings = _settings(webhook_secret_encryption_key_prev=_VALID_WEBHOOK_KEY_PREV)
         settings.validate_runtime_contract()
