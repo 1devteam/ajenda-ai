@@ -98,13 +98,18 @@ class TaskDispatcher:
                 "worker_id": self.worker_id,
                 "tenant_id": self.tenant_id,
                 "lease_id": str(lease_id),
+                "session_factory": self.session_factory,
             }
             result = handler(task, context)
             logger.info(
                 "task_dispatch_complete",
                 extra={"task_id": str(task_id), "result_keys": list(result.keys())},
             )
-            self._complete(lease_id=lease_id)
+            self._complete(
+                lease_id=lease_id,
+                task=task,
+                result=result if task_type == "echo" else None,
+            )
 
         except Exception as exc:
             logger.error(
@@ -138,7 +143,13 @@ class TaskDispatcher:
             finally:
                 session.close()
 
-    def _complete(self, *, lease_id: uuid.UUID) -> None:
+    def _complete(
+        self,
+        *,
+        lease_id: uuid.UUID,
+        task: ExecutionTask,
+        result: dict[str, Any] | None = None,
+    ) -> None:
         session = self.session_factory()
         try:
             runtime = WorkerRuntimeService(session, self.queue)
@@ -146,14 +157,16 @@ class TaskDispatcher:
                 tenant_id=self.tenant_id,
                 lease_id=lease_id,
                 worker_id=self.worker_id,
+                task_output=result,
+                output_reason="echo handler completed" if result is not None else None,
             )
-            session.commit()
         except Exception as exc:
             session.rollback()
             logger.error(
                 "dispatcher_complete_failed",
                 extra={"lease_id": str(lease_id), "error": str(exc)},
             )
+            raise
         finally:
             session.close()
 
@@ -215,3 +228,19 @@ def default_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, A
 @register_handler("force_fail")
 def force_fail_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, Any]:
     raise RuntimeError("intentional failure for runtime validation")
+
+
+@register_handler("echo")
+def echo_handler(task: ExecutionTask, context: dict[str, Any]) -> dict[str, Any]:
+    """Return minimal proof-of-work output for persistence after completion succeeds."""
+
+    payload = task.metadata_json.get("input", {})
+    if not isinstance(payload, dict):
+        raise ValueError("echo task input must be an object")
+
+    return {
+        "handler": "echo",
+        "input": payload,
+        "output": payload,
+        "status": "completed",
+    }
