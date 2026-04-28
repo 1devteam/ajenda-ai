@@ -46,7 +46,7 @@ def _create_tenant(session: Session, *, name: str) -> Tenant:
         id=tenant_id,
         name=name,
         slug=f"{name.lower().replace(' ', '-')}-{tenant_id.hex[:8]}",
-        plan=f"integration-proof-{tenant_id.hex[:8]}",
+        plan="free",
     )
     session.add(tenant)
     session.flush()
@@ -78,9 +78,12 @@ def _create_planned_task(session: Session, *, tenant: Tenant) -> tuple[Mission, 
     return mission, task
 
 
-def _usage_count(session: Session, tenant_id: uuid.UUID) -> int:
+def _tasks_created(session: Session, tenant_id: uuid.UUID) -> int:
     return int(
-        session.scalar(select(func.count()).select_from(TenantUsage).where(TenantUsage.tenant_id == tenant_id)) or 0
+        session.scalar(
+            select(func.coalesce(func.sum(TenantUsage.tasks_created), 0)).where(TenantUsage.tenant_id == tenant_id)
+        )
+        or 0
     )
 
 
@@ -99,6 +102,7 @@ def test_task_queue_route_queues_real_task_in_postgres_and_redis(
 
     assert response.status_code == 200
     assert response.json() == {"task_id": str(task.id), "state": ExecutionTaskState.QUEUED.value}
+    assert _tasks_created(pg_session, tenant.id) == 1
 
     pg_session.expire_all()
     queued_task = pg_session.get(ExecutionTask, task.id)
@@ -129,7 +133,7 @@ def test_task_queue_route_blocks_foreign_tenant_without_queue_or_quota_usage(
 
     assert response.status_code == 400
     assert response.json() == {"detail": "task not found for tenant"}
-    assert _usage_count(pg_session, caller_tenant.id) == 0
+    assert _tasks_created(pg_session, caller_tenant.id) == 0
 
     claimed_for_owner = queue_adapter.claim_task(tenant_id=str(owning_tenant.id), worker_id="api-route-proof-worker")
     claimed_for_caller = queue_adapter.claim_task(tenant_id=str(caller_tenant.id), worker_id="api-route-proof-worker")
@@ -157,7 +161,7 @@ def test_task_queue_route_blocks_missing_task_without_quota_usage(
 
     assert response.status_code == 400
     assert response.json() == {"detail": "task not found for tenant"}
-    assert _usage_count(pg_session, tenant.id) == 0
+    assert _tasks_created(pg_session, tenant.id) == 0
 
     claimed = queue_adapter.claim_task(tenant_id=str(tenant.id), worker_id="api-route-proof-worker")
     assert claimed is None
