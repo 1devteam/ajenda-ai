@@ -80,10 +80,7 @@ def _create_planned_task(session: Session, *, tenant: Tenant) -> tuple[Mission, 
 
 def _usage_count(session: Session, tenant_id: uuid.UUID) -> int:
     return int(
-        session.scalar(
-            select(func.count()).select_from(TenantUsage).where(TenantUsage.tenant_id == tenant_id)
-        )
-        or 0
+        session.scalar(select(func.count()).select_from(TenantUsage).where(TenantUsage.tenant_id == tenant_id)) or 0
     )
 
 
