@@ -1,6 +1,6 @@
 """API key hashing and generation utilities.
 
-Uses Argon2id via passlib for all secret storage.
+Uses Argon2id via argon2-cffi for all secret storage.
 SHA-256 is explicitly NOT used — it is a fast hash and unsuitable for secret storage.
 """
 
@@ -11,11 +11,12 @@ import string
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from passlib.context import CryptContext
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 
 # Argon2id is memory-hard and GPU-resistant. It is the correct algorithm for
 # hashing secrets that must be stored and later verified.
-_PWD_CONTEXT = CryptContext(schemes=["argon2"], deprecated="auto")
+_PASSWORD_HASHER = PasswordHasher()
 
 _KEY_ALPHABET = string.ascii_letters + string.digits
 _KEY_ID_LENGTH = 20
@@ -41,11 +42,14 @@ class ApiKeyHasher:
 
     def hash_secret(self, secret: str) -> str:
         """Hash a plaintext secret using Argon2id. Returns the full hash string."""
-        return str(_PWD_CONTEXT.hash(secret))
+        return str(_PASSWORD_HASHER.hash(secret))
 
     def verify(self, *, plaintext: str, hashed_secret: str) -> bool:
         """Constant-time verification of a plaintext secret against a stored Argon2 hash."""
-        return bool(_PWD_CONTEXT.verify(plaintext, hashed_secret))
+        try:
+            return bool(_PASSWORD_HASHER.verify(hashed_secret, plaintext))
+        except VerifyMismatchError:
+            return False
 
     def build_record(self, *, tenant_id: str, scopes: tuple[str, ...]) -> tuple[str, ApiKeyRecord]:
         """Generate a new key pair. Returns (plaintext_secret, ApiKeyRecord).
