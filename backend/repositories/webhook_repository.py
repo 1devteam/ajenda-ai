@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import cast
 
 from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.engine import CursorResult
@@ -67,13 +68,16 @@ class WebhookRepository:
 
     def disable_endpoint(self, endpoint_id: uuid.UUID, *, tenant_id: uuid.UUID) -> bool:
         """Set is_active=False on the endpoint. Returns True if a row was updated."""
-        cursor: CursorResult[tuple[()]] = self._session.execute(  # type: ignore[assignment]
-            update(WebhookEndpoint)
-            .where(
-                WebhookEndpoint.id == endpoint_id,
-                WebhookEndpoint.tenant_id == tenant_id,
-            )
-            .values(is_active=False, updated_at=datetime.now(tz=UTC))
+        cursor = cast(
+            CursorResult[tuple[()]],
+            self._session.execute(
+                update(WebhookEndpoint)
+                .where(
+                    WebhookEndpoint.id == endpoint_id,
+                    WebhookEndpoint.tenant_id == tenant_id,
+                )
+                .values(is_active=False, updated_at=datetime.now(tz=UTC))
+            ),
         )
         return bool(cursor.rowcount and cursor.rowcount > 0)
 
