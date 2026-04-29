@@ -67,7 +67,7 @@ class WebhookRepository:
 
     def disable_endpoint(self, endpoint_id: uuid.UUID, *, tenant_id: uuid.UUID) -> bool:
         """Set is_active=False on the endpoint. Returns True if a row was updated."""
-        cursor: CursorResult[tuple[()]] = self._session.execute(  # type: ignore[assignment]
+        cursor: CursorResult[tuple[()]] = self._session.execute(
             update(WebhookEndpoint)
             .where(
                 WebhookEndpoint.id == endpoint_id,
