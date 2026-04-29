@@ -15,7 +15,8 @@ Retry policy (handled by the caller — typically a background worker):
 
 Security:
   - HMAC secret is generated as 32 random bytes (256-bit entropy)
-  - Secret is stored as a bcrypt hash; plaintext is returned once at registration
+  - Secret is stored encrypted at rest; plaintext is returned once at registration
+  - A one-way Argon2id hash is retained for backward-compatible metadata storage
   - Signature format: sha256=<hex_digest> (GitHub-compatible)
   - Delivery timeout: 10 seconds to prevent slow-endpoint DoS
   - URL validation: must use HTTPS scheme (enforced at registration)
@@ -38,7 +39,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from passlib.hash import bcrypt
+from argon2 import PasswordHasher
 from sqlalchemy.orm import Session
 
 from backend.domain.webhook_delivery import RESPONSE_BODY_MAX_CHARS, WebhookDelivery
@@ -56,6 +57,10 @@ DELIVERY_TIMEOUT_SECONDS = 10
 
 # Webhook feature flag name (must match TenantPlan.features_enabled values)
 WEBHOOK_FEATURE = "webhooks"
+
+# One-way hash for webhook secret metadata. HMAC signing uses the encrypted
+# plaintext secret when available.
+_WEBHOOK_SECRET_HASHER = PasswordHasher()
 
 
 class WebhookRegistrationError(Exception):
@@ -203,8 +208,8 @@ class WebhookDispatchService:
 
         # Generate signing secret using the protector (encrypted-at-rest)
         plaintext_secret, secret_ciphertext = self._protector.generate_secret()
-        # Also store a bcrypt hash for backward compatibility with legacy signing path
-        secret_hash = bcrypt.hash(plaintext_secret)
+        # Retain a one-way hash for compatibility with the existing endpoint schema.
+        secret_hash = _WEBHOOK_SECRET_HASHER.hash(plaintext_secret)
 
         endpoint = WebhookEndpoint(
             id=uuid.uuid4(),
@@ -485,7 +490,7 @@ class WebhookDispatchService:
         ).encode("utf-8")
 
         # Use decrypted plaintext secret when available (migration 0009+);
-        # fall back to legacy bcrypt hash for endpoints created before migration.
+        # fall back to legacy one-way hash for endpoints created before migration.
         if endpoint.secret_ciphertext:
             try:
                 signing_key = self._protector.decrypt_secret(endpoint.secret_ciphertext)
@@ -571,7 +576,7 @@ class WebhookDispatchService:
             signing_key: The HMAC key. For endpoints created after migration 0009
                 this is the decrypted plaintext secret, allowing tenants to verify
                 signatures using their plaintext secret. For legacy endpoints it
-                is the bcrypt hash (not verifiable by tenants).
+                is the one-way hash (not verifiable by tenants).
 
         Returns:
             Signature string in the format ``sha256=<hex_digest>``.
