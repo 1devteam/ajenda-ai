@@ -39,8 +39,28 @@ wait_for_http_ok() {
   done
 }
 
+curl_body() {
+  local url="$1"
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" \
+    --max-time "$CURL_MAX_TIME_SECONDS" \
+    "$url"
+}
+
+assert_body_contains() {
+  local body="$1"
+  local expected="$2"
+  if ! grep -q "$expected" <<<"$body"; then
+    fail "expected response body to contain: $expected"
+  fi
+}
+
 require_command docker
 require_command curl
+require_command grep
 require_command python
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
@@ -59,6 +79,8 @@ docker compose -f "$COMPOSE_FILE" ps
 log "checking api health/readiness"
 wait_for_http_ok "$API_BASE_URL/health"
 wait_for_http_ok "$API_BASE_URL/readiness"
+wait_for_http_ok "$API_BASE_URL/v1/system/health"
+wait_for_http_ok "$API_BASE_URL/v1/system/readiness"
 
 log "checking postgres readiness"
 docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U ajenda -d ajenda >/dev/null
@@ -253,6 +275,12 @@ import sys
 print(json.loads(sys.argv[1])["tenant_id"])
 PY
 )"
+
+log "checking live observability metrics"
+metrics_body="$(curl_body "$API_BASE_URL/v1/observability/metrics")"
+assert_body_contains "$metrics_body" "ajenda_tasks_completed"
+assert_body_contains "$metrics_body" "ajenda_active_leases"
+assert_body_contains "$metrics_body" "ajenda_worker_utilization"
 
 log "checking Redis lease cleanup for proof task"
 lease_value="$(docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli GET "ajenda:queue:${proof_tenant_id}:lease:${proof_task_id}")"
