@@ -109,6 +109,7 @@ Ajenda includes a live runtime validation system, not just a test suite.
 Primary files:
 
 - `docs/validation/live-runtime-matrix.md`
+- `docs/validation/live-runtime-proof-release-gate.md`
 - `scripts/validation/live_runtime_matrix.sh`
 - `scripts/validation/lib.sh`
 - `artifacts/validation/README.md`
@@ -127,6 +128,7 @@ The validation system currently includes:
 - evidence capture across API, DB, Redis, audit, and worker logs
 - safety classes for read-only, tenant-scoped mutation, and global mutation scenarios
 - recovery summary validation that includes dead-letter outcomes
+- prod-like live runtime proof for health/readiness, worker execution, observability metrics, audit/lineage evidence, and Redis lease cleanup
 - focused GitHub-side verification for recovery hardening and runtime-validation paths
 
 Validation artifacts are written to:
@@ -140,6 +142,18 @@ Each scenario can capture combinations of:
 - Redis evidence
 - audit/governance evidence
 - worker log evidence
+
+### Prod-like live runtime proof
+
+The prod-like live runtime proof is documented in:
+
+- `docs/validation/live-runtime-proof-release-gate.md`
+
+The executable proof script is:
+
+- `deploy/scripts/live-runtime-proof.sh`
+
+This proof validates a running Compose stack, root and versioned health/readiness probes, real queue-backed worker completion, released lease state, task output lineage, worker completion audit evidence, live Prometheus metrics at `/v1/observability/metrics`, and Redis lease cleanup.
 
 ---
 
@@ -298,6 +312,7 @@ Run integration and validation flows when your change affects runtime behavior, 
 Start here when working on current runtime behavior:
 
 - `docs/validation/live-runtime-matrix.md`
+- `docs/validation/live-runtime-proof-release-gate.md`
 - `artifacts/validation/README.md`
 - `docs/PROJECT_STATE_REPORT.md`
 - `docs/SAAS_ARCHITECTURE.md`
