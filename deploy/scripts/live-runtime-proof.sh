@@ -3,6 +3,8 @@ set -euo pipefail
 
 COMPOSE_FILE="${AJENDA_PROOF_COMPOSE_FILE:-deploy/compose/docker-compose.prod.yml}"
 API_BASE_URL="${AJENDA_PROOF_API_BASE_URL:-http://localhost:8000}"
+PROMETHEUS_BASE_URL="${AJENDA_PROOF_PROMETHEUS_BASE_URL:-http://localhost:9090}"
+PROMETHEUS_JOB_NAME="${AJENDA_PROOF_PROMETHEUS_JOB_NAME:-ajenda-api}"
 TIMEOUT_SECONDS="${AJENDA_PROOF_TIMEOUT_SECONDS:-90}"
 POLL_SECONDS="${AJENDA_PROOF_POLL_SECONDS:-2}"
 CURL_CONNECT_TIMEOUT_SECONDS="${AJENDA_PROOF_CURL_CONNECT_TIMEOUT_SECONDS:-5}"
@@ -58,6 +60,41 @@ assert_body_contains() {
   fi
 }
 
+wait_for_prometheus_target_up() {
+  local job_name="$1"
+  local deadline=$((SECONDS + TIMEOUT_SECONDS))
+  local targets_body
+
+  while (( SECONDS < deadline )); do
+    targets_body="$(curl_body "$PROMETHEUS_BASE_URL/api/v1/targets?state=active")"
+    if python - <<'PY' "$targets_body" "$job_name"
+from __future__ import annotations
+
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+job_name = sys.argv[2]
+
+if payload.get("status") != "success":
+    raise SystemExit(1)
+
+for target in payload.get("data", {}).get("activeTargets", []):
+    labels = target.get("labels", {})
+    if labels.get("job") == job_name and target.get("health") == "up":
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+    then
+      return 0
+    fi
+    sleep "$POLL_SECONDS"
+  done
+
+  fail "timed out waiting for Prometheus target ${job_name} to be up"
+}
+
 require_command docker
 require_command curl
 require_command grep
@@ -71,7 +108,7 @@ log "validating compose configuration"
 docker compose -f "$COMPOSE_FILE" config --quiet
 
 log "starting compose services"
-docker compose -f "$COMPOSE_FILE" up -d --build db redis migrate api worker
+docker compose -f "$COMPOSE_FILE" up -d --build db redis migrate api worker prometheus
 
 log "checking compose service state"
 docker compose -f "$COMPOSE_FILE" ps
@@ -281,6 +318,10 @@ metrics_body="$(curl_body "$API_BASE_URL/v1/observability/metrics")"
 assert_body_contains "$metrics_body" "ajenda_tasks_completed"
 assert_body_contains "$metrics_body" "ajenda_active_leases"
 assert_body_contains "$metrics_body" "ajenda_worker_utilization"
+
+log "checking Prometheus readiness and scrape target health"
+wait_for_http_ok "$PROMETHEUS_BASE_URL/-/ready"
+wait_for_prometheus_target_up "$PROMETHEUS_JOB_NAME"
 
 log "checking Redis lease cleanup for proof task"
 lease_value="$(docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli GET "ajenda:queue:${proof_tenant_id}:lease:${proof_task_id}")"
