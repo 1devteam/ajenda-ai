@@ -105,6 +105,19 @@ The full proof run completed both workflow jobs successfully:
 
 This evidence proves the manual dispatch path, static shell validation path, and full GitHub-hosted Compose proof path for the current workflow version.
 
+The following evidence was captured after Prometheus scrape-health proof was merged to `main` at commit `ed3c665a0b614a4e1c8f1c05b607a441b85fe145`.
+
+| Workflow run | Mode | Commit | Result | Duration | Artifact evidence |
+|---|---|---|---|---|---|
+| Live Runtime Proof #3 | `run_live_proof=true` full Compose proof with Prometheus scrape-health check | `ed3c665` | success | 1m 36s | one diagnostics artifact present |
+
+The full proof run completed both workflow jobs successfully:
+
+- `Static Proof Validation`
+- `Full Live Runtime Proof`
+
+This evidence proves the GitHub-hosted Compose path with Prometheus readiness and `ajenda-api` scrape-target health included.
+
 ---
 
 ## Proof responsibilities
