@@ -1,0 +1,117 @@
+name: Live Runtime Proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live_proof:
+        description: Run the full prod-like Docker Compose proof
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      timeout_seconds:
+        description: Proof timeout in seconds
+        required: true
+        default: "90"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-runtime-proof-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  static-validation:
+    name: Static Proof Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Shell syntax check
+        run: bash -n deploy/scripts/live-runtime-proof.sh
+
+  live-runtime-proof:
+    name: Full Live Runtime Proof
+    runs-on: ubuntu-latest
+    needs: static-validation
+    if: ${{ inputs.run_live_proof == 'true' }}
+    timeout-minutes: 30
+    env:
+      AJENDA_PROOF_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
+      AJENDA_PROOF_POLL_SECONDS: "2"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Show Docker versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Write prod-like Compose environment
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          from uuid import uuid4
+
+          env_path = Path("deploy/compose/.env.prod")
+          worker_tenant_id = uuid4()
+          env_path.write_text(
+              "\n".join(
+                  [
+                      "POSTGRES_PASSWORD=change-me",
+                      "AJENDA_DATABASE_URL=postgresql+psycopg://ajenda:change-me@db:5432/ajenda",
+                      "AJENDA_DB_POOL_SIZE=10",
+                      "AJENDA_DB_MAX_OVERFLOW=20",
+                      "AJENDA_DB_POOL_TIMEOUT=30",
+                      "AJENDA_DB_POOL_RECYCLE=1800",
+                      "AJENDA_QUEUE_ADAPTER=redis",
+                      "AJENDA_QUEUE_URL=redis://redis:6379/0",
+                      "AJENDA_ENV=staging",
+                      "AJENDA_LOG_LEVEL=INFO",
+                      "AJENDA_LOG_JSON=false",
+                      "AJENDA_APP_NAME=Ajenda AI Live Runtime Proof",
+                      "AJENDA_HOST=0.0.0.0",
+                      "AJENDA_PORT=8000",
+                      "AJENDA_OIDC_ISSUER=http://localhost:8080/realms/ajenda",
+                      "AJENDA_OIDC_AUDIENCE=ajenda-api",
+                      "AJENDA_OIDC_JWKS_URI=http://localhost:8080/realms/ajenda/protocol/openid-connect/certs",
+                      f"AJENDA_WORKER_TENANT_ID={worker_tenant_id}",
+                      "AJENDA_RATE_LIMIT_REQUESTS=10000",
+                      "AJENDA_RATE_LIMIT_WINDOW_SECONDS=60",
+                      "AJENDA_REDACT_KEYS=password,secret,token,api_key,authorization,cookie,set-cookie",
+                      "",
+                  ]
+              ),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run live runtime proof
+        run: bash deploy/scripts/live-runtime-proof.sh
+
+      - name: Capture compose diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts/live-runtime-proof
+          docker compose -f deploy/compose/docker-compose.prod.yml ps > artifacts/live-runtime-proof/compose-ps.txt || true
+          docker compose -f deploy/compose/docker-compose.prod.yml logs --no-color --tail=300 > artifacts/live-runtime-proof/compose-logs.txt || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-runtime-proof-diagnostics
+          path: artifacts/live-runtime-proof
+          retention-days: 7
+
+      - name: Stop compose stack
+        if: always()
+        run: docker compose -f deploy/compose/docker-compose.prod.yml down -v --remove-orphans

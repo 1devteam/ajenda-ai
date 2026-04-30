@@ -32,6 +32,12 @@ Default API base URL:
 http://localhost:8000
 ```
 
+Manual GitHub Actions workflow:
+
+```text
+.github/workflows/live-runtime-proof.yml
+```
+
 ---
 
 ## Required environment
@@ -48,6 +54,30 @@ Configurable inputs:
 | `AJENDA_PROOF_POLL_SECONDS` | `2` | Poll interval for retry loops |
 | `AJENDA_PROOF_CURL_CONNECT_TIMEOUT_SECONDS` | `5` | Curl connection timeout |
 | `AJENDA_PROOF_CURL_MAX_TIME_SECONDS` | `10` | Curl max request time |
+
+---
+
+## Manual workflow behavior
+
+The manual workflow is intentionally opt-in.
+
+It is triggered by `workflow_dispatch` and has two modes:
+
+| Input | Behavior |
+|---|---|
+| `run_live_proof=false` | run static shell syntax validation only |
+| `run_live_proof=true` | run static shell syntax validation, write a generated prod-like Compose environment, execute the full live proof, capture diagnostics, and tear down the stack |
+
+The workflow does not run on every PR or push. This prevents a Docker Compose live proof from becoming an accidental default CI requirement while still making the proof available from GitHub Actions when an operator explicitly asks for it.
+
+The full workflow run writes `deploy/compose/.env.prod` inside the temporary GitHub Actions workspace with staging-mode runtime settings and a generated worker tenant UUID. It does not commit that file.
+
+The workflow uploads diagnostics on success or failure:
+
+```text
+artifacts/live-runtime-proof/compose-ps.txt
+artifacts/live-runtime-proof/compose-logs.txt
+```
 
 ---
 
@@ -204,6 +234,18 @@ Full prod-like proof:
 ./deploy/scripts/live-runtime-proof.sh
 ```
 
+Manual GitHub Actions static validation:
+
+```text
+Live Runtime Proof workflow with run_live_proof=false
+```
+
+Manual GitHub Actions full proof:
+
+```text
+Live Runtime Proof workflow with run_live_proof=true
+```
+
 The full proof requires a valid prod-like environment and should not be treated as equivalent to a local unit or contract test.
 
 ---
@@ -228,6 +270,8 @@ The script is not a replacement for the full matrix runner. It is an additional 
 
 When `deploy/scripts/live-runtime-proof.sh` changes, update this document if the proof contract changes.
 
-Do not document checks here unless the script actually performs them.
+When `.github/workflows/live-runtime-proof.yml` changes, update this document if workflow invocation or evidence behavior changes.
+
+Do not document checks here unless the script or workflow actually performs them.
 
 Do not mark new proof responsibilities as release-gating until the script or matrix runner provides evidence for them.
