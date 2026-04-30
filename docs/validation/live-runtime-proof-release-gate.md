@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`deploy/scripts/live-runtime-proof.sh` is the prod-like runtime proof for Ajenda AI. It complements the live runtime validation matrix by exercising the deployed Docker Compose stack and proving that the API, worker, database, Redis queue, and observability surfaces operate together.
+`deploy/scripts/live-runtime-proof.sh` is the prod-like runtime proof for Ajenda AI. It complements the live runtime validation matrix by exercising the deployed Docker Compose stack and proving that the API, worker, database, Redis queue, Prometheus, and observability surfaces operate together.
 
 This document records the source-controlled release-gate expectations for that proof script. Dynamic run output belongs in operator logs and validation artifacts; this file describes the static proof contract.
 
@@ -12,7 +12,7 @@ This document records the source-controlled release-gate expectations for that p
 
 The live runtime proof is an operator-driven release gate for prod-like Compose environments.
 
-It is intentionally broader than a unit, contract, or integration test. The script validates the running stack and then creates real tenant-scoped work that must be accepted, executed, audited, observed, and cleaned up.
+It is intentionally broader than a unit, contract, or integration test. The script validates the running stack and then creates real tenant-scoped work that must be accepted, executed, audited, observed, scraped, and cleaned up.
 
 Current script:
 
@@ -30,6 +30,12 @@ Default API base URL:
 
 ```text
 http://localhost:8000
+```
+
+Default Prometheus base URL:
+
+```text
+http://localhost:9090
 ```
 
 Manual GitHub Actions workflow:
@@ -50,7 +56,9 @@ Configurable inputs:
 |---|---|---|
 | `AJENDA_PROOF_COMPOSE_FILE` | `deploy/compose/docker-compose.prod.yml` | Compose file used for the proof stack |
 | `AJENDA_PROOF_API_BASE_URL` | `http://localhost:8000` | API base URL used by HTTP probes |
-| `AJENDA_PROOF_TIMEOUT_SECONDS` | `90` | Overall polling timeout for readiness and worker completion checks |
+| `AJENDA_PROOF_PROMETHEUS_BASE_URL` | `http://localhost:9090` | Prometheus base URL used by scrape-target checks |
+| `AJENDA_PROOF_PROMETHEUS_JOB_NAME` | `ajenda-api` | Prometheus scrape job expected to become healthy |
+| `AJENDA_PROOF_TIMEOUT_SECONDS` | `90` | Overall polling timeout for readiness, worker completion, and Prometheus scrape checks |
 | `AJENDA_PROOF_POLL_SECONDS` | `2` | Poll interval for retry loops |
 | `AJENDA_PROOF_CURL_CONNECT_TIMEOUT_SECONDS` | `5` | Curl connection timeout |
 | `AJENDA_PROOF_CURL_MAX_TIME_SECONDS` | `10` | Curl max request time |
@@ -114,12 +122,14 @@ Required services include:
 - migration service
 - API
 - worker
+- Prometheus
 
 Required readiness checks:
 
 - Compose config is valid
 - Postgres accepts `pg_isready`
 - Redis returns `PONG`
+- Prometheus readiness endpoint returns HTTP 200
 
 ### 2. Public control-plane probes
 
@@ -191,7 +201,31 @@ ajenda_worker_utilization
 
 This check proves that the metrics route is live after runtime work has completed and that key runtime metric families are exposed.
 
-### 7. Redis lease cleanup
+### 7. Prometheus scrape health
+
+The script starts Prometheus from the prod-like Compose stack and waits for:
+
+```text
+/-/ready
+```
+
+Then it queries the Prometheus targets API and requires the configured scrape job to report healthy:
+
+```text
+/api/v1/targets?state=active
+```
+
+Required result:
+
+- Prometheus reports the `ajenda-api` target as `up`
+
+Forbidden result:
+
+- Prometheus is unavailable
+- the `ajenda-api` scrape target is absent
+- the `ajenda-api` scrape target remains unhealthy past the proof timeout
+
+### 8. Redis lease cleanup
 
 The script verifies that the Redis lease key for the proof task is absent after completion.
 
@@ -232,6 +266,8 @@ A passing run means the prod-like stack proved the following together:
 - worker completion audit is written
 - observability metrics are exposed at `/v1/observability/metrics`
 - runtime metric families include completed tasks, active leases, and worker utilization
+- Prometheus is ready
+- Prometheus reports the configured `ajenda-api` scrape target as healthy
 - Redis lease cleanup succeeds
 
 Any script failure is promotion-blocking for the environment being proven.
@@ -276,7 +312,7 @@ This proof overlaps multiple release-gating rows in `docs/validation/live-runtim
 |---|---|
 | `RG-01` | root health/readiness probes |
 | `RG-02` | versioned system health/readiness probes |
-| `RG-03` | metrics route exposure |
+| `RG-03` | metrics route exposure and Prometheus scrape health |
 | `RG-04` | queue admission for tenant-scoped work |
 | `RG-06` | queued task completion, released lease, audit/log evidence |
 
