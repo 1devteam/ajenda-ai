@@ -81,6 +81,24 @@ artifacts/live-runtime-proof/compose-logs.txt
 
 ---
 
+## Recent validated evidence
+
+The following GitHub Actions evidence was captured after the manual workflow was merged to `main` at commit `051271b6d511c0f42d973a5eeea23c51c1bb64c7`.
+
+| Workflow run | Mode | Commit | Result | Duration | Artifact evidence |
+|---|---|---|---|---|---|
+| Live Runtime Proof #1 | `run_live_proof=false` static validation | `051271b` | success | 12s | none expected |
+| Live Runtime Proof #2 | `run_live_proof=true` full Compose proof | `051271b` | success | 1m 46s | one diagnostics artifact present |
+
+The full proof run completed both workflow jobs successfully:
+
+- `Static Proof Validation`
+- `Full Live Runtime Proof`
+
+This evidence proves the manual dispatch path, static shell validation path, and full GitHub-hosted Compose proof path for the current workflow version.
+
+---
+
 ## Proof responsibilities
 
 The script currently proves the following release-gating responsibilities.
