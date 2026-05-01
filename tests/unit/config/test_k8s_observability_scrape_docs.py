@@ -26,7 +26,7 @@ def _read(path: Path) -> str:
 
 
 def _yaml_scalar(text: str, key: str) -> str | None:
-    match = re.search(rf"^\s*{re.escape(key)}:\s*[\"']?(?P<value>[^\"'\n]+)[\"']?\s*$", text, flags=re.MULTILINE)
+    match = re.search(rf"^\s*-?\s*{re.escape(key)}:\s*[\"']?(?P<value>[^\"'\n]+)[\"']?\s*$", text, flags=re.MULTILINE)
     if match is None:
         return None
     return match.group("value").strip()
