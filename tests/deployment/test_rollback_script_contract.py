@@ -21,8 +21,8 @@ def test_rollback_script_uses_safe_shell_flags() -> None:
 def test_rollback_script_supports_namespace_and_revision_arguments() -> None:
     script = _read()
 
-    assert "NAMESPACE=\"ajenda\"" in script
-    assert "REVISION=\"\"" in script
+    assert 'NAMESPACE="ajenda"' in script
+    assert 'REVISION=""' in script
     assert "--namespace|-n" in script
     assert "--revision|-r" in script
     assert "Unknown argument" in script
