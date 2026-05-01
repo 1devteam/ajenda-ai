@@ -85,7 +85,9 @@ def test_worker_service_waits_for_queue_database_and_migrations() -> None:
 def test_live_runtime_proof_starts_core_proof_services() -> None:
     script = _read(LIVE_RUNTIME_PROOF)
 
-    expected_command = "docker compose -f \"$COMPOSE_FILE\" up -d --build " + " ".join(LIVE_PROOF_STARTED_SERVICES)
+    expected_command = "docker compose -f \"$COMPOSE_FILE\" up -d --build " + " ".join(
+        LIVE_PROOF_STARTED_SERVICES
+    )
 
     assert expected_command in script
 
@@ -102,4 +104,7 @@ def test_compose_mounts_prometheus_and_otel_config() -> None:
     compose = _read(COMPOSE_FILE)
 
     assert "./prometheus.yml:/etc/prometheus/prometheus.yml:ro" in _service_block(compose, "prometheus")
-    assert "../k8s/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro" in _service_block(compose, "otel-collector")
+    assert "../k8s/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro" in _service_block(
+        compose,
+        "otel-collector",
+    )
