@@ -32,6 +32,16 @@ def _yaml_scalar(text: str, key: str) -> str | None:
     return match.group("value").strip()
 
 
+def _api_service_port_block(api_service: str) -> str:
+    match = re.search(
+        r"^  ports:\n(?P<body>(?:^    - .*\n|^      .+\n)+)",
+        api_service,
+        flags=re.MULTILINE,
+    )
+    assert match is not None, "api-service.yaml must define spec.ports"
+    return match.group("body")
+
+
 def test_compose_prometheus_uses_versioned_observability_metrics_path() -> None:
     compose_prometheus = _read(COMPOSE_PROMETHEUS)
 
@@ -52,19 +62,19 @@ def test_k8s_service_monitor_uses_same_metrics_path_as_compose_prometheus() -> N
 
 def test_k8s_service_monitor_targets_api_http_service_port() -> None:
     service_monitor = _read(K8S_SERVICE_MONITOR)
-    api_service = _read(K8S_API_SERVICE)
+    api_service_port_block = _api_service_port_block(_read(K8S_API_SERVICE))
 
     service_monitor_port = _yaml_scalar(service_monitor, "port")
-    api_service_port_name = _yaml_scalar(api_service, "name")
+    api_service_port_name = _yaml_scalar(api_service_port_block, "name")
 
     assert service_monitor_port == EXPECTED_SERVICE_PORT_NAME
     assert api_service_port_name == service_monitor_port
 
 
 def test_k8s_api_service_exposes_expected_api_target_port() -> None:
-    api_service = _read(K8S_API_SERVICE)
+    api_service_port_block = _api_service_port_block(_read(K8S_API_SERVICE))
 
-    assert _yaml_scalar(api_service, "targetPort") == EXPECTED_API_TARGET_PORT
+    assert _yaml_scalar(api_service_port_block, "targetPort") == EXPECTED_API_TARGET_PORT
 
 
 def test_k8s_service_monitor_selects_ajenda_api_service() -> None:
