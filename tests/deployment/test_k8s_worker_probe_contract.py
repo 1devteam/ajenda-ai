@@ -16,6 +16,10 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _non_comment_lines(text: str) -> list[str]:
+    return [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+
+
 def test_worker_loop_owns_liveness_file_path_and_update_interval() -> None:
     worker_loop = _read(WORKER_LOOP)
 
@@ -27,13 +31,14 @@ def test_worker_loop_owns_liveness_file_path_and_update_interval() -> None:
 
 def test_worker_deployment_uses_exec_probes_not_http_probes() -> None:
     deployment = _read(WORKER_DEPLOYMENT)
+    non_comment_deployment = "\n".join(_non_comment_lines(deployment))
 
     assert "livenessProbe:" in deployment
     assert "readinessProbe:" in deployment
     assert "exec:" in deployment
-    assert "httpGet:" not in deployment
-    assert "localhost:8000" not in deployment
-    assert "port: 8000" not in deployment
+    assert "httpGet:" not in non_comment_deployment
+    assert "localhost:8000" not in non_comment_deployment
+    assert "port: 8000" not in non_comment_deployment
 
 
 def test_worker_liveness_probe_checks_fresh_liveness_file() -> None:
