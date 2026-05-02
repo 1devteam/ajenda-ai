@@ -43,7 +43,9 @@ def _worker_container_security_context_lines() -> list[str]:
 def _worker_pod_security_context_lines() -> list[str]:
     lines = _non_comment_lines(_read(WORKER_DEPLOYMENT))
     container_security_context_index = next(
-        index for index, line in enumerate(lines) if line.strip() == "securityContext:" and line.startswith("          ")
+        index
+        for index, line in enumerate(lines)
+        if line.strip() == "securityContext:" and line.startswith("          ")
     )
     return _indented_block(lines, "securityContext:", start_at=container_security_context_index + 1)
 
