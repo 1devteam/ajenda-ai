@@ -21,9 +21,15 @@ EXPECTED_K8S_MANIFESTS = frozenset(
     }
 )
 
+K8S_RESOURCE_MANIFESTS = EXPECTED_K8S_MANIFESTS - {"otel-collector-config.yaml"}
+
 
 def _k8s_manifest_paths() -> list[Path]:
     return sorted(path for path in K8S_MANIFEST_DIR.iterdir() if path.suffix in {".yaml", ".yml"})
+
+
+def _k8s_resource_manifest_paths() -> list[Path]:
+    return [K8S_MANIFEST_DIR / manifest_name for manifest_name in sorted(K8S_RESOURCE_MANIFESTS)]
 
 
 def test_required_k8s_manifests_exist() -> None:
@@ -42,8 +48,8 @@ def test_no_untracked_k8s_manifest_files_exist() -> None:
     assert not unexpected, f"Unexpected Kubernetes manifests need inventory review: {sorted(unexpected)}"
 
 
-def test_k8s_manifests_have_required_yaml_document_headers() -> None:
-    for manifest_path in _k8s_manifest_paths():
+def test_k8s_resource_manifests_have_required_yaml_document_headers() -> None:
+    for manifest_path in _k8s_resource_manifest_paths():
         content = manifest_path.read_text(encoding="utf-8")
 
         assert "apiVersion:" in content, f"{manifest_path} must declare apiVersion"
