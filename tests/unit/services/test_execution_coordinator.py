@@ -19,7 +19,7 @@ def _policy_allowed() -> SimpleNamespace:
     return SimpleNamespace(allowed=True, reason=None)
 
 
-def _task(*, tenant_id: str, status: str = ExecutionTaskState.BLOCKED.value) -> SimpleNamespace:
+def _task(*, tenant_id: str, status: str = ExecutionTaskState.PLANNED.value) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
@@ -86,9 +86,9 @@ def test_require_task_returns_task_for_matching_tenant() -> None:
     assert result is task
 
 
-def test_queue_task_restores_previous_state_when_enqueue_fails() -> None:
+def test_queue_task_restores_previous_planned_state_when_enqueue_fails() -> None:
     tenant_id = str(uuid.uuid4())
-    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.BLOCKED.value)
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PLANNED.value)
     queue = MagicMock()
     queue.enqueue_task.return_value = QueueOperationResult(ok=False, reason="redis unavailable")
     coordinator = _coordinator_with_task(task=task, queue=queue)
@@ -96,14 +96,14 @@ def test_queue_task_restores_previous_state_when_enqueue_fails() -> None:
     with pytest.raises(ValueError, match="redis unavailable"):
         coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
 
-    assert task.status == ExecutionTaskState.BLOCKED.value
+    assert task.status == ExecutionTaskState.PLANNED.value
     assert coordinator._session.flush.call_count == 2
     coordinator._audit.append.assert_not_called()
 
 
-def test_queue_task_enqueues_after_transitioning_task_to_queued() -> None:
+def test_queue_task_enqueues_after_transitioning_planned_task_to_queued() -> None:
     tenant_id = str(uuid.uuid4())
-    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.BLOCKED.value)
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PLANNED.value)
     queue = MagicMock()
     queue.enqueue_task.return_value = QueueOperationResult(ok=True)
     coordinator = _coordinator_with_task(task=task, queue=queue)
@@ -121,7 +121,7 @@ def test_queue_task_enqueues_after_transitioning_task_to_queued() -> None:
     coordinator._audit.append.assert_called_once()
 
 
-def test_queue_task_preserves_previous_non_blocked_state_on_enqueue_failure() -> None:
+def test_queue_task_preserves_previous_retryable_state_on_enqueue_failure() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
     queue = MagicMock()
