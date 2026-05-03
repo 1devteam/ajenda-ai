@@ -44,7 +44,12 @@ def _is_session_method_call(node: ast.AST, session_method: str) -> bool:
     if not isinstance(target, ast.Attribute):
         return False
     owner = target.value
-    return isinstance(owner, ast.Name) and owner.id == "self" and target.attr == "_session" and callee.attr == session_method
+    return (
+        isinstance(owner, ast.Name)
+        and owner.id == "self"
+        and target.attr == "_session"
+        and callee.attr == session_method
+    )
 
 
 def _session_method_line_numbers(method: RuntimeMethod, session_method: str) -> list[int]:
@@ -109,7 +114,9 @@ def test_worker_runtime_queue_rejection_paths_roll_back_session_before_raise() -
 
     for method in queue_mutation_methods:
         rejection_branch = _queue_rejection_branch(method)
-        rollback_lines = [node.lineno for node in ast.walk(rejection_branch) if _is_session_method_call(node, "rollback")]
+        rollback_lines = [
+            node.lineno for node in ast.walk(rejection_branch) if _is_session_method_call(node, "rollback")
+        ]
         raise_lines = [node.lineno for node in ast.walk(rejection_branch) if isinstance(node, ast.Raise)]
 
         assert rollback_lines, f"{method.__name__} must roll back inside the queue rejection branch"
