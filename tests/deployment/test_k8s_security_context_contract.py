@@ -34,14 +34,14 @@ def _indented_block(lines: list[str], marker: str, *, start_at: int = 0) -> list
     raise AssertionError(f"missing YAML block marker: {marker}")
 
 
-def _worker_container_security_context_lines() -> list[str]:
-    lines = _non_comment_lines(_read(WORKER_DEPLOYMENT))
+def _container_security_context_lines(deployment_path: Path) -> list[str]:
+    lines = _non_comment_lines(_read(deployment_path))
     containers_block = _indented_block(lines, "containers:")
     return _indented_block(containers_block, "securityContext:")
 
 
-def _worker_pod_security_context_lines() -> list[str]:
-    lines = _non_comment_lines(_read(WORKER_DEPLOYMENT))
+def _pod_security_context_lines(deployment_path: Path) -> list[str]:
+    lines = _non_comment_lines(_read(deployment_path))
     container_security_context_index = next(
         index
         for index, line in enumerate(lines)
@@ -55,7 +55,7 @@ def _normalized_values(lines: list[str]) -> set[str]:
 
 
 def test_worker_container_security_context_blocks_privilege_escalation() -> None:
-    security_context = _normalized_values(_worker_container_security_context_lines())
+    security_context = _normalized_values(_container_security_context_lines(WORKER_DEPLOYMENT))
 
     assert "allowPrivilegeEscalation: false" in security_context
     assert "runAsNonRoot: true" in security_context
@@ -63,7 +63,7 @@ def test_worker_container_security_context_blocks_privilege_escalation() -> None
 
 
 def test_worker_container_drops_linux_capabilities() -> None:
-    security_context = _normalized_values(_worker_container_security_context_lines())
+    security_context = _normalized_values(_container_security_context_lines(WORKER_DEPLOYMENT))
 
     assert "capabilities:" in security_context
     assert "drop:" in security_context
@@ -71,13 +71,41 @@ def test_worker_container_drops_linux_capabilities() -> None:
 
 
 def test_worker_pod_security_context_sets_filesystem_group() -> None:
-    pod_security_context = _normalized_values(_worker_pod_security_context_lines())
+    pod_security_context = _normalized_values(_pod_security_context_lines(WORKER_DEPLOYMENT))
 
     assert "fsGroup: 1000" in pod_security_context
 
 
 def test_worker_root_filesystem_setting_stays_explicit() -> None:
-    security_context = _normalized_values(_worker_container_security_context_lines())
+    security_context = _normalized_values(_container_security_context_lines(WORKER_DEPLOYMENT))
+
+    assert "readOnlyRootFilesystem: false" in security_context
+
+
+def test_api_container_security_context_blocks_privilege_escalation() -> None:
+    security_context = _normalized_values(_container_security_context_lines(API_DEPLOYMENT))
+
+    assert "allowPrivilegeEscalation: false" in security_context
+    assert "runAsNonRoot: true" in security_context
+    assert "runAsUser: 1000" in security_context
+
+
+def test_api_container_drops_linux_capabilities() -> None:
+    security_context = _normalized_values(_container_security_context_lines(API_DEPLOYMENT))
+
+    assert "capabilities:" in security_context
+    assert "drop:" in security_context
+    assert "- ALL" in security_context
+
+
+def test_api_pod_security_context_sets_filesystem_group() -> None:
+    pod_security_context = _normalized_values(_pod_security_context_lines(API_DEPLOYMENT))
+
+    assert "fsGroup: 1000" in pod_security_context
+
+
+def test_api_root_filesystem_setting_stays_explicit() -> None:
+    security_context = _normalized_values(_container_security_context_lines(API_DEPLOYMENT))
 
     assert "readOnlyRootFilesystem: false" in security_context
 
