@@ -9,18 +9,17 @@ from __future__ import annotations
 
 import ast
 import inspect
+import textwrap
 from collections.abc import Callable
 from typing import Any
 
-from backend.domain.execution_task import ExecutionTask
-from backend.domain.worker_lease import WorkerLease
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 RuntimeMethod = Callable[..., Any]
 
 
 def _method_ast(method: RuntimeMethod) -> ast.FunctionDef:
-    source = inspect.getsource(method)
+    source = textwrap.dedent(inspect.getsource(method))
     module = ast.parse(source)
     function = module.body[0]
     assert isinstance(function, ast.FunctionDef)
@@ -111,9 +110,9 @@ def test_worker_runtime_claim_records_worker_lease_id_before_commit() -> None:
 
 
 def test_worker_runtime_public_mutators_keep_return_contracts() -> None:
-    assert inspect.signature(WorkerRuntimeService.claim_next_task).return_annotation == ExecutionTask | None
-    assert inspect.signature(WorkerRuntimeService.start_execution).return_annotation == ExecutionTask
-    assert inspect.signature(WorkerRuntimeService.complete).return_annotation == ExecutionTask
-    assert inspect.signature(WorkerRuntimeService.fail).return_annotation == ExecutionTask
-    assert inspect.signature(WorkerRuntimeService.heartbeat).return_annotation == WorkerLease
-    assert inspect.signature(WorkerRuntimeService.release).return_annotation == WorkerLease
+    assert inspect.signature(WorkerRuntimeService.claim_next_task).return_annotation == "ExecutionTask | None"
+    assert inspect.signature(WorkerRuntimeService.start_execution).return_annotation == "ExecutionTask"
+    assert inspect.signature(WorkerRuntimeService.complete).return_annotation == "ExecutionTask"
+    assert inspect.signature(WorkerRuntimeService.fail).return_annotation == "ExecutionTask"
+    assert inspect.signature(WorkerRuntimeService.heartbeat).return_annotation == "WorkerLease"
+    assert inspect.signature(WorkerRuntimeService.release).return_annotation == "WorkerLease"
