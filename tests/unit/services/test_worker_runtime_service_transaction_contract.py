@@ -29,20 +29,53 @@ def _method_ast(method: RuntimeMethod) -> ast.FunctionDef:
 def _calls_session_method(method: RuntimeMethod, session_method: str) -> bool:
     function = _method_ast(method)
     for node in ast.walk(function):
-        if not isinstance(node, ast.Call):
-            continue
-        callee = node.func
-        if not isinstance(callee, ast.Attribute):
-            continue
-        target = callee.value
-        if not isinstance(target, ast.Attribute):
-            continue
-        owner = target.value
-        if not isinstance(owner, ast.Name):
-            continue
-        if owner.id == "self" and target.attr == "_session" and callee.attr == session_method:
+        if _is_session_method_call(node, session_method):
             return True
     return False
+
+
+def _is_session_method_call(node: ast.AST, session_method: str) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    callee = node.func
+    if not isinstance(callee, ast.Attribute):
+        return False
+    target = callee.value
+    if not isinstance(target, ast.Attribute):
+        return False
+    owner = target.value
+    return isinstance(owner, ast.Name) and owner.id == "self" and target.attr == "_session" and callee.attr == session_method
+
+
+def _session_method_line_numbers(method: RuntimeMethod, session_method: str) -> list[int]:
+    function = _method_ast(method)
+    return [node.lineno for node in ast.walk(function) if _is_session_method_call(node, session_method)]
+
+
+def _queue_rejection_branch(method: RuntimeMethod) -> ast.If:
+    function = _method_ast(method)
+    for node in ast.walk(function):
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "not result.ok":
+            return node
+    raise AssertionError(f"{method.__name__} must branch on rejected queue result")
+
+
+def _lineage_append_line_number(function: ast.FunctionDef) -> int:
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr == "append" and "LineageRecordRepository" in ast.unparse(node.func.value):
+            return node.lineno
+    raise AssertionError("complete must append task output lineage")
+
+
+def _audit_append_line_number(function: ast.FunctionDef) -> int:
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr == "append" and ast.unparse(node.func.value) == "self._audit":
+            return node.lineno
+    raise AssertionError("complete must append worker audit evidence")
 
 
 def test_worker_runtime_mutating_task_methods_own_commit_boundary() -> None:
@@ -75,24 +108,24 @@ def test_worker_runtime_queue_rejection_paths_roll_back_session_before_raise() -
     )
 
     for method in queue_mutation_methods:
-        assert _calls_session_method(method, "rollback"), f"{method.__name__} must roll back on queue rejection"
+        rejection_branch = _queue_rejection_branch(method)
+        rollback_lines = [node.lineno for node in ast.walk(rejection_branch) if _is_session_method_call(node, "rollback")]
+        raise_lines = [node.lineno for node in ast.walk(rejection_branch) if isinstance(node, ast.Raise)]
+
+        assert rollback_lines, f"{method.__name__} must roll back inside the queue rejection branch"
+        assert raise_lines, f"{method.__name__} must raise inside the queue rejection branch"
+        assert min(rollback_lines) < min(raise_lines), f"{method.__name__} must roll back before raising"
 
 
 def test_worker_runtime_complete_persists_lineage_and_audit_before_commit() -> None:
     complete_ast = _method_ast(WorkerRuntimeService.complete)
-    called_names: list[str] = []
-    called_attrs: list[str] = []
+    lineage_append_line = _lineage_append_line_number(complete_ast)
+    audit_append_line = _audit_append_line_number(complete_ast)
+    commit_lines = _session_method_line_numbers(WorkerRuntimeService.complete, "commit")
 
-    for node in ast.walk(complete_ast):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            called_names.append(node.func.id)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            called_attrs.append(node.func.attr)
-
-    assert "LineageRecordRepository" in called_names
-    assert "LineageRecord" in called_names
-    assert "AuditEvent" in called_names
-    assert "append" in called_attrs
+    assert commit_lines
+    assert lineage_append_line < max(commit_lines)
+    assert audit_append_line < max(commit_lines)
 
 
 def test_worker_runtime_claim_records_worker_lease_id_before_commit() -> None:
