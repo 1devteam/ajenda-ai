@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.governance_event import GovernanceEvent
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
@@ -939,3 +940,41 @@ def test_rg_pending_review_policy_gate(pg_session, queue_adapter, redis_client) 
 
     actions = _audit_actions(pg_session, tenant_id)
     assert "task_pending_review" in actions
+
+
+def test_rg_dead_letter_queue_interruption_rolls_back_authoritative_state(
+    pg_session,
+    queue_adapter,
+    redis_client,
+    monkeypatch,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    _create_tenant(pg_session, tenant_id)
+    task = _create_task(pg_session, tenant_id, status=ExecutionTaskState.FAILED)
+
+    initial_dead_letter_len = redis_client.llen(f"ajenda:queue:{tenant_id}:dead_letter")
+
+    def interrupted_dead_letter_move(*args, **kwargs) -> QueueOperationResult:
+        return QueueOperationResult(ok=False, reason="redis unavailable during dead-letter move")
+
+    monkeypatch.setattr(queue_adapter, "move_to_dead_letter", interrupted_dead_letter_move)
+
+    coordinator = ExecutionCoordinator(pg_session, queue_adapter)
+    with pytest.raises(ValueError, match="redis unavailable during dead-letter move"):
+        coordinator.mark_dead_letter(
+            tenant_id=tenant_id,
+            task_id=task.id,
+            reason="retry budget exhausted",
+        )
+
+    pg_session.refresh(task)
+    governance_events = pg_session.scalars(
+        select(GovernanceEvent).where(
+            GovernanceEvent.tenant_id == tenant_id,
+            GovernanceEvent.event_type == "dead_letter",
+        )
+    ).all()
+
+    assert task.status == ExecutionTaskState.FAILED.value
+    assert governance_events == []
+    assert redis_client.llen(f"ajenda:queue:{tenant_id}:dead_letter") == initial_dead_letter_len
