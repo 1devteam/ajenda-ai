@@ -199,3 +199,45 @@ def test_dispatcher_invalid_handler_output_marks_running_task_failed_without_out
         task_id=task_id,
         lease_id=lease_id,
     )
+
+
+def test_dispatcher_handler_exception_marks_running_task_failed_without_output(
+    pg_engine,
+    queue_adapter,
+    redis_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker_id = "worker-handler-exception"
+    session_factory = _session_factory(pg_engine)
+    tenant_id, task_id, lease_id = _create_running_task(
+        session_factory=session_factory,
+        queue_adapter=queue_adapter,
+        worker_id=worker_id,
+        metadata_json={"task_type": "raises_exception"},
+    )
+
+    def raising_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
+        raise RuntimeError("handler exploded during execution")
+
+    monkeypatch.setattr(
+        task_dispatcher,
+        "_HANDLER_REGISTRY",
+        {"raises_exception": cast(TaskHandler, raising_handler)},
+    )
+    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", {})
+
+    dispatcher = TaskDispatcher(
+        session_factory=session_factory,
+        queue=queue_adapter,
+        worker_id=worker_id,
+        tenant_id=tenant_id,
+    )
+    dispatcher.execute(task_id=task_id, lease_id=lease_id)
+
+    _assert_failed_without_output(
+        session_factory=session_factory,
+        redis_client=redis_client,
+        tenant_id=tenant_id,
+        task_id=task_id,
+        lease_id=lease_id,
+    )
