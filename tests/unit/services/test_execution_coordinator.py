@@ -41,6 +41,7 @@ def _coordinator_with_task(*, task: SimpleNamespace, queue: MagicMock | None = N
     coordinator._governor.evaluate.return_value = _allowed_decision()
     coordinator._policy = MagicMock()
     coordinator._policy.evaluate_task.return_value = _policy_allowed()
+    coordinator._governance = MagicMock()
     coordinator._audit = MagicMock()
     return coordinator
 
