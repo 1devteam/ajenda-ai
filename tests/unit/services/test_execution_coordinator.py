@@ -152,3 +152,37 @@ def test_mark_dead_letter_restores_previous_state_when_queue_move_fails() -> Non
 
     assert task.status == ExecutionTaskState.FAILED.value
     coordinator._governance.append.assert_not_called()
+
+
+def test_mark_dead_letter_moves_task_to_dead_letter_and_emits_governance_evidence() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
+    queue = MagicMock()
+    queue.move_to_dead_letter.return_value = QueueOperationResult(ok=True)
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    result = coordinator.mark_dead_letter(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        reason="retry budget exhausted",
+    )
+
+    assert result.ok is True
+    assert result.task_id == task.id
+    assert result.state == ExecutionTaskState.DEAD_LETTERED.value
+    assert task.status == ExecutionTaskState.DEAD_LETTERED.value
+    queue.move_to_dead_letter.assert_called_once_with(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        reason="retry budget exhausted",
+    )
+
+    coordinator._governance.append.assert_called_once()
+    governance_event = coordinator._governance.append.call_args.args[0]
+    assert governance_event.tenant_id == tenant_id
+    assert governance_event.mission_id == task.mission_id
+    assert governance_event.event_type == "dead_letter"
+    assert governance_event.actor == "execution_coordinator"
+    assert governance_event.decision == "retry budget exhausted"
+    assert governance_event.payload_json == {"task_id": str(task.id)}
+    assert coordinator._session.flush.call_count == 2
