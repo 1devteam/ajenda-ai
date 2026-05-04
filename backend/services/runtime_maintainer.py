@@ -106,10 +106,16 @@ class RuntimeMaintainer:
 
         for lease, task in self._session.execute(stmt).all():
             try:
+                original_task_status = task.status
+                original_lease_status = lease.status
+
                 transition_lease(lease, WorkerLeaseState.EXPIRED)
                 expired_count += 1
 
-                if task.status == ExecutionTaskState.CLAIMED.value and lease.status == WorkerLeaseState.ACTIVE.value:
+                if (
+                    original_task_status == ExecutionTaskState.CLAIMED.value
+                    and original_lease_status == WorkerLeaseState.ACTIVE.value
+                ):
                     mismatched_state_count += 1
                     logger.warning(
                         "runtime_maintainer_claimed_task_active_lease_mismatch",
@@ -117,8 +123,8 @@ class RuntimeMaintainer:
                             "lease_id": str(lease.id),
                             "task_id": str(task.id),
                             "tenant_id": task.tenant_id,
-                            "task_status": task.status,
-                            "lease_status": lease.status,
+                            "task_status": original_task_status,
+                            "lease_status": original_lease_status,
                         },
                     )
 
@@ -128,8 +134,8 @@ class RuntimeMaintainer:
                         "lease_id": str(lease.id),
                         "task_id": str(task.id),
                         "tenant_id": task.tenant_id,
-                        "task_status": task.status,
-                        "lease_status": lease.status,
+                        "task_status": original_task_status,
+                        "lease_status": original_lease_status,
                         "heartbeat_age_seconds": (datetime.now(UTC) - lease.heartbeat_at).total_seconds(),
                     },
                 )
