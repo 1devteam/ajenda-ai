@@ -51,6 +51,7 @@ class RecoverySummary:
     expired_lease_count: int
     requeued_task_count: int
     dead_lettered_count: int
+    mismatched_state_count: int = 0
 
 
 class RuntimeMaintainer:
@@ -101,11 +102,25 @@ class RuntimeMaintainer:
         expired_count = 0
         requeued_count = 0
         dead_lettered_count = 0
+        mismatched_state_count = 0
 
         for lease, task in self._session.execute(stmt).all():
             try:
                 transition_lease(lease, WorkerLeaseState.EXPIRED)
                 expired_count += 1
+
+                if task.status == ExecutionTaskState.CLAIMED.value and lease.status == WorkerLeaseState.ACTIVE.value:
+                    mismatched_state_count += 1
+                    logger.warning(
+                        "runtime_maintainer_claimed_task_active_lease_mismatch",
+                        extra={
+                            "lease_id": str(lease.id),
+                            "task_id": str(task.id),
+                            "tenant_id": task.tenant_id,
+                            "task_status": task.status,
+                            "lease_status": lease.status,
+                        },
+                    )
 
                 logger.info(
                     "runtime_maintainer_lease_expired",
@@ -114,6 +129,7 @@ class RuntimeMaintainer:
                         "task_id": str(task.id),
                         "tenant_id": task.tenant_id,
                         "task_status": task.status,
+                        "lease_status": lease.status,
                         "heartbeat_age_seconds": (datetime.now(UTC) - lease.heartbeat_at).total_seconds(),
                     },
                 )
@@ -277,6 +293,7 @@ class RuntimeMaintainer:
                 "expired_leases": expired_count,
                 "requeued_tasks": requeued_count,
                 "dead_lettered_tasks": dead_lettered_count,
+                "mismatched_states": mismatched_state_count,
             },
         )
 
@@ -284,4 +301,5 @@ class RuntimeMaintainer:
             expired_lease_count=expired_count,
             requeued_task_count=requeued_count,
             dead_lettered_count=dead_lettered_count,
+            mismatched_state_count=mismatched_state_count,
         )
