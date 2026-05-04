@@ -276,3 +276,83 @@ class TestLeaseRecoveryReal:
         assert task.retry_count == first_retry_count == 1
         assert first_audit_count == 1
         assert second_audit_count == 1
+
+
+def test_running_recovery_restores_state_when_queue_release_fails(
+    pg_engine,
+    queue_adapter,
+    monkeypatch,
+) -> None:
+    from sqlalchemy.orm import sessionmaker
+
+    session_factory = sessionmaker(
+        bind=pg_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    setup_session = session_factory()
+    try:
+        mission = _make_mission("tenant-recovery-release-fails")
+        setup_session.add(mission)
+        setup_session.flush()
+
+        task = _make_task("tenant-recovery-release-fails", mission.id, ExecutionTaskState.RUNNING.value)
+        setup_session.add(task)
+        setup_session.flush()
+
+        lease = _make_expired_lease(task.id, "tenant-recovery-release-fails")
+        setup_session.add(lease)
+        setup_session.flush()
+        _prime_processing_payload(queue_adapter, task.tenant_id, task.id, mission.id, lease.holder_identity)
+
+        task_id = task.id
+        lease_id = lease.id
+        setup_session.commit()
+    finally:
+        setup_session.close()
+
+    def interrupted_release(*args, **kwargs):
+        from backend.queue.base import QueueOperationResult
+
+        return QueueOperationResult(ok=False, reason="redis unavailable during recovery release")
+
+    monkeypatch.setattr(queue_adapter, "release_lease", interrupted_release)
+
+    recovery_session = session_factory()
+    try:
+        maintainer = RuntimeMaintainer(
+            session=recovery_session,
+            queue=queue_adapter,
+            expiry_seconds=30,
+            max_retries=3,
+        )
+
+        with pytest.raises(RuntimeError, match="redis unavailable during recovery release"):
+            maintainer.recover_expired_leases()
+    finally:
+        recovery_session.close()
+
+    verify_session = session_factory()
+    try:
+        recovered_task = verify_session.get(ExecutionTask, task_id)
+        recovered_lease = verify_session.get(WorkerLease, lease_id)
+        assert recovered_task is not None
+        assert recovered_lease is not None
+
+        audit_count = (
+            verify_session.query(AuditEvent)
+            .filter(
+                AuditEvent.action == "lease_expired_task_requeued",
+                AuditEvent.payload_json["task_id"].astext == str(task_id),
+            )
+            .count()
+        )
+
+        assert recovered_task.status == ExecutionTaskState.RUNNING.value
+        assert recovered_task.retry_count == 0
+        assert recovered_lease.status == WorkerLeaseState.ACTIVE.value
+        assert audit_count == 0
+    finally:
+        verify_session.close()
