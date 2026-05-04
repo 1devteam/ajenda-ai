@@ -189,6 +189,7 @@ class ExecutionCoordinator:
 
     def mark_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> CoordinationResult:
         task = self._require_task(task_id=task_id, tenant_id=tenant_id)
+        previous_state = task.status
         transition_task(task, ExecutionTaskState.DEAD_LETTERED)
         self._session.flush()
 
@@ -198,6 +199,14 @@ class ExecutionCoordinator:
             reason=reason,
         )
         if not move_result.ok:
+            # Roll back DB state to prevent split-brain: task appears dead-lettered
+            # in DB but was never moved to the queue dead-letter structure.
+            logger.error(
+                "dead_letter_queue_move_failed_rolling_back",
+                extra={"task_id": str(task_id), "reason": move_result.reason},
+            )
+            task.status = previous_state
+            self._session.flush()
             raise ValueError(move_result.reason or "move to dead letter failed")
 
         self._governance.append(

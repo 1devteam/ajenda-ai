@@ -41,6 +41,7 @@ def _coordinator_with_task(*, task: SimpleNamespace, queue: MagicMock | None = N
     coordinator._governor.evaluate.return_value = _allowed_decision()
     coordinator._policy = MagicMock()
     coordinator._policy.evaluate_task.return_value = _policy_allowed()
+    coordinator._governance = MagicMock()
     coordinator._audit = MagicMock()
     return coordinator
 
@@ -133,3 +134,21 @@ def test_queue_task_preserves_previous_retryable_state_on_enqueue_failure() -> N
 
     assert task.status == ExecutionTaskState.FAILED.value
     coordinator._audit.append.assert_not_called()
+
+
+def test_mark_dead_letter_restores_previous_state_when_queue_move_fails() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
+    queue = MagicMock()
+    queue.move_to_dead_letter.return_value = QueueOperationResult(ok=False, reason="redis dead-letter unavailable")
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    with pytest.raises(ValueError, match="redis dead-letter unavailable"):
+        coordinator.mark_dead_letter(
+            tenant_id=tenant_id,
+            task_id=task.id,
+            reason="retry budget exhausted",
+        )
+
+    assert task.status == ExecutionTaskState.FAILED.value
+    coordinator._governance.append.assert_not_called()
