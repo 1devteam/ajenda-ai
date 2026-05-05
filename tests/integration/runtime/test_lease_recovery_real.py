@@ -313,12 +313,12 @@ def test_running_recovery_restores_state_when_queue_release_fails(
     finally:
         setup_session.close()
 
-    def interrupted_release(*args, **kwargs):
+    def interrupted_recovery(*args, **kwargs):
         from backend.queue.base import QueueOperationResult
 
-        return QueueOperationResult(ok=False, reason="redis unavailable during recovery release")
+        return QueueOperationResult(ok=False, reason="redis unavailable during recovery reconciliation")
 
-    monkeypatch.setattr(queue_adapter, "release_lease", interrupted_release)
+    monkeypatch.setattr(queue_adapter, "recover_task_for_retry", interrupted_recovery)
 
     recovery_session = session_factory()
     try:
@@ -329,7 +329,7 @@ def test_running_recovery_restores_state_when_queue_release_fails(
             max_retries=3,
         )
 
-        with pytest.raises(RuntimeError, match="redis unavailable during recovery release"):
+        with pytest.raises(RuntimeError, match="redis unavailable during recovery reconciliation"):
             maintainer.recover_expired_leases()
     finally:
         recovery_session.close()
@@ -473,12 +473,12 @@ def test_claimed_recovery_restores_state_when_queue_release_fails(
     finally:
         setup_session.close()
 
-    def interrupted_release(*args, **kwargs):
+    def interrupted_recovery(*args, **kwargs):
         from backend.queue.base import QueueOperationResult
 
-        return QueueOperationResult(ok=False, reason="redis unavailable during claimed recovery release")
+        return QueueOperationResult(ok=False, reason="redis unavailable during claimed recovery reconciliation")
 
-    monkeypatch.setattr(queue_adapter, "release_lease", interrupted_release)
+    monkeypatch.setattr(queue_adapter, "recover_task_for_retry", interrupted_recovery)
 
     recovery_session = session_factory()
     try:
@@ -489,7 +489,7 @@ def test_claimed_recovery_restores_state_when_queue_release_fails(
             max_retries=3,
         )
 
-        with pytest.raises(RuntimeError, match="redis unavailable during claimed recovery release"):
+        with pytest.raises(RuntimeError, match="redis unavailable during claimed recovery reconciliation"):
             maintainer.recover_expired_leases()
     finally:
         recovery_session.close()
