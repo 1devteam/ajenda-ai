@@ -44,6 +44,10 @@ from backend.runtime.transitions import transition_lease, transition_task
 logger = logging.getLogger("ajenda.runtime_maintainer")
 
 DEFAULT_MAX_RETRIES: int = 3
+_RECOVERABLE_TASK_STATES = {
+    ExecutionTaskState.RUNNING.value,
+    ExecutionTaskState.CLAIMED.value,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +140,23 @@ class RuntimeMaintainer:
                         "heartbeat_age_seconds": (datetime.now(UTC) - lease.heartbeat_at).total_seconds(),
                     },
                 )
+
+                if task.status not in _RECOVERABLE_TASK_STATES:
+                    transition_lease(lease, WorkerLeaseState.EXPIRED)
+                    expired_count += 1
+                    logger.warning(
+                        "runtime_maintainer_expired_lease_for_unsupported_task_state",
+                        extra={
+                            "lease_id": str(lease.id),
+                            "task_id": str(task.id),
+                            "tenant_id": task.tenant_id,
+                            "task_status": original_task_status,
+                            "lease_status": original_lease_status,
+                        },
+                    )
+                    self._session.flush()
+                    self._session.commit()
+                    continue
 
                 retry_count = task.retry_count
                 should_dead_letter = retry_count >= self._max_retries
