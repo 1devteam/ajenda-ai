@@ -54,5 +54,20 @@ class QueueAdapter(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
+    def recover_task_for_retry(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        worker_id: str,
+    ) -> QueueOperationResult:
+        """Converge recoverable expired work to one pending payload.
+
+        Implementations must fail closed when no pending or processing payload
+        exists. They must not synthesize replacement work from database state.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
         raise NotImplementedError
