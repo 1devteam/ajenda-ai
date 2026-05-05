@@ -14,6 +14,7 @@ from backend.domain.worker_lease import WorkerLease
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
+from backend.services.worker_runtime_service import WorkerRuntimeService
 
 pytestmark = pytest.mark.integration
 
@@ -133,23 +134,25 @@ def test_recovery_requeues_running_task_without_valid_active_lease(pg_session, q
 def test_recovery_releases_terminal_task_active_lease(pg_session, queue_adapter, redis_client) -> None:
     tenant_id, task_id = _create_queued_task(pg_session, queue_adapter)
 
-    task = pg_session.get(ExecutionTask, task_id)
-    assert task is not None
-    task.status = ExecutionTaskState.COMPLETED.value
-
-    lease = WorkerLease(
+    claimed = WorkerRuntimeService(pg_session, queue_adapter).claim_next_task(
         tenant_id=tenant_id,
-        task_id=task_id,
-        status=WorkerLeaseState.ACTIVE.value,
-        holder_identity="terminal-worker",
-        heartbeat_at=_stale_time(),
+        worker_id="terminal-worker",
     )
-    pg_session.add(lease)
+    assert claimed is not None
+    lease_id = uuid.UUID(claimed.metadata_json["worker_lease_id"])
+
+    task = pg_session.get(ExecutionTask, task_id)
+    lease = pg_session.get(WorkerLease, lease_id)
+    assert task is not None
+    assert lease is not None
+    task.status = ExecutionTaskState.COMPLETED.value
+    lease.status = WorkerLeaseState.ACTIVE.value
+    lease.heartbeat_at = _stale_time()
     pg_session.commit()
 
     RuntimeMaintainer(pg_session, queue_adapter, expiry_seconds=30).recover_expired_leases()
 
-    recovered_lease = pg_session.get(WorkerLease, lease.id)
+    recovered_lease = pg_session.get(WorkerLease, lease_id)
     recovered_task = pg_session.get(ExecutionTask, task_id)
 
     assert recovered_task is not None
@@ -191,24 +194,26 @@ def test_recovery_requeues_running_task_with_only_expired_lease(pg_session, queu
 def test_recovery_releases_fresh_terminal_task_active_lease(pg_session, queue_adapter, redis_client) -> None:
     tenant_id, task_id = _create_queued_task(pg_session, queue_adapter)
 
-    task = pg_session.get(ExecutionTask, task_id)
-    assert task is not None
-    task.status = ExecutionTaskState.COMPLETED.value
-
-    lease = WorkerLease(
+    claimed = WorkerRuntimeService(pg_session, queue_adapter).claim_next_task(
         tenant_id=tenant_id,
-        task_id=task_id,
-        status=WorkerLeaseState.ACTIVE.value,
-        holder_identity="fresh-terminal-worker",
-        heartbeat_at=datetime.now(UTC),
+        worker_id="fresh-terminal-worker",
     )
-    pg_session.add(lease)
+    assert claimed is not None
+    lease_id = uuid.UUID(claimed.metadata_json["worker_lease_id"])
+
+    task = pg_session.get(ExecutionTask, task_id)
+    lease = pg_session.get(WorkerLease, lease_id)
+    assert task is not None
+    assert lease is not None
+    task.status = ExecutionTaskState.COMPLETED.value
+    lease.status = WorkerLeaseState.ACTIVE.value
+    lease.heartbeat_at = datetime.now(UTC)
     pg_session.commit()
 
     RuntimeMaintainer(pg_session, queue_adapter, expiry_seconds=30).recover_expired_leases()
 
     recovered_task = pg_session.get(ExecutionTask, task_id)
-    recovered_lease = pg_session.get(WorkerLease, lease.id)
+    recovered_lease = pg_session.get(WorkerLease, lease_id)
 
     assert recovered_task is not None
     assert recovered_task.status == ExecutionTaskState.COMPLETED.value
@@ -218,3 +223,5 @@ def test_recovery_releases_fresh_terminal_task_active_lease(pg_session, queue_ad
         WorkerLeaseState.EXPIRED.value,
     }
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
+    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") == 0
+    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0

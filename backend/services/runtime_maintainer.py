@@ -140,14 +140,14 @@ class RuntimeMaintainer:
                 )
 
                 transition_lease(lease, WorkerLeaseState.EXPIRED)
-                result = self._queue.release_lease(
+                result = self._queue.complete_task(
                     tenant_id=task.tenant_id,
                     task_id=task.id,
                     worker_id=lease.holder_identity,
                 )
                 if not result.ok and result.reason != "task not found in processing queue":
                     raise RuntimeError(
-                        f"runtime maintainer failed to release terminal task lease {lease.id}: {result.reason}"
+                        f"runtime maintainer failed to clear terminal task lease {lease.id}: {result.reason}"
                     )
 
                 expired_count += 1
