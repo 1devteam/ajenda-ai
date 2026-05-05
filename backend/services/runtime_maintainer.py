@@ -4,14 +4,14 @@ Recovery path (with 'recovering' state from migration 0004):
 
   1. Find all WorkerLeases in CLAIMED or ACTIVE state whose heartbeat_at
      is older than expiry_seconds (default: 60s).
-  2. Transition the lease: CLAIMED/ACTIVE → EXPIRED
-  3. Transition the task:
+  2. Use the queue adapter as the runtime authority to either reconcile the
+     payload back to exactly one pending message or move it to dead-letter.
+  3. Transition the lease: CLAIMED/ACTIVE → EXPIRED
+  4. Transition the task:
        running → recovering  (signals that recovery is in progress)
        recovering → queued   (re-enqueue for pickup by a healthy worker)
      For tasks in CLAIMED state (worker died before starting):
        claimed → queued      (direct re-queue, no recovering intermediate)
-  4. Use the queue adapter as the runtime authority to either release the lease
-     back to pending or move the payload to dead-letter.
   5. Persist the bounded control-plane operation and write an AuditEvent.
 
 The 'recovering' intermediate state provides:
@@ -44,6 +44,10 @@ from backend.runtime.transitions import transition_lease, transition_task
 logger = logging.getLogger("ajenda.runtime_maintainer")
 
 DEFAULT_MAX_RETRIES: int = 3
+_RECOVERABLE_TASK_STATES = {
+    ExecutionTaskState.RUNNING.value,
+    ExecutionTaskState.CLAIMED.value,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +84,7 @@ class RuntimeMaintainer:
         """Find expired leases and recover their associated tasks.
 
         Returns a RecoverySummary with counts of expired leases, re-queued
-        tasks, and dead-lettered tasks.
+        tasks, dead-lettered tasks, and claimed-task/active-lease mismatches.
         """
         threshold = datetime.now(UTC) - timedelta(seconds=self._expiry_seconds)
 
@@ -108,9 +112,6 @@ class RuntimeMaintainer:
             try:
                 original_task_status = task.status
                 original_lease_status = lease.status
-
-                transition_lease(lease, WorkerLeaseState.EXPIRED)
-                expired_count += 1
 
                 if (
                     original_task_status == ExecutionTaskState.CLAIMED.value
@@ -140,14 +141,28 @@ class RuntimeMaintainer:
                     },
                 )
 
+                if task.status not in _RECOVERABLE_TASK_STATES:
+                    transition_lease(lease, WorkerLeaseState.EXPIRED)
+                    expired_count += 1
+                    logger.warning(
+                        "runtime_maintainer_expired_lease_for_unsupported_task_state",
+                        extra={
+                            "lease_id": str(lease.id),
+                            "task_id": str(task.id),
+                            "tenant_id": task.tenant_id,
+                            "task_status": original_task_status,
+                            "lease_status": original_lease_status,
+                        },
+                    )
+                    self._session.flush()
+                    self._session.commit()
+                    continue
+
                 retry_count = task.retry_count
                 should_dead_letter = retry_count >= self._max_retries
 
                 if task.status == ExecutionTaskState.RUNNING.value:
-                    transition_task(task, ExecutionTaskState.RECOVERING)
-
                     if should_dead_letter:
-                        transition_task(task, ExecutionTaskState.DEAD_LETTERED)
                         result = self._queue.move_to_dead_letter(
                             tenant_id=task.tenant_id,
                             task_id=task.id,
@@ -157,6 +172,11 @@ class RuntimeMaintainer:
                             raise RuntimeError(
                                 f"runtime maintainer failed to move task {task.id} to dead-letter: {result.reason}"
                             )
+
+                        transition_lease(lease, WorkerLeaseState.EXPIRED)
+                        expired_count += 1
+                        transition_task(task, ExecutionTaskState.RECOVERING)
+                        transition_task(task, ExecutionTaskState.DEAD_LETTERED)
                         dead_lettered_count += 1
                         self._audit.append(
                             AuditEvent(
@@ -184,17 +204,21 @@ class RuntimeMaintainer:
                             },
                         )
                     else:
-                        task.retry_count = retry_count + 1
-                        transition_task(task, ExecutionTaskState.QUEUED)
-                        result = self._queue.release_lease(
+                        result = self._queue.recover_task_for_retry(
                             tenant_id=task.tenant_id,
                             task_id=task.id,
                             worker_id=lease.holder_identity,
                         )
                         if not result.ok:
                             raise RuntimeError(
-                                f"runtime maintainer failed to release lease for task {task.id}: {result.reason}"
+                                f"runtime maintainer failed to reconcile task {task.id} for retry: {result.reason}"
                             )
+
+                        transition_lease(lease, WorkerLeaseState.EXPIRED)
+                        expired_count += 1
+                        transition_task(task, ExecutionTaskState.RECOVERING)
+                        task.retry_count = retry_count + 1
+                        transition_task(task, ExecutionTaskState.QUEUED)
                         requeued_count += 1
                         self._audit.append(
                             AuditEvent(
@@ -225,7 +249,6 @@ class RuntimeMaintainer:
 
                 elif task.status == ExecutionTaskState.CLAIMED.value:
                     if should_dead_letter:
-                        transition_task(task, ExecutionTaskState.DEAD_LETTERED)
                         result = self._queue.move_to_dead_letter(
                             tenant_id=task.tenant_id,
                             task_id=task.id,
@@ -235,6 +258,10 @@ class RuntimeMaintainer:
                             raise RuntimeError(
                                 f"runtime maintainer failed to move claimed task {task.id} to dead-letter: {result.reason}"
                             )
+
+                        transition_lease(lease, WorkerLeaseState.EXPIRED)
+                        expired_count += 1
+                        transition_task(task, ExecutionTaskState.DEAD_LETTERED)
                         dead_lettered_count += 1
                         self._audit.append(
                             AuditEvent(
@@ -255,17 +282,20 @@ class RuntimeMaintainer:
                             )
                         )
                     else:
-                        task.retry_count = retry_count + 1
-                        transition_task(task, ExecutionTaskState.QUEUED)
-                        result = self._queue.release_lease(
+                        result = self._queue.recover_task_for_retry(
                             tenant_id=task.tenant_id,
                             task_id=task.id,
                             worker_id=lease.holder_identity,
                         )
                         if not result.ok:
                             raise RuntimeError(
-                                f"runtime maintainer failed to release claimed task {task.id}: {result.reason}"
+                                f"runtime maintainer failed to reconcile claimed task {task.id} for retry: {result.reason}"
                             )
+
+                        transition_lease(lease, WorkerLeaseState.EXPIRED)
+                        expired_count += 1
+                        task.retry_count = retry_count + 1
+                        transition_task(task, ExecutionTaskState.QUEUED)
                         requeued_count += 1
                         self._audit.append(
                             AuditEvent(
