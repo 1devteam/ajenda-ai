@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import update
 from sqlalchemy.orm import sessionmaker
 
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
@@ -65,6 +66,17 @@ def _create_running_task(pg_engine, queue_adapter, *, title: str) -> RunningTask
         autocommit=False,
         expire_on_commit=False,
     )
+
+    cleanup_session = session_factory()
+    try:
+        cleanup_session.execute(
+            update(WorkerLease)
+            .where(WorkerLease.status.in_([WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value]))
+            .values(status=WorkerLeaseState.EXPIRED.value)
+        )
+        cleanup_session.commit()
+    finally:
+        cleanup_session.close()
 
     setup_session = session_factory()
     try:
