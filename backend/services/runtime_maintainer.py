@@ -113,27 +113,6 @@ class RuntimeMaintainer:
                 original_task_status = task.status
                 original_lease_status = lease.status
 
-<<<<<<< test/runtime-recovery-queue-corruption-real
-                if (
-                    original_task_status == ExecutionTaskState.CLAIMED.value
-                    and original_lease_status == WorkerLeaseState.ACTIVE.value
-                ):
-                    mismatched_state_count += 1
-                    logger.warning(
-                        "runtime_maintainer_claimed_task_active_lease_mismatch",
-                        extra={
-                            "lease_id": str(lease.id),
-                            "task_id": str(task.id),
-                            "tenant_id": task.tenant_id,
-                            "task_status": original_task_status,
-                            "lease_status": original_lease_status,
-                        },
-                    )
-=======
-                transition_lease(lease, WorkerLeaseState.EXPIRED)
-                expired_count += 1
->>>>>>> main
-
                 if (
                     original_task_status == ExecutionTaskState.CLAIMED.value
                     and original_lease_status == WorkerLeaseState.ACTIVE.value
