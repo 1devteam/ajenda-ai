@@ -142,6 +142,42 @@ class RedisQueueAdapter(QueueAdapter):
         except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"release_lease failed: {exc}")
 
+    def recover_task_for_retry(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        worker_id: str,
+    ) -> QueueOperationResult:
+        try:
+            processing_payloads = self._find_payloads(key=self._processing_key(tenant_id), task_id=task_id)
+            pending_payloads = self._find_payloads(key=self._pending_key(tenant_id), task_id=task_id)
+            if not processing_payloads and not pending_payloads:
+                return QueueOperationResult(ok=False, reason="task not found in processing or pending queue")
+
+            canonical_payload = pending_payloads[0] if pending_payloads else processing_payloads[0]
+
+            for payload in processing_payloads:
+                removed = self._execute(["LREM", self._processing_key(tenant_id), "0", payload])
+                if not isinstance(removed, int):
+                    return QueueOperationResult(ok=False, reason="processing payload removal returned unexpected result")
+
+            for payload in pending_payloads:
+                removed = self._execute(["LREM", self._pending_key(tenant_id), "0", payload])
+                if not isinstance(removed, int):
+                    return QueueOperationResult(ok=False, reason="pending payload removal returned unexpected result")
+
+            requeued = self._execute(["RPUSH", self._pending_key(tenant_id), canonical_payload])
+            if not isinstance(requeued, int):
+                return QueueOperationResult(ok=False, reason="redis did not confirm recovery requeue")
+
+            deleted = self._execute(["DEL", self._lease_key(tenant_id, task_id)])
+            if not isinstance(deleted, int):
+                return QueueOperationResult(ok=False, reason="lease delete returned unexpected result")
+            return QueueOperationResult(ok=True)
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"recover_task_for_retry failed: {exc}")
+
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
         try:
             payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
@@ -205,10 +241,15 @@ class RedisQueueAdapter(QueueAdapter):
         )
 
     def _find_payload(self, *, key: str, task_id: uuid.UUID) -> str | None:
+        payloads = self._find_payloads(key=key, task_id=task_id)
+        return payloads[0] if payloads else None
+
+    def _find_payloads(self, *, key: str, task_id: uuid.UUID) -> list[str]:
         values = self._execute(["LRANGE", key, "0", "-1"])
         if not isinstance(values, list):
             raise RedisProtocolError("LRANGE returned unexpected type")
         task_id_str = str(task_id)
+        payloads: list[str] = []
         for item in values:
             if not isinstance(item, str):
                 continue
@@ -217,8 +258,8 @@ class RedisQueueAdapter(QueueAdapter):
             except json.JSONDecodeError:
                 continue
             if payload.get("task_id") == task_id_str:
-                return item
-        return None
+                payloads.append(item)
+        return payloads
 
     def _encode_message(self, message: QueueMessage) -> str:
         return json.dumps(
