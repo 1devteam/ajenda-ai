@@ -37,7 +37,7 @@ from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
-from backend.queue.base import QueueAdapter
+from backend.queue.base import QueueAdapter, QueueMessage
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.runtime.transitions import transition_lease, transition_task
 
@@ -103,6 +103,80 @@ class RuntimeMaintainer:
         requeued_count = 0
         dead_lettered_count = 0
         mismatched_state_count = 0
+
+        orphaned_running_stmt = select(ExecutionTask).where(
+            ExecutionTask.status == ExecutionTaskState.RUNNING.value,
+            ~ExecutionTask.id.in_(
+                select(WorkerLease.task_id).where(
+                    WorkerLease.status.in_(
+                        [
+                            WorkerLeaseState.CLAIMED.value,
+                            WorkerLeaseState.ACTIVE.value,
+                        ]
+                    )
+                )
+            ),
+        )
+
+        for task in self._session.scalars(orphaned_running_stmt).all():
+            try:
+                retry_count = task.retry_count
+                should_dead_letter = retry_count >= self._max_retries
+
+                logger.warning(
+                    "runtime_maintainer_running_task_without_active_lease",
+                    extra={
+                        "task_id": str(task.id),
+                        "tenant_id": task.tenant_id,
+                        "task_status": task.status,
+                    },
+                )
+
+                transition_task(task, ExecutionTaskState.RECOVERING)
+
+                if should_dead_letter:
+                    transition_task(task, ExecutionTaskState.DEAD_LETTERED)
+                    result = self._queue.move_to_dead_letter(
+                        tenant_id=task.tenant_id,
+                        task_id=task.id,
+                        reason=f"max retries exceeded during orphaned running recovery ({retry_count}/{self._max_retries})",
+                    )
+                    if not result.ok:
+                        raise RuntimeError(
+                            f"runtime maintainer failed to move orphaned running task {task.id} to dead-letter: {result.reason}"
+                        )
+                    dead_lettered_count += 1
+                else:
+                    task.retry_count = retry_count + 1
+                    transition_task(task, ExecutionTaskState.QUEUED)
+                    result = self._queue.enqueue_task(
+                        QueueMessage(
+                            tenant_id=task.tenant_id,
+                            task_id=task.id,
+                            mission_id=task.mission_id,
+                            fleet_id=task.fleet_id,
+                            branch_id=task.branch_id,
+                            payload={
+                                "task_id": str(task.id),
+                                "tenant_id": task.tenant_id,
+                                "recovered_by": "runtime_maintainer",
+                                "recovery_reason": "running_task_without_active_lease",
+                            },
+                            enqueued_at=datetime.now(UTC),
+                        )
+                    )
+                    if not result.ok:
+                        raise RuntimeError(
+                            f"runtime maintainer failed to requeue orphaned running task {task.id}: {result.reason}"
+                        )
+                    requeued_count += 1
+
+                mismatched_state_count += 1
+                self._session.flush()
+                self._session.commit()
+            except Exception:
+                self._session.rollback()
+                raise
 
         for lease, task in self._session.execute(stmt).all():
             try:
@@ -192,9 +266,21 @@ class RuntimeMaintainer:
                             worker_id=lease.holder_identity,
                         )
                         if not result.ok:
-                            raise RuntimeError(
-                                f"runtime maintainer failed to release lease for task {task.id}: {result.reason}"
-                            )
+                            if result.reason == "task not found in processing queue":
+                                logger.warning(
+                                    "runtime_maintainer_duplicate_stale_lease_release_already_reconciled",
+                                    extra={
+                                        "lease_id": str(lease.id),
+                                        "task_id": str(task.id),
+                                        "tenant_id": task.tenant_id,
+                                        "worker_id": lease.holder_identity,
+                                        "reason": result.reason,
+                                    },
+                                )
+                            else:
+                                raise RuntimeError(
+                                    f"runtime maintainer failed to release lease for task {task.id}: {result.reason}"
+                                )
                         requeued_count += 1
                         self._audit.append(
                             AuditEvent(
@@ -263,9 +349,21 @@ class RuntimeMaintainer:
                             worker_id=lease.holder_identity,
                         )
                         if not result.ok:
-                            raise RuntimeError(
-                                f"runtime maintainer failed to release claimed task {task.id}: {result.reason}"
-                            )
+                            if result.reason == "task not found in processing queue":
+                                logger.warning(
+                                    "runtime_maintainer_duplicate_claimed_stale_lease_release_already_reconciled",
+                                    extra={
+                                        "lease_id": str(lease.id),
+                                        "task_id": str(task.id),
+                                        "tenant_id": task.tenant_id,
+                                        "worker_id": lease.holder_identity,
+                                        "reason": result.reason,
+                                    },
+                                )
+                            else:
+                                raise RuntimeError(
+                                    f"runtime maintainer failed to release claimed task {task.id}: {result.reason}"
+                                )
                         requeued_count += 1
                         self._audit.append(
                             AuditEvent(
