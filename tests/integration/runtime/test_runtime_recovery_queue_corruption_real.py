@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
@@ -210,7 +209,7 @@ def test_running_recovery_fails_closed_when_payload_missing_from_processing_and_
     lease_key = _lease_key(tenant_id=fixture.tenant_id, task_id=fixture.task_id)
     redis_client.delete(processing_key, pending_key, lease_key)
 
-    with pytest.raises(RuntimeError, match="task not found in processing queue"):
+    with pytest.raises(RuntimeError, match="task not found in processing or pending queue"):
         _recover(fixture, queue_adapter)
 
     verify_session = fixture.session_factory()
