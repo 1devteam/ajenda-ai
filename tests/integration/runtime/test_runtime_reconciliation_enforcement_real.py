@@ -160,3 +160,61 @@ def test_recovery_releases_terminal_task_active_lease(pg_session, queue_adapter,
         WorkerLeaseState.EXPIRED.value,
     }
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
+
+
+def test_recovery_requeues_running_task_with_only_expired_lease(pg_session, queue_adapter) -> None:
+    tenant_id, task_id = _create_queued_task(pg_session, queue_adapter)
+
+    task = pg_session.get(ExecutionTask, task_id)
+    assert task is not None
+    task.status = ExecutionTaskState.RUNNING.value
+
+    lease = WorkerLease(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        status=WorkerLeaseState.EXPIRED.value,
+        holder_identity="expired-worker",
+        heartbeat_at=_stale_time(),
+    )
+    pg_session.add(lease)
+    pg_session.commit()
+
+    summary = RuntimeMaintainer(pg_session, queue_adapter, expiry_seconds=30).recover_expired_leases()
+
+    recovered_task = pg_session.get(ExecutionTask, task_id)
+    assert recovered_task is not None
+    assert recovered_task.status == ExecutionTaskState.QUEUED.value
+    assert summary.requeued_task_count >= 1
+    assert summary.mismatched_state_count >= 1
+
+
+def test_recovery_releases_fresh_terminal_task_active_lease(pg_session, queue_adapter, redis_client) -> None:
+    tenant_id, task_id = _create_queued_task(pg_session, queue_adapter)
+
+    task = pg_session.get(ExecutionTask, task_id)
+    assert task is not None
+    task.status = ExecutionTaskState.COMPLETED.value
+
+    lease = WorkerLease(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        status=WorkerLeaseState.ACTIVE.value,
+        holder_identity="fresh-terminal-worker",
+        heartbeat_at=datetime.now(UTC),
+    )
+    pg_session.add(lease)
+    pg_session.commit()
+
+    RuntimeMaintainer(pg_session, queue_adapter, expiry_seconds=30).recover_expired_leases()
+
+    recovered_task = pg_session.get(ExecutionTask, task_id)
+    recovered_lease = pg_session.get(WorkerLease, lease.id)
+
+    assert recovered_task is not None
+    assert recovered_task.status == ExecutionTaskState.COMPLETED.value
+    assert recovered_lease is not None
+    assert recovered_lease.status in {
+        WorkerLeaseState.RELEASED.value,
+        WorkerLeaseState.EXPIRED.value,
+    }
+    assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None

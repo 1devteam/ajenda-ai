@@ -104,6 +104,78 @@ class RuntimeMaintainer:
         dead_lettered_count = 0
         mismatched_state_count = 0
 
+        terminal_active_stmt = (
+            select(WorkerLease, ExecutionTask)
+            .join(ExecutionTask, WorkerLease.task_id == ExecutionTask.id)
+            .where(
+                WorkerLease.status.in_(
+                    [
+                        WorkerLeaseState.CLAIMED.value,
+                        WorkerLeaseState.ACTIVE.value,
+                    ]
+                ),
+                ExecutionTask.status.in_(
+                    [
+                        ExecutionTaskState.COMPLETED.value,
+                        ExecutionTaskState.FAILED.value,
+                        ExecutionTaskState.DEAD_LETTERED.value,
+                        ExecutionTaskState.CANCELLED.value,
+                    ]
+                ),
+            )
+        )
+
+        for lease, task in self._session.execute(terminal_active_stmt).all():
+            try:
+                logger.warning(
+                    "runtime_maintainer_terminal_task_active_lease_reconciled",
+                    extra={
+                        "lease_id": str(lease.id),
+                        "task_id": str(task.id),
+                        "tenant_id": task.tenant_id,
+                        "task_status": task.status,
+                        "lease_status": lease.status,
+                        "worker_id": lease.holder_identity,
+                    },
+                )
+
+                transition_lease(lease, WorkerLeaseState.EXPIRED)
+                result = self._queue.release_lease(
+                    tenant_id=task.tenant_id,
+                    task_id=task.id,
+                    worker_id=lease.holder_identity,
+                )
+                if not result.ok and result.reason != "task not found in processing queue":
+                    raise RuntimeError(
+                        f"runtime maintainer failed to release terminal task lease {lease.id}: {result.reason}"
+                    )
+
+                expired_count += 1
+                mismatched_state_count += 1
+                self._audit.append(
+                    AuditEvent(
+                        tenant_id=task.tenant_id,
+                        mission_id=task.mission_id,
+                        category="runtime_recovery",
+                        action="terminal_task_active_lease_reconciled",
+                        actor="runtime_maintainer",
+                        details=(
+                            f"Terminal task {task.id} had active ownership lease {lease.id}; "
+                            "lease was expired and queue ownership was released."
+                        ),
+                        payload_json={
+                            "task_id": str(task.id),
+                            "lease_id": str(lease.id),
+                            "task_status": task.status,
+                        },
+                    )
+                )
+                self._session.flush()
+                self._session.commit()
+            except Exception:
+                self._session.rollback()
+                raise
+
         orphaned_running_stmt = select(ExecutionTask).where(
             ExecutionTask.status == ExecutionTaskState.RUNNING.value,
             ~ExecutionTask.id.in_(
