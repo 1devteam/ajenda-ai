@@ -29,6 +29,67 @@ class RedisQueueAdapter(QueueAdapter):
     - claim_task() returns None only when Redis checked the queue and it was empty
     """
 
+    _RECOVER_TASK_FOR_RETRY_SCRIPT = """
+local processing_key = KEYS[1]
+local pending_key = KEYS[2]
+local lease_key = KEYS[3]
+local task_id = ARGV[1]
+
+local function payload_task_id(raw)
+    local ok, payload = pcall(cjson.decode, raw)
+    if not ok or type(payload) ~= "table" then
+        return nil
+    end
+    if payload["task_id"] == nil then
+        return nil
+    end
+    return tostring(payload["task_id"])
+end
+
+local processing_values = redis.call("LRANGE", processing_key, 0, -1)
+local pending_values = redis.call("LRANGE", pending_key, 0, -1)
+local canonical_payload = nil
+local kept_processing = {}
+local kept_pending = {}
+
+for _, raw in ipairs(pending_values) do
+    if payload_task_id(raw) == task_id then
+        if canonical_payload == nil then
+            canonical_payload = raw
+        end
+    else
+        table.insert(kept_pending, raw)
+    end
+end
+
+for _, raw in ipairs(processing_values) do
+    if payload_task_id(raw) == task_id then
+        if canonical_payload == nil then
+            canonical_payload = raw
+        end
+    else
+        table.insert(kept_processing, raw)
+    end
+end
+
+if canonical_payload == nil then
+    return {0, "task not found in processing or pending queue"}
+end
+
+table.insert(kept_pending, canonical_payload)
+redis.call("DEL", processing_key)
+redis.call("DEL", pending_key)
+
+if #kept_processing > 0 then
+    redis.call("RPUSH", processing_key, unpack(kept_processing))
+end
+if #kept_pending > 0 then
+    redis.call("RPUSH", pending_key, unpack(kept_pending))
+end
+redis.call("DEL", lease_key)
+return {1, "ok"}
+"""
+
     def __init__(self, redis_url: str, *, heartbeat_ttl_seconds: int = 90, block_seconds: int = 1) -> None:
         parsed = urlparse(redis_url)
         if parsed.scheme != "redis":
@@ -150,27 +211,22 @@ class RedisQueueAdapter(QueueAdapter):
         worker_id: str,
     ) -> QueueOperationResult:
         try:
-            processing_key = self._processing_key(tenant_id)
-            pending_key = self._pending_key(tenant_id)
-            processing_values = self._list_payloads(processing_key)
-            pending_values = self._list_payloads(pending_key)
-            task_id_str = str(task_id)
-
-            processing_matches = [payload for payload in processing_values if self._payload_task_id(payload) == task_id_str]
-            pending_matches = [payload for payload in pending_values if self._payload_task_id(payload) == task_id_str]
-            if not processing_matches and not pending_matches:
-                return QueueOperationResult(ok=False, reason="task not found in processing or pending queue")
-
-            canonical_payload = pending_matches[0] if pending_matches else processing_matches[0]
-            kept_processing = [payload for payload in processing_values if self._payload_task_id(payload) != task_id_str]
-            kept_pending = [payload for payload in pending_values if self._payload_task_id(payload) != task_id_str]
-            kept_pending.append(canonical_payload)
-
-            self._replace_list(processing_key, kept_processing)
-            self._replace_list(pending_key, kept_pending)
-            deleted = self._execute(["DEL", self._lease_key(tenant_id, task_id)])
-            if not isinstance(deleted, int):
-                return QueueOperationResult(ok=False, reason="lease delete returned unexpected result")
+            result = self._execute(
+                [
+                    "EVAL",
+                    self._RECOVER_TASK_FOR_RETRY_SCRIPT,
+                    "3",
+                    self._processing_key(tenant_id),
+                    self._pending_key(tenant_id),
+                    self._lease_key(tenant_id, task_id),
+                    str(task_id),
+                ]
+            )
+            if not isinstance(result, list) or len(result) != 2:
+                return QueueOperationResult(ok=False, reason="recovery script returned unexpected result")
+            ok, reason = result
+            if ok != 1:
+                return QueueOperationResult(ok=False, reason=str(reason))
             return QueueOperationResult(ok=True)
         except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"recover_task_for_retry failed: {exc}")
@@ -250,15 +306,6 @@ class RedisQueueAdapter(QueueAdapter):
         if not isinstance(values, list):
             raise RedisProtocolError("LRANGE returned unexpected type")
         return [item for item in values if isinstance(item, str)]
-
-    def _replace_list(self, key: str, values: list[str]) -> None:
-        deleted = self._execute(["DEL", key])
-        if not isinstance(deleted, int):
-            raise RedisProtocolError("list delete returned unexpected result")
-        if values:
-            pushed = self._execute(["RPUSH", key, *values])
-            if not isinstance(pushed, int):
-                raise RedisProtocolError("list replace push returned unexpected result")
 
     def _payload_task_id(self, raw: str) -> str | None:
         try:
