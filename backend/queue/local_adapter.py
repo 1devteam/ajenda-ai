@@ -64,6 +64,38 @@ class LocalQueueAdapter(QueueAdapter):
             self._queue.append(message)
         return QueueOperationResult(ok=True)
 
+    def recover_task_for_retry(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        worker_id: str,
+    ) -> QueueOperationResult:
+        with self._lock:
+            key = (tenant_id, task_id)
+            claim = self._claims.pop(key, None)
+            pending_matches: list[QueueMessage] = []
+            kept_queue: deque[QueueMessage] = deque()
+
+            while self._queue:
+                message = self._queue.popleft()
+                if message.tenant_id == tenant_id and message.task_id == task_id:
+                    pending_matches.append(message)
+                else:
+                    kept_queue.append(message)
+
+            if pending_matches:
+                canonical_message = pending_matches[0]
+            elif claim is not None:
+                canonical_message = claim[1]
+            else:
+                self._queue = kept_queue
+                return QueueOperationResult(ok=False, reason="task not found in processing or pending queue")
+
+            kept_queue.append(canonical_message)
+            self._queue = kept_queue
+        return QueueOperationResult(ok=True)
+
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
         with self._lock:
             self._dead_letter.append((tenant_id, task_id, reason))
