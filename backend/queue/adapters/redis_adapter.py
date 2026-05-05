@@ -80,11 +80,11 @@ table.insert(kept_pending, canonical_payload)
 redis.call("DEL", processing_key)
 redis.call("DEL", pending_key)
 
-if #kept_processing > 0 then
-    redis.call("RPUSH", processing_key, unpack(kept_processing))
+for _, raw in ipairs(kept_processing) do
+    redis.call("RPUSH", processing_key, raw)
 end
-if #kept_pending > 0 then
-    redis.call("RPUSH", pending_key, unpack(kept_pending))
+for _, raw in ipairs(kept_pending) do
+    redis.call("RPUSH", pending_key, raw)
 end
 redis.call("DEL", lease_key)
 return {1, "ok"}
