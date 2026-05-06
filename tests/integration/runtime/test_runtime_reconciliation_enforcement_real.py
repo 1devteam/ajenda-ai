@@ -269,5 +269,8 @@ def test_running_task_missing_queue_payload_fails_closed_without_state_mutation(
         assert task.status == ExecutionTaskState.RUNNING.value
         assert task.retry_count == 0
         assert lease.status == WorkerLeaseState.ACTIVE.value
+
+        lease.status = WorkerLeaseState.EXPIRED.value
+        session.commit()
     finally:
         session.close()
