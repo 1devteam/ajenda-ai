@@ -16,7 +16,7 @@ AJENDA_AUTH_HEADER="${AJENDA_AUTH_HEADER:-}"
 AJENDA_VALIDATION_ENV="${AJENDA_VALIDATION_ENV:-local}"
 
 mkdir -p "$ARTIFACT_DIR"
-printf 'scenario_id\trun_outcome\tevidence_status\tvalidation_env\tartifact_path\tnotes\n' > "$RESULTS_TSV"
+printf 'scenario_id\trun_outcome\tevidence_status\tevidence_basis\tvalidation_env\tartifact_path\tnotes\n' > "$RESULTS_TSV"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -26,6 +26,10 @@ BLOCKED_COUNT=0
 INVALID_RUN_COUNT=0
 ENVIRONMENT_INELIGIBLE_COUNT=0
 EVIDENCE_INCOMPLETE_COUNT=0
+NOT_EXECUTED_COUNT=0
+RUNNER_BACKED_EVIDENCE_COUNT=0
+INTEGRATION_BACKED_EVIDENCE_COUNT=0
+UNSUPPORTED_EVIDENCE_COUNT=0
 
 log() { printf '%s\n' "$*"; }
 
@@ -40,6 +44,16 @@ _increment_result_counter() {
     invalid_run) INVALID_RUN_COUNT=$((INVALID_RUN_COUNT + 1)) ;;
     environment_ineligible) ENVIRONMENT_INELIGIBLE_COUNT=$((ENVIRONMENT_INELIGIBLE_COUNT + 1)) ;;
     evidence_incomplete) EVIDENCE_INCOMPLETE_COUNT=$((EVIDENCE_INCOMPLETE_COUNT + 1)) ;;
+    not_executed) NOT_EXECUTED_COUNT=$((NOT_EXECUTED_COUNT + 1)) ;;
+  esac
+}
+
+_increment_evidence_basis_counter() {
+  local evidence_basis="$1"
+  case "$evidence_basis" in
+    runner_backed) RUNNER_BACKED_EVIDENCE_COUNT=$((RUNNER_BACKED_EVIDENCE_COUNT + 1)) ;;
+    integration_backed) INTEGRATION_BACKED_EVIDENCE_COUNT=$((INTEGRATION_BACKED_EVIDENCE_COUNT + 1)) ;;
+    unsupported) UNSUPPORTED_EVIDENCE_COUNT=$((UNSUPPORTED_EVIDENCE_COUNT + 1)) ;;
   esac
 }
 
@@ -54,6 +68,7 @@ _result_prefix() {
     invalid_run) printf '[INVALID_RUN]' ;;
     environment_ineligible) printf '[ENVIRONMENT_INELIGIBLE]' ;;
     evidence_incomplete) printf '[EVIDENCE_INCOMPLETE]' ;;
+    not_executed) printf '[NOT_EXECUTED]' ;;
     *) printf '[INFO]' ;;
   esac
 }
@@ -63,9 +78,11 @@ write_result_metadata() {
   local outcome="$2"
   local evidence_status="$3"
   local message="$4"
+  local evidence_basis="${5:-runner_backed}"
   mkdir -p "$outdir"
   printf '%s\n' "$outcome" > "$outdir/run_outcome.txt"
   printf '%s\n' "$evidence_status" > "$outdir/evidence_status.txt"
+  printf '%s\n' "$evidence_basis" > "$outdir/evidence_basis.txt"
   printf '%s\n' "$message" > "$outdir/notes.txt"
   printf '%s\n' "$AJENDA_VALIDATION_ENV" > "$outdir/validation_env.txt"
 }
@@ -75,12 +92,14 @@ record_scenario_result() {
   local outcome="$2"
   local evidence_status="$3"
   local message="$4"
+  local evidence_basis="${5:-runner_backed}"
   local scenario_id
   scenario_id="$(basename "$outdir")"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$scenario_id" \
     "$outcome" \
     "$evidence_status" \
+    "$evidence_basis" \
     "$AJENDA_VALIDATION_ENV" \
     "$outdir" \
     "$message" >> "$RESULTS_TSV"
@@ -91,10 +110,12 @@ scenario_result() {
   local evidence_status="$2"
   local outdir="$3"
   local message="$4"
+  local evidence_basis="${5:-runner_backed}"
   _increment_result_counter "$outcome"
+  _increment_evidence_basis_counter "$evidence_basis"
   log "$(_result_prefix "$outcome") $message"
-  write_result_metadata "$outdir" "$outcome" "$evidence_status" "$message"
-  record_scenario_result "$outdir" "$outcome" "$evidence_status" "$message"
+  write_result_metadata "$outdir" "$outcome" "$evidence_status" "$message" "$evidence_basis"
+  record_scenario_result "$outdir" "$outcome" "$evidence_status" "$message" "$evidence_basis"
 }
 
 pass() { _increment_result_counter pass; log "[PASS] $*"; }
@@ -105,14 +126,18 @@ scenario_pass() { scenario_result pass complete "$1" "$2"; }
 scenario_fail() { scenario_result fail complete "$1" "$2"; }
 scenario_warn() { scenario_result warn partial "$1" "$2"; }
 scenario_skip() { scenario_result skip missing "$1" "$2"; }
-scenario_blocked() { scenario_result blocked missing "$1" "$2"; }
-scenario_invalid_run() { scenario_result invalid_run missing "$1" "$2"; }
-scenario_environment_ineligible() { scenario_result environment_ineligible missing "$1" "$2"; }
+scenario_blocked() { scenario_result blocked missing "$1" "$2" unsupported; }
+scenario_invalid_run() { scenario_result invalid_run missing "$1" "$2" unsupported; }
+scenario_environment_ineligible() { scenario_result environment_ineligible missing "$1" "$2" unsupported; }
 scenario_evidence_incomplete() {
   local outdir="$1"
   local message="$2"
   local evidence_status="${3:-partial}"
-  scenario_result evidence_incomplete "$evidence_status" "$outdir" "$message"
+  scenario_result evidence_incomplete "$evidence_status" "$outdir" "$message" runner_backed
+}
+
+scenario_not_executed() {
+  scenario_result not_executed missing "$1" "$2" integration_backed
 }
 
 require_cmd() {
@@ -290,7 +315,13 @@ write_summary_manifest() {
     "blocked": $BLOCKED_COUNT,
     "invalid_run": $INVALID_RUN_COUNT,
     "environment_ineligible": $ENVIRONMENT_INELIGIBLE_COUNT,
-    "evidence_incomplete": $EVIDENCE_INCOMPLETE_COUNT
+    "evidence_incomplete": $EVIDENCE_INCOMPLETE_COUNT,
+    "not_executed": $NOT_EXECUTED_COUNT
+  },
+  "evidence_basis_counts": {
+    "runner_backed": $RUNNER_BACKED_EVIDENCE_COUNT,
+    "integration_backed": $INTEGRATION_BACKED_EVIDENCE_COUNT,
+    "unsupported": $UNSUPPORTED_EVIDENCE_COUNT
   },
   "scenario_results_tsv": "$RESULTS_TSV"
 }
@@ -300,7 +331,7 @@ EOF
 print_summary() {
   write_summary_manifest
   log "----"
-  log "Validation summary: pass=$PASS_COUNT fail=$FAIL_COUNT warn=$WARN_COUNT skip=$SKIP_COUNT blocked=$BLOCKED_COUNT invalid_run=$INVALID_RUN_COUNT environment_ineligible=$ENVIRONMENT_INELIGIBLE_COUNT evidence_incomplete=$EVIDENCE_INCOMPLETE_COUNT"
+  log "Validation summary: pass=$PASS_COUNT fail=$FAIL_COUNT warn=$WARN_COUNT skip=$SKIP_COUNT blocked=$BLOCKED_COUNT invalid_run=$INVALID_RUN_COUNT environment_ineligible=$ENVIRONMENT_INELIGIBLE_COUNT evidence_incomplete=$EVIDENCE_INCOMPLETE_COUNT not_executed=$NOT_EXECUTED_COUNT"
   log "Artifacts: $ARTIFACT_DIR"
   log "Scenario ledger: $RESULTS_TSV"
   log "Run manifest: $SUMMARY_JSON"

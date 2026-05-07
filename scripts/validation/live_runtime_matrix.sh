@@ -20,6 +20,32 @@ SUPPORTED_SCENARIOS=(
   "RG-10"
   "RG-11"
   "RG-12"
+  "FR-02"
+  "FR-03"
+  "FR-05"
+)
+
+RUNNER_BACKED_SCENARIOS=(
+  "RG-01"
+  "RG-02"
+  "RG-03"
+  "RG-04"
+  "RG-05"
+  "RG-06"
+  "RG-07"
+  "RG-10"
+  "RG-12"
+)
+
+# These rows are accepted by the runner only to emit explicit not_executed
+# run outcomes with integration_backed evidence_basis until seeded proof exists.
+INTEGRATION_BACKED_RECOVERY_SCENARIOS=(
+  "RG-08"
+  "RG-09"
+  "RG-11"
+  "FR-02"
+  "FR-03"
+  "FR-05"
 )
 
 usage() {
@@ -292,45 +318,44 @@ run_rg07_forced_failure() {
   scenario_pass "$d" "$id forced failure evidence validated"
 }
 
-run_rg08_claimed_recovery() {
-  local id="RG-08"; local group="global-mutation"
+run_integration_backed_recovery_placeholder() {
+  local id="$1"
+  local message="$2"
+  local group="global-mutation"
   scenario_enabled "$id" "$group" || return 0
   local d; d="$(scenario_dir "$id")"
-  require_validation_env_for_scenario "$d" isolated staging || return 0
 
-  local status
-  status="$(api_call POST /v1/operations/recovery "$d/recovery_call")"
-  db_query "SELECT action,details,created_at::text FROM audit_events WHERE action='claimed_task_requeued_on_lease_expiry' ORDER BY created_at DESC LIMIT 20;" "$d/audit_claimed.tsv" || true
-  if assert_status_in "$status" 200; then
-    if [[ ! -s "$d/audit_claimed.tsv" ]]; then
-      scenario_evidence_incomplete "$d" "$id recovery endpoint returned 200 but claimed recovery audit evidence was incomplete"
-    else
-      scenario_pass "$d" "$id recovery endpoint and claimed recovery evidence captured"
-    fi
-  else
-    scenario_fail "$d" "$id expected 200, got $status"
-  fi
+  scenario_not_executed "$d" "$message"
+}
+
+run_rg08_claimed_recovery() {
+  run_integration_backed_recovery_placeholder \
+    "RG-08" \
+    "RG-08 is integration-backed only; runner does not seed or execute stale claimed recovery proof"
 }
 
 run_rg09_running_recovery() {
-  local id="RG-09"; local group="global-mutation"
-  scenario_enabled "$id" "$group" || return 0
-  local d; d="$(scenario_dir "$id")"
-  require_validation_env_for_scenario "$d" isolated staging || return 0
+  run_integration_backed_recovery_placeholder \
+    "RG-09" \
+    "RG-09 is integration-backed only; runner does not seed or execute stale running retry/dead-letter proof"
+}
 
-  local status
-  status="$(api_call POST /v1/operations/recovery "$d/recovery_call")"
-  db_query "SELECT id::text,status,retry_count FROM execution_tasks WHERE status IN ('queued','dead_lettered','recovering') ORDER BY updated_at DESC LIMIT 50;" "$d/task_recovery.tsv" || true
-  db_query "SELECT id::text,status,task_id::text,heartbeat_at::text FROM worker_leases WHERE status='expired' ORDER BY updated_at DESC LIMIT 50;" "$d/expired_leases.tsv" || true
-  if assert_status_in "$status" 200; then
-    if [[ ! -s "$d/task_recovery.tsv" || ! -s "$d/expired_leases.tsv" ]]; then
-      scenario_evidence_incomplete "$d" "$id running recovery returned 200 but required DB evidence was incomplete"
-    else
-      scenario_pass "$d" "$id running recovery evidence captured"
-    fi
-  else
-    scenario_fail "$d" "$id expected 200, got $status"
-  fi
+run_fr02_claimed_recovery() {
+  run_integration_backed_recovery_placeholder \
+    "FR-02" \
+    "FR-02 is integration-backed only; runner does not seed or execute stale claimed recovery proof"
+}
+
+run_fr03_running_recovery() {
+  run_integration_backed_recovery_placeholder \
+    "FR-03" \
+    "FR-03 is integration-backed only; runner does not seed or execute stale running retry proof"
+}
+
+run_fr05_recovery_idempotency() {
+  run_integration_backed_recovery_placeholder \
+    "FR-05" \
+    "FR-05 is integration-backed only; runner does not seed or execute recovery idempotency proof"
 }
 
 run_rg10_dead_letter_retry_legality() {
@@ -356,36 +381,9 @@ run_rg10_dead_letter_retry_legality() {
 }
 
 run_rg11_recovery_safety() {
-  local id="RG-11"; local group="global-mutation"
-  scenario_enabled "$id" "$group" || return 0
-  local d; d="$(scenario_dir "$id")"
-  require_validation_env_for_scenario "$d" isolated staging || return 0
-
-  local status expired_count
-  local before="$d/task_distribution_before.tsv"
-  local after="$d/task_distribution_after.tsv"
-  db_query "SELECT tenant_id,status,count(*) FROM execution_tasks GROUP BY tenant_id,status ORDER BY tenant_id,status;" "$before" || true
-  status="$(api_call POST /v1/operations/recovery "$d")"
-  db_query "SELECT tenant_id,status,count(*) FROM execution_tasks GROUP BY tenant_id,status ORDER BY tenant_id,status;" "$after" || true
-
-  expired_count="$(jq -r '.expired_lease_count // empty' "$d/body.txt" 2>/dev/null || true)"
-  if assert_status_in "$status" 200; then
-    if [[ ! -s "$before" || ! -s "$after" ]]; then
-      scenario_evidence_incomplete "$d" "$id recovery safety ran but before/after distribution evidence was incomplete"
-      return 0
-    fi
-    if [[ "${expired_count}" == "0" ]]; then
-      if cmp -s "$before" "$after"; then
-        scenario_pass "$d" "$id recovery safety verified: no expired leases, no task distribution drift"
-      else
-        scenario_fail "$d" "$id recovery safety failed: no expired leases but task distribution changed"
-      fi
-    else
-      scenario_pass "$d" "$id recovery safety evidence captured (expired_lease_count=${expired_count:-unknown})"
-    fi
-  else
-    scenario_fail "$d" "$id expected 200, got $status"
-  fi
+  run_integration_backed_recovery_placeholder \
+    "RG-11" \
+    "RG-11 is integration-backed only; runner does not seed or execute recovery truth invariant proof"
 }
 
 run_rg12_pending_review() {
@@ -425,6 +423,9 @@ main() {
   run_rg07_forced_failure
   run_rg08_claimed_recovery
   run_rg09_running_recovery
+  run_fr02_claimed_recovery
+  run_fr03_running_recovery
+  run_fr05_recovery_idempotency
   run_rg10_dead_letter_retry_legality
   run_rg11_recovery_safety
   run_rg12_pending_review

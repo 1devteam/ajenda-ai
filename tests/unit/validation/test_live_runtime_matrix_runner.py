@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER = REPO_ROOT / "scripts" / "validation" / "live_runtime_matrix.sh"
+MATRIX = REPO_ROOT / "docs" / "validation" / "live-runtime-matrix.md"
+RECOVERY_ROWS = {"RG-08", "RG-09", "RG-11", "FR-02", "FR-03", "FR-05"}
+RUNNER_BACKING_VALUES = {"runner_only", "runner_and_contract", "runner_and_integration", "runner_contract_integration"}
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -103,28 +109,93 @@ def _artifact_root(tmp_path: Path) -> Path:
     return tmp_path / "artifacts" / "20260418T010203Z"
 
 
-def test_global_mutation_scenario_is_environment_ineligible_outside_isolated_or_staging(
+def test_recovery_runner_row_records_not_executed_without_global_mutation(
     tmp_path: Path,
 ) -> None:
     result = _run_runner(
         tmp_path,
         "--scenario",
         "RG-08",
-        extra_env={"AJENDA_VALIDATION_ENV": "local"},
+        extra_env={"AJENDA_VALIDATION_ENV": "isolated"},
+    )
+
+    assert result.returncode == 0
+    artifact_root = _artifact_root(tmp_path)
+    scenario_dir = artifact_root / "RG-08"
+
+    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "not_executed"
+    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "missing"
+    assert (scenario_dir / "evidence_basis.txt").read_text(encoding="utf-8").strip() == "integration_backed"
+    assert not (scenario_dir / "recovery_call").exists()
+
+    scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
+    assert "RG-08\tnot_executed\tmissing\tintegration_backed\tisolated" in scenario_results
+
+    summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["counts"]["not_executed"] == 1
+    assert summary["evidence_basis_counts"]["integration_backed"] == 1
+    assert summary["evidence_basis_counts"]["runner_backed"] == 0
+    assert summary["evidence_basis_counts"]["unsupported"] == 0
+    assert "not_executed" not in summary["evidence_basis_counts"]
+    assert summary["counts"]["fail"] == 0
+
+
+@pytest.mark.parametrize("scenario_id", ["FR-02", "FR-03", "FR-05"])
+def test_integration_backed_fr_row_is_supported_and_records_not_executed(
+    tmp_path: Path,
+    scenario_id: str,
+) -> None:
+    result = _run_runner(
+        tmp_path,
+        "--scenario",
+        scenario_id,
+        extra_env={"AJENDA_VALIDATION_ENV": "isolated"},
+    )
+
+    assert result.returncode == 0
+    artifact_root = _artifact_root(tmp_path)
+    scenario_dir = artifact_root / scenario_id
+
+    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "not_executed"
+    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "missing"
+    assert (scenario_dir / "evidence_basis.txt").read_text(encoding="utf-8").strip() == "integration_backed"
+    assert not (scenario_dir / "recovery_call").exists()
+
+    scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
+    assert f"{scenario_id}\tnot_executed\tmissing\tintegration_backed\tisolated" in scenario_results
+
+    summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["counts"]["not_executed"] == 1
+    assert summary["evidence_basis_counts"]["integration_backed"] == 1
+    assert summary["counts"]["fail"] == 0
+
+
+def test_integration_backed_not_executed_does_not_mask_blocked_failure(
+    tmp_path: Path,
+) -> None:
+    result = _run_runner(
+        tmp_path,
+        "--scenario",
+        "FR-02",
+        "--scenario",
+        "RG-04",
+        extra_env={"AJENDA_VALIDATION_ENV": "isolated"},
     )
 
     assert result.returncode == 1
     artifact_root = _artifact_root(tmp_path)
-    scenario_dir = artifact_root / "RG-08"
 
-    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "environment_ineligible"
-    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "missing"
+    fr_dir = artifact_root / "FR-02"
+    assert (fr_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "not_executed"
+    assert (fr_dir / "evidence_basis.txt").read_text(encoding="utf-8").strip() == "integration_backed"
 
-    scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
-    assert "RG-08\tenvironment_ineligible\tmissing\tlocal" in scenario_results
+    rg_dir = artifact_root / "RG-04"
+    assert (rg_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "blocked"
 
     summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
-    assert summary["counts"]["environment_ineligible"] == 1
+    assert summary["counts"]["not_executed"] == 1
+    assert summary["counts"]["blocked"] == 1
+    assert summary["evidence_basis_counts"]["integration_backed"] == 1
     assert summary["counts"]["fail"] == 0
 
 
@@ -141,10 +212,11 @@ def test_rg05_invalid_envelope_runner_support_records_pass_and_manifest_entries(
     assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "complete"
 
     scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
-    assert "RG-05\tpass\tcomplete\tlocal" in scenario_results
+    assert "RG-05\tpass\tcomplete\trunner_backed\tlocal" in scenario_results
 
     summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"]["pass"] == 1
+    assert summary["evidence_basis_counts"]["runner_backed"] == 1
     assert summary["counts"]["fail"] == 0
 
 
@@ -167,6 +239,8 @@ def test_tenant_mutation_scenario_is_blocked_when_required_environment_variables
     summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"]["blocked"] == 1
     assert summary["counts"]["pass"] == 0
+    assert summary["evidence_basis_counts"]["unsupported"] == 1
+    assert summary["evidence_basis_counts"]["runner_backed"] == 0
 
 
 def test_queue_admission_records_evidence_incomplete_when_required_proof_surfaces_are_missing(
@@ -192,8 +266,46 @@ def test_queue_admission_records_evidence_incomplete_when_required_proof_surface
     assert (scenario_dir / "status.txt").read_text(encoding="utf-8").strip() == "200"
 
     scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
-    assert "RG-04\tevidence_incomplete\tpartial\tlocal" in scenario_results
+    assert "RG-04\tevidence_incomplete\tpartial\trunner_backed\tlocal" in scenario_results
 
     summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"]["evidence_incomplete"] == 1
     assert summary["validation_env"] == "local"
+
+
+def _matrix_rows() -> dict[str, list[str]]:
+    rows: dict[str, list[str]] = {}
+    for line in MATRIX.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("|") or line.startswith("|---"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if cells and re.fullmatch(r"[A-Z]{2}-\d{2}", cells[0]):
+            rows[cells[0]] = cells
+    return rows
+
+
+def _runner_array(name: str) -> set[str]:
+    text = RUNNER.read_text(encoding="utf-8")
+    match = re.search(rf"{name}=\((.*?)\)", text, re.DOTALL)
+    assert match is not None, f"missing {name} declaration"
+    return set(re.findall(r'"([A-Z]{2}-\d{2})"', match.group(1)))
+
+
+def test_recovery_rows_are_integration_backed_not_runner_backed_in_matrix() -> None:
+    rows = _matrix_rows()
+
+    for row_id in RECOVERY_ROWS:
+        assert row_id in rows
+        validation_backing = rows[row_id][6]
+        assert validation_backing == "integration_test"
+        assert validation_backing not in RUNNER_BACKING_VALUES
+
+
+def test_recovery_rows_are_supported_and_not_declared_runner_backed_by_runner() -> None:
+    supported = _runner_array("SUPPORTED_SCENARIOS")
+    runner_backed = _runner_array("RUNNER_BACKED_SCENARIOS")
+    integration_backed_recovery = _runner_array("INTEGRATION_BACKED_RECOVERY_SCENARIOS")
+
+    assert RECOVERY_ROWS <= supported
+    assert RECOVERY_ROWS <= integration_backed_recovery
+    assert RECOVERY_ROWS.isdisjoint(runner_backed)
