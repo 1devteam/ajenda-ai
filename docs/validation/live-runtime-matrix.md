@@ -415,17 +415,16 @@ The runner currently provides direct runner-backed proof for:
 - RG-10
 - RG-12
 
-The runner accepts these recovery row IDs only to emit explicit `not_executed` artifacts until seeded, row-specific proof exists:
+The runner accepts these recovery row IDs only to emit explicit `not_executed` artifacts with `integration_backed` evidence basis until seeded, row-specific proof exists:
 
 - RG-08
 - RG-09
 - RG-11
-
-The following recovery rows are integration-backed only and are not runner-backed:
-
 - FR-02
 - FR-03
 - FR-05
+
+These rows are integration-backed only and are not runner-backed.
 
 The current runner also emits:
 

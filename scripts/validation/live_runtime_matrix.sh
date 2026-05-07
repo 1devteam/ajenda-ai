@@ -20,6 +20,9 @@ SUPPORTED_SCENARIOS=(
   "RG-10"
   "RG-11"
   "RG-12"
+  "FR-02"
+  "FR-03"
+  "FR-05"
 )
 
 RUNNER_BACKED_SCENARIOS=(
@@ -315,24 +318,44 @@ run_rg07_forced_failure() {
   scenario_pass "$d" "$id forced failure evidence validated"
 }
 
-run_rg08_claimed_recovery() {
-  local id="RG-08"; local group="global-mutation"
+run_integration_backed_recovery_placeholder() {
+  local id="$1"
+  local message="$2"
+  local group="global-mutation"
   scenario_enabled "$id" "$group" || return 0
   local d; d="$(scenario_dir "$id")"
 
-  scenario_not_executed \
-    "$d" \
-    "$id is integration-backed only; runner does not seed or execute stale claimed recovery proof"
+  scenario_not_executed "$d" "$message"
+}
+
+run_rg08_claimed_recovery() {
+  run_integration_backed_recovery_placeholder \
+    "RG-08" \
+    "RG-08 is integration-backed only; runner does not seed or execute stale claimed recovery proof"
 }
 
 run_rg09_running_recovery() {
-  local id="RG-09"; local group="global-mutation"
-  scenario_enabled "$id" "$group" || return 0
-  local d; d="$(scenario_dir "$id")"
+  run_integration_backed_recovery_placeholder \
+    "RG-09" \
+    "RG-09 is integration-backed only; runner does not seed or execute stale running retry/dead-letter proof"
+}
 
-  scenario_not_executed \
-    "$d" \
-    "$id is integration-backed only; runner does not seed or execute stale running retry/dead-letter proof"
+run_fr02_claimed_recovery() {
+  run_integration_backed_recovery_placeholder \
+    "FR-02" \
+    "FR-02 is integration-backed only; runner does not seed or execute stale claimed recovery proof"
+}
+
+run_fr03_running_recovery() {
+  run_integration_backed_recovery_placeholder \
+    "FR-03" \
+    "FR-03 is integration-backed only; runner does not seed or execute stale running retry proof"
+}
+
+run_fr05_recovery_idempotency() {
+  run_integration_backed_recovery_placeholder \
+    "FR-05" \
+    "FR-05 is integration-backed only; runner does not seed or execute recovery idempotency proof"
 }
 
 run_rg10_dead_letter_retry_legality() {
@@ -358,13 +381,9 @@ run_rg10_dead_letter_retry_legality() {
 }
 
 run_rg11_recovery_safety() {
-  local id="RG-11"; local group="global-mutation"
-  scenario_enabled "$id" "$group" || return 0
-  local d; d="$(scenario_dir "$id")"
-
-  scenario_not_executed \
-    "$d" \
-    "$id is integration-backed only; runner does not seed or execute recovery truth invariant proof"
+  run_integration_backed_recovery_placeholder \
+    "RG-11" \
+    "RG-11 is integration-backed only; runner does not seed or execute recovery truth invariant proof"
 }
 
 run_rg12_pending_review() {
@@ -404,6 +423,9 @@ main() {
   run_rg07_forced_failure
   run_rg08_claimed_recovery
   run_rg09_running_recovery
+  run_fr02_claimed_recovery
+  run_fr03_running_recovery
+  run_fr05_recovery_idempotency
   run_rg10_dead_letter_retry_legality
   run_rg11_recovery_safety
   run_rg12_pending_review

@@ -7,6 +7,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER = REPO_ROOT / "scripts" / "validation" / "live_runtime_matrix.sh"
 MATRIX = REPO_ROOT / "docs" / "validation" / "live-runtime-matrix.md"
@@ -138,6 +140,36 @@ def test_recovery_runner_row_records_not_executed_without_global_mutation(
     assert summary["counts"]["fail"] == 0
 
 
+@pytest.mark.parametrize("scenario_id", ["FR-02", "FR-03", "FR-05"])
+def test_integration_backed_fr_row_is_supported_and_records_not_executed(
+    tmp_path: Path,
+    scenario_id: str,
+) -> None:
+    result = _run_runner(
+        tmp_path,
+        "--scenario",
+        scenario_id,
+        extra_env={"AJENDA_VALIDATION_ENV": "isolated"},
+    )
+
+    assert result.returncode == 1
+    artifact_root = _artifact_root(tmp_path)
+    scenario_dir = artifact_root / scenario_id
+
+    assert (scenario_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "not_executed"
+    assert (scenario_dir / "evidence_status.txt").read_text(encoding="utf-8").strip() == "missing"
+    assert (scenario_dir / "evidence_basis.txt").read_text(encoding="utf-8").strip() == "integration_backed"
+    assert not (scenario_dir / "recovery_call").exists()
+
+    scenario_results = (artifact_root / "scenario_results.tsv").read_text(encoding="utf-8")
+    assert f"{scenario_id}\tnot_executed\tmissing\tintegration_backed\tisolated" in scenario_results
+
+    summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["counts"]["not_executed"] == 1
+    assert summary["evidence_basis_counts"]["integration_backed"] == 1
+    assert summary["counts"]["fail"] == 0
+
+
 def test_rg05_invalid_envelope_runner_support_records_pass_and_manifest_entries(
     tmp_path: Path,
 ) -> None:
@@ -238,9 +270,11 @@ def test_recovery_rows_are_integration_backed_not_runner_backed_in_matrix() -> N
         assert validation_backing not in RUNNER_BACKING_VALUES
 
 
-def test_recovery_rows_are_not_declared_runner_backed_by_runner() -> None:
+def test_recovery_rows_are_supported_and_not_declared_runner_backed_by_runner() -> None:
+    supported = _runner_array("SUPPORTED_SCENARIOS")
     runner_backed = _runner_array("RUNNER_BACKED_SCENARIOS")
     integration_backed_recovery = _runner_array("INTEGRATION_BACKED_RECOVERY_SCENARIOS")
 
+    assert RECOVERY_ROWS <= supported
     assert RECOVERY_ROWS <= integration_backed_recovery
     assert RECOVERY_ROWS.isdisjoint(runner_backed)
