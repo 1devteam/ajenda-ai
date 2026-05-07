@@ -126,9 +126,9 @@ scenario_pass() { scenario_result pass complete "$1" "$2"; }
 scenario_fail() { scenario_result fail complete "$1" "$2"; }
 scenario_warn() { scenario_result warn partial "$1" "$2"; }
 scenario_skip() { scenario_result skip missing "$1" "$2"; }
-scenario_blocked() { scenario_result blocked missing "$1" "$2"; }
-scenario_invalid_run() { scenario_result invalid_run missing "$1" "$2"; }
-scenario_environment_ineligible() { scenario_result environment_ineligible missing "$1" "$2"; }
+scenario_blocked() { scenario_result blocked missing "$1" "$2" unsupported; }
+scenario_invalid_run() { scenario_result invalid_run missing "$1" "$2" unsupported; }
+scenario_environment_ineligible() { scenario_result environment_ineligible missing "$1" "$2" unsupported; }
 scenario_evidence_incomplete() {
   local outdir="$1"
   local message="$2"

@@ -239,6 +239,8 @@ def test_tenant_mutation_scenario_is_blocked_when_required_environment_variables
     summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"]["blocked"] == 1
     assert summary["counts"]["pass"] == 0
+    assert summary["evidence_basis_counts"]["unsupported"] == 1
+    assert summary["evidence_basis_counts"]["runner_backed"] == 0
 
 
 def test_queue_admission_records_evidence_incomplete_when_required_proof_surfaces_are_missing(
