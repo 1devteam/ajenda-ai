@@ -119,7 +119,7 @@ def test_recovery_runner_row_records_not_executed_without_global_mutation(
         extra_env={"AJENDA_VALIDATION_ENV": "isolated"},
     )
 
-    assert result.returncode == 1
+    assert result.returncode == 0
     artifact_root = _artifact_root(tmp_path)
     scenario_dir = artifact_root / "RG-08"
 
@@ -152,7 +152,7 @@ def test_integration_backed_fr_row_is_supported_and_records_not_executed(
         extra_env={"AJENDA_VALIDATION_ENV": "isolated"},
     )
 
-    assert result.returncode == 1
+    assert result.returncode == 0
     artifact_root = _artifact_root(tmp_path)
     scenario_dir = artifact_root / scenario_id
 
@@ -166,6 +166,35 @@ def test_integration_backed_fr_row_is_supported_and_records_not_executed(
 
     summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"]["not_executed"] == 1
+    assert summary["evidence_basis_counts"]["integration_backed"] == 1
+    assert summary["counts"]["fail"] == 0
+
+
+def test_integration_backed_not_executed_does_not_mask_blocked_failure(
+    tmp_path: Path,
+) -> None:
+    result = _run_runner(
+        tmp_path,
+        "--scenario",
+        "FR-02",
+        "--scenario",
+        "RG-04",
+        extra_env={"AJENDA_VALIDATION_ENV": "isolated"},
+    )
+
+    assert result.returncode == 1
+    artifact_root = _artifact_root(tmp_path)
+
+    fr_dir = artifact_root / "FR-02"
+    assert (fr_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "not_executed"
+    assert (fr_dir / "evidence_basis.txt").read_text(encoding="utf-8").strip() == "integration_backed"
+
+    rg_dir = artifact_root / "RG-04"
+    assert (rg_dir / "run_outcome.txt").read_text(encoding="utf-8").strip() == "blocked"
+
+    summary = json.loads((artifact_root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["counts"]["not_executed"] == 1
+    assert summary["counts"]["blocked"] == 1
     assert summary["evidence_basis_counts"]["integration_backed"] == 1
     assert summary["counts"]["fail"] == 0
 

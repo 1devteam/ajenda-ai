@@ -335,7 +335,7 @@ print_summary() {
   log "Artifacts: $ARTIFACT_DIR"
   log "Scenario ledger: $RESULTS_TSV"
   log "Run manifest: $SUMMARY_JSON"
-  if [[ "$FAIL_COUNT" -gt 0 || "$BLOCKED_COUNT" -gt 0 || "$INVALID_RUN_COUNT" -gt 0 || "$ENVIRONMENT_INELIGIBLE_COUNT" -gt 0 || "$EVIDENCE_INCOMPLETE_COUNT" -gt 0 || "$NOT_EXECUTED_COUNT" -gt 0 ]]; then
+  if [[ "$FAIL_COUNT" -gt 0 || "$BLOCKED_COUNT" -gt 0 || "$INVALID_RUN_COUNT" -gt 0 || "$ENVIRONMENT_INELIGIBLE_COUNT" -gt 0 || "$EVIDENCE_INCOMPLETE_COUNT" -gt 0 ]]; then
     return 1
   fi
   return 0

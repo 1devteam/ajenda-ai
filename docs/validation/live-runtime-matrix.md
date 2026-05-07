@@ -208,7 +208,7 @@ Scenario executed, but the artifact set is too weak to trust the result as a nor
 
 ### `not_executed`
 
-Scenario exists in the matrix, but the runner did not execute it and the row must not be treated as runner-backed evidence.
+Scenario exists in the matrix, but the runner did not execute it and the row must not be treated as runner-backed evidence; intentional integration-backed `not_executed` rows are recorded without failing the whole run by themselves.
 
 ---
 
