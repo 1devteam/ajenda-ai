@@ -54,7 +54,7 @@ include = ["backend*"]
 addopts = "-q -ra"
 testpaths = ["tests"]
 markers = [
-  "integration: marks tests as integration tests requiring Docker (deselect with -m 'not integration')",
+  "integration: marks tests as integration tests requiring Docker/Testcontainers (deselect with -m 'not integration')",
   "unit: marks tests as unit tests (no external dependencies required)",
 ]
 

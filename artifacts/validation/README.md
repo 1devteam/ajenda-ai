@@ -48,6 +48,7 @@ Each scenario directory may contain combinations of:
 - `evidence_status.txt`
 - `notes.txt`
 - `validation_env.txt`
+- `evidence_basis.txt`
 - DB snapshots (`*.tsv`)
 - Redis snapshots (`*.txt`)
 - audit/governance extracts
@@ -66,6 +67,7 @@ It records, for each executed scenario:
 - scenario ID
 - run outcome
 - evidence status
+- evidence basis
 - validation environment
 - artifact path
 - notes
@@ -82,9 +84,26 @@ It records:
 - artifact directory
 - validation environment
 - aggregate outcome counts
+- aggregate evidence-basis counts
 - path to the scenario ledger
 
 This gives each validation run one authoritative summary surface in addition to the per-scenario artifact directories.
+
+---
+
+## Artifact provenance
+
+Every scenario artifact records an `evidence_basis` value so reviewers can tell where the proof came from before trusting the outcome. This provenance is separate from `run_outcome` and `evidence_status`.
+
+Allowed values are:
+
+- `runner_backed` — the live runtime matrix runner executed the proof directly for the scenario.
+- `integration_backed` — repository integration tests prove the scenario, but the matrix runner intentionally records `not_executed` instead of claiming direct runner proof.
+- `unsupported` — current runnable tooling does not support the scenario proof.
+
+The value is written to each scenario directory as `evidence_basis.txt`, appears in the fourth column of `scenario_results.tsv`, and is summarized in `summary.json` under `evidence_basis_counts`.
+
+This distinction prevents stale placeholders or integration-only rows from being interpreted as fresh live-runner evidence.
 
 ---
 

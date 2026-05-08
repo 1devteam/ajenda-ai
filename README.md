@@ -182,12 +182,14 @@ uvicorn backend.main:app --reload
 # Unit / non-integration tests
 python -m pytest -m "not integration"
 
-# Integration tests (requires Postgres + Redis)
+# Integration tests (requires Docker; fixtures start isolated Postgres + Redis with Testcontainers)
 python -m pytest -m integration
 
 # Full suite
 python -m pytest
 ```
+
+Integration tests do not use the root `docker-compose.yml` stack or fixed localhost service containers. The `tests/integration/conftest.py` fixtures start isolated Testcontainers-managed `postgres:16-alpine` and `redis:7-alpine` containers, run Alembic migrations against that temporary Postgres instance, and inject the generated database and Redis URLs into the test environment.
 
 ### Validation runner
 

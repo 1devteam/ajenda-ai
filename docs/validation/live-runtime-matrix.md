@@ -119,6 +119,18 @@ Allowed values for a specific execution artifact:
 - `integration_backed` — the row is currently proven by integration tests, not by runner execution
 - `unsupported` — the row is not currently supported by runnable validation tooling
 
+### Artifact provenance boundary
+
+`evidence_basis` is dynamic artifact provenance, not static matrix maturity. It answers what produced this run's scenario artifact. `validation_backing` is static matrix metadata and answers what repository surfaces are expected to prove the row in general.
+
+Important review rules:
+
+- A `not_executed` runner artifact with `integration_backed` provenance is a pointer to integration-test proof, not fresh runner evidence.
+- A `runner_backed` artifact may be treated as direct live-runner proof only when the run outcome and evidence status are also trustworthy for the scenario.
+- `unsupported` provenance must not satisfy release-gating evidence requirements.
+
+---
+
 ### `validation_backing`
 
 Allowed values:
