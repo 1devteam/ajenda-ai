@@ -14,7 +14,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.12"
-  # Test database — provided by the postgres service container below
+  # Test database — migration job service containers and integration Testcontainers use this contract
   AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_test:ajenda_test@localhost:5432/ajenda_test"
   AJENDA_QUEUE_URL: "redis://localhost:6379/0"
   AJENDA_ENV: "test"
@@ -101,37 +101,12 @@ jobs:
           retention-days: 7
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Job 3: Integration tests — real Postgres + Redis via service containers
+  # Job 3: Integration tests — real Postgres + Redis via Docker Testcontainers
   # ─────────────────────────────────────────────────────────────────────────
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: unit-tests
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: ajenda_test
-          POSTGRES_USER: ajenda_test
-          POSTGRES_PASSWORD: ajenda_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ajenda_test -d ajenda_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
 
     steps:
       - name: Checkout
@@ -148,8 +123,8 @@ jobs:
           pip install --upgrade pip
           pip install ".[dev]"
 
-      - name: Run Alembic migrations
-        run: alembic upgrade head
+      - name: Verify Docker daemon for Testcontainers
+        run: docker info
 
       - name: Run integration tests
         run: |
