@@ -41,6 +41,7 @@ dev = [
   "mypy>=1.11,<2.0",
   "pytest-timeout>=2.3,<3.0",
   # Integration test infrastructure — real Postgres and Redis containers
+  "docker>=7.0,<8.0",
   "testcontainers[postgres,redis]>=4.8,<5.0",
 ]
 

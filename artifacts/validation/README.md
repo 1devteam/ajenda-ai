@@ -72,6 +72,8 @@ It records, for each executed scenario:
 - artifact path
 - notes
 
+Column order: `scenario_id, run_outcome, evidence_status, evidence_basis, validation_env, artifact_path, notes`.
+
 This gives the run a single machine-readable ledger across scenario folders.
 
 ### `summary.json`
@@ -84,7 +86,7 @@ It records:
 - artifact directory
 - validation environment
 - aggregate outcome counts
-- aggregate evidence-basis counts
+- aggregate evidence-basis counts in `summary.json.evidence_basis_counts`
 - path to the scenario ledger
 
 This gives each validation run one authoritative summary surface in addition to the per-scenario artifact directories.
@@ -95,13 +97,15 @@ This gives each validation run one authoritative summary surface in addition to 
 
 Every scenario artifact records an `evidence_basis` value so reviewers can tell where the proof came from before trusting the outcome. This provenance is separate from `run_outcome` and `evidence_status`.
 
-Allowed values are:
+Allowed `evidence_basis` values are exactly:
 
 - `runner_backed` — the live runtime matrix runner executed the proof directly for the scenario.
 - `integration_backed` — repository integration tests prove the scenario, but the matrix runner intentionally records `not_executed` instead of claiming direct runner proof.
 - `unsupported` — current runnable tooling does not support the scenario proof.
 
 The value is written to each scenario directory as `evidence_basis.txt`, appears in the fourth column of `scenario_results.tsv`, and is summarized in `summary.json` under `evidence_basis_counts`.
+
+Rows that are blocked because required preconditions fail, such as missing required environment variables, are recorded with `run_outcome=blocked` and `evidence_basis=unsupported`.
 
 This distinction prevents stale placeholders or integration-only rows from being interpreted as fresh live-runner evidence.
 
