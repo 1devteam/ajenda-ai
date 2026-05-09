@@ -394,6 +394,29 @@ First-class in this block:
 
 Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may validate mission ownership, the existence of a task graph, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Task graph replacement increments the graph version, changes the graph fingerprint, and supersedes any existing materialization metadata so approved/validated materialization cannot silently point at an older graph. Runtime execution/materialization remain future layers above the governed runtime foundation.
 
+## Capability Execution Adapter Contracts V1
+
+Capability execution adapter contracts now define durable declarations for how registered capabilities may eventually connect to executable adapter surfaces. `POST /v1/capability-adapters`, `PATCH /v1/capability-adapters/{adapter_id}`, `GET /v1/capability-adapters`, and `GET /v1/capability-adapters/{adapter_id}` persist and read adapter metadata through tenant-authenticated route boundaries. Tenant-scoped adapters are owned by the request tenant; global adapters are visible to tenants when seeded through repository/migration/admin-safe paths and remain read-only from tenant routes.
+
+First-class in this block:
+
+- adapter name and version;
+- capability binding by visible `capability_id` or declared capability name/version;
+- supported task types;
+- input and output contracts;
+- required permissions and tools;
+- execution mode;
+- risk level and approval requirements;
+- evidence expectations;
+- timeout/retry hints;
+- idempotency expectations;
+- side-effect classification;
+- enabled/disabled state;
+- tenant or global scope;
+- schema version.
+
+Capability execution adapters remain a declarative contract layer only. Persisting or updating an adapter does not execute work, register worker handlers, bind runtime dispatch, create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, materialize graph nodes into runtime queue entries, invoke third-party tools, or persist evidence. Runtime binding and execution remain future layers above the governed runtime foundation.
+
 # Build Direction
 
 Ajenda should evolve through:
@@ -403,10 +426,11 @@ Ajenda should evolve through:
 3. capability registry
 4. task graph contracts
 5. planner-to-graph materialization contracts
-6. real worker skills
-7. evidence-backed execution
-8. outcome review
-9. memory promotion
+6. capability execution adapter contracts
+7. real worker skills
+8. evidence-backed execution
+9. outcome review
+10. memory promotion
 
 The runtime foundation should remain authoritative.
 
