@@ -284,6 +284,36 @@ The mission-based top layer is being added over the existing governed runtime fo
 
 ---
 
+
+## Mission Intake V1 Implementation
+
+Mission intake is now the first product-layer contract above the governed runtime foundation. `POST /v1/missions` accepts a tenant-authenticated business objective and structured planning inputs, creates a tenant-owned `Mission` in `planned` status, and persists the intake envelope in `Mission.metadata_json["mission_intake"]` with `schema_version = 1`.
+
+First-class in this block:
+
+- objective;
+- success criteria;
+- constraints;
+- operator notes and context;
+- priority;
+- approval-required expectations;
+- budget and scope limits;
+- allowed actions and tools;
+- compliance category and jurisdiction aligned with existing mission columns.
+
+Deferred by design:
+
+- planner execution;
+- dynamic decomposition;
+- task graph/DAG persistence;
+- capability registry enforcement;
+- runtime dispatch changes;
+- worker handler changes;
+- outcome review;
+- memory promotion.
+
+Mission intake does not queue work. Runtime admission remains explicit through the existing mission/task queue routes, and queue-backed execution, leases, recovery, and compliance review behavior remain governed by the current runtime layer. Tenant ownership is taken from the validated tenant/auth context, not from request body input.
+
 # Build Direction
 
 Ajenda should evolve through:

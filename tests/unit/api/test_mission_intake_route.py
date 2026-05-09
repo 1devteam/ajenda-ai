@@ -1,0 +1,219 @@
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from backend.api.routes import mission as mission_module
+from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, build_mission_intake_metadata
+from backend.middleware.auth_context import AuthContextMiddleware
+from backend.middleware.request_context import RequestContextMiddleware
+from backend.middleware.tenant_context import TenantContextMiddleware
+
+
+def _build_app(tenant_id: uuid.UUID) -> FastAPI:
+    app = FastAPI()
+    app.include_router(mission_module.router, prefix="/v1")
+
+    def _override_tenant_id() -> uuid.UUID:
+        return tenant_id
+
+    def _override_db() -> MagicMock:
+        return MagicMock()
+
+    app.dependency_overrides[get_request_tenant_id] = _override_tenant_id
+    app.dependency_overrides[get_tenant_db_session] = _override_db
+    return app
+
+
+def _valid_payload() -> dict[str, object]:
+    return {
+        "objective": "Recover qualified inbound opportunities that have not received follow-up.",
+        "success_criteria": [
+            {
+                "description": "Every stale qualified opportunity has a recommended next action.",
+                "evidence": ["opportunity review summary"],
+            }
+        ],
+        "constraints": [
+            {
+                "name": "Do not contact customers",
+                "description": "Research and prepare recommendations only; no outbound messages.",
+                "hard": True,
+            }
+        ],
+        "operator_notes": "Prioritize enterprise accounts first.",
+        "context": {"source": "crm", "segment": "enterprise"},
+        "priority": "high",
+        "approval_required": True,
+        "approval_expectations": ["operator approves recommendations before outreach"],
+        "budget_limits": {"max_tasks": 5, "max_runtime_minutes": 30, "max_cost_usd": 25.5},
+        "scope_limits": ["last 30 days only"],
+        "allowed_actions": ["read_crm", "draft_recommendations"],
+        "allowed_tools": ["crm", "analytics"],
+        "compliance_category": "operational",
+        "jurisdiction": "US-ALL",
+    }
+
+
+def _persisted_mission(*, tenant_id: uuid.UUID, mission_id: uuid.UUID, payload: dict[str, object]) -> SimpleNamespace:
+    created_at = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    return SimpleNamespace(
+        id=mission_id,
+        tenant_id=str(tenant_id),
+        objective=payload["objective"],
+        status="planned",
+        compliance_category=payload["compliance_category"],
+        jurisdiction=payload["jurisdiction"],
+        metadata_json=build_mission_intake_metadata(
+            success_criteria=payload["success_criteria"],
+            constraints=payload["constraints"],
+            operator_notes=payload["operator_notes"],
+            context=payload["context"],
+            priority=payload["priority"],
+            approval_required=payload["approval_required"],
+            approval_expectations=payload["approval_expectations"],
+            budget_limits=payload["budget_limits"],
+            scope_limits=payload["scope_limits"],
+            allowed_actions=payload["allowed_actions"],
+            allowed_tools=payload["allowed_tools"],
+        ),
+        created_at=created_at,
+        updated_at=created_at,
+    )
+
+
+def test_mission_intake_creates_tenant_owned_mission_without_queueing_runtime_work() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    payload = _valid_payload()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    repo = MagicMock()
+    repo.add.return_value = _persisted_mission(tenant_id=tenant_id, mission_id=mission_id, payload=payload)
+    quota_svc = MagicMock()
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mission_id"] == str(mission_id)
+    assert body["tenant_id"] == str(tenant_id)
+    assert body["objective"] == payload["objective"]
+    assert body["status"] == "planned"
+    assert body["compliance_category"] == "operational"
+    assert body["jurisdiction"] == "US-ALL"
+    assert body["intake"]["success_criteria"] == payload["success_criteria"]
+    assert body["intake"]["constraints"] == payload["constraints"]
+    assert body["intake"]["priority"] == "high"
+    assert body["intake"]["approval_required"] is True
+    assert body["intake"]["budget_limits"] == payload["budget_limits"]
+    quota_svc.check_and_record_mission_creation.assert_called_once_with(tenant_id)
+    created_mission = repo.add.call_args.args[0]
+    assert created_mission.tenant_id == str(tenant_id)
+    assert created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["allowed_tools"] == ["crm", "analytics"]
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_mission_intake_rejects_missing_success_criteria() -> None:
+    tenant_id = uuid.uuid4()
+    payload = _valid_payload()
+    payload["success_criteria"] = []
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 422
+    repo_cls.assert_not_called()
+
+
+def test_mission_intake_rejects_blank_constraint_fields() -> None:
+    tenant_id = uuid.uuid4()
+    payload = _valid_payload()
+    payload["constraints"] = [{"name": "   ", "description": "must be meaningful", "hard": True}]
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 422
+    repo_cls.assert_not_called()
+
+
+def test_mission_intake_rejects_request_body_tenant_id() -> None:
+    tenant_id = uuid.uuid4()
+    payload = _valid_payload()
+    payload["tenant_id"] = str(uuid.uuid4())
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 422
+    repo_cls.assert_not_called()
+
+
+def test_mission_read_uses_tenant_scoped_repository_query_and_hides_foreign_mission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = None
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.get(f"/v1/missions/{mission_id}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+
+
+def test_mission_intake_route_requires_tenant_and_auth_under_middleware_stack() -> None:
+    app = FastAPI()
+    app.state.settings = MagicMock(
+        oidc_jwks_uri="https://example/jwks",
+        oidc_issuer="https://example",
+        oidc_audience="ajenda",
+    )
+    app.state.database_runtime = None
+    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(AuthContextMiddleware)
+    app.add_middleware(TenantContextMiddleware)
+    app.include_router(mission_module.router, prefix="/v1")
+    client = TestClient(app, raise_server_exceptions=False)
+
+    payload = {
+        "objective": "Prepare a tenant-safe mission intake envelope.",
+        "success_criteria": [{"description": "A mission record is created."}],
+    }
+
+    missing_tenant = client.post("/v1/missions", json=payload)
+    assert missing_tenant.status_code == 400
+
+    missing_auth = client.post(
+        "/v1/missions",
+        headers={"X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"},
+        json=payload,
+    )
+    assert missing_auth.status_code == 401
