@@ -108,6 +108,8 @@ def build_mission_task_graph_metadata(
     edges: list[dict[str, Any]],
     operator_notes: str | None,
     validation_metadata: dict[str, Any],
+    graph_version: int = 1,
+    graph_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     """Build the durable metadata envelope for task graph contracts v1.
 
@@ -121,6 +123,8 @@ def build_mission_task_graph_metadata(
             "schema_version": MISSION_TASK_GRAPH_SCHEMA_VERSION,
             "mission_id": mission_id,
             "graph_status": graph_status,
+            "graph_version": graph_version,
+            "graph_fingerprint": graph_fingerprint,
             "nodes": nodes,
             "edges": edges,
             "operator_notes": operator_notes,

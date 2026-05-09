@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid as _uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -669,6 +671,72 @@ def _normalize_optional_non_empty_text(value: str | None, message: str) -> str |
     return value
 
 
+def _task_graph_fingerprint(
+    *,
+    mission_id: str,
+    graph_status: str | None,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    operator_notes: str | None,
+) -> str:
+    graph_identity = {
+        "schema_version": 1,
+        "mission_id": mission_id,
+        "graph_status": graph_status,
+        "nodes": nodes,
+        "edges": edges,
+        "operator_notes": operator_notes,
+    }
+    encoded = json.dumps(graph_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"sha256:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+
+
+def _fingerprint_existing_task_graph(task_graph: dict[str, Any]) -> str | None:
+    nodes = task_graph.get("nodes")
+    edges = task_graph.get("edges")
+    mission_id = task_graph.get("mission_id")
+    if not isinstance(nodes, list) or not isinstance(edges, list) or not isinstance(mission_id, str):
+        return None
+    if not all(isinstance(node, dict) for node in nodes) or not all(isinstance(edge, dict) for edge in edges):
+        return None
+    return _task_graph_fingerprint(
+        mission_id=mission_id,
+        graph_status=task_graph.get("graph_status") if isinstance(task_graph.get("graph_status"), str) else None,
+        nodes=nodes,
+        edges=edges,
+        operator_notes=task_graph.get("operator_notes") if isinstance(task_graph.get("operator_notes"), str) else None,
+    )
+
+
+def _next_task_graph_version(existing_graph: Any) -> int:
+    if not isinstance(existing_graph, dict):
+        return 1
+    version = existing_graph.get("graph_version")
+    if not isinstance(version, int) or version < 1:
+        return 1
+    return version + 1
+
+
+def _supersede_graph_materialization(
+    *,
+    metadata: dict[str, Any],
+    graph_version: int,
+    graph_fingerprint: str,
+    updated_at: str,
+) -> None:
+    materialization = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
+    if not isinstance(materialization, dict):
+        return
+    superseded = dict(materialization)
+    superseded["materialization_status"] = "superseded"
+    superseded["updated_at"] = updated_at
+    superseded["superseded_at"] = updated_at
+    superseded["superseded_reason"] = "task_graph_replaced"
+    superseded["superseded_by_graph_version"] = graph_version
+    superseded["superseded_by_graph_fingerprint"] = graph_fingerprint
+    metadata[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = superseded
+
+
 def _quota_exceeded_response(exc: QuotaExceededError) -> HTTPException:
     return HTTPException(
         status_code=429,
@@ -841,25 +909,45 @@ def upsert_mission_task_graph(
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
 
+    graph_updated_at = datetime.now(UTC).isoformat()
     validation_metadata = {
         "validation_status": "valid",
-        "validated_at": datetime.now(UTC).isoformat(),
+        "validated_at": graph_updated_at,
         "node_count": len(body.nodes),
         "edge_count": len(body.edges),
         "cycle_check": "passed",
         "missing_node_check": "passed",
         "duplicate_node_key_check": "passed",
     }
+    metadata = dict(mission.metadata_json or {})
+    previous_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
+    graph_version = _next_task_graph_version(previous_graph)
+    graph_nodes = [node.model_dump(mode="json", exclude_none=True) for node in body.nodes]
+    graph_edges = [edge.model_dump(exclude_none=True) for edge in body.edges]
+    graph_fingerprint = _task_graph_fingerprint(
+        mission_id=str(mission_id),
+        graph_status=body.graph_status,
+        nodes=graph_nodes,
+        edges=graph_edges,
+        operator_notes=body.operator_notes,
+    )
     graph_metadata = build_mission_task_graph_metadata(
         mission_id=str(mission_id),
         graph_status=body.graph_status,
-        nodes=[node.model_dump(mode="json", exclude_none=True) for node in body.nodes],
-        edges=[edge.model_dump(exclude_none=True) for edge in body.edges],
+        graph_version=graph_version,
+        graph_fingerprint=graph_fingerprint,
+        nodes=graph_nodes,
+        edges=graph_edges,
         operator_notes=body.operator_notes,
         validation_metadata=validation_metadata,
     )
-    metadata = dict(mission.metadata_json or {})
     metadata.update(graph_metadata)
+    _supersede_graph_materialization(
+        metadata=metadata,
+        graph_version=graph_version,
+        graph_fingerprint=graph_fingerprint,
+        updated_at=graph_updated_at,
+    )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _mission_task_graph_to_read(mission)
 
@@ -948,6 +1036,8 @@ def materialize_mission_graph(
             "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
             "schema_version": task_graph.get("schema_version"),
             "graph_status": task_graph.get("graph_status"),
+            "graph_version": task_graph.get("graph_version"),
+            "graph_fingerprint": task_graph.get("graph_fingerprint") or _fingerprint_existing_task_graph(task_graph),
             "node_count": len(graph_nodes),
             "edge_count": len(task_graph.get("edges", [])) if isinstance(task_graph.get("edges", []), list) else 0,
         },

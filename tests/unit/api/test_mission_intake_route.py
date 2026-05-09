@@ -508,6 +508,8 @@ def test_mission_task_graph_upsert_persists_tenant_scoped_graph_without_queueing
     assert task_graph["schema_version"] == 1
     assert task_graph["mission_id"] == str(mission_id)
     assert task_graph["graph_status"] == "draft"
+    assert task_graph["graph_version"] == 1
+    assert task_graph["graph_fingerprint"].startswith("sha256:")
     assert task_graph["nodes"] == graph_payload["nodes"]
     assert task_graph["edges"] == graph_payload["edges"]
     assert task_graph["validation_metadata"]["validation_status"] == "valid"
@@ -518,6 +520,59 @@ def test_mission_task_graph_upsert_persists_tenant_scoped_graph_without_queueing
     assert persisted_metadata[MISSION_INTAKE_METADATA_KEY] == {"schema_version": 1}
     assert persisted_metadata["mission_plan"] == {"schema_version": 1}
     assert persisted_metadata["mission_task_graph"]["nodes"] == graph_payload["nodes"]
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_mission_task_graph_update_supersedes_existing_materialization_with_new_graph_identity() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    old_graph_fingerprint = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]["graph_fingerprint"]
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = {
+        "schema_version": 1,
+        "materialization_status": "approved",
+        "materialization_version": 2,
+        "graph_reference": {
+            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+            "graph_version": 7,
+            "graph_fingerprint": old_graph_fingerprint,
+        },
+    }
+    graph_payload = _valid_task_graph_payload()
+    graph_payload["nodes"][0]["name"] = "Collect updated approved signals"
+
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    repo.update_metadata.side_effect = _update_metadata
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.put(f"/v1/missions/{mission_id}/task-graph", json=graph_payload)
+
+    assert response.status_code == 200
+    persisted_metadata = repo.update_metadata.call_args.kwargs["metadata_json"]
+    task_graph = persisted_metadata[MISSION_TASK_GRAPH_METADATA_KEY]
+    materialization = persisted_metadata[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY]
+    assert task_graph["graph_version"] == 8
+    assert task_graph["graph_fingerprint"].startswith("sha256:")
+    assert task_graph["graph_fingerprint"] != old_graph_fingerprint
+    assert materialization["materialization_status"] == "superseded"
+    assert materialization["superseded_reason"] == "task_graph_replaced"
+    assert materialization["superseded_by_graph_version"] == 8
+    assert materialization["superseded_by_graph_fingerprint"] == task_graph["graph_fingerprint"]
     task_repo_cls.assert_not_called()
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
@@ -718,6 +773,8 @@ def _mission_with_task_graph(tenant_id: uuid.UUID, mission_id: uuid.UUID) -> Sim
         "schema_version": 1,
         "mission_id": str(mission_id),
         "graph_status": "approved",
+        "graph_version": 7,
+        "graph_fingerprint": "sha256:existing-graph",
         "nodes": graph_payload["nodes"],
         "edges": graph_payload["edges"],
         "operator_notes": graph_payload["operator_notes"],
@@ -779,6 +836,8 @@ def test_graph_materialization_persists_metadata_without_queueing_or_runtime_cal
     assert materialization["operator_review"]["status"] == "pending"
     assert materialization["deterministic_compilation_metadata"]["deterministic"] is True
     assert materialization["graph_reference"]["node_count"] == 2
+    assert materialization["graph_reference"]["graph_version"] == 7
+    assert materialization["graph_reference"]["graph_fingerprint"] == "sha256:existing-graph"
     persisted_metadata = mission_repo.update_metadata.call_args.kwargs["metadata_json"]
     assert persisted_metadata[MISSION_TASK_GRAPH_METADATA_KEY] == original_graph
     assert MISSION_GRAPH_MATERIALIZATION_METADATA_KEY in persisted_metadata

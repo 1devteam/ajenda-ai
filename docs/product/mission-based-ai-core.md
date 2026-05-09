@@ -371,7 +371,8 @@ First-class in this block:
 - node risk level and approval requirement;
 - node execution constraints;
 - operator notes;
-- graph validation metadata.
+- graph validation metadata;
+- graph version and immutable graph fingerprint for downstream materialization references.
 
 Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects duplicate node keys, rejects edges pointing to missing nodes, and rejects cycles, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
 
@@ -388,9 +389,10 @@ First-class in this block:
 - operator review/approval status;
 - graph generation metadata and notes;
 - deterministic compilation boundaries and fingerprints;
-- timestamps for materialization and updates.
+- timestamps for materialization and updates;
+- graph reference version/fingerprint so consumers can detect stale materialization metadata.
 
-Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may validate mission ownership, the existence of a task graph, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Runtime execution/materialization remain future layers above the governed runtime foundation.
+Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may validate mission ownership, the existence of a task graph, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Task graph replacement increments the graph version, changes the graph fingerprint, and supersedes any existing materialization metadata so approved/validated materialization cannot silently point at an older graph. Runtime execution/materialization remain future layers above the governed runtime foundation.
 
 # Build Direction
 
