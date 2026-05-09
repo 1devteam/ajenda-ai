@@ -417,6 +417,29 @@ First-class in this block:
 
 Capability execution adapters remain a declarative contract layer only. Persisting or updating an adapter does not execute work, register worker handlers, bind runtime dispatch, create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, materialize graph nodes into runtime queue entries, invoke third-party tools, or persist evidence. Runtime binding and execution remain future layers above the governed runtime foundation.
 
+## Evidence Contract Layer V1
+
+Evidence contracts now define durable, tenant-owned proof/provenance records that future runtime execution, capability adapters, and outcome review can reference. `POST /v1/evidence`, `GET /v1/evidence/{evidence_id}`, `GET /v1/evidence?mission_id=...`, and `PATCH /v1/evidence/{evidence_id}` persist, read, list, and update evidence status/metadata through tenant-scoped repository boundaries.
+
+First-class in this block:
+
+- tenant ownership;
+- mission binding;
+- optional task graph node key;
+- optional planner-to-graph materialization reference;
+- optional execution task reference;
+- optional capability and capability adapter references;
+- evidence type and source;
+- evidence summary;
+- structured payload;
+- artifact references;
+- provenance metadata;
+- trust/confidence signal;
+- collection status;
+- schema version and timestamps.
+
+Evidence records are proof/provenance contracts only. Persisting or updating evidence may validate referenced mission ownership, capability visibility, adapter visibility, and execution task ownership, but it does not score outcomes, approve or reject outcomes, promote memory, create vector memory, execute adapters, call workers, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, or alter runtime dispatch. Outcome review and memory promotion remain future layers above this evidence contract layer.
+
 # Build Direction
 
 Ajenda should evolve through:
@@ -427,10 +450,11 @@ Ajenda should evolve through:
 4. task graph contracts
 5. planner-to-graph materialization contracts
 6. capability execution adapter contracts
-7. real worker skills
-8. evidence-backed execution
-9. outcome review
-10. memory promotion
+7. evidence contract layer
+8. real worker skills
+9. evidence-backed execution
+10. outcome review
+11. memory promotion
 
 The runtime foundation should remain authoritative.
 

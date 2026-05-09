@@ -9,6 +9,7 @@ from backend.domain.enums import (
     WorkerLeaseState,
     WorkforceFleetState,
 )
+from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_branch import ExecutionBranch
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.governance_event import GovernanceEvent
@@ -22,6 +23,7 @@ __all__ = [
     "AuditEvent",
     "Capability",
     "CapabilityAdapter",
+    "EvidenceRecord",
     "ExecutionBranch",
     "ExecutionBranchState",
     "ExecutionTask",

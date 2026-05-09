@@ -11,6 +11,7 @@ from backend.domain import (  # noqa: F401
     AuditEvent,
     Capability,
     CapabilityAdapter,
+    EvidenceRecord,
     ExecutionBranch,
     ExecutionTask,
     GovernanceEvent,
