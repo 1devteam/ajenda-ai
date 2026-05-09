@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,6 +23,13 @@ class MissionRepository:
 
     def get(self, mission_id: uuid.UUID) -> Mission | None:
         return self._session.get(Mission, mission_id)
+
+    def update_metadata(self, *, mission: Mission, metadata_json: dict[str, Any]) -> Mission:
+        mission.metadata_json = metadata_json
+        self._session.add(mission)
+        self._session.flush()
+        self._session.refresh(mission)
+        return mission
 
     def get_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
         stmt = select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id)

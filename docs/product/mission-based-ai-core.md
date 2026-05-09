@@ -269,8 +269,6 @@ Current architecture already supports:
 
 The primary missing systems are:
 
-- mission intake
-- mission planning
 - task graph generation
 - capability registry
 - real worker skills
@@ -314,12 +312,31 @@ Deferred by design:
 
 Mission intake does not queue work. Runtime admission remains explicit through the existing mission/task queue routes, and queue-backed execution, leases, recovery, and compliance review behavior remain governed by the current runtime layer. Tenant ownership is taken from the validated tenant/auth context, not from request body input.
 
+## Mission Planning V1 Contracts
+
+Mission planning contracts now define structured execution intent between mission intake and future task graph generation. `PUT /v1/missions/{mission_id}/plan` creates or replaces a tenant-scoped mission plan, and `GET /v1/missions/{mission_id}/plan` reads it back through the same tenant-scoped mission repository boundary. The plan is persisted additively in `Mission.metadata_json["mission_plan"]` with `schema_version = 1`.
+
+First-class in this block:
+
+- phases and stages;
+- planning notes;
+- desired outputs;
+- capability requirements;
+- execution strategy hints;
+- approval gates;
+- operator overrides;
+- estimated scope;
+- risk annotations;
+- planning status.
+
+Mission planning remains a contract layer only. Persisting a plan does not queue work, create execution tasks, generate a task graph, enforce a capability registry, promote memory, run outcome review, or modify worker/runtime orchestration. Runtime authority remains with the governed queue, lease, policy, recovery, and validation layers.
+
 # Build Direction
 
 Ajenda should evolve through:
 
 1. mission intake
-2. mission planning
+2. mission planning contracts
 3. capability registry
 4. task graph generation
 5. real worker skills
