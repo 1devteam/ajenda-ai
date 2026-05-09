@@ -104,9 +104,13 @@ def test_evidence_creation_persists_tenant_owned_record_without_runtime_calls() 
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
     capability_repo = MagicMock()
-    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=capability_id, tenant_id=str(tenant_id))
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=capability_id, tenant_id=str(tenant_id), name="crm-record-review", version="1.0.0"
+    )
     adapter_repo = MagicMock()
-    adapter_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=adapter_id, tenant_id=str(tenant_id))
+    adapter_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=adapter_id, tenant_id=str(tenant_id), capability_id=capability_id
+    )
     task_repo = MagicMock()
     task_repo.get.return_value = SimpleNamespace(id=execution_task_id, tenant_id=str(tenant_id), mission_id=mission_id)
     evidence_repo = MagicMock()
@@ -263,6 +267,214 @@ def test_evidence_creation_validates_adapter_visibility() -> None:
 
     assert response.status_code == 422
     assert response.json() == {"detail": "referenced capability adapter is not visible to tenant"}
+    evidence_repo.add.assert_not_called()
+
+
+def test_evidence_creation_allows_capability_without_adapter_reference() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=capability_id, tenant_id=str(tenant_id), name="crm-record-review", version="1.0.0"
+    )
+    evidence_repo = MagicMock()
+    evidence_repo.add.return_value = _evidence_record(
+        tenant_id=str(tenant_id), mission_id=mission_id, capability_id=capability_id
+    )
+
+    with (
+        patch("backend.api.routes.evidence.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.evidence.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.evidence.EvidenceRepository", return_value=evidence_repo),
+    ):
+        response = client.post("/v1/evidence", json=_valid_payload(mission_id=mission_id, capability_id=capability_id))
+
+    assert response.status_code == 201
+    evidence_repo.add.assert_called_once()
+
+
+def test_evidence_creation_allows_adapter_without_capability_reference() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=adapter_id, tenant_id=str(tenant_id), capability_id=uuid.uuid4()
+    )
+    evidence_repo = MagicMock()
+    evidence_repo.add.return_value = _evidence_record(
+        tenant_id=str(tenant_id), mission_id=mission_id, adapter_id=adapter_id
+    )
+
+    with (
+        patch("backend.api.routes.evidence.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.evidence.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.evidence.EvidenceRepository", return_value=evidence_repo),
+    ):
+        response = client.post("/v1/evidence", json=_valid_payload(mission_id=mission_id, adapter_id=adapter_id))
+
+    assert response.status_code == 201
+    evidence_repo.add.assert_called_once()
+
+
+def test_evidence_creation_allows_adapter_bound_by_matching_capability_id() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=capability_id, tenant_id=str(tenant_id), name="crm-record-review", version="1.0.0"
+    )
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=adapter_id, tenant_id=str(tenant_id), capability_id=capability_id
+    )
+    evidence_repo = MagicMock()
+    evidence_repo.add.return_value = _evidence_record(
+        tenant_id=str(tenant_id), mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id
+    )
+
+    with (
+        patch("backend.api.routes.evidence.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.evidence.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.evidence.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.evidence.EvidenceRepository", return_value=evidence_repo),
+    ):
+        response = client.post(
+            "/v1/evidence",
+            json=_valid_payload(mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id),
+        )
+
+    assert response.status_code == 201
+    evidence_repo.add.assert_called_once()
+
+
+def test_evidence_creation_rejects_adapter_bound_to_different_capability_id() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=capability_id, tenant_id=str(tenant_id), name="crm-record-review", version="1.0.0"
+    )
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=adapter_id, tenant_id=str(tenant_id), capability_id=uuid.uuid4()
+    )
+    evidence_repo = MagicMock()
+
+    with (
+        patch("backend.api.routes.evidence.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.evidence.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.evidence.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.evidence.EvidenceRepository", return_value=evidence_repo),
+    ):
+        response = client.post(
+            "/v1/evidence",
+            json=_valid_payload(mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id),
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "referenced capability adapter is not bound to capability"}
+    evidence_repo.add.assert_not_called()
+
+
+def test_evidence_creation_allows_adapter_bound_by_matching_capability_name_version() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=capability_id, tenant_id=str(tenant_id), name="crm-record-review", version="1.0.0"
+    )
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=adapter_id,
+        tenant_id=str(tenant_id),
+        capability_id=None,
+        capability_name="crm-record-review",
+        capability_version="1.0.0",
+    )
+    evidence_repo = MagicMock()
+    evidence_repo.add.return_value = _evidence_record(
+        tenant_id=str(tenant_id), mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id
+    )
+
+    with (
+        patch("backend.api.routes.evidence.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.evidence.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.evidence.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.evidence.EvidenceRepository", return_value=evidence_repo),
+    ):
+        response = client.post(
+            "/v1/evidence",
+            json=_valid_payload(mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id),
+        )
+
+    assert response.status_code == 201
+    evidence_repo.add.assert_called_once()
+
+
+def test_evidence_creation_rejects_adapter_bound_to_different_capability_name_version() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=capability_id, tenant_id=str(tenant_id), name="crm-record-review", version="1.0.0"
+    )
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=adapter_id,
+        tenant_id=str(tenant_id),
+        capability_id=None,
+        capability_name="crm-record-review",
+        capability_version="2.0.0",
+    )
+    evidence_repo = MagicMock()
+
+    with (
+        patch("backend.api.routes.evidence.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.evidence.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.evidence.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.evidence.EvidenceRepository", return_value=evidence_repo),
+    ):
+        response = client.post(
+            "/v1/evidence",
+            json=_valid_payload(mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id),
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "referenced capability adapter is not bound to capability"}
     evidence_repo.add.assert_not_called()
 
 

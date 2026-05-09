@@ -160,6 +160,7 @@ def _validate_references(*, body: EvidenceCreate, tenant_id: str, db: Session) -
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
 
+    capability = None
     if body.capability_id is not None:
         capability = CapabilityRepository(db).get_visible_for_tenant(
             capability_id=body.capability_id, tenant_id=tenant_id
@@ -167,12 +168,23 @@ def _validate_references(*, body: EvidenceCreate, tenant_id: str, db: Session) -
         if capability is None:
             raise HTTPException(status_code=422, detail="referenced capability is not visible to tenant")
 
+    adapter = None
     if body.capability_adapter_id is not None:
         adapter = CapabilityAdapterRepository(db).get_visible_for_tenant(
             adapter_id=body.capability_adapter_id, tenant_id=tenant_id
         )
         if adapter is None:
             raise HTTPException(status_code=422, detail="referenced capability adapter is not visible to tenant")
+
+    if capability is not None and adapter is not None:
+        adapter_capability_id = getattr(adapter, "capability_id", None)
+        if adapter_capability_id is not None:
+            if adapter_capability_id != body.capability_id:
+                raise HTTPException(status_code=422, detail="referenced capability adapter is not bound to capability")
+        elif getattr(adapter, "capability_name", None) != getattr(capability, "name", None) or getattr(
+            adapter, "capability_version", None
+        ) != getattr(capability, "version", None):
+            raise HTTPException(status_code=422, detail="referenced capability adapter is not bound to capability")
 
     if body.execution_task_id is not None:
         task = ExecutionTaskRepository(db).get(body.execution_task_id)
