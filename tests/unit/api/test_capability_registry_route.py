@@ -205,6 +205,30 @@ def test_capability_update_persists_mutable_fields_for_tenant_owned_contract() -
     repo.update.assert_called_once_with(capability)
 
 
+def test_capability_patch_rejects_explicit_null_enabled() -> None:
+    tenant_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.patch(f"/v1/capabilities/{capability_id}", json={"enabled": None})
+
+    assert response.status_code == 422
+    assert "cannot be null" in response.text
+
+
+def test_capability_patch_rejects_explicit_null_description() -> None:
+    tenant_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.patch(f"/v1/capabilities/{capability_id}", json={"description": None})
+
+    assert response.status_code == 422
+    assert "cannot be null" in response.text
+
+
 def test_global_capability_update_is_read_only_from_tenant_route() -> None:
     tenant_id = uuid.uuid4()
     capability_id = uuid.uuid4()
