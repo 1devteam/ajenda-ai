@@ -102,11 +102,13 @@ class CapabilityAdapterCreate(BaseModel):
         return _normalize_unique_string_list(value)
 
     @model_validator(mode="after")
-    def _require_complete_capability_name_version_binding(self) -> CapabilityAdapterCreate:
+    def _require_capability_binding(self) -> CapabilityAdapterCreate:
         has_name = self.capability_name is not None
         has_version = self.capability_version is not None
         if has_name != has_version:
             raise ValueError("capability name/version binding requires both capability_name and capability_version")
+        if self.capability_id is None and not has_name:
+            raise ValueError("capability adapter requires capability_id or capability_name/capability_version binding")
         return self
 
 

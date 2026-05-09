@@ -46,6 +46,8 @@ class TestApiVersioning:
         business_prefixes = [
             "/v1/auth",
             "/v1/api-keys",
+            "/v1/capabilities",
+            "/v1/capability-adapters",
             "/v1/missions",
             "/v1/tasks",
             "/v1/workforce",
@@ -65,6 +67,8 @@ class TestApiVersioning:
         unversioned_business = [
             "/auth",
             "/api-keys",
+            "/capabilities",
+            "/capability-adapters",
             "/missions",
             "/tasks",
             "/workforce",

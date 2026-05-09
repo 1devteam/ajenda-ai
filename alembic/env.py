@@ -9,6 +9,8 @@ from alembic import context
 from backend.db.base import Base
 from backend.domain import (  # noqa: F401
     AuditEvent,
+    Capability,
+    CapabilityAdapter,
     ExecutionBranch,
     ExecutionTask,
     GovernanceEvent,

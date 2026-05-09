@@ -151,6 +151,22 @@ def test_adapter_validation_rejects_duplicate_task_types_before_persistence() ->
     repo_cls.assert_not_called()
 
 
+def test_adapter_create_requires_capability_binding() -> None:
+    tenant_id = uuid.uuid4()
+    payload = _valid_payload()
+    payload.pop("capability_name")
+    payload.pop("capability_version")
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository") as repo_cls:
+        response = client.post("/v1/capability-adapters", json=payload)
+
+    assert response.status_code == 422
+    assert "requires capability_id or capability_name/capability_version binding" in response.text
+    repo_cls.assert_not_called()
+
+
 def test_adapter_rejects_incomplete_capability_name_version_binding() -> None:
     tenant_id = uuid.uuid4()
     payload = _valid_payload()

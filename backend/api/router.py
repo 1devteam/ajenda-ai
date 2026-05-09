@@ -12,6 +12,8 @@ Both versions will coexist until v1 is formally deprecated.
 Route inventory under /v1/:
   /v1/auth/*          — OIDC token exchange and introspection
   /v1/api-keys/*      — API key lifecycle management
+  /v1/capabilities/*  — Capability registry contracts
+  /v1/capability-adapters/* — Capability execution adapter contracts
   /v1/missions/*      — Mission queuing and management
   /v1/tasks/*         — Task queuing and state management
   /v1/workforce/*     — Workforce fleet management
