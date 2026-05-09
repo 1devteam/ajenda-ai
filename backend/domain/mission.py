@@ -13,6 +13,8 @@ from backend.domain.enums import MissionState
 
 MISSION_INTAKE_METADATA_KEY = "mission_intake"
 MISSION_INTAKE_SCHEMA_VERSION = 1
+MISSION_PLAN_METADATA_KEY = "mission_plan"
+MISSION_PLAN_SCHEMA_VERSION = 1
 
 
 def utcnow() -> datetime:
@@ -53,6 +55,43 @@ def build_mission_intake_metadata(
             "scope_limits": scope_limits,
             "allowed_actions": allowed_actions,
             "allowed_tools": allowed_tools,
+        }
+    }
+
+
+def build_mission_plan_metadata(
+    *,
+    planning_status: str,
+    phases: list[dict[str, Any]],
+    planning_notes: str | None,
+    desired_outputs: list[dict[str, Any]],
+    capability_requirements: list[dict[str, Any]],
+    execution_strategy_hints: dict[str, Any],
+    approval_gates: list[dict[str, Any]],
+    operator_overrides: dict[str, Any],
+    estimated_scope: dict[str, Any],
+    risk_annotations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build the durable metadata envelope for mission planning v1.
+
+    Mission planning is an execution-intent contract between intake and the
+    future task graph layer. It is deliberately data-only: persisting this
+    envelope must not queue work, create tasks, enforce capabilities, or
+    bypass runtime governance.
+    """
+    return {
+        MISSION_PLAN_METADATA_KEY: {
+            "schema_version": MISSION_PLAN_SCHEMA_VERSION,
+            "planning_status": planning_status,
+            "phases": phases,
+            "planning_notes": planning_notes,
+            "desired_outputs": desired_outputs,
+            "capability_requirements": capability_requirements,
+            "execution_strategy_hints": execution_strategy_hints,
+            "approval_gates": approval_gates,
+            "operator_overrides": operator_overrides,
+            "estimated_scope": estimated_scope,
+            "risk_annotations": risk_annotations,
         }
     }
 

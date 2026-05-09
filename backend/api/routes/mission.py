@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.domain.enums import ExecutionTaskState, MissionState
-from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, Mission, build_mission_intake_metadata
+from backend.domain.mission import (
+    MISSION_INTAKE_METADATA_KEY,
+    MISSION_PLAN_METADATA_KEY,
+    Mission,
+    build_mission_intake_metadata,
+    build_mission_plan_metadata,
+)
 from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_repository import MissionRepository
@@ -22,6 +28,9 @@ from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExc
 router = APIRouter(prefix="/missions", tags=["missions"])
 
 MissionPriority = Literal["low", "normal", "high", "urgent"]
+MissionPlanningStatus = Literal["draft", "in_review", "approved", "rejected", "superseded"]
+MissionRiskLevel = Literal["low", "medium", "high", "critical"]
+MissionApprovalGateStatus = Literal["not_required", "required", "approved", "rejected"]
 
 
 class MissionSuccessCriterion(BaseModel):
@@ -124,6 +133,178 @@ class MissionCreate(BaseModel):
         return normalized
 
 
+class MissionPlanStage(BaseModel):
+    """A durable, operator-visible stage inside a mission plan phase."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    intent: str = Field(min_length=1, max_length=1000)
+    desired_outputs: list[str] = Field(default_factory=list, max_length=20)
+    capability_requirements: list[str] = Field(default_factory=list, max_length=20)
+    approval_required: bool = False
+
+    @field_validator("name", "intent")
+    @classmethod
+    def _normalize_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("stage text fields must be non-empty")
+        return value
+
+    @field_validator("desired_outputs", "capability_requirements")
+    @classmethod
+    def _normalize_string_list(cls, value: list[str]) -> list[str]:
+        return _normalize_unique_string_list(value)
+
+
+class MissionPlanPhase(BaseModel):
+    """A planning phase; not a persisted DAG node and not runtime orchestration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    objective: str = Field(min_length=1, max_length=1000)
+    stages: list[MissionPlanStage] = Field(default_factory=list, max_length=20)
+
+    @field_validator("name", "objective")
+    @classmethod
+    def _normalize_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("phase text fields must be non-empty")
+        return value
+
+
+class MissionDesiredOutput(BaseModel):
+    """Expected mission output for later evidence/outcome review layers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(min_length=1, max_length=1000)
+    acceptance_criteria: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("name", "description")
+    @classmethod
+    def _normalize_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("desired output text fields must be non-empty")
+        return value
+
+    @field_validator("acceptance_criteria")
+    @classmethod
+    def _normalize_acceptance_criteria(cls, value: list[str]) -> list[str]:
+        return _normalize_unique_string_list(value)
+
+
+class MissionCapabilityRequirement(BaseModel):
+    """Capability intent without enforcing a capability registry yet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    purpose: str = Field(min_length=1, max_length=1000)
+    required: bool = True
+    risk_level: MissionRiskLevel = "medium"
+
+    @field_validator("name", "purpose")
+    @classmethod
+    def _normalize_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("capability requirement text fields must be non-empty")
+        return value
+
+
+class MissionApprovalGate(BaseModel):
+    """Human/operator approval intent captured before future execution layers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(min_length=1, max_length=1000)
+    required_before: str = Field(min_length=1, max_length=160)
+    status: MissionApprovalGateStatus = "required"
+
+    @field_validator("name", "description", "required_before")
+    @classmethod
+    def _normalize_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("approval gate text fields must be non-empty")
+        return value
+
+
+class MissionEstimatedScope(BaseModel):
+    """Estimated planning scope; advisory only and not quota enforcement."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    estimated_tasks: int | None = Field(default=None, ge=1)
+    estimated_runtime_minutes: int | None = Field(default=None, ge=1)
+    estimated_cost_usd: float | None = Field(default=None, ge=0)
+    complexity: Literal["low", "medium", "high", "unknown"] = "unknown"
+
+
+class MissionRiskAnnotation(BaseModel):
+    """Risk annotation for future governance/evidence layers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(min_length=1, max_length=1000)
+    risk_level: MissionRiskLevel = "medium"
+    mitigation: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("name", "description", "mitigation")
+    @classmethod
+    def _normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("risk annotation text fields must be non-empty when provided")
+        return value
+
+
+class MissionPlanWrite(BaseModel):
+    """Create/update mission plan contract; persistence only, never runtime dispatch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    planning_status: MissionPlanningStatus = "draft"
+    phases: list[MissionPlanPhase] = Field(min_length=1, max_length=20)
+    planning_notes: str | None = Field(default=None, max_length=5000)
+    desired_outputs: list[MissionDesiredOutput] = Field(default_factory=list, max_length=50)
+    capability_requirements: list[MissionCapabilityRequirement] = Field(default_factory=list, max_length=50)
+    execution_strategy_hints: dict[str, Any] = Field(default_factory=dict)
+    approval_gates: list[MissionApprovalGate] = Field(default_factory=list, max_length=50)
+    operator_overrides: dict[str, Any] = Field(default_factory=dict)
+    estimated_scope: MissionEstimatedScope = Field(default_factory=MissionEstimatedScope)
+    risk_annotations: list[MissionRiskAnnotation] = Field(default_factory=list, max_length=50)
+
+    @field_validator("planning_notes")
+    @classmethod
+    def _normalize_notes(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("planning notes must be non-empty when provided")
+        return value
+
+
+class MissionPlanRead(BaseModel):
+    """Mission plan response envelope stored on the mission metadata."""
+
+    mission_id: UUID
+    tenant_id: str
+    plan: dict[str, Any]
+    updated_at: str
+
+
 class MissionRead(BaseModel):
     """Mission intake response contract."""
 
@@ -142,6 +323,15 @@ class MissionQueueResponse(BaseModel):
     queued_task_ids: list[str]
     pending_review_task_ids: list[str]
     denied_tasks: list[dict[str, str | None]]
+
+
+def _normalize_unique_string_list(value: list[str]) -> list[str]:
+    normalized = [item.strip() for item in value]
+    if any(not item for item in normalized):
+        raise ValueError("list entries must be non-empty strings")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("list entries must be unique")
+    return normalized
 
 
 def _quota_exceeded_response(exc: QuotaExceededError) -> HTTPException:
@@ -170,6 +360,15 @@ def _mission_to_read(mission: Mission) -> MissionRead:
         jurisdiction=mission.jurisdiction,
         intake=mission.metadata_json.get(MISSION_INTAKE_METADATA_KEY, {}),
         created_at=mission.created_at.isoformat(),
+        updated_at=mission.updated_at.isoformat(),
+    )
+
+
+def _mission_plan_to_read(mission: Mission) -> MissionPlanRead:
+    return MissionPlanRead(
+        mission_id=mission.id,
+        tenant_id=mission.tenant_id,
+        plan=mission.metadata_json.get(MISSION_PLAN_METADATA_KEY, {}),
         updated_at=mission.updated_at.isoformat(),
     )
 
@@ -225,6 +424,54 @@ def read_mission(
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
     return _mission_to_read(mission)
+
+
+@router.put("/{mission_id}/plan", response_model=MissionPlanRead)
+def upsert_mission_plan(
+    mission_id: UUID,
+    body: MissionPlanWrite,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MissionPlanRead:
+    """Create or replace a tenant-scoped mission plan without queueing work."""
+    repo = MissionRepository(db)
+    mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    plan_metadata = build_mission_plan_metadata(
+        planning_status=body.planning_status,
+        phases=[phase.model_dump() for phase in body.phases],
+        planning_notes=body.planning_notes,
+        desired_outputs=[output.model_dump() for output in body.desired_outputs],
+        capability_requirements=[requirement.model_dump() for requirement in body.capability_requirements],
+        execution_strategy_hints=body.execution_strategy_hints,
+        approval_gates=[gate.model_dump() for gate in body.approval_gates],
+        operator_overrides=body.operator_overrides,
+        estimated_scope=body.estimated_scope.model_dump(exclude_none=True),
+        risk_annotations=[risk.model_dump() for risk in body.risk_annotations],
+    )
+    metadata = dict(mission.metadata_json or {})
+    metadata.update(plan_metadata)
+    mission = repo.update_metadata(mission=mission, metadata_json=metadata)
+    return _mission_plan_to_read(mission)
+
+
+@router.get("/{mission_id}/plan", response_model=MissionPlanRead)
+def read_mission_plan(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MissionPlanRead:
+    """Read a tenant-scoped mission plan if one has been persisted."""
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    if MISSION_PLAN_METADATA_KEY not in (mission.metadata_json or {}):
+        raise HTTPException(status_code=404, detail="mission plan not found")
+    return _mission_plan_to_read(mission)
 
 
 @router.post("/{mission_id}/queue", response_model=MissionQueueResponse)

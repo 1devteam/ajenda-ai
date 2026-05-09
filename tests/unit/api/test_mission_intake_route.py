@@ -217,3 +217,201 @@ def test_mission_intake_route_requires_tenant_and_auth_under_middleware_stack() 
         json=payload,
     )
     assert missing_auth.status_code == 401
+
+
+def _valid_plan_payload() -> dict[str, object]:
+    return {
+        "planning_status": "draft",
+        "phases": [
+            {
+                "name": "Research",
+                "objective": "Understand stale qualified opportunities.",
+                "stages": [
+                    {
+                        "name": "Collect signals",
+                        "intent": "Read approved CRM and analytics signals.",
+                        "desired_outputs": ["signal summary"],
+                        "capability_requirements": ["crm_read"],
+                        "approval_required": False,
+                    }
+                ],
+            }
+        ],
+        "planning_notes": "Prepare recommendations only; do not contact customers.",
+        "desired_outputs": [
+            {
+                "name": "Opportunity follow-up plan",
+                "description": "A recommendation set for stale qualified opportunities.",
+                "acceptance_criteria": ["Every recommendation has supporting evidence."],
+            }
+        ],
+        "capability_requirements": [
+            {
+                "name": "crm_read",
+                "purpose": "Read CRM opportunities without writing outbound communications.",
+                "required": True,
+                "risk_level": "low",
+            }
+        ],
+        "execution_strategy_hints": {"decomposition": "phase_first", "parallelism": "low"},
+        "approval_gates": [
+            {
+                "name": "Operator review",
+                "description": "Operator approves recommendations before customer contact.",
+                "required_before": "customer_contact",
+                "status": "required",
+            }
+        ],
+        "operator_overrides": {"max_parallelism": 1},
+        "estimated_scope": {"estimated_tasks": 3, "estimated_runtime_minutes": 20, "complexity": "medium"},
+        "risk_annotations": [
+            {
+                "name": "Customer contact risk",
+                "description": "This plan must not contact customers automatically.",
+                "risk_level": "medium",
+                "mitigation": "Approval gate before outreach.",
+            }
+        ],
+    }
+
+
+def _mission_with_metadata(
+    *, tenant_id: uuid.UUID, mission_id: uuid.UUID, metadata_json: dict[str, object]
+) -> SimpleNamespace:
+    updated_at = datetime(2026, 5, 9, 12, 30, tzinfo=UTC)
+    return SimpleNamespace(
+        id=mission_id,
+        tenant_id=str(tenant_id),
+        objective="Recover stale qualified opportunities.",
+        status="planned",
+        compliance_category="operational",
+        jurisdiction="US-ALL",
+        metadata_json=metadata_json,
+        created_at=updated_at,
+        updated_at=updated_at,
+    )
+
+
+def test_mission_plan_upsert_persists_tenant_scoped_plan_without_queueing() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    plan_payload = _valid_plan_payload()
+    intake_metadata = {MISSION_INTAKE_METADATA_KEY: {"schema_version": 1}}
+    mission = _mission_with_metadata(tenant_id=tenant_id, mission_id=mission_id, metadata_json=intake_metadata)
+
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    repo.update_metadata.side_effect = _update_metadata
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.put(f"/v1/missions/{mission_id}/plan", json=plan_payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mission_id"] == str(mission_id)
+    assert body["tenant_id"] == str(tenant_id)
+    assert body["plan"]["schema_version"] == 1
+    assert body["plan"]["planning_status"] == "draft"
+    assert body["plan"]["phases"] == plan_payload["phases"]
+    assert body["plan"]["desired_outputs"] == plan_payload["desired_outputs"]
+    assert body["plan"]["capability_requirements"] == plan_payload["capability_requirements"]
+    assert body["plan"]["approval_gates"] == plan_payload["approval_gates"]
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    persisted_metadata = repo.update_metadata.call_args.kwargs["metadata_json"]
+    assert persisted_metadata[MISSION_INTAKE_METADATA_KEY] == {"schema_version": 1}
+    assert persisted_metadata["mission_plan"]["estimated_scope"] == plan_payload["estimated_scope"]
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_mission_plan_read_uses_tenant_scoped_repository_query() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    plan = {"schema_version": 1, "planning_status": "draft", "phases": []}
+    mission = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={"mission_plan": plan},
+    )
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.get(f"/v1/missions/{mission_id}/plan")
+
+    assert response.status_code == 200
+    assert response.json()["plan"] == plan
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+
+
+def test_mission_plan_read_hides_cross_tenant_mission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = None
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.get(f"/v1/missions/{mission_id}/plan")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+
+
+def test_mission_plan_validation_rejects_empty_phase_list_and_blank_stage_text() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    missing_phases = _valid_plan_payload()
+    missing_phases["phases"] = []
+    blank_stage = _valid_plan_payload()
+    blank_stage["phases"] = [
+        {
+            "name": "Research",
+            "objective": "Understand stale qualified opportunities.",
+            "stages": [{"name": " ", "intent": "Collect signals."}],
+        }
+    ]
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        missing_phases_response = client.put(f"/v1/missions/{mission_id}/plan", json=missing_phases)
+        blank_stage_response = client.put(f"/v1/missions/{mission_id}/plan", json=blank_stage)
+
+    assert missing_phases_response.status_code == 422
+    assert blank_stage_response.status_code == 422
+    repo_cls.assert_not_called()
+
+
+def test_mission_plan_upsert_hides_cross_tenant_mission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = None
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.put(f"/v1/missions/{mission_id}/plan", json=_valid_plan_payload())
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    repo.update_metadata.assert_not_called()
