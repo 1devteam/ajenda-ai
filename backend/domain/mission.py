@@ -15,6 +15,8 @@ MISSION_INTAKE_METADATA_KEY = "mission_intake"
 MISSION_INTAKE_SCHEMA_VERSION = 1
 MISSION_PLAN_METADATA_KEY = "mission_plan"
 MISSION_PLAN_SCHEMA_VERSION = 1
+MISSION_TASK_GRAPH_METADATA_KEY = "mission_task_graph"
+MISSION_TASK_GRAPH_SCHEMA_VERSION = 1
 
 
 def utcnow() -> datetime:
@@ -92,6 +94,35 @@ def build_mission_plan_metadata(
             "operator_overrides": operator_overrides,
             "estimated_scope": estimated_scope,
             "risk_annotations": risk_annotations,
+        }
+    }
+
+
+def build_mission_task_graph_metadata(
+    *,
+    mission_id: str,
+    graph_status: str,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    operator_notes: str | None,
+    validation_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the durable metadata envelope for task graph contracts v1.
+
+    Task graph contracts describe planned work structure between mission
+    planning and future materialization. They are deliberately metadata-only:
+    persisting this envelope must not create execution tasks, queue work, call
+    runtime coordinators, or enforce capability execution behavior.
+    """
+    return {
+        MISSION_TASK_GRAPH_METADATA_KEY: {
+            "schema_version": MISSION_TASK_GRAPH_SCHEMA_VERSION,
+            "mission_id": mission_id,
+            "graph_status": graph_status,
+            "nodes": nodes,
+            "edges": edges,
+            "operator_notes": operator_notes,
+            "validation_metadata": validation_metadata,
         }
     }
 

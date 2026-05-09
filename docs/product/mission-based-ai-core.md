@@ -306,7 +306,7 @@ Deferred by design:
 
 - planner execution;
 - dynamic decomposition;
-- task graph/DAG persistence;
+- task graph execution/materialization;
 - capability registry enforcement;
 - runtime dispatch changes;
 - worker handler changes;
@@ -354,6 +354,27 @@ First-class in this block:
 
 Capability registry remains a contract layer only. Persisting or updating a capability does not execute work, register worker handlers, bind runtime dispatch, generate DAGs, select capabilities for a plan, enforce routing, or modify queue/recovery behavior. Capability execution and enforcement remain future layers above the governed runtime foundation.
 
+
+## Task Graph Contracts V1
+
+Task graph contracts now define durable, tenant-scoped planned work structure between mission planning and future materialization/execution. `PUT /v1/missions/{mission_id}/task-graph` creates or replaces a graph contract, and `GET /v1/missions/{mission_id}/task-graph` reads it back through the same tenant-scoped mission repository boundary. The graph is persisted additively in `Mission.metadata_json["mission_task_graph"]` with `schema_version = 1`.
+
+First-class in this block:
+
+- graph status and schema version;
+- mission identifier binding;
+- graph nodes;
+- graph edges/dependencies;
+- node capability references;
+- node intended task type;
+- node input and expected output contracts;
+- node risk level and approval requirement;
+- node execution constraints;
+- operator notes;
+- graph validation metadata.
+
+Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects duplicate node keys, rejects edges pointing to missing nodes, and rejects cycles, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, enforce capability runtime behavior, or materialize the graph into runtime tasks. Materialization and execution remain future layers above the governed runtime foundation.
+
 # Build Direction
 
 Ajenda should evolve through:
@@ -361,7 +382,7 @@ Ajenda should evolve through:
 1. mission intake
 2. mission planning contracts
 3. capability registry
-4. task graph generation
+4. task graph contracts
 5. real worker skills
 6. evidence-backed execution
 7. outcome review

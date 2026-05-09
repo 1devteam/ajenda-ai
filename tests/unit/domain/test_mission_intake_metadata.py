@@ -3,8 +3,10 @@ from __future__ import annotations
 from backend.domain.mission import (
     MISSION_INTAKE_METADATA_KEY,
     MISSION_PLAN_METADATA_KEY,
+    MISSION_TASK_GRAPH_METADATA_KEY,
     build_mission_intake_metadata,
     build_mission_plan_metadata,
+    build_mission_task_graph_metadata,
 )
 
 
@@ -139,4 +141,52 @@ def test_build_mission_plan_metadata_preserves_first_class_planning_fields() -> 
                 "mitigation": "Approval gate before outreach.",
             }
         ],
+    }
+
+
+def test_build_mission_task_graph_metadata_preserves_first_class_graph_fields() -> None:
+    metadata = build_mission_task_graph_metadata(
+        mission_id="mission-123",
+        graph_status="draft",
+        nodes=[
+            {
+                "key": "collect-signals",
+                "name": "Collect signals",
+                "intended_task_type": "crm_research",
+                "capability_references": [{"name": "crm_read", "purpose": "Read CRM records."}],
+                "input_contract": {"source": "crm"},
+                "expected_output_contract": {"artifact": "signal_summary"},
+                "risk_level": "low",
+                "approval_required": False,
+                "execution_constraints": {"read_only": True},
+                "operator_notes": "Tenant-approved fields only.",
+            }
+        ],
+        edges=[],
+        operator_notes="Contract only.",
+        validation_metadata={"validation_status": "valid", "node_count": 1, "edge_count": 0},
+    )
+
+    task_graph = metadata[MISSION_TASK_GRAPH_METADATA_KEY]
+    assert task_graph == {
+        "schema_version": 1,
+        "mission_id": "mission-123",
+        "graph_status": "draft",
+        "nodes": [
+            {
+                "key": "collect-signals",
+                "name": "Collect signals",
+                "intended_task_type": "crm_research",
+                "capability_references": [{"name": "crm_read", "purpose": "Read CRM records."}],
+                "input_contract": {"source": "crm"},
+                "expected_output_contract": {"artifact": "signal_summary"},
+                "risk_level": "low",
+                "approval_required": False,
+                "execution_constraints": {"read_only": True},
+                "operator_notes": "Tenant-approved fields only.",
+            }
+        ],
+        "edges": [],
+        "operator_notes": "Contract only.",
+        "validation_metadata": {"validation_status": "valid", "node_count": 1, "edge_count": 0},
     }

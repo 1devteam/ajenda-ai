@@ -415,3 +415,237 @@ def test_mission_plan_upsert_hides_cross_tenant_mission() -> None:
     assert response.status_code == 404
     assert response.json() == {"detail": "mission not found for tenant"}
     repo.update_metadata.assert_not_called()
+
+
+def _valid_task_graph_payload() -> dict[str, object]:
+    capability_id = str(uuid.uuid4())
+    return {
+        "graph_status": "draft",
+        "nodes": [
+            {
+                "key": "collect-signals",
+                "name": "Collect approved signals",
+                "intended_task_type": "crm_research",
+                "capability_references": [
+                    {
+                        "capability_id": capability_id,
+                        "name": "crm_read",
+                        "version": "1.0.0",
+                        "purpose": "Read approved CRM opportunity records.",
+                    }
+                ],
+                "input_contract": {"sources": ["crm"], "scope": "stale qualified opportunities"},
+                "expected_output_contract": {"artifact": "signal_summary"},
+                "risk_level": "low",
+                "approval_required": False,
+                "execution_constraints": {"read_only": True},
+                "operator_notes": "Use tenant-approved CRM fields only.",
+            },
+            {
+                "key": "draft-recommendations",
+                "name": "Draft recommendations",
+                "intended_task_type": "recommendation_draft",
+                "capability_references": [{"name": "analysis", "purpose": "Prepare recommendations."}],
+                "input_contract": {"requires": "signal_summary"},
+                "expected_output_contract": {"artifact": "recommendation_set"},
+                "risk_level": "medium",
+                "approval_required": True,
+                "execution_constraints": {"no_customer_contact": True},
+                "operator_notes": "Do not queue or dispatch from this graph.",
+            },
+        ],
+        "edges": [
+            {
+                "from_node_key": "collect-signals",
+                "to_node_key": "draft-recommendations",
+                "dependency_type": "depends_on",
+                "description": "Recommendations require collected CRM signals.",
+            }
+        ],
+        "operator_notes": "Contract only; future materialization will review this graph.",
+    }
+
+
+def test_mission_task_graph_upsert_persists_tenant_scoped_graph_without_queueing() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    graph_payload = _valid_task_graph_payload()
+    mission = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={MISSION_INTAKE_METADATA_KEY: {"schema_version": 1}, "mission_plan": {"schema_version": 1}},
+    )
+
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    repo.update_metadata.side_effect = _update_metadata
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.put(f"/v1/missions/{mission_id}/task-graph", json=graph_payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mission_id"] == str(mission_id)
+    assert body["tenant_id"] == str(tenant_id)
+    task_graph = body["task_graph"]
+    assert task_graph["schema_version"] == 1
+    assert task_graph["mission_id"] == str(mission_id)
+    assert task_graph["graph_status"] == "draft"
+    assert task_graph["nodes"] == graph_payload["nodes"]
+    assert task_graph["edges"] == graph_payload["edges"]
+    assert task_graph["validation_metadata"]["validation_status"] == "valid"
+    assert task_graph["validation_metadata"]["node_count"] == 2
+    assert task_graph["validation_metadata"]["edge_count"] == 1
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    persisted_metadata = repo.update_metadata.call_args.kwargs["metadata_json"]
+    assert persisted_metadata[MISSION_INTAKE_METADATA_KEY] == {"schema_version": 1}
+    assert persisted_metadata["mission_plan"] == {"schema_version": 1}
+    assert persisted_metadata["mission_task_graph"]["nodes"] == graph_payload["nodes"]
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_mission_task_graph_read_uses_tenant_scoped_repository_query() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    task_graph = {
+        "schema_version": 1,
+        "mission_id": str(mission_id),
+        "graph_status": "draft",
+        "nodes": _valid_task_graph_payload()["nodes"],
+        "edges": [],
+        "operator_notes": None,
+        "validation_metadata": {"validation_status": "valid"},
+    }
+    mission = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={"mission_task_graph": task_graph},
+    )
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.get(f"/v1/missions/{mission_id}/task-graph")
+
+    assert response.status_code == 200
+    assert response.json()["task_graph"] == task_graph
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+
+
+def test_mission_task_graph_read_hides_cross_tenant_mission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = None
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.get(f"/v1/missions/{mission_id}/task-graph")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+
+
+def test_mission_task_graph_upsert_hides_cross_tenant_mission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = None
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.put(f"/v1/missions/{mission_id}/task-graph", json=_valid_task_graph_payload())
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    repo.update_metadata.assert_not_called()
+
+
+def test_mission_task_graph_validation_rejects_duplicate_node_keys() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = _valid_task_graph_payload()
+    payload["nodes"][1]["key"] = "collect-signals"
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        response = client.put(f"/v1/missions/{mission_id}/task-graph", json=payload)
+
+    assert response.status_code == 422
+    assert "task graph node keys must be unique" in response.text
+    repo_cls.assert_not_called()
+
+
+def test_mission_task_graph_validation_rejects_edge_to_missing_node() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = _valid_task_graph_payload()
+    payload["edges"][0]["to_node_key"] = "missing-node"
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        response = client.put(f"/v1/missions/{mission_id}/task-graph", json=payload)
+
+    assert response.status_code == 422
+    assert "task graph edges must reference existing node keys" in response.text
+    repo_cls.assert_not_called()
+
+
+def test_mission_task_graph_validation_rejects_cycle() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = _valid_task_graph_payload()
+    payload["edges"].append(
+        {
+            "from_node_key": "draft-recommendations",
+            "to_node_key": "collect-signals",
+            "dependency_type": "depends_on",
+        }
+    )
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        response = client.put(f"/v1/missions/{mission_id}/task-graph", json=payload)
+
+    assert response.status_code == 422
+    assert "task graph must be acyclic" in response.text
+    repo_cls.assert_not_called()
+
+
+def test_mission_task_graph_validation_rejects_empty_node_list() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = _valid_task_graph_payload()
+    payload["nodes"] = []
+    payload["edges"] = []
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        response = client.put(f"/v1/missions/{mission_id}/task-graph", json=payload)
+
+    assert response.status_code == 422
+    repo_cls.assert_not_called()
