@@ -39,6 +39,7 @@ from backend.api.routes.admin import router as admin_router
 from backend.api.routes.api_keys import router as api_keys_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.branch import router as branch_router
+from backend.api.routes.capability import router as capability_router
 from backend.api.routes.health import router as health_router
 from backend.api.routes.mission import router as mission_router
 from backend.api.routes.observability import router as observability_router
@@ -66,6 +67,7 @@ def build_api_router() -> APIRouter:
     v1 = APIRouter(prefix="/v1")
     v1.include_router(auth_router)  # /v1/auth/*
     v1.include_router(api_keys_router)  # /v1/api-keys/*
+    v1.include_router(capability_router)  # /v1/capabilities/*
     v1.include_router(mission_router)  # /v1/missions/*
     v1.include_router(task_router)  # /v1/tasks/*
     v1.include_router(workforce_router)  # /v1/workforce/*

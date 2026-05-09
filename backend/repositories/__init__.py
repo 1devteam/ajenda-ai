@@ -1,4 +1,5 @@
 from backend.repositories.audit_event_repository import AuditEventRepository
+from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.execution_branch_repository import ExecutionBranchRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.governance_event_repository import GovernanceEventRepository
@@ -10,6 +11,7 @@ from backend.repositories.workforce_fleet_repository import WorkforceFleetReposi
 
 __all__ = [
     "AuditEventRepository",
+    "CapabilityRepository",
     "ExecutionBranchRepository",
     "ExecutionTaskRepository",
     "GovernanceEventRepository",

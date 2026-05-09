@@ -90,6 +90,7 @@ Important boundary rule:
   - `/v1/auth/*`
   - `/v1/api-keys/*`
   - `/v1/missions/*`
+  - `/v1/capabilities/*`
   - `/v1/tasks/*`
   - `/v1/workforce/*`
   - `/v1/branches/*`
