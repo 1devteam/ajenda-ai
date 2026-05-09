@@ -311,8 +311,9 @@ Run integration and validation flows when your change affects runtime behavior, 
 
 ## Source-of-truth docs
 
-Start here when working on current runtime behavior:
+Start here when working on product direction and current runtime behavior:
 
+- `docs/product/mission-based-ai-core.md`
 - `docs/validation/live-runtime-matrix.md`
 - `docs/validation/live-runtime-proof-release-gate.md`
 - `artifacts/validation/README.md`
