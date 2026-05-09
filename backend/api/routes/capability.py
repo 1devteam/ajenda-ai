@@ -95,6 +95,14 @@ class CapabilityUpdate(BaseModel):
     execution_constraints: dict[str, Any] | None = None
     enabled: bool | None = None
 
+    @model_validator(mode="after")
+    def _reject_explicit_null_patch_values(self) -> CapabilityUpdate:
+        null_fields = [field for field in self.model_fields_set if getattr(self, field) is None]
+        if null_fields:
+            joined_fields = ", ".join(sorted(null_fields))
+            raise ValueError(f"capability patch fields cannot be null: {joined_fields}")
+        return self
+
     @field_validator("description")
     @classmethod
     def _normalize_description(cls, value: str | None) -> str | None:
