@@ -224,10 +224,13 @@ Capabilities should declare:
 - risk level
 - approval requirements
 - evidence produced
-- handler mapping
-- enabled tenants/plans if applicable
+- evidence expectations
+- execution constraints
+- enabled/disabled state
+- optional tenant scoping
+- version/schema version
 
-This allows new modules and capabilities to be added without restructuring the platform.
+This allows new modules and capabilities to be added without restructuring the platform. Handler binding and runtime enforcement are separate future layers, not part of the registry contract itself.
 
 ---
 
@@ -330,6 +333,26 @@ First-class in this block:
 - planning status.
 
 Mission planning remains a contract layer only. Persisting a plan does not queue work, create execution tasks, generate a task graph, enforce a capability registry, promote memory, run outcome review, or modify worker/runtime orchestration. Runtime authority remains with the governed queue, lease, policy, recovery, and validation layers.
+
+## Capability Registry V1 Contracts
+
+Capability registry contracts now define durable declarations that future planners and task graphs can reference safely. `POST /v1/capabilities`, `PATCH /v1/capabilities/{capability_id}`, `GET /v1/capabilities`, and `GET /v1/capabilities/{capability_id}` persist and read capability metadata through tenant-authenticated route boundaries. Tenant-scoped capabilities are owned by the request tenant; global capabilities are visible to tenants when seeded through repository/migration/admin-safe paths.
+
+First-class in this block:
+
+- capability name and description;
+- supported task types;
+- input and output schema hints;
+- required permissions and tools;
+- risk level;
+- approval requirements;
+- evidence expectations;
+- execution constraints;
+- enabled/disabled state;
+- tenant or global scope;
+- version and schema version.
+
+Capability registry remains a contract layer only. Persisting or updating a capability does not execute work, register worker handlers, bind runtime dispatch, generate DAGs, select capabilities for a plan, enforce routing, or modify queue/recovery behavior. Capability execution and enforcement remain future layers above the governed runtime foundation.
 
 # Build Direction
 
