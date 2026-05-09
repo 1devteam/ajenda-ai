@@ -11,9 +11,50 @@ from sqlalchemy.orm import Mapped, mapped_column
 from backend.db.base import Base
 from backend.domain.enums import MissionState
 
+MISSION_INTAKE_METADATA_KEY = "mission_intake"
+MISSION_INTAKE_SCHEMA_VERSION = 1
+
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def build_mission_intake_metadata(
+    *,
+    success_criteria: list[dict[str, Any]],
+    constraints: list[dict[str, Any]],
+    operator_notes: str | None,
+    context: dict[str, Any],
+    priority: str,
+    approval_required: bool,
+    approval_expectations: list[str],
+    budget_limits: dict[str, Any] | None,
+    scope_limits: list[str],
+    allowed_actions: list[str],
+    allowed_tools: list[str],
+) -> dict[str, Any]:
+    """Build the durable metadata envelope for mission intake v1.
+
+    Mission intake is a product-layer contract stored in structured mission
+    metadata so this first block can stay additive and avoid a migration while
+    preserving existing runtime queue/worker/recovery behavior.
+    """
+    return {
+        MISSION_INTAKE_METADATA_KEY: {
+            "schema_version": MISSION_INTAKE_SCHEMA_VERSION,
+            "success_criteria": success_criteria,
+            "constraints": constraints,
+            "operator_notes": operator_notes,
+            "context": context,
+            "priority": priority,
+            "approval_required": approval_required,
+            "approval_expectations": approval_expectations,
+            "budget_limits": budget_limits,
+            "scope_limits": scope_limits,
+            "allowed_actions": allowed_actions,
+            "allowed_tools": allowed_tools,
+        }
+    }
 
 
 class Mission(Base):
