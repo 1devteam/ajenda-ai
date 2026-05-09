@@ -371,9 +371,28 @@ First-class in this block:
 - node risk level and approval requirement;
 - node execution constraints;
 - operator notes;
-- graph validation metadata.
+- graph validation metadata;
+- graph version and immutable graph fingerprint for downstream materialization references.
 
-Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects duplicate node keys, rejects edges pointing to missing nodes, and rejects cycles, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, enforce capability runtime behavior, or materialize the graph into runtime tasks. Materialization and execution remain future layers above the governed runtime foundation.
+Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects duplicate node keys, rejects edges pointing to missing nodes, and rejects cycles, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
+
+## Planner-to-Graph Materialization V1 Contracts
+
+Planner-to-graph materialization contracts now define durable metadata describing how a mission plan becomes a validated task graph using declared capabilities. `POST /v1/missions/{mission_id}/materialize-graph` creates or updates the metadata contract, and `GET /v1/missions/{mission_id}/materialization` reads it back through the same tenant-scoped mission repository boundary. The contract is persisted additively in `Mission.metadata_json["graph_materialization"]` with `schema_version = 1`.
+
+First-class in this block:
+
+- materialization status, source, source version, schema version, and version counter;
+- planner provenance;
+- capability-selection provenance;
+- graph validation result summaries and checks;
+- operator review/approval status;
+- graph generation metadata and notes;
+- deterministic compilation boundaries and fingerprints;
+- timestamps for materialization and updates;
+- graph reference version/fingerprint so consumers can detect stale materialization metadata.
+
+Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may validate mission ownership, the existence of a task graph, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Task graph replacement increments the graph version, changes the graph fingerprint, and supersedes any existing materialization metadata so approved/validated materialization cannot silently point at an older graph. Runtime execution/materialization remain future layers above the governed runtime foundation.
 
 # Build Direction
 
@@ -383,10 +402,11 @@ Ajenda should evolve through:
 2. mission planning contracts
 3. capability registry
 4. task graph contracts
-5. real worker skills
-6. evidence-backed execution
-7. outcome review
-8. memory promotion
+5. planner-to-graph materialization contracts
+6. real worker skills
+7. evidence-backed execution
+8. outcome review
+9. memory promotion
 
 The runtime foundation should remain authoritative.
 

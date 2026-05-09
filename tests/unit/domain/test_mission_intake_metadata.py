@@ -172,6 +172,8 @@ def test_build_mission_task_graph_metadata_preserves_first_class_graph_fields() 
         "schema_version": 1,
         "mission_id": "mission-123",
         "graph_status": "draft",
+        "graph_version": 1,
+        "graph_fingerprint": None,
         "nodes": [
             {
                 "key": "collect-signals",

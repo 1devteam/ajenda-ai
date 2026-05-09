@@ -17,6 +17,8 @@ MISSION_PLAN_METADATA_KEY = "mission_plan"
 MISSION_PLAN_SCHEMA_VERSION = 1
 MISSION_TASK_GRAPH_METADATA_KEY = "mission_task_graph"
 MISSION_TASK_GRAPH_SCHEMA_VERSION = 1
+MISSION_GRAPH_MATERIALIZATION_METADATA_KEY = "graph_materialization"
+MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION = 1
 
 
 def utcnow() -> datetime:
@@ -106,6 +108,8 @@ def build_mission_task_graph_metadata(
     edges: list[dict[str, Any]],
     operator_notes: str | None,
     validation_metadata: dict[str, Any],
+    graph_version: int = 1,
+    graph_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     """Build the durable metadata envelope for task graph contracts v1.
 
@@ -119,10 +123,60 @@ def build_mission_task_graph_metadata(
             "schema_version": MISSION_TASK_GRAPH_SCHEMA_VERSION,
             "mission_id": mission_id,
             "graph_status": graph_status,
+            "graph_version": graph_version,
+            "graph_fingerprint": graph_fingerprint,
             "nodes": nodes,
             "edges": edges,
             "operator_notes": operator_notes,
             "validation_metadata": validation_metadata,
+        }
+    }
+
+
+def build_graph_materialization_metadata(
+    *,
+    mission_id: str,
+    materialization_status: str,
+    materialization_source: str,
+    materialization_source_version: str,
+    materialization_version: int,
+    planner_provenance: dict[str, Any],
+    capability_selection_provenance: list[dict[str, Any]],
+    graph_validation_result: dict[str, Any],
+    operator_review: dict[str, Any],
+    graph_generation_metadata: dict[str, Any],
+    deterministic_compilation_metadata: dict[str, Any],
+    generation_notes: list[str],
+    materialized_at: str,
+    updated_at: str,
+    graph_reference: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the durable metadata envelope for planner-to-graph materialization v1.
+
+    Planner-to-graph materialization contracts describe how an approved or
+    reviewed mission plan becomes a validated task graph using declared
+    capabilities. This envelope is deliberately metadata-only: persisting it
+    must not create execution tasks, queue work, call runtime coordinators,
+    dispatch workers, or execute capabilities.
+    """
+    return {
+        MISSION_GRAPH_MATERIALIZATION_METADATA_KEY: {
+            "schema_version": MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION,
+            "mission_id": mission_id,
+            "materialization_status": materialization_status,
+            "materialization_source": materialization_source,
+            "materialization_source_version": materialization_source_version,
+            "materialization_version": materialization_version,
+            "planner_provenance": planner_provenance,
+            "capability_selection_provenance": capability_selection_provenance,
+            "graph_validation_result": graph_validation_result,
+            "operator_review": operator_review,
+            "graph_generation_metadata": graph_generation_metadata,
+            "deterministic_compilation_metadata": deterministic_compilation_metadata,
+            "generation_notes": generation_notes,
+            "materialized_at": materialized_at,
+            "updated_at": updated_at,
+            "graph_reference": graph_reference,
         }
     }
 

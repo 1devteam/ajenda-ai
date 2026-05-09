@@ -10,7 +10,12 @@ from fastapi.testclient import TestClient
 
 from backend.api.routes import mission as mission_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
-from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, build_mission_intake_metadata
+from backend.domain.mission import (
+    MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
+    MISSION_INTAKE_METADATA_KEY,
+    MISSION_TASK_GRAPH_METADATA_KEY,
+    build_mission_intake_metadata,
+)
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
@@ -503,6 +508,8 @@ def test_mission_task_graph_upsert_persists_tenant_scoped_graph_without_queueing
     assert task_graph["schema_version"] == 1
     assert task_graph["mission_id"] == str(mission_id)
     assert task_graph["graph_status"] == "draft"
+    assert task_graph["graph_version"] == 1
+    assert task_graph["graph_fingerprint"].startswith("sha256:")
     assert task_graph["nodes"] == graph_payload["nodes"]
     assert task_graph["edges"] == graph_payload["edges"]
     assert task_graph["validation_metadata"]["validation_status"] == "valid"
@@ -513,6 +520,59 @@ def test_mission_task_graph_upsert_persists_tenant_scoped_graph_without_queueing
     assert persisted_metadata[MISSION_INTAKE_METADATA_KEY] == {"schema_version": 1}
     assert persisted_metadata["mission_plan"] == {"schema_version": 1}
     assert persisted_metadata["mission_task_graph"]["nodes"] == graph_payload["nodes"]
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_mission_task_graph_update_supersedes_existing_materialization_with_new_graph_identity() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    old_graph_fingerprint = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]["graph_fingerprint"]
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = {
+        "schema_version": 1,
+        "materialization_status": "approved",
+        "materialization_version": 2,
+        "graph_reference": {
+            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+            "graph_version": 7,
+            "graph_fingerprint": old_graph_fingerprint,
+        },
+    }
+    graph_payload = _valid_task_graph_payload()
+    graph_payload["nodes"][0]["name"] = "Collect updated approved signals"
+
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    repo.update_metadata.side_effect = _update_metadata
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.put(f"/v1/missions/{mission_id}/task-graph", json=graph_payload)
+
+    assert response.status_code == 200
+    persisted_metadata = repo.update_metadata.call_args.kwargs["metadata_json"]
+    task_graph = persisted_metadata[MISSION_TASK_GRAPH_METADATA_KEY]
+    materialization = persisted_metadata[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY]
+    assert task_graph["graph_version"] == 8
+    assert task_graph["graph_fingerprint"].startswith("sha256:")
+    assert task_graph["graph_fingerprint"] != old_graph_fingerprint
+    assert materialization["materialization_status"] == "superseded"
+    assert materialization["superseded_reason"] == "task_graph_replaced"
+    assert materialization["superseded_by_graph_version"] == 8
+    assert materialization["superseded_by_graph_fingerprint"] == task_graph["graph_fingerprint"]
     task_repo_cls.assert_not_called()
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
@@ -648,4 +708,285 @@ def test_mission_task_graph_validation_rejects_empty_node_list() -> None:
         response = client.put(f"/v1/missions/{mission_id}/task-graph", json=payload)
 
     assert response.status_code == 422
+    repo_cls.assert_not_called()
+
+
+def _valid_materialization_payload(capability_id: str | None = None) -> dict[str, object]:
+    selection: dict[str, object] = {
+        "node_key": "collect-signals",
+        "capability_name": "crm_read",
+        "capability_version": "1.0.0",
+        "selection_reason": "Matches the read-only CRM research node contract.",
+        "selected_by": "planner-contract-test",
+        "alternatives_considered": ["manual_export"],
+    }
+    if capability_id is not None:
+        selection["capability_id"] = capability_id
+    return {
+        "materialization_status": "validated",
+        "materialization_source": "mission_plan",
+        "materialization_source_version": "1",
+        "planner_provenance": {
+            "planner_type": "contract_planner",
+            "planner_id": "planner-v1",
+            "planning_run_id": "run-123",
+            "plan_schema_version": 1,
+            "inputs_checksum": "sha256:test-input",
+        },
+        "capability_selection_provenance": [selection],
+        "graph_validation_result": {
+            "validation_status": "valid",
+            "summary": "Graph shape and capability selections passed contract validation.",
+            "validated_at": "2026-05-09T12:00:00Z",
+            "checks": [
+                {"name": "node_keys", "status": "passed", "details": "All selected nodes exist."},
+                {"name": "capabilities", "status": "passed", "details": "Referenced capabilities are visible."},
+            ],
+        },
+        "operator_review": {
+            "status": "pending",
+            "notes": "Operator has not approved runtime execution.",
+        },
+        "graph_generation_metadata": {
+            "generator": "contract-compiler",
+            "generation_mode": "deterministic",
+            "generated_at": "2026-05-09T12:00:00Z",
+            "compiler_version": "1.0.0",
+            "source_plan_version": "1",
+            "deterministic_inputs": {"plan_key": "mission_plan", "graph_key": "mission_task_graph"},
+        },
+        "deterministic_compilation_metadata": {
+            "compiler_name": "planner-to-graph-contract-compiler",
+            "compiler_version": "1.0.0",
+            "compilation_boundary": "planner_contract_to_task_graph_contract",
+            "input_fingerprint": "sha256:input",
+            "output_fingerprint": "sha256:output",
+            "deterministic": True,
+        },
+        "generation_notes": ["Metadata-only materialization; no runtime queueing."],
+    }
+
+
+def _mission_with_task_graph(tenant_id: uuid.UUID, mission_id: uuid.UUID) -> SimpleNamespace:
+    graph_payload = _valid_task_graph_payload()
+    task_graph = {
+        "schema_version": 1,
+        "mission_id": str(mission_id),
+        "graph_status": "approved",
+        "graph_version": 7,
+        "graph_fingerprint": "sha256:existing-graph",
+        "nodes": graph_payload["nodes"],
+        "edges": graph_payload["edges"],
+        "operator_notes": graph_payload["operator_notes"],
+        "validation_metadata": {"validation_status": "valid"},
+    }
+    return _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={
+            MISSION_INTAKE_METADATA_KEY: {"schema_version": 1},
+            "mission_plan": {"schema_version": 1, "planning_status": "approved"},
+            MISSION_TASK_GRAPH_METADATA_KEY: task_graph,
+        },
+    )
+
+
+def test_graph_materialization_persists_metadata_without_queueing_or_runtime_calls() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    original_graph = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]
+
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    mission_repo.update_metadata.side_effect = _update_metadata
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=capability_id)
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.post(
+            f"/v1/missions/{mission_id}/materialize-graph",
+            json=_valid_materialization_payload(str(capability_id)),
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    materialization = body["materialization"]
+    assert materialization["schema_version"] == 1
+    assert materialization["mission_id"] == str(mission_id)
+    assert materialization["materialization_status"] == "validated"
+    assert materialization["materialization_version"] == 1
+    assert materialization["planner_provenance"]["planner_type"] == "contract_planner"
+    assert materialization["capability_selection_provenance"][0]["capability_id"] == str(capability_id)
+    assert materialization["graph_validation_result"]["validation_status"] == "valid"
+    assert materialization["operator_review"]["status"] == "pending"
+    assert materialization["deterministic_compilation_metadata"]["deterministic"] is True
+    assert materialization["graph_reference"]["node_count"] == 2
+    assert materialization["graph_reference"]["graph_version"] == 7
+    assert materialization["graph_reference"]["graph_fingerprint"] == "sha256:existing-graph"
+    persisted_metadata = mission_repo.update_metadata.call_args.kwargs["metadata_json"]
+    assert persisted_metadata[MISSION_TASK_GRAPH_METADATA_KEY] == original_graph
+    assert MISSION_GRAPH_MATERIALIZATION_METADATA_KEY in persisted_metadata
+    mission_repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    capability_repo.get_visible_for_tenant.assert_called_once_with(
+        capability_id=capability_id, tenant_id=str(tenant_id)
+    )
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_graph_materialization_read_uses_tenant_scoped_repository_query() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    materialization = {"schema_version": 1, "materialization_status": "validated"}
+    mission = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={MISSION_GRAPH_MATERIALIZATION_METADATA_KEY: materialization},
+    )
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.get(f"/v1/missions/{mission_id}/materialization")
+
+    assert response.status_code == 200
+    assert response.json()["materialization"] == materialization
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+
+
+def test_graph_materialization_read_hides_cross_tenant_mission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = None
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.get(f"/v1/missions/{mission_id}/materialization")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+
+
+def test_graph_materialization_update_increments_version_and_preserves_existing_graph() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = {
+        "schema_version": 1,
+        "materialization_version": 3,
+        "materialized_at": "2026-05-09T11:00:00+00:00",
+    }
+    original_graph = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    repo.update_metadata.side_effect = _update_metadata
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.CapabilityRepository") as capability_repo_cls,
+    ):
+        response = client.post(
+            f"/v1/missions/{mission_id}/materialize-graph",
+            json=_valid_materialization_payload(),
+        )
+
+    assert response.status_code == 200
+    materialization = response.json()["materialization"]
+    assert materialization["materialization_version"] == 4
+    assert materialization["materialized_at"] == "2026-05-09T11:00:00+00:00"
+    assert repo.update_metadata.call_args.kwargs["metadata_json"][MISSION_TASK_GRAPH_METADATA_KEY] == original_graph
+    capability_repo_cls.return_value.get_visible_for_tenant.assert_not_called()
+
+
+def test_graph_materialization_rejects_missing_task_graph() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={MISSION_INTAKE_METADATA_KEY: {"schema_version": 1}},
+    )
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+        response = client.post(
+            f"/v1/missions/{mission_id}/materialize-graph",
+            json=_valid_materialization_payload(),
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "mission task graph is required before materialization"}
+    repo.update_metadata.assert_not_called()
+
+
+def test_graph_materialization_rejects_missing_capability_id() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = None
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+    ):
+        response = client.post(
+            f"/v1/missions/{mission_id}/materialize-graph",
+            json=_valid_materialization_payload(str(capability_id)),
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": f"capability not found for tenant: {capability_id}"}
+    mission_repo.update_metadata.assert_not_called()
+
+
+def test_graph_materialization_validation_requires_structured_validation_summary() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = _valid_materialization_payload()
+    payload["graph_validation_result"] = {"validation_status": "valid", "summary": " "}
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        response = client.post(f"/v1/missions/{mission_id}/materialize-graph", json=payload)
+
+    assert response.status_code == 422
+    assert "graph validation summary is required" in response.text
     repo_cls.assert_not_called()
