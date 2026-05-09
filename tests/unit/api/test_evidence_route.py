@@ -506,7 +506,30 @@ def test_update_evidence_status_and_metadata_works() -> None:
     evidence_repo.update.assert_called_once_with(evidence)
 
 
-def test_evidence_patch_rejects_explicit_null_values() -> None:
+def test_update_evidence_allows_clearing_nullable_confidence() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    evidence_id = uuid.uuid4()
+    evidence = _evidence_record(tenant_id=str(tenant_id), mission_id=mission_id, evidence_id=evidence_id)
+    evidence.confidence = 0.91
+    updated = _evidence_record(tenant_id=str(tenant_id), mission_id=mission_id, evidence_id=evidence_id)
+    updated.confidence = None
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    evidence_repo = MagicMock()
+    evidence_repo.get_for_tenant.return_value = evidence
+    evidence_repo.update.return_value = updated
+
+    with patch("backend.api.routes.evidence.EvidenceRepository", return_value=evidence_repo):
+        response = client.patch(f"/v1/evidence/{evidence_id}", json={"confidence": None})
+
+    assert response.status_code == 200
+    assert response.json()["confidence"] is None
+    assert evidence.confidence is None
+    evidence_repo.update.assert_called_once_with(evidence)
+
+
+def test_evidence_patch_rejects_explicit_null_collection_status() -> None:
     tenant_id = uuid.uuid4()
     evidence_id = uuid.uuid4()
     app = _build_app(tenant_id)

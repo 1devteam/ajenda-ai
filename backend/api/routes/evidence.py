@@ -78,7 +78,10 @@ class EvidenceUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _reject_explicit_null_patch_values(self) -> EvidenceUpdate:
-        null_fields = [field for field in self.model_fields_set if getattr(self, field) is None]
+        nullable_fields = {"confidence"}
+        null_fields = [
+            field for field in self.model_fields_set if field not in nullable_fields and getattr(self, field) is None
+        ]
         if null_fields:
             joined_fields = ", ".join(sorted(null_fields))
             raise ValueError(f"evidence patch fields cannot be null: {joined_fields}")
