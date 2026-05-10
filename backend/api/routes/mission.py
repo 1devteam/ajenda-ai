@@ -1069,6 +1069,28 @@ def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
     )
 
 
+def _cancel_superseded_materialized_planned_tasks(
+    *, metadata: dict[str, Any], task_repo: ExecutionTaskRepository, tenant_id: str, mission_id: UUID
+) -> list[str]:
+    """Cancel planned ExecutionTask rows referenced by active runtime task materialization metadata."""
+    task_materialization = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+    if not isinstance(task_materialization, dict):
+        return []
+    raw_task_ids = task_materialization.get("created_execution_task_ids")
+    if not isinstance(raw_task_ids, list):
+        return []
+    task_ids: list[UUID] = []
+    for raw_task_id in raw_task_ids:
+        try:
+            task_ids.append(UUID(str(raw_task_id)))
+        except ValueError:
+            continue
+    cancelled_tasks = task_repo.cancel_planned_by_ids_for_mission(
+        tenant_id=tenant_id, mission_id=mission_id, task_ids=task_ids
+    )
+    return [str(task.id) for task in cancelled_tasks]
+
+
 def _readiness_item(
     *, code: str, status: RuntimeReadinessCheckStatus, message: str, details: dict[str, Any] | None = None
 ) -> RuntimeReadinessItem:
@@ -1698,6 +1720,14 @@ def upsert_mission_task_graph(
         graph_fingerprint=graph_fingerprint,
         updated_at=graph_updated_at,
     )
+    cancelled_task_ids: list[str] = []
+    if isinstance(metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY), dict):
+        cancelled_task_ids = _cancel_superseded_materialized_planned_tasks(
+            metadata=metadata,
+            task_repo=ExecutionTaskRepository(db),
+            tenant_id=str(tenant_id),
+            mission_id=mission_id,
+        )
     supersede_runtime_task_materialization(
         metadata=metadata,
         reason="task_graph_replaced",
@@ -1705,6 +1735,7 @@ def upsert_mission_task_graph(
         supersession={
             "superseded_by_graph_version": graph_version,
             "superseded_by_graph_fingerprint": graph_fingerprint,
+            "cancelled_execution_task_ids": cancelled_task_ids,
         },
     )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
@@ -1807,11 +1838,22 @@ def materialize_mission_graph(
             materialization_version=previous_version + 1,
             updated_at=now,
         )
+    cancelled_task_ids: list[str] = []
+    if isinstance(metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY), dict):
+        cancelled_task_ids = _cancel_superseded_materialized_planned_tasks(
+            metadata=metadata,
+            task_repo=ExecutionTaskRepository(db),
+            tenant_id=tenant_id_str,
+            mission_id=mission_id,
+        )
     supersede_runtime_task_materialization(
         metadata=metadata,
         reason="graph_materialization_replaced",
         updated_at=now,
-        supersession={"superseded_by_materialization_version": previous_version + 1},
+        supersession={
+            "superseded_by_materialization_version": previous_version + 1,
+            "cancelled_execution_task_ids": cancelled_task_ids,
+        },
     )
     metadata.update(materialization_metadata)
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
@@ -2067,12 +2109,23 @@ def admit_mission_graph_to_runtime(
             "requires_explicit_queue_admission_for_execution": True,
         },
     )
+    cancelled_task_ids: list[str] = []
+    if isinstance(metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY), dict):
+        cancelled_task_ids = _cancel_superseded_materialized_planned_tasks(
+            metadata=metadata,
+            task_repo=ExecutionTaskRepository(db),
+            tenant_id=tenant_id_str,
+            mission_id=mission_id,
+        )
     metadata.update(runtime_admission_metadata)
     supersede_runtime_task_materialization(
         metadata=metadata,
         reason="runtime_admission_replaced",
         updated_at=now,
-        supersession={"superseded_by_admission_version": previous_version + 1},
+        supersession={
+            "superseded_by_admission_version": previous_version + 1,
+            "cancelled_execution_task_ids": cancelled_task_ids,
+        },
     )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _runtime_admission_to_read(mission)
