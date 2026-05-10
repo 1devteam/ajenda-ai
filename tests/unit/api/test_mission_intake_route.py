@@ -2218,3 +2218,40 @@ def test_runtime_readiness_false_for_superseded_materialization() -> None:
     body = response.json()
     assert body["ready"] is False
     assert "materialization_superseded" in _blocker_codes(body)
+
+
+def test_runtime_readiness_false_for_unbound_adapter_reference() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(
+        tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id
+    )
+    response, *_ = _readiness_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+        adapter=SimpleNamespace(id=adapter_id, capability_id=None, capability_name=None, capability_version=None),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert "adapter_capability_mismatch" in _blocker_codes(body)
+
+
+def test_runtime_readiness_false_for_rejected_outcome_review_status() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    response, *_ = _readiness_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        outcome_reviews=[SimpleNamespace(review_status="rejected", review_decision="inconclusive")],
+    )
+
+    assert response.status_code == 200
+    assert "rejected_outcome_review" in _blocker_codes(response.json())

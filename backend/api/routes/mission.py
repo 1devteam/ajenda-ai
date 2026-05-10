@@ -1208,63 +1208,46 @@ def _validate_adapter_for_readiness(
         return
 
     adapter_capability_id = getattr(adapter, "capability_id", None)
-    if (
+    adapter_capability_name = getattr(adapter, "capability_name", None)
+    adapter_capability_version = getattr(adapter, "capability_version", None)
+
+    mismatch_details = {
+        "node_key": selected_node.get("node_key"),
+        "adapter_id": str(adapter_id),
+        "adapter_capability_id": str(adapter_capability_id) if adapter_capability_id is not None else None,
+        "adapter_capability_name": adapter_capability_name,
+        "adapter_capability_version": adapter_capability_version,
+        "admitted_capability_id": str(admitted_capability_id) if admitted_capability_id is not None else None,
+        "admitted_capability_name": admitted_capability_name,
+        "admitted_capability_version": admitted_capability_version,
+    }
+
+    id_binding_matches = (
         adapter_capability_id is not None
         and admitted_capability_id is not None
-        and adapter_capability_id != admitted_capability_id
-    ):
+        and adapter_capability_id == admitted_capability_id
+    )
+    name_binding_matches = (
+        adapter_capability_name is not None
+        and admitted_capability_name is not None
+        and adapter_capability_name == admitted_capability_name
+        and (
+            adapter_capability_version is None
+            or admitted_capability_version is None
+            or adapter_capability_version == admitted_capability_version
+        )
+    )
+
+    if not id_binding_matches and not name_binding_matches:
         blockers.append(
             _readiness_item(
                 code="adapter_capability_mismatch",
                 status="failed",
-                message="Selected adapter is not bound to the admitted capability.",
-                details={
-                    "node_key": selected_node.get("node_key"),
-                    "adapter_id": str(adapter_id),
-                    "adapter_capability_id": str(adapter_capability_id),
-                    "admitted_capability_id": str(admitted_capability_id),
-                },
+                message="Selected adapter binding does not match the admitted capability.",
+                details=mismatch_details,
             )
         )
         return
-
-    adapter_capability_name = getattr(adapter, "capability_name", None)
-    adapter_capability_version = getattr(adapter, "capability_version", None)
-    if adapter_capability_id is None and admitted_capability_id is None:
-        if adapter_capability_name and adapter_capability_name != admitted_capability_name:
-            blockers.append(
-                _readiness_item(
-                    code="adapter_capability_mismatch",
-                    status="failed",
-                    message="Selected adapter capability name does not match the admitted capability.",
-                    details={
-                        "node_key": selected_node.get("node_key"),
-                        "adapter_id": str(adapter_id),
-                        "adapter_capability_name": adapter_capability_name,
-                        "admitted_capability_name": admitted_capability_name,
-                    },
-                )
-            )
-            return
-        if (
-            adapter_capability_version
-            and admitted_capability_version
-            and adapter_capability_version != admitted_capability_version
-        ):
-            blockers.append(
-                _readiness_item(
-                    code="adapter_capability_mismatch",
-                    status="failed",
-                    message="Selected adapter capability version does not match the admitted capability.",
-                    details={
-                        "node_key": selected_node.get("node_key"),
-                        "adapter_id": str(adapter_id),
-                        "adapter_capability_version": adapter_capability_version,
-                        "admitted_capability_version": admitted_capability_version,
-                    },
-                )
-            )
-            return
 
     checks.append(
         _readiness_item(
@@ -2167,8 +2150,8 @@ def read_mission_runtime_readiness(
     rejected_reviews = [
         review
         for review in outcome_reviews
-        if getattr(review, "review_status", None) == "approved"
-        and getattr(review, "review_decision", None) == "rejected"
+        if getattr(review, "review_status", None) == "rejected"
+        or getattr(review, "review_decision", None) == "rejected"
     ]
     if rejected_reviews:
         blockers.append(
