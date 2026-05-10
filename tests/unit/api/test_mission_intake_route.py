@@ -851,7 +851,7 @@ def test_graph_materialization_persists_metadata_without_queueing_or_runtime_cal
     assert materialization["planner_provenance"]["planner_type"] == "contract_planner"
     assert materialization["capability_selection_provenance"][0]["capability_id"] == str(capability_id)
     assert materialization["graph_validation_result"]["validation_status"] == "valid"
-    assert materialization["operator_review"]["status"] == "pending"
+    assert materialization["operator_review"]["status"] == "planned"
     assert materialization["deterministic_compilation_metadata"]["deterministic"] is True
     assert materialization["graph_reference"]["node_count"] == 2
     assert materialization["graph_reference"]["graph_version"] == 7
@@ -2395,7 +2395,7 @@ def test_runtime_task_preview_is_deterministic_and_preserves_selected_node_order
         f"mission:{mission_id}:graph:7:node:draft-recommendations:runtime-task-preview",
     ]
     assert body["tasks"] == second_response.json()["tasks"]
-    assert body["tasks"][0]["future_execution_task_state"] == "pending"
+    assert body["tasks"][0]["future_execution_task_state"] == "planned"
     assert body["tasks"][0]["runtime_task_type"] == "crm_research"
     assert body["tasks"][0]["capability_reference"]["capability_id"] == str(capability_id)
     assert body["tasks"][0]["adapter_reference"] == {"adapter_id": str(adapter_id)}

@@ -743,7 +743,7 @@ class RuntimeTaskPreviewItem(BaseModel):
     graph_node_key: str
     graph_node_name: str | None
     runtime_task_type: str
-    future_execution_task_state: Literal["pending"] = "pending"
+    future_execution_task_state: Literal["planned"] = "planned"
     payload_preview: RuntimeTaskPreviewPayload
     capability_reference: dict[str, Any] | None
     adapter_reference: dict[str, Any] | None
