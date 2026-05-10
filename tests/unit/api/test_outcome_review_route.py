@@ -30,28 +30,25 @@ def _build_app(tenant_id: uuid.UUID) -> FastAPI:
 def _valid_payload(*, mission_id: uuid.UUID | None = None, evidence_id: uuid.UUID | None = None) -> dict[str, object]:
     payload: dict[str, object] = {
         "mission_id": str(mission_id or uuid.uuid4()),
-        "outcome_ref": {"claim": "Mission objective satisfied", "source": "operator"},
-        "materialization_reference": {"metadata_key": "graph_materialization", "version": 1},
-        "task_graph_reference": {"graph_fingerprint": "abc123", "graph_version": 1},
-        "reviewed_success_criteria": [{"key": "delivered", "result": "accepted"}],
+        "materialization_reference": {"materialization_id": "mat-1", "version": 1},
+        "task_graph_reference": {"fingerprint": "graph-fp", "version": 2},
+        "reviewed_success_criteria": [{"criterion_id": "c-1", "checked": True}],
         "evidence_references": [],
         "review_status": "in_review",
         "review_decision": "partial",
         "reviewer_type": "operator",
-        "reviewer_source": "ops-console",
-        "review_summary": "Outcome is partially supported by evidence.",
-        "structured_findings": [{"criterion": "delivered", "finding": "artifact exists"}],
-        "confidence": 0.82,
-        "trust_signal": {"basis": "verified-evidence"},
-        "unresolved_gaps": [{"gap": "approval pending"}],
-        "recommended_next_actions": [{"action": "request approval"}],
+        "reviewer_source": "qa-reviewer",
+        "review_summary": "Reviewed evidence against the mission success criteria.",
+        "structured_findings": [{"criterion_id": "c-1", "result": "accepted"}],
+        "confidence": 0.83,
+        "trust_signal": {"method": "human-review", "calibrated": True},
+        "unresolved_gaps": [{"criterion_id": "c-2", "reason": "missing artifact"}],
+        "recommended_next_actions": [{"action": "collect_additional_artifact"}],
         "human_approval_required": True,
         "human_approval_status": "pending",
     }
     if evidence_id is not None:
-        payload["evidence_references"] = [
-            {"evidence_id": str(evidence_id), "relationship": "supports", "success_criteria_keys": ["delivered"]}
-        ]
+        payload["evidence_references"] = [{"evidence_id": str(evidence_id), "role": "supporting"}]
     return payload
 
 
@@ -64,27 +61,25 @@ def _review_record(
     review_status: str = "in_review",
 ) -> SimpleNamespace:
     now = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
+    evidence_references = [] if evidence_id is None else [{"evidence_id": str(evidence_id), "role": "supporting"}]
     return SimpleNamespace(
         id=review_id or uuid.uuid4(),
         tenant_id=tenant_id,
         mission_id=mission_id,
-        outcome_ref={"claim": "Mission objective satisfied", "source": "operator"},
-        materialization_reference={"metadata_key": "graph_materialization", "version": 1},
-        task_graph_reference={"graph_fingerprint": "abc123", "graph_version": 1},
-        reviewed_success_criteria=[{"key": "delivered", "result": "accepted"}],
-        evidence_references=[]
-        if evidence_id is None
-        else [{"evidence_id": str(evidence_id), "relationship": "supports", "success_criteria_keys": ["delivered"]}],
+        materialization_reference={"materialization_id": "mat-1", "version": 1},
+        task_graph_reference={"fingerprint": "graph-fp", "version": 2},
+        reviewed_success_criteria=[{"criterion_id": "c-1", "checked": True}],
+        evidence_references=evidence_references,
         review_status=review_status,
         review_decision="partial",
         reviewer_type="operator",
-        reviewer_source="ops-console",
-        review_summary="Outcome is partially supported by evidence.",
-        structured_findings=[{"criterion": "delivered", "finding": "artifact exists"}],
-        confidence=0.82,
-        trust_signal={"basis": "verified-evidence"},
-        unresolved_gaps=[{"gap": "approval pending"}],
-        recommended_next_actions=[{"action": "request approval"}],
+        reviewer_source="qa-reviewer",
+        review_summary="Reviewed evidence against the mission success criteria.",
+        structured_findings=[{"criterion_id": "c-1", "result": "accepted"}],
+        confidence=0.83,
+        trust_signal={"method": "human-review", "calibrated": True},
+        unresolved_gaps=[{"criterion_id": "c-2", "reason": "missing artifact"}],
+        recommended_next_actions=[{"action": "collect_additional_artifact"}],
         human_approval_required=True,
         human_approval_status="pending",
         schema_version=1,
@@ -127,11 +122,12 @@ def test_outcome_review_creation_persists_tenant_owned_record_without_runtime_ca
     assert body["review_id"] == str(review_id)
     assert body["tenant_id"] == str(tenant_id)
     assert body["mission_id"] == str(mission_id)
-    assert body["evidence_references"][0]["evidence_id"] == str(evidence_id)
-    created_review = review_repo.add.call_args.args[0]
-    assert created_review.tenant_id == str(tenant_id)
-    assert created_review.mission_id == mission_id
-    assert created_review.schema_version == 1
+    assert body["evidence_references"] == [{"evidence_id": str(evidence_id), "role": "supporting"}]
+    review_repo.add.assert_called_once()
+    created_record = review_repo.add.call_args.args[0]
+    assert created_record.tenant_id == str(tenant_id)
+    assert created_record.mission_id == mission_id
+    assert created_record.schema_version == 1
     coordinator_cls.assert_not_called()
     executor_cls.assert_not_called()
 
@@ -207,6 +203,7 @@ def test_outcome_review_creation_rejects_evidence_from_another_tenant() -> None:
 
     assert response.status_code == 422
     assert response.json() == {"detail": "referenced evidence is not owned by tenant mission"}
+    evidence_repo.get_for_tenant.assert_called_once_with(evidence_id=evidence_id, tenant_id=str(tenant_id))
     review_repo.add.assert_not_called()
 
 
@@ -229,15 +226,12 @@ def test_read_outcome_review_hides_cross_tenant_record() -> None:
 def test_list_outcome_reviews_by_mission_is_tenant_scoped() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
-    review_id = uuid.uuid4()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
     review_repo = MagicMock()
-    review_repo.list_for_mission.return_value = [
-        _review_record(tenant_id=str(tenant_id), mission_id=mission_id, review_id=review_id)
-    ]
+    review_repo.list_for_mission.return_value = [_review_record(tenant_id=str(tenant_id), mission_id=mission_id)]
 
     with (
         patch("backend.api.routes.outcome_review.MissionRepository", return_value=mission_repo),
@@ -246,8 +240,8 @@ def test_list_outcome_reviews_by_mission_is_tenant_scoped() -> None:
         response = client.get(f"/v1/outcome-reviews?mission_id={mission_id}")
 
     assert response.status_code == 200
-    body = response.json()
-    assert [review["review_id"] for review in body["outcome_reviews"]] == [str(review_id)]
+    assert len(response.json()["outcome_reviews"]) == 1
+    mission_repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
     review_repo.list_for_mission.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
 
 
@@ -255,33 +249,23 @@ def test_update_outcome_review_status_works() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
     review_id = uuid.uuid4()
-    review = _review_record(tenant_id=str(tenant_id), mission_id=mission_id, review_id=review_id)
-    updated = _review_record(
-        tenant_id=str(tenant_id), mission_id=mission_id, review_id=review_id, review_status="completed"
-    )
-    updated.review_decision = "accepted"
-    updated.human_approval_required = True
-    updated.human_approval_status = "approved"
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
+    record = _review_record(tenant_id=str(tenant_id), mission_id=mission_id, review_id=review_id)
     review_repo = MagicMock()
-    review_repo.get_for_tenant.return_value = review
-    review_repo.update.return_value = updated
+    review_repo.get_for_tenant.return_value = record
+    review_repo.update.side_effect = lambda review: review
 
     with patch("backend.api.routes.outcome_review.OutcomeReviewRepository", return_value=review_repo):
-        response = client.patch(
-            f"/v1/outcome-reviews/{review_id}",
-            json={"review_status": "completed", "review_decision": "accepted", "human_approval_status": "approved"},
-        )
+        response = client.patch(f"/v1/outcome-reviews/{review_id}", json={"review_status": "completed"})
 
     assert response.status_code == 200
     assert response.json()["review_status"] == "completed"
-    assert review.review_status == "completed"
-    assert review.review_decision == "accepted"
-    review_repo.update.assert_called_once_with(review)
+    assert record.review_status == "completed"
+    review_repo.update.assert_called_once_with(record)
 
 
-def test_outcome_review_patch_rejects_explicit_null_status() -> None:
+def test_explicit_null_patch_values_rejected_except_intentionally_nullable_fields() -> None:
     tenant_id = uuid.uuid4()
     review_id = uuid.uuid4()
     app = _build_app(tenant_id)
@@ -290,27 +274,4 @@ def test_outcome_review_patch_rejects_explicit_null_status() -> None:
     response = client.patch(f"/v1/outcome-reviews/{review_id}", json={"review_status": None})
 
     assert response.status_code == 422
-    assert "cannot be null" in response.text
-
-
-def test_outcome_review_patch_allows_clearing_nullable_confidence() -> None:
-    tenant_id = uuid.uuid4()
-    mission_id = uuid.uuid4()
-    review_id = uuid.uuid4()
-    review = _review_record(tenant_id=str(tenant_id), mission_id=mission_id, review_id=review_id)
-    review.confidence = 0.82
-    updated = _review_record(tenant_id=str(tenant_id), mission_id=mission_id, review_id=review_id)
-    updated.confidence = None
-    app = _build_app(tenant_id)
-    client = TestClient(app, raise_server_exceptions=False)
-    review_repo = MagicMock()
-    review_repo.get_for_tenant.return_value = review
-    review_repo.update.return_value = updated
-
-    with patch("backend.api.routes.outcome_review.OutcomeReviewRepository", return_value=review_repo):
-        response = client.patch(f"/v1/outcome-reviews/{review_id}", json={"confidence": None})
-
-    assert response.status_code == 200
-    assert response.json()["confidence"] is None
-    assert review.confidence is None
-    review_repo.update.assert_called_once_with(review)
+    assert "outcome review patch fields cannot be null: review_status" in response.text

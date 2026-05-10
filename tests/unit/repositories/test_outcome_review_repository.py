@@ -7,21 +7,14 @@ from backend.domain.outcome_review import OutcomeReview
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 
 
-def _review() -> OutcomeReview:
-    return OutcomeReview(
+def test_add_flushes_and_refreshes_outcome_review_record() -> None:
+    record = OutcomeReview(
         tenant_id="tenant-a",
         mission_id=uuid.uuid4(),
-        outcome_ref={"claim": "mission complete"},
-        reviewed_success_criteria=[{"key": "done"}],
-        evidence_references=[],
         reviewer_type="operator",
-        reviewer_source="ops",
-        review_summary="Reviewed outcome.",
+        reviewer_source="qa",
+        review_summary="Outcome reviewed.",
     )
-
-
-def test_add_flushes_and_refreshes_outcome_review() -> None:
-    record = _review()
     session = MagicMock()
 
     result = OutcomeReviewRepository(session).add(record)
@@ -35,7 +28,13 @@ def test_add_flushes_and_refreshes_outcome_review() -> None:
 def test_get_for_tenant_uses_tenant_scoped_query() -> None:
     tenant_id = str(uuid.uuid4())
     review_id = uuid.uuid4()
-    record = _review()
+    record = OutcomeReview(
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        reviewer_type="system",
+        reviewer_source="policy-check",
+        review_summary="Reviewed.",
+    )
     session = MagicMock()
     session.scalar.return_value = record
 
@@ -65,8 +64,14 @@ def test_list_for_mission_filters_by_tenant_and_mission() -> None:
     assert tenant_id in compiled
 
 
-def test_update_flushes_and_refreshes_outcome_review() -> None:
-    record = _review()
+def test_update_flushes_and_refreshes_outcome_review_record() -> None:
+    record = OutcomeReview(
+        tenant_id="tenant-a",
+        mission_id=uuid.uuid4(),
+        reviewer_type="external",
+        reviewer_source="auditor",
+        review_summary="Review complete.",
+    )
     session = MagicMock()
 
     result = OutcomeReviewRepository(session).update(record)

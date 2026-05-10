@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,10 +20,10 @@ def utcnow() -> datetime:
 class OutcomeReview(Base):
     """Durable tenant-owned outcome review contract.
 
-    Outcome reviews are review records only. They evaluate mission result claims
-    against success criteria and evidence references without promoting memory,
-    executing adapters, queueing work, dispatching workers, or mutating runtime
-    mission/task state.
+    Outcome reviews are evidence-backed review records only. They intentionally
+    do not promote memory, score autonomously, execute adapters, enqueue work,
+    dispatch workers, call runtime orchestration services, or mutate mission or
+    task runtime state.
     """
 
     __tablename__ = "outcome_reviews"
@@ -33,7 +33,6 @@ class OutcomeReview(Base):
     mission_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("missions.id"), nullable=False, index=True
     )
-    outcome_ref: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     materialization_reference: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     task_graph_reference: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     reviewed_success_criteria: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
@@ -48,8 +47,8 @@ class OutcomeReview(Base):
     trust_signal: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     unresolved_gaps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     recommended_next_actions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
-    human_approval_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    human_approval_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_required")
+    human_approval_required: Mapped[bool] = mapped_column(nullable=False, default=False)
+    human_approval_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=OUTCOME_REVIEW_SCHEMA_VERSION)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

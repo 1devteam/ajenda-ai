@@ -24,7 +24,6 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("tenant_id", sa.String(length=128), nullable=False),
         sa.Column("mission_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("outcome_ref", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("materialization_reference", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("task_graph_reference", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("reviewed_success_criteria", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
@@ -39,8 +38,8 @@ def upgrade() -> None:
         sa.Column("trust_signal", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("unresolved_gaps", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("recommended_next_actions", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("human_approval_required", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("human_approval_status", sa.String(length=32), nullable=False, server_default="not_required"),
+        sa.Column("human_approval_required", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("human_approval_status", sa.String(length=32), nullable=True),
         sa.Column("schema_version", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
@@ -57,17 +56,13 @@ def upgrade() -> None:
             name="ck_outcome_reviews_reviewer_type",
         ),
         sa.CheckConstraint(
-            "human_approval_status IN ('not_required', 'pending', 'approved', 'rejected')",
+            "human_approval_status IS NULL OR human_approval_status IN "
+            "('not_required', 'pending', 'approved', 'rejected')",
             name="ck_outcome_reviews_human_approval_status",
         ),
         sa.CheckConstraint(
             "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
             name="ck_outcome_reviews_confidence",
-        ),
-        sa.CheckConstraint(
-            "(human_approval_required = true AND human_approval_status <> 'not_required') OR "
-            "(human_approval_required = false AND human_approval_status = 'not_required')",
-            name="ck_outcome_reviews_human_approval_consistency",
         ),
         sa.ForeignKeyConstraint(["mission_id"], ["missions.id"], name="fk_outcome_reviews_mission_id"),
     )
