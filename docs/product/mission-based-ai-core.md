@@ -247,6 +247,7 @@ The intended mission execution loop is:
 7. Evidence capture
 8. Outcome review
 9. Memory promotion
+10. Retrieval and recall contracts
 
 ---
 
@@ -278,6 +279,7 @@ The primary missing systems are:
 - evidence item model
 - outcome review
 - memory promotion
+- retrieval and recall governance
 
 Ajenda is not being rebuilt.
 
@@ -461,6 +463,25 @@ First-class in this block:
 
 Outcome review records are contract records only. Persisting or updating an outcome review may validate mission ownership and same-tenant/same-mission evidence ownership, but it does not perform autonomous scoring, promote memory, create memory candidates, execute adapters, create runtime task rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, alter worker dispatch, or mutate mission/task runtime state. Memory promotion remains a future layer above reviewed outcomes, and runtime execution remains governed separately by the existing runtime control plane.
 
+## Retrieval and Recall Contract Layer V1
+
+Retrieval and recall contracts now define durable, tenant-owned records describing how future systems request, track, govern, and validate memory retrieval. `POST /v1/retrieval-contracts`, `GET /v1/retrieval-contracts/{retrieval_id}`, `GET /v1/retrieval-contracts?mission_id=...`, and `PATCH /v1/retrieval-contracts/{retrieval_id}` persist, read, list, and update retrieval status/metadata through tenant-scoped repository boundaries.
+
+First-class in this block:
+
+- tenant ownership;
+- mission binding;
+- optional memory references and returned memory references;
+- retrieval request and reason metadata;
+- retrieval strategy and strategy metadata;
+- retrieval filters and governance constraints;
+- confidence/trust metadata;
+- retrieval provenance;
+- retrieval status, supersession, and revocation metadata;
+- schema version and timestamps.
+
+Retrieval remains governance-first and retrieval-engine-neutral. Persisting or updating a retrieval contract may validate mission ownership and memory-reference tenant/mission alignment, but it does not generate embeddings, execute vector search, rank semantic results, reason autonomously, create runtime task rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, alter worker dispatch, or mutate mission/task runtime state. Embeddings, vector databases, runtime reasoning, and autonomous execution remain future layers above these contracts.
+
 # Build Direction
 
 Ajenda should evolve through:
@@ -476,6 +497,7 @@ Ajenda should evolve through:
 9. real worker skills
 10. evidence-backed execution
 11. memory promotion
+12. retrieval and recall contracts
 
 The runtime foundation should remain authoritative.
 
