@@ -928,6 +928,24 @@ def _supersede_runtime_admission(
     metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded
 
 
+def _supersede_runtime_admission_for_materialization(
+    *,
+    metadata: dict[str, Any],
+    materialization_version: int,
+    updated_at: str,
+) -> None:
+    admission = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
+    if not isinstance(admission, dict):
+        return
+    superseded = dict(admission)
+    superseded["admission_status"] = "superseded"
+    superseded["updated_at"] = updated_at
+    superseded["superseded_at"] = updated_at
+    superseded["superseded_reason"] = "graph_materialization_replaced"
+    superseded["superseded_by_materialization_version"] = materialization_version
+    metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded
+
+
 def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
     return RuntimeAdmissionRead(
         mission_id=mission.id,
@@ -1386,6 +1404,12 @@ def materialize_mission_graph(
             "edge_count": len(task_graph.get("edges", [])) if isinstance(task_graph.get("edges", []), list) else 0,
         },
     )
+    if isinstance(metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY), dict):
+        _supersede_runtime_admission_for_materialization(
+            metadata=metadata,
+            materialization_version=previous_version + 1,
+            updated_at=now,
+        )
     metadata.update(materialization_metadata)
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _graph_materialization_to_read(mission)
@@ -1524,6 +1548,38 @@ def admit_mission_graph_to_runtime(
             capability = capability_repo.get_visible_for_tenant(capability_id=capability_id, tenant_id=tenant_id_str)
             if capability is None:
                 raise HTTPException(status_code=400, detail=f"capability not found for tenant: {capability_id}")
+        else:
+            visible_capability_found = False
+            for capability_ref in node_capability_refs:
+                if not isinstance(capability_ref, dict):
+                    continue
+                capability_name = capability_ref.get("name")
+                capability_version = capability_ref.get("version")
+                if not isinstance(capability_name, str) or not capability_name.strip():
+                    continue
+                if not isinstance(capability_version, str) or not capability_version.strip():
+                    continue
+
+                capability = capability_repo.get_conflict_for_scope(
+                    name=capability_name.strip(),
+                    version=capability_version.strip(),
+                    tenant_id=tenant_id_str,
+                )
+                if capability is None:
+                    capability = capability_repo.get_conflict_for_scope(
+                        name=capability_name.strip(),
+                        version=capability_version.strip(),
+                        tenant_id=None,
+                    )
+                if capability is not None:
+                    visible_capability_found = True
+                    break
+
+            if not visible_capability_found:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"runtime admission node lacks visible capability reference: {selection.node_key}",
+                )
 
         adapter_id = selection.adapter_id
         if adapter_id is not None:
