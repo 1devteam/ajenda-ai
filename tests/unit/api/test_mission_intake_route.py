@@ -1181,7 +1181,6 @@ def test_mission_lifecycle_reports_missing_next_steps_when_layers_are_absent() -
     assert body["retrieval_contracts"] == {"count": 0, "records": []}
 
 
-
 def test_mission_lifecycle_treats_superseded_runtime_admission_as_incomplete() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
