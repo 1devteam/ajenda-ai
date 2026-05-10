@@ -999,10 +999,11 @@ def _runtime_readiness_reference(metadata: dict[str, Any] | None, key: str) -> d
 
 
 def _graph_matches_reference(*, task_graph: dict[str, Any], graph_reference: dict[str, Any] | None) -> bool:
+    graph_fingerprint = task_graph.get("graph_fingerprint") or _fingerprint_existing_task_graph(task_graph)
     return isinstance(graph_reference, dict) and (
         graph_reference.get("metadata_key") == MISSION_TASK_GRAPH_METADATA_KEY
         and graph_reference.get("graph_version") == task_graph.get("graph_version")
-        and graph_reference.get("graph_fingerprint") == task_graph.get("graph_fingerprint")
+        and graph_reference.get("graph_fingerprint") == graph_fingerprint
     )
 
 
