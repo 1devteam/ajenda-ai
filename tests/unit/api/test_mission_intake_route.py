@@ -1032,7 +1032,7 @@ def test_mission_lifecycle_returns_contract_metadata_and_related_summaries_witho
         },
         MISSION_RUNTIME_ADMISSION_METADATA_KEY: {
             "schema_version": 1,
-            "admission_status": "validated",
+            "admission_status": "admitted",
             "execution_task_records": [],
         },
     }
@@ -1226,6 +1226,58 @@ def test_mission_lifecycle_treats_superseded_runtime_admission_as_incomplete() -
     assert response.status_code == 200
     body = response.json()
     assert body["runtime_admission"]["admission_status"] == "superseded"
+    assert body["completeness"]["has_runtime_admission"] is False
+    assert "admit_graph_to_runtime" in body["missing_next_steps"]
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_mission_lifecycle_treats_non_admitted_runtime_status_as_incomplete() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={
+            MISSION_INTAKE_METADATA_KEY: {"schema_version": 1},
+            MISSION_PLAN_METADATA_KEY: {"schema_version": 1},
+            MISSION_TASK_GRAPH_METADATA_KEY: {"schema_version": 1},
+            MISSION_GRAPH_MATERIALIZATION_METADATA_KEY: {
+                "schema_version": 1,
+                "materialization_status": "approved",
+            },
+            MISSION_RUNTIME_ADMISSION_METADATA_KEY: {
+                "schema_version": 1,
+                "admission_status": "validated",
+            },
+        },
+    )
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    evidence_repo = MagicMock()
+    evidence_repo.list_for_mission.return_value = []
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = []
+    retrieval_repo = MagicMock()
+    retrieval_repo.list_for_mission.return_value = []
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.EvidenceRepository", return_value=evidence_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.RetrievalContractRepository", return_value=retrieval_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/lifecycle")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["runtime_admission"]["admission_status"] == "validated"
     assert body["completeness"]["has_runtime_admission"] is False
     assert "admit_graph_to_runtime" in body["missing_next_steps"]
     task_repo_cls.assert_not_called()
