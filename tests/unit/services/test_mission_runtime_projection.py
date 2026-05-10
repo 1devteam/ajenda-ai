@@ -63,6 +63,7 @@ def test_execution_task_payload_extends_preview_envelope_with_trace_references()
     assert payload["mission_id"] == "m"
     assert payload["graph_node_key"] == "n"
     assert payload["runtime_task_type"] == "collect"
+    assert payload["task_type"] == "collect"
     assert payload["capability_reference"] == {"capability_id": "capability"}
     assert payload["adapter_reference"] == {"adapter_id": "adapter"}
     assert payload["dependency_keys"] == ["previous"]

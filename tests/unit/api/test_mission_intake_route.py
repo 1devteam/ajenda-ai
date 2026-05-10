@@ -2482,6 +2482,7 @@ def _runtime_task_materialization_response(
     client = TestClient(app, raise_server_exceptions=False)
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
+    mission_repo.lock_for_tenant.return_value = mission
 
     def _update_metadata(*, mission, metadata_json):
         mission.metadata_json = metadata_json
@@ -2553,6 +2554,7 @@ def test_runtime_task_materialization_creates_planned_execution_tasks_from_ready
     assert created.mission_id == mission_id
     assert created.status == "planned"
     assert created.metadata_json["runtime_task_type"] == "crm_research"
+    assert created.metadata_json["task_type"] == "crm_research"
     assert created.metadata_json["mission_id"] == str(mission_id)
     assert created.metadata_json["graph_node_key"] == "collect-signals"
     assert created.metadata_json["graph_version"] == 7
@@ -2575,6 +2577,7 @@ def test_runtime_task_materialization_creates_planned_execution_tasks_from_ready
         "calls_coordinator": False,
     }
     task_repo.add.assert_called_once()
+    mission_repo.lock_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
     mission_repo.update_metadata.assert_called_once()
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
@@ -2670,13 +2673,14 @@ def test_runtime_task_materialization_hides_cross_tenant_mission() -> None:
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
     mission_repo = MagicMock()
-    mission_repo.get_for_tenant.return_value = None
+    mission_repo.lock_for_tenant.return_value = None
 
     with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
         response = client.post(f"/v1/missions/{mission_id}/runtime-task-materialization")
 
     assert response.status_code == 404
     assert response.json() == {"detail": "mission not found for tenant"}
+    mission_repo.lock_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
     mission_repo.update_metadata.assert_not_called()
 
 

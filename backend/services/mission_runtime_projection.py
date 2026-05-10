@@ -226,8 +226,10 @@ def build_execution_task_payload(preview_item: Any) -> dict[str, Any]:
     else:
         item = dict(preview_item)
     payload_preview = item.get("payload_preview") if isinstance(item.get("payload_preview"), dict) else {}
+    runtime_task_type = payload_preview.get("runtime_task_type")
     return {
         **deepcopy(payload_preview),
+        "task_type": runtime_task_type,
         "capability_reference": deepcopy(item.get("capability_reference")),
         "adapter_reference": deepcopy(item.get("adapter_reference")),
         "dependency_keys": deepcopy(item.get("dependency_keys") or []),

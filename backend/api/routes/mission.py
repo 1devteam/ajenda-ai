@@ -2540,7 +2540,7 @@ def materialize_mission_runtime_tasks(
     """Create planned ExecutionTask rows from a ready admitted mission graph without queueing work."""
     tenant_id_str = str(tenant_id)
     mission_repo = MissionRepository(db)
-    mission = mission_repo.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    mission = mission_repo.lock_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
 
