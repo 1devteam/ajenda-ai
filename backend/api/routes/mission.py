@@ -1518,16 +1518,31 @@ def admit_mission_graph_to_runtime(
         )
         materialized_selection = selections_by_node.get(selection.node_key)
         capability_id = selection.capability_id
-        if capability_id is None and isinstance(materialized_selection, dict):
-            materialized_capability_id = materialized_selection.get("capability_id")
-            if isinstance(materialized_capability_id, str):
+        materialized_capability_id: UUID | None = None
+        if isinstance(materialized_selection, dict):
+            raw_materialized_capability_id = materialized_selection.get("capability_id")
+            if isinstance(raw_materialized_capability_id, str):
                 try:
-                    capability_id = UUID(materialized_capability_id)
+                    materialized_capability_id = UUID(raw_materialized_capability_id)
                 except ValueError as exc:
                     raise HTTPException(
                         status_code=400,
                         detail=f"materialization capability_id is invalid for node: {selection.node_key}",
                     ) from exc
+
+        if (
+            capability_id is not None
+            and materialized_capability_id is not None
+            and capability_id != materialized_capability_id
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"runtime admission capability conflicts with materialization: {selection.node_key}",
+            )
+
+        if capability_id is None and materialized_capability_id is not None:
+            capability_id = materialized_capability_id
+
         if capability_id is None:
             for capability_ref in node_capability_refs:
                 if isinstance(capability_ref, dict) and isinstance(capability_ref.get("capability_id"), str):
@@ -1612,7 +1627,11 @@ def admit_mission_graph_to_runtime(
         admission_status=body.admission_status,
         admission_version=previous_version + 1,
         admitted_by=body.admitted_by,
-        admitted_at=previous.get("admitted_at", now) if isinstance(previous, dict) else now,
+        admitted_at=(
+            previous.get("admitted_at", now)
+            if isinstance(previous, dict) and previous.get("admission_status") != "superseded"
+            else now
+        ),
         updated_at=now,
         graph_reference={
             "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,

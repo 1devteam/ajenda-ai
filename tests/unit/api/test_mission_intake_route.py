@@ -1009,6 +1009,260 @@ def test_graph_materialization_validation_requires_structured_validation_summary
     repo_cls.assert_not_called()
 
 
+def test_runtime_admission_rejects_capability_override_conflicting_with_materialization() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    materialized_capability_id = uuid.uuid4()
+    override_capability_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    task_graph = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]
+    task_graph["nodes"][0]["capability_references"] = [
+        {"capability_id": str(materialized_capability_id), "name": "crm_read", "version": "1.0.0"}
+    ]
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = {
+        "schema_version": 1,
+        "materialization_status": "approved",
+        "materialization_version": 1,
+        "graph_reference": {
+            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+            "graph_version": task_graph["graph_version"],
+            "graph_fingerprint": task_graph["graph_fingerprint"],
+        },
+        "capability_selection_provenance": [
+            {
+                "node_key": "collect-signals",
+                "capability_id": str(materialized_capability_id),
+                "selection_reason": "validated by materialization",
+            }
+        ],
+    }
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = []
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(
+        id=override_capability_id, tenant_id=str(tenant_id)
+    )
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.post(
+            f"/v1/missions/{mission_id}/runtime-admission",
+            json={
+                "admission_status": "admitted",
+                "admitted_by": "operator",
+                "selected_nodes": [
+                    {
+                        "node_key": "collect-signals",
+                        "capability_id": str(override_capability_id),
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 400
+    assert "conflicts with materialization" in response.text
+    repo.update_metadata.assert_not_called()
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_runtime_admission_rejects_unregistered_name_only_capability_reference() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    task_graph = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]
+    task_graph["nodes"][0]["capability_references"] = [{"name": "missing_capability", "version": "1.0.0"}]
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = {
+        "schema_version": 1,
+        "materialization_status": "approved",
+        "materialization_version": 1,
+        "graph_reference": {
+            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+            "graph_version": task_graph["graph_version"],
+            "graph_fingerprint": task_graph["graph_fingerprint"],
+        },
+        "capability_selection_provenance": [
+            {
+                "node_key": "collect-signals",
+                "capability_name": "missing_capability",
+                "capability_version": "1.0.0",
+                "selection_reason": "name-only test",
+            }
+        ],
+    }
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = []
+    capability_repo = MagicMock()
+    capability_repo.get_conflict_for_scope.return_value = None
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.post(
+            f"/v1/missions/{mission_id}/runtime-admission",
+            json={
+                "admission_status": "admitted",
+                "admitted_by": "operator",
+                "selected_nodes": [{"node_key": "collect-signals"}],
+            },
+        )
+
+    assert response.status_code == 400
+    assert "lacks visible capability reference" in response.text
+    repo.update_metadata.assert_not_called()
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_materialization_update_supersedes_existing_runtime_admission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    task_graph = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = {
+        "schema_version": 1,
+        "materialization_status": "approved",
+        "materialization_version": 1,
+        "materialized_at": "2026-05-09T00:00:00+00:00",
+        "graph_reference": {
+            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+            "graph_version": task_graph["graph_version"],
+            "graph_fingerprint": task_graph["graph_fingerprint"],
+        },
+    }
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = {
+        "schema_version": 1,
+        "admission_status": "admitted",
+        "admission_version": 1,
+        "admitted_at": "2026-05-09T00:01:00+00:00",
+    }
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    repo.update_metadata.side_effect = _update_metadata
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.post(
+            f"/v1/missions/{mission_id}/materialize-graph",
+            json=_valid_materialization_payload(),
+        )
+
+    assert response.status_code == 200
+    persisted_metadata = repo.update_metadata.call_args.kwargs["metadata_json"]
+    admission = persisted_metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY]
+    assert admission["admission_status"] == "superseded"
+    assert admission["superseded_reason"] == "graph_materialization_replaced"
+    assert admission["superseded_by_materialization_version"] == 2
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_runtime_admission_resets_admitted_at_after_supersession() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    task_graph = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]
+    task_graph["nodes"][0]["capability_references"] = [
+        {"capability_id": str(capability_id), "name": "crm_read", "version": "1.0.0"}
+    ]
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = {
+        "schema_version": 1,
+        "materialization_status": "approved",
+        "materialization_version": 1,
+        "graph_reference": {
+            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+            "graph_version": task_graph["graph_version"],
+            "graph_fingerprint": task_graph["graph_fingerprint"],
+        },
+        "capability_selection_provenance": [
+            {
+                "node_key": "collect-signals",
+                "capability_id": str(capability_id),
+                "selection_reason": "validated by materialization",
+            }
+        ],
+    }
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = {
+        "schema_version": 1,
+        "admission_status": "superseded",
+        "admission_version": 3,
+        "admitted_at": "2026-05-09T00:01:00+00:00",
+    }
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    repo.update_metadata.side_effect = _update_metadata
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = []
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=capability_id, tenant_id=str(tenant_id))
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.post(
+            f"/v1/missions/{mission_id}/runtime-admission",
+            json={
+                "admission_status": "admitted",
+                "admitted_by": "operator",
+                "selected_nodes": [{"node_key": "collect-signals"}],
+            },
+        )
+
+    assert response.status_code == 200
+    admitted_at = response.json()["runtime_admission"]["admitted_at"]
+    assert admitted_at != "2026-05-09T00:01:00+00:00"
+    assert response.json()["runtime_admission"]["admission_version"] == 4
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
 def test_mission_lifecycle_returns_contract_metadata_and_related_summaries_without_runtime_side_effects() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
