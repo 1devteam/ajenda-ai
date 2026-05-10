@@ -688,6 +688,36 @@ class RuntimeAdmissionRead(BaseModel):
     updated_at: str
 
 
+RuntimeReadinessStatus = Literal["ready", "blocked", "incomplete"]
+RuntimeReadinessCheckStatus = Literal["passed", "warning", "failed"]
+
+
+class RuntimeReadinessItem(BaseModel):
+    """One deterministic runtime readiness check, blocker, or warning."""
+
+    code: str
+    status: RuntimeReadinessCheckStatus
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeReadinessRead(BaseModel):
+    """Read-only runtime admission readiness validation result."""
+
+    mission_id: UUID
+    tenant_id: str
+    ready: bool
+    readiness_status: RuntimeReadinessStatus
+    checked_at: str
+    graph_reference: dict[str, Any] | None
+    materialization_reference: dict[str, Any] | None
+    admission_reference: dict[str, Any] | None
+    selected_node_count: int
+    checks: list[RuntimeReadinessItem]
+    blockers: list[RuntimeReadinessItem]
+    warnings: list[RuntimeReadinessItem]
+
+
 class MissionPlanRead(BaseModel):
     """Mission plan response envelope stored on the mission metadata."""
 
@@ -952,6 +982,297 @@ def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
         tenant_id=mission.tenant_id,
         runtime_admission=mission.metadata_json.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY, {}),
         updated_at=mission.updated_at.isoformat(),
+    )
+
+
+def _readiness_item(
+    *, code: str, status: RuntimeReadinessCheckStatus, message: str, details: dict[str, Any] | None = None
+) -> RuntimeReadinessItem:
+    return RuntimeReadinessItem(code=code, status=status, message=message, details=details or {})
+
+
+def _runtime_readiness_reference(metadata: dict[str, Any] | None, key: str) -> dict[str, Any] | None:
+    value = (metadata or {}).get(key)
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _graph_matches_reference(*, task_graph: dict[str, Any], graph_reference: dict[str, Any] | None) -> bool:
+    return isinstance(graph_reference, dict) and (
+        graph_reference.get("metadata_key") == MISSION_TASK_GRAPH_METADATA_KEY
+        and graph_reference.get("graph_version") == task_graph.get("graph_version")
+        and graph_reference.get("graph_fingerprint") == task_graph.get("graph_fingerprint")
+    )
+
+
+def _materialization_matches_reference(
+    *, materialization: dict[str, Any], materialization_reference: dict[str, Any] | None
+) -> bool:
+    if not isinstance(materialization_reference, dict):
+        return False
+    return (
+        materialization_reference.get("metadata_key") == MISSION_GRAPH_MATERIALIZATION_METADATA_KEY
+        and materialization_reference.get("materialization_status") == materialization.get("materialization_status")
+        and materialization_reference.get("materialization_version") == materialization.get("materialization_version")
+        and materialization_reference.get("graph_reference") == materialization.get("graph_reference")
+    )
+
+
+def _resolve_capability_for_readiness(
+    *,
+    selected_node: dict[str, Any],
+    graph_node: dict[str, Any],
+    capability_repo: CapabilityRepository,
+    tenant_id: str,
+    blockers: list[RuntimeReadinessItem],
+    checks: list[RuntimeReadinessItem],
+) -> tuple[_uuid.UUID | None, str | None, str | None]:
+    capability_id: _uuid.UUID | None = None
+    raw_capability_id = selected_node.get("capability_id")
+    if isinstance(raw_capability_id, str) and raw_capability_id.strip():
+        try:
+            capability_id = _uuid.UUID(raw_capability_id)
+        except ValueError:
+            blockers.append(
+                _readiness_item(
+                    code="capability_not_visible",
+                    status="failed",
+                    message="Selected node capability_id is not a valid UUID.",
+                    details={"node_key": selected_node.get("node_key"), "capability_id": raw_capability_id},
+                )
+            )
+            return None, None, None
+
+    capability_name: str | None = None
+    capability_version: str | None = None
+    materialization_selection = selected_node.get("materialization_selection_reference")
+    if isinstance(materialization_selection, dict):
+        raw_name = materialization_selection.get("capability_name")
+        raw_version = materialization_selection.get("capability_version")
+        if isinstance(raw_name, str) and raw_name.strip():
+            capability_name = raw_name.strip()
+        if isinstance(raw_version, str) and raw_version.strip():
+            capability_version = raw_version.strip()
+
+    capability_refs = (
+        graph_node.get("capability_references") if isinstance(graph_node.get("capability_references"), list) else []
+    )
+    if capability_id is None:
+        for capability_ref in capability_refs:
+            if not isinstance(capability_ref, dict):
+                continue
+            raw_ref_id = capability_ref.get("capability_id")
+            if isinstance(raw_ref_id, str) and raw_ref_id.strip():
+                try:
+                    capability_id = _uuid.UUID(raw_ref_id)
+                except ValueError:
+                    blockers.append(
+                        _readiness_item(
+                            code="capability_not_visible",
+                            status="failed",
+                            message="Task graph capability_id is not a valid UUID.",
+                            details={"node_key": selected_node.get("node_key"), "capability_id": raw_ref_id},
+                        )
+                    )
+                    return None, None, None
+                break
+            if (
+                capability_name is None
+                and isinstance(capability_ref.get("name"), str)
+                and capability_ref["name"].strip()
+            ):
+                capability_name = capability_ref["name"].strip()
+            if (
+                capability_version is None
+                and isinstance(capability_ref.get("version"), str)
+                and capability_ref["version"].strip()
+            ):
+                capability_version = capability_ref["version"].strip()
+
+    if capability_id is not None:
+        capability = capability_repo.get_visible_for_tenant(capability_id=capability_id, tenant_id=tenant_id)
+        if capability is None:
+            blockers.append(
+                _readiness_item(
+                    code="capability_not_visible",
+                    status="failed",
+                    message="Selected node capability is no longer visible to the tenant.",
+                    details={"node_key": selected_node.get("node_key"), "capability_id": str(capability_id)},
+                )
+            )
+            return capability_id, capability_name, capability_version
+        checks.append(
+            _readiness_item(
+                code="capability_visible",
+                status="passed",
+                message="Selected node capability is tenant-visible.",
+                details={"node_key": selected_node.get("node_key"), "capability_id": str(capability_id)},
+            )
+        )
+        return (
+            capability_id,
+            getattr(capability, "name", capability_name),
+            getattr(capability, "version", capability_version),
+        )
+
+    if capability_name and capability_version:
+        capability = capability_repo.get_conflict_for_scope(
+            name=capability_name,
+            version=capability_version,
+            tenant_id=tenant_id,
+        )
+        if capability is None:
+            capability = capability_repo.get_conflict_for_scope(
+                name=capability_name,
+                version=capability_version,
+                tenant_id=None,
+            )
+        if capability is not None:
+            checks.append(
+                _readiness_item(
+                    code="capability_visible",
+                    status="passed",
+                    message="Selected node capability name/version is tenant-visible.",
+                    details={
+                        "node_key": selected_node.get("node_key"),
+                        "capability_name": capability_name,
+                        "capability_version": capability_version,
+                    },
+                )
+            )
+            return getattr(capability, "id", None), capability_name, capability_version
+
+    blockers.append(
+        _readiness_item(
+            code="capability_not_visible",
+            status="failed",
+            message="Selected node capability reference is no longer tenant-visible.",
+            details={
+                "node_key": selected_node.get("node_key"),
+                "capability_name": capability_name,
+                "capability_version": capability_version,
+            },
+        )
+    )
+    return capability_id, capability_name, capability_version
+
+
+def _validate_adapter_for_readiness(
+    *,
+    selected_node: dict[str, Any],
+    admitted_capability_id: _uuid.UUID | None,
+    admitted_capability_name: str | None,
+    admitted_capability_version: str | None,
+    adapter_repo: CapabilityAdapterRepository,
+    tenant_id: str,
+    blockers: list[RuntimeReadinessItem],
+    checks: list[RuntimeReadinessItem],
+) -> None:
+    raw_adapter_id = selected_node.get("adapter_id")
+    if raw_adapter_id is None:
+        return
+    if not isinstance(raw_adapter_id, str) or not raw_adapter_id.strip():
+        blockers.append(
+            _readiness_item(
+                code="adapter_not_visible",
+                status="failed",
+                message="Selected node adapter_id is invalid.",
+                details={"node_key": selected_node.get("node_key"), "adapter_id": raw_adapter_id},
+            )
+        )
+        return
+    try:
+        adapter_id = _uuid.UUID(raw_adapter_id)
+    except ValueError:
+        blockers.append(
+            _readiness_item(
+                code="adapter_not_visible",
+                status="failed",
+                message="Selected node adapter_id is not a valid UUID.",
+                details={"node_key": selected_node.get("node_key"), "adapter_id": raw_adapter_id},
+            )
+        )
+        return
+
+    adapter = adapter_repo.get_visible_for_tenant(adapter_id=adapter_id, tenant_id=tenant_id)
+    if adapter is None:
+        blockers.append(
+            _readiness_item(
+                code="adapter_not_visible",
+                status="failed",
+                message="Selected node adapter is no longer visible to the tenant.",
+                details={"node_key": selected_node.get("node_key"), "adapter_id": str(adapter_id)},
+            )
+        )
+        return
+
+    adapter_capability_id = getattr(adapter, "capability_id", None)
+    if (
+        adapter_capability_id is not None
+        and admitted_capability_id is not None
+        and adapter_capability_id != admitted_capability_id
+    ):
+        blockers.append(
+            _readiness_item(
+                code="adapter_capability_mismatch",
+                status="failed",
+                message="Selected adapter is not bound to the admitted capability.",
+                details={
+                    "node_key": selected_node.get("node_key"),
+                    "adapter_id": str(adapter_id),
+                    "adapter_capability_id": str(adapter_capability_id),
+                    "admitted_capability_id": str(admitted_capability_id),
+                },
+            )
+        )
+        return
+
+    adapter_capability_name = getattr(adapter, "capability_name", None)
+    adapter_capability_version = getattr(adapter, "capability_version", None)
+    if adapter_capability_id is None and admitted_capability_id is None:
+        if adapter_capability_name and adapter_capability_name != admitted_capability_name:
+            blockers.append(
+                _readiness_item(
+                    code="adapter_capability_mismatch",
+                    status="failed",
+                    message="Selected adapter capability name does not match the admitted capability.",
+                    details={
+                        "node_key": selected_node.get("node_key"),
+                        "adapter_id": str(adapter_id),
+                        "adapter_capability_name": adapter_capability_name,
+                        "admitted_capability_name": admitted_capability_name,
+                    },
+                )
+            )
+            return
+        if (
+            adapter_capability_version
+            and admitted_capability_version
+            and adapter_capability_version != admitted_capability_version
+        ):
+            blockers.append(
+                _readiness_item(
+                    code="adapter_capability_mismatch",
+                    status="failed",
+                    message="Selected adapter capability version does not match the admitted capability.",
+                    details={
+                        "node_key": selected_node.get("node_key"),
+                        "adapter_id": str(adapter_id),
+                        "adapter_capability_version": adapter_capability_version,
+                        "admitted_capability_version": admitted_capability_version,
+                    },
+                )
+            )
+            return
+
+    checks.append(
+        _readiness_item(
+            code="adapter_visible",
+            status="passed",
+            message="Selected node adapter is tenant-visible and bound to the admitted capability.",
+            details={"node_key": selected_node.get("node_key"), "adapter_id": str(adapter_id)},
+        )
     )
 
 
@@ -1667,6 +1988,315 @@ def admit_mission_graph_to_runtime(
     metadata.update(runtime_admission_metadata)
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _runtime_admission_to_read(mission)
+
+
+@router.get("/{mission_id}/runtime-readiness", response_model=RuntimeReadinessRead)
+def read_mission_runtime_readiness(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> RuntimeReadinessRead:
+    """Validate read-only runtime admission readiness without runtime authority."""
+    tenant_id_str = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    metadata = mission.metadata_json or {}
+    task_graph = _runtime_readiness_reference(metadata, MISSION_TASK_GRAPH_METADATA_KEY)
+    materialization = _runtime_readiness_reference(metadata, MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
+    admission = _runtime_readiness_reference(metadata, MISSION_RUNTIME_ADMISSION_METADATA_KEY)
+    checked_at = datetime.now(UTC).isoformat()
+    checks: list[RuntimeReadinessItem] = []
+    blockers: list[RuntimeReadinessItem] = []
+    warnings: list[RuntimeReadinessItem] = []
+    incomplete_codes: set[str] = set()
+
+    if task_graph is None:
+        blockers.append(
+            _readiness_item(
+                code="missing_task_graph",
+                status="failed",
+                message="Current task graph metadata is required before runtime readiness can pass.",
+            )
+        )
+        incomplete_codes.add("missing_task_graph")
+    else:
+        checks.append(
+            _readiness_item(
+                code="task_graph_present",
+                status="passed",
+                message="Current task graph metadata is present.",
+                details={
+                    "graph_version": task_graph.get("graph_version"),
+                    "graph_fingerprint": task_graph.get("graph_fingerprint"),
+                },
+            )
+        )
+
+    if materialization is None:
+        blockers.append(
+            _readiness_item(
+                code="missing_materialization",
+                status="failed",
+                message="Current graph materialization metadata is required before runtime readiness can pass.",
+            )
+        )
+        incomplete_codes.add("missing_materialization")
+    elif materialization.get("materialization_status") == "superseded":
+        blockers.append(
+            _readiness_item(
+                code="materialization_superseded",
+                status="failed",
+                message="Current graph materialization is superseded.",
+                details={"materialization_version": materialization.get("materialization_version")},
+            )
+        )
+    else:
+        checks.append(
+            _readiness_item(
+                code="materialization_current",
+                status="passed",
+                message="Current graph materialization is present and not superseded.",
+                details={
+                    "materialization_status": materialization.get("materialization_status"),
+                    "materialization_version": materialization.get("materialization_version"),
+                },
+            )
+        )
+
+    if admission is None:
+        blockers.append(
+            _readiness_item(
+                code="missing_runtime_admission",
+                status="failed",
+                message="Runtime admission metadata is required before runtime readiness can pass.",
+            )
+        )
+        incomplete_codes.add("missing_runtime_admission")
+    elif admission.get("admission_status") == "superseded":
+        blockers.append(
+            _readiness_item(
+                code="admission_superseded",
+                status="failed",
+                message="Runtime admission metadata is superseded.",
+                details={"admission_version": admission.get("admission_version")},
+            )
+        )
+    elif admission.get("admission_status") != "admitted":
+        blockers.append(
+            _readiness_item(
+                code="runtime_admission_not_admitted",
+                status="failed",
+                message="Runtime admission must have admission_status='admitted' before readiness can pass.",
+                details={"admission_status": admission.get("admission_status")},
+            )
+        )
+    else:
+        checks.append(
+            _readiness_item(
+                code="runtime_admission_admitted",
+                status="passed",
+                message="Runtime admission is admitted.",
+                details={"admission_version": admission.get("admission_version")},
+            )
+        )
+
+    selected_nodes = admission.get("selected_nodes") if isinstance(admission, dict) else []
+    if not isinstance(selected_nodes, list):
+        selected_nodes = []
+    if isinstance(admission, dict) and not selected_nodes:
+        blockers.append(
+            _readiness_item(
+                code="validation_gap",
+                status="failed",
+                message="Runtime admission contains no selected nodes for readiness validation.",
+            )
+        )
+        incomplete_codes.add("validation_gap")
+
+    if task_graph is not None and admission is not None:
+        if _graph_matches_reference(task_graph=task_graph, graph_reference=admission.get("graph_reference")):
+            checks.append(
+                _readiness_item(
+                    code="graph_reference_current",
+                    status="passed",
+                    message="Admission graph reference matches the current task graph.",
+                )
+            )
+        else:
+            blockers.append(
+                _readiness_item(
+                    code="graph_reference_mismatch",
+                    status="failed",
+                    message="Admission graph reference does not match the current task graph version/fingerprint.",
+                    details={
+                        "current_graph_version": task_graph.get("graph_version"),
+                        "current_graph_fingerprint": task_graph.get("graph_fingerprint"),
+                        "admission_graph_reference": admission.get("graph_reference"),
+                    },
+                )
+            )
+
+    if materialization is not None and admission is not None:
+        if _materialization_matches_reference(
+            materialization=materialization, materialization_reference=admission.get("materialization_reference")
+        ):
+            checks.append(
+                _readiness_item(
+                    code="materialization_reference_current",
+                    status="passed",
+                    message="Admission materialization reference matches the current materialization.",
+                )
+            )
+        else:
+            blockers.append(
+                _readiness_item(
+                    code="materialization_reference_mismatch",
+                    status="failed",
+                    message="Admission materialization reference does not match the current materialization.",
+                    details={
+                        "current_materialization_version": materialization.get("materialization_version"),
+                        "admission_materialization_reference": admission.get("materialization_reference"),
+                    },
+                )
+            )
+
+    outcome_reviews = OutcomeReviewRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_id_str)
+    rejected_reviews = [
+        review
+        for review in outcome_reviews
+        if getattr(review, "review_status", None) == "approved"
+        and getattr(review, "review_decision", None) == "rejected"
+    ]
+    if rejected_reviews:
+        blockers.append(
+            _readiness_item(
+                code="rejected_outcome_review",
+                status="failed",
+                message="At least one approved rejected outcome review blocks runtime materialization readiness.",
+                details={"rejected_review_count": len(rejected_reviews)},
+            )
+        )
+    else:
+        checks.append(
+            _readiness_item(
+                code="outcome_reviews_non_blocking",
+                status="passed",
+                message="No approved rejected outcome review blocks runtime materialization readiness.",
+                details={"review_count": len(outcome_reviews)},
+            )
+        )
+
+    capability_repo = CapabilityRepository(db)
+    adapter_repo = CapabilityAdapterRepository(db)
+    nodes_by_key: dict[str, dict[str, Any]] = {}
+    if task_graph is not None and isinstance(task_graph.get("nodes"), list):
+        nodes_by_key = {node["key"]: node for node in task_graph["nodes"] if isinstance(node, dict) and node.get("key")}
+
+    for selected_node in selected_nodes:
+        if not isinstance(selected_node, dict):
+            blockers.append(
+                _readiness_item(
+                    code="validation_gap",
+                    status="failed",
+                    message="Runtime admission selected node entry is malformed.",
+                )
+            )
+            incomplete_codes.add("validation_gap")
+            continue
+        node_key = selected_node.get("node_key")
+        node = nodes_by_key.get(node_key) if isinstance(node_key, str) else None
+        if node is None:
+            blockers.append(
+                _readiness_item(
+                    code="missing_selected_node",
+                    status="failed",
+                    message="Runtime admission selected node is missing from the current task graph.",
+                    details={"node_key": node_key},
+                )
+            )
+            continue
+
+        checks.append(
+            _readiness_item(
+                code="selected_node_present",
+                status="passed",
+                message="Runtime admission selected node is present in the current task graph.",
+                details={"node_key": node_key},
+            )
+        )
+        runtime_task_type = selected_node.get("runtime_task_type") or node.get("intended_task_type")
+        if not isinstance(runtime_task_type, str) or not runtime_task_type.strip():
+            blockers.append(
+                _readiness_item(
+                    code="missing_runtime_task_type",
+                    status="failed",
+                    message="Runtime admission selected node lacks a runtime task type.",
+                    details={"node_key": node_key},
+                )
+            )
+            continue
+        checks.append(
+            _readiness_item(
+                code="runtime_task_type_present",
+                status="passed",
+                message="Runtime admission selected node has a runtime task type.",
+                details={"node_key": node_key, "runtime_task_type": runtime_task_type.strip()},
+            )
+        )
+
+        capability_id, capability_name, capability_version = _resolve_capability_for_readiness(
+            selected_node=selected_node,
+            graph_node=node,
+            capability_repo=capability_repo,
+            tenant_id=tenant_id_str,
+            blockers=blockers,
+            checks=checks,
+        )
+        _validate_adapter_for_readiness(
+            selected_node=selected_node,
+            admitted_capability_id=capability_id,
+            admitted_capability_name=capability_name,
+            admitted_capability_version=capability_version,
+            adapter_repo=adapter_repo,
+            tenant_id=tenant_id_str,
+            blockers=blockers,
+            checks=checks,
+        )
+
+    validation_result = admission.get("validation_result") if isinstance(admission, dict) else None
+    validation_gaps = validation_result.get("gaps") if isinstance(validation_result, dict) else None
+    if validation_gaps:
+        warning = _readiness_item(
+            code="validation_gap",
+            status="warning",
+            message="Runtime admission includes validation notes that should be reviewed before task materialization.",
+            details={"gaps": validation_gaps},
+        )
+        warnings.append(warning)
+        checks.append(warning)
+
+    ready = not blockers
+    readiness_status: RuntimeReadinessStatus = "ready" if ready else "blocked"
+    if not ready and any(blocker.code in incomplete_codes for blocker in blockers):
+        readiness_status = "incomplete"
+
+    return RuntimeReadinessRead(
+        mission_id=mission.id,
+        tenant_id=mission.tenant_id,
+        ready=ready,
+        readiness_status=readiness_status,
+        checked_at=checked_at,
+        graph_reference=task_graph,
+        materialization_reference=materialization,
+        admission_reference=admission,
+        selected_node_count=len(selected_nodes),
+        checks=checks,
+        blockers=blockers,
+        warnings=warnings,
+    )
 
 
 @router.get("/{mission_id}/runtime-admission", response_model=RuntimeAdmissionRead)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -1894,3 +1895,326 @@ def test_runtime_admission_does_not_create_execution_task_rows() -> None:
     assert response.status_code == 200
     assert response.json()["runtime_admission"]["execution_task_records"] == []
     task_repo_cls.assert_not_called()
+
+
+def _mission_with_admitted_runtime_admission(
+    *,
+    tenant_id: uuid.UUID,
+    mission_id: uuid.UUID,
+    capability_id: uuid.UUID | None = None,
+    adapter_id: uuid.UUID | None = None,
+) -> SimpleNamespace:
+    mission = _mission_with_runtime_admission_layers(tenant_id=tenant_id, mission_id=mission_id)
+    task_graph = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]
+    materialization = mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY]
+    selected_node: dict[str, object] = {
+        "node_key": "collect-signals",
+        "runtime_task_type": "crm_research",
+        "capability_id": str(capability_id or task_graph["nodes"][0]["capability_references"][0]["capability_id"]),
+        "adapter_id": str(adapter_id) if adapter_id is not None else None,
+        "graph_node_reference": {"key": "collect-signals", "name": "Collect approved signals"},
+        "materialization_selection_reference": materialization["capability_selection_provenance"][0],
+        "operator_notes": "Admission only; do not queue.",
+    }
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = {
+        "schema_version": 1,
+        "mission_id": str(mission_id),
+        "admission_status": "admitted",
+        "admission_version": 1,
+        "admitted_by": "operator@example.com",
+        "admitted_at": "2026-05-09T12:00:00+00:00",
+        "updated_at": "2026-05-09T12:00:00+00:00",
+        "graph_reference": {
+            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+            "schema_version": task_graph["schema_version"],
+            "graph_status": task_graph["graph_status"],
+            "graph_version": task_graph["graph_version"],
+            "graph_fingerprint": task_graph["graph_fingerprint"],
+            "node_count": len(task_graph["nodes"]),
+        },
+        "materialization_reference": {
+            "metadata_key": MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
+            "schema_version": materialization["schema_version"],
+            "materialization_status": materialization["materialization_status"],
+            "materialization_version": materialization["materialization_version"],
+            "graph_reference": copy.deepcopy(materialization["graph_reference"]),
+        },
+        "selected_nodes": [selected_node],
+        "validation_result": {
+            "validation_status": "valid",
+            "summary": "Ready for read-only validation.",
+            "checks": [],
+            "gaps": [],
+        },
+        "execution_task_records": [],
+        "runtime_authority": {
+            "creates_execution_tasks": False,
+            "enqueues_work": False,
+            "dispatches_workers": False,
+            "requires_explicit_queue_admission_for_execution": True,
+        },
+    }
+    return mission
+
+
+def _readiness_response(
+    mission: SimpleNamespace,
+    *,
+    tenant_id: uuid.UUID,
+    mission_id: uuid.UUID,
+    capability: object | None = None,
+    adapter: object | None = None,
+    outcome_reviews: list[object] | None = None,
+):
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = capability
+    capability_repo.get_conflict_for_scope.return_value = capability
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = adapter
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = outcome_reviews or []
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/runtime-readiness")
+
+    return (
+        response,
+        mission_repo,
+        capability_repo,
+        adapter_repo,
+        outcome_repo,
+        task_repo_cls,
+        executor_cls,
+        coordinator_cls,
+    )
+
+
+def _blocker_codes(body: dict[str, object]) -> set[str]:
+    return {blocker["code"] for blocker in body["blockers"]}
+
+
+def test_runtime_readiness_ready_for_valid_admitted_graph() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(
+        tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id
+    )
+    response, mission_repo, _, _, _, task_repo_cls, executor_cls, coordinator_cls = _readiness_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+        adapter=SimpleNamespace(id=adapter_id, capability_id=capability_id),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is True
+    assert body["readiness_status"] == "ready"
+    assert body["selected_node_count"] == 1
+    assert body["mission_id"] == str(mission_id)
+    assert body["tenant_id"] == str(tenant_id)
+    assert body["blockers"] == []
+    assert body["admission_reference"]["admission_status"] == "admitted"
+    mission_repo.update_metadata.assert_not_called()
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_runtime_readiness_false_for_missing_runtime_admission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_runtime_admission_layers(tenant_id=tenant_id, mission_id=mission_id)
+    response, *_ = _readiness_response(mission, tenant_id=tenant_id, mission_id=mission_id)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert body["readiness_status"] == "incomplete"
+    assert "missing_runtime_admission" in _blocker_codes(body)
+
+
+def test_runtime_readiness_false_for_non_admitted_runtime_admission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY]["admission_status"] = "validated"
+    response, *_ = _readiness_response(mission, tenant_id=tenant_id, mission_id=mission_id)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert "runtime_admission_not_admitted" in _blocker_codes(body)
+
+
+def test_runtime_readiness_false_for_superseded_runtime_admission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY]["admission_status"] = "superseded"
+    response, *_ = _readiness_response(mission, tenant_id=tenant_id, mission_id=mission_id)
+
+    assert response.status_code == 200
+    assert "admission_superseded" in _blocker_codes(response.json())
+
+
+def test_runtime_readiness_false_for_graph_fingerprint_version_mismatch() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY]["graph_reference"]["graph_fingerprint"] = (
+        "sha256:stale"
+    )
+    response, *_ = _readiness_response(mission, tenant_id=tenant_id, mission_id=mission_id)
+
+    assert response.status_code == 200
+    assert "graph_reference_mismatch" in _blocker_codes(response.json())
+
+
+def test_runtime_readiness_false_for_materialization_reference_mismatch() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY]["materialization_reference"][
+        "materialization_version"
+    ] = 99
+    response, *_ = _readiness_response(mission, tenant_id=tenant_id, mission_id=mission_id)
+
+    assert response.status_code == 200
+    assert "materialization_reference_mismatch" in _blocker_codes(response.json())
+
+
+def test_runtime_readiness_false_for_missing_selected_node() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY]["selected_nodes"][0]["node_key"] = "missing-node"
+    response, *_ = _readiness_response(mission, tenant_id=tenant_id, mission_id=mission_id)
+
+    assert response.status_code == 200
+    assert "missing_selected_node" in _blocker_codes(response.json())
+
+
+def test_runtime_readiness_false_for_missing_runtime_task_type() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY]["selected_nodes"][0].pop("runtime_task_type")
+    mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]["nodes"][0].pop("intended_task_type")
+    response, *_ = _readiness_response(mission, tenant_id=tenant_id, mission_id=mission_id)
+
+    assert response.status_code == 200
+    assert "missing_runtime_task_type" in _blocker_codes(response.json())
+
+
+def test_runtime_readiness_false_for_invisible_capability() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    response, *_ = _readiness_response(mission, tenant_id=tenant_id, mission_id=mission_id, capability=None)
+
+    assert response.status_code == 200
+    assert "capability_not_visible" in _blocker_codes(response.json())
+
+
+def test_runtime_readiness_false_for_invisible_adapter() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(
+        tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id
+    )
+    response, *_ = _readiness_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+        adapter=None,
+    )
+
+    assert response.status_code == 200
+    assert "adapter_not_visible" in _blocker_codes(response.json())
+
+
+def test_runtime_readiness_false_for_adapter_capability_mismatch() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(
+        tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id
+    )
+    response, *_ = _readiness_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+        adapter=SimpleNamespace(id=adapter_id, capability_id=uuid.uuid4()),
+    )
+
+    assert response.status_code == 200
+    assert "adapter_capability_mismatch" in _blocker_codes(response.json())
+
+
+def test_runtime_readiness_false_for_rejected_outcome_review() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    response, *_ = _readiness_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        outcome_reviews=[SimpleNamespace(review_status="approved", review_decision="rejected")],
+    )
+
+    assert response.status_code == 200
+    assert "rejected_outcome_review" in _blocker_codes(response.json())
+
+
+def test_runtime_readiness_is_tenant_scoped() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = None
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+        response = client.get(f"/v1/missions/{mission_id}/runtime-readiness")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    mission_repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    mission_repo.update_metadata.assert_not_called()
+
+
+def test_runtime_readiness_false_for_superseded_materialization() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY]["materialization_status"] = "superseded"
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY]["materialization_reference"][
+        "materialization_status"
+    ] = "superseded"
+    response, *_ = _readiness_response(mission, tenant_id=tenant_id, mission_id=mission_id)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert "materialization_superseded" in _blocker_codes(body)
