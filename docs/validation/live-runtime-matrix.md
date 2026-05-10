@@ -451,6 +451,10 @@ This means:
 
 ---
 
+## Product-layer runtime bridge note
+
+Graph-to-runtime admission contracts are now present as a Mission-Based AI product-layer bridge. They validate and persist admission metadata only; they are not live graph execution proof, do not enqueue runtime work, and do not demonstrate parallel DAG scheduling or worker dispatch from graph nodes. Existing live-runtime proof claims remain limited to the queue-backed runtime paths explicitly covered by this matrix.
+
 ## Current matrix interpretation
 
 ### What is strongest today
