@@ -276,7 +276,6 @@ The primary missing systems are:
 - capability registry
 - real worker skills
 - evidence item model
-- outcome review
 - memory promotion
 
 Ajenda is not being rebuilt.
@@ -438,7 +437,31 @@ First-class in this block:
 - collection status;
 - schema version and timestamps.
 
-Evidence records are proof/provenance contracts only. Persisting or updating evidence may validate referenced mission ownership, capability visibility, adapter visibility, and execution task ownership, but it does not score outcomes, approve or reject outcomes, promote memory, create vector memory, execute adapters, call workers, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, or alter runtime dispatch. Outcome review and memory promotion remain future layers above this evidence contract layer.
+Evidence records are proof/provenance contracts only. Persisting or updating evidence may validate referenced mission ownership, capability visibility, adapter visibility, and execution task ownership, but it does not score outcomes, approve or reject outcomes, promote memory, create vector memory, execute adapters, call workers, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, or alter runtime dispatch. Outcome review now exists as the next contract layer, while memory promotion remains future work above evidence and outcome review.
+
+
+## Outcome Review Contracts V1
+
+Outcome review contracts now define durable, tenant-owned review records for evaluating mission result claims against mission success criteria and evidence records. `POST /v1/outcome-reviews`, `GET /v1/outcome-reviews/{review_id}`, `GET /v1/outcome-reviews?mission_id=...`, and `PATCH /v1/outcome-reviews/{review_id}` persist, read, list, and update review status/metadata through tenant-scoped repository boundaries.
+
+First-class in this block:
+
+- tenant ownership;
+- mission binding;
+- outcome/result reference under review;
+- optional planner-to-graph materialization reference;
+- optional task graph fingerprint/version reference;
+- reviewed success criteria;
+- evidence references constrained to the same tenant and mission;
+- review status and decision;
+- reviewer type and source;
+- review summary and structured findings;
+- confidence/trust metadata;
+- unresolved gaps and recommended next actions;
+- human approval requirement/status;
+- schema version and timestamps.
+
+Outcome review records evaluate mission result claims using evidence, but they are records only. Persisting or updating an outcome review may validate mission ownership and referenced evidence ownership/alignment, but it does not autonomously score outcomes, promote memory, create memory candidates, create vector memory, execute adapters, create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, alter runtime task state, or mutate mission status. Runtime execution remains governed separately by the existing queue, lease, policy, recovery, and validation layers. Memory promotion remains a future layer above outcome review.
 
 # Build Direction
 
@@ -451,9 +474,9 @@ Ajenda should evolve through:
 5. planner-to-graph materialization contracts
 6. capability execution adapter contracts
 7. evidence contract layer
-8. real worker skills
-9. evidence-backed execution
-10. outcome review
+8. outcome review contracts
+9. real worker skills
+10. evidence-backed execution
 11. memory promotion
 
 The runtime foundation should remain authoritative.
