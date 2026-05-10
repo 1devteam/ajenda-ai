@@ -2255,3 +2255,215 @@ def test_runtime_readiness_false_for_rejected_outcome_review_status() -> None:
 
     assert response.status_code == 200
     assert "rejected_outcome_review" in _blocker_codes(response.json())
+
+
+def _preview_response(
+    mission: SimpleNamespace,
+    *,
+    tenant_id: uuid.UUID,
+    mission_id: uuid.UUID,
+    capability: object | None = None,
+    adapter: object | None = None,
+    outcome_reviews: list[object] | None = None,
+):
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = capability
+    capability_repo.get_conflict_for_scope.return_value = capability
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = adapter
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = outcome_reviews or []
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/runtime-task-preview")
+
+    return (
+        response,
+        mission_repo,
+        capability_repo,
+        adapter_repo,
+        outcome_repo,
+        task_repo_cls,
+        executor_cls,
+        coordinator_cls,
+    )
+
+
+def test_runtime_task_preview_returns_blocked_when_readiness_is_blocked() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(
+        tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id
+    )
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY]["admission_status"] = "validated"
+    response, mission_repo, *_ = _preview_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert body["preview_status"] == "blocked"
+    assert body["task_count"] == 0
+    assert body["tasks"] == []
+    assert "runtime_admission_not_admitted" in _blocker_codes(body)
+    mission_repo.update_metadata.assert_not_called()
+
+
+def test_runtime_task_preview_is_deterministic_and_preserves_selected_node_order() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(
+        tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id
+    )
+    task_graph = mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]
+    materialization = mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY]
+    task_graph["nodes"][1]["capability_references"] = [
+        {"name": "analysis", "version": "1.0.0", "purpose": "Prepare recommendations."}
+    ]
+    materialization["capability_selection_provenance"].append(
+        {
+            "node_key": "draft-recommendations",
+            "capability_name": "analysis",
+            "capability_version": "1.0.0",
+            "selection_reason": "Matches recommendation drafting contract.",
+        }
+    )
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY]["selected_nodes"] = [
+        {
+            "node_key": "collect-signals",
+            "runtime_task_type": "crm_research",
+            "capability_id": str(capability_id),
+            "adapter_id": str(adapter_id),
+            "graph_node_reference": {"key": "collect-signals", "name": "Collect approved signals"},
+            "materialization_selection_reference": materialization["capability_selection_provenance"][0],
+            "operator_notes": "Admission only; do not queue.",
+        },
+        {
+            "node_key": "draft-recommendations",
+            "runtime_task_type": "recommendation_draft",
+            "capability_id": None,
+            "adapter_id": None,
+            "graph_node_reference": {"key": "draft-recommendations", "name": "Draft recommendations"},
+            "materialization_selection_reference": materialization["capability_selection_provenance"][1],
+            "operator_notes": "Preview the dependent recommendation task.",
+        },
+    ]
+
+    response, mission_repo, _, _, _, task_repo_cls, executor_cls, coordinator_cls = _preview_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+        adapter=SimpleNamespace(id=adapter_id, capability_id=capability_id),
+    )
+    second_response, *_ = _preview_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+        adapter=SimpleNamespace(id=adapter_id, capability_id=capability_id),
+    )
+
+    assert response.status_code == 200
+    assert second_response.status_code == 200
+    body = response.json()
+    assert body["ready"] is True
+    assert body["preview_status"] == "ready"
+    assert body["task_count"] == 2
+    assert [task["graph_node_key"] for task in body["tasks"]] == ["collect-signals", "draft-recommendations"]
+    assert [task["preview_task_key"] for task in body["tasks"]] == [
+        f"mission:{mission_id}:graph:7:node:collect-signals:runtime-task-preview",
+        f"mission:{mission_id}:graph:7:node:draft-recommendations:runtime-task-preview",
+    ]
+    assert body["tasks"] == second_response.json()["tasks"]
+    assert body["tasks"][0]["future_execution_task_state"] == "planned"
+    assert body["tasks"][0]["runtime_task_type"] == "crm_research"
+    assert body["tasks"][0]["capability_reference"]["capability_id"] == str(capability_id)
+    assert body["tasks"][0]["adapter_reference"] == {"adapter_id": str(adapter_id)}
+    assert (
+        body["tasks"][0]["materialization_selection_reference"] == materialization["capability_selection_provenance"][0]
+    )
+    assert body["tasks"][0]["dependency_keys"] == []
+    assert body["tasks"][1]["dependency_keys"] == ["collect-signals"]
+    payload = body["tasks"][1]["payload_preview"]
+    assert payload == {
+        "mission_id": str(mission_id),
+        "graph_node_key": "draft-recommendations",
+        "graph_version": 7,
+        "graph_fingerprint": "sha256:existing-graph",
+        "materialization_version": 1,
+        "admission_version": 1,
+        "runtime_task_type": "recommendation_draft",
+        "input_contract": {"requires": "signal_summary"},
+        "expected_output_contract": {"artifact": "recommendation_set"},
+        "execution_constraints": {"no_customer_contact": True},
+    }
+    assert body["runtime_authority"] == {
+        "creates_execution_tasks": False,
+        "enqueues_work": False,
+        "dispatches_workers": False,
+        "calls_executor": False,
+        "calls_coordinator": False,
+    }
+    mission_repo.update_metadata.assert_not_called()
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_runtime_task_preview_hides_cross_tenant_mission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = None
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+        response = client.get(f"/v1/missions/{mission_id}/runtime-task-preview")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    mission_repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    mission_repo.update_metadata.assert_not_called()
+
+
+def test_runtime_task_preview_does_not_create_or_dispatch_runtime_work() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(
+        tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id
+    )
+    response, mission_repo, _, _, _, task_repo_cls, executor_cls, coordinator_cls = _preview_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["task_count"] == 1
+    mission_repo.update_metadata.assert_not_called()
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
