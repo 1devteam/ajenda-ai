@@ -482,6 +482,13 @@ First-class in this block:
 
 Retrieval remains governance-first and retrieval-engine-neutral. Persisting or updating a retrieval contract may validate mission ownership and memory-reference tenant/mission alignment, but it does not generate embeddings, execute vector search, rank semantic results, reason autonomously, create runtime task rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, alter worker dispatch, or mutate mission/task runtime state. Embeddings, vector databases, runtime reasoning, and autonomous execution remain future layers above these contracts.
 
+## Mission Lifecycle Read Model V1
+
+Mission lifecycle reads now provide a compact, tenant-scoped view across the product-layer contracts for one mission. `GET /v1/missions/{mission_id}/lifecycle` aggregates mission identity/status, intake metadata, plan metadata, task graph metadata, graph materialization metadata, evidence summaries, outcome review summaries, memory promotion summary state, retrieval contract summaries, deterministic completeness flags, and deterministic missing next-step indicators.
+
+This read model is aggregation only. It does not execute graphs, admit queues, create `ExecutionTask` rows, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, run adapter execution, score outcomes, perform retrieval/vector search, promote memory, or mutate mission/runtime state. Existing contract endpoints remain the write/read authorities for their individual layers.
+
+
 # Build Direction
 
 Ajenda should evolve through:

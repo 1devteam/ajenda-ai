@@ -13,6 +13,7 @@ from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_ses
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_INTAKE_METADATA_KEY,
+    MISSION_PLAN_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
     build_mission_intake_metadata,
 )
@@ -990,3 +991,189 @@ def test_graph_materialization_validation_requires_structured_validation_summary
     assert response.status_code == 422
     assert "graph validation summary is required" in response.text
     repo_cls.assert_not_called()
+
+
+def test_mission_lifecycle_returns_contract_metadata_and_related_summaries_without_runtime_side_effects() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    timestamp = datetime(2026, 5, 9, 13, 0, tzinfo=UTC)
+    metadata = {
+        MISSION_INTAKE_METADATA_KEY: {"schema_version": 1, "priority": "high"},
+        MISSION_PLAN_METADATA_KEY: {"schema_version": 1, "planning_status": "approved"},
+        MISSION_TASK_GRAPH_METADATA_KEY: {
+            "schema_version": 1,
+            "graph_status": "approved",
+            "graph_version": 2,
+            "nodes": [{"key": "collect-signals"}],
+            "edges": [],
+        },
+        MISSION_GRAPH_MATERIALIZATION_METADATA_KEY: {
+            "schema_version": 1,
+            "materialization_status": "validated",
+            "materialization_version": 1,
+        },
+    }
+    mission = _mission_with_metadata(tenant_id=tenant_id, mission_id=mission_id, metadata_json=metadata)
+    evidence = SimpleNamespace(
+        id=uuid.uuid4(),
+        evidence_type="artifact",
+        evidence_source="contract-test",
+        collection_status="collected",
+        confidence=0.91,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    review = SimpleNamespace(
+        id=uuid.uuid4(),
+        review_status="completed",
+        review_decision="approved",
+        reviewer_type="human",
+        confidence=0.86,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    retrieval = SimpleNamespace(
+        id=uuid.uuid4(),
+        retrieval_strategy="keyword",
+        retrieval_status="completed",
+        confidence=0.77,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    evidence_repo = MagicMock()
+    evidence_repo.list_for_mission.return_value = [evidence]
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = [review]
+    retrieval_repo = MagicMock()
+    retrieval_repo.list_for_mission.return_value = [retrieval]
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.EvidenceRepository", return_value=evidence_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.RetrievalContractRepository", return_value=retrieval_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission.QuotaEnforcementService") as quota_cls,
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/lifecycle")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mission"]["mission_id"] == str(mission_id)
+    assert body["mission"]["tenant_id"] == str(tenant_id)
+    assert body["mission"]["status"] == "planned"
+    assert body["intake"] == metadata[MISSION_INTAKE_METADATA_KEY]
+    assert body["plan"] == metadata[MISSION_PLAN_METADATA_KEY]
+    assert body["task_graph"] == metadata[MISSION_TASK_GRAPH_METADATA_KEY]
+    assert body["materialization"] == metadata[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY]
+    assert body["evidence"]["count"] == 1
+    assert body["evidence"]["records"][0]["evidence_id"] == str(evidence.id)
+    assert body["outcome_reviews"]["count"] == 1
+    assert body["outcome_reviews"]["records"][0]["review_id"] == str(review.id)
+    assert body["memory_promotions"] == {"count": 0, "records": []}
+    assert body["retrieval_contracts"]["count"] == 1
+    assert body["retrieval_contracts"]["records"][0]["retrieval_id"] == str(retrieval.id)
+    assert body["completeness"] == {
+        "has_intake": True,
+        "has_plan": True,
+        "has_task_graph": True,
+        "has_materialization": True,
+        "has_evidence": True,
+        "has_outcome_review": True,
+        "has_memory_promotions": False,
+        "has_retrieval_contracts": True,
+    }
+    assert body["missing_next_steps"] == ["review_memory_promotion"]
+    mission_repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    evidence_repo.list_for_mission.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    outcome_repo.list_for_mission.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    retrieval_repo.list_for_mission.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    mission_repo.add.assert_not_called()
+    mission_repo.update_metadata.assert_not_called()
+    task_repo_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+    quota_cls.assert_not_called()
+
+
+def test_mission_lifecycle_reports_missing_next_steps_when_layers_are_absent() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={MISSION_INTAKE_METADATA_KEY: {"schema_version": 1}},
+    )
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.EvidenceRepository") as evidence_repo_cls,
+        patch("backend.api.routes.mission.OutcomeReviewRepository") as outcome_repo_cls,
+        patch("backend.api.routes.mission.RetrievalContractRepository") as retrieval_repo_cls,
+    ):
+        evidence_repo_cls.return_value.list_for_mission.return_value = []
+        outcome_repo_cls.return_value.list_for_mission.return_value = []
+        retrieval_repo_cls.return_value.list_for_mission.return_value = []
+        response = client.get(f"/v1/missions/{mission_id}/lifecycle")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["completeness"] == {
+        "has_intake": True,
+        "has_plan": False,
+        "has_task_graph": False,
+        "has_materialization": False,
+        "has_evidence": False,
+        "has_outcome_review": False,
+        "has_memory_promotions": False,
+        "has_retrieval_contracts": False,
+    }
+    assert body["missing_next_steps"] == [
+        "create_mission_plan",
+        "create_task_graph",
+        "materialize_task_graph",
+        "attach_evidence",
+        "create_outcome_review",
+        "review_memory_promotion",
+        "create_retrieval_contract",
+    ]
+    assert body["plan"] is None
+    assert body["task_graph"] is None
+    assert body["materialization"] is None
+    assert body["evidence"] == {"count": 0, "records": []}
+    assert body["outcome_reviews"] == {"count": 0, "records": []}
+    assert body["retrieval_contracts"] == {"count": 0, "records": []}
+
+
+def test_mission_lifecycle_hides_cross_tenant_mission_without_loading_related_layers() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = None
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.EvidenceRepository") as evidence_repo_cls,
+        patch("backend.api.routes.mission.OutcomeReviewRepository") as outcome_repo_cls,
+        patch("backend.api.routes.mission.RetrievalContractRepository") as retrieval_repo_cls,
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/lifecycle")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    mission_repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    evidence_repo_cls.assert_not_called()
+    outcome_repo_cls.assert_not_called()
+    retrieval_repo_cls.assert_not_called()

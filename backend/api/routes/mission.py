@@ -27,8 +27,11 @@ from backend.domain.mission import (
 )
 from backend.queue.base import QueueAdapter
 from backend.repositories.capability_repository import CapabilityRepository
+from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_repository import MissionRepository
+from backend.repositories.outcome_review_repository import OutcomeReviewRepository
+from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.mission_executor import MissionExecutor
 from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
@@ -647,6 +650,111 @@ class MissionRead(BaseModel):
     updated_at: str
 
 
+class MissionLifecycleCompleteness(BaseModel):
+    """Contract-layer presence indicators for a mission lifecycle."""
+
+    has_intake: bool
+    has_plan: bool
+    has_task_graph: bool
+    has_materialization: bool
+    has_evidence: bool
+    has_outcome_review: bool
+    has_memory_promotions: bool
+    has_retrieval_contracts: bool
+
+
+class MissionLifecycleMissionSummary(BaseModel):
+    """Compact mission identity and status for lifecycle reads."""
+
+    mission_id: UUID
+    tenant_id: str
+    objective: str
+    status: str
+    compliance_category: str
+    jurisdiction: str
+    created_at: str
+    updated_at: str
+
+
+class MissionLifecycleEvidenceItem(BaseModel):
+    """Compact evidence row included in the mission lifecycle read model."""
+
+    evidence_id: UUID
+    evidence_type: str
+    evidence_source: str
+    collection_status: str
+    confidence: float | None
+    created_at: str
+    updated_at: str
+
+
+class MissionLifecycleEvidenceSummary(BaseModel):
+    """Evidence summary for the mission lifecycle read model."""
+
+    count: int
+    records: list[MissionLifecycleEvidenceItem]
+
+
+class MissionLifecycleOutcomeReviewItem(BaseModel):
+    """Compact outcome review row included in the mission lifecycle read model."""
+
+    review_id: UUID
+    review_status: str
+    review_decision: str
+    reviewer_type: str
+    confidence: float | None
+    created_at: str
+    updated_at: str
+
+
+class MissionLifecycleOutcomeReviewSummary(BaseModel):
+    """Outcome review summary for the mission lifecycle read model."""
+
+    count: int
+    records: list[MissionLifecycleOutcomeReviewItem]
+
+
+class MissionLifecycleMemoryPromotionSummary(BaseModel):
+    """Memory promotion summary for the mission lifecycle read model."""
+
+    count: int
+    records: list[dict[str, Any]]
+
+
+class MissionLifecycleRetrievalContractItem(BaseModel):
+    """Compact retrieval contract row included in the mission lifecycle read model."""
+
+    retrieval_id: UUID
+    retrieval_strategy: str
+    retrieval_status: str
+    confidence: float | None
+    created_at: str
+    updated_at: str
+
+
+class MissionLifecycleRetrievalContractSummary(BaseModel):
+    """Retrieval contract summary for the mission lifecycle read model."""
+
+    count: int
+    records: list[MissionLifecycleRetrievalContractItem]
+
+
+class MissionLifecycleRead(BaseModel):
+    """Read-only aggregation of the mission product-layer lifecycle."""
+
+    mission: MissionLifecycleMissionSummary
+    intake: dict[str, Any] | None
+    plan: dict[str, Any] | None
+    task_graph: dict[str, Any] | None
+    materialization: dict[str, Any] | None
+    evidence: MissionLifecycleEvidenceSummary
+    outcome_reviews: MissionLifecycleOutcomeReviewSummary
+    memory_promotions: MissionLifecycleMemoryPromotionSummary
+    retrieval_contracts: MissionLifecycleRetrievalContractSummary
+    completeness: MissionLifecycleCompleteness
+    missing_next_steps: list[str]
+
+
 class MissionQueueResponse(BaseModel):
     queued_task_ids: list[str]
     pending_review_task_ids: list[str]
@@ -794,6 +902,111 @@ def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead
     )
 
 
+def _mission_lifecycle_to_read(
+    *,
+    mission: Mission,
+    evidence_records: list[Any],
+    outcome_reviews: list[Any],
+    retrieval_contracts: list[Any],
+) -> MissionLifecycleRead:
+    metadata = mission.metadata_json or {}
+    intake = metadata.get(MISSION_INTAKE_METADATA_KEY)
+    plan = metadata.get(MISSION_PLAN_METADATA_KEY)
+    task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
+    materialization = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
+    has_memory_promotions = False
+
+    completeness = MissionLifecycleCompleteness(
+        has_intake=isinstance(intake, dict),
+        has_plan=isinstance(plan, dict),
+        has_task_graph=isinstance(task_graph, dict),
+        has_materialization=isinstance(materialization, dict),
+        has_evidence=bool(evidence_records),
+        has_outcome_review=bool(outcome_reviews),
+        has_memory_promotions=has_memory_promotions,
+        has_retrieval_contracts=bool(retrieval_contracts),
+    )
+    missing_next_steps: list[str] = []
+    if not completeness.has_plan:
+        missing_next_steps.append("create_mission_plan")
+    if not completeness.has_task_graph:
+        missing_next_steps.append("create_task_graph")
+    if not completeness.has_materialization:
+        missing_next_steps.append("materialize_task_graph")
+    if not completeness.has_evidence:
+        missing_next_steps.append("attach_evidence")
+    if not completeness.has_outcome_review:
+        missing_next_steps.append("create_outcome_review")
+    if not completeness.has_memory_promotions:
+        missing_next_steps.append("review_memory_promotion")
+    if not completeness.has_retrieval_contracts:
+        missing_next_steps.append("create_retrieval_contract")
+
+    return MissionLifecycleRead(
+        mission=MissionLifecycleMissionSummary(
+            mission_id=mission.id,
+            tenant_id=mission.tenant_id,
+            objective=mission.objective,
+            status=mission.status,
+            compliance_category=mission.compliance_category,
+            jurisdiction=mission.jurisdiction,
+            created_at=mission.created_at.isoformat(),
+            updated_at=mission.updated_at.isoformat(),
+        ),
+        intake=intake if isinstance(intake, dict) else None,
+        plan=plan if isinstance(plan, dict) else None,
+        task_graph=task_graph if isinstance(task_graph, dict) else None,
+        materialization=materialization if isinstance(materialization, dict) else None,
+        evidence=MissionLifecycleEvidenceSummary(
+            count=len(evidence_records),
+            records=[
+                MissionLifecycleEvidenceItem(
+                    evidence_id=record.id,
+                    evidence_type=record.evidence_type,
+                    evidence_source=record.evidence_source,
+                    collection_status=record.collection_status,
+                    confidence=record.confidence,
+                    created_at=record.created_at.isoformat(),
+                    updated_at=record.updated_at.isoformat(),
+                )
+                for record in evidence_records
+            ],
+        ),
+        outcome_reviews=MissionLifecycleOutcomeReviewSummary(
+            count=len(outcome_reviews),
+            records=[
+                MissionLifecycleOutcomeReviewItem(
+                    review_id=review.id,
+                    review_status=review.review_status,
+                    review_decision=review.review_decision,
+                    reviewer_type=review.reviewer_type,
+                    confidence=review.confidence,
+                    created_at=review.created_at.isoformat(),
+                    updated_at=review.updated_at.isoformat(),
+                )
+                for review in outcome_reviews
+            ],
+        ),
+        memory_promotions=MissionLifecycleMemoryPromotionSummary(count=0, records=[]),
+        retrieval_contracts=MissionLifecycleRetrievalContractSummary(
+            count=len(retrieval_contracts),
+            records=[
+                MissionLifecycleRetrievalContractItem(
+                    retrieval_id=retrieval.id,
+                    retrieval_strategy=retrieval.retrieval_strategy,
+                    retrieval_status=retrieval.retrieval_status,
+                    confidence=retrieval.confidence,
+                    created_at=retrieval.created_at.isoformat(),
+                    updated_at=retrieval.updated_at.isoformat(),
+                )
+                for retrieval in retrieval_contracts
+            ],
+        ),
+        completeness=completeness,
+        missing_next_steps=missing_next_steps,
+    )
+
+
 @router.post("", response_model=MissionRead, status_code=201)
 def create_mission(
     body: MissionCreate,
@@ -845,6 +1058,32 @@ def read_mission(
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
     return _mission_to_read(mission)
+
+
+@router.get("/{mission_id}/lifecycle", response_model=MissionLifecycleRead)
+def read_mission_lifecycle(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MissionLifecycleRead:
+    """Read one mission as a tenant-scoped product lifecycle without runtime side effects."""
+    tenant_scope = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_scope)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    evidence_records = EvidenceRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
+    outcome_reviews = OutcomeReviewRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
+    retrieval_contracts = RetrievalContractRepository(db).list_for_mission(
+        mission_id=mission_id, tenant_id=tenant_scope
+    )
+    return _mission_lifecycle_to_read(
+        mission=mission,
+        evidence_records=evidence_records,
+        outcome_reviews=outcome_reviews,
+        retrieval_contracts=retrieval_contracts,
+    )
 
 
 @router.put("/{mission_id}/plan", response_model=MissionPlanRead)
