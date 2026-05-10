@@ -19,6 +19,8 @@ MISSION_TASK_GRAPH_METADATA_KEY = "mission_task_graph"
 MISSION_TASK_GRAPH_SCHEMA_VERSION = 1
 MISSION_GRAPH_MATERIALIZATION_METADATA_KEY = "graph_materialization"
 MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION = 1
+MISSION_RUNTIME_ADMISSION_METADATA_KEY = "runtime_admission"
+MISSION_RUNTIME_ADMISSION_SCHEMA_VERSION = 1
 
 
 def utcnow() -> datetime:
@@ -177,6 +179,48 @@ def build_graph_materialization_metadata(
             "materialized_at": materialized_at,
             "updated_at": updated_at,
             "graph_reference": graph_reference,
+        }
+    }
+
+
+def build_runtime_admission_metadata(
+    *,
+    mission_id: str,
+    admission_status: str,
+    admission_version: int,
+    admitted_by: str,
+    admitted_at: str,
+    updated_at: str,
+    graph_reference: dict[str, Any],
+    materialization_reference: dict[str, Any],
+    selected_nodes: list[dict[str, Any]],
+    validation_result: dict[str, Any],
+    execution_task_records: list[dict[str, Any]],
+    runtime_authority: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the durable metadata envelope for graph-to-runtime admission v1.
+
+    Runtime admission is a governed bridge contract from a materialized mission
+    task graph toward future runtime task creation. It is deliberately
+    metadata-only in this implementation: persisting this envelope must not
+    create execution tasks, enqueue work, call runtime coordinators, dispatch
+    workers, or execute capabilities/adapters.
+    """
+    return {
+        MISSION_RUNTIME_ADMISSION_METADATA_KEY: {
+            "schema_version": MISSION_RUNTIME_ADMISSION_SCHEMA_VERSION,
+            "mission_id": mission_id,
+            "admission_status": admission_status,
+            "admission_version": admission_version,
+            "admitted_by": admitted_by,
+            "admitted_at": admitted_at,
+            "updated_at": updated_at,
+            "graph_reference": graph_reference,
+            "materialization_reference": materialization_reference,
+            "selected_nodes": selected_nodes,
+            "validation_result": validation_result,
+            "execution_task_records": execution_task_records,
+            "runtime_authority": runtime_authority,
         }
     }
 

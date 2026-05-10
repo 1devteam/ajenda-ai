@@ -396,6 +396,24 @@ First-class in this block:
 
 Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may validate mission ownership, the existence of a task graph, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Task graph replacement increments the graph version, changes the graph fingerprint, and supersedes any existing materialization metadata so approved/validated materialization cannot silently point at an older graph. Runtime execution/materialization remain future layers above the governed runtime foundation.
 
+## Graph-to-Runtime Admission V1 Contracts
+
+Graph-to-runtime admission contracts now define a governed bridge from a materialized mission task graph toward future runtime task creation. `POST /v1/missions/{mission_id}/runtime-admission` creates or updates admission metadata, and `GET /v1/missions/{mission_id}/runtime-admission` reads it back through the same tenant-scoped mission repository boundary. The contract is persisted additively in `Mission.metadata_json["runtime_admission"]` with `schema_version = 1`.
+
+First-class in this block:
+
+- admitted mission graph reference, graph version, and graph fingerprint;
+- materialization reference and materialization version used for admission;
+- selected graph node keys;
+- runtime task type each selected node would map to later;
+- capability and optional adapter references involved in each selected node;
+- operator/system identity that approved admission;
+- admission status, validation result, validation gaps, and timestamps;
+- explicit `execution_task_records` metadata, currently empty because this block does not create runtime tasks;
+- runtime-authority flags documenting that admission does not queue work, dispatch workers, or bypass explicit queue admission.
+
+Graph-to-runtime admission remains a product-layer bridge only. Persisting admission metadata validates tenant ownership, task graph presence, materialization presence, non-superseded materialization state, materialization graph version/fingerprint alignment, selected node existence, duplicate selected node rejection, runtime task type availability, capability visibility, adapter visibility, and rejected outcome-review blockers where represented. It does not create `ExecutionTask` rows, enqueue work, call `MissionExecutor`, call `ExecutionCoordinator`, register handlers, execute adapters, dispatch workers, alter worker leases, or change recovery behavior. Live runtime graph execution remains future work above the governed queue-backed runtime foundation.
+
 ## Capability Execution Adapter Contracts V1
 
 Capability execution adapter contracts now define durable declarations for how registered capabilities may eventually connect to executable adapter surfaces. `POST /v1/capability-adapters`, `PATCH /v1/capability-adapters/{adapter_id}`, `GET /v1/capability-adapters`, and `GET /v1/capability-adapters/{adapter_id}` persist and read adapter metadata through tenant-authenticated route boundaries. Tenant-scoped adapters are owned by the request tenant; global adapters are visible to tenants when seeded through repository/migration/admin-safe paths and remain read-only from tenant routes.

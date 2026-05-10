@@ -18,14 +18,17 @@ from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_INTAKE_METADATA_KEY,
     MISSION_PLAN_METADATA_KEY,
+    MISSION_RUNTIME_ADMISSION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
     Mission,
     build_graph_materialization_metadata,
     build_mission_intake_metadata,
     build_mission_plan_metadata,
     build_mission_task_graph_metadata,
+    build_runtime_admission_metadata,
 )
 from backend.queue.base import QueueAdapter
+from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
 from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
@@ -48,6 +51,7 @@ GraphOperatorReviewStatus = Literal["not_required", "pending", "approved", "reje
 GraphValidationStatus = Literal["not_run", "valid", "invalid", "warning"]
 GraphValidationCheckStatus = Literal["passed", "warning", "failed"]
 GraphGenerationMode = Literal["manual", "deterministic", "planner_assisted"]
+RuntimeAdmissionStatus = Literal["draft", "validated", "admitted", "rejected", "superseded"]
 
 
 class MissionSuccessCriterion(BaseModel):
@@ -627,6 +631,63 @@ class GraphMaterializationRead(BaseModel):
     updated_at: str
 
 
+class RuntimeAdmissionNodeSelection(BaseModel):
+    """One mission graph node selected for future runtime admission."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_key: str = Field(min_length=1, max_length=160)
+    runtime_task_type: str | None = Field(default=None, min_length=1, max_length=120)
+    capability_id: UUID | None = None
+    adapter_id: UUID | None = None
+    operator_notes: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("node_key", "runtime_task_type", "operator_notes")
+    @classmethod
+    def _normalize_optional_text(cls, value: str | None) -> str | None:
+        return _normalize_optional_non_empty_text(value, "runtime admission node fields must be non-empty")
+
+
+class RuntimeAdmissionWrite(BaseModel):
+    """Create/update graph-to-runtime admission metadata without queue authority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    admission_status: RuntimeAdmissionStatus = "validated"
+    admitted_by: str = Field(min_length=1, max_length=160)
+    selected_nodes: list[RuntimeAdmissionNodeSelection] = Field(min_length=1, max_length=200)
+    validation_notes: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("admitted_by")
+    @classmethod
+    def _normalize_admitted_by(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("admitted_by is required")
+        return value
+
+    @field_validator("validation_notes")
+    @classmethod
+    def _normalize_validation_notes(cls, value: list[str]) -> list[str]:
+        return _normalize_unique_string_list(value)
+
+    @model_validator(mode="after")
+    def _validate_unique_nodes(self) -> RuntimeAdmissionWrite:
+        node_keys = [selection.node_key for selection in self.selected_nodes]
+        if len(set(node_keys)) != len(node_keys):
+            raise ValueError("runtime admission selected node keys must be unique")
+        return self
+
+
+class RuntimeAdmissionRead(BaseModel):
+    """Runtime admission response envelope stored on mission metadata."""
+
+    mission_id: UUID
+    tenant_id: str
+    runtime_admission: dict[str, Any]
+    updated_at: str
+
+
 class MissionPlanRead(BaseModel):
     """Mission plan response envelope stored on the mission metadata."""
 
@@ -657,6 +718,7 @@ class MissionLifecycleCompleteness(BaseModel):
     has_plan: bool
     has_task_graph: bool
     has_materialization: bool
+    has_runtime_admission: bool
     has_evidence: bool
     has_outcome_review: bool
     has_memory_promotions: bool
@@ -747,6 +809,7 @@ class MissionLifecycleRead(BaseModel):
     plan: dict[str, Any] | None
     task_graph: dict[str, Any] | None
     materialization: dict[str, Any] | None
+    runtime_admission: dict[str, Any] | None
     evidence: MissionLifecycleEvidenceSummary
     outcome_reviews: MissionLifecycleOutcomeReviewSummary
     memory_promotions: MissionLifecycleMemoryPromotionSummary
@@ -845,6 +908,53 @@ def _supersede_graph_materialization(
     metadata[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = superseded
 
 
+def _supersede_runtime_admission(
+    *,
+    metadata: dict[str, Any],
+    graph_version: int,
+    graph_fingerprint: str,
+    updated_at: str,
+) -> None:
+    admission = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
+    if not isinstance(admission, dict):
+        return
+    superseded = dict(admission)
+    superseded["admission_status"] = "superseded"
+    superseded["updated_at"] = updated_at
+    superseded["superseded_at"] = updated_at
+    superseded["superseded_reason"] = "task_graph_replaced"
+    superseded["superseded_by_graph_version"] = graph_version
+    superseded["superseded_by_graph_fingerprint"] = graph_fingerprint
+    metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded
+
+
+def _supersede_runtime_admission_for_materialization(
+    *,
+    metadata: dict[str, Any],
+    materialization_version: int,
+    updated_at: str,
+) -> None:
+    admission = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
+    if not isinstance(admission, dict):
+        return
+    superseded = dict(admission)
+    superseded["admission_status"] = "superseded"
+    superseded["updated_at"] = updated_at
+    superseded["superseded_at"] = updated_at
+    superseded["superseded_reason"] = "graph_materialization_replaced"
+    superseded["superseded_by_materialization_version"] = materialization_version
+    metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded
+
+
+def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
+    return RuntimeAdmissionRead(
+        mission_id=mission.id,
+        tenant_id=mission.tenant_id,
+        runtime_admission=mission.metadata_json.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY, {}),
+        updated_at=mission.updated_at.isoformat(),
+    )
+
+
 def _quota_exceeded_response(exc: QuotaExceededError) -> HTTPException:
     return HTTPException(
         status_code=429,
@@ -914,6 +1024,7 @@ def _mission_lifecycle_to_read(
     plan = metadata.get(MISSION_PLAN_METADATA_KEY)
     task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
     materialization = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
+    runtime_admission = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
     has_memory_promotions = False
 
     completeness = MissionLifecycleCompleteness(
@@ -921,6 +1032,9 @@ def _mission_lifecycle_to_read(
         has_plan=isinstance(plan, dict),
         has_task_graph=isinstance(task_graph, dict),
         has_materialization=isinstance(materialization, dict),
+        has_runtime_admission=(
+            isinstance(runtime_admission, dict) and runtime_admission.get("admission_status") == "admitted"
+        ),
         has_evidence=bool(evidence_records),
         has_outcome_review=bool(outcome_reviews),
         has_memory_promotions=has_memory_promotions,
@@ -933,6 +1047,8 @@ def _mission_lifecycle_to_read(
         missing_next_steps.append("create_task_graph")
     if not completeness.has_materialization:
         missing_next_steps.append("materialize_task_graph")
+    if not completeness.has_runtime_admission:
+        missing_next_steps.append("admit_graph_to_runtime")
     if not completeness.has_evidence:
         missing_next_steps.append("attach_evidence")
     if not completeness.has_outcome_review:
@@ -957,6 +1073,7 @@ def _mission_lifecycle_to_read(
         plan=plan if isinstance(plan, dict) else None,
         task_graph=task_graph if isinstance(task_graph, dict) else None,
         materialization=materialization if isinstance(materialization, dict) else None,
+        runtime_admission=runtime_admission if isinstance(runtime_admission, dict) else None,
         evidence=MissionLifecycleEvidenceSummary(
             count=len(evidence_records),
             records=[
@@ -1187,6 +1304,12 @@ def upsert_mission_task_graph(
         graph_fingerprint=graph_fingerprint,
         updated_at=graph_updated_at,
     )
+    _supersede_runtime_admission(
+        metadata=metadata,
+        graph_version=graph_version,
+        graph_fingerprint=graph_fingerprint,
+        updated_at=graph_updated_at,
+    )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _mission_task_graph_to_read(mission)
 
@@ -1281,6 +1404,12 @@ def materialize_mission_graph(
             "edge_count": len(task_graph.get("edges", [])) if isinstance(task_graph.get("edges", []), list) else 0,
         },
     )
+    if isinstance(metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY), dict):
+        _supersede_runtime_admission_for_materialization(
+            metadata=metadata,
+            materialization_version=previous_version + 1,
+            updated_at=now,
+        )
     metadata.update(materialization_metadata)
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _graph_materialization_to_read(mission)
@@ -1300,6 +1429,260 @@ def read_mission_graph_materialization(
     if MISSION_GRAPH_MATERIALIZATION_METADATA_KEY not in (mission.metadata_json or {}):
         raise HTTPException(status_code=404, detail="mission graph materialization not found")
     return _graph_materialization_to_read(mission)
+
+
+@router.post("/{mission_id}/runtime-admission", response_model=RuntimeAdmissionRead)
+def admit_mission_graph_to_runtime(
+    mission_id: UUID,
+    body: RuntimeAdmissionWrite,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> RuntimeAdmissionRead:
+    """Persist graph-to-runtime admission metadata without queueing or dispatch."""
+    tenant_id_str = str(tenant_id)
+    repo = MissionRepository(db)
+    mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    metadata = dict(mission.metadata_json or {})
+    task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
+    if not isinstance(task_graph, dict):
+        raise HTTPException(status_code=400, detail="mission task graph is required before runtime admission")
+
+    materialization = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
+    if not isinstance(materialization, dict):
+        raise HTTPException(
+            status_code=400, detail="mission graph materialization is required before runtime admission"
+        )
+
+    if materialization.get("materialization_status") == "superseded":
+        raise HTTPException(status_code=400, detail="superseded graph materialization cannot be admitted")
+
+    graph_nodes = task_graph.get("nodes")
+    if not isinstance(graph_nodes, list) or not all(isinstance(node, dict) for node in graph_nodes):
+        raise HTTPException(status_code=400, detail="mission task graph nodes are required before runtime admission")
+    nodes_by_key = {node.get("key"): node for node in graph_nodes if isinstance(node.get("key"), str)}
+    if len(nodes_by_key) != len(graph_nodes):
+        raise HTTPException(status_code=400, detail="mission task graph nodes must have valid keys")
+
+    graph_version = task_graph.get("graph_version")
+    graph_fingerprint = task_graph.get("graph_fingerprint") or _fingerprint_existing_task_graph(task_graph)
+    graph_reference = materialization.get("graph_reference")
+    if not isinstance(graph_reference, dict):
+        raise HTTPException(
+            status_code=400, detail="materialization graph reference is required before runtime admission"
+        )
+    if (
+        graph_reference.get("graph_version") != graph_version
+        or graph_reference.get("graph_fingerprint") != graph_fingerprint
+    ):
+        raise HTTPException(status_code=400, detail="materialization graph reference does not match current task graph")
+
+    outcome_reviews = OutcomeReviewRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_id_str)
+    rejected_reviews = [
+        review
+        for review in outcome_reviews
+        if review.review_status == "rejected" or review.review_decision == "rejected"
+    ]
+    if rejected_reviews:
+        raise HTTPException(status_code=400, detail="rejected outcome review blocks runtime admission")
+
+    capability_repo = CapabilityRepository(db)
+    adapter_repo = CapabilityAdapterRepository(db)
+    selections_by_node = {
+        selection.get("node_key"): selection
+        for selection in materialization.get("capability_selection_provenance", [])
+        if isinstance(selection, dict) and isinstance(selection.get("node_key"), str)
+    }
+
+    validation_checks: list[dict[str, str]] = []
+    selected_nodes: list[dict[str, Any]] = []
+    for selection in body.selected_nodes:
+        node = nodes_by_key.get(selection.node_key)
+        if node is None:
+            raise HTTPException(
+                status_code=400, detail=f"runtime admission references missing node: {selection.node_key}"
+            )
+
+        runtime_task_type = selection.runtime_task_type or node.get("intended_task_type")
+        if not isinstance(runtime_task_type, str) or not runtime_task_type.strip():
+            raise HTTPException(
+                status_code=400, detail=f"runtime admission node lacks runtime task type: {selection.node_key}"
+            )
+        runtime_task_type = runtime_task_type.strip()
+
+        node_capability_refs = (
+            node.get("capability_references") if isinstance(node.get("capability_references"), list) else []
+        )
+        materialized_selection = selections_by_node.get(selection.node_key)
+        capability_id = selection.capability_id
+        materialized_capability_id: UUID | None = None
+        if isinstance(materialized_selection, dict):
+            raw_materialized_capability_id = materialized_selection.get("capability_id")
+            if isinstance(raw_materialized_capability_id, str):
+                try:
+                    materialized_capability_id = UUID(raw_materialized_capability_id)
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"materialization capability_id is invalid for node: {selection.node_key}",
+                    ) from exc
+
+        if (
+            capability_id is not None
+            and materialized_capability_id is not None
+            and capability_id != materialized_capability_id
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"runtime admission capability conflicts with materialization: {selection.node_key}",
+            )
+
+        if capability_id is None and materialized_capability_id is not None:
+            capability_id = materialized_capability_id
+
+        if capability_id is None:
+            for capability_ref in node_capability_refs:
+                if isinstance(capability_ref, dict) and isinstance(capability_ref.get("capability_id"), str):
+                    try:
+                        capability_id = UUID(capability_ref["capability_id"])
+                    except ValueError as exc:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"task graph capability_id is invalid for node: {selection.node_key}",
+                        ) from exc
+                    break
+
+        if capability_id is None and not node_capability_refs:
+            raise HTTPException(
+                status_code=400, detail=f"runtime admission node lacks capability reference: {selection.node_key}"
+            )
+        if capability_id is not None:
+            capability = capability_repo.get_visible_for_tenant(capability_id=capability_id, tenant_id=tenant_id_str)
+            if capability is None:
+                raise HTTPException(status_code=400, detail=f"capability not found for tenant: {capability_id}")
+        else:
+            visible_capability_found = False
+            for capability_ref in node_capability_refs:
+                if not isinstance(capability_ref, dict):
+                    continue
+                capability_name = capability_ref.get("name")
+                capability_version = capability_ref.get("version")
+                if not isinstance(capability_name, str) or not capability_name.strip():
+                    continue
+                if not isinstance(capability_version, str) or not capability_version.strip():
+                    continue
+
+                capability = capability_repo.get_conflict_for_scope(
+                    name=capability_name.strip(),
+                    version=capability_version.strip(),
+                    tenant_id=tenant_id_str,
+                )
+                if capability is None:
+                    capability = capability_repo.get_conflict_for_scope(
+                        name=capability_name.strip(),
+                        version=capability_version.strip(),
+                        tenant_id=None,
+                    )
+                if capability is not None:
+                    visible_capability_found = True
+                    break
+
+            if not visible_capability_found:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"runtime admission node lacks visible capability reference: {selection.node_key}",
+                )
+
+        adapter_id = selection.adapter_id
+        if adapter_id is not None:
+            adapter = adapter_repo.get_visible_for_tenant(adapter_id=adapter_id, tenant_id=tenant_id_str)
+            if adapter is None:
+                raise HTTPException(status_code=400, detail=f"capability adapter not found for tenant: {adapter_id}")
+
+        validation_checks.append({"name": f"node:{selection.node_key}", "status": "passed"})
+        selected_nodes.append(
+            {
+                "node_key": selection.node_key,
+                "runtime_task_type": runtime_task_type,
+                "capability_id": str(capability_id) if capability_id is not None else None,
+                "adapter_id": str(adapter_id) if adapter_id is not None else None,
+                "graph_node_reference": {
+                    "key": node.get("key"),
+                    "name": node.get("name"),
+                    "intended_task_type": node.get("intended_task_type"),
+                },
+                "materialization_selection_reference": materialized_selection,
+                "operator_notes": selection.operator_notes,
+            }
+        )
+
+    previous = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
+    previous_version = previous.get("admission_version", 0) if isinstance(previous, dict) else 0
+    now = datetime.now(UTC).isoformat()
+    runtime_admission_metadata = build_runtime_admission_metadata(
+        mission_id=str(mission_id),
+        admission_status=body.admission_status,
+        admission_version=previous_version + 1,
+        admitted_by=body.admitted_by,
+        admitted_at=(
+            previous.get("admitted_at", now)
+            if isinstance(previous, dict) and previous.get("admission_status") != "superseded"
+            else now
+        ),
+        updated_at=now,
+        graph_reference={
+            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+            "schema_version": task_graph.get("schema_version"),
+            "graph_status": task_graph.get("graph_status"),
+            "graph_version": graph_version,
+            "graph_fingerprint": graph_fingerprint,
+            "node_count": len(graph_nodes),
+        },
+        materialization_reference={
+            "metadata_key": MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
+            "schema_version": materialization.get("schema_version"),
+            "materialization_status": materialization.get("materialization_status"),
+            "materialization_version": materialization.get("materialization_version"),
+            "graph_reference": graph_reference,
+        },
+        selected_nodes=selected_nodes,
+        validation_result={
+            "validation_status": "valid",
+            "summary": "Runtime admission metadata validated; no runtime work was queued or dispatched.",
+            "validated_at": now,
+            "checks": validation_checks,
+            "gaps": body.validation_notes,
+        },
+        execution_task_records=[],
+        runtime_authority={
+            "creates_execution_tasks": False,
+            "enqueues_work": False,
+            "dispatches_workers": False,
+            "requires_explicit_queue_admission_for_execution": True,
+        },
+    )
+    metadata.update(runtime_admission_metadata)
+    mission = repo.update_metadata(mission=mission, metadata_json=metadata)
+    return _runtime_admission_to_read(mission)
+
+
+@router.get("/{mission_id}/runtime-admission", response_model=RuntimeAdmissionRead)
+def read_mission_runtime_admission(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> RuntimeAdmissionRead:
+    """Read tenant-scoped graph-to-runtime admission metadata."""
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    if MISSION_RUNTIME_ADMISSION_METADATA_KEY not in (mission.metadata_json or {}):
+        raise HTTPException(status_code=404, detail="mission runtime admission not found")
+    return _runtime_admission_to_read(mission)
 
 
 @router.post("/{mission_id}/queue", response_model=MissionQueueResponse)
