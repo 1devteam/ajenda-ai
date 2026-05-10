@@ -718,6 +718,56 @@ class RuntimeReadinessRead(BaseModel):
     warnings: list[RuntimeReadinessItem]
 
 
+RuntimeTaskPreviewStatus = Literal["ready", "blocked", "incomplete"]
+
+
+class RuntimeTaskPreviewPayload(BaseModel):
+    """Deterministic, non-persisted payload envelope preview for a future task."""
+
+    mission_id: UUID
+    graph_node_key: str
+    graph_version: int | None
+    graph_fingerprint: str | None
+    materialization_version: int | None
+    admission_version: int | None
+    runtime_task_type: str
+    input_contract: dict[str, Any]
+    expected_output_contract: dict[str, Any]
+    execution_constraints: dict[str, Any]
+
+
+class RuntimeTaskPreviewItem(BaseModel):
+    """One future ExecutionTask row preview; never persisted by this endpoint."""
+
+    preview_task_key: str
+    graph_node_key: str
+    graph_node_name: str | None
+    runtime_task_type: str
+    future_execution_task_state: Literal["pending"] = "pending"
+    payload_preview: RuntimeTaskPreviewPayload
+    capability_reference: dict[str, Any] | None
+    adapter_reference: dict[str, Any] | None
+    materialization_selection_reference: dict[str, Any] | None
+    dependency_keys: list[str]
+    operator_notes: str | None
+
+
+class RuntimeTaskPreviewRead(BaseModel):
+    """Read-only preview of future runtime task materialization."""
+
+    mission_id: UUID
+    tenant_id: str
+    ready: bool
+    preview_status: RuntimeTaskPreviewStatus
+    checked_at: str
+    readiness_summary: dict[str, Any]
+    task_count: int
+    tasks: list[RuntimeTaskPreviewItem]
+    blockers: list[RuntimeReadinessItem]
+    warnings: list[RuntimeReadinessItem]
+    runtime_authority: dict[str, bool]
+
+
 class MissionPlanRead(BaseModel):
     """Mission plan response envelope stored on the mission metadata."""
 
@@ -1973,14 +2023,13 @@ def admit_mission_graph_to_runtime(
     return _runtime_admission_to_read(mission)
 
 
-@router.get("/{mission_id}/runtime-readiness", response_model=RuntimeReadinessRead)
-def read_mission_runtime_readiness(
+def _build_mission_runtime_readiness(
+    *,
     mission_id: UUID,
-    request: Request,
-    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
-    db: Session = Depends(get_tenant_db_session),
+    tenant_id: _uuid.UUID,
+    db: Session,
 ) -> RuntimeReadinessRead:
-    """Validate read-only runtime admission readiness without runtime authority."""
+    """Build the shared read-only runtime admission readiness result."""
     tenant_id_str = str(tenant_id)
     mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
     if mission is None:
@@ -2279,6 +2328,197 @@ def read_mission_runtime_readiness(
         checks=checks,
         blockers=blockers,
         warnings=warnings,
+    )
+
+
+@router.get("/{mission_id}/runtime-readiness", response_model=RuntimeReadinessRead)
+def read_mission_runtime_readiness(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> RuntimeReadinessRead:
+    """Validate read-only runtime admission readiness without runtime authority."""
+    return _build_mission_runtime_readiness(mission_id=mission_id, tenant_id=tenant_id, db=db)
+
+
+def _runtime_preview_authority_flags() -> dict[str, bool]:
+    return {
+        "creates_execution_tasks": False,
+        "enqueues_work": False,
+        "dispatches_workers": False,
+        "calls_executor": False,
+        "calls_coordinator": False,
+    }
+
+
+def _task_preview_dependency_keys(
+    *, node_key: str, task_graph: dict[str, Any], selected_node_keys: set[str]
+) -> list[str]:
+    raw_edges = task_graph.get("edges")
+    edges: list[Any] = raw_edges if isinstance(raw_edges, list) else []
+    dependency_keys: list[str] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        from_node_key = edge.get("from_node_key")
+        to_node_key = edge.get("to_node_key")
+        if to_node_key == node_key and isinstance(from_node_key, str) and from_node_key in selected_node_keys:
+            dependency_keys.append(from_node_key)
+    return dependency_keys
+
+
+def _preview_capability_reference(
+    *, selected_node: dict[str, Any], graph_node: dict[str, Any]
+) -> dict[str, Any] | None:
+    capability_reference: dict[str, Any] = {}
+    if selected_node.get("capability_id") is not None:
+        capability_reference["capability_id"] = selected_node.get("capability_id")
+    raw_capability_refs = graph_node.get("capability_references")
+    raw_refs: list[Any] = raw_capability_refs if isinstance(raw_capability_refs, list) else []
+    if raw_refs:
+        capability_reference["graph_capability_references"] = raw_refs
+    materialization_selection = selected_node.get("materialization_selection_reference")
+    if isinstance(materialization_selection, dict):
+        for key in ("capability_id", "capability_name", "capability_version"):
+            value = materialization_selection.get(key)
+            if value is not None and key not in capability_reference:
+                capability_reference[key] = value
+    return capability_reference or None
+
+
+def _preview_adapter_reference(selected_node: dict[str, Any]) -> dict[str, Any] | None:
+    adapter_id = selected_node.get("adapter_id")
+    if adapter_id is None:
+        return None
+    return {"adapter_id": adapter_id}
+
+
+def _build_runtime_task_preview_items(
+    *, mission_id: UUID, readiness: RuntimeReadinessRead
+) -> list[RuntimeTaskPreviewItem]:
+    task_graph = readiness.graph_reference or {}
+    admission = readiness.admission_reference or {}
+    materialization = readiness.materialization_reference or {}
+    raw_selected_nodes = admission.get("selected_nodes")
+    selected_nodes: list[Any] = raw_selected_nodes if isinstance(raw_selected_nodes, list) else []
+    raw_graph_nodes = task_graph.get("nodes")
+    graph_nodes: list[Any] = raw_graph_nodes if isinstance(raw_graph_nodes, list) else []
+    nodes_by_key = {
+        node.get("key"): node for node in graph_nodes if isinstance(node, dict) and isinstance(node.get("key"), str)
+    }
+    selected_node_keys = {
+        selected_node["node_key"]
+        for selected_node in selected_nodes
+        if isinstance(selected_node, dict) and isinstance(selected_node.get("node_key"), str)
+    }
+    graph_version = task_graph.get("graph_version") if isinstance(task_graph.get("graph_version"), int) else None
+    graph_fingerprint = (
+        task_graph.get("graph_fingerprint") if isinstance(task_graph.get("graph_fingerprint"), str) else None
+    )
+    materialization_version = (
+        materialization.get("materialization_version")
+        if isinstance(materialization.get("materialization_version"), int)
+        else None
+    )
+    admission_version = (
+        admission.get("admission_version") if isinstance(admission.get("admission_version"), int) else None
+    )
+
+    preview_items: list[RuntimeTaskPreviewItem] = []
+    for selected_node in selected_nodes:
+        if not isinstance(selected_node, dict) or not isinstance(selected_node.get("node_key"), str):
+            continue
+        node_key = selected_node["node_key"]
+        graph_node = nodes_by_key.get(node_key)
+        if graph_node is None:
+            continue
+        runtime_task_type = selected_node.get("runtime_task_type") or graph_node.get("intended_task_type")
+        if not isinstance(runtime_task_type, str) or not runtime_task_type.strip():
+            continue
+        runtime_task_type = runtime_task_type.strip()
+        graph_node_name = graph_node.get("name") if isinstance(graph_node.get("name"), str) else None
+        materialization_selection = selected_node.get("materialization_selection_reference")
+        raw_input_contract = graph_node.get("input_contract")
+        input_contract: dict[str, Any] = raw_input_contract if isinstance(raw_input_contract, dict) else {}
+        raw_expected_output_contract = graph_node.get("expected_output_contract")
+        expected_output_contract: dict[str, Any] = (
+            raw_expected_output_contract if isinstance(raw_expected_output_contract, dict) else {}
+        )
+        raw_execution_constraints = graph_node.get("execution_constraints")
+        execution_constraints: dict[str, Any] = (
+            raw_execution_constraints if isinstance(raw_execution_constraints, dict) else {}
+        )
+        preview_items.append(
+            RuntimeTaskPreviewItem(
+                preview_task_key=f"mission:{mission_id}:graph:{graph_version}:node:{node_key}:runtime-task-preview",
+                graph_node_key=node_key,
+                graph_node_name=graph_node_name,
+                runtime_task_type=runtime_task_type,
+                payload_preview=RuntimeTaskPreviewPayload(
+                    mission_id=mission_id,
+                    graph_node_key=node_key,
+                    graph_version=graph_version,
+                    graph_fingerprint=graph_fingerprint,
+                    materialization_version=materialization_version,
+                    admission_version=admission_version,
+                    runtime_task_type=runtime_task_type,
+                    input_contract=input_contract,
+                    expected_output_contract=expected_output_contract,
+                    execution_constraints=execution_constraints,
+                ),
+                capability_reference=_preview_capability_reference(selected_node=selected_node, graph_node=graph_node),
+                adapter_reference=_preview_adapter_reference(selected_node),
+                materialization_selection_reference=(
+                    materialization_selection if isinstance(materialization_selection, dict) else None
+                ),
+                dependency_keys=_task_preview_dependency_keys(
+                    node_key=node_key, task_graph=task_graph, selected_node_keys=selected_node_keys
+                ),
+                operator_notes=(
+                    selected_node.get("operator_notes")
+                    if isinstance(selected_node.get("operator_notes"), str)
+                    else graph_node.get("operator_notes")
+                    if isinstance(graph_node.get("operator_notes"), str)
+                    else None
+                ),
+            )
+        )
+    return preview_items
+
+
+@router.get("/{mission_id}/runtime-task-preview", response_model=RuntimeTaskPreviewRead)
+def read_mission_runtime_task_preview(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> RuntimeTaskPreviewRead:
+    """Preview future ExecutionTask materialization without creating or queueing work."""
+    readiness = _build_mission_runtime_readiness(mission_id=mission_id, tenant_id=tenant_id, db=db)
+    tasks = _build_runtime_task_preview_items(mission_id=mission_id, readiness=readiness) if readiness.ready else []
+    preview_status: RuntimeTaskPreviewStatus = readiness.readiness_status
+    if readiness.ready and len(tasks) != readiness.selected_node_count:
+        preview_status = "incomplete"
+    readiness_summary = {
+        "readiness_status": readiness.readiness_status,
+        "selected_node_count": readiness.selected_node_count,
+        "check_count": len(readiness.checks),
+        "blocker_count": len(readiness.blockers),
+        "warning_count": len(readiness.warnings),
+    }
+    return RuntimeTaskPreviewRead(
+        mission_id=readiness.mission_id,
+        tenant_id=readiness.tenant_id,
+        ready=readiness.ready and preview_status == "ready",
+        preview_status=preview_status,
+        checked_at=readiness.checked_at,
+        readiness_summary=readiness_summary,
+        task_count=len(tasks),
+        tasks=tasks,
+        blockers=readiness.blockers,
+        warnings=readiness.warnings,
+        runtime_authority=_runtime_preview_authority_flags(),
     )
 
 

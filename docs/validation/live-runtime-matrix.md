@@ -453,7 +453,7 @@ This means:
 
 ## Product-layer runtime bridge note
 
-Graph-to-runtime admission contracts are now present as a Mission-Based AI product-layer bridge. They validate and persist admission metadata only; they are not live graph execution proof, do not enqueue runtime work, and do not demonstrate parallel DAG scheduling or worker dispatch from graph nodes. The runtime admission readiness gate is also pre-execution validation only: it is a read-only eligibility check for future task materialization and does not create tasks, queue work, execute graph nodes, or dispatch workers. Existing live-runtime proof claims remain limited to the queue-backed runtime paths explicitly covered by this matrix.
+Graph-to-runtime admission contracts are now present as a Mission-Based AI product-layer bridge. They validate and persist admission metadata only; they are not live graph execution proof, do not enqueue runtime work, and do not demonstrate parallel DAG scheduling or worker dispatch from graph nodes. The runtime admission readiness gate is also pre-execution validation only: it is a read-only eligibility check for future task materialization and does not create tasks, queue work, execute graph nodes, or dispatch workers. Runtime task materialization preview is likewise pre-materialization only: it shows which `ExecutionTask` rows and payload envelopes would be produced from a ready admitted graph, but it does not create tasks, queue work, execute adapters, call runtime coordinators/executors, or prove graph execution. Existing live-runtime proof claims remain limited to the queue-backed runtime paths explicitly covered by this matrix.
 
 ## Current matrix interpretation
 
