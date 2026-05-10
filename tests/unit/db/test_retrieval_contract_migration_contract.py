@@ -30,5 +30,6 @@ def test_retrieval_contract_migration_contains_tenant_indexes_jsonb_and_rls_poli
     assert "trust_signal" in migration
     assert "provenance_metadata" in migration
     assert "ENABLE ROW LEVEL SECURITY" in migration
+    assert "FORCE ROW LEVEL SECURITY" in migration
     assert "tenant_retrieval_contract_isolation" in migration
     assert "def downgrade" in migration

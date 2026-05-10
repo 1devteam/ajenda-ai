@@ -57,6 +57,7 @@ def upgrade() -> None:
 
     conn = op.get_bind()
     conn.execute(sa.text("ALTER TABLE retrieval_contracts ENABLE ROW LEVEL SECURITY"))
+    conn.execute(sa.text("ALTER TABLE retrieval_contracts FORCE ROW LEVEL SECURITY"))
     conn.execute(
         sa.text(
             """
