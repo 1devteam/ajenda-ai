@@ -851,7 +851,7 @@ def test_graph_materialization_persists_metadata_without_queueing_or_runtime_cal
     assert materialization["planner_provenance"]["planner_type"] == "contract_planner"
     assert materialization["capability_selection_provenance"][0]["capability_id"] == str(capability_id)
     assert materialization["graph_validation_result"]["validation_status"] == "valid"
-    assert materialization["operator_review"]["status"] == "planned"
+    assert materialization["operator_review"]["status"] == "pending"
     assert materialization["deterministic_compilation_metadata"]["deterministic"] is True
     assert materialization["graph_reference"]["node_count"] == 2
     assert materialization["graph_reference"]["graph_version"] == 7
