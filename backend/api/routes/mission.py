@@ -1055,9 +1055,8 @@ def _resolve_capability_for_readiness(
         if isinstance(raw_version, str) and raw_version.strip():
             capability_version = raw_version.strip()
 
-    capability_refs = (
-        graph_node.get("capability_references") if isinstance(graph_node.get("capability_references"), list) else []
-    )
+    raw_capability_refs = graph_node.get("capability_references")
+    capability_refs: list[Any] = raw_capability_refs if isinstance(raw_capability_refs, list) else []
     if capability_id is None:
         for capability_ref in capability_refs:
             if not isinstance(capability_ref, dict):
