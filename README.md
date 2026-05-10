@@ -92,6 +92,8 @@ Important boundary rule:
   - `/v1/missions/*`
   - `/v1/capabilities/*`
   - `/v1/capability-adapters/*`
+  - `/v1/evidence/*`
+  - `/v1/outcome-reviews/*`
   - `/v1/tasks/*`
   - `/v1/workforce/*`
   - `/v1/branches/*`
