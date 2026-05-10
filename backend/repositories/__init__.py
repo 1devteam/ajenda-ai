@@ -5,6 +5,7 @@ from backend.repositories.execution_task_repository import ExecutionTaskReposito
 from backend.repositories.governance_event_repository import GovernanceEventRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
 from backend.repositories.mission_repository import MissionRepository
+from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.user_workforce_agent_repository import UserWorkforceAgentRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.repositories.workforce_fleet_repository import WorkforceFleetRepository
@@ -17,6 +18,7 @@ __all__ = [
     "GovernanceEventRepository",
     "LineageRecordRepository",
     "MissionRepository",
+    "OutcomeReviewRepository",
     "UserWorkforceAgentRepository",
     "WorkerLeaseRepository",
     "WorkforceFleetRepository",

@@ -17,6 +17,7 @@ from backend.domain import (  # noqa: F401
     GovernanceEvent,
     LineageRecord,
     Mission,
+    OutcomeReview,
     UserWorkforceAgent,
     WorkerLease,
     WorkforceFleet,
