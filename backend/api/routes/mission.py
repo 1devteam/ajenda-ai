@@ -1014,7 +1014,10 @@ def _mission_lifecycle_to_read(
         has_plan=isinstance(plan, dict),
         has_task_graph=isinstance(task_graph, dict),
         has_materialization=isinstance(materialization, dict),
-        has_runtime_admission=isinstance(runtime_admission, dict),
+        has_runtime_admission=(
+            isinstance(runtime_admission, dict)
+            and runtime_admission.get("admission_status") != "superseded"
+        ),
         has_evidence=bool(evidence_records),
         has_outcome_review=bool(outcome_reviews),
         has_memory_promotions=has_memory_promotions,
