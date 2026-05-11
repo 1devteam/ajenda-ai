@@ -2477,6 +2477,7 @@ def _runtime_task_materialization_response(
     capability: object | None = None,
     adapter: object | None = None,
     method: str = "post",
+    quota_svc: MagicMock | None = None,
 ):
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
@@ -2505,6 +2506,7 @@ def _runtime_task_materialization_response(
         return task
 
     task_repo.add.side_effect = _add_task
+    quota_svc = quota_svc or MagicMock()
 
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
@@ -2514,6 +2516,7 @@ def _runtime_task_materialization_response(
         patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo) as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.mission.get_queue_adapter") as queue_adapter,
     ):
         if method == "get":
@@ -2532,6 +2535,7 @@ def test_runtime_task_materialization_creates_planned_execution_tasks_from_ready
     mission = _mission_with_admitted_runtime_admission(
         tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id
     )
+    quota_svc = MagicMock()
     response, mission_repo, task_repo, created_tasks, _, executor_cls, coordinator_cls, queue_adapter = (
         _runtime_task_materialization_response(
             mission,
@@ -2539,6 +2543,7 @@ def test_runtime_task_materialization_creates_planned_execution_tasks_from_ready
             mission_id=mission_id,
             capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
             adapter=SimpleNamespace(id=adapter_id, capability_id=capability_id),
+            quota_svc=quota_svc,
         )
     )
 
@@ -2549,6 +2554,7 @@ def test_runtime_task_materialization_creates_planned_execution_tasks_from_ready
     assert body["task_count"] == 1
     assert len(body["created_execution_task_ids"]) == 1
     assert len(created_tasks) == 1
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
     created = created_tasks[0]
     assert created.tenant_id == str(tenant_id)
     assert created.mission_id == mission_id
@@ -2582,6 +2588,37 @@ def test_runtime_task_materialization_creates_planned_execution_tasks_from_ready
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
     queue_adapter.assert_not_called()
+
+
+def test_runtime_task_materialization_enforces_task_quota_before_creating_rows() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(
+        tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id
+    )
+    quota_svc = MagicMock()
+    quota_svc.check_and_record_task_creation.side_effect = mission_module.QuotaExceededError(
+        field="tasks_per_month",
+        limit=1,
+        current=1,
+        plan="free",
+    )
+
+    response, mission_repo, task_repo, created_tasks, *_ = _runtime_task_materialization_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+        quota_svc=quota_svc,
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"]["code"] == "QUOTA_EXCEEDED"
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
+    task_repo.add.assert_not_called()
+    assert created_tasks == []
+    mission_repo.update_metadata.assert_not_called()
 
 
 def test_runtime_task_materialization_duplicate_post_is_idempotent_without_duplicate_rows() -> None:
@@ -2881,6 +2918,7 @@ def _queue_admission_response(
     mission_id: uuid.UUID,
     tasks: list[SimpleNamespace] | None = None,
     queue_results: list[SimpleNamespace] | None = None,
+    quota_svc: MagicMock | None = None,
 ):
     app = _build_app(tenant_id)
     app.dependency_overrides[mission_module.get_queue_adapter] = lambda: MagicMock()
@@ -2898,16 +2936,18 @@ def _queue_admission_response(
     task_repo.list_for_materialized_ids.return_value = tasks or []
     coordinator = MagicMock()
     coordinator.queue_task.side_effect = queue_results or []
+    quota_svc = quota_svc or MagicMock()
 
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
-    return response, mission_repo, task_repo, coordinator, executor_cls
+    return response, mission_repo, task_repo, coordinator, executor_cls, quota_svc
 
 
 def test_runtime_queue_admission_queues_only_current_materialization_task_ids() -> None:
@@ -2924,7 +2964,7 @@ def test_runtime_queue_admission_queues_only_current_materialization_task_ids() 
         mission_id=mission_id,
         status="planned",
     )
-    response, mission_repo, task_repo, coordinator, executor_cls = _queue_admission_response(
+    response, mission_repo, task_repo, coordinator, executor_cls, quota_svc = _queue_admission_response(
         mission,
         tenant_id=tenant_id,
         mission_id=mission_id,
@@ -2942,6 +2982,7 @@ def test_runtime_queue_admission_queues_only_current_materialization_task_ids() 
     task_repo.list_for_materialized_ids.assert_called_once_with(
         task_ids=[current_task_id], tenant_id=str(tenant_id), mission_id=mission_id
     )
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=current_task_id)
     task_repo.add.assert_not_called()
     executor_cls.assert_not_called()
@@ -2955,6 +2996,37 @@ def test_runtime_queue_admission_queues_only_current_materialization_task_ids() 
         "executes_adapters": False,
     }
     mission_repo.update_metadata.assert_called_once()
+
+
+def test_runtime_queue_admission_enforces_task_quota_before_queueing() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    mission = _mission_with_runtime_task_queue_materialization(
+        tenant_id=tenant_id, mission_id=mission_id, task_ids=[task_id]
+    )
+    task = SimpleNamespace(id=task_id, tenant_id=str(tenant_id), mission_id=mission_id, status="planned")
+    quota_svc = MagicMock()
+    quota_svc.check_and_record_task_creation.side_effect = mission_module.QuotaExceededError(
+        field="tasks_per_month",
+        limit=1,
+        current=1,
+        plan="free",
+    )
+
+    response, mission_repo, _, coordinator, _, _ = _queue_admission_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        tasks=[task],
+        quota_svc=quota_svc,
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"]["code"] == "QUOTA_EXCEEDED"
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
+    coordinator.queue_task.assert_not_called()
+    mission_repo.update_metadata.assert_not_called()
 
 
 def test_runtime_queue_admission_categorizes_cancelled_and_already_queued_rows_idempotently() -> None:
@@ -2973,7 +3045,7 @@ def test_runtime_queue_admission_categorizes_cancelled_and_already_queued_rows_i
         SimpleNamespace(id=cancelled_task_id, tenant_id=str(tenant_id), mission_id=mission_id, status="cancelled"),
         SimpleNamespace(id=queued_task_id, tenant_id=str(tenant_id), mission_id=mission_id, status="queued"),
     ]
-    response, _, _, coordinator, _ = _queue_admission_response(
+    response, _, _, coordinator, _, quota_svc = _queue_admission_response(
         mission,
         tenant_id=tenant_id,
         mission_id=mission_id,
@@ -2990,6 +3062,7 @@ def test_runtime_queue_admission_categorizes_cancelled_and_already_queued_rows_i
         "task_not_planned_cancelled",
         "task_already_queued",
     }
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=planned_task_id)
 
 
@@ -2997,7 +3070,7 @@ def test_runtime_queue_admission_blocks_missing_runtime_task_materialization() -
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
     mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
-    response, _, task_repo, coordinator, _ = _queue_admission_response(
+    response, _, task_repo, coordinator, _, quota_svc = _queue_admission_response(
         mission, tenant_id=tenant_id, mission_id=mission_id
     )
 
@@ -3006,6 +3079,7 @@ def test_runtime_queue_admission_blocks_missing_runtime_task_materialization() -
     assert body["queue_admission_status"] == "blocked"
     assert body["blockers"][0]["code"] == "missing_runtime_task_materialization"
     task_repo.list_for_materialized_ids.assert_not_called()
+    quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_not_called()
 
 
@@ -3019,13 +3093,14 @@ def test_runtime_queue_admission_blocks_superseded_materialization() -> None:
         task_ids=[task_id],
         materialization_status="superseded",
     )
-    response, _, task_repo, coordinator, _ = _queue_admission_response(
+    response, _, task_repo, coordinator, _, quota_svc = _queue_admission_response(
         mission, tenant_id=tenant_id, mission_id=mission_id
     )
 
     assert response.status_code == 200
     assert response.json()["blockers"][0]["code"] == "runtime_task_materialization_superseded"
     task_repo.list_for_materialized_ids.assert_not_called()
+    quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_not_called()
 
 
@@ -3033,13 +3108,14 @@ def test_runtime_queue_admission_blocks_materialization_without_task_ids() -> No
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
     mission = _mission_with_runtime_task_queue_materialization(tenant_id=tenant_id, mission_id=mission_id, task_ids=[])
-    response, _, task_repo, coordinator, _ = _queue_admission_response(
+    response, _, task_repo, coordinator, _, quota_svc = _queue_admission_response(
         mission, tenant_id=tenant_id, mission_id=mission_id
     )
 
     assert response.status_code == 200
     assert response.json()["blockers"][0]["code"] == "runtime_task_materialization_has_no_task_ids"
     task_repo.list_for_materialized_ids.assert_not_called()
+    quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_not_called()
 
 
@@ -3056,6 +3132,7 @@ def test_runtime_queue_admission_hides_cross_tenant_mission() -> None:
         patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission.QuotaEnforcementService") as quota_cls,
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
@@ -3063,6 +3140,7 @@ def test_runtime_queue_admission_hides_cross_tenant_mission() -> None:
     assert response.json() == {"detail": "mission not found for tenant"}
     mission_repo.lock_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
     task_repo_cls.assert_not_called()
+    quota_cls.assert_not_called()
     coordinator_cls.assert_not_called()
 
 
@@ -3074,7 +3152,7 @@ def test_runtime_queue_admission_duplicate_post_is_idempotent_without_requeueing
         tenant_id=tenant_id, mission_id=mission_id, task_ids=[task_id]
     )
     queued_task = SimpleNamespace(id=task_id, tenant_id=str(tenant_id), mission_id=mission_id, status="queued")
-    response, _, _, coordinator, _ = _queue_admission_response(
+    response, _, _, coordinator, _, quota_svc = _queue_admission_response(
         mission, tenant_id=tenant_id, mission_id=mission_id, tasks=[queued_task]
     )
 
@@ -3084,6 +3162,7 @@ def test_runtime_queue_admission_duplicate_post_is_idempotent_without_requeueing
     assert body["admitted_task_ids"] == []
     assert body["skipped_task_ids"] == [str(task_id)]
     assert body["warnings"][0]["code"] == "task_already_queued"
+    quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_not_called()
 
 

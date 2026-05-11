@@ -2658,6 +2658,11 @@ def materialize_mission_runtime_tasks(
         )
 
     previous_version = existing.get("materialization_version", 0) if isinstance(existing, dict) else 0
+    try:
+        QuotaEnforcementService(db).check_and_record_task_creation(tenant_id, count=len(tasks))
+    except QuotaExceededError as exc:
+        raise _quota_exceeded_response(exc) from exc
+
     task_repo = ExecutionTaskRepository(db)
     created_task_ids: list[str] = []
     for task_preview in tasks:
@@ -2879,6 +2884,17 @@ def admit_mission_runtime_tasks_to_queue(
         mission_id=mission_id,
     )
     tasks_by_id = {task.id: task for task in materialized_tasks}
+    planned_task_ids = [
+        task_id
+        for task_id in task_ids
+        if tasks_by_id.get(task_id) is not None and tasks_by_id[task_id].status == ExecutionTaskState.PLANNED.value
+    ]
+    if planned_task_ids:
+        try:
+            QuotaEnforcementService(db).check_and_record_task_creation(tenant_id, count=len(planned_task_ids))
+        except QuotaExceededError as exc:
+            raise _quota_exceeded_response(exc) from exc
+
     admitted_task_ids: list[str] = []
     skipped_task_ids: list[str] = []
     blocked_task_ids: list[str] = []
