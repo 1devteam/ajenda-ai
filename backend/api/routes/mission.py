@@ -14,11 +14,13 @@ from sqlalchemy.orm import Session
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.domain.enums import ExecutionTaskState, MissionState
+from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_INTAKE_METADATA_KEY,
     MISSION_PLAN_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
+    MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
     Mission,
     build_graph_materialization_metadata,
@@ -37,6 +39,17 @@ from backend.repositories.outcome_review_repository import OutcomeReviewReposito
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.mission_executor import MissionExecutor
+from backend.services.mission_runtime_projection import (
+    build_execution_task_payload,
+    build_runtime_task_materialization_metadata,
+    materialization_reference_current,
+    runtime_materialization_authority_flags,
+    runtime_preview_authority_flags,
+    supersede_runtime_task_materialization,
+)
+from backend.services.mission_runtime_projection import (
+    build_runtime_task_preview_items as project_runtime_task_preview_items,
+)
 from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
 
 router = APIRouter(prefix="/missions", tags=["missions"])
@@ -768,6 +781,27 @@ class RuntimeTaskPreviewRead(BaseModel):
     runtime_authority: dict[str, bool]
 
 
+RuntimeTaskMaterializationStatus = Literal["materialized", "blocked", "superseded"]
+
+
+class RuntimeTaskMaterializationRead(BaseModel):
+    """ExecutionTask materialization response envelope for a mission graph admission."""
+
+    mission_id: UUID
+    tenant_id: str
+    materialization_status: RuntimeTaskMaterializationStatus
+    materialization_version: int | None
+    created_execution_task_ids: list[UUID]
+    task_count: int
+    graph_reference: dict[str, Any] | None
+    materialization_reference: dict[str, Any] | None
+    admission_reference: dict[str, Any] | None
+    runtime_authority: dict[str, bool]
+    blockers: list[RuntimeReadinessItem]
+    warnings: list[RuntimeReadinessItem]
+    updated_at: str
+
+
 class MissionPlanRead(BaseModel):
     """Mission plan response envelope stored on the mission metadata."""
 
@@ -1033,6 +1067,28 @@ def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
         runtime_admission=mission.metadata_json.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY, {}),
         updated_at=mission.updated_at.isoformat(),
     )
+
+
+def _cancel_superseded_materialized_planned_tasks(
+    *, metadata: dict[str, Any], task_repo: ExecutionTaskRepository, tenant_id: str, mission_id: UUID
+) -> list[str]:
+    """Cancel planned ExecutionTask rows referenced by active runtime task materialization metadata."""
+    task_materialization = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+    if not isinstance(task_materialization, dict):
+        return []
+    raw_task_ids = task_materialization.get("created_execution_task_ids")
+    if not isinstance(raw_task_ids, list):
+        return []
+    task_ids: list[UUID] = []
+    for raw_task_id in raw_task_ids:
+        try:
+            task_ids.append(UUID(str(raw_task_id)))
+        except ValueError:
+            continue
+    cancelled_tasks = task_repo.cancel_planned_by_ids_for_mission(
+        tenant_id=tenant_id, mission_id=mission_id, task_ids=task_ids
+    )
+    return [str(task.id) for task in cancelled_tasks]
 
 
 def _readiness_item(
@@ -1664,6 +1720,24 @@ def upsert_mission_task_graph(
         graph_fingerprint=graph_fingerprint,
         updated_at=graph_updated_at,
     )
+    cancelled_task_ids: list[str] = []
+    if isinstance(metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY), dict):
+        cancelled_task_ids = _cancel_superseded_materialized_planned_tasks(
+            metadata=metadata,
+            task_repo=ExecutionTaskRepository(db),
+            tenant_id=str(tenant_id),
+            mission_id=mission_id,
+        )
+    supersede_runtime_task_materialization(
+        metadata=metadata,
+        reason="task_graph_replaced",
+        updated_at=graph_updated_at,
+        supersession={
+            "superseded_by_graph_version": graph_version,
+            "superseded_by_graph_fingerprint": graph_fingerprint,
+            "cancelled_execution_task_ids": cancelled_task_ids,
+        },
+    )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _mission_task_graph_to_read(mission)
 
@@ -1764,6 +1838,23 @@ def materialize_mission_graph(
             materialization_version=previous_version + 1,
             updated_at=now,
         )
+    cancelled_task_ids: list[str] = []
+    if isinstance(metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY), dict):
+        cancelled_task_ids = _cancel_superseded_materialized_planned_tasks(
+            metadata=metadata,
+            task_repo=ExecutionTaskRepository(db),
+            tenant_id=tenant_id_str,
+            mission_id=mission_id,
+        )
+    supersede_runtime_task_materialization(
+        metadata=metadata,
+        reason="graph_materialization_replaced",
+        updated_at=now,
+        supersession={
+            "superseded_by_materialization_version": previous_version + 1,
+            "cancelled_execution_task_ids": cancelled_task_ids,
+        },
+    )
     metadata.update(materialization_metadata)
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _graph_materialization_to_read(mission)
@@ -2018,7 +2109,24 @@ def admit_mission_graph_to_runtime(
             "requires_explicit_queue_admission_for_execution": True,
         },
     )
+    cancelled_task_ids: list[str] = []
+    if isinstance(metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY), dict):
+        cancelled_task_ids = _cancel_superseded_materialized_planned_tasks(
+            metadata=metadata,
+            task_repo=ExecutionTaskRepository(db),
+            tenant_id=tenant_id_str,
+            mission_id=mission_id,
+        )
     metadata.update(runtime_admission_metadata)
+    supersede_runtime_task_materialization(
+        metadata=metadata,
+        reason="runtime_admission_replaced",
+        updated_at=now,
+        supersession={
+            "superseded_by_admission_version": previous_version + 1,
+            "cancelled_execution_task_ids": cancelled_task_ids,
+        },
+    )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _runtime_admission_to_read(mission)
 
@@ -2343,148 +2451,16 @@ def read_mission_runtime_readiness(
 
 
 def _runtime_preview_authority_flags() -> dict[str, bool]:
-    return {
-        "creates_execution_tasks": False,
-        "enqueues_work": False,
-        "dispatches_workers": False,
-        "calls_executor": False,
-        "calls_coordinator": False,
-    }
-
-
-def _task_preview_dependency_keys(
-    *, node_key: str, task_graph: dict[str, Any], selected_node_keys: set[str]
-) -> list[str]:
-    raw_edges = task_graph.get("edges")
-    edges: list[Any] = raw_edges if isinstance(raw_edges, list) else []
-    dependency_keys: list[str] = []
-    for edge in edges:
-        if not isinstance(edge, dict):
-            continue
-        from_node_key = edge.get("from_node_key")
-        to_node_key = edge.get("to_node_key")
-        if to_node_key == node_key and isinstance(from_node_key, str) and from_node_key in selected_node_keys:
-            dependency_keys.append(from_node_key)
-    return dependency_keys
-
-
-def _preview_capability_reference(
-    *, selected_node: dict[str, Any], graph_node: dict[str, Any]
-) -> dict[str, Any] | None:
-    capability_reference: dict[str, Any] = {}
-    if selected_node.get("capability_id") is not None:
-        capability_reference["capability_id"] = selected_node.get("capability_id")
-    raw_capability_refs = graph_node.get("capability_references")
-    raw_refs: list[Any] = raw_capability_refs if isinstance(raw_capability_refs, list) else []
-    if raw_refs:
-        capability_reference["graph_capability_references"] = raw_refs
-    materialization_selection = selected_node.get("materialization_selection_reference")
-    if isinstance(materialization_selection, dict):
-        for key in ("capability_id", "capability_name", "capability_version"):
-            value = materialization_selection.get(key)
-            if value is not None and key not in capability_reference:
-                capability_reference[key] = value
-    return capability_reference or None
-
-
-def _preview_adapter_reference(selected_node: dict[str, Any]) -> dict[str, Any] | None:
-    adapter_id = selected_node.get("adapter_id")
-    if adapter_id is None:
-        return None
-    return {"adapter_id": adapter_id}
+    return runtime_preview_authority_flags()
 
 
 def _build_runtime_task_preview_items(
     *, mission_id: UUID, readiness: RuntimeReadinessRead
 ) -> list[RuntimeTaskPreviewItem]:
-    task_graph = readiness.graph_reference or {}
-    admission = readiness.admission_reference or {}
-    materialization = readiness.materialization_reference or {}
-    raw_selected_nodes = admission.get("selected_nodes")
-    selected_nodes: list[Any] = raw_selected_nodes if isinstance(raw_selected_nodes, list) else []
-    raw_graph_nodes = task_graph.get("nodes")
-    graph_nodes: list[Any] = raw_graph_nodes if isinstance(raw_graph_nodes, list) else []
-    nodes_by_key = {
-        node.get("key"): node for node in graph_nodes if isinstance(node, dict) and isinstance(node.get("key"), str)
-    }
-    selected_node_keys = {
-        selected_node["node_key"]
-        for selected_node in selected_nodes
-        if isinstance(selected_node, dict) and isinstance(selected_node.get("node_key"), str)
-    }
-    graph_version = task_graph.get("graph_version") if isinstance(task_graph.get("graph_version"), int) else None
-    graph_fingerprint = (
-        task_graph.get("graph_fingerprint") if isinstance(task_graph.get("graph_fingerprint"), str) else None
-    )
-    materialization_version = (
-        materialization.get("materialization_version")
-        if isinstance(materialization.get("materialization_version"), int)
-        else None
-    )
-    admission_version = (
-        admission.get("admission_version") if isinstance(admission.get("admission_version"), int) else None
-    )
-
-    preview_items: list[RuntimeTaskPreviewItem] = []
-    for selected_node in selected_nodes:
-        if not isinstance(selected_node, dict) or not isinstance(selected_node.get("node_key"), str):
-            continue
-        node_key = selected_node["node_key"]
-        graph_node = nodes_by_key.get(node_key)
-        if graph_node is None:
-            continue
-        runtime_task_type = selected_node.get("runtime_task_type") or graph_node.get("intended_task_type")
-        if not isinstance(runtime_task_type, str) or not runtime_task_type.strip():
-            continue
-        runtime_task_type = runtime_task_type.strip()
-        graph_node_name = graph_node.get("name") if isinstance(graph_node.get("name"), str) else None
-        materialization_selection = selected_node.get("materialization_selection_reference")
-        raw_input_contract = graph_node.get("input_contract")
-        input_contract: dict[str, Any] = raw_input_contract if isinstance(raw_input_contract, dict) else {}
-        raw_expected_output_contract = graph_node.get("expected_output_contract")
-        expected_output_contract: dict[str, Any] = (
-            raw_expected_output_contract if isinstance(raw_expected_output_contract, dict) else {}
-        )
-        raw_execution_constraints = graph_node.get("execution_constraints")
-        execution_constraints: dict[str, Any] = (
-            raw_execution_constraints if isinstance(raw_execution_constraints, dict) else {}
-        )
-        preview_items.append(
-            RuntimeTaskPreviewItem(
-                preview_task_key=f"mission:{mission_id}:graph:{graph_version}:node:{node_key}:runtime-task-preview",
-                graph_node_key=node_key,
-                graph_node_name=graph_node_name,
-                runtime_task_type=runtime_task_type,
-                payload_preview=RuntimeTaskPreviewPayload(
-                    mission_id=mission_id,
-                    graph_node_key=node_key,
-                    graph_version=graph_version,
-                    graph_fingerprint=graph_fingerprint,
-                    materialization_version=materialization_version,
-                    admission_version=admission_version,
-                    runtime_task_type=runtime_task_type,
-                    input_contract=input_contract,
-                    expected_output_contract=expected_output_contract,
-                    execution_constraints=execution_constraints,
-                ),
-                capability_reference=_preview_capability_reference(selected_node=selected_node, graph_node=graph_node),
-                adapter_reference=_preview_adapter_reference(selected_node),
-                materialization_selection_reference=(
-                    materialization_selection if isinstance(materialization_selection, dict) else None
-                ),
-                dependency_keys=_task_preview_dependency_keys(
-                    node_key=node_key, task_graph=task_graph, selected_node_keys=selected_node_keys
-                ),
-                operator_notes=(
-                    selected_node.get("operator_notes")
-                    if isinstance(selected_node.get("operator_notes"), str)
-                    else graph_node.get("operator_notes")
-                    if isinstance(graph_node.get("operator_notes"), str)
-                    else None
-                ),
-            )
-        )
-    return preview_items
+    return [
+        RuntimeTaskPreviewItem.model_validate(item)
+        for item in project_runtime_task_preview_items(mission_id=mission_id, readiness=readiness)
+    ]
 
 
 @router.get("/{mission_id}/runtime-task-preview", response_model=RuntimeTaskPreviewRead)
@@ -2519,6 +2495,184 @@ def read_mission_runtime_task_preview(
         blockers=readiness.blockers,
         warnings=readiness.warnings,
         runtime_authority=_runtime_preview_authority_flags(),
+    )
+
+
+def _runtime_task_materialization_to_read(
+    *,
+    mission: Mission,
+    metadata: dict[str, Any],
+    blockers: list[RuntimeReadinessItem] | None = None,
+    warnings: list[RuntimeReadinessItem] | None = None,
+) -> RuntimeTaskMaterializationRead:
+    raw_task_ids = metadata.get("created_execution_task_ids")
+    created_task_ids = [UUID(str(task_id)) for task_id in raw_task_ids] if isinstance(raw_task_ids, list) else []
+    raw_status = metadata.get("materialization_status")
+    materialization_status: RuntimeTaskMaterializationStatus = (
+        raw_status if raw_status in {"materialized", "blocked", "superseded"} else "blocked"
+    )
+    raw_authority = metadata.get("runtime_authority")
+    runtime_authority: dict[str, bool] = (
+        {str(key): bool(value) for key, value in raw_authority.items()}
+        if isinstance(raw_authority, dict)
+        else runtime_materialization_authority_flags()
+    )
+    return RuntimeTaskMaterializationRead(
+        mission_id=mission.id,
+        tenant_id=mission.tenant_id,
+        materialization_status=materialization_status,
+        materialization_version=(
+            metadata.get("materialization_version")
+            if isinstance(metadata.get("materialization_version"), int)
+            else None
+        ),
+        created_execution_task_ids=created_task_ids,
+        task_count=metadata.get("task_count", len(created_task_ids))
+        if isinstance(metadata.get("task_count"), int)
+        else len(created_task_ids),
+        graph_reference=metadata.get("graph_reference") if isinstance(metadata.get("graph_reference"), dict) else None,
+        materialization_reference=(
+            metadata.get("materialization_reference")
+            if isinstance(metadata.get("materialization_reference"), dict)
+            else None
+        ),
+        admission_reference=metadata.get("admission_reference")
+        if isinstance(metadata.get("admission_reference"), dict)
+        else None,
+        runtime_authority=runtime_authority,
+        blockers=blockers or [],
+        warnings=warnings or [],
+        updated_at=str(metadata.get("updated_at") or mission.updated_at.isoformat()),
+    )
+
+
+def _build_blocked_runtime_task_materialization_read(
+    *, readiness: RuntimeReadinessRead, status: RuntimeTaskMaterializationStatus = "blocked"
+) -> RuntimeTaskMaterializationRead:
+    return RuntimeTaskMaterializationRead(
+        mission_id=readiness.mission_id,
+        tenant_id=readiness.tenant_id,
+        materialization_status=status,
+        materialization_version=None,
+        created_execution_task_ids=[],
+        task_count=0,
+        graph_reference=readiness.graph_reference,
+        materialization_reference=readiness.materialization_reference,
+        admission_reference=readiness.admission_reference,
+        runtime_authority=runtime_materialization_authority_flags(),
+        blockers=readiness.blockers,
+        warnings=readiness.warnings,
+        updated_at=readiness.checked_at,
+    )
+
+
+@router.get("/{mission_id}/runtime-task-materialization", response_model=RuntimeTaskMaterializationRead)
+def read_mission_runtime_task_materialization(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> RuntimeTaskMaterializationRead:
+    """Read tenant-scoped ExecutionTask materialization metadata."""
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    materialization = (mission.metadata_json or {}).get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+    if not isinstance(materialization, dict):
+        raise HTTPException(status_code=404, detail="mission runtime task materialization not found")
+    return _runtime_task_materialization_to_read(mission=mission, metadata=materialization)
+
+
+@router.post("/{mission_id}/runtime-task-materialization", response_model=RuntimeTaskMaterializationRead)
+def materialize_mission_runtime_tasks(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> RuntimeTaskMaterializationRead:
+    """Create planned ExecutionTask rows from a ready admitted mission graph without queueing work."""
+    tenant_id_str = str(tenant_id)
+    mission_repo = MissionRepository(db)
+    mission = mission_repo.lock_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    readiness = _build_mission_runtime_readiness(mission_id=mission_id, tenant_id=tenant_id, db=db)
+    if not readiness.ready:
+        if any(blocker.code == "runtime_admission_not_admitted" for blocker in readiness.blockers):
+            raise HTTPException(status_code=400, detail="runtime admission must be admitted before materialization")
+        if any(blocker.code == "graph_reference_mismatch" for blocker in readiness.blockers):
+            raise HTTPException(
+                status_code=400, detail="runtime admission graph reference does not match current task graph"
+            )
+        return _build_blocked_runtime_task_materialization_read(readiness=readiness)
+
+    tasks = _build_runtime_task_preview_items(mission_id=mission_id, readiness=readiness)
+    if len(tasks) != readiness.selected_node_count:
+        incomplete_readiness_payload = readiness.model_dump()
+        incomplete_readiness_payload["ready"] = False
+        incomplete_readiness_payload["readiness_status"] = "incomplete"
+        incomplete_readiness_payload["blockers"] = [
+            *readiness.blockers,
+            _readiness_item(
+                code="runtime_task_preview_incomplete",
+                status="failed",
+                message="Runtime task preview did not produce one task for each selected node.",
+                details={"task_count": len(tasks), "selected_node_count": readiness.selected_node_count},
+            ),
+        ]
+        return _build_blocked_runtime_task_materialization_read(
+            readiness=RuntimeReadinessRead.model_validate(incomplete_readiness_payload)
+        )
+
+    metadata = dict(mission.metadata_json or {})
+    existing = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+    if isinstance(existing, dict) and materialization_reference_current(
+        task_materialization=existing,
+        graph_reference=readiness.graph_reference,
+        materialization_reference=readiness.materialization_reference,
+        admission_reference=readiness.admission_reference,
+    ):
+        return _runtime_task_materialization_to_read(
+            mission=mission, metadata=existing, blockers=readiness.blockers, warnings=readiness.warnings
+        )
+
+    previous_version = existing.get("materialization_version", 0) if isinstance(existing, dict) else 0
+    task_repo = ExecutionTaskRepository(db)
+    created_task_ids: list[str] = []
+    for task_preview in tasks:
+        payload = build_execution_task_payload(task_preview)
+        task = ExecutionTask(
+            tenant_id=tenant_id_str,
+            mission_id=mission_id,
+            title=task_preview.graph_node_name or task_preview.graph_node_key,
+            description=(
+                task_preview.operator_notes
+                or f"Planned runtime task for mission graph node {task_preview.graph_node_key}."
+            ),
+            status=ExecutionTaskState.PLANNED.value,
+            metadata_json=payload,
+            compliance_category=mission.compliance_category,
+            jurisdiction=mission.jurisdiction,
+        )
+        created = task_repo.add(task)
+        created_task_ids.append(str(created.id))
+
+    now = datetime.now(UTC).isoformat()
+    task_materialization = build_runtime_task_materialization_metadata(
+        mission_id=mission_id,
+        materialization_version=previous_version + 1,
+        created_execution_task_ids=created_task_ids,
+        graph_reference=readiness.graph_reference,
+        materialization_reference=readiness.materialization_reference,
+        admission_reference=readiness.admission_reference,
+        materialized_by="runtime-task-materialization-api",
+        now=now,
+    )
+    metadata[MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY] = task_materialization
+    mission = mission_repo.update_metadata(mission=mission, metadata_json=metadata)
+    return _runtime_task_materialization_to_read(
+        mission=mission, metadata=task_materialization, blockers=readiness.blockers, warnings=readiness.warnings
     )
 
 
