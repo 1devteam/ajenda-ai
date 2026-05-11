@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.runtime.transitions import transition_task
 
 
 class ExecutionTaskRepository:
@@ -40,7 +41,7 @@ class ExecutionTaskRepository:
         )
         tasks = list(self._session.scalars(stmt))
         for task in tasks:
-            task.status = ExecutionTaskState.CANCELLED.value
+            transition_task(task, ExecutionTaskState.CANCELLED)
             self._session.add(task)
         self._session.flush()
         for task in tasks:

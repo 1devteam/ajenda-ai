@@ -938,6 +938,10 @@ class MissionQueueResponse(BaseModel):
     denied_tasks: list[dict[str, str | None]]
 
 
+class RuntimeQueueAdmissionResponse(MissionQueueResponse):
+    """Queue admission response for current materialized runtime tasks."""
+
+
 def _normalize_unique_string_list(value: list[str]) -> list[str]:
     normalized = [item.strip() for item in value]
     if any(not item for item in normalized):
@@ -1089,6 +1093,31 @@ def _cancel_superseded_materialized_planned_tasks(
         tenant_id=tenant_id, mission_id=mission_id, task_ids=task_ids
     )
     return [str(task.id) for task in cancelled_tasks]
+
+
+def _current_materialized_execution_task_ids(metadata: dict[str, Any]) -> list[UUID]:
+    """Return valid task IDs from the current runtime task materialization metadata."""
+    task_materialization = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+    if not isinstance(task_materialization, dict):
+        return []
+    if task_materialization.get("materialization_status") != "materialized":
+        return []
+    raw_task_ids = task_materialization.get("created_execution_task_ids")
+    if not isinstance(raw_task_ids, list):
+        return []
+
+    task_ids: list[UUID] = []
+    seen_task_ids: set[UUID] = set()
+    for raw_task_id in raw_task_ids:
+        try:
+            task_id = UUID(str(raw_task_id))
+        except ValueError:
+            continue
+        if task_id in seen_task_ids:
+            continue
+        seen_task_ids.add(task_id)
+        task_ids.append(task_id)
+    return task_ids
 
 
 def _readiness_item(
@@ -2674,6 +2703,75 @@ def materialize_mission_runtime_tasks(
     return _runtime_task_materialization_to_read(
         mission=mission, metadata=task_materialization, blockers=readiness.blockers, warnings=readiness.warnings
     )
+
+
+@router.post("/{mission_id}/runtime-queue-admission", response_model=RuntimeQueueAdmissionResponse)
+def runtime_queue_admission(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
+) -> dict[str, object]:
+    """Queue eligible planned tasks from the current runtime task materialization."""
+    tenant_id_str = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    materialized_task_ids = _current_materialized_execution_task_ids(mission.metadata_json or {})
+    if not materialized_task_ids:
+        return {
+            "queued_task_ids": [],
+            "pending_review_task_ids": [],
+            "denied_tasks": [],
+        }
+
+    task_repo = ExecutionTaskRepository(db)
+    tasks_by_id = {task.id: task for task in task_repo.list_for_mission(mission_id=mission_id)}
+    tasks_to_queue = [
+        task
+        for task_id in materialized_task_ids
+        if (task := tasks_by_id.get(task_id)) is not None
+        and task.tenant_id == tenant_id_str
+        and task.mission_id == mission_id
+        and task.status == ExecutionTaskState.PLANNED.value
+    ]
+
+    if not tasks_to_queue:
+        return {
+            "queued_task_ids": [],
+            "pending_review_task_ids": [],
+            "denied_tasks": [],
+        }
+
+    try:
+        QuotaEnforcementService(db).check_and_record_task_creation(tenant_id, count=len(tasks_to_queue))
+    except QuotaExceededError as exc:
+        raise _quota_exceeded_response(exc) from exc
+
+    coordinator = ExecutionCoordinator(db, queue)
+    queued: list[str] = []
+    pending_review: list[str] = []
+    denied: list[dict[str, str | None]] = []
+    try:
+        for task in tasks_to_queue:
+            result = coordinator.queue_task(tenant_id=tenant_id_str, task_id=task.id)
+            if result.ok:
+                queued.append(str(task.id))
+                continue
+            if result.state == ExecutionTaskState.PENDING_REVIEW.value:
+                pending_review.append(str(task.id))
+                continue
+            denied.append({"task_id": str(task.id), "state": result.state, "reason": result.reason})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "queued_task_ids": queued,
+        "pending_review_task_ids": pending_review,
+        "denied_tasks": denied,
+    }
 
 
 @router.get("/{mission_id}/runtime-admission", response_model=RuntimeAdmissionRead)
