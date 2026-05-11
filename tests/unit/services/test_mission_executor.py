@@ -7,11 +7,12 @@ from backend.services.execution_coordinator import CoordinationResult
 from backend.services.mission_executor import MissionExecutor
 
 
-def _make_task(*, tenant_id: str, mission_id: uuid.UUID) -> MagicMock:
+def _make_task(*, tenant_id: str, mission_id: uuid.UUID, status: str = "planned") -> MagicMock:
     task = MagicMock()
     task.id = uuid.uuid4()
     task.tenant_id = tenant_id
     task.mission_id = mission_id
+    task.status = status
     return task
 
 
@@ -24,6 +25,7 @@ def test_queue_all_planned_tasks_separates_queued_pending_review_and_denied() ->
     pending_review_task = _make_task(tenant_id=tenant_id, mission_id=mission_id)
     denied_task = _make_task(tenant_id=tenant_id, mission_id=mission_id)
     foreign_task = _make_task(tenant_id=other_tenant_id, mission_id=mission_id)
+    cancelled_superseded_task = _make_task(tenant_id=tenant_id, mission_id=mission_id, status="cancelled")
 
     session = MagicMock()
     coordinator = MagicMock()
@@ -35,6 +37,7 @@ def test_queue_all_planned_tasks_separates_queued_pending_review_and_denied() ->
         pending_review_task,
         denied_task,
         foreign_task,
+        cancelled_superseded_task,
     ]
 
     coordinator.queue_task.side_effect = [
@@ -65,3 +68,4 @@ def test_queue_all_planned_tasks_separates_queued_pending_review_and_denied() ->
     coordinator.queue_task.assert_any_call(tenant_id=tenant_id, task_id=pending_review_task.id)
     coordinator.queue_task.assert_any_call(tenant_id=tenant_id, task_id=denied_task.id)
     assert coordinator.queue_task.call_count == 3
+    assert all(call.kwargs["task_id"] != cancelled_superseded_task.id for call in coordinator.queue_task.call_args_list)

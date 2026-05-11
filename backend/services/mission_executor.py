@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from backend.domain.enums import ExecutionTaskState
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 
@@ -37,7 +38,7 @@ class MissionExecutor:
         denied: list[MissionTaskDenial] = []
 
         for task in self._tasks.list_for_mission(mission_id):
-            if task.tenant_id != tenant_id:
+            if task.tenant_id != tenant_id or task.status != ExecutionTaskState.PLANNED.value:
                 continue
             result = self._coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
             if result.ok:
