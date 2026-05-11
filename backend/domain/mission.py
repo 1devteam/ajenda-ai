@@ -21,6 +21,10 @@ MISSION_GRAPH_MATERIALIZATION_METADATA_KEY = "graph_materialization"
 MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION = 1
 MISSION_RUNTIME_ADMISSION_METADATA_KEY = "runtime_admission"
 MISSION_RUNTIME_ADMISSION_SCHEMA_VERSION = 1
+MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY = "runtime_task_materialization"
+MISSION_RUNTIME_TASK_MATERIALIZATION_SCHEMA_VERSION = 1
+MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY = "runtime_queue_admission"
+MISSION_RUNTIME_QUEUE_ADMISSION_SCHEMA_VERSION = 1
 
 
 def utcnow() -> datetime:
@@ -220,6 +224,46 @@ def build_runtime_admission_metadata(
             "selected_nodes": selected_nodes,
             "validation_result": validation_result,
             "execution_task_records": execution_task_records,
+            "runtime_authority": runtime_authority,
+        }
+    }
+
+
+def build_runtime_queue_admission_metadata(
+    *,
+    admission_status: str,
+    admission_version: int,
+    admitted_task_ids: list[str],
+    skipped_task_ids: list[str],
+    blocked_task_ids: list[str],
+    materialization_reference: dict[str, Any],
+    graph_reference: dict[str, Any],
+    runtime_admission_reference: dict[str, Any],
+    queue_admitted_by: str,
+    queue_admitted_at: str,
+    updated_at: str,
+    runtime_authority: dict[str, bool],
+) -> dict[str, Any]:
+    """Build the durable metadata envelope for runtime queue admission v1.
+
+    Queue admission is the narrow bridge that may move already materialized,
+    still-planned ExecutionTask rows into the queueable runtime state. It must
+    not create tasks, dispatch workers, call executors, or execute adapters.
+    """
+    return {
+        MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY: {
+            "schema_version": MISSION_RUNTIME_QUEUE_ADMISSION_SCHEMA_VERSION,
+            "admission_status": admission_status,
+            "admission_version": admission_version,
+            "admitted_task_ids": admitted_task_ids,
+            "skipped_task_ids": skipped_task_ids,
+            "blocked_task_ids": blocked_task_ids,
+            "materialization_reference": materialization_reference,
+            "graph_reference": graph_reference,
+            "runtime_admission_reference": runtime_admission_reference,
+            "queue_admitted_by": queue_admitted_by,
+            "queue_admitted_at": queue_admitted_at,
+            "updated_at": updated_at,
             "runtime_authority": runtime_authority,
         }
     }

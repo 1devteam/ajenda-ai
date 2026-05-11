@@ -35,6 +35,10 @@ class MissionRepository:
         stmt = select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id)
         return self._session.scalar(stmt)
 
+    def get_for_tenant_locked(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
+        stmt = select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id).with_for_update()
+        return self._session.scalar(stmt)
+
     def list_by_tenant(self, tenant_id: str) -> list[Mission]:
         stmt = select(Mission).where(Mission.tenant_id == tenant_id).order_by(Mission.created_at.asc())
         return list(self._session.scalars(stmt))

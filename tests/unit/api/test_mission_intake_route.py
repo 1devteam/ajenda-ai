@@ -2467,3 +2467,260 @@ def test_runtime_task_preview_does_not_create_or_dispatch_runtime_work() -> None
     task_repo_cls.assert_not_called()
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
+
+
+def _mission_with_runtime_task_materialization(
+    *,
+    tenant_id: uuid.UUID,
+    mission_id: uuid.UUID,
+    task_ids: list[uuid.UUID],
+    materialization_status: str = "materialized",
+) -> SimpleNamespace:
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    mission.metadata_json[mission_module.MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY] = {
+        "schema_version": 1,
+        "materialization_status": materialization_status,
+        "materialization_version": 1,
+        "created_execution_task_ids": [str(task_id) for task_id in task_ids],
+        "graph_reference": {"graph_version": 7},
+        "runtime_admission_reference": {"admission_version": 1},
+    }
+    return mission
+
+
+def _queue_admission_response(
+    mission: SimpleNamespace,
+    *,
+    tenant_id: uuid.UUID,
+    mission_id: uuid.UUID,
+    tasks: list[SimpleNamespace] | None = None,
+    queue_results: list[SimpleNamespace] | None = None,
+):
+    app = _build_app(tenant_id)
+    app.dependency_overrides[mission_module.get_queue_adapter] = lambda: MagicMock()
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant_locked.return_value = mission
+    mission_repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission: SimpleNamespace, metadata_json: dict[str, object]) -> SimpleNamespace:
+        mission.metadata_json = metadata_json
+        return mission
+
+    mission_repo.update_metadata.side_effect = _update_metadata
+    task_repo = MagicMock()
+    task_repo.list_for_materialized_ids.return_value = tasks or []
+    coordinator = MagicMock()
+    coordinator.queue_task.side_effect = queue_results or []
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+    ):
+        response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
+
+    return response, mission_repo, task_repo, coordinator, executor_cls
+
+
+def test_runtime_queue_admission_queues_only_current_materialization_task_ids() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    current_task_id = uuid.uuid4()
+    other_task_id = uuid.uuid4()
+    mission = _mission_with_runtime_task_materialization(
+        tenant_id=tenant_id, mission_id=mission_id, task_ids=[current_task_id]
+    )
+    current_task = SimpleNamespace(
+        id=current_task_id,
+        tenant_id=str(tenant_id),
+        mission_id=mission_id,
+        status="planned",
+    )
+    response, mission_repo, task_repo, coordinator, executor_cls = _queue_admission_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        tasks=[current_task, SimpleNamespace(id=other_task_id, status="planned")],
+        queue_results=[SimpleNamespace(ok=True, task_id=current_task_id, state="queued", reason=None)],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["queue_admission_status"] == "admitted"
+    assert body["admitted_task_ids"] == [str(current_task_id)]
+    assert body["skipped_task_ids"] == []
+    assert body["blocked_task_ids"] == []
+    task_repo.list_for_materialized_ids.assert_called_once_with(
+        task_ids=[current_task_id], tenant_id=str(tenant_id), mission_id=mission_id
+    )
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=current_task_id)
+    task_repo.add.assert_not_called()
+    executor_cls.assert_not_called()
+    persisted = mission.metadata_json[mission_module.MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY]
+    assert persisted["runtime_authority"] == {
+        "creates_execution_tasks": False,
+        "enqueues_work": True,
+        "dispatches_workers": False,
+        "calls_executor": False,
+        "calls_coordinator": True,
+        "executes_adapters": False,
+    }
+    mission_repo.update_metadata.assert_called_once()
+
+
+def test_runtime_queue_admission_categorizes_cancelled_and_already_queued_rows_idempotently() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    planned_task_id = uuid.uuid4()
+    cancelled_task_id = uuid.uuid4()
+    queued_task_id = uuid.uuid4()
+    mission = _mission_with_runtime_task_materialization(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        task_ids=[planned_task_id, cancelled_task_id, queued_task_id],
+    )
+    tasks = [
+        SimpleNamespace(id=planned_task_id, tenant_id=str(tenant_id), mission_id=mission_id, status="planned"),
+        SimpleNamespace(id=cancelled_task_id, tenant_id=str(tenant_id), mission_id=mission_id, status="cancelled"),
+        SimpleNamespace(id=queued_task_id, tenant_id=str(tenant_id), mission_id=mission_id, status="queued"),
+    ]
+    response, _, _, coordinator, _ = _queue_admission_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        tasks=tasks,
+        queue_results=[SimpleNamespace(ok=True, task_id=planned_task_id, state="queued", reason=None)],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["queue_admission_status"] == "partially_admitted"
+    assert body["admitted_task_ids"] == [str(planned_task_id)]
+    assert body["skipped_task_ids"] == [str(cancelled_task_id), str(queued_task_id)]
+    assert {warning["code"] for warning in body["warnings"]} == {
+        "task_not_planned_cancelled",
+        "task_already_queued",
+    }
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=planned_task_id)
+
+
+def test_runtime_queue_admission_blocks_missing_runtime_task_materialization() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_admitted_runtime_admission(tenant_id=tenant_id, mission_id=mission_id)
+    response, _, task_repo, coordinator, _ = _queue_admission_response(
+        mission, tenant_id=tenant_id, mission_id=mission_id
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["queue_admission_status"] == "blocked"
+    assert body["blockers"][0]["code"] == "missing_runtime_task_materialization"
+    task_repo.list_for_materialized_ids.assert_not_called()
+    coordinator.queue_task.assert_not_called()
+
+
+def test_runtime_queue_admission_blocks_superseded_materialization() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    mission = _mission_with_runtime_task_materialization(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        task_ids=[task_id],
+        materialization_status="superseded",
+    )
+    response, _, task_repo, coordinator, _ = _queue_admission_response(
+        mission, tenant_id=tenant_id, mission_id=mission_id
+    )
+
+    assert response.status_code == 200
+    assert response.json()["blockers"][0]["code"] == "runtime_task_materialization_superseded"
+    task_repo.list_for_materialized_ids.assert_not_called()
+    coordinator.queue_task.assert_not_called()
+
+
+def test_runtime_queue_admission_blocks_materialization_without_task_ids() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    mission = _mission_with_runtime_task_materialization(tenant_id=tenant_id, mission_id=mission_id, task_ids=[])
+    response, _, task_repo, coordinator, _ = _queue_admission_response(
+        mission, tenant_id=tenant_id, mission_id=mission_id
+    )
+
+    assert response.status_code == 200
+    assert response.json()["blockers"][0]["code"] == "runtime_task_materialization_has_no_task_ids"
+    task_repo.list_for_materialized_ids.assert_not_called()
+    coordinator.queue_task.assert_not_called()
+
+
+def test_runtime_queue_admission_hides_cross_tenant_mission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    app.dependency_overrides[mission_module.get_queue_adapter] = lambda: MagicMock()
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant_locked.return_value = None
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+    ):
+        response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "mission not found for tenant"}
+    task_repo_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+
+
+def test_runtime_queue_admission_duplicate_post_is_idempotent_without_requeueing() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    mission = _mission_with_runtime_task_materialization(tenant_id=tenant_id, mission_id=mission_id, task_ids=[task_id])
+    queued_task = SimpleNamespace(id=task_id, tenant_id=str(tenant_id), mission_id=mission_id, status="queued")
+    response, _, _, coordinator, _ = _queue_admission_response(
+        mission, tenant_id=tenant_id, mission_id=mission_id, tasks=[queued_task]
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["queue_admission_status"] == "admitted"
+    assert body["admitted_task_ids"] == []
+    assert body["skipped_task_ids"] == [str(task_id)]
+    assert body["warnings"][0]["code"] == "task_already_queued"
+    coordinator.queue_task.assert_not_called()
+
+
+def test_runtime_queue_admission_get_reads_persisted_metadata() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    mission = _mission_with_runtime_task_materialization(tenant_id=tenant_id, mission_id=mission_id, task_ids=[task_id])
+    mission.metadata_json[mission_module.MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY] = {
+        "schema_version": 1,
+        "admission_status": "admitted",
+        "admission_version": 1,
+        "admitted_task_ids": [str(task_id)],
+        "skipped_task_ids": [],
+        "blocked_task_ids": [],
+        "materialization_reference": {"metadata_key": "runtime_task_materialization"},
+        "runtime_authority": {"enqueues_work": True},
+        "updated_at": "2026-05-11T00:00:00+00:00",
+    }
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+        response = client.get(f"/v1/missions/{mission_id}/runtime-queue-admission")
+
+    assert response.status_code == 200
+    assert response.json()["admitted_task_ids"] == [str(task_id)]
+    mission_repo.update_metadata.assert_not_called()

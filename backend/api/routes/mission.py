@@ -19,6 +19,8 @@ from backend.domain.mission import (
     MISSION_INTAKE_METADATA_KEY,
     MISSION_PLAN_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
+    MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY,
+    MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
     Mission,
     build_graph_materialization_metadata,
@@ -26,6 +28,7 @@ from backend.domain.mission import (
     build_mission_plan_metadata,
     build_mission_task_graph_metadata,
     build_runtime_admission_metadata,
+    build_runtime_queue_admission_metadata,
 )
 from backend.queue.base import QueueAdapter
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
@@ -52,6 +55,7 @@ GraphValidationStatus = Literal["not_run", "valid", "invalid", "warning"]
 GraphValidationCheckStatus = Literal["passed", "warning", "failed"]
 GraphGenerationMode = Literal["manual", "deterministic", "planner_assisted"]
 RuntimeAdmissionStatus = Literal["draft", "validated", "admitted", "rejected", "superseded"]
+RuntimeQueueAdmissionStatus = Literal["admitted", "partially_admitted", "blocked"]
 
 
 class MissionSuccessCriterion(BaseModel):
@@ -766,6 +770,23 @@ class RuntimeTaskPreviewRead(BaseModel):
     blockers: list[RuntimeReadinessItem]
     warnings: list[RuntimeReadinessItem]
     runtime_authority: dict[str, bool]
+
+
+class RuntimeQueueAdmissionRead(BaseModel):
+    """Runtime queue admission response for materialized mission tasks."""
+
+    mission_id: UUID
+    tenant_id: str
+    queue_admission_status: RuntimeQueueAdmissionStatus
+    admitted_task_ids: list[str]
+    skipped_task_ids: list[str]
+    blocked_task_ids: list[str]
+    task_count: int
+    materialization_reference: dict[str, Any]
+    runtime_authority: dict[str, bool]
+    blockers: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+    updated_at: str
 
 
 class MissionPlanRead(BaseModel):
@@ -2487,6 +2508,104 @@ def _build_runtime_task_preview_items(
     return preview_items
 
 
+def _runtime_queue_authority_flags() -> dict[str, bool]:
+    return {
+        "creates_execution_tasks": False,
+        "enqueues_work": True,
+        "dispatches_workers": False,
+        "calls_executor": False,
+        "calls_coordinator": True,
+        "executes_adapters": False,
+    }
+
+
+def _queue_admission_item(*, code: str, message: str, task_id: str | None = None) -> dict[str, Any]:
+    item: dict[str, Any] = {"code": code, "message": message}
+    if task_id is not None:
+        item["task_id"] = task_id
+    return item
+
+
+def _runtime_queue_admission_to_read(mission: Mission) -> RuntimeQueueAdmissionRead:
+    metadata = mission.metadata_json or {}
+    queue_admission = metadata.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+    if not isinstance(queue_admission, dict):
+        raise HTTPException(status_code=404, detail="mission runtime queue admission not found")
+    admitted_task_ids = [str(task_id) for task_id in queue_admission.get("admitted_task_ids", [])]
+    skipped_task_ids = [str(task_id) for task_id in queue_admission.get("skipped_task_ids", [])]
+    blocked_task_ids = [str(task_id) for task_id in queue_admission.get("blocked_task_ids", [])]
+    materialization_reference = queue_admission.get("materialization_reference")
+    runtime_authority = queue_admission.get("runtime_authority")
+    return RuntimeQueueAdmissionRead(
+        mission_id=mission.id,
+        tenant_id=mission.tenant_id,
+        queue_admission_status=queue_admission.get("admission_status", "blocked"),
+        admitted_task_ids=admitted_task_ids,
+        skipped_task_ids=skipped_task_ids,
+        blocked_task_ids=blocked_task_ids,
+        task_count=len(admitted_task_ids) + len(skipped_task_ids) + len(blocked_task_ids),
+        materialization_reference=materialization_reference if isinstance(materialization_reference, dict) else {},
+        runtime_authority=runtime_authority
+        if isinstance(runtime_authority, dict)
+        else _runtime_queue_authority_flags(),
+        blockers=queue_admission.get("blockers", []) if isinstance(queue_admission.get("blockers"), list) else [],
+        warnings=queue_admission.get("warnings", []) if isinstance(queue_admission.get("warnings"), list) else [],
+        updated_at=queue_admission.get("updated_at", mission.updated_at.isoformat()),
+    )
+
+
+def _parse_materialized_task_ids(raw_task_ids: Any) -> list[UUID]:
+    if not isinstance(raw_task_ids, list):
+        return []
+    parsed: list[UUID] = []
+    seen: set[UUID] = set()
+    for raw_task_id in raw_task_ids:
+        if not isinstance(raw_task_id, str):
+            continue
+        try:
+            task_id = UUID(raw_task_id)
+        except ValueError:
+            continue
+        if task_id in seen:
+            continue
+        parsed.append(task_id)
+        seen.add(task_id)
+    return parsed
+
+
+def _blocked_runtime_queue_admission(
+    *,
+    mission: Mission,
+    metadata: dict[str, Any],
+    reason: str,
+    now: str,
+    task_ids: list[str] | None = None,
+) -> RuntimeQueueAdmissionRead:
+    previous = metadata.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+    previous_version = previous.get("admission_version", 0) if isinstance(previous, dict) else 0
+    blocked_task_ids = task_ids or []
+    blockers = [_queue_admission_item(code=reason, message=reason.replace("_", " "))]
+    queue_metadata = build_runtime_queue_admission_metadata(
+        admission_status="blocked",
+        admission_version=previous_version + 1,
+        admitted_task_ids=[],
+        skipped_task_ids=[],
+        blocked_task_ids=blocked_task_ids,
+        materialization_reference={},
+        graph_reference={},
+        runtime_admission_reference={},
+        queue_admitted_by="runtime_queue_admission",
+        queue_admitted_at=now,
+        updated_at=now,
+        runtime_authority=_runtime_queue_authority_flags(),
+    )[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY]
+    queue_metadata["blockers"] = blockers
+    queue_metadata["warnings"] = []
+    metadata[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY] = queue_metadata
+    mission.metadata_json = metadata
+    return _runtime_queue_admission_to_read(mission)
+
+
 @router.get("/{mission_id}/runtime-task-preview", response_model=RuntimeTaskPreviewRead)
 def read_mission_runtime_task_preview(
     mission_id: UUID,
@@ -2520,6 +2639,224 @@ def read_mission_runtime_task_preview(
         warnings=readiness.warnings,
         runtime_authority=_runtime_preview_authority_flags(),
     )
+
+
+@router.get("/{mission_id}/runtime-queue-admission", response_model=RuntimeQueueAdmissionRead)
+def read_mission_runtime_queue_admission(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> RuntimeQueueAdmissionRead:
+    """Read tenant-scoped runtime queue admission metadata."""
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    return _runtime_queue_admission_to_read(mission)
+
+
+@router.post("/{mission_id}/runtime-queue-admission", response_model=RuntimeQueueAdmissionRead)
+def admit_mission_runtime_tasks_to_queue(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
+) -> RuntimeQueueAdmissionRead:
+    """Queue only current materialized planned ExecutionTask rows for a mission."""
+    tenant_id_str = str(tenant_id)
+    repo = MissionRepository(db)
+    get_locked = getattr(repo, "get_for_tenant_locked", None)
+    if get_locked is not None:
+        mission = get_locked(mission_id=mission_id, tenant_id=tenant_id_str)
+    else:
+        mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    metadata = dict(mission.metadata_json or {})
+    now = datetime.now(UTC).isoformat()
+    runtime_task_materialization = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+    if not isinstance(runtime_task_materialization, dict):
+        blocked = _blocked_runtime_queue_admission(
+            mission=mission,
+            metadata=metadata,
+            reason="missing_runtime_task_materialization",
+            now=now,
+        )
+        repo.update_metadata(mission=mission, metadata_json=mission.metadata_json)
+        return blocked
+
+    raw_status = runtime_task_materialization.get("materialization_status")
+    if raw_status != "materialized":
+        reason = (
+            "runtime_task_materialization_superseded"
+            if raw_status == "superseded"
+            else "runtime_task_materialization_not_materialized"
+        )
+        blocked = _blocked_runtime_queue_admission(
+            mission=mission,
+            metadata=metadata,
+            reason=reason,
+            now=now,
+        )
+        repo.update_metadata(mission=mission, metadata_json=mission.metadata_json)
+        return blocked
+    if (
+        runtime_task_materialization.get("superseded") is True
+        or runtime_task_materialization.get("superseded_at") is not None
+    ):
+        blocked = _blocked_runtime_queue_admission(
+            mission=mission,
+            metadata=metadata,
+            reason="runtime_task_materialization_superseded",
+            now=now,
+        )
+        repo.update_metadata(mission=mission, metadata_json=mission.metadata_json)
+        return blocked
+
+    task_ids = _parse_materialized_task_ids(runtime_task_materialization.get("created_execution_task_ids"))
+    if not task_ids:
+        blocked = _blocked_runtime_queue_admission(
+            mission=mission,
+            metadata=metadata,
+            reason="runtime_task_materialization_has_no_task_ids",
+            now=now,
+        )
+        repo.update_metadata(mission=mission, metadata_json=mission.metadata_json)
+        return blocked
+
+    task_repo = ExecutionTaskRepository(db)
+    materialized_tasks = task_repo.list_for_materialized_ids(
+        task_ids=task_ids,
+        tenant_id=tenant_id_str,
+        mission_id=mission_id,
+    )
+    tasks_by_id = {task.id: task for task in materialized_tasks}
+    admitted_task_ids: list[str] = []
+    skipped_task_ids: list[str] = []
+    blocked_task_ids: list[str] = []
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    coordinator = ExecutionCoordinator(db, queue)
+
+    for task_id in task_ids:
+        task = tasks_by_id.get(task_id)
+        task_id_str = str(task_id)
+        if task is None:
+            blocked_task_ids.append(task_id_str)
+            blockers.append(
+                _queue_admission_item(
+                    code="task_not_found_for_tenant_or_mission",
+                    message="Materialized task id is not visible for this tenant and mission.",
+                    task_id=task_id_str,
+                )
+            )
+            continue
+        if task.status == ExecutionTaskState.PLANNED.value:
+            try:
+                result = coordinator.queue_task(tenant_id=tenant_id_str, task_id=task_id)
+            except ValueError as exc:
+                blocked_task_ids.append(task_id_str)
+                blockers.append(
+                    _queue_admission_item(
+                        code="queue_task_rejected",
+                        message=str(exc),
+                        task_id=task_id_str,
+                    )
+                )
+                continue
+            if result.ok:
+                admitted_task_ids.append(task_id_str)
+                continue
+            if result.state == ExecutionTaskState.PENDING_REVIEW.value:
+                skipped_task_ids.append(task_id_str)
+                warnings.append(
+                    _queue_admission_item(
+                        code="task_pending_review",
+                        message=result.reason or "Task requires review before queue admission.",
+                        task_id=task_id_str,
+                    )
+                )
+                continue
+            blocked_task_ids.append(task_id_str)
+            blockers.append(
+                _queue_admission_item(
+                    code="queue_task_rejected",
+                    message=result.reason or "ExecutionCoordinator rejected queue admission.",
+                    task_id=task_id_str,
+                )
+            )
+            continue
+        if task.status == ExecutionTaskState.QUEUED.value:
+            skipped_task_ids.append(task_id_str)
+            warnings.append(
+                _queue_admission_item(
+                    code="task_already_queued",
+                    message="Task is already queued; idempotent retry did not enqueue it again.",
+                    task_id=task_id_str,
+                )
+            )
+            continue
+        skipped_task_ids.append(task_id_str)
+        warnings.append(
+            _queue_admission_item(
+                code=f"task_not_planned_{task.status}",
+                message="Only planned materialized tasks are eligible for queue admission.",
+                task_id=task_id_str,
+            )
+        )
+
+    skipped_warning_codes = {warning.get("code") for warning in warnings}
+    if blockers:
+        admission_status: RuntimeQueueAdmissionStatus = "partially_admitted" if admitted_task_ids else "blocked"
+    elif skipped_task_ids and admitted_task_ids:
+        admission_status = "partially_admitted"
+    elif admitted_task_ids:
+        admission_status = "admitted"
+    elif skipped_task_ids and skipped_warning_codes == {"task_already_queued"}:
+        admission_status = "admitted"
+    else:
+        admission_status = "blocked"
+        blockers.append(
+            _queue_admission_item(
+                code="no_planned_materialized_tasks",
+                message="No current materialized tasks are still planned for queue admission.",
+            )
+        )
+
+    previous = metadata.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+    previous_version = previous.get("admission_version", 0) if isinstance(previous, dict) else 0
+    materialization_reference = {
+        "metadata_key": MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
+        "schema_version": runtime_task_materialization.get("schema_version"),
+        "materialization_status": runtime_task_materialization.get("materialization_status"),
+        "materialization_version": runtime_task_materialization.get("materialization_version"),
+        "created_execution_task_ids": [str(task_id) for task_id in task_ids],
+    }
+    graph_reference = runtime_task_materialization.get("graph_reference")
+    runtime_admission_reference = runtime_task_materialization.get("runtime_admission_reference")
+    queue_metadata = build_runtime_queue_admission_metadata(
+        admission_status=admission_status,
+        admission_version=previous_version + 1,
+        admitted_task_ids=admitted_task_ids,
+        skipped_task_ids=skipped_task_ids,
+        blocked_task_ids=blocked_task_ids,
+        materialization_reference=materialization_reference,
+        graph_reference=graph_reference if isinstance(graph_reference, dict) else {},
+        runtime_admission_reference=(
+            runtime_admission_reference if isinstance(runtime_admission_reference, dict) else {}
+        ),
+        queue_admitted_by="runtime_queue_admission",
+        queue_admitted_at=now,
+        updated_at=now,
+        runtime_authority=_runtime_queue_authority_flags(),
+    )[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY]
+    queue_metadata["blockers"] = blockers
+    queue_metadata["warnings"] = warnings
+    metadata[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY] = queue_metadata
+    mission = repo.update_metadata(mission=mission, metadata_json=metadata)
+    return _runtime_queue_admission_to_read(mission)
 
 
 @router.get("/{mission_id}/runtime-admission", response_model=RuntimeAdmissionRead)
