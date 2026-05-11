@@ -35,7 +35,8 @@ class MissionRepository:
         stmt = select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id)
         return self._session.scalar(stmt)
 
-    def get_for_tenant_locked(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
+    def lock_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
+        """Return a tenant-owned mission while holding a row lock for mutation serialization."""
         stmt = select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id).with_for_update()
         return self._session.scalar(stmt)
 

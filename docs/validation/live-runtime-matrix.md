@@ -35,6 +35,8 @@ Its runtime responsibilities include:
 This matrix is not just a list of tests.
 It is the runtime-proof and release-governance layer for those guarantees.
 
+Mission runtime task materialization validation currently proves explicit creation of planned `ExecutionTask` rows from a ready admitted mission graph only. It must not be read as proof of queue admission, worker dispatch, graph execution, adapter execution, or scheduler behavior; those remain separate runtime-validation concerns.
+
 ---
 
 ## Matrix model
