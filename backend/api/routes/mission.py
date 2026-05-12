@@ -785,6 +785,8 @@ class RuntimeTaskPreviewRead(BaseModel):
 
 RuntimeTaskMaterializationStatus = Literal["materialized", "blocked", "superseded"]
 RuntimeDispatchReadinessStatus = Literal["ready", "partial", "blocked"]
+WorkerDispatchEligibilityStatus = Literal["eligible", "partial", "blocked"]
+WorkerClaimPreviewStatus = Literal["ready", "partial", "blocked"]
 
 
 class RuntimeTaskMaterializationRead(BaseModel):
@@ -834,6 +836,79 @@ class RuntimeDispatchReadinessRead(BaseModel):
     runtime_authority: RuntimeDispatchAuthority
     blockers: list[dict[str, Any]]
     warnings: list[dict[str, Any]]
+    checked_at: str
+
+
+class WorkerDispatchAuthority(BaseModel):
+    """Negative authority flags for worker dispatch eligibility checks."""
+
+    creates_worker_leases: bool = False
+    claims_tasks: bool = False
+    starts_execution: bool = False
+    dispatches_workers: bool = False
+    executes_handlers: bool = False
+    enqueues_work: bool = False
+    mutates_runtime_state: bool = False
+    read_only: bool = True
+
+
+class WorkerClaimAuthority(WorkerDispatchAuthority):
+    """Negative authority flags for worker claim preview checks."""
+
+    preview_only: bool = True
+
+
+class WorkerDispatchEligibilityRead(BaseModel):
+    """Read-only eligibility view for future worker claims."""
+
+    mission_id: UUID
+    tenant_id: str
+    eligibility_status: WorkerDispatchEligibilityStatus
+    eligible_task_ids: list[str]
+    ineligible_task_ids: list[str]
+    blocked_task_ids: list[str]
+    skipped_task_ids: list[str]
+    task_count: int
+    queued_task_count: int
+    materialization_reference: dict[str, Any] | None
+    queue_admission_reference: dict[str, Any] | None
+    dispatch_readiness_summary: dict[str, Any]
+    worker_dispatch_authority: WorkerDispatchAuthority
+    blockers: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+    checked_at: str
+
+
+class WorkerClaimPreviewEnvelope(BaseModel):
+    """Read-only preview of the future worker claim handoff envelope."""
+
+    task_id: str
+    tenant_id: str
+    mission_id: str
+    task_type: str
+    current_task_state: str
+    expected_claim_from_state: Literal["queued"] = "queued"
+    future_claim_state: Literal["claimed"] = "claimed"
+    worker_lease_required: bool = True
+    lease_scope: dict[str, str]
+    runtime_contract: dict[str, bool]
+    source_references: dict[str, Any]
+    task_metadata_summary: dict[str, Any]
+    preview_only: bool = True
+
+
+class WorkerClaimPreviewRead(BaseModel):
+    """Read-only preview of future worker claim envelopes."""
+
+    mission_id: UUID
+    tenant_id: str
+    preview_status: WorkerClaimPreviewStatus
+    claim_preview_envelopes: list[WorkerClaimPreviewEnvelope]
+    blocked_task_ids: list[str]
+    skipped_task_ids: list[str]
+    blockers: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+    worker_claim_authority: WorkerClaimAuthority
     checked_at: str
 
 
@@ -3159,6 +3234,332 @@ def read_mission_runtime_dispatch_readiness(
 ) -> RuntimeDispatchReadinessRead:
     """Read queued materialized task readiness without dispatching workers."""
     return _build_runtime_dispatch_readiness(mission_id=mission_id, tenant_id=tenant_id, db=db)
+
+
+def _worker_dispatch_authority_flags() -> WorkerDispatchAuthority:
+    return WorkerDispatchAuthority(
+        creates_worker_leases=False,
+        claims_tasks=False,
+        starts_execution=False,
+        dispatches_workers=False,
+        executes_handlers=False,
+        enqueues_work=False,
+        mutates_runtime_state=False,
+        read_only=True,
+    )
+
+
+def _worker_claim_authority_flags() -> WorkerClaimAuthority:
+    return WorkerClaimAuthority(
+        creates_worker_leases=False,
+        claims_tasks=False,
+        starts_execution=False,
+        dispatches_workers=False,
+        executes_handlers=False,
+        enqueues_work=False,
+        mutates_runtime_state=False,
+        read_only=True,
+        preview_only=True,
+    )
+
+
+def _worker_dispatch_eligibility_status(
+    *, eligible_task_ids: list[str], ineligible_task_ids: list[str], readiness_status: str
+) -> WorkerDispatchEligibilityStatus:
+    if readiness_status == "blocked" or not eligible_task_ids:
+        return "blocked"
+    if ineligible_task_ids:
+        return "partial"
+    return "eligible"
+
+
+def _worker_claim_preview_status(eligibility_status: WorkerDispatchEligibilityStatus) -> WorkerClaimPreviewStatus:
+    if eligibility_status == "eligible":
+        return "ready"
+    if eligibility_status == "partial":
+        return "partial"
+    return "blocked"
+
+
+def _worker_dispatch_summary(readiness: RuntimeDispatchReadinessRead) -> dict[str, Any]:
+    return {
+        "readiness_status": readiness.readiness_status,
+        "dispatch_ready_task_ids": readiness.dispatch_ready_task_ids,
+        "not_ready_task_ids": readiness.not_ready_task_ids,
+        "blocked_task_ids": readiness.blocked_task_ids,
+        "skipped_task_ids": readiness.skipped_task_ids,
+        "task_count": readiness.task_count,
+        "queued_task_count": readiness.queued_task_count,
+        "blocker_count": len(readiness.blockers),
+        "warning_count": len(readiness.warnings),
+    }
+
+
+def _task_metadata_summary(task: ExecutionTask) -> dict[str, Any]:
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    task_type = metadata.get("task_type")
+    summary: dict[str, Any] = {"task_type": task_type if isinstance(task_type, str) else None}
+    capability_reference = metadata.get("capability_reference")
+    adapter_reference = metadata.get("adapter_reference")
+    if isinstance(capability_reference, dict):
+        summary["capability_reference"] = capability_reference
+    if isinstance(adapter_reference, dict):
+        summary["adapter_reference"] = adapter_reference
+    for key in ("capability_id", "capability_name", "capability_version", "adapter_id", "graph_node_key"):
+        value = metadata.get(key)
+        if value is not None:
+            summary[key] = value
+    graph_node_reference = metadata.get("graph_node_reference")
+    if isinstance(graph_node_reference, dict):
+        summary["graph_node_reference"] = graph_node_reference
+    return summary
+
+
+def _worker_claim_runtime_contract() -> dict[str, bool]:
+    return {
+        "requires_worker_lease": True,
+        "requires_state_machine_transition": True,
+        "requires_queue_claim": True,
+        "requires_heartbeat": True,
+        "requires_audit_event": True,
+        "requires_lineage_or_evidence_capture": True,
+    }
+
+
+def _build_worker_dispatch_eligibility(
+    *, mission_id: UUID, tenant_id: _uuid.UUID, db: Session
+) -> WorkerDispatchEligibilityRead:
+    """Build read-only future worker claim eligibility from dispatch readiness."""
+    readiness = _build_runtime_dispatch_readiness(mission_id=mission_id, tenant_id=tenant_id, db=db)
+    tenant_id_str = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
+    materialized_task_ids = _current_materialized_execution_task_ids(metadata)
+    materialized_task_id_set = set(materialized_task_ids)
+    queue_admission = metadata.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+    queue_materialized_task_ids = (
+        _uuid_set_from_metadata_list(queue_admission, "materialized_execution_task_ids")
+        if isinstance(queue_admission, dict)
+        else set()
+    )
+    queue_admitted_task_ids = (
+        _uuid_set_from_metadata_list(queue_admission, "admitted_execution_task_ids")
+        if isinstance(queue_admission, dict)
+        else set()
+    )
+    dispatch_ready_task_ids = {UUID(task_id) for task_id in readiness.dispatch_ready_task_ids}
+
+    task_repo = ExecutionTaskRepository(db)
+    tasks_by_id = {task.id: task for task in task_repo.list_for_mission(mission_id=mission_id)}
+    eligible_task_ids: list[str] = []
+    ineligible_task_ids: list[str] = []
+    blocked_task_ids: list[str] = []
+    skipped_task_ids: list[str] = []
+    blockers = [dict(item) for item in readiness.blockers]
+    warnings = [dict(item) for item in readiness.warnings]
+
+    for task_id in materialized_task_ids:
+        task_id_str = str(task_id)
+        task = tasks_by_id.get(task_id)
+        task_blockers: list[dict[str, Any]] = []
+        if task is None:
+            task_blockers.append(
+                _runtime_dispatch_item(
+                    task_id=task_id,
+                    code="worker_task_unavailable",
+                    message="Materialized task row is unavailable for future worker claim.",
+                )
+            )
+        else:
+            if task.tenant_id != tenant_id_str or task.mission_id != mission_id:
+                task_blockers.append(
+                    _runtime_dispatch_item(
+                        task_id=task.id,
+                        code="worker_task_scope_mismatch",
+                        message="Task is not owned by this tenant and mission and cannot be claimed by a worker.",
+                        state=task.status,
+                    )
+                )
+            if task_id not in materialized_task_id_set:
+                task_blockers.append(
+                    _runtime_dispatch_item(
+                        task_id=task.id,
+                        code="worker_task_not_currently_materialized",
+                        message="Task is not part of the current runtime task materialization.",
+                        state=task.status,
+                    )
+                )
+            if task_id not in queue_materialized_task_ids:
+                task_blockers.append(
+                    _runtime_dispatch_item(
+                        task_id=task.id,
+                        code="worker_task_not_queue_materialized",
+                        message="Task is not listed in current queue admission materialized task IDs.",
+                        state=task.status,
+                    )
+                )
+            if task_id not in queue_admitted_task_ids:
+                task_blockers.append(
+                    _runtime_dispatch_item(
+                        task_id=task.id,
+                        code="worker_task_not_queue_admitted",
+                        message="Task is not listed in current queue admission admitted task IDs.",
+                        state=task.status,
+                    )
+                )
+            if task_id not in dispatch_ready_task_ids:
+                task_blockers.append(
+                    _runtime_dispatch_item(
+                        task_id=task.id,
+                        code="worker_task_not_dispatch_ready",
+                        message="Task is not present in runtime dispatch readiness dispatch_ready_task_ids.",
+                        state=task.status,
+                    )
+                )
+            if task.status != ExecutionTaskState.QUEUED.value:
+                task_blockers.append(
+                    _runtime_dispatch_item(
+                        task_id=task.id,
+                        code="worker_task_not_queued",
+                        message="Future worker claim eligibility requires the task to remain queued.",
+                        state=task.status,
+                    )
+                )
+            if not _task_has_dispatch_task_type(task):
+                task_blockers.append(
+                    _runtime_dispatch_item(
+                        task_id=task.id,
+                        code="worker_task_missing_task_type",
+                        message="Future worker claim eligibility requires explicit non-empty task_type metadata.",
+                        state=task.status,
+                    )
+                )
+
+        if task_blockers:
+            ineligible_task_ids.append(task_id_str)
+            blockers.extend(task_blockers)
+            if task is not None and task.status in {
+                ExecutionTaskState.CANCELLED.value,
+                ExecutionTaskState.COMPLETED.value,
+            }:
+                skipped_task_ids.append(task_id_str)
+            else:
+                blocked_task_ids.append(task_id_str)
+            continue
+        eligible_task_ids.append(task_id_str)
+
+    if readiness.readiness_status == "blocked":
+        blockers.append(
+            _runtime_dispatch_item(
+                task_id=None,
+                code="worker_dispatch_readiness_blocked",
+                message="Worker dispatch eligibility requires runtime dispatch readiness to be ready or partial.",
+                details={"readiness_status": readiness.readiness_status},
+            )
+        )
+        if eligible_task_ids:
+            blocked_task_ids.extend(eligible_task_ids)
+            ineligible_task_ids.extend(eligible_task_ids)
+            eligible_task_ids = []
+
+    eligibility_status = _worker_dispatch_eligibility_status(
+        eligible_task_ids=eligible_task_ids,
+        ineligible_task_ids=ineligible_task_ids,
+        readiness_status=readiness.readiness_status,
+    )
+    return WorkerDispatchEligibilityRead(
+        mission_id=readiness.mission_id,
+        tenant_id=readiness.tenant_id,
+        eligibility_status=eligibility_status,
+        eligible_task_ids=eligible_task_ids,
+        ineligible_task_ids=ineligible_task_ids,
+        blocked_task_ids=blocked_task_ids,
+        skipped_task_ids=skipped_task_ids,
+        task_count=readiness.task_count,
+        queued_task_count=readiness.queued_task_count,
+        materialization_reference=readiness.materialization_reference,
+        queue_admission_reference=readiness.queue_admission_reference,
+        dispatch_readiness_summary=_worker_dispatch_summary(readiness),
+        worker_dispatch_authority=_worker_dispatch_authority_flags(),
+        blockers=blockers,
+        warnings=warnings,
+        checked_at=datetime.now(UTC).isoformat(),
+    )
+
+
+@router.get("/{mission_id}/worker-dispatch-eligibility", response_model=WorkerDispatchEligibilityRead)
+def read_mission_worker_dispatch_eligibility(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> WorkerDispatchEligibilityRead:
+    """Read worker dispatch eligibility without claiming leases or mutating runtime state."""
+    return _build_worker_dispatch_eligibility(mission_id=mission_id, tenant_id=tenant_id, db=db)
+
+
+def _build_worker_claim_preview(*, mission_id: UUID, tenant_id: _uuid.UUID, db: Session) -> WorkerClaimPreviewRead:
+    """Build read-only future worker claim envelopes from eligibility."""
+    eligibility = _build_worker_dispatch_eligibility(mission_id=mission_id, tenant_id=tenant_id, db=db)
+    task_repo = ExecutionTaskRepository(db)
+    tasks_by_id = {str(task.id): task for task in task_repo.list_for_mission(mission_id=mission_id)}
+    source_references = {
+        "materialization_reference": eligibility.materialization_reference,
+        "queue_admission_reference": eligibility.queue_admission_reference,
+        "dispatch_readiness_summary": eligibility.dispatch_readiness_summary,
+    }
+    envelopes: list[WorkerClaimPreviewEnvelope] = []
+    for task_id in eligibility.eligible_task_ids:
+        task = tasks_by_id.get(task_id)
+        if task is None:
+            continue
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        raw_task_type = metadata.get("task_type")
+        task_type = raw_task_type.strip() if isinstance(raw_task_type, str) else ""
+        envelopes.append(
+            WorkerClaimPreviewEnvelope(
+                task_id=task_id,
+                tenant_id=task.tenant_id,
+                mission_id=str(task.mission_id),
+                task_type=task_type,
+                current_task_state=task.status,
+                expected_claim_from_state=ExecutionTaskState.QUEUED.value,
+                future_claim_state=ExecutionTaskState.CLAIMED.value,
+                worker_lease_required=True,
+                lease_scope={"tenant_id": task.tenant_id, "mission_id": str(task.mission_id), "task_id": task_id},
+                runtime_contract=_worker_claim_runtime_contract(),
+                source_references=source_references,
+                task_metadata_summary=_task_metadata_summary(task),
+                preview_only=True,
+            )
+        )
+
+    return WorkerClaimPreviewRead(
+        mission_id=eligibility.mission_id,
+        tenant_id=eligibility.tenant_id,
+        preview_status=_worker_claim_preview_status(eligibility.eligibility_status),
+        claim_preview_envelopes=envelopes,
+        blocked_task_ids=eligibility.blocked_task_ids,
+        skipped_task_ids=eligibility.skipped_task_ids,
+        blockers=eligibility.blockers,
+        warnings=eligibility.warnings,
+        worker_claim_authority=_worker_claim_authority_flags(),
+        checked_at=datetime.now(UTC).isoformat(),
+    )
+
+
+@router.get("/{mission_id}/worker-claim-preview", response_model=WorkerClaimPreviewRead)
+def read_mission_worker_claim_preview(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> WorkerClaimPreviewRead:
+    """Preview future worker claim envelopes without claiming or dispatching work."""
+    return _build_worker_claim_preview(mission_id=mission_id, tenant_id=tenant_id, db=db)
 
 
 @router.post("/{mission_id}/runtime-queue-admission", response_model=RuntimeQueueAdmissionResponse)
