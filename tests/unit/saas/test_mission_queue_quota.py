@@ -623,7 +623,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         queue = MagicMock()
         request = MagicMock()
         mission_repo = MagicMock()
-        mission_repo.get_for_tenant.return_value = mission
+        mission_repo.lock_for_tenant.return_value = mission
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = [planned_one, queued, cancelled, foreign, planned_two]
         quota_svc = MagicMock()
@@ -644,11 +644,14 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
             )
 
         quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_uuid, count=2)
-        assert result == {
-            "queued_task_ids": [str(planned_one.id), str(planned_two.id)],
-            "pending_review_task_ids": [],
-            "denied_tasks": [],
-        }
+        assert result["queued_task_ids"] == [str(planned_one.id), str(planned_two.id)]
+        assert result["pending_review_task_ids"] == []
+        assert result["denied_tasks"] == []
+        assert result["admission_status"] == "partially_admitted"
+        assert result["admitted_task_ids"] == [str(queued.id), str(planned_one.id), str(planned_two.id)]
+        assert set(result["blocked_task_ids"]) == {str(cancelled.id), str(foreign.id), str(missing_id)}
+        persisted = mission_repo.update_metadata.call_args.kwargs["metadata_json"]["runtime_queue_admission"]
+        assert persisted["admission_status"] == "partially_admitted"
         assert [call.kwargs["task_id"] for call in coordinator.queue_task.call_args_list] == [
             planned_one.id,
             planned_two.id,
@@ -663,7 +666,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         task = self._make_task(tenant_id, mission_id)
         mission = self._make_mission(tenant_id, mission_id, [task.id])
         mission_repo = MagicMock()
-        mission_repo.get_for_tenant.return_value = mission
+        mission_repo.lock_for_tenant.return_value = mission
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = [task]
         quota_svc = MagicMock()
@@ -697,7 +700,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         cancelled = self._make_task(tenant_id, mission_id, status="cancelled")
         mission = self._make_mission(tenant_id, mission_id, [queued.id, cancelled.id])
         mission_repo = MagicMock()
-        mission_repo.get_for_tenant.return_value = mission
+        mission_repo.lock_for_tenant.return_value = mission
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = [queued, cancelled]
         quota_svc = MagicMock()
@@ -713,6 +716,125 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
                 mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock(), queue=MagicMock()
             )
 
-        assert result == {"queued_task_ids": [], "pending_review_task_ids": [], "denied_tasks": []}
+        assert result["queued_task_ids"] == []
+        assert result["pending_review_task_ids"] == []
+        assert result["denied_tasks"] == []
+        assert result["admission_status"] == "partially_admitted"
+        assert result["admitted_task_ids"] == [str(queued.id)]
+        assert result["blocked_task_ids"] == [str(cancelled.id)]
+        quota_svc.check_and_record_task_creation.assert_not_called()
+        coordinator.queue_task.assert_not_called()
+
+    def test_runtime_queue_admission_preserves_success_when_later_task_raises(self):
+        from backend.api.routes.mission import runtime_queue_admission
+
+        tenant_id = str(uuid.uuid4())
+        tenant_uuid = uuid.UUID(tenant_id)
+        mission_id = uuid.uuid4()
+        first_task = self._make_task(tenant_id, mission_id)
+        second_task = self._make_task(tenant_id, mission_id)
+        mission = self._make_mission(tenant_id, mission_id, [first_task.id, second_task.id])
+        mission_repo = MagicMock()
+        mission_repo.lock_for_tenant.return_value = mission
+        task_repo = MagicMock()
+        task_repo.list_for_mission.return_value = [first_task, second_task]
+        quota_svc = MagicMock()
+        coordinator = MagicMock()
+        coordinator.queue_task.side_effect = [
+            CoordinationResult(ok=True, task_id=first_task.id, state="queued"),
+            RuntimeError("queue path failed"),
+        ]
+
+        with (
+            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        ):
+            result = runtime_queue_admission(
+                mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock(), queue=MagicMock()
+            )
+
+        assert result["admission_status"] == "partially_admitted"
+        assert result["queued_task_ids"] == [str(first_task.id)]
+        assert result["admitted_task_ids"] == [str(first_task.id)]
+        assert result["blocked_task_ids"] == [str(second_task.id)]
+        assert result["blockers"][0]["code"] == "queue_task_failed"
+        persisted = mission_repo.update_metadata.call_args.kwargs["metadata_json"]["runtime_queue_admission"]
+        assert persisted["admission_status"] == "partially_admitted"
+        assert persisted["queued_execution_task_ids"] == [str(first_task.id)]
+        assert persisted["blocked_execution_task_ids"] == [str(second_task.id)]
+
+    def test_runtime_queue_admission_returns_blocked_when_all_queue_calls_fail(self):
+        from backend.api.routes.mission import runtime_queue_admission
+
+        tenant_id = str(uuid.uuid4())
+        tenant_uuid = uuid.UUID(tenant_id)
+        mission_id = uuid.uuid4()
+        first_task = self._make_task(tenant_id, mission_id)
+        second_task = self._make_task(tenant_id, mission_id)
+        mission = self._make_mission(tenant_id, mission_id, [first_task.id, second_task.id])
+        mission_repo = MagicMock()
+        mission_repo.lock_for_tenant.return_value = mission
+        task_repo = MagicMock()
+        task_repo.list_for_mission.return_value = [first_task, second_task]
+        quota_svc = MagicMock()
+        coordinator = MagicMock()
+        coordinator.queue_task.side_effect = [RuntimeError("first failed"), ValueError("second failed")]
+
+        with (
+            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        ):
+            result = runtime_queue_admission(
+                mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock(), queue=MagicMock()
+            )
+
+        assert result["admission_status"] == "blocked"
+        assert result["queued_task_ids"] == []
+        assert result["admitted_task_ids"] == []
+        assert set(result["blocked_task_ids"]) == {str(first_task.id), str(second_task.id)}
+        assert coordinator.queue_task.call_count == 2
+        persisted = mission_repo.update_metadata.call_args.kwargs["metadata_json"]["runtime_queue_admission"]
+        assert persisted["admission_status"] == "blocked"
+
+    def test_runtime_queue_admission_duplicate_post_is_idempotent_for_already_queued_rows(self):
+        from backend.api.routes.mission import runtime_queue_admission
+
+        tenant_id = str(uuid.uuid4())
+        tenant_uuid = uuid.UUID(tenant_id)
+        mission_id = uuid.uuid4()
+        queued = self._make_task(tenant_id, mission_id, status="queued")
+        mission = self._make_mission(tenant_id, mission_id, [queued.id])
+        mission.metadata_json["runtime_queue_admission"] = {
+            "schema_version": 1,
+            "mission_id": str(mission_id),
+            "tenant_id": tenant_id,
+            "admission_status": "admitted",
+            "admitted_execution_task_ids": [str(queued.id)],
+        }
+        mission_repo = MagicMock()
+        mission_repo.lock_for_tenant.return_value = mission
+        task_repo = MagicMock()
+        task_repo.list_for_mission.return_value = [queued]
+        quota_svc = MagicMock()
+        coordinator = MagicMock()
+
+        with (
+            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        ):
+            result = runtime_queue_admission(
+                mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock(), queue=MagicMock()
+            )
+
+        assert result["admission_status"] == "admitted"
+        assert result["queued_task_ids"] == []
+        assert result["admitted_task_ids"] == [str(queued.id)]
+        assert result["blocked_task_ids"] == []
         quota_svc.check_and_record_task_creation.assert_not_called()
         coordinator.queue_task.assert_not_called()

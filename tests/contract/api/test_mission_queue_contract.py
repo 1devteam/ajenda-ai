@@ -395,7 +395,7 @@ def test_runtime_queue_admission_contract_charges_quota_for_eligible_planned_mat
     )
 
     mission_repo = MagicMock()
-    mission_repo.get_for_tenant.return_value = mission
+    mission_repo.lock_for_tenant.return_value = mission
     task_repo = MagicMock()
     task_repo.list_for_mission.return_value = [
         eligible_task,
@@ -419,11 +419,20 @@ def test_runtime_queue_admission_contract_charges_quota_for_eligible_planned_mat
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "queued_task_ids": [str(eligible_task.id)],
-        "pending_review_task_ids": [],
-        "denied_tasks": [],
+    body = response.json()
+    assert body["queued_task_ids"] == [str(eligible_task.id)]
+    assert body["pending_review_task_ids"] == []
+    assert body["denied_tasks"] == []
+    assert body["admission_status"] == "partially_admitted"
+    assert body["admitted_task_ids"] == [str(queued_task.id), str(eligible_task.id)]
+    assert set(body["blocked_task_ids"]) == {
+        str(cancelled_task.id),
+        str(foreign_task.id),
+        str(wrong_mission_task.id),
+        str(missing_task_id),
     }
+    persisted = mission_repo.update_metadata.call_args.kwargs["metadata_json"]["runtime_queue_admission"]
+    assert persisted["admission_status"] == "partially_admitted"
     quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=eligible_task.id)
 
@@ -437,7 +446,7 @@ def test_runtime_queue_admission_contract_quota_denial_prevents_queue_calls() ->
     task = _make_task(tenant_id=str(tenant_id), mission_id=mission_id, status="planned")
     mission = _make_runtime_materialized_mission(tenant_id=tenant_id, mission_id=mission_id, task_ids=[task.id])
     mission_repo = MagicMock()
-    mission_repo.get_for_tenant.return_value = mission
+    mission_repo.lock_for_tenant.return_value = mission
     task_repo = MagicMock()
     task_repo.list_for_mission.return_value = [task]
     quota_svc = MagicMock()
@@ -471,7 +480,7 @@ def test_runtime_queue_admission_contract_skips_queued_and_cancelled_without_quo
         tenant_id=tenant_id, mission_id=mission_id, task_ids=[queued_task.id, cancelled_task.id]
     )
     mission_repo = MagicMock()
-    mission_repo.get_for_tenant.return_value = mission
+    mission_repo.lock_for_tenant.return_value = mission
     task_repo = MagicMock()
     task_repo.list_for_mission.return_value = [queued_task, cancelled_task]
     quota_svc = MagicMock()
@@ -486,10 +495,12 @@ def test_runtime_queue_admission_contract_skips_queued_and_cancelled_without_quo
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "queued_task_ids": [],
-        "pending_review_task_ids": [],
-        "denied_tasks": [],
-    }
+    body = response.json()
+    assert body["queued_task_ids"] == []
+    assert body["pending_review_task_ids"] == []
+    assert body["denied_tasks"] == []
+    assert body["admission_status"] == "partially_admitted"
+    assert body["admitted_task_ids"] == [str(queued_task.id)]
+    assert body["blocked_task_ids"] == [str(cancelled_task.id)]
     quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_not_called()
