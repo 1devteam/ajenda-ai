@@ -3768,12 +3768,21 @@ def _build_worker_claim_admission(
     existing_admission = metadata.get(MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY)
     if not isinstance(existing_admission, dict):
         existing_admission = {}
-    existing_claimed_ids = {str(task_id) for task_id in existing_admission.get("claimed_task_ids") or []}
     existing_receipts = {
         str(receipt.get("task_id")): receipt
         for receipt in existing_admission.get("claim_receipts") or []
         if isinstance(receipt, dict) and receipt.get("task_id") is not None
     }
+    receipt_claimed_ids = {
+        task_id
+        for task_id, receipt in existing_receipts.items()
+        if receipt.get("idempotency_status") in {"newly_claimed", "already_claimed_by_current_admission"}
+    }
+    existing_claimed_ids = (
+        {str(task_id) for task_id in existing_admission.get("claimed_task_ids") or []}
+        | {str(task_id) for task_id in existing_admission.get("already_claimed_task_ids") or []}
+        | receipt_claimed_ids
+    )
 
     task_repo = ExecutionTaskRepository(db)
     lease_repo = WorkerLeaseRepository(db)
@@ -3995,13 +4004,14 @@ def _build_worker_claim_admission(
     )
     previous_version = existing_admission.get("admission_version") if isinstance(existing_admission, dict) else None
     admission_version = int(previous_version or 0) + 1
+    durable_claimed_task_ids = sorted(set(claimed_task_ids) | set(already_claimed_task_ids) | existing_claimed_ids)
     admission = {
         "schema_version": MISSION_WORKER_CLAIM_ADMISSION_SCHEMA_VERSION,
         "mission_id": str(mission_id),
         "tenant_id": tenant_id_str,
         "admission_status": status,
         "admission_version": admission_version,
-        "claimed_task_ids": claimed_task_ids,
+        "claimed_task_ids": durable_claimed_task_ids,
         "already_claimed_task_ids": already_claimed_task_ids,
         "skipped_task_ids": skipped_task_ids,
         "blocked_task_ids": list(dict.fromkeys(blocked_task_ids)),

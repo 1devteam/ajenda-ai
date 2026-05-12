@@ -164,12 +164,24 @@ def test_worker_claim_admission_is_idempotent_for_current_admission_and_does_not
         second = mission_module.worker_claim_admission(
             mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
         )
+        third = mission_module.worker_claim_admission(
+            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+        )
 
     assert first.claimed_task_ids == [str(task.id)]
-    assert second.claimed_task_ids == []
+    assert second.claimed_task_ids == [str(task.id)]
+    assert third.claimed_task_ids == [str(task.id)]
     assert second.already_claimed_task_ids == [str(task.id)]
+    assert third.already_claimed_task_ids == [str(task.id)]
     assert second.claim_receipts[0].idempotency_status == "already_claimed_by_current_admission"
+    assert third.claim_receipts[0].idempotency_status == "already_claimed_by_current_admission"
     assert second.claim_admission_status == "admitted"
+    assert third.claim_admission_status == "admitted"
+    assert second.claim_receipts[0].worker_lease_id == first.claim_receipts[0].worker_lease_id
+    assert third.claim_receipts[0].worker_lease_id == first.claim_receipts[0].worker_lease_id
+    assert second.claim_receipts[0].claimed_at == first.claim_receipts[0].claimed_at
+    assert third.claim_receipts[0].claimed_at == first.claim_receipts[0].claimed_at
+    assert mission.metadata_json["worker_claim_admission"]["claimed_task_ids"] == [str(task.id)]
     assert len(leases[task.id]) == 1
 
 
