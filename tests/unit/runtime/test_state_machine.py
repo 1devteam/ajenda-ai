@@ -50,3 +50,14 @@ def test_recovering_to_completed_is_invalid() -> None:
     """recovering -> completed is not a valid transition."""
     with pytest.raises(InvalidTransitionError):
         StateMachine.ensure_task_transition("recovering", "completed")
+
+
+def test_planned_to_cancelled_task_transition_is_allowed() -> None:
+    """planned -> cancelled is valid for superseded materialized task cancellation."""
+    StateMachine.ensure_task_transition("planned", "cancelled")
+
+
+def test_cancelled_to_queued_task_transition_remains_invalid() -> None:
+    """cancelled -> queued must remain invalid so cancelled work cannot be admitted."""
+    with pytest.raises(InvalidTransitionError):
+        StateMachine.ensure_task_transition("cancelled", "queued")

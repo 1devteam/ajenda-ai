@@ -9,7 +9,7 @@ the service layer must handle (typically by returning a 409 Conflict).
 Task state machine (with 'recovering' state added in migration 0004,
 'pending_review' added in migration 0008):
 
-    planned → queued | pending_review
+    planned → queued | pending_review | cancelled
     queued → claimed | cancelled
     claimed → queued | running | cancelled | dead_lettered
     running → blocked | completed | failed | recovering
@@ -84,7 +84,7 @@ class StateMachine:
     }
 
     _TASK_ALLOWED: ClassVar[dict[str, set[str]]] = {
-        "planned": {"queued", "pending_review"},
+        "planned": {"queued", "pending_review", "cancelled"},
         "queued": {"claimed", "cancelled"},
         "claimed": {"queued", "running", "cancelled", "dead_lettered"},
         "running": {"blocked", "completed", "failed", "recovering"},
