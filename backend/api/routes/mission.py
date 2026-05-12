@@ -2852,6 +2852,19 @@ def _queue_admission_status(metadata: dict[str, Any]) -> str | None:
     return raw_status if isinstance(raw_status, str) else None
 
 
+def _uuid_set_from_metadata_list(metadata: dict[str, Any], key: str) -> set[UUID]:
+    values = metadata.get(key)
+    if not isinstance(values, list):
+        return set()
+    parsed: set[UUID] = set()
+    for value in values:
+        try:
+            parsed.add(UUID(str(value)))
+        except (TypeError, ValueError):
+            continue
+    return parsed
+
+
 def _task_has_dispatch_task_type(task: ExecutionTask) -> bool:
     metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
     task_type = metadata.get("task_type")
@@ -2912,6 +2925,7 @@ def _build_runtime_dispatch_readiness(
                 )
             )
 
+    queue_admitted_task_ids: set[UUID] = set()
     if not isinstance(queue_admission, dict):
         blockers.append(
             _runtime_dispatch_item(
@@ -2950,6 +2964,27 @@ def _build_runtime_dispatch_readiness(
                 )
             )
 
+        queue_materialized_task_ids = _uuid_set_from_metadata_list(queue_admission, "materialized_execution_task_ids")
+        current_materialized_task_ids = set(materialized_task_ids)
+        if current_materialized_task_ids and queue_materialized_task_ids != current_materialized_task_ids:
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=None,
+                    code="queue_admission_materialization_mismatch",
+                    message="Runtime queue admission does not cover the current runtime task materialization.",
+                    details={
+                        "current_materialized_task_ids": sorted(
+                            str(task_id) for task_id in current_materialized_task_ids
+                        ),
+                        "queue_admission_materialized_task_ids": sorted(
+                            str(task_id) for task_id in queue_materialized_task_ids
+                        ),
+                    },
+                )
+            )
+
+        queue_admitted_task_ids = _uuid_set_from_metadata_list(queue_admission, "admitted_execution_task_ids")
+
     task_repo = ExecutionTaskRepository(db)
     tasks_by_id = {task.id: task for task in task_repo.list_for_mission(mission_id=mission_id)}
     dispatch_ready_task_ids: list[str] = []
@@ -2985,6 +3020,17 @@ def _build_runtime_dispatch_readiness(
         task_id_str = str(task.id)
         if task.status == ExecutionTaskState.QUEUED.value:
             queued_task_count += 1
+            if task.id not in queue_admitted_task_ids:
+                blocked_task_ids.append(task_id_str)
+                blockers.append(
+                    _runtime_dispatch_item(
+                        task_id=task.id,
+                        code="task_not_queue_admitted",
+                        message="Queued materialized task is not present in current runtime queue admission admitted task IDs.",
+                        state=task.status,
+                    )
+                )
+                continue
             if _task_has_dispatch_task_type(task):
                 dispatch_ready_task_ids.append(task_id_str)
                 continue
@@ -3079,6 +3125,7 @@ def _build_runtime_dispatch_readiness(
         "runtime_queue_admission_not_admitted",
         "runtime_queue_admission_tenant_mismatch",
         "runtime_queue_admission_mission_mismatch",
+        "queue_admission_materialization_mismatch",
     }
     if any(blocker.get("code") in precondition_blocker_codes for blocker in blockers):
         readiness_status = "blocked"

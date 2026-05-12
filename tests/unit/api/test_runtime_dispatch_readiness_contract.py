@@ -71,6 +71,7 @@ def _make_mission(
             "mission_id": str(mission_id),
             "tenant_id": tenant_id,
             "admission_status": admission_status,
+            "materialized_execution_task_ids": [str(task_id) for task_id in task_ids or []],
             "admitted_execution_task_ids": [str(task_id) for task_id in task_ids or []],
         }
     return SimpleNamespace(id=mission_id, tenant_id=tenant_id, metadata_json=metadata_json)
@@ -262,3 +263,175 @@ def test_runtime_dispatch_readiness_hides_cross_tenant_mission() -> None:
         response = client.get(f"/v1/missions/{mission_id}/runtime-dispatch-readiness")
 
     assert response.status_code == 404
+
+
+def test_dispatch_readiness_blocks_stale_queue_admission_for_new_materialization() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    old_task_id = uuid.uuid4()
+    new_task_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_dispatch_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        task_ids=[new_task_id],
+    )
+    mission.metadata_json["runtime_queue_admission"]["materialized_execution_task_ids"] = [str(old_task_id)]
+    mission.metadata_json["runtime_queue_admission"]["admitted_execution_task_ids"] = [str(old_task_id)]
+
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    task_repo = MagicMock()
+    task_repo.list_for_mission.return_value = [
+        _execution_task(
+            tenant_id=tenant_id,
+            mission_id=mission_id,
+            task_id=new_task_id,
+            status=ExecutionTaskState.QUEUED.value,
+            metadata_json={"task_type": "research"},
+        )
+    ]
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/runtime-dispatch-readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["readiness_status"] == "blocked"
+    assert str(new_task_id) not in body["dispatch_ready_task_ids"]
+    assert any(blocker["code"] == "queue_admission_materialization_mismatch" for blocker in body["blockers"])
+    assert any(blocker["code"] == "task_not_queue_admitted" for blocker in body["blockers"])
+    coordinator_cls.assert_not_called()
+    executor_cls.assert_not_called()
+
+
+def test_dispatch_readiness_blocks_queued_task_not_admitted_by_current_queue_admission() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    admitted_task_id = uuid.uuid4()
+    unadmitted_task_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_dispatch_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        task_ids=[admitted_task_id, unadmitted_task_id],
+    )
+    mission.metadata_json["runtime_queue_admission"]["admitted_execution_task_ids"] = [str(admitted_task_id)]
+
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    task_repo = MagicMock()
+    task_repo.list_for_mission.return_value = [
+        _execution_task(
+            tenant_id=tenant_id,
+            mission_id=mission_id,
+            task_id=admitted_task_id,
+            status=ExecutionTaskState.QUEUED.value,
+            metadata_json={"task_type": "research"},
+        ),
+        _execution_task(
+            tenant_id=tenant_id,
+            mission_id=mission_id,
+            task_id=unadmitted_task_id,
+            status=ExecutionTaskState.QUEUED.value,
+            metadata_json={"task_type": "research"},
+        ),
+    ]
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/runtime-dispatch-readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["readiness_status"] == "partial"
+    assert str(admitted_task_id) in body["dispatch_ready_task_ids"]
+    assert str(unadmitted_task_id) in body["blocked_task_ids"]
+    assert any(blocker["code"] == "task_not_queue_admitted" for blocker in body["blockers"])
+    coordinator_cls.assert_not_called()
+    executor_cls.assert_not_called()
+
+
+def test_runtime_dispatch_readiness_blocks_stale_queue_admission_for_new_materialization() -> None:
+    tenant_id = str(uuid.uuid4())
+    tenant_uuid = uuid.UUID(tenant_id)
+    mission_id = uuid.uuid4()
+    old_task_id = uuid.uuid4()
+    new_task = _make_task(tenant_id=tenant_id, mission_id=mission_id)
+
+    mission = _make_mission(tenant_id=tenant_id, mission_id=mission_id, task_ids=[new_task.id])
+    mission.metadata_json["runtime_queue_admission"]["materialized_execution_task_ids"] = [str(old_task_id)]
+    mission.metadata_json["runtime_queue_admission"]["admitted_execution_task_ids"] = [str(old_task_id)]
+
+    mission_repo = MagicMock(get_for_tenant=MagicMock(return_value=mission))
+    task_repo = MagicMock(list_for_mission=MagicMock(return_value=[new_task]))
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.task_dispatcher", create=True) as dispatcher,
+    ):
+        result = mission_module.read_mission_runtime_dispatch_readiness(
+            mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
+        )
+
+    assert result.readiness_status == "blocked"
+    assert result.dispatch_ready_task_ids == []
+    assert str(new_task.id) in result.blocked_task_ids
+    assert {blocker["code"] for blocker in result.blockers} >= {
+        "queue_admission_materialization_mismatch",
+        "task_not_queue_admitted",
+    }
+    coordinator_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    dispatcher.assert_not_called()
+
+
+def test_runtime_dispatch_readiness_blocks_queued_task_missing_from_current_queue_admission() -> None:
+    tenant_id = str(uuid.uuid4())
+    tenant_uuid = uuid.UUID(tenant_id)
+    mission_id = uuid.uuid4()
+    admitted_task = _make_task(tenant_id=tenant_id, mission_id=mission_id)
+    unadmitted_task = _make_task(tenant_id=tenant_id, mission_id=mission_id)
+
+    mission = _make_mission(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        task_ids=[admitted_task.id, unadmitted_task.id],
+    )
+    mission.metadata_json["runtime_queue_admission"]["admitted_execution_task_ids"] = [str(admitted_task.id)]
+
+    mission_repo = MagicMock(get_for_tenant=MagicMock(return_value=mission))
+    task_repo = MagicMock(list_for_mission=MagicMock(return_value=[admitted_task, unadmitted_task]))
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.task_dispatcher", create=True) as dispatcher,
+    ):
+        result = mission_module.read_mission_runtime_dispatch_readiness(
+            mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
+        )
+
+    assert result.readiness_status == "partial"
+    assert result.dispatch_ready_task_ids == [str(admitted_task.id)]
+    assert result.blocked_task_ids == [str(unadmitted_task.id)]
+    assert any(blocker["code"] == "task_not_queue_admitted" for blocker in result.blockers)
+    coordinator_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    dispatcher.assert_not_called()
