@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
-from backend.domain.enums import ExecutionTaskState, MissionState
+from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
@@ -24,6 +24,8 @@ from backend.domain.mission import (
     MISSION_RUNTIME_QUEUE_ADMISSION_SCHEMA_VERSION,
     MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
+    MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY,
+    MISSION_WORKER_CLAIM_ADMISSION_SCHEMA_VERSION,
     Mission,
     build_graph_materialization_metadata,
     build_mission_intake_metadata,
@@ -31,6 +33,7 @@ from backend.domain.mission import (
     build_mission_task_graph_metadata,
     build_runtime_admission_metadata,
 )
+from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
 from backend.repositories.capability_repository import CapabilityRepository
@@ -39,6 +42,8 @@ from backend.repositories.execution_task_repository import ExecutionTaskReposito
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
+from backend.repositories.worker_lease_repository import WorkerLeaseRepository
+from backend.runtime.transitions import transition_task
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.mission_executor import MissionExecutor
 from backend.services.mission_runtime_projection import (
@@ -787,6 +792,7 @@ RuntimeTaskMaterializationStatus = Literal["materialized", "blocked", "supersede
 RuntimeDispatchReadinessStatus = Literal["ready", "partial", "blocked"]
 WorkerDispatchEligibilityStatus = Literal["eligible", "partial", "blocked"]
 WorkerClaimPreviewStatus = Literal["ready", "partial", "blocked"]
+WorkerClaimAdmissionStatus = Literal["admitted", "partially_admitted", "blocked"]
 
 
 class RuntimeTaskMaterializationRead(BaseModel):
@@ -910,6 +916,40 @@ class WorkerClaimPreviewRead(BaseModel):
     warnings: list[dict[str, Any]]
     worker_claim_authority: WorkerClaimAuthority
     checked_at: str
+
+
+class WorkerClaimReceipt(BaseModel):
+    """Durable receipt for a worker claim admission decision."""
+
+    task_id: str
+    tenant_id: str
+    mission_id: str
+    previous_task_state: str
+    current_task_state: str
+    worker_lease_id: str | None = None
+    lease_scope: dict[str, str]
+    claim_source: Literal["worker_claim_admission"] = "worker_claim_admission"
+    task_type: str | None = None
+    claimed_at: str
+    idempotency_status: Literal["newly_claimed", "already_claimed_by_current_admission", "blocked"]
+
+
+class WorkerClaimAdmissionRead(BaseModel):
+    """Tenant-scoped worker claim admission response and readback."""
+
+    mission_id: UUID
+    tenant_id: str
+    claim_admission_status: WorkerClaimAdmissionStatus
+    claimed_task_ids: list[str]
+    already_claimed_task_ids: list[str]
+    skipped_task_ids: list[str]
+    blocked_task_ids: list[str]
+    claim_receipts: list[WorkerClaimReceipt]
+    blockers: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+    worker_claim_authority: WorkerClaimAuthority
+    worker_claim_admission: dict[str, Any]
+    updated_at: str
 
 
 class MissionPlanRead(BaseModel):
@@ -3560,6 +3600,473 @@ def read_mission_worker_claim_preview(
 ) -> WorkerClaimPreviewRead:
     """Preview future worker claim envelopes without claiming or dispatching work."""
     return _build_worker_claim_preview(mission_id=mission_id, tenant_id=tenant_id, db=db)
+
+
+def _worker_claim_admission_authority_flags(
+    *, creates_worker_leases: bool, read_only: bool = False
+) -> WorkerClaimAuthority:
+    return WorkerClaimAuthority(
+        creates_worker_leases=creates_worker_leases,
+        claims_tasks=not read_only,
+        starts_execution=False,
+        dispatches_workers=False,
+        executes_handlers=False,
+        enqueues_work=False,
+        mutates_runtime_state=not read_only,
+        read_only=read_only,
+        preview_only=False,
+    )
+
+
+def _active_worker_leases_for_task(lease_repo: WorkerLeaseRepository, task_id: UUID) -> list[WorkerLease]:
+    leases = lease_repo.list_for_task(task_id)
+    return [
+        lease
+        for lease in leases
+        if getattr(lease, "status", None) in {WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value}
+    ]
+
+
+def _task_type_for_claim(task: ExecutionTask) -> str:
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    raw_task_type = metadata.get("task_type")
+    return raw_task_type.strip() if isinstance(raw_task_type, str) else ""
+
+
+def _claim_admission_blocker(
+    *,
+    task_id: UUID | str | None,
+    code: str,
+    message: str,
+    state: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    item: dict[str, Any] = {"task_id": str(task_id) if task_id is not None else None, "code": code, "message": message}
+    if state is not None:
+        item["state"] = state
+    if details:
+        item["details"] = details
+    return item
+
+
+def _worker_claim_receipt(
+    *,
+    task: ExecutionTask,
+    previous_state: str,
+    current_state: str,
+    lease: WorkerLease | None,
+    task_type: str | None,
+    claimed_at: str,
+    idempotency_status: Literal["newly_claimed", "already_claimed_by_current_admission", "blocked"],
+) -> dict[str, Any]:
+    return {
+        "task_id": str(task.id),
+        "tenant_id": task.tenant_id,
+        "mission_id": str(task.mission_id),
+        "previous_task_state": previous_state,
+        "current_task_state": current_state,
+        "worker_lease_id": str(lease.id) if lease is not None else None,
+        "lease_scope": {"tenant_id": task.tenant_id, "mission_id": str(task.mission_id), "task_id": str(task.id)},
+        "claim_source": "worker_claim_admission",
+        "task_type": task_type,
+        "claimed_at": claimed_at,
+        "idempotency_status": idempotency_status,
+    }
+
+
+def _claim_admission_status(
+    *, newly_claimed: list[str], already_claimed: list[str], blocked: list[str], blockers: list[dict[str, Any]]
+) -> WorkerClaimAdmissionStatus:
+    admitted_count = len(newly_claimed) + len(already_claimed)
+    if admitted_count and (blocked or blockers):
+        return "partially_admitted"
+    if admitted_count:
+        return "admitted"
+    return "blocked"
+
+
+def _worker_claim_admission_to_read(
+    *, mission_id: UUID, tenant_id: str, admission: dict[str, Any], read_only: bool = False
+) -> WorkerClaimAdmissionRead:
+    status = admission.get("admission_status", "blocked")
+    if status not in {"admitted", "partially_admitted", "blocked"}:
+        status = "blocked"
+    raw_authority = admission.get("runtime_authority")
+    authority: dict[str, Any] = dict(raw_authority) if isinstance(raw_authority, dict) else {}
+    if read_only:
+        authority = {
+            **authority,
+            "creates_worker_leases": False,
+            "claims_tasks": False,
+            "starts_execution": False,
+            "dispatches_workers": False,
+            "executes_handlers": False,
+            "enqueues_work": False,
+            "mutates_runtime_state": False,
+            "read_only": True,
+            "preview_only": False,
+        }
+    return WorkerClaimAdmissionRead(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        claim_admission_status=status,
+        claimed_task_ids=list(admission.get("claimed_task_ids") or []),
+        already_claimed_task_ids=list(admission.get("already_claimed_task_ids") or []),
+        skipped_task_ids=list(admission.get("skipped_task_ids") or []),
+        blocked_task_ids=list(admission.get("blocked_task_ids") or []),
+        claim_receipts=[WorkerClaimReceipt(**receipt) for receipt in admission.get("claim_receipts") or []],
+        blockers=list(admission.get("blockers") or []),
+        warnings=list(admission.get("warnings") or []),
+        worker_claim_authority=WorkerClaimAuthority(**authority),
+        worker_claim_admission=admission,
+        updated_at=str(admission.get("updated_at") or datetime.now(UTC).isoformat()),
+    )
+
+
+def _missing_worker_claim_admission(*, mission_id: UUID, tenant_id: str) -> WorkerClaimAdmissionRead:
+    now = datetime.now(UTC).isoformat()
+    admission = {
+        "schema_version": MISSION_WORKER_CLAIM_ADMISSION_SCHEMA_VERSION,
+        "mission_id": str(mission_id),
+        "tenant_id": tenant_id,
+        "admission_status": "blocked",
+        "admission_version": None,
+        "claimed_task_ids": [],
+        "already_claimed_task_ids": [],
+        "skipped_task_ids": [],
+        "blocked_task_ids": [],
+        "claim_receipts": [],
+        "blockers": [
+            _claim_admission_blocker(
+                task_id=None,
+                code="worker_claim_admission_missing",
+                message="Mission has no worker claim admission metadata.",
+            )
+        ],
+        "warnings": [],
+        "runtime_authority": _worker_claim_admission_authority_flags(
+            creates_worker_leases=False, read_only=True
+        ).model_dump(),
+        "updated_at": now,
+    }
+    return _worker_claim_admission_to_read(
+        mission_id=mission_id, tenant_id=tenant_id, admission=admission, read_only=True
+    )
+
+
+def _build_worker_claim_admission(
+    *, mission_id: UUID, tenant_id: _uuid.UUID, db: Session, request: Request
+) -> WorkerClaimAdmissionRead:
+    tenant_id_str = str(tenant_id)
+    mission_repo = MissionRepository(db)
+    mission = mission_repo.lock_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    preview = _build_worker_claim_preview(mission_id=mission_id, tenant_id=tenant_id, db=db)
+    metadata = dict(mission.metadata_json or {})
+    existing_admission = metadata.get(MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY)
+    if not isinstance(existing_admission, dict):
+        existing_admission = {}
+    existing_claimed_ids = {str(task_id) for task_id in existing_admission.get("claimed_task_ids") or []}
+    existing_receipts = {
+        str(receipt.get("task_id")): receipt
+        for receipt in existing_admission.get("claim_receipts") or []
+        if isinstance(receipt, dict) and receipt.get("task_id") is not None
+    }
+
+    task_repo = ExecutionTaskRepository(db)
+    lease_repo = WorkerLeaseRepository(db)
+    tasks_by_id = {str(task.id): task for task in task_repo.list_for_mission(mission_id=mission_id)}
+    preview_ids = {envelope.task_id for envelope in preview.claim_preview_envelopes}
+    preview_task_types = {envelope.task_id: envelope.task_type for envelope in preview.claim_preview_envelopes}
+    holder_identity = f"worker_claim_admission:{tenant_id_str}:{mission_id}"
+    admitted_by = (
+        request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_claim_admission"
+    )
+    now = datetime.now(UTC).isoformat()
+
+    claimed_task_ids: list[str] = []
+    already_claimed_task_ids: list[str] = []
+    skipped_task_ids = list(dict.fromkeys(preview.skipped_task_ids))
+    blocked_task_ids = list(dict.fromkeys(preview.blocked_task_ids))
+    blockers = [dict(item) for item in preview.blockers]
+    warnings = [dict(item) for item in preview.warnings]
+    receipts: list[dict[str, Any]] = []
+    created_lease_count = 0
+
+    for task_id in list(blocked_task_ids):
+        task = tasks_by_id.get(task_id)
+        if task is None:
+            continue
+        active_leases = _active_worker_leases_for_task(lease_repo, task.id)
+        foreign_active_lease = next(
+            (lease for lease in active_leases if lease.holder_identity != holder_identity), None
+        )
+        if foreign_active_lease is not None:
+            blockers.append(
+                _claim_admission_blocker(
+                    task_id=task.id,
+                    code="task_claimed_by_different_active_lease",
+                    message="Task already has an active worker lease owned by a different holder.",
+                    state=task.status,
+                    details={"worker_lease_id": str(foreign_active_lease.id)},
+                )
+            )
+
+    for task_id in sorted(preview_ids):
+        task = tasks_by_id.get(task_id)
+        if task is None:
+            if task_id not in blocked_task_ids:
+                blocked_task_ids.append(task_id)
+            blockers.append(
+                _claim_admission_blocker(
+                    task_id=task_id,
+                    code="claim_preview_task_unavailable",
+                    message="Worker claim preview task is unavailable at claim admission time.",
+                )
+            )
+            continue
+        if task.tenant_id != tenant_id_str or task.mission_id != mission_id:
+            if task_id not in blocked_task_ids:
+                blocked_task_ids.append(task_id)
+            blockers.append(
+                _claim_admission_blocker(
+                    task_id=task.id,
+                    code="claim_task_scope_mismatch",
+                    message="Preview task is not owned by this tenant and mission at claim admission time.",
+                    state=task.status,
+                )
+            )
+            continue
+        task_type = _task_type_for_claim(task)
+        if not task_type:
+            if task_id not in blocked_task_ids:
+                blocked_task_ids.append(task_id)
+            blockers.append(
+                _claim_admission_blocker(
+                    task_id=task.id,
+                    code="claim_task_missing_task_type",
+                    message="Claim admission requires explicit non-empty task_type metadata.",
+                    state=task.status,
+                )
+            )
+            continue
+        active_leases = _active_worker_leases_for_task(lease_repo, task.id)
+        foreign_active_lease = next(
+            (lease for lease in active_leases if lease.holder_identity != holder_identity), None
+        )
+        if foreign_active_lease is not None:
+            if task_id not in blocked_task_ids:
+                blocked_task_ids.append(task_id)
+            blockers.append(
+                _claim_admission_blocker(
+                    task_id=task.id,
+                    code="task_claimed_by_different_active_lease",
+                    message="Task already has an active worker lease owned by a different holder.",
+                    state=task.status,
+                    details={"worker_lease_id": str(foreign_active_lease.id)},
+                )
+            )
+            continue
+        if task.status != ExecutionTaskState.QUEUED.value:
+            if task_id not in blocked_task_ids:
+                blocked_task_ids.append(task_id)
+            blockers.append(
+                _claim_admission_blocker(
+                    task_id=task.id,
+                    code="claim_task_not_queued",
+                    message="Claim admission only claims tasks that remain queued.",
+                    state=task.status,
+                )
+            )
+            continue
+        lease = WorkerLease(
+            tenant_id=tenant_id_str,
+            task_id=task.id,
+            status=WorkerLeaseState.CLAIMED.value,
+            holder_identity=holder_identity,
+            heartbeat_at=datetime.now(UTC),
+            metadata_json={"claim_source": "worker_claim_admission", "mission_id": str(mission_id)},
+        )
+        previous_metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        savepoint = db.begin_nested()
+        try:
+            transition_task(task, ExecutionTaskState.CLAIMED)
+            lease = lease_repo.add(lease)
+            task.metadata_json = {
+                **(task.metadata_json if isinstance(task.metadata_json, dict) else {}),
+                "worker_lease_id": str(lease.id),
+            }
+            db.add(task)
+            db.flush()
+            savepoint.commit()
+        except Exception as exc:
+            if getattr(savepoint, "is_active", False):
+                savepoint.rollback()
+            if getattr(task, "status", None) == ExecutionTaskState.CLAIMED.value:
+                task.status = ExecutionTaskState.QUEUED.value
+            task.metadata_json = previous_metadata
+            if task_id not in blocked_task_ids:
+                blocked_task_ids.append(task_id)
+            blockers.append(
+                _claim_admission_blocker(
+                    task_id=task.id,
+                    code="claim_transition_failed",
+                    message="Canonical queued-to-claimed transition or lease creation failed.",
+                    state=getattr(task, "status", None),
+                    details={"reason": str(exc)},
+                )
+            )
+            continue
+        created_lease_count += 1
+        claimed_task_ids.append(task_id)
+        receipts.append(
+            _worker_claim_receipt(
+                task=task,
+                previous_state=ExecutionTaskState.QUEUED.value,
+                current_state=ExecutionTaskState.CLAIMED.value,
+                lease=lease,
+                task_type=task_type or preview_task_types.get(task_id),
+                claimed_at=now,
+                idempotency_status="newly_claimed",
+            )
+        )
+
+    for task_id in sorted(existing_claimed_ids - set(claimed_task_ids)):
+        task = tasks_by_id.get(task_id)
+        if task is None:
+            continue
+        active_leases = _active_worker_leases_for_task(lease_repo, task.id)
+        current_lease = next((lease for lease in active_leases if lease.holder_identity == holder_identity), None)
+        if task.status == ExecutionTaskState.CLAIMED.value and current_lease is not None:
+            already_claimed_task_ids.append(task_id)
+            blocked_task_ids = [blocked_task_id for blocked_task_id in blocked_task_ids if blocked_task_id != task_id]
+            blockers = [blocker for blocker in blockers if str(blocker.get("task_id")) != task_id]
+            stored_receipt = existing_receipts.get(task_id)
+            receipts.append(
+                _worker_claim_receipt(
+                    task=task,
+                    previous_state=ExecutionTaskState.QUEUED.value,
+                    current_state=ExecutionTaskState.CLAIMED.value,
+                    lease=current_lease,
+                    task_type=_task_type_for_claim(task),
+                    claimed_at=str(stored_receipt.get("claimed_at") if stored_receipt else now),
+                    idempotency_status="already_claimed_by_current_admission",
+                )
+            )
+        elif active_leases:
+            if task_id not in blocked_task_ids:
+                blocked_task_ids.append(task_id)
+            blockers.append(
+                _claim_admission_blocker(
+                    task_id=task.id,
+                    code="task_claimed_by_different_active_lease",
+                    message="Previously admitted task is now claimed by a different active lease owner.",
+                    state=task.status,
+                    details={"worker_lease_id": str(active_leases[0].id)},
+                )
+            )
+
+    if already_claimed_task_ids and not claimed_task_ids:
+        blockers = [
+            blocker
+            for blocker in blockers
+            if not (blocker.get("task_id") is None and blocker.get("code") == "worker_dispatch_readiness_blocked")
+        ]
+
+    materialization_reference = None
+    queue_admission_reference = None
+    dispatch_readiness_summary: dict[str, Any] = {}
+    if preview.claim_preview_envelopes:
+        source_references = preview.claim_preview_envelopes[0].source_references
+        materialization_reference = source_references.get("materialization_reference")
+        queue_admission_reference = source_references.get("queue_admission_reference")
+        dispatch_readiness_summary = source_references.get("dispatch_readiness_summary") or {}
+    else:
+        materialization_reference = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+        queue_admission_reference = metadata.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+
+    status = _claim_admission_status(
+        newly_claimed=claimed_task_ids,
+        already_claimed=already_claimed_task_ids,
+        blocked=blocked_task_ids,
+        blockers=blockers,
+    )
+    previous_version = existing_admission.get("admission_version") if isinstance(existing_admission, dict) else None
+    admission_version = int(previous_version or 0) + 1
+    admission = {
+        "schema_version": MISSION_WORKER_CLAIM_ADMISSION_SCHEMA_VERSION,
+        "mission_id": str(mission_id),
+        "tenant_id": tenant_id_str,
+        "admission_status": status,
+        "admission_version": admission_version,
+        "claimed_task_ids": claimed_task_ids,
+        "already_claimed_task_ids": already_claimed_task_ids,
+        "skipped_task_ids": skipped_task_ids,
+        "blocked_task_ids": list(dict.fromkeys(blocked_task_ids)),
+        "claim_receipts": receipts,
+        "blockers": blockers,
+        "warnings": warnings,
+        "materialization_reference": materialization_reference,
+        "queue_admission_reference": queue_admission_reference,
+        "dispatch_readiness_summary": dispatch_readiness_summary,
+        "worker_dispatch_eligibility_summary": {
+            "preview_status": preview.preview_status,
+            "eligible_task_ids": sorted(preview_ids),
+            "blocked_task_ids": preview.blocked_task_ids,
+            "skipped_task_ids": preview.skipped_task_ids,
+            "blocker_count": len(preview.blockers),
+            "warning_count": len(preview.warnings),
+        },
+        "worker_claim_preview_reference": {
+            "preview_status": preview.preview_status,
+            "preview_task_ids": sorted(preview_ids),
+            "envelope_count": len(preview.claim_preview_envelopes),
+            "checked_at": preview.checked_at,
+        },
+        "claim_admitted_by": admitted_by,
+        "claim_admitted_at": now,
+        "updated_at": now,
+        "runtime_authority": _worker_claim_admission_authority_flags(
+            creates_worker_leases=created_lease_count > 0, read_only=False
+        ).model_dump(),
+    }
+    metadata[MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY] = admission
+    mission_repo.update_metadata(mission=mission, metadata_json=metadata)
+    return _worker_claim_admission_to_read(mission_id=mission_id, tenant_id=tenant_id_str, admission=admission)
+
+
+@router.post("/{mission_id}/worker-claim-admission", response_model=WorkerClaimAdmissionRead)
+def worker_claim_admission(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> WorkerClaimAdmissionRead:
+    """Claim preview-eligible queued tasks without starting execution or dispatching workers."""
+    return _build_worker_claim_admission(mission_id=mission_id, tenant_id=tenant_id, db=db, request=request)
+
+
+@router.get("/{mission_id}/worker-claim-admission", response_model=WorkerClaimAdmissionRead)
+def read_mission_worker_claim_admission(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> WorkerClaimAdmissionRead:
+    """Read latest worker claim admission metadata without mutating runtime state."""
+    tenant_id_str = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
+    admission = metadata.get(MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY)
+    if not isinstance(admission, dict):
+        return _missing_worker_claim_admission(mission_id=mission_id, tenant_id=tenant_id_str)
+    return _worker_claim_admission_to_read(
+        mission_id=mission_id, tenant_id=tenant_id_str, admission=admission, read_only=True
+    )
 
 
 @router.post("/{mission_id}/runtime-queue-admission", response_model=RuntimeQueueAdmissionResponse)
