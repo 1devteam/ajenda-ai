@@ -784,6 +784,7 @@ class RuntimeTaskPreviewRead(BaseModel):
 
 
 RuntimeTaskMaterializationStatus = Literal["materialized", "blocked", "superseded"]
+RuntimeDispatchReadinessStatus = Literal["ready", "partial", "blocked"]
 
 
 class RuntimeTaskMaterializationRead(BaseModel):
@@ -802,6 +803,38 @@ class RuntimeTaskMaterializationRead(BaseModel):
     blockers: list[RuntimeReadinessItem]
     warnings: list[RuntimeReadinessItem]
     updated_at: str
+
+
+class RuntimeDispatchAuthority(BaseModel):
+    """Negative authority flags for read-only dispatch readiness checks."""
+
+    creates_execution_tasks: bool = False
+    enqueues_work: bool = False
+    dispatches_workers: bool = False
+    calls_executor: bool = False
+    calls_coordinator: bool = False
+    executes_adapters: bool = False
+    read_only: bool = True
+
+
+class RuntimeDispatchReadinessRead(BaseModel):
+    """Read-only readiness view for queued materialized task dispatch."""
+
+    mission_id: UUID
+    tenant_id: str
+    readiness_status: RuntimeDispatchReadinessStatus
+    dispatch_ready_task_ids: list[str]
+    not_ready_task_ids: list[str]
+    blocked_task_ids: list[str]
+    skipped_task_ids: list[str]
+    task_count: int
+    queued_task_count: int
+    materialization_reference: dict[str, Any] | None
+    queue_admission_reference: dict[str, Any] | None
+    runtime_authority: RuntimeDispatchAuthority
+    blockers: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+    checked_at: str
 
 
 class MissionPlanRead(BaseModel):
@@ -2787,6 +2820,298 @@ def _runtime_queue_admission_response(metadata: dict[str, Any]) -> dict[str, obj
         "blockers": metadata.get("blockers", []),
         "runtime_queue_admission": metadata,
     }
+
+
+def _runtime_dispatch_authority_flags() -> RuntimeDispatchAuthority:
+    return RuntimeDispatchAuthority(
+        creates_execution_tasks=False,
+        enqueues_work=False,
+        dispatches_workers=False,
+        calls_executor=False,
+        calls_coordinator=False,
+        executes_adapters=False,
+        read_only=True,
+    )
+
+
+def _runtime_dispatch_item(
+    *, task_id: UUID | None, code: str, message: str, state: str | None = None, details: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    item: dict[str, Any] = {"code": code, "message": message}
+    if task_id is not None:
+        item["task_id"] = str(task_id)
+    if state is not None:
+        item["state"] = state
+    if details:
+        item["details"] = details
+    return item
+
+
+def _queue_admission_status(metadata: dict[str, Any]) -> str | None:
+    raw_status = metadata.get("admission_status") or metadata.get("queue_admission_status")
+    return raw_status if isinstance(raw_status, str) else None
+
+
+def _task_has_dispatch_task_type(task: ExecutionTask) -> bool:
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    task_type = metadata.get("task_type")
+    return isinstance(task_type, str) and bool(task_type.strip())
+
+
+def _runtime_dispatch_readiness_status(
+    *,
+    dispatch_ready_task_ids: list[str],
+    not_ready_task_ids: list[str],
+    blocked_task_ids: list[str],
+    skipped_task_ids: list[str],
+) -> RuntimeDispatchReadinessStatus:
+    if blocked_task_ids or not dispatch_ready_task_ids:
+        if dispatch_ready_task_ids:
+            return "partial"
+        return "blocked"
+    if not_ready_task_ids or skipped_task_ids:
+        return "partial"
+    return "ready"
+
+
+def _build_runtime_dispatch_readiness(
+    *, mission_id: UUID, tenant_id: _uuid.UUID, db: Session
+) -> RuntimeDispatchReadinessRead:
+    """Build the read-only dispatch readiness contract for a tenant mission."""
+    tenant_id_str = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    checked_at = datetime.now(UTC).isoformat()
+    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
+    materialization = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+    queue_admission = metadata.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+
+    materialized_task_ids: list[UUID] = []
+    if not isinstance(materialization, dict):
+        blockers.append(
+            _runtime_dispatch_item(
+                task_id=None,
+                code="runtime_task_materialization_missing",
+                message="Mission has no runtime task materialization metadata.",
+            )
+        )
+        materialization_reference: dict[str, Any] | None = None
+    else:
+        materialization_reference = materialization
+        materialized_task_ids = _current_materialized_execution_task_ids(metadata)
+        if not materialized_task_ids:
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=None,
+                    code="no_current_materialized_tasks",
+                    message="Current runtime task materialization has no dispatchable execution task IDs.",
+                )
+            )
+
+    if not isinstance(queue_admission, dict):
+        blockers.append(
+            _runtime_dispatch_item(
+                task_id=None,
+                code="runtime_queue_admission_missing",
+                message="Mission has no runtime queue admission metadata.",
+            )
+        )
+        queue_admission_reference: dict[str, Any] | None = None
+    else:
+        queue_admission_reference = queue_admission
+        admission_status = _queue_admission_status(queue_admission)
+        if admission_status not in {"admitted", "partially_admitted"}:
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=None,
+                    code="runtime_queue_admission_not_admitted",
+                    message="Runtime queue admission status is not admitted or partially admitted.",
+                    details={"admission_status": admission_status},
+                )
+            )
+        if queue_admission.get("tenant_id") not in {tenant_id_str, None}:
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=None,
+                    code="runtime_queue_admission_tenant_mismatch",
+                    message="Runtime queue admission metadata belongs to a different tenant.",
+                )
+            )
+        if queue_admission.get("mission_id") not in {str(mission_id), None}:
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=None,
+                    code="runtime_queue_admission_mission_mismatch",
+                    message="Runtime queue admission metadata belongs to a different mission.",
+                )
+            )
+
+    task_repo = ExecutionTaskRepository(db)
+    tasks_by_id = {task.id: task for task in task_repo.list_for_mission(mission_id=mission_id)}
+    dispatch_ready_task_ids: list[str] = []
+    not_ready_task_ids: list[str] = []
+    blocked_task_ids: list[str] = []
+    skipped_task_ids: list[str] = []
+    queued_task_count = 0
+
+    for task_id in materialized_task_ids:
+        task = tasks_by_id.get(task_id)
+        if task is None:
+            blocked_task_ids.append(str(task_id))
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=task_id,
+                    code="materialized_task_unavailable",
+                    message="Materialized execution task row is missing or unavailable for this mission.",
+                )
+            )
+            continue
+        if task.tenant_id != tenant_id_str or task.mission_id != mission_id:
+            blocked_task_ids.append(str(task_id))
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=task_id,
+                    code="materialized_task_scope_mismatch",
+                    message="Materialized execution task is not owned by this tenant and mission.",
+                    state=task.status,
+                )
+            )
+            continue
+
+        task_id_str = str(task.id)
+        if task.status == ExecutionTaskState.QUEUED.value:
+            queued_task_count += 1
+            if _task_has_dispatch_task_type(task):
+                dispatch_ready_task_ids.append(task_id_str)
+                continue
+            blocked_task_ids.append(task_id_str)
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=task.id,
+                    code="queued_task_missing_task_type",
+                    message="Queued materialized task lacks non-empty dispatcher task_type metadata.",
+                    state=task.status,
+                )
+            )
+            warnings.append(
+                _runtime_dispatch_item(
+                    task_id=task.id,
+                    code="default_handler_not_allowed",
+                    message="Dispatch readiness requires explicit task_type metadata and does not rely on fallback handlers.",
+                    state=task.status,
+                )
+            )
+            continue
+        if task.status in {ExecutionTaskState.PLANNED.value, ExecutionTaskState.PENDING_REVIEW.value}:
+            not_ready_task_ids.append(task_id_str)
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=task.id,
+                    code="materialized_task_not_queued",
+                    message="Materialized task has not been admitted to the runtime queue.",
+                    state=task.status,
+                )
+            )
+            continue
+        if task.status in {
+            ExecutionTaskState.CLAIMED.value,
+            ExecutionTaskState.RUNNING.value,
+            ExecutionTaskState.RECOVERING.value,
+            ExecutionTaskState.BLOCKED.value,
+        }:
+            not_ready_task_ids.append(task_id_str)
+            warnings.append(
+                _runtime_dispatch_item(
+                    task_id=task.id,
+                    code="materialized_task_already_claimed_or_running",
+                    message="Materialized task is already claimed, running, recovering, or blocked.",
+                    state=task.status,
+                )
+            )
+            continue
+        if task.status in {ExecutionTaskState.CANCELLED.value, ExecutionTaskState.COMPLETED.value}:
+            skipped_task_ids.append(task_id_str)
+            warnings.append(
+                _runtime_dispatch_item(
+                    task_id=task.id,
+                    code="materialized_task_terminal_skipped",
+                    message="Terminal materialized task is not dispatchable and is skipped.",
+                    state=task.status,
+                )
+            )
+            continue
+        if task.status in {ExecutionTaskState.FAILED.value, ExecutionTaskState.DEAD_LETTERED.value}:
+            blocked_task_ids.append(task_id_str)
+            blockers.append(
+                _runtime_dispatch_item(
+                    task_id=task.id,
+                    code="materialized_task_failed_or_dead_lettered",
+                    message="Failed or dead-lettered materialized task is not dispatch-ready.",
+                    state=task.status,
+                )
+            )
+            continue
+
+        blocked_task_ids.append(task_id_str)
+        blockers.append(
+            _runtime_dispatch_item(
+                task_id=task.id,
+                code="materialized_task_unknown_state",
+                message="Materialized task has an unknown runtime state.",
+                state=task.status,
+            )
+        )
+
+    readiness_status = _runtime_dispatch_readiness_status(
+        dispatch_ready_task_ids=dispatch_ready_task_ids,
+        not_ready_task_ids=not_ready_task_ids,
+        blocked_task_ids=blocked_task_ids,
+        skipped_task_ids=skipped_task_ids,
+    )
+    precondition_blocker_codes = {
+        "runtime_task_materialization_missing",
+        "no_current_materialized_tasks",
+        "runtime_queue_admission_missing",
+        "runtime_queue_admission_not_admitted",
+        "runtime_queue_admission_tenant_mismatch",
+        "runtime_queue_admission_mission_mismatch",
+    }
+    if any(blocker.get("code") in precondition_blocker_codes for blocker in blockers):
+        readiness_status = "blocked"
+    elif blockers and readiness_status == "ready":
+        readiness_status = "partial" if dispatch_ready_task_ids else "blocked"
+    return RuntimeDispatchReadinessRead(
+        mission_id=mission.id,
+        tenant_id=mission.tenant_id,
+        readiness_status=readiness_status,
+        dispatch_ready_task_ids=dispatch_ready_task_ids,
+        not_ready_task_ids=not_ready_task_ids,
+        blocked_task_ids=blocked_task_ids,
+        skipped_task_ids=skipped_task_ids,
+        task_count=len(materialized_task_ids),
+        queued_task_count=queued_task_count,
+        materialization_reference=materialization_reference,
+        queue_admission_reference=queue_admission_reference,
+        runtime_authority=_runtime_dispatch_authority_flags(),
+        blockers=blockers,
+        warnings=warnings,
+        checked_at=checked_at,
+    )
+
+
+@router.get("/{mission_id}/runtime-dispatch-readiness", response_model=RuntimeDispatchReadinessRead)
+def read_mission_runtime_dispatch_readiness(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> RuntimeDispatchReadinessRead:
+    """Read queued materialized task readiness without dispatching workers."""
+    return _build_runtime_dispatch_readiness(mission_id=mission_id, tenant_id=tenant_id, db=db)
 
 
 @router.post("/{mission_id}/runtime-queue-admission", response_model=RuntimeQueueAdmissionResponse)
