@@ -466,3 +466,52 @@ def test_worker_start_admission_hides_cross_tenant_mission() -> None:
         response = client.post(f"/v1/missions/{mission_id}/worker-start-admission")
 
     assert response.status_code == 404
+
+
+def test_worker_start_admission_stays_idempotent_after_claim_retry() -> None:
+    tenant_id = str(uuid.uuid4())
+    tenant_uuid = uuid.UUID(tenant_id)
+    mission_id = uuid.uuid4()
+    holder = f"worker_claim_admission:{tenant_id}:{mission_id}"
+    task = _make_task(tenant_id=tenant_id, mission_id=mission_id)
+    lease = _make_lease(tenant_id=tenant_id, task_id=task.id, holder_identity=holder)
+    task.metadata_json["worker_lease_id"] = str(lease.id)
+    mission = _make_mission(tenant_id=tenant_id, mission_id=mission_id, tasks=[task], leases=[lease])
+    mission_repo, task_repo, lease_repo = _repos(mission, [task], [lease])
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.WorkerLeaseRepository", return_value=lease_repo),
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.task_dispatcher", create=True) as dispatcher,
+    ):
+        first_start = mission_module.worker_start_admission(
+            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+        )
+        claim_retry = mission_module.worker_claim_admission(
+            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+        )
+        second_start = mission_module.worker_start_admission(
+            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+        )
+
+    assert first_start.start_admission_status == "admitted"
+    assert claim_retry.claim_admission_status == "admitted"
+    assert second_start.start_admission_status == "admitted"
+    assert claim_retry.claimed_task_ids == [str(task.id)]
+    assert claim_retry.already_claimed_task_ids == [str(task.id)]
+    assert second_start.started_task_ids == [str(task.id)]
+    assert second_start.already_started_task_ids == [str(task.id)]
+    assert task.status == ExecutionTaskState.RUNNING.value
+    assert lease.status == WorkerLeaseState.ACTIVE.value
+    assert second_start.start_receipts[0].worker_lease_id == first_start.start_receipts[0].worker_lease_id
+    assert second_start.start_receipts[0].started_at == first_start.start_receipts[0].started_at
+    assert mission.metadata_json["worker_claim_admission"]["admission_status"] == "admitted"
+    assert mission.metadata_json["worker_start_admission"]["admission_status"] == "admitted"
+    assert mission.metadata_json["worker_claim_admission"]["claimed_task_ids"] == [str(task.id)]
+    assert mission.metadata_json["worker_start_admission"]["started_task_ids"] == [str(task.id)]
+    coordinator_cls.assert_not_called()
+    executor_cls.assert_not_called()
+    dispatcher.assert_not_called()
