@@ -4453,7 +4453,7 @@ def _build_worker_start_admission(
         if (
             isinstance(existing_receipt, dict)
             and existing_receipt.get("idempotency_status") in {"newly_started", "already_started_by_current_admission"}
-            and task.status == ExecutionTaskState.COMPLETED.value
+            and task.status in {ExecutionTaskState.COMPLETED.value, ExecutionTaskState.FAILED.value}
         ):
             already_started_task_ids.append(task_id)
             receipts.append(
