@@ -127,56 +127,61 @@ def test_heartbeat_returns_ok_when_touch_succeeds(monkeypatch) -> None:
     assert called == [("tenant-a", task_id, "worker-1")]
 
 
-def test_claim_existing_task_moves_pending_payload_to_processing(monkeypatch) -> None:
+def test_claim_existing_task_uses_atomic_lua_claim(monkeypatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
     task_id = uuid.uuid4()
-    payload = json.dumps({"task_id": str(task_id)})
     calls: list[list[str]] = []
-    monkeypatch.setattr(adapter, "_find_processing_payload", lambda **kwargs: None)
-    monkeypatch.setattr(adapter, "_find_pending_payload", lambda **kwargs: payload)
-    monkeypatch.setattr(adapter, "_touch_lease_key", lambda **kwargs: None)
 
     def _execute(command: list[str]):
         calls.append(command)
-        if command[0] == "LREM":
-            return 1
-        if command[0] == "RPUSH":
-            return 1
-        raise AssertionError(command)
+        return [1, "ok"]
 
     monkeypatch.setattr(adapter, "_execute", _execute)
 
     result = adapter.claim_existing_task(tenant_id="tenant-a", task_id=task_id, worker_id="worker-1")
 
     assert result.ok is True
-    assert calls[0][0] == "LREM"
-    assert calls[1][0] == "RPUSH"
+    assert len(calls) == 1
+    command = calls[0]
+    assert command[0] == "EVAL"
+    assert command[2] == "3"
+    assert command[3] == "ajenda:queue:tenant-a:pending"
+    assert command[4] == "ajenda:queue:tenant-a:processing"
+    assert command[5] == f"ajenda:queue:tenant-a:lease:{task_id}"
+    assert command[6:] == [str(task_id), "worker-1", "90"]
+    assert "LREM" not in adapter._CLAIM_EXISTING_TASK_SCRIPT
 
 
-def test_claim_existing_task_processing_same_owner_is_idempotent(monkeypatch) -> None:
+def test_claim_existing_task_script_same_owner_result_is_idempotent(monkeypatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
     task_id = uuid.uuid4()
-    monkeypatch.setattr(adapter, "_find_processing_payload", lambda **kwargs: json.dumps({"task_id": str(task_id)}))
-    monkeypatch.setattr(adapter, "_execute", lambda command: "worker-1" if command[0] == "GET" else "OK")
-    touched: list[dict[str, object]] = []
-    monkeypatch.setattr(adapter, "_touch_lease_key", lambda **kwargs: touched.append(kwargs))
+    monkeypatch.setattr(adapter, "_execute", lambda command: [1, "ok"])
 
     result = adapter.claim_existing_task(tenant_id="tenant-a", task_id=task_id, worker_id="worker-1")
 
     assert result.ok is True
-    assert touched == [{"tenant_id": "tenant-a", "task_id": task_id, "worker_id": "worker-1"}]
 
 
-def test_claim_existing_task_processing_other_owner_blocks(monkeypatch) -> None:
+def test_claim_existing_task_script_other_owner_blocks(monkeypatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
     task_id = uuid.uuid4()
-    monkeypatch.setattr(adapter, "_find_processing_payload", lambda **kwargs: json.dumps({"task_id": str(task_id)}))
-    monkeypatch.setattr(adapter, "_execute", lambda command: "other-worker")
+    monkeypatch.setattr(adapter, "_execute", lambda command: [0, "task already claimed by different worker"])
 
     result = adapter.claim_existing_task(tenant_id="tenant-a", task_id=task_id, worker_id="worker-1")
 
     assert result.ok is False
     assert result.reason == "task already claimed by different worker"
+
+
+def test_claim_existing_task_script_unexpected_result_fails_closed(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    task_id = uuid.uuid4()
+    monkeypatch.setattr(adapter, "_execute", lambda command: "OK")
+
+    result = adapter.claim_existing_task(tenant_id="tenant-a", task_id=task_id, worker_id="worker-1")
+
+    assert result.ok is False
+    assert result.reason == "claim script returned unexpected result"
 
 
 def test_heartbeat_returns_failure_on_exception(monkeypatch) -> None:
