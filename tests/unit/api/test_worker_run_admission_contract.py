@@ -168,6 +168,61 @@ def _admit(
     return result
 
 
+def test_worker_run_dispatcher_session_factory_sets_request_tenant_rls_context() -> None:
+    tenant_id = str(uuid.uuid4())
+    task_id = uuid.uuid4()
+    lease_id = uuid.uuid4()
+    bind = object()
+    execute_calls: list[tuple[object, dict[str, str]]] = []
+
+    class FakeDb:
+        def get_bind(self) -> object:
+            return bind
+
+    class FakeSession:
+        def execute(self, statement: object, params: dict[str, str]) -> None:
+            execute_calls.append((statement, params))
+
+        def close(self) -> None:
+            raise AssertionError("tenant-scoped dispatcher session should stay open after RLS setup succeeds")
+
+    fake_session = FakeSession()
+
+    def fake_sessionmaker(**kwargs):
+        assert kwargs == {"bind": bind, "expire_on_commit": False}
+        return lambda: fake_session
+
+    class FakeDispatcher:
+        def __init__(self, *, session_factory, queue, worker_id: str, tenant_id: str) -> None:
+            self.session_factory = session_factory
+            self.queue = queue
+            self.worker_id = worker_id
+            self.tenant_id = tenant_id
+
+        def execute(self, *, task_id: uuid.UUID, lease_id: uuid.UUID) -> None:
+            assert self.tenant_id == tenant_id
+            assert self.worker_id == f"worker_claim_admission:{tenant_id}:{task_id}"
+            assert self.session_factory() is fake_session
+
+    with (
+        patch("backend.api.routes.mission.sessionmaker", side_effect=fake_sessionmaker),
+        patch("backend.api.routes.mission.task_dispatcher.TaskDispatcher", FakeDispatcher),
+    ):
+        mission_module._dispatch_worker_run_task(
+            db=FakeDb(),
+            queue=MagicMock(),
+            tenant_id=tenant_id,
+            worker_id=f"worker_claim_admission:{tenant_id}:{task_id}",
+            task_id=task_id,
+            lease_id=lease_id,
+        )
+
+    assert len(execute_calls) == 1
+    statement, params = execute_calls[0]
+    assert "set_config('app.current_tenant_id', :tenant_id, true)" in str(statement)
+    assert params == {"tenant_id": tenant_id}
+
+
 def test_worker_run_admission_executes_running_task_and_persists_receipt() -> None:
     tenant_id = str(uuid.uuid4())
     mission_id = uuid.uuid4()

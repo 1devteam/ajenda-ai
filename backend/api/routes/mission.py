@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid as _uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
@@ -4888,16 +4890,31 @@ def _run_receipt(
     return receipt
 
 
-def _build_worker_run_session_factory(db: Session) -> sessionmaker[Any]:
+def _build_worker_run_session_factory(db: Session, tenant_id: str) -> Callable[[], Session]:
+    """Build dispatcher sessions with the same tenant RLS context as tenant request sessions."""
     bind = db.get_bind()
-    return sessionmaker(bind=bind, expire_on_commit=False)
+    base_session_factory: sessionmaker[Session] = sessionmaker(bind=bind, expire_on_commit=False)
+
+    def _tenant_scoped_session() -> Session:
+        session = base_session_factory()
+        try:
+            session.execute(
+                text("SELECT set_config('app.current_tenant_id', :tenant_id, true)"),
+                {"tenant_id": tenant_id},
+            )
+        except Exception:
+            session.close()
+            raise
+        return session
+
+    return _tenant_scoped_session
 
 
 def _dispatch_worker_run_task(
     *, db: Session, queue: QueueAdapter, tenant_id: str, worker_id: str, task_id: UUID, lease_id: UUID
 ) -> None:
     dispatcher = task_dispatcher.TaskDispatcher(
-        session_factory=_build_worker_run_session_factory(db),
+        session_factory=cast(Any, _build_worker_run_session_factory(db, tenant_id)),
         queue=queue,
         worker_id=worker_id,
         tenant_id=tenant_id,
