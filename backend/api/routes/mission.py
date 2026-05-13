@@ -3921,6 +3921,16 @@ def _build_worker_claim_admission(
                 )
             )
             continue
+        active_leases = _active_worker_leases_for_task(lease_repo, task.id)
+        current_lease = next((lease for lease in active_leases if lease.holder_identity == holder_identity), None)
+
+        if (
+            task.status in {ExecutionTaskState.CLAIMED.value, ExecutionTaskState.RUNNING.value}
+            and current_lease is not None
+        ):
+            already_claimed_task_ids.append(task_id)
+            continue
+
         if task.status != ExecutionTaskState.QUEUED.value:
             if task_id not in blocked_task_ids:
                 blocked_task_ids.append(task_id)
@@ -3991,16 +4001,20 @@ def _build_worker_claim_admission(
             continue
         active_leases = _active_worker_leases_for_task(lease_repo, task.id)
         current_lease = next((lease for lease in active_leases if lease.holder_identity == holder_identity), None)
-        if task.status == ExecutionTaskState.CLAIMED.value and current_lease is not None:
+        if (
+            task.status in {ExecutionTaskState.CLAIMED.value, ExecutionTaskState.RUNNING.value}
+            and current_lease is not None
+        ):
             already_claimed_task_ids.append(task_id)
             blocked_task_ids = [blocked_task_id for blocked_task_id in blocked_task_ids if blocked_task_id != task_id]
             blockers = [blocker for blocker in blockers if str(blocker.get("task_id")) != task_id]
             stored_receipt = existing_receipts.get(task_id)
+            current_state = str(getattr(task, "status", ExecutionTaskState.CLAIMED.value))
             receipts.append(
                 _worker_claim_receipt(
                     task=task,
                     previous_state=ExecutionTaskState.QUEUED.value,
-                    current_state=ExecutionTaskState.CLAIMED.value,
+                    current_state=current_state,
                     lease=current_lease,
                     task_type=_task_type_for_claim(task),
                     claimed_at=str(stored_receipt.get("claimed_at") if stored_receipt else now),
@@ -4038,6 +4052,19 @@ def _build_worker_claim_admission(
     else:
         materialization_reference = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
         queue_admission_reference = metadata.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+
+    final_admitted_ids = {str(task_id) for task_id in claimed_task_ids} | {
+        str(task_id) for task_id in already_claimed_task_ids
+    }
+    blockers = [
+        blocker
+        for blocker in blockers
+        if blocker.get("task_id") is None or str(blocker.get("task_id")) not in final_admitted_ids
+    ]
+    blocked_task_ids = [task_id for task_id in blocked_task_ids if str(task_id) not in final_admitted_ids]
+
+    if final_admitted_ids and not blocked_task_ids:
+        blockers = [blocker for blocker in blockers if blocker.get("task_id") is not None]
 
     status = _claim_admission_status(
         newly_claimed=claimed_task_ids,
@@ -4277,6 +4304,16 @@ def _build_worker_start_admission(
         for receipt in existing_start.get("start_receipts") or []
         if isinstance(receipt, dict) and receipt.get("task_id") is not None
     }
+    receipt_started_ids = {
+        task_id
+        for task_id, receipt in existing_start_receipts.items()
+        if receipt.get("idempotency_status") in {"newly_started", "already_started_by_current_admission"}
+    }
+    existing_started_ids = (
+        {str(task_id) for task_id in existing_start.get("started_task_ids") or []}
+        | {str(task_id) for task_id in existing_start.get("already_started_task_ids") or []}
+        | receipt_started_ids
+    )
     now = datetime.now(UTC).isoformat()
     admitted_by = (
         request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_start_admission"
@@ -4561,7 +4598,7 @@ def _build_worker_start_admission(
         "tenant_id": tenant_id_str,
         "admission_status": status,
         "admission_version": admission_version,
-        "started_task_ids": sorted(set(started_task_ids) | set(already_started_task_ids)),
+        "started_task_ids": sorted(set(started_task_ids) | set(already_started_task_ids) | existing_started_ids),
         "already_started_task_ids": already_started_task_ids,
         "skipped_task_ids": list(dict.fromkeys(skipped_task_ids)),
         "blocked_task_ids": list(dict.fromkeys(blocked_task_ids)),
