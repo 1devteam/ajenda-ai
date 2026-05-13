@@ -4447,6 +4447,27 @@ def _build_worker_start_admission(
 
         lease = lease_repo.get(lease_uuid)
         holder_identity = f"worker_claim_admission:{tenant_id_str}:{mission_id}"
+
+        existing_receipt = existing_start_receipts.get(task_id)
+
+        if (
+            isinstance(existing_receipt, dict)
+            and existing_receipt.get("idempotency_status") in {"newly_started", "already_started_by_current_admission"}
+            and task.status == ExecutionTaskState.COMPLETED.value
+        ):
+            already_started_task_ids.append(task_id)
+            receipts.append(
+                _worker_start_receipt(
+                    task=task,
+                    previous_state=ExecutionTaskState.CLAIMED.value,
+                    current_state=task.status,
+                    lease=lease,
+                    task_type=task_type,
+                    started_at=str(existing_receipt.get("started_at") or now),
+                    idempotency_status="already_started_by_current_admission",
+                )
+            )
+            continue
         if lease is None:
             blocked_task_ids.append(task_id)
             blockers.append(
