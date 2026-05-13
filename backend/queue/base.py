@@ -38,6 +38,16 @@ class QueueAdapter(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
+    def claim_existing_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+        """Move an existing queued payload for task_id into processing for worker_id.
+
+        Must fail closed when no queued/processing payload exists and must not
+        synthesize replacement payloads from database state. Already-processing
+        payloads owned by worker_id should be treated idempotently.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
     def heartbeat(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
         raise NotImplementedError
 

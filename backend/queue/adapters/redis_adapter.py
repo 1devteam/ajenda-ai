@@ -140,6 +140,32 @@ return {1, "ok"}
         except Exception as exc:
             raise RuntimeError(f"claim_task failed: {exc}") from exc
 
+    def claim_existing_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+        try:
+            processing_payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
+            if processing_payload is not None:
+                owner = self._execute(["GET", self._lease_key(tenant_id, task_id)])
+                if owner is None:
+                    return QueueOperationResult(ok=False, reason="processing payload has no worker owner")
+                if owner != worker_id:
+                    return QueueOperationResult(ok=False, reason="task already claimed by different worker")
+                self._touch_lease_key(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
+                return QueueOperationResult(ok=True)
+
+            pending_payload = self._find_pending_payload(tenant_id=tenant_id, task_id=task_id)
+            if pending_payload is None:
+                return QueueOperationResult(ok=False, reason="task not found in pending or processing queue")
+            removed = self._execute(["LREM", self._pending_key(tenant_id), "1", pending_payload])
+            if not isinstance(removed, int) or removed < 1:
+                return QueueOperationResult(ok=False, reason="pending payload was not removed")
+            pushed = self._execute(["RPUSH", self._processing_key(tenant_id), pending_payload])
+            if not isinstance(pushed, int):
+                return QueueOperationResult(ok=False, reason="redis did not confirm processing claim")
+            self._touch_lease_key(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
+            return QueueOperationResult(ok=True)
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"claim_existing_task failed: {exc}")
+
     def heartbeat(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
         try:
             self._touch_lease_key(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
