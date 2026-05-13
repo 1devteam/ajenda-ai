@@ -39,6 +39,30 @@ class LocalQueueAdapter(QueueAdapter):
                 return message
         return None
 
+    def claim_existing_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+        with self._lock:
+            key = (tenant_id, task_id)
+            existing = self._claims.get(key)
+            if existing is not None:
+                owner = existing[0]
+                if owner == worker_id:
+                    return QueueOperationResult(ok=True)
+                return QueueOperationResult(ok=False, reason="task already claimed by different worker")
+
+            kept_queue: deque[QueueMessage] = deque()
+            matched: QueueMessage | None = None
+            while self._queue:
+                message = self._queue.popleft()
+                if matched is None and message.tenant_id == tenant_id and message.task_id == task_id:
+                    matched = message
+                else:
+                    kept_queue.append(message)
+            self._queue = kept_queue
+            if matched is None:
+                return QueueOperationResult(ok=False, reason="task not found in pending or processing queue")
+            self._claims[key] = (worker_id, matched)
+        return QueueOperationResult(ok=True)
+
     def heartbeat(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
         with self._lock:
             claim = self._claims.get((tenant_id, task_id))

@@ -90,6 +90,65 @@ redis.call("DEL", lease_key)
 return {1, "ok"}
 """
 
+    _CLAIM_EXISTING_TASK_SCRIPT = """
+local pending_key = KEYS[1]
+local processing_key = KEYS[2]
+local lease_key = KEYS[3]
+local task_id = ARGV[1]
+local worker_id = ARGV[2]
+local ttl_seconds = ARGV[3]
+
+local function payload_task_id(raw)
+    local ok, payload = pcall(cjson.decode, raw)
+    if not ok or type(payload) ~= "table" then
+        return nil
+    end
+    if payload["task_id"] == nil then
+        return nil
+    end
+    return tostring(payload["task_id"])
+end
+
+local processing_values = redis.call("LRANGE", processing_key, 0, -1)
+for _, raw in ipairs(processing_values) do
+    if payload_task_id(raw) == task_id then
+        local owner = redis.call("GET", lease_key)
+        if owner == false then
+            return {0, "processing payload has no worker owner"}
+        end
+        if owner ~= worker_id then
+            return {0, "task already claimed by different worker"}
+        end
+        redis.call("SET", lease_key, worker_id, "EX", ttl_seconds)
+        return {1, "ok"}
+    end
+end
+
+local pending_values = redis.call("LRANGE", pending_key, 0, -1)
+local claimed_payload = nil
+local kept_pending = {}
+
+for _, raw in ipairs(pending_values) do
+    if claimed_payload == nil and payload_task_id(raw) == task_id then
+        claimed_payload = raw
+    else
+        table.insert(kept_pending, raw)
+    end
+end
+
+if claimed_payload == nil then
+    return {0, "task not found in pending or processing queue"}
+end
+
+redis.call("DEL", pending_key)
+for _, raw in ipairs(kept_pending) do
+    redis.call("RPUSH", pending_key, raw)
+end
+redis.call("RPUSH", processing_key, claimed_payload)
+redis.call("SET", lease_key, worker_id, "EX", ttl_seconds)
+return {1, "ok"}
+"""
+
     def __init__(self, redis_url: str, *, heartbeat_ttl_seconds: int = 90, block_seconds: int = 1) -> None:
         parsed = urlparse(redis_url)
         if parsed.scheme != "redis":
@@ -139,6 +198,30 @@ return {1, "ok"}
             return message
         except Exception as exc:
             raise RuntimeError(f"claim_task failed: {exc}") from exc
+
+    def claim_existing_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+        try:
+            result = self._execute(
+                [
+                    "EVAL",
+                    self._CLAIM_EXISTING_TASK_SCRIPT,
+                    "3",
+                    self._pending_key(tenant_id),
+                    self._processing_key(tenant_id),
+                    self._lease_key(tenant_id, task_id),
+                    str(task_id),
+                    worker_id,
+                    str(self._heartbeat_ttl_seconds),
+                ]
+            )
+            if not isinstance(result, list) or len(result) != 2:
+                return QueueOperationResult(ok=False, reason="claim script returned unexpected result")
+            ok, reason = result
+            if ok != 1:
+                return QueueOperationResult(ok=False, reason=str(reason))
+            return QueueOperationResult(ok=True)
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"claim_existing_task failed: {exc}")
 
     def heartbeat(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
         try:

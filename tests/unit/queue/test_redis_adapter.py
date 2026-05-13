@@ -127,6 +127,63 @@ def test_heartbeat_returns_ok_when_touch_succeeds(monkeypatch) -> None:
     assert called == [("tenant-a", task_id, "worker-1")]
 
 
+def test_claim_existing_task_uses_atomic_lua_claim(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    task_id = uuid.uuid4()
+    calls: list[list[str]] = []
+
+    def _execute(command: list[str]):
+        calls.append(command)
+        return [1, "ok"]
+
+    monkeypatch.setattr(adapter, "_execute", _execute)
+
+    result = adapter.claim_existing_task(tenant_id="tenant-a", task_id=task_id, worker_id="worker-1")
+
+    assert result.ok is True
+    assert len(calls) == 1
+    command = calls[0]
+    assert command[0] == "EVAL"
+    assert command[2] == "3"
+    assert command[3] == "ajenda:queue:tenant-a:pending"
+    assert command[4] == "ajenda:queue:tenant-a:processing"
+    assert command[5] == f"ajenda:queue:tenant-a:lease:{task_id}"
+    assert command[6:] == [str(task_id), "worker-1", "90"]
+    assert "LREM" not in adapter._CLAIM_EXISTING_TASK_SCRIPT
+
+
+def test_claim_existing_task_script_same_owner_result_is_idempotent(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    task_id = uuid.uuid4()
+    monkeypatch.setattr(adapter, "_execute", lambda command: [1, "ok"])
+
+    result = adapter.claim_existing_task(tenant_id="tenant-a", task_id=task_id, worker_id="worker-1")
+
+    assert result.ok is True
+
+
+def test_claim_existing_task_script_other_owner_blocks(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    task_id = uuid.uuid4()
+    monkeypatch.setattr(adapter, "_execute", lambda command: [0, "task already claimed by different worker"])
+
+    result = adapter.claim_existing_task(tenant_id="tenant-a", task_id=task_id, worker_id="worker-1")
+
+    assert result.ok is False
+    assert result.reason == "task already claimed by different worker"
+
+
+def test_claim_existing_task_script_unexpected_result_fails_closed(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    task_id = uuid.uuid4()
+    monkeypatch.setattr(adapter, "_execute", lambda command: "OK")
+
+    result = adapter.claim_existing_task(tenant_id="tenant-a", task_id=task_id, worker_id="worker-1")
+
+    assert result.ok is False
+    assert result.reason == "claim script returned unexpected result"
+
+
 def test_heartbeat_returns_failure_on_exception(monkeypatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
 
