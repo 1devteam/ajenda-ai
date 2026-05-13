@@ -91,55 +91,89 @@ class Settings(BaseSettings):
         return {item.strip().lower() for item in self.redact_keys.split(",") if item.strip()}
 
     def validate_runtime_contract(self) -> None:
-        if os.getenv("AJENDA_MIGRATION_CONTEXT") == "1":
-            return
-        """Validate that the runtime configuration is safe and complete.
+        """Validate production/runtime safety configuration.
 
-        Raises ValueError on any misconfiguration that would result in an
-        insecure or non-functional production deployment.
-
-        Checks performed:
-          1. Redis queue URL required when adapter=redis
-          2. Local queue adapter forbidden in production
-          3. Production OIDC endpoints must not point at localhost
-          4. Rate limit parameters must be positive
+        This method is intentionally called explicitly by app startup and tests,
+        including tests that construct Settings via model_construct().
         """
-        # --- Queue adapter ---
-        if self.queue_adapter == "redis" and (self.queue_url is None or not self.queue_url.strip()):
-            raise ValueError("AJENDA_QUEUE_URL is required when AJENDA_QUEUE_ADAPTER=redis")
-        if self.env == "production" and self.queue_adapter == "local":
-            raise ValueError("AJENDA_QUEUE_ADAPTER=local is forbidden in production")
+        env = str(self.env).strip().lower()
 
-        # --- OIDC / JWT — production must not use localhost defaults ---
-        if self.env == "production":
-            _localhost_markers = ("localhost", "127.0.0.1", "0.0.0.0")
-            if any(marker in self.oidc_jwks_uri for marker in _localhost_markers):
+        def _blank(value: object) -> bool:
+            return value is None or not str(value).strip()
+
+        def _is_localhost_url(value: str) -> bool:
+            lowered = value.lower()
+            return (
+                "://localhost" in lowered
+                or "://127.0.0.1" in lowered
+                or "://0.0.0.0" in lowered
+                or "://[::1]" in lowered
+            )
+
+        def _validate_fernet_key(*, value: str | None, env_name: str, required: bool) -> None:
+            if _blank(value):
+                if required:
+                    raise ValueError(f"{env_name} is required in production")
+                return
+
+            assert value is not None
+            if value != value.strip() or any(char.isspace() for char in value):
+                raise ValueError(
+                    f"{env_name} must not contain surrounding or embedded whitespace. Current value: {value!r}"
+                )
+
+            try:
+                decoded = base64.urlsafe_b64decode(value.encode("ascii"))
+                recoded = base64.urlsafe_b64encode(decoded).decode("ascii")
+            except Exception as exc:
+                raise ValueError(f"{env_name} must be a valid Fernet key. Current value: {value!r}") from exc
+
+            if recoded != value:
+                raise ValueError(f"{env_name} must be canonical URL-safe base64. Current value: {value!r}")
+
+            if len(decoded) != 32:
+                raise ValueError(f"{env_name} must be a valid Fernet key. Current value: {value!r}")
+
+            deterministic_test_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+            if value == deterministic_test_key:
+                raise ValueError(f"{env_name} must not use the deterministic development/test key")
+
+        if self.queue_adapter == "redis" and _blank(self.queue_url):
+            raise ValueError(
+                f"AJENDA_QUEUE_URL is required when AJENDA_QUEUE_ADAPTER=redis. Current value: {self.queue_url!r}"
+            )
+
+        if env == "production" and self.queue_adapter == "local":
+            raise ValueError(
+                "AJENDA_QUEUE_ADAPTER=local is forbidden in production; use redis or another durable adapter"
+            )
+
+        if env == "production":
+            if _is_localhost_url(str(self.oidc_jwks_uri)):
                 raise ValueError(
                     "AJENDA_OIDC_JWKS_URI must not point to localhost in production. "
-                    f"Current value: {self.oidc_jwks_uri!r}. "
-                    "Set this to your identity provider's JWKS endpoint "
-                    "(e.g. https://your-idp.example.com/realms/ajenda/protocol/openid-connect/certs)."
+                    f"Current value: {self.oidc_jwks_uri!r}. Use the production IdP JWKS URL."
                 )
-            if any(marker in self.oidc_issuer for marker in _localhost_markers):
+            if _is_localhost_url(str(self.oidc_issuer)):
                 raise ValueError(
                     "AJENDA_OIDC_ISSUER must not point to localhost in production. "
-                    f"Current value: {self.oidc_issuer!r}. "
-                    "Set this to your identity provider's issuer URL."
+                    f"Current value: {self.oidc_issuer!r}. Use the production IdP issuer URL."
                 )
-            if self.worker_tenant_id == "default" or not self.worker_tenant_id.strip():
+            if self.worker_tenant_id == "default" or not str(self.worker_tenant_id).strip():
                 raise ValueError("AJENDA_WORKER_TENANT_ID must be explicitly configured in production")
-            self._validate_required_fernet_key(
+            _validate_fernet_key(
                 value=self.webhook_secret_encryption_key,
                 env_name="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
+                required=True,
             )
 
-        if self.webhook_secret_encryption_key_prev is not None and self.webhook_secret_encryption_key_prev.strip():
-            self._validate_optional_fernet_key(
+        if self.webhook_secret_encryption_key_prev is not None and str(self.webhook_secret_encryption_key_prev).strip():
+            _validate_fernet_key(
                 value=self.webhook_secret_encryption_key_prev,
                 env_name="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
+                required=False,
             )
 
-        # --- Rate limiting sanity ---
         if self.rate_limit_requests <= 0:
             raise ValueError(f"AJENDA_RATE_LIMIT_REQUESTS must be a positive integer, got {self.rate_limit_requests}")
         if self.rate_limit_window_seconds <= 0:
@@ -147,11 +181,10 @@ class Settings(BaseSettings):
                 f"AJENDA_RATE_LIMIT_WINDOW_SECONDS must be a positive integer, got {self.rate_limit_window_seconds}"
             )
 
-        # --- Authz policy-as-code ---
         if self.authz_policy_mode in {"shadow_opa", "enforce_opa"}:
-            if self.authz_opa_url is None or not self.authz_opa_url.strip():
+            if _blank(self.authz_opa_url):
                 raise ValueError(
-                    "AJENDA_AUTHZ_OPA_URL is required when AJENDA_AUTHZ_POLICY_MODE is shadow_opa or enforce_opa"
+                    f"AJENDA_AUTHZ_OPA_URL is required when AJENDA_AUTHZ_POLICY_MODE={self.authz_policy_mode}"
                 )
         if self.authz_opa_timeout_seconds <= 0:
             raise ValueError(
