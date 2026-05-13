@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
@@ -26,6 +26,8 @@ from backend.domain.mission import (
     MISSION_TASK_GRAPH_METADATA_KEY,
     MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY,
     MISSION_WORKER_CLAIM_ADMISSION_SCHEMA_VERSION,
+    MISSION_WORKER_RUN_ADMISSION_METADATA_KEY,
+    MISSION_WORKER_RUN_ADMISSION_SCHEMA_VERSION,
     MISSION_WORKER_START_ADMISSION_METADATA_KEY,
     MISSION_WORKER_START_ADMISSION_SCHEMA_VERSION,
     Mission,
@@ -60,6 +62,7 @@ from backend.services.mission_runtime_projection import (
     build_runtime_task_preview_items as project_runtime_task_preview_items,
 )
 from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
+from backend.workers import task_dispatcher
 
 router = APIRouter(prefix="/missions", tags=["missions"])
 
@@ -796,6 +799,7 @@ WorkerDispatchEligibilityStatus = Literal["eligible", "partial", "blocked"]
 WorkerClaimPreviewStatus = Literal["ready", "partial", "blocked"]
 WorkerClaimAdmissionStatus = Literal["admitted", "partially_admitted", "blocked"]
 WorkerStartAdmissionStatus = Literal["admitted", "partially_admitted", "blocked"]
+WorkerRunAdmissionStatus = Literal["completed", "partially_completed", "failed", "blocked"]
 
 
 class RuntimeTaskMaterializationRead(BaseModel):
@@ -992,6 +996,64 @@ class WorkerStartAdmissionRead(BaseModel):
     warnings: list[dict[str, Any]]
     worker_start_authority: WorkerStartAuthority
     worker_start_admission: dict[str, Any]
+    updated_at: str
+
+
+class WorkerRunAuthority(WorkerDispatchAuthority):
+    """Authority flags for governed worker dispatcher execution admission."""
+
+    executes_adapters: bool = False
+    completes_tasks: bool = False
+    fails_tasks: bool = False
+    read_only: bool = False
+
+
+class WorkerRunReceipt(BaseModel):
+    """Durable receipt for one governed dispatcher execution admission."""
+
+    task_id: str
+    tenant_id: str
+    mission_id: str
+    previous_task_state: Literal["running"] = "running"
+    current_task_state: Literal["completed", "failed", "dead_lettered"] | str
+    worker_lease_id: str | None = None
+    lease_scope: dict[str, str]
+    run_source: Literal["worker_run_admission"] = "worker_run_admission"
+    task_type: str
+    handler_name: str | None = None
+    handler_key: str | None = None
+    started_from_admission_at: str | None = None
+    executed_at: str
+    completed_at: str | None = None
+    failed_at: str | None = None
+    result_summary: dict[str, Any] = Field(default_factory=dict)
+    error_summary: dict[str, Any] | None = None
+    idempotency_status: Literal[
+        "newly_executed",
+        "already_completed_by_current_run_admission",
+        "already_failed_by_current_run_admission",
+        "blocked",
+    ]
+
+
+class WorkerRunAdmissionRead(BaseModel):
+    """Tenant-scoped worker dispatcher execution admission response and readback."""
+
+    mission_id: UUID
+    tenant_id: str
+    run_admission_status: WorkerRunAdmissionStatus
+    executed_task_ids: list[str]
+    completed_task_ids: list[str]
+    failed_task_ids: list[str]
+    already_completed_task_ids: list[str]
+    already_failed_task_ids: list[str]
+    skipped_task_ids: list[str]
+    blocked_task_ids: list[str]
+    run_receipts: list[WorkerRunReceipt]
+    blockers: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+    worker_run_authority: WorkerRunAuthority
+    worker_run_admission: dict[str, Any]
     updated_at: str
 
 
@@ -4660,6 +4722,593 @@ def _build_worker_start_admission(
     return _worker_start_admission_to_read(mission_id=mission_id, tenant_id=tenant_id_str, admission=admission)
 
 
+def _worker_run_admission_authority_flags(
+    *, read_only: bool = False, completes_tasks: bool = False, fails_tasks: bool = False
+) -> WorkerRunAuthority:
+    return WorkerRunAuthority(
+        creates_worker_leases=False,
+        claims_tasks=False,
+        starts_execution=False,
+        dispatches_workers=not read_only,
+        executes_handlers=not read_only,
+        executes_adapters=False,
+        enqueues_work=False,
+        completes_tasks=not read_only and completes_tasks,
+        fails_tasks=not read_only and fails_tasks,
+        mutates_runtime_state=not read_only,
+        read_only=read_only,
+    )
+
+
+def _run_admission_blocker(
+    *,
+    task_id: UUID | str | None,
+    code: str,
+    message: str,
+    state: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    item: dict[str, Any] = {"task_id": str(task_id) if task_id is not None else None, "code": code, "message": message}
+    if state is not None:
+        item["state"] = state
+    if details:
+        item["details"] = details
+    return item
+
+
+def _run_admission_status(
+    *,
+    completed: list[str],
+    already_completed: list[str],
+    failed: list[str],
+    already_failed: list[str],
+    blocked: list[str],
+    blockers: list[dict[str, Any]],
+) -> WorkerRunAdmissionStatus:
+    successful_count = len(completed) + len(already_completed)
+    failed_count = len(failed) + len(already_failed)
+    blocked_count = len(blocked) + len(blockers)
+    if successful_count and (failed_count or blocked_count):
+        return "partially_completed"
+    if successful_count:
+        return "completed"
+    if failed_count:
+        return "failed"
+    return "blocked"
+
+
+def _worker_run_admission_to_read(
+    *, mission_id: UUID, tenant_id: str, admission: dict[str, Any], read_only: bool = False
+) -> WorkerRunAdmissionRead:
+    authority = _worker_run_admission_authority_flags(
+        read_only=read_only,
+        completes_tasks=bool(admission.get("completed_task_ids")),
+        fails_tasks=bool(admission.get("failed_task_ids")),
+    )
+    if read_only:
+        admission = {
+            **admission,
+            "runtime_authority": authority.model_dump(),
+        }
+    return WorkerRunAdmissionRead(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        run_admission_status=admission.get("admission_status", "blocked"),
+        executed_task_ids=list(admission.get("executed_task_ids") or []),
+        completed_task_ids=list(admission.get("completed_task_ids") or []),
+        failed_task_ids=list(admission.get("failed_task_ids") or []),
+        already_completed_task_ids=list(admission.get("already_completed_task_ids") or []),
+        already_failed_task_ids=list(admission.get("already_failed_task_ids") or []),
+        skipped_task_ids=list(admission.get("skipped_task_ids") or []),
+        blocked_task_ids=list(admission.get("blocked_task_ids") or []),
+        run_receipts=list(admission.get("run_receipts") or []),
+        blockers=list(admission.get("blockers") or []),
+        warnings=list(admission.get("warnings") or []),
+        worker_run_authority=authority,
+        worker_run_admission=admission,
+        updated_at=str(admission.get("updated_at")),
+    )
+
+
+def _missing_worker_run_admission(*, mission_id: UUID, tenant_id: str) -> WorkerRunAdmissionRead:
+    now = datetime.now(UTC).isoformat()
+    admission = {
+        "schema_version": MISSION_WORKER_RUN_ADMISSION_SCHEMA_VERSION,
+        "mission_id": str(mission_id),
+        "tenant_id": tenant_id,
+        "admission_status": "blocked",
+        "admission_version": None,
+        "executed_task_ids": [],
+        "completed_task_ids": [],
+        "failed_task_ids": [],
+        "already_completed_task_ids": [],
+        "already_failed_task_ids": [],
+        "skipped_task_ids": [],
+        "blocked_task_ids": [],
+        "run_receipts": [],
+        "blockers": [
+            _run_admission_blocker(
+                task_id=None,
+                code="worker_run_admission_missing",
+                message="Mission has no worker dispatcher execution admission metadata.",
+            )
+        ],
+        "warnings": [],
+        "runtime_authority": _worker_run_admission_authority_flags(read_only=True).model_dump(),
+        "updated_at": now,
+    }
+    return _worker_run_admission_to_read(
+        mission_id=mission_id, tenant_id=tenant_id, admission=admission, read_only=True
+    )
+
+
+def _run_receipt_with_idempotency(receipt: dict[str, Any], idempotency_status: str) -> dict[str, Any]:
+    return {**receipt, "idempotency_status": idempotency_status}
+
+
+def _run_receipt(
+    *,
+    task: ExecutionTask,
+    current_state: str,
+    lease: WorkerLease,
+    task_type: str,
+    handler_key: str | None,
+    started_from_admission_at: str | None,
+    executed_at: str,
+    idempotency_status: str,
+    error_reason: str | None = None,
+) -> dict[str, Any]:
+    terminal_at_key = "completed_at" if current_state == ExecutionTaskState.COMPLETED.value else "failed_at"
+    receipt: dict[str, Any] = {
+        "task_id": str(task.id),
+        "tenant_id": task.tenant_id,
+        "mission_id": str(task.mission_id),
+        "previous_task_state": ExecutionTaskState.RUNNING.value,
+        "current_task_state": current_state,
+        "worker_lease_id": str(lease.id),
+        "lease_scope": {"tenant_id": task.tenant_id, "mission_id": str(task.mission_id), "task_id": str(task.id)},
+        "run_source": "worker_run_admission",
+        "task_type": task_type,
+        "handler_name": handler_key,
+        "handler_key": handler_key,
+        "started_from_admission_at": started_from_admission_at,
+        "executed_at": executed_at,
+        "completed_at": executed_at if terminal_at_key == "completed_at" else None,
+        "failed_at": executed_at if terminal_at_key == "failed_at" else None,
+        "result_summary": {
+            "dispatcher_invoked": idempotency_status == "newly_executed",
+            "terminal_state": current_state,
+            "task_type": task_type,
+        },
+        "error_summary": None,
+        "idempotency_status": idempotency_status,
+    }
+    if error_reason:
+        receipt["error_summary"] = {"message": error_reason[:500], "type": "handler_or_runtime_failure"}
+    return receipt
+
+
+def _build_worker_run_session_factory(db: Session) -> sessionmaker[Any]:
+    bind = db.get_bind()
+    return sessionmaker(bind=bind, expire_on_commit=False)
+
+
+def _dispatch_worker_run_task(
+    *, db: Session, queue: QueueAdapter, tenant_id: str, worker_id: str, task_id: UUID, lease_id: UUID
+) -> None:
+    dispatcher = task_dispatcher.TaskDispatcher(
+        session_factory=_build_worker_run_session_factory(db),
+        queue=queue,
+        worker_id=worker_id,
+        tenant_id=tenant_id,
+    )
+    dispatcher.execute(task_id=task_id, lease_id=lease_id)
+
+
+def _handler_key_for_task_type(task_type: str) -> str | None:
+    if task_type in task_dispatcher._HANDLER_REGISTRY:
+        return task_type
+    if "default" in task_dispatcher._HANDLER_REGISTRY:
+        return "default"
+    return None
+
+
+def _build_worker_run_admission(
+    *, mission_id: UUID, tenant_id: _uuid.UUID, db: Session, request: Request, queue: QueueAdapter
+) -> WorkerRunAdmissionRead:
+    tenant_id_str = str(tenant_id)
+    mission_repo = MissionRepository(db)
+    mission = mission_repo.lock_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    metadata = dict(mission.metadata_json or {})
+    start_admission = metadata.get(MISSION_WORKER_START_ADMISSION_METADATA_KEY)
+    existing_run = metadata.get(MISSION_WORKER_RUN_ADMISSION_METADATA_KEY)
+    if not isinstance(existing_run, dict):
+        existing_run = {}
+    existing_run_receipts = {
+        str(receipt.get("task_id")): receipt
+        for receipt in existing_run.get("run_receipts") or []
+        if isinstance(receipt, dict) and receipt.get("task_id") is not None
+    }
+    existing_terminal_ids = {
+        task_id
+        for task_id, receipt in existing_run_receipts.items()
+        if receipt.get("idempotency_status")
+        in {
+            "newly_executed",
+            "already_completed_by_current_run_admission",
+            "already_failed_by_current_run_admission",
+        }
+    }
+    now = datetime.now(UTC).isoformat()
+    admitted_by = (
+        request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_run_admission"
+    )
+
+    task_repo = ExecutionTaskRepository(db)
+    lease_repo = WorkerLeaseRepository(db)
+    tasks_by_id = {str(task.id): task for task in task_repo.list_for_mission(mission_id=mission_id)}
+
+    executed_task_ids: list[str] = []
+    completed_task_ids: list[str] = []
+    failed_task_ids: list[str] = []
+    already_completed_task_ids: list[str] = []
+    already_failed_task_ids: list[str] = []
+    skipped_task_ids: list[str] = []
+    blocked_task_ids: list[str] = []
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    receipts: list[dict[str, Any]] = []
+
+    if not isinstance(start_admission, dict):
+        blockers.append(
+            _run_admission_blocker(
+                task_id=None,
+                code="worker_start_admission_missing",
+                message="Worker dispatcher execution admission requires current worker execution start admission metadata.",
+            )
+        )
+        started_task_ids: list[str] = []
+        start_receipts: dict[str, dict[str, Any]] = {}
+    else:
+        start_status = start_admission.get("admission_status")
+        if start_status not in {"admitted", "partially_admitted"}:
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=None,
+                    code="worker_start_admission_not_admitted",
+                    message="Worker dispatcher execution admission requires admitted or partially admitted starts.",
+                    details={"start_admission_status": str(start_status)},
+                )
+            )
+            started_task_ids = []
+            start_receipts = {}
+        else:
+            started_task_ids = [str(task_id) for task_id in start_admission.get("started_task_ids") or []]
+            start_receipts = {
+                str(receipt.get("task_id")): receipt
+                for receipt in start_admission.get("start_receipts") or []
+                if isinstance(receipt, dict) and receipt.get("task_id") is not None
+            }
+            if not started_task_ids:
+                blockers.append(
+                    _run_admission_blocker(
+                        task_id=None,
+                        code="worker_start_admission_empty",
+                        message="Worker start admission has no durable started_task_ids to run.",
+                    )
+                )
+
+    holder_identity = f"worker_claim_admission:{tenant_id_str}:{mission_id}"
+    for task_id in sorted(dict.fromkeys(started_task_ids)):
+        task = tasks_by_id.get(task_id)
+        start_receipt = start_receipts.get(task_id)
+        if start_receipt is None:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task_id,
+                    code="worker_start_receipt_missing",
+                    message="Started task is missing a durable worker start receipt.",
+                )
+            )
+            continue
+        if task is None:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task_id,
+                    code="run_task_unavailable",
+                    message="Started task is unavailable at worker run admission time.",
+                )
+            )
+            continue
+        if task.tenant_id != tenant_id_str or task.mission_id != mission_id:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="run_task_scope_mismatch",
+                    message="Run candidate is not owned by this tenant and mission.",
+                    state=task.status,
+                )
+            )
+            continue
+        task_type = _task_type_for_claim(task)
+        if not task_type:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="run_task_missing_task_type",
+                    message="Worker run admission requires explicit non-empty task_type metadata.",
+                    state=task.status,
+                )
+            )
+            continue
+        task_metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        expected_lease_id = str(task_metadata.get("worker_lease_id") or _receipt_worker_lease_id(start_receipt))
+        if not expected_lease_id:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="worker_lease_id_missing",
+                    message="Worker run admission requires a worker_lease_id in task metadata or start receipt.",
+                    state=task.status,
+                )
+            )
+            continue
+        try:
+            lease_uuid = UUID(expected_lease_id)
+        except ValueError:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="worker_lease_id_invalid",
+                    message="Worker run admission requires a valid worker_lease_id.",
+                    state=task.status,
+                    details={"worker_lease_id": expected_lease_id},
+                )
+            )
+            continue
+        lease = lease_repo.get(lease_uuid)
+        existing_receipt = existing_run_receipts.get(task_id)
+        if isinstance(existing_receipt, dict) and task_id in existing_terminal_ids:
+            current_state = str(existing_receipt.get("current_task_state") or task.status)
+            if (
+                current_state == ExecutionTaskState.COMPLETED.value
+                and task.status == ExecutionTaskState.COMPLETED.value
+            ):
+                already_completed_task_ids.append(task_id)
+                receipts.append(
+                    _run_receipt_with_idempotency(existing_receipt, "already_completed_by_current_run_admission")
+                )
+                continue
+            if current_state in {
+                ExecutionTaskState.FAILED.value,
+                ExecutionTaskState.DEAD_LETTERED.value,
+            } and task.status in {
+                ExecutionTaskState.FAILED.value,
+                ExecutionTaskState.DEAD_LETTERED.value,
+            }:
+                already_failed_task_ids.append(task_id)
+                receipts.append(
+                    _run_receipt_with_idempotency(existing_receipt, "already_failed_by_current_run_admission")
+                )
+                continue
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="run_receipt_state_mismatch",
+                    message="Existing worker run receipt does not match current terminal task state.",
+                    state=task.status,
+                    details={"receipt_state": current_state},
+                )
+            )
+            continue
+        if lease is None:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="worker_lease_missing",
+                    message="Worker run admission requires an existing WorkerLease.",
+                    state=task.status,
+                    details={"worker_lease_id": expected_lease_id},
+                )
+            )
+            continue
+        if lease.tenant_id != tenant_id_str or lease.task_id != task.id:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="worker_lease_scope_mismatch",
+                    message="WorkerLease must belong to the same tenant and task as the run candidate.",
+                    state=task.status,
+                    details={"worker_lease_id": str(lease.id)},
+                )
+            )
+            continue
+        if lease.holder_identity != holder_identity:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="worker_lease_holder_mismatch",
+                    message="WorkerLease holder does not match current worker claim admission owner.",
+                    state=task.status,
+                    details={"worker_lease_id": str(lease.id), "holder_identity": lease.holder_identity},
+                )
+            )
+            continue
+        if lease.status != WorkerLeaseState.ACTIVE.value:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="worker_lease_inactive",
+                    message="Worker run admission requires an active WorkerLease.",
+                    state=task.status,
+                    details={"worker_lease_id": str(lease.id), "lease_status": lease.status},
+                )
+            )
+            continue
+        if task.status != ExecutionTaskState.RUNNING.value:
+            blocked_task_ids.append(task_id)
+            skipped_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="run_task_not_running",
+                    message="Worker run admission only executes current start-admitted running tasks.",
+                    state=task.status,
+                )
+            )
+            continue
+
+        handler_key = _handler_key_for_task_type(task_type)
+        executed_at = datetime.now(UTC).isoformat()
+        _dispatch_worker_run_task(
+            db=db,
+            queue=queue,
+            tenant_id=tenant_id_str,
+            worker_id=lease.holder_identity,
+            task_id=task.id,
+            lease_id=lease.id,
+        )
+        try:
+            db.refresh(task)
+            db.refresh(lease)
+        except Exception:
+            task = task_repo.get(task.id) or task
+            lease = lease_repo.get(lease.id) or lease
+        current_state = str(task.status)
+        executed_task_ids.append(task_id)
+        if current_state == ExecutionTaskState.COMPLETED.value:
+            completed_task_ids.append(task_id)
+            receipts.append(
+                _run_receipt(
+                    task=task,
+                    current_state=current_state,
+                    lease=lease,
+                    task_type=task_type,
+                    handler_key=handler_key,
+                    started_from_admission_at=str(start_receipt.get("started_at") or "") or None,
+                    executed_at=executed_at,
+                    idempotency_status="newly_executed",
+                )
+            )
+        elif current_state in {ExecutionTaskState.FAILED.value, ExecutionTaskState.DEAD_LETTERED.value}:
+            failed_task_ids.append(task_id)
+            reason = None
+            if isinstance(task.metadata_json, dict):
+                raw_reason = task.metadata_json.get("failure_reason")
+                reason = raw_reason if isinstance(raw_reason, str) else None
+            receipts.append(
+                _run_receipt(
+                    task=task,
+                    current_state=current_state,
+                    lease=lease,
+                    task_type=task_type,
+                    handler_key=handler_key,
+                    started_from_admission_at=str(start_receipt.get("started_at") or "") or None,
+                    executed_at=executed_at,
+                    idempotency_status="newly_executed",
+                    error_reason=reason or "dispatcher reported task failure",
+                )
+            )
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="handler_execution_failed",
+                    message="Dispatcher execution ended in a failed terminal task state.",
+                    state=current_state,
+                )
+            )
+        else:
+            blocked_task_ids.append(task_id)
+            blockers.append(
+                _run_admission_blocker(
+                    task_id=task.id,
+                    code="handler_execution_non_terminal",
+                    message="Dispatcher execution did not move the task to a supported terminal state.",
+                    state=current_state,
+                )
+            )
+
+    status = _run_admission_status(
+        completed=completed_task_ids,
+        already_completed=already_completed_task_ids,
+        failed=failed_task_ids,
+        already_failed=already_failed_task_ids,
+        blocked=list(dict.fromkeys(blocked_task_ids)),
+        blockers=blockers,
+    )
+    previous_version = existing_run.get("admission_version") if isinstance(existing_run, dict) else None
+    admission_version = int(previous_version or 0) + 1
+    admission = {
+        "schema_version": MISSION_WORKER_RUN_ADMISSION_SCHEMA_VERSION,
+        "mission_id": str(mission_id),
+        "tenant_id": tenant_id_str,
+        "admission_status": status,
+        "admission_version": admission_version,
+        "executed_task_ids": sorted(set(executed_task_ids) | (existing_terminal_ids & set(started_task_ids))),
+        "completed_task_ids": sorted(set(completed_task_ids) | set(already_completed_task_ids)),
+        "failed_task_ids": sorted(set(failed_task_ids) | set(already_failed_task_ids)),
+        "already_completed_task_ids": already_completed_task_ids,
+        "already_failed_task_ids": already_failed_task_ids,
+        "skipped_task_ids": list(dict.fromkeys(skipped_task_ids)),
+        "blocked_task_ids": list(dict.fromkeys(blocked_task_ids)),
+        "run_receipts": receipts,
+        "blockers": blockers,
+        "warnings": warnings,
+        "materialization_reference": start_admission.get("materialization_reference")
+        if isinstance(start_admission, dict)
+        else {},
+        "queue_admission_reference": start_admission.get("queue_admission_reference")
+        if isinstance(start_admission, dict)
+        else {},
+        "dispatch_readiness_summary": start_admission.get("dispatch_readiness_summary")
+        if isinstance(start_admission, dict)
+        else {},
+        "worker_dispatch_eligibility_summary": start_admission.get("worker_dispatch_eligibility_summary")
+        if isinstance(start_admission, dict)
+        else {},
+        "worker_claim_preview_reference": start_admission.get("worker_claim_preview_reference")
+        if isinstance(start_admission, dict)
+        else {},
+        "worker_claim_admission_reference": start_admission.get("worker_claim_admission_reference")
+        if isinstance(start_admission, dict)
+        else {},
+        "worker_start_admission_reference": {
+            "admission_status": start_admission.get("admission_status"),
+            "admission_version": start_admission.get("admission_version"),
+            "started_task_ids": start_admission.get("started_task_ids") or [],
+            "start_receipt_count": len(start_admission.get("start_receipts") or []),
+            "updated_at": start_admission.get("updated_at"),
+        }
+        if isinstance(start_admission, dict)
+        else {},
+        "run_admitted_by": admitted_by,
+        "run_admitted_at": existing_run.get("run_admitted_at") or now,
+        "updated_at": now,
+        "runtime_authority": _worker_run_admission_authority_flags(
+            read_only=False,
+            completes_tasks=bool(completed_task_ids),
+            fails_tasks=bool(failed_task_ids),
+        ).model_dump(),
+    }
+    metadata[MISSION_WORKER_RUN_ADMISSION_METADATA_KEY] = admission
+    mission_repo.update_metadata(mission=mission, metadata_json=metadata)
+    return _worker_run_admission_to_read(mission_id=mission_id, tenant_id=tenant_id_str, admission=admission)
+
+
 @router.post("/{mission_id}/worker-start-admission", response_model=WorkerStartAdmissionRead)
 def worker_start_admission(
     mission_id: UUID,
@@ -4688,6 +5337,39 @@ def read_mission_worker_start_admission(
     if not isinstance(admission, dict):
         return _missing_worker_start_admission(mission_id=mission_id, tenant_id=tenant_id_str)
     return _worker_start_admission_to_read(
+        mission_id=mission_id, tenant_id=tenant_id_str, admission=admission, read_only=True
+    )
+
+
+@router.post("/{mission_id}/worker-run-admission", response_model=WorkerRunAdmissionRead)
+def worker_run_admission(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
+) -> WorkerRunAdmissionRead:
+    """Execute start-admitted running tasks through the governed dispatcher bridge."""
+    return _build_worker_run_admission(mission_id=mission_id, tenant_id=tenant_id, db=db, request=request, queue=queue)
+
+
+@router.get("/{mission_id}/worker-run-admission", response_model=WorkerRunAdmissionRead)
+def read_mission_worker_run_admission(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> WorkerRunAdmissionRead:
+    """Read latest worker dispatcher execution admission metadata without mutating runtime state."""
+    tenant_id_str = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
+    admission = metadata.get(MISSION_WORKER_RUN_ADMISSION_METADATA_KEY)
+    if not isinstance(admission, dict):
+        return _missing_worker_run_admission(mission_id=mission_id, tenant_id=tenant_id_str)
+    return _worker_run_admission_to_read(
         mission_id=mission_id, tenant_id=tenant_id_str, admission=admission, read_only=True
     )
 
