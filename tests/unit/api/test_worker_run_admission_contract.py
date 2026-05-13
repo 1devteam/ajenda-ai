@@ -22,6 +22,7 @@ def _task(
     status: str = "running",
     task_type: object = "echo",
     lease_id: uuid.UUID | None = None,
+    retry_count: int = 0,
 ):
     metadata: dict[str, object] = {"runtime_task_type": "echo", "graph_node_key": "collect"}
     if task_type != "missing":
@@ -36,6 +37,7 @@ def _task(
         branch_id=None,
         status=status,
         metadata_json=metadata,
+        retry_count=retry_count,
     )
 
 
@@ -72,7 +74,8 @@ def _mission(
                 "lease_scope": {"tenant_id": tenant_id, "mission_id": str(mission_id), "task_id": str(task.id)},
                 "start_source": "worker_start_admission",
                 "task_type": task.metadata_json.get("task_type"),
-                "started_at": "2026-05-13T00:00:00+00:00",
+                "started_at": getattr(task, "started_at", "2026-05-13T00:00:00+00:00"),
+                "retry_count": getattr(task, "retry_count", 0),
                 "idempotency_status": "newly_started",
             }
         )
@@ -349,7 +352,10 @@ def _existing_run_receipt(
     lease: SimpleNamespace,
     current_state: str,
     idempotency_status: str = "newly_executed",
+    started_from_admission_at: str = "2026-05-13T00:00:00+00:00",
+    retry_count: int | None = None,
 ) -> dict[str, object]:
+    resolved_retry_count = getattr(task, "retry_count", 0) if retry_count is None else retry_count
     return {
         "task_id": str(task.id),
         "tenant_id": task.tenant_id,
@@ -363,7 +369,14 @@ def _existing_run_receipt(
         "task_type": task.metadata_json.get("task_type"),
         "handler_name": task.metadata_json.get("task_type"),
         "handler_key": task.metadata_json.get("task_type"),
-        "started_from_admission_at": "2026-05-13T00:00:00+00:00",
+        "started_from_admission_at": started_from_admission_at,
+        "retry_count": resolved_retry_count,
+        "attempt_identity": {
+            "task_id": str(task.id),
+            "worker_lease_id": str(lease.id),
+            "started_from_admission_at": started_from_admission_at,
+            "retry_count": resolved_retry_count,
+        },
         "executed_at": "2026-05-13T00:01:00+00:00",
         "completed_at": "2026-05-13T00:02:00+00:00" if current_state == ExecutionTaskState.COMPLETED.value else None,
         "failed_at": "2026-05-13T00:02:00+00:00"
@@ -378,9 +391,21 @@ def _existing_run_receipt(
 
 
 def _set_existing_run_admission(
-    *, mission: SimpleNamespace, task: SimpleNamespace, lease: SimpleNamespace, current_state: str
+    *,
+    mission: SimpleNamespace,
+    task: SimpleNamespace,
+    lease: SimpleNamespace,
+    current_state: str,
+    started_from_admission_at: str = "2026-05-13T00:00:00+00:00",
+    retry_count: int | None = None,
 ) -> dict[str, object]:
-    receipt = _existing_run_receipt(task=task, lease=lease, current_state=current_state)
+    receipt = _existing_run_receipt(
+        task=task,
+        lease=lease,
+        current_state=current_state,
+        started_from_admission_at=started_from_admission_at,
+        retry_count=retry_count,
+    )
     mission.metadata_json["worker_run_admission"] = {
         "schema_version": 1,
         "mission_id": str(mission.id),
@@ -598,3 +623,127 @@ def test_worker_run_admission_rechecks_nonterminal_prior_receipt_and_blocks_on_c
     assert result.blockers[0]["code"] == "run_task_not_running"
     assert result.blockers[0]["state"] == ExecutionTaskState.CLAIMED.value
     dispatcher_cls.return_value.execute.assert_not_called()
+
+
+def test_worker_run_admission_old_completed_receipt_does_not_skip_new_retry_attempt() -> None:
+    tenant_id = str(uuid.uuid4())
+    mission_id = uuid.uuid4()
+    holder = f"worker_claim_admission:{tenant_id}:{mission_id}"
+    task = _task(tenant_id=tenant_id, mission_id=mission_id, retry_count=1)
+    current_lease = _lease(tenant_id=tenant_id, task_id=task.id, mission_id=mission_id, holder=holder)
+    old_lease = _lease(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        mission_id=mission_id,
+        holder=holder,
+        status=WorkerLeaseState.RELEASED.value,
+    )
+    task.metadata_json["worker_lease_id"] = str(current_lease.id)
+    task.started_at = "2026-05-13T00:10:00+00:00"
+    mission = _mission(tenant_id=tenant_id, mission_id=mission_id, tasks=[task], leases=[current_lease])
+    old_receipt = _set_existing_run_admission(
+        mission=mission,
+        task=task,
+        lease=old_lease,
+        current_state=ExecutionTaskState.COMPLETED.value,
+        started_from_admission_at="2026-05-13T00:00:00+00:00",
+        retry_count=0,
+    )
+    mission_repo, task_repo, lease_repo = _repos(mission, [task], [current_lease, old_lease])
+    queue = _queue_with_task(tenant_id, mission_id, task.id)
+
+    def _execute(*, task_id: uuid.UUID, lease_id: uuid.UUID) -> None:
+        assert lease_id == current_lease.id
+        assert queue.complete_task(tenant_id=tenant_id, task_id=task_id, worker_id=holder).ok
+        task.status = ExecutionTaskState.COMPLETED.value
+        current_lease.status = WorkerLeaseState.RELEASED.value
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.WorkerLeaseRepository", return_value=lease_repo),
+        patch("backend.api.routes.mission.TaskDispatcher") as dispatcher_cls,
+    ):
+        dispatcher_cls.return_value.execute.side_effect = _execute
+        result = mission_module.worker_run_admission(
+            mission_id=mission_id,
+            request=_request(),
+            tenant_id=uuid.UUID(tenant_id),
+            db=MagicMock(),
+            queue=queue,
+        )
+
+    assert result.run_admission_status == "completed"
+    assert result.already_completed_task_ids == []
+    assert result.completed_task_ids == [str(task.id)]
+    assert result.run_receipts[0].worker_lease_id == str(current_lease.id)
+    assert result.run_receipts[0].retry_count == 1
+    assert mission.metadata_json["worker_run_admission"]["historical_run_receipts"] == [old_receipt]
+    dispatcher_cls.return_value.execute.assert_called_once_with(task_id=task.id, lease_id=current_lease.id)
+
+
+def test_worker_run_admission_old_failed_or_dead_lettered_receipt_does_not_skip_new_retry_attempt() -> None:
+    for old_terminal_state in (ExecutionTaskState.FAILED.value, ExecutionTaskState.DEAD_LETTERED.value):
+        tenant_id = str(uuid.uuid4())
+        mission_id = uuid.uuid4()
+        holder = f"worker_claim_admission:{tenant_id}:{mission_id}"
+        task = _task(tenant_id=tenant_id, mission_id=mission_id, retry_count=2)
+        current_lease = _lease(tenant_id=tenant_id, task_id=task.id, mission_id=mission_id, holder=holder)
+        old_lease = _lease(
+            tenant_id=tenant_id,
+            task_id=task.id,
+            mission_id=mission_id,
+            holder=holder,
+            status=WorkerLeaseState.RELEASED.value,
+        )
+        task.metadata_json["worker_lease_id"] = str(current_lease.id)
+        task.started_at = "2026-05-13T00:20:00+00:00"
+        mission = _mission(tenant_id=tenant_id, mission_id=mission_id, tasks=[task], leases=[current_lease])
+        old_receipt = _set_existing_run_admission(
+            mission=mission,
+            task=task,
+            lease=old_lease,
+            current_state=old_terminal_state,
+            started_from_admission_at="2026-05-13T00:10:00+00:00",
+            retry_count=1,
+        )
+        mission_repo, task_repo, lease_repo = _repos(mission, [task], [current_lease, old_lease])
+        queue = _queue_with_task(tenant_id, mission_id, task.id)
+
+        def _execute(
+            *,
+            task_id: uuid.UUID,
+            lease_id: uuid.UUID,
+            current_lease=current_lease,
+            queue=queue,
+            tenant_id=tenant_id,
+            holder=holder,
+            task=task,
+        ) -> None:
+            assert lease_id == current_lease.id
+            assert queue.complete_task(tenant_id=tenant_id, task_id=task_id, worker_id=holder).ok
+            task.status = ExecutionTaskState.COMPLETED.value
+            current_lease.status = WorkerLeaseState.RELEASED.value
+
+        with (
+            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission.WorkerLeaseRepository", return_value=lease_repo),
+            patch("backend.api.routes.mission.TaskDispatcher") as dispatcher_cls,
+        ):
+            dispatcher_cls.return_value.execute.side_effect = _execute
+            result = mission_module.worker_run_admission(
+                mission_id=mission_id,
+                request=_request(),
+                tenant_id=uuid.UUID(tenant_id),
+                db=MagicMock(),
+                queue=queue,
+            )
+
+        assert result.run_admission_status == "completed"
+        assert result.already_failed_task_ids == []
+        assert result.completed_task_ids == [str(task.id)]
+        assert result.run_receipts[0].worker_lease_id == str(current_lease.id)
+        assert result.run_receipts[0].retry_count == 2
+        assert mission.metadata_json["worker_run_admission"]["historical_run_receipts"] == [old_receipt]
+        dispatcher_cls.return_value.execute.assert_called_once_with(task_id=task.id, lease_id=current_lease.id)

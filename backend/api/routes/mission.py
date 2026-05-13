@@ -1027,6 +1027,8 @@ class WorkerRunReceipt(BaseModel):
     handler_name: str | None = None
     handler_key: str | None = None
     started_from_admission_at: str | None = None
+    retry_count: int | None = None
+    attempt_identity: dict[str, Any] = Field(default_factory=dict)
     executed_at: str
     completed_at: str | None = None
     failed_at: str | None = None
@@ -4918,6 +4920,62 @@ def _missing_worker_run_admission(*, mission_id: UUID, tenant_id: str) -> Worker
     )
 
 
+def _run_attempt_identity(
+    *, task_id: UUID | str, worker_lease_id: str | None, started_from_admission_at: str | None, retry_count: int | None
+) -> dict[str, Any]:
+    return {
+        "task_id": str(task_id),
+        "worker_lease_id": worker_lease_id,
+        "started_from_admission_at": started_from_admission_at,
+        "retry_count": retry_count,
+    }
+
+
+def _retry_count_for_run_attempt(task: ExecutionTask, start_receipt: dict[str, Any]) -> int | None:
+    raw_retry_count = start_receipt.get("retry_count")
+    if raw_retry_count is None:
+        raw_retry_count = getattr(task, "retry_count", None)
+    if raw_retry_count is None:
+        task_metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        raw_retry_count = task_metadata.get("retry_count")
+    if raw_retry_count is None:
+        return None
+    try:
+        return int(raw_retry_count)
+    except (TypeError, ValueError):
+        return None
+
+
+def _run_receipt_matches_attempt(
+    *,
+    receipt: dict[str, Any],
+    task_id: str,
+    worker_lease_id: str,
+    started_from_admission_at: str | None,
+    retry_count: int | None,
+) -> bool:
+    if str(receipt.get("task_id") or "") != task_id:
+        return False
+    if str(receipt.get("worker_lease_id") or "") != worker_lease_id:
+        return False
+    receipt_started_at = receipt.get("started_from_admission_at")
+    raw_attempt_identity = receipt.get("attempt_identity")
+    attempt_identity: dict[str, Any] = raw_attempt_identity if isinstance(raw_attempt_identity, dict) else {}
+    if receipt_started_at is None:
+        receipt_started_at = attempt_identity.get("started_from_admission_at")
+    if str(receipt_started_at or "") != str(started_from_admission_at or ""):
+        return False
+    receipt_retry_count = receipt.get("retry_count")
+    if receipt_retry_count is None:
+        receipt_retry_count = attempt_identity.get("retry_count")
+    if receipt_retry_count is None or retry_count is None:
+        return True
+    try:
+        return int(receipt_retry_count) == int(retry_count)
+    except (TypeError, ValueError):
+        return False
+
+
 def _run_receipt(
     *,
     task: ExecutionTask,
@@ -4927,6 +4985,7 @@ def _run_receipt(
     queue_claim: dict[str, Any],
     task_type: str,
     started_from_admission_at: str | None,
+    retry_count: int | None,
     executed_at: str,
     completed_at: str | None = None,
     failed_at: str | None = None,
@@ -4953,6 +5012,13 @@ def _run_receipt(
         "handler_name": task_type,
         "handler_key": task_type,
         "started_from_admission_at": started_from_admission_at,
+        "retry_count": retry_count,
+        "attempt_identity": _run_attempt_identity(
+            task_id=task.id,
+            worker_lease_id=str(lease.id) if lease is not None else None,
+            started_from_admission_at=started_from_admission_at,
+            retry_count=retry_count,
+        ),
         "executed_at": executed_at,
         "completed_at": completed_at,
         "failed_at": failed_at,
@@ -4976,11 +5042,11 @@ def _build_worker_run_admission(
     existing_run = metadata.get(MISSION_WORKER_RUN_ADMISSION_METADATA_KEY)
     if not isinstance(existing_run, dict):
         existing_run = {}
-    existing_receipts = {
-        str(receipt.get("task_id")): dict(receipt)
-        for receipt in existing_run.get("run_receipts") or []
+    prior_run_receipts = [
+        dict(receipt)
+        for receipt in [*(existing_run.get("historical_run_receipts") or []), *(existing_run.get("run_receipts") or [])]
         if isinstance(receipt, dict) and receipt.get("task_id") is not None
-    }
+    ]
     now = datetime.now(UTC).isoformat()
     admitted_by = (
         request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_run_admission"
@@ -5044,26 +5110,9 @@ def _build_worker_run_admission(
     holder_identity = f"worker_claim_admission:{tenant_id_str}:{mission_id}"
     dispatcher_session_factory = _tenant_aware_dispatcher_session_factory(request=request, tenant_id=tenant_id_str)
 
-    for task_id in sorted(dict.fromkeys(started_task_ids)):
-        existing_receipt = existing_receipts.get(task_id)
-        if existing_receipt and existing_receipt.get("idempotency_status") in {
-            "newly_executed",
-            "already_completed_by_current_run_admission",
-            "already_failed_by_current_run_admission",
-        }:
-            terminal_state = str(existing_receipt.get("current_task_state") or "")
-            copied = dict(existing_receipt)
-            if terminal_state == ExecutionTaskState.COMPLETED.value:
-                already_completed_task_ids.append(task_id)
-                copied["idempotency_status"] = "already_completed_by_current_run_admission"
-                run_receipts.append(copied)
-                continue
-            if terminal_state in {ExecutionTaskState.FAILED.value, ExecutionTaskState.DEAD_LETTERED.value}:
-                already_failed_task_ids.append(task_id)
-                copied["idempotency_status"] = "already_failed_by_current_run_admission"
-                run_receipts.append(copied)
-                continue
+    historical_run_receipts = [dict(receipt) for receipt in prior_run_receipts]
 
+    for task_id in sorted(dict.fromkeys(started_task_ids)):
         task = tasks_by_id.get(task_id)
         start_receipt = start_receipts.get(task_id)
         if start_receipt is None:
@@ -5136,6 +5185,49 @@ def _build_worker_run_admission(
                 )
             )
             continue
+
+        started_from_admission_at = str(start_receipt.get("started_at")) if start_receipt.get("started_at") else None
+        retry_count = _retry_count_for_run_attempt(task, start_receipt)
+        existing_receipt = next(
+            (
+                receipt
+                for receipt in prior_run_receipts
+                if receipt.get("idempotency_status")
+                in {
+                    "newly_executed",
+                    "already_completed_by_current_run_admission",
+                    "already_failed_by_current_run_admission",
+                }
+                and _run_receipt_matches_attempt(
+                    receipt=receipt,
+                    task_id=task_id,
+                    worker_lease_id=expected_lease_id,
+                    started_from_admission_at=started_from_admission_at,
+                    retry_count=retry_count,
+                )
+            ),
+            None,
+        )
+        if existing_receipt is not None:
+            terminal_state = str(existing_receipt.get("current_task_state") or "")
+            copied = dict(existing_receipt)
+            if terminal_state == ExecutionTaskState.COMPLETED.value:
+                already_completed_task_ids.append(task_id)
+                copied["idempotency_status"] = "already_completed_by_current_run_admission"
+                run_receipts.append(copied)
+                historical_run_receipts = [
+                    receipt for receipt in historical_run_receipts if receipt != existing_receipt
+                ]
+                continue
+            if terminal_state in {ExecutionTaskState.FAILED.value, ExecutionTaskState.DEAD_LETTERED.value}:
+                already_failed_task_ids.append(task_id)
+                copied["idempotency_status"] = "already_failed_by_current_run_admission"
+                run_receipts.append(copied)
+                historical_run_receipts = [
+                    receipt for receipt in historical_run_receipts if receipt != existing_receipt
+                ]
+                continue
+
         lease = lease_repo.get(lease_uuid)
         if lease is None:
             blocked_task_ids.append(task_id)
@@ -5245,7 +5337,8 @@ def _build_worker_run_admission(
             lease=refreshed_lease,
             queue_claim=queue_claim,
             task_type=task_type,
-            started_from_admission_at=str(start_receipt.get("started_at")) if start_receipt.get("started_at") else None,
+            started_from_admission_at=started_from_admission_at,
+            retry_count=retry_count,
             executed_at=executed_at,
             completed_at=terminal_at if current_state == ExecutionTaskState.COMPLETED.value else None,
             failed_at=terminal_at
@@ -5297,6 +5390,7 @@ def _build_worker_run_admission(
         "skipped_task_ids": list(dict.fromkeys(skipped_task_ids)),
         "blocked_task_ids": list(dict.fromkeys(blocked_task_ids)),
         "run_receipts": run_receipts,
+        "historical_run_receipts": historical_run_receipts,
         "blockers": blockers,
         "warnings": warnings,
         "queue_claim_receipts": queue_claim_receipts,
