@@ -4,17 +4,18 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base
-from backend.domain.enums import MissionState
+from backend.domain.enums import MissionPlanStatus, MissionState
 
 MISSION_INTAKE_METADATA_KEY = "mission_intake"
 MISSION_INTAKE_SCHEMA_VERSION = 1
 MISSION_PLAN_METADATA_KEY = "mission_plan"
 MISSION_PLAN_SCHEMA_VERSION = 1
+MISSION_PLAN_CONTRACT_SCHEMA_VERSION = 1
 MISSION_TASK_GRAPH_METADATA_KEY = "mission_task_graph"
 MISSION_TASK_GRAPH_SCHEMA_VERSION = 1
 MISSION_GRAPH_MATERIALIZATION_METADATA_KEY = "graph_materialization"
@@ -110,6 +111,38 @@ def build_mission_plan_metadata(
             "risk_annotations": risk_annotations,
         }
     }
+
+
+def build_mission_plan_contract_metadata(
+    *,
+    objectives: list[str] | None = None,
+    constraints: list[str] | None = None,
+    assumptions: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
+    planned_steps: list[dict[str, Any]] | None = None,
+    risk_notes: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build the durable mission planning contract metadata envelope.
+
+    This contract is intentionally data-only. It bridges mission intake to a
+    future task graph layer without creating execution tasks, enqueueing work,
+    dispatching workers, or mutating runtime leases. Defaults are deterministic
+    so omitted optional fields serialize identically across requests.
+    """
+    return {
+        "schema_version": MISSION_PLAN_CONTRACT_SCHEMA_VERSION,
+        "objectives": list(objectives or []),
+        "constraints": list(constraints or []),
+        "assumptions": list(assumptions or []),
+        "acceptance_criteria": list(acceptance_criteria or []),
+        "planned_steps": [dict(step) for step in planned_steps or []],
+        "risk_notes": list(risk_notes or []),
+    }
+
+
+def mission_plan_active_statuses() -> tuple[str, ...]:
+    """Return statuses that represent the one active plan slot for a mission."""
+    return (MissionPlanStatus.DRAFT.value, MissionPlanStatus.READY.value)
 
 
 def build_mission_task_graph_metadata(
@@ -245,6 +278,33 @@ class Mission(Base):
     compliance_category: Mapped[str] = mapped_column(String(64), nullable=False, default="operational")
     jurisdiction: Mapped[str] = mapped_column(String(64), nullable=False, default="US-ALL")
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
+class MissionPlan(Base):
+    __tablename__ = "mission_plans"
+    __table_args__ = (
+        Index("ix_mission_plans_tenant_id", "tenant_id"),
+        Index("ix_mission_plans_mission_id", "mission_id"),
+        Index("ix_mission_plans_mission_tenant", "mission_id", "tenant_id"),
+        Index(
+            "uq_mission_plans_active_mission_tenant",
+            "tenant_id",
+            "mission_id",
+            unique=True,
+            postgresql_where=text("status IN ('draft', 'ready')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    mission_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("missions.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=MissionPlanStatus.DRAFT.value)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    schema_version: Mapped[int] = mapped_column(nullable=False, default=MISSION_PLAN_CONTRACT_SCHEMA_VERSION)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow

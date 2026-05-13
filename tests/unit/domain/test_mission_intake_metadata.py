@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from backend.domain.mission import (
     MISSION_INTAKE_METADATA_KEY,
     MISSION_PLAN_METADATA_KEY,
@@ -192,3 +194,51 @@ def test_build_mission_task_graph_metadata_preserves_first_class_graph_fields() 
         "operator_notes": "Contract only.",
         "validation_metadata": {"validation_status": "valid", "node_count": 1, "edge_count": 0},
     }
+
+
+def test_build_mission_plan_contract_metadata_defaults_are_deterministic_and_json_safe() -> None:
+    from backend.domain.mission import build_mission_plan_contract_metadata
+
+    metadata = build_mission_plan_contract_metadata()
+
+    assert metadata == {
+        "schema_version": 1,
+        "objectives": [],
+        "constraints": [],
+        "assumptions": [],
+        "acceptance_criteria": [],
+        "planned_steps": [],
+        "risk_notes": [],
+    }
+    assert json.loads(json.dumps(metadata)) == metadata
+
+
+def test_mission_plan_status_values_are_explicit() -> None:
+    from backend.domain.enums import MissionPlanStatus
+
+    assert [status.value for status in MissionPlanStatus] == ["draft", "ready", "superseded", "cancelled"]
+
+
+def test_mission_plan_contract_metadata_preserves_json_safe_planned_steps() -> None:
+    from backend.domain.mission import build_mission_plan_contract_metadata
+
+    metadata = build_mission_plan_contract_metadata(
+        objectives=["Recover stale opportunities."],
+        constraints=["No customer contact."],
+        assumptions=["CRM data is current."],
+        acceptance_criteria=["Recommendations include rationale."],
+        planned_steps=[
+            {
+                "sequence": 1,
+                "title": "Collect signals",
+                "description": "Read approved CRM fields.",
+                "depends_on": [],
+                "expected_output": "Signal summary",
+                "metadata": {"source": "crm"},
+            }
+        ],
+        risk_notes=["Outbound communication requires later approval."],
+    )
+
+    assert metadata["planned_steps"][0]["sequence"] == 1
+    assert json.loads(json.dumps(metadata)) == metadata

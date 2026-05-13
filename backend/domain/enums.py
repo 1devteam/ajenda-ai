@@ -40,6 +40,13 @@ class MissionState(StrEnum):
     ARCHIVED = "archived"
 
 
+class MissionPlanStatus(StrEnum):
+    DRAFT = "draft"
+    READY = "ready"
+    SUPERSEDED = "superseded"
+    CANCELLED = "cancelled"
+
+
 class ExecutionTaskState(StrEnum):
     PLANNED = "planned"
     QUEUED = "queued"
