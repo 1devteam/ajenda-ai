@@ -364,24 +364,18 @@ Capability registry remains a contract layer only. Persisting or updating a capa
 
 ## Task Graph Contracts V1
 
-Task graph contracts now define durable, tenant-scoped planned work structure between mission planning and future materialization/execution. `PUT /v1/missions/{mission_id}/task-graph` creates or replaces a graph contract, and `GET /v1/missions/{mission_id}/task-graph` reads it back through the same tenant-scoped mission repository boundary. The graph is persisted additively in `Mission.metadata_json["mission_task_graph"]` with `schema_version = 1`.
+Task graph contracts now define durable, tenant-scoped planned work structure between mission planning and future materialization/execution. `POST /v1/missions/{mission_id}/task-graph` and `PUT /v1/missions/{mission_id}/task-graph` share one full-replacement write path, and `GET /v1/missions/{mission_id}/task-graph` reads the normalized contract back through the same tenant-scoped mission repository boundary. The graph is persisted additively and only in `Mission.metadata_json["mission_task_graph"]` with `schema_version = 1`.
 
 First-class in this block:
 
-- graph status and schema version;
-- mission identifier binding;
-- graph nodes;
-- graph edges/dependencies;
-- node capability references;
-- node intended task type;
-- node input and expected output contracts;
-- node risk level and approval requirement;
-- node execution constraints;
-- operator notes;
-- graph validation metadata;
-- graph version and immutable graph fingerprint for downstream materialization references.
+- `schema_version = 1` and `graph_status = "draft"`;
+- graph nodes keyed by non-empty unique `node_key` values;
+- graph edges from prerequisite `from_node_key` to dependent `to_node_key`;
+- one capability reference per node, requiring `capability_id` or `name`;
+- node input and output contracts;
+- node and edge metadata plus graph-level metadata.
 
-Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects duplicate node keys, rejects edges pointing to missing nodes, and rejects cycles, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
+Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects unsupported fields, rejects duplicate or empty node keys, rejects edges pointing to missing nodes, rejects self-edges, rejects cycles, rejects unsupported schema versions, and rejects non-JSON-safe metadata/contracts. Writes are deterministic and idempotent: when the normalized incoming graph equals the normalized stored graph, mission metadata is not updated; otherwise only the `mission_task_graph` metadata key is replaced and unrelated mission metadata is preserved. Reads fail closed with 409 when stored graph metadata is invalid. Persisting or reading a graph does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, mutate worker leases, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
 
 ## Planner-to-Graph Materialization V1 Contracts
 
