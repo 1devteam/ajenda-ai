@@ -369,13 +369,13 @@ Task graph contracts now define durable, tenant-scoped planned work structure be
 First-class in this block:
 
 - `schema_version = 1` and `graph_status = "draft"`;
-- graph nodes keyed by non-empty unique `node_key` values;
+- graph nodes keyed by non-empty unique `node_key` values and currently also echoing legacy-compatible `key` with the same value;
 - graph edges from prerequisite `from_node_key` to dependent `to_node_key`;
 - one capability reference per node, requiring `capability_id` or `name`;
 - node input and output contracts;
 - node and edge metadata plus graph-level metadata.
 
-Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects unsupported fields, rejects duplicate or empty node keys, rejects edges pointing to missing nodes, rejects self-edges, rejects cycles, rejects unsupported schema versions, and rejects non-JSON-safe metadata/contracts. Writes are deterministic and idempotent: when the normalized incoming graph equals the normalized stored graph, mission metadata is not updated; otherwise only the `mission_task_graph` metadata key is replaced and unrelated mission metadata is preserved. Reads fail closed with 409 when stored graph metadata is invalid. Persisting or reading a graph does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, mutate worker leases, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
+Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects unsupported fields, rejects duplicate or empty node keys, rejects edges pointing to missing nodes, rejects self-edges, rejects cycles, rejects unsupported schema versions, and rejects non-JSON-safe metadata/contracts. Writes are deterministic and idempotent: when the normalized incoming graph equals the normalized stored graph, mission metadata is not updated; otherwise only the `mission_task_graph` metadata key is replaced and unrelated mission metadata is preserved. Reads fail closed with 409 when stored graph metadata is invalid, while legacy schema_version=1 graphs produced by the prior writer are adapted into the normalized response shape so existing mission metadata remains readable. Persisting or reading a graph does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, mutate worker leases, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
 
 ## Planner-to-Graph Materialization V1 Contracts
 

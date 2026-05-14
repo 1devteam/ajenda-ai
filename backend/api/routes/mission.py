@@ -1672,7 +1672,7 @@ def _mission_task_graph_to_read(mission: Mission) -> MissionTaskGraphRead:
     if not isinstance(task_graph, dict):
         raise HTTPException(status_code=409, detail="mission task graph metadata must be an object")
     try:
-        normalized = normalize_mission_task_graph_contract_metadata(task_graph)
+        normalized = normalize_mission_task_graph_contract_metadata(task_graph, allow_legacy_v1=True)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return MissionTaskGraphRead.model_validate(normalized)
@@ -1701,7 +1701,7 @@ def _mission_lifecycle_to_read(
     normalized_task_graph: dict[str, Any] | None = None
     if task_graph is not None:
         try:
-            normalized_task_graph = normalize_mission_task_graph_contract_metadata(task_graph)
+            normalized_task_graph = normalize_mission_task_graph_contract_metadata(task_graph, allow_legacy_v1=True)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
     materialization = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
@@ -1988,7 +1988,9 @@ def _write_mission_task_graph(
     existing_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
     if existing_graph is not None:
         try:
-            normalized_existing_graph = normalize_mission_task_graph_contract_metadata(existing_graph)
+            normalized_existing_graph = normalize_mission_task_graph_contract_metadata(
+                existing_graph, allow_legacy_v1=True
+            )
         except ValueError:
             normalized_existing_graph = None
         if normalized_existing_graph == normalized_graph:

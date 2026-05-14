@@ -289,8 +289,16 @@ def build_mission_plan_contract_metadata(
 
 
 _TASK_GRAPH_ALLOWED_FIELDS = {"schema_version", "graph_status", "nodes", "edges", "metadata"}
+_TASK_GRAPH_LEGACY_V1_ALLOWED_FIELDS = {
+    "mission_id",
+    "graph_version",
+    "graph_fingerprint",
+    "operator_notes",
+    "validation_metadata",
+}
 _TASK_GRAPH_NODE_ALLOWED_FIELDS = {
     "node_key",
+    "key",
     "title",
     "description",
     "capability_reference",
@@ -298,8 +306,21 @@ _TASK_GRAPH_NODE_ALLOWED_FIELDS = {
     "output_contract",
     "metadata",
 }
+_TASK_GRAPH_LEGACY_V1_NODE_ALLOWED_FIELDS = {
+    "key",
+    "name",
+    "intended_task_type",
+    "capability_references",
+    "input_contract",
+    "expected_output_contract",
+    "risk_level",
+    "approval_required",
+    "execution_constraints",
+    "operator_notes",
+}
 _TASK_GRAPH_CAPABILITY_ALLOWED_FIELDS = {"capability_id", "name", "version", "purpose"}
 _TASK_GRAPH_EDGE_ALLOWED_FIELDS = {"from_node_key", "to_node_key", "dependency_type", "metadata"}
+_TASK_GRAPH_LEGACY_V1_EDGE_ALLOWED_FIELDS = {"description"}
 
 
 def _json_safe_contract_copy(value: Any, *, field_name: str) -> Any:
@@ -353,40 +374,112 @@ def _normalize_task_graph_capability_reference(raw_reference: Any) -> dict[str, 
     }
 
 
-def _normalize_task_graph_node(raw_node: Any) -> dict[str, Any]:
+def _legacy_v1_capability_reference(node: dict[str, Any]) -> dict[str, Any]:
+    raw_references = node.get("capability_references")
+    if isinstance(raw_references, list) and raw_references:
+        first_reference = _require_task_graph_object(raw_references[0], field_name="capability_references entry")
+        return {
+            "capability_id": first_reference.get("capability_id"),
+            "name": first_reference.get("name"),
+            "version": first_reference.get("version"),
+            "purpose": first_reference.get("purpose"),
+        }
+    intended_task_type = node.get("intended_task_type")
+    if intended_task_type is not None:
+        return {
+            "capability_id": None,
+            "name": intended_task_type,
+            "version": None,
+            "purpose": "Legacy v1 intended task type compatibility reference.",
+        }
+    return {"capability_id": None, "name": None, "version": None, "purpose": None}
+
+
+def _normalize_task_graph_node(raw_node: Any, *, allow_legacy_v1: bool = False) -> dict[str, Any]:
     node = _require_task_graph_object(raw_node, field_name="node")
-    unknown_fields = set(node) - _TASK_GRAPH_NODE_ALLOWED_FIELDS
+    allowed_fields = set(_TASK_GRAPH_NODE_ALLOWED_FIELDS)
+    if allow_legacy_v1:
+        allowed_fields.update(_TASK_GRAPH_LEGACY_V1_NODE_ALLOWED_FIELDS)
+    unknown_fields = set(node) - allowed_fields
     if unknown_fields:
         raise ValueError("mission task graph node contains unsupported fields")
 
+    raw_node_key = node.get("node_key")
+    raw_key = node.get("key")
+    if raw_node_key is None:
+        raw_node_key = raw_key
+    node_key = _normalize_required_task_graph_text(raw_node_key, field_name="node_key")
+    if raw_key is not None:
+        key = _normalize_required_task_graph_text(raw_key, field_name="key")
+        if key != node_key:
+            raise ValueError("mission task graph node_key and key must match when both are provided")
+
+    raw_title = node.get("title")
+    if raw_title is None and allow_legacy_v1:
+        raw_title = node.get("name")
+    title = _normalize_required_task_graph_text(raw_title, field_name="title")
+
+    raw_description = node.get("description")
+    if raw_description is None and allow_legacy_v1:
+        raw_description = node.get("operator_notes") or node.get("name")
+    description = _normalize_required_task_graph_text(raw_description, field_name="description")
+
+    raw_capability_reference = node.get("capability_reference")
+    if raw_capability_reference is None and allow_legacy_v1:
+        raw_capability_reference = _legacy_v1_capability_reference(node)
+
     input_contract = _require_task_graph_object(node.get("input_contract", {}), field_name="input_contract")
-    output_contract = _require_task_graph_object(node.get("output_contract", {}), field_name="output_contract")
+    raw_output_contract = node.get("output_contract")
+    if raw_output_contract is None and allow_legacy_v1:
+        raw_output_contract = node.get("expected_output_contract", {})
+    output_contract = _require_task_graph_object(raw_output_contract or {}, field_name="output_contract")
     metadata = _require_task_graph_object(node.get("metadata", {}), field_name="node metadata")
+    normalized_metadata = _json_safe_contract_copy(metadata, field_name="node metadata")
+    if allow_legacy_v1:
+        legacy_metadata = {
+            field_name: _json_safe_contract_copy(node[field_name], field_name=f"legacy node {field_name}")
+            for field_name in sorted(_TASK_GRAPH_LEGACY_V1_NODE_ALLOWED_FIELDS)
+            if field_name in node and field_name not in {"key", "name", "input_contract", "expected_output_contract"}
+        }
+        if legacy_metadata:
+            normalized_metadata = {**normalized_metadata, "legacy_v1": legacy_metadata}
 
     return {
-        "node_key": _normalize_required_task_graph_text(node.get("node_key"), field_name="node_key"),
-        "title": _normalize_required_task_graph_text(node.get("title"), field_name="title"),
-        "description": _normalize_required_task_graph_text(node.get("description"), field_name="description"),
-        "capability_reference": _normalize_task_graph_capability_reference(node.get("capability_reference")),
+        "node_key": node_key,
+        "key": node_key,
+        "title": title,
+        "description": description,
+        "capability_reference": _normalize_task_graph_capability_reference(raw_capability_reference),
         "input_contract": _json_safe_contract_copy(input_contract, field_name="input_contract"),
         "output_contract": _json_safe_contract_copy(output_contract, field_name="output_contract"),
-        "metadata": _json_safe_contract_copy(metadata, field_name="node metadata"),
+        "metadata": normalized_metadata,
     }
 
 
-def _normalize_task_graph_edge(raw_edge: Any) -> dict[str, Any]:
+def _normalize_task_graph_edge(raw_edge: Any, *, allow_legacy_v1: bool = False) -> dict[str, Any]:
     edge = _require_task_graph_object(raw_edge, field_name="edge")
-    unknown_fields = set(edge) - _TASK_GRAPH_EDGE_ALLOWED_FIELDS
+    allowed_fields = set(_TASK_GRAPH_EDGE_ALLOWED_FIELDS)
+    if allow_legacy_v1:
+        allowed_fields.update(_TASK_GRAPH_LEGACY_V1_EDGE_ALLOWED_FIELDS)
+    unknown_fields = set(edge) - allowed_fields
     if unknown_fields:
         raise ValueError("mission task graph edge contains unsupported fields")
     metadata = _require_task_graph_object(edge.get("metadata", {}), field_name="edge metadata")
+    normalized_metadata = _json_safe_contract_copy(metadata, field_name="edge metadata")
+    if allow_legacy_v1 and "description" in edge:
+        normalized_metadata = {
+            **normalized_metadata,
+            "legacy_v1": {
+                "description": _json_safe_contract_copy(edge["description"], field_name="legacy edge description")
+            },
+        }
     return {
         "from_node_key": _normalize_required_task_graph_text(edge.get("from_node_key"), field_name="from_node_key"),
         "to_node_key": _normalize_required_task_graph_text(edge.get("to_node_key"), field_name="to_node_key"),
         "dependency_type": _normalize_required_task_graph_text(
             edge.get("dependency_type"), field_name="dependency_type"
         ),
-        "metadata": _json_safe_contract_copy(metadata, field_name="edge metadata"),
+        "metadata": normalized_metadata,
     }
 
 
@@ -422,7 +515,9 @@ def _validate_task_graph_is_dag(*, node_keys: list[str], edges: list[dict[str, A
         visit(node_key)
 
 
-def normalize_mission_task_graph_contract_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+def normalize_mission_task_graph_contract_metadata(
+    metadata: dict[str, Any], *, allow_legacy_v1: bool = False
+) -> dict[str, Any]:
     """Normalize task graph contract metadata for deterministic v1 reads/writes.
 
     Task graph contracts are pure mission metadata. This normalizer fails closed
@@ -432,14 +527,19 @@ def normalize_mission_task_graph_contract_metadata(metadata: dict[str, Any]) -> 
     """
     metadata_copy = _json_safe_contract_copy(metadata, field_name="metadata")
     graph = _require_task_graph_object(metadata_copy, field_name="metadata")
-    unknown_fields = set(graph) - _TASK_GRAPH_ALLOWED_FIELDS
+    allowed_fields = set(_TASK_GRAPH_ALLOWED_FIELDS)
+    if allow_legacy_v1:
+        allowed_fields.update(_TASK_GRAPH_LEGACY_V1_ALLOWED_FIELDS)
+    unknown_fields = set(graph) - allowed_fields
     if unknown_fields:
         raise ValueError("mission task graph metadata contains unsupported fields")
     if graph.get("schema_version") != MISSION_TASK_GRAPH_SCHEMA_VERSION:
         raise ValueError("unsupported mission task graph metadata schema_version")
 
     graph_status = graph.get("graph_status")
-    if graph_status != "draft":
+    if allow_legacy_v1:
+        graph_status = _normalize_required_task_graph_text(graph_status, field_name="graph_status")
+    elif graph_status != "draft":
         raise ValueError("mission task graph graph_status must be draft")
 
     raw_nodes = graph.get("nodes")
@@ -451,21 +551,30 @@ def normalize_mission_task_graph_contract_metadata(metadata: dict[str, Any]) -> 
     if not isinstance(raw_edges, list):
         raise ValueError("mission task graph edges must be a list")
 
-    nodes = [_normalize_task_graph_node(node) for node in raw_nodes]
+    nodes = [_normalize_task_graph_node(node, allow_legacy_v1=allow_legacy_v1) for node in raw_nodes]
     node_keys = [node["node_key"] for node in nodes]
     if len(set(node_keys)) != len(node_keys):
         raise ValueError("mission task graph node_key values must be unique")
 
-    edges = [_normalize_task_graph_edge(edge) for edge in raw_edges]
+    edges = [_normalize_task_graph_edge(edge, allow_legacy_v1=allow_legacy_v1) for edge in raw_edges]
     _validate_task_graph_is_dag(node_keys=node_keys, edges=edges)
 
     graph_metadata = _require_task_graph_object(graph.get("metadata", {}), field_name="graph metadata")
+    normalized_graph_metadata = _json_safe_contract_copy(graph_metadata, field_name="graph metadata")
+    if allow_legacy_v1:
+        legacy_metadata = {
+            field_name: _json_safe_contract_copy(graph[field_name], field_name=f"legacy graph {field_name}")
+            for field_name in sorted(_TASK_GRAPH_LEGACY_V1_ALLOWED_FIELDS)
+            if field_name in graph
+        }
+        if legacy_metadata:
+            normalized_graph_metadata = {**normalized_graph_metadata, "legacy_v1": legacy_metadata}
     return {
         "schema_version": MISSION_TASK_GRAPH_SCHEMA_VERSION,
-        "graph_status": "draft",
+        "graph_status": graph_status,
         "nodes": nodes,
         "edges": edges,
-        "metadata": _json_safe_contract_copy(graph_metadata, field_name="graph metadata"),
+        "metadata": normalized_graph_metadata,
     }
 
 
