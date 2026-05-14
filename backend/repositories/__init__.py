@@ -4,6 +4,7 @@ from backend.repositories.execution_branch_repository import ExecutionBranchRepo
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.governance_event_repository import GovernanceEventRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
+from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.user_workforce_agent_repository import UserWorkforceAgentRepository
@@ -17,6 +18,7 @@ __all__ = [
     "ExecutionTaskRepository",
     "GovernanceEventRepository",
     "LineageRecordRepository",
+    "MissionPlanRepository",
     "MissionRepository",
     "OutcomeReviewRepository",
     "UserWorkforceAgentRepository",
