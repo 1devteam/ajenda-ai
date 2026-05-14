@@ -4,10 +4,7 @@ from copy import deepcopy
 from typing import Any
 from uuid import UUID
 
-from backend.domain.mission import (
-    MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
-    MISSION_TASK_GRAPH_METADATA_KEY,
-)
+from backend.domain.mission import MISSION_GRAPH_MATERIALIZATION_METADATA_KEY
 
 
 def runtime_preview_authority_flags() -> dict[str, bool]:
@@ -44,7 +41,8 @@ def graph_matches_reference(*, task_graph: dict[str, Any], graph_reference: dict
     """Return whether a task graph matches a persisted graph reference."""
     graph_fingerprint = task_graph.get("graph_fingerprint")
     return isinstance(graph_reference, dict) and (
-        graph_reference.get("metadata_key") == MISSION_TASK_GRAPH_METADATA_KEY
+        isinstance(task_graph.get("mission_id"), str)
+        and graph_reference.get("mission_id") == task_graph.get("mission_id")
         and graph_reference.get("graph_version") == task_graph.get("graph_version")
         and graph_reference.get("graph_fingerprint") == graph_fingerprint
     )

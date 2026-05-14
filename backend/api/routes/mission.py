@@ -1459,11 +1459,9 @@ def _graph_matches_reference(*, task_graph: dict[str, Any], graph_reference: dic
     if not isinstance(graph_reference, dict):
         return False
     graph_fingerprint = task_graph.get("graph_fingerprint") or _fingerprint_existing_task_graph(task_graph)
-    mission_matches = "mission_id" not in graph_reference or graph_reference.get("mission_id") == task_graph.get(
-        "mission_id"
-    )
     return (
-        mission_matches
+        isinstance(task_graph.get("mission_id"), str)
+        and graph_reference.get("mission_id") == task_graph.get("mission_id")
         and graph_reference.get("graph_version") == task_graph.get("graph_version")
         and graph_reference.get("graph_fingerprint") == graph_fingerprint
     )
@@ -2252,20 +2250,10 @@ def _write_mission_graph_materialization(
     )
     graph_nodes = task_graph["nodes"]
     node_keys = {node["key"] for node in graph_nodes}
-    capability_repo = CapabilityRepository(db)
     for selection in body.capability_selection_provenance:
         node_key = selection.get("node_key")
         if not isinstance(node_key, str) or node_key not in node_keys:
             raise HTTPException(status_code=422, detail=f"capability selection references missing node: {node_key}")
-        raw_capability_id = selection.get("capability_id")
-        if raw_capability_id is not None:
-            try:
-                capability_id = UUID(str(raw_capability_id))
-            except ValueError as exc:
-                raise HTTPException(status_code=422, detail=f"capability_id is invalid for node: {node_key}") from exc
-            capability = capability_repo.get_visible_for_tenant(capability_id=capability_id, tenant_id=tenant_id_str)
-            if capability is None:
-                raise HTTPException(status_code=422, detail=f"capability not found for tenant: {capability_id}")
 
     previous = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
     normalized_previous: dict[str, Any] | None = None
@@ -2332,22 +2320,11 @@ def _write_mission_graph_materialization(
             materialization_version=next_version,
             updated_at=now,
         )
-    cancelled_task_ids: list[str] = []
-    if isinstance(metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY), dict):
-        cancelled_task_ids = _cancel_superseded_materialized_planned_tasks(
-            metadata=metadata,
-            task_repo=ExecutionTaskRepository(db),
-            tenant_id=tenant_id_str,
-            mission_id=mission_id,
-        )
     supersede_runtime_task_materialization(
         metadata=metadata,
         reason="graph_materialization_replaced",
         updated_at=now,
-        supersession={
-            "superseded_by_materialization_version": next_version,
-            "cancelled_execution_task_ids": cancelled_task_ids,
-        },
+        supersession={"superseded_by_materialization_version": next_version},
     )
     metadata[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = candidate
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
@@ -2430,17 +2407,14 @@ def admit_mission_graph_to_runtime(
     if len(nodes_by_key) != len(graph_nodes):
         raise HTTPException(status_code=400, detail="mission task graph nodes must have valid keys")
 
-    graph_version = task_graph.get("graph_version")
-    graph_fingerprint = task_graph.get("graph_fingerprint") or _fingerprint_existing_task_graph(task_graph)
-    graph_reference = materialization.get("graph_reference")
-    if not isinstance(graph_reference, dict):
+    current_graph_reference = _current_task_graph_reference(task_graph)
+    try:
+        graph_reference = normalize_graph_materialization_graph_reference(materialization.get("graph_reference"))
+    except ValueError as exc:
         raise HTTPException(
             status_code=400, detail="materialization graph reference is required before runtime admission"
-        )
-    if (
-        graph_reference.get("graph_version") != graph_version
-        or graph_reference.get("graph_fingerprint") != graph_fingerprint
-    ):
+        ) from exc
+    if graph_reference != current_graph_reference:
         raise HTTPException(status_code=400, detail="materialization graph reference does not match current task graph")
 
     outcome_reviews = OutcomeReviewRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_id_str)
@@ -2596,14 +2570,7 @@ def admit_mission_graph_to_runtime(
             else now
         ),
         updated_at=now,
-        graph_reference={
-            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
-            "schema_version": task_graph.get("schema_version"),
-            "graph_status": task_graph.get("graph_status"),
-            "graph_version": graph_version,
-            "graph_fingerprint": graph_fingerprint,
-            "node_count": len(graph_nodes),
-        },
+        graph_reference=current_graph_reference,
         materialization_reference={
             "metadata_key": MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
             "schema_version": materialization.get("schema_version"),
