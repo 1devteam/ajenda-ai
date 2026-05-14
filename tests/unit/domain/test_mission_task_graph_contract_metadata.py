@@ -27,6 +27,14 @@ def _valid_graph() -> dict[str, object]:
                     "version": "1.0.0",
                     "purpose": "Read records.",
                 },
+                "capability_references": [
+                    {
+                        "capability_id": None,
+                        "name": "crm_read",
+                        "version": "1.0.0",
+                        "purpose": "Read records.",
+                    }
+                ],
                 "input_contract": {"sources": ["crm"]},
                 "output_contract": {"artifact": "signal_summary"},
                 "metadata": {"read_only": True},
@@ -42,6 +50,14 @@ def _valid_graph() -> dict[str, object]:
                     "version": None,
                     "purpose": None,
                 },
+                "capability_references": [
+                    {
+                        "capability_id": "cap-analysis",
+                        "name": None,
+                        "version": None,
+                        "purpose": None,
+                    }
+                ],
                 "input_contract": {"requires": "signal_summary"},
                 "output_contract": {"artifact": "recommendations"},
                 "metadata": {},
@@ -62,7 +78,11 @@ def _valid_graph() -> dict[str, object]:
 def test_normalize_mission_task_graph_contract_metadata_valid_graph_passes() -> None:
     graph = _valid_graph()
 
-    assert normalize_mission_task_graph_contract_metadata(graph) == graph
+    normalized = normalize_mission_task_graph_contract_metadata(graph)
+
+    assert normalized == graph
+    assert normalized["nodes"][0]["capability_reference"]["name"] == "crm_read"
+    assert normalized["nodes"][0]["capability_references"] == [normalized["nodes"][0]["capability_reference"]]
 
 
 def test_build_mission_task_graph_contract_metadata_is_deterministic_and_json_safe() -> None:
@@ -203,6 +223,7 @@ def test_normalize_mission_task_graph_contract_metadata_adapts_legacy_v1_graph()
     assert normalized["nodes"][0]["key"] == "collect-signals"
     assert normalized["nodes"][0]["title"] == "Collect approved signals"
     assert normalized["nodes"][0]["capability_reference"]["name"] == "crm_read"
+    assert normalized["nodes"][0]["capability_references"] == [normalized["nodes"][0]["capability_reference"]]
     assert normalized["nodes"][0]["output_contract"] == {"artifact": "signal_summary"}
     assert normalized["mission_id"] == "mission-123"
     assert normalized["graph_version"] == 7

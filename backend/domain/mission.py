@@ -302,6 +302,7 @@ _TASK_GRAPH_NODE_ALLOWED_FIELDS = {
     "title",
     "description",
     "capability_reference",
+    "capability_references",
     "input_contract",
     "output_contract",
     "metadata",
@@ -425,8 +426,18 @@ def _normalize_task_graph_node(raw_node: Any, *, allow_legacy_v1: bool = False) 
     description = _normalize_required_task_graph_text(raw_description, field_name="description")
 
     raw_capability_reference = node.get("capability_reference")
+    raw_capability_references = node.get("capability_references")
+    if raw_capability_reference is None and isinstance(raw_capability_references, list) and raw_capability_references:
+        raw_capability_reference = raw_capability_references[0]
     if raw_capability_reference is None and allow_legacy_v1:
         raw_capability_reference = _legacy_v1_capability_reference(node)
+    capability_reference = _normalize_task_graph_capability_reference(raw_capability_reference)
+    if raw_capability_references is not None:
+        if not isinstance(raw_capability_references, list) or not raw_capability_references:
+            raise ValueError("mission task graph capability_references must be a non-empty list when provided")
+        first_capability_reference = _normalize_task_graph_capability_reference(raw_capability_references[0])
+        if first_capability_reference != capability_reference:
+            raise ValueError("mission task graph capability_reference must match first capability_references entry")
 
     input_contract = _require_task_graph_object(node.get("input_contract", {}), field_name="input_contract")
     raw_output_contract = node.get("output_contract")
@@ -439,7 +450,8 @@ def _normalize_task_graph_node(raw_node: Any, *, allow_legacy_v1: bool = False) 
         legacy_metadata = {
             field_name: _json_safe_contract_copy(node[field_name], field_name=f"legacy node {field_name}")
             for field_name in sorted(_TASK_GRAPH_LEGACY_V1_NODE_ALLOWED_FIELDS)
-            if field_name in node and field_name not in {"key", "name", "input_contract", "expected_output_contract"}
+            if field_name in node
+            and field_name not in {"key", "name", "capability_references", "input_contract", "expected_output_contract"}
         }
         if legacy_metadata:
             normalized_metadata = {**normalized_metadata, "legacy_v1": legacy_metadata}
@@ -449,7 +461,8 @@ def _normalize_task_graph_node(raw_node: Any, *, allow_legacy_v1: bool = False) 
         "key": node_key,
         "title": title,
         "description": description,
-        "capability_reference": _normalize_task_graph_capability_reference(raw_capability_reference),
+        "capability_reference": capability_reference,
+        "capability_references": [capability_reference],
         "input_contract": _json_safe_contract_copy(input_contract, field_name="input_contract"),
         "output_contract": _json_safe_contract_copy(output_contract, field_name="output_contract"),
         "metadata": normalized_metadata,

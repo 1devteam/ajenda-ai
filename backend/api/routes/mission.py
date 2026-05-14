@@ -2044,7 +2044,7 @@ def _write_mission_task_graph(
             return MissionTaskGraphRead.model_validate(normalized_existing_graph)
 
     graph_version = _next_task_graph_version(existing_graph)
-    metadata[MISSION_TASK_GRAPH_METADATA_KEY] = _task_graph_with_identity(
+    graph_metadata = _task_graph_with_identity(
         mission_id=mission_id,
         normalized_graph=build_mission_task_graph_contract_metadata(
             nodes=normalized_graph["nodes"],
@@ -2052,6 +2052,33 @@ def _write_mission_task_graph(
             metadata=normalized_graph["metadata"],
         ),
         graph_version=graph_version,
+    )
+    metadata[MISSION_TASK_GRAPH_METADATA_KEY] = graph_metadata
+    graph_fingerprint = graph_metadata["graph_fingerprint"]
+    updated_at = datetime.now(UTC).isoformat()
+    _supersede_graph_materialization(
+        metadata=metadata, graph_version=graph_version, graph_fingerprint=graph_fingerprint, updated_at=updated_at
+    )
+    _supersede_runtime_admission(
+        metadata=metadata, graph_version=graph_version, graph_fingerprint=graph_fingerprint, updated_at=updated_at
+    )
+    cancelled_task_ids: list[str] = []
+    if isinstance(metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY), dict):
+        cancelled_task_ids = _cancel_superseded_materialized_planned_tasks(
+            metadata=metadata,
+            task_repo=ExecutionTaskRepository(db),
+            tenant_id=str(tenant_id),
+            mission_id=mission_id,
+        )
+    supersede_runtime_task_materialization(
+        metadata=metadata,
+        reason="task_graph_replaced",
+        updated_at=updated_at,
+        supersession={
+            "superseded_by_graph_version": graph_version,
+            "superseded_by_graph_fingerprint": graph_fingerprint,
+            "cancelled_execution_task_ids": cancelled_task_ids,
+        },
     )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _mission_task_graph_to_read(mission)
