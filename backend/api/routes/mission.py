@@ -419,7 +419,10 @@ class MissionTaskGraphRead(BaseModel):
     """Normalized task graph response stored on mission metadata."""
 
     schema_version: int
+    mission_id: str | None = None
     graph_status: str
+    graph_version: int | None = None
+    graph_fingerprint: str | None = None
     nodes: list[dict[str, Any]]
     edges: list[dict[str, Any]]
     metadata: dict[str, Any]
@@ -1193,6 +1196,45 @@ def _task_graph_fingerprint(
     }
     encoded = json.dumps(graph_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+
+
+def _task_graph_contract_content(task_graph: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": task_graph["schema_version"],
+        "graph_status": task_graph["graph_status"],
+        "nodes": task_graph["nodes"],
+        "edges": task_graph["edges"],
+        "metadata": task_graph["metadata"],
+    }
+
+
+def _task_graph_has_identity(task_graph: dict[str, Any]) -> bool:
+    return (
+        isinstance(task_graph.get("mission_id"), str)
+        and isinstance(task_graph.get("graph_version"), int)
+        and isinstance(task_graph.get("graph_fingerprint"), str)
+    )
+
+
+def _task_graph_contract_fingerprint(*, mission_id: str, normalized_graph: dict[str, Any]) -> str:
+    graph_identity = {"mission_id": mission_id, **_task_graph_contract_content(normalized_graph)}
+    encoded = json.dumps(graph_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"sha256:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+
+
+def _task_graph_with_identity(
+    *, mission_id: UUID, normalized_graph: dict[str, Any], graph_version: int
+) -> dict[str, Any]:
+    mission_id_str = str(mission_id)
+    graph_with_identity = {
+        **_task_graph_contract_content(normalized_graph),
+        "mission_id": mission_id_str,
+        "graph_version": graph_version,
+    }
+    graph_with_identity["graph_fingerprint"] = _task_graph_contract_fingerprint(
+        mission_id=mission_id_str, normalized_graph=graph_with_identity
+    )
+    return graph_with_identity
 
 
 def _fingerprint_existing_task_graph(task_graph: dict[str, Any]) -> str | None:
@@ -1993,13 +2035,23 @@ def _write_mission_task_graph(
             )
         except ValueError:
             normalized_existing_graph = None
-        if normalized_existing_graph == normalized_graph:
+        if (
+            normalized_existing_graph is not None
+            and _task_graph_has_identity(normalized_existing_graph)
+            and _task_graph_contract_content(normalized_existing_graph)
+            == _task_graph_contract_content(normalized_graph)
+        ):
             return MissionTaskGraphRead.model_validate(normalized_existing_graph)
 
-    metadata[MISSION_TASK_GRAPH_METADATA_KEY] = build_mission_task_graph_contract_metadata(
-        nodes=normalized_graph["nodes"],
-        edges=normalized_graph["edges"],
-        metadata=normalized_graph["metadata"],
+    graph_version = _next_task_graph_version(existing_graph)
+    metadata[MISSION_TASK_GRAPH_METADATA_KEY] = _task_graph_with_identity(
+        mission_id=mission_id,
+        normalized_graph=build_mission_task_graph_contract_metadata(
+            nodes=normalized_graph["nodes"],
+            edges=normalized_graph["edges"],
+            metadata=normalized_graph["metadata"],
+        ),
+        graph_version=graph_version,
     )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _mission_task_graph_to_read(mission)

@@ -508,13 +508,20 @@ def test_mission_task_graph_post_creates_graph_without_queueing() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body == graph_payload
+    assert body["mission_id"] == str(mission_id)
+    assert body["graph_version"] == 1
+    assert body["graph_fingerprint"].startswith("sha256:")
+    assert {key: body[key] for key in graph_payload} == graph_payload
     assert all(node["node_key"] == node["key"] for node in body["nodes"])
     repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
     persisted_metadata = repo.update_metadata.call_args.kwargs["metadata_json"]
     assert persisted_metadata[MISSION_INTAKE_METADATA_KEY] == {"schema_version": 1}
     assert persisted_metadata["mission_plan"] == {"schema_version": 1}
-    assert persisted_metadata[MISSION_TASK_GRAPH_METADATA_KEY] == graph_payload
+    persisted_graph = persisted_metadata[MISSION_TASK_GRAPH_METADATA_KEY]
+    assert persisted_graph == body
+    assert persisted_graph["mission_id"] == str(mission_id)
+    assert persisted_graph["graph_version"] == 1
+    assert persisted_graph["graph_fingerprint"] == body["graph_fingerprint"]
     task_repo_cls.assert_not_called()
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
@@ -569,11 +576,7 @@ def test_mission_task_graph_written_nodes_are_materialization_key_compatible() -
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
     graph_payload = _valid_task_graph_payload()
-    mission = _mission_with_metadata(
-        tenant_id=tenant_id,
-        mission_id=mission_id,
-        metadata_json={MISSION_TASK_GRAPH_METADATA_KEY: graph_payload},
-    )
+    mission = _mission_with_metadata(tenant_id=tenant_id, mission_id=mission_id, metadata_json={})
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
 
@@ -589,14 +592,22 @@ def test_mission_task_graph_written_nodes_are_materialization_key_compatible() -
         patch("backend.api.routes.mission.MissionRepository", return_value=repo),
         patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
     ):
-        response = client.post(
+        write_response = client.post(f"/v1/missions/{mission_id}/task-graph", json=graph_payload)
+        materialize_response = client.post(
             f"/v1/missions/{mission_id}/materialize-graph",
             json=_valid_materialization_payload(str(capability_id)),
         )
 
-    assert response.status_code == 200
-    assert {node["key"] for node in graph_payload["nodes"]} == {"collect-signals", "draft-recommendations"}
-    assert response.json()["materialization"]["graph_reference"]["node_count"] == 2
+    assert write_response.status_code == 200
+    written_graph = write_response.json()
+    assert written_graph["graph_version"] == 1
+    assert written_graph["graph_fingerprint"].startswith("sha256:")
+    assert {node["key"] for node in written_graph["nodes"]} == {"collect-signals", "draft-recommendations"}
+    assert materialize_response.status_code == 200
+    graph_reference = materialize_response.json()["materialization"]["graph_reference"]
+    assert graph_reference["graph_version"] == written_graph["graph_version"]
+    assert graph_reference["graph_fingerprint"] == written_graph["graph_fingerprint"]
+    assert graph_reference["node_count"] == 2
 
 
 def test_mission_task_graph_get_adapts_legacy_v1_graph() -> None:
@@ -618,8 +629,9 @@ def test_mission_task_graph_get_adapts_legacy_v1_graph() -> None:
     assert body["nodes"][0]["key"] == "collect-signals"
     assert body["nodes"][0]["title"] == "Collect approved signals"
     assert body["nodes"][0]["capability_reference"]["name"] == "crm_read"
-    assert body["metadata"]["legacy_v1"]["graph_version"] == 7
-    assert body["metadata"]["legacy_v1"]["graph_fingerprint"] == "sha256:existing-graph"
+    assert body["mission_id"] == str(mission_id)
+    assert body["graph_version"] == 7
+    assert body["graph_fingerprint"] == "sha256:existing-graph"
 
 
 def test_mission_task_graph_get_invalid_persisted_graph_returns_409() -> None:
@@ -648,10 +660,16 @@ def test_mission_task_graph_idempotent_post_does_not_update_metadata() -> None:
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
     graph_payload = _valid_task_graph_payload()
+    existing_graph = {
+        **copy.deepcopy(graph_payload),
+        "mission_id": str(mission_id),
+        "graph_version": 4,
+        "graph_fingerprint": "sha256:existing-graph",
+    }
     mission = _mission_with_metadata(
         tenant_id=tenant_id,
         mission_id=mission_id,
-        metadata_json={MISSION_TASK_GRAPH_METADATA_KEY: copy.deepcopy(graph_payload), "other": {"preserved": True}},
+        metadata_json={MISSION_TASK_GRAPH_METADATA_KEY: existing_graph, "other": {"preserved": True}},
     )
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
@@ -660,7 +678,7 @@ def test_mission_task_graph_idempotent_post_does_not_update_metadata() -> None:
         response = client.post(f"/v1/missions/{mission_id}/task-graph", json=copy.deepcopy(graph_payload))
 
     assert response.status_code == 200
-    assert response.json() == graph_payload
+    assert response.json() == existing_graph
     repo.update_metadata.assert_not_called()
 
 
@@ -669,7 +687,12 @@ def test_mission_task_graph_different_post_replaces_only_graph_key() -> None:
     mission_id = uuid.uuid4()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
-    existing_graph = _valid_task_graph_payload()
+    existing_graph = {
+        **_valid_task_graph_payload(),
+        "mission_id": str(mission_id),
+        "graph_version": 4,
+        "graph_fingerprint": "sha256:old-graph",
+    }
     incoming_graph = _valid_task_graph_payload()
     incoming_graph["nodes"][0]["title"] = "Collect updated approved signals"
     mission = _mission_with_metadata(
@@ -691,7 +714,12 @@ def test_mission_task_graph_different_post_replaces_only_graph_key() -> None:
 
     assert response.status_code == 200
     persisted_metadata = repo.update_metadata.call_args.kwargs["metadata_json"]
-    assert persisted_metadata[MISSION_TASK_GRAPH_METADATA_KEY] == incoming_graph
+    persisted_graph = persisted_metadata[MISSION_TASK_GRAPH_METADATA_KEY]
+    assert persisted_graph["mission_id"] == str(mission_id)
+    assert persisted_graph["graph_version"] == 5
+    assert persisted_graph["graph_fingerprint"].startswith("sha256:")
+    assert persisted_graph["graph_fingerprint"] != existing_graph["graph_fingerprint"]
+    assert {key: persisted_graph[key] for key in incoming_graph} == incoming_graph
     assert persisted_metadata["other"] == {"preserved": True}
 
 
@@ -1494,7 +1522,8 @@ def test_mission_lifecycle_adapts_legacy_v1_task_graph() -> None:
     assert "create_task_graph" not in body["missing_next_steps"]
     assert body["task_graph"]["nodes"][0]["node_key"] == "collect-signals"
     assert body["task_graph"]["nodes"][0]["key"] == "collect-signals"
-    assert body["task_graph"]["metadata"]["legacy_v1"]["graph_version"] == 7
+    assert body["task_graph"]["graph_version"] == 7
+    assert body["task_graph"]["graph_fingerprint"] == "sha256:existing-graph"
 
 
 def test_mission_lifecycle_invalid_task_graph_returns_409() -> None:

@@ -204,8 +204,9 @@ def test_normalize_mission_task_graph_contract_metadata_adapts_legacy_v1_graph()
     assert normalized["nodes"][0]["title"] == "Collect approved signals"
     assert normalized["nodes"][0]["capability_reference"]["name"] == "crm_read"
     assert normalized["nodes"][0]["output_contract"] == {"artifact": "signal_summary"}
-    assert normalized["metadata"]["legacy_v1"]["graph_version"] == 7
-    assert normalized["metadata"]["legacy_v1"]["graph_fingerprint"] == "sha256:existing-graph"
+    assert normalized["mission_id"] == "mission-123"
+    assert normalized["graph_version"] == 7
+    assert normalized["graph_fingerprint"] == "sha256:existing-graph"
 
 
 def test_normalize_mission_task_graph_contract_metadata_rejects_legacy_fields_on_writes() -> None:

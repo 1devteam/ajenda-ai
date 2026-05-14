@@ -565,17 +565,32 @@ def normalize_mission_task_graph_contract_metadata(
         legacy_metadata = {
             field_name: _json_safe_contract_copy(graph[field_name], field_name=f"legacy graph {field_name}")
             for field_name in sorted(_TASK_GRAPH_LEGACY_V1_ALLOWED_FIELDS)
-            if field_name in graph
+            if field_name in graph and field_name not in {"mission_id", "graph_version", "graph_fingerprint"}
         }
         if legacy_metadata:
             normalized_graph_metadata = {**normalized_graph_metadata, "legacy_v1": legacy_metadata}
-    return {
+    normalized_graph = {
         "schema_version": MISSION_TASK_GRAPH_SCHEMA_VERSION,
         "graph_status": graph_status,
         "nodes": nodes,
         "edges": edges,
         "metadata": normalized_graph_metadata,
     }
+    if allow_legacy_v1:
+        if "mission_id" in graph:
+            normalized_graph["mission_id"] = _normalize_required_task_graph_text(
+                graph.get("mission_id"), field_name="mission_id"
+            )
+        if "graph_version" in graph:
+            graph_version = graph.get("graph_version")
+            if isinstance(graph_version, bool) or not isinstance(graph_version, int) or graph_version < 1:
+                raise ValueError("mission task graph graph_version must be a positive integer")
+            normalized_graph["graph_version"] = graph_version
+        if "graph_fingerprint" in graph:
+            normalized_graph["graph_fingerprint"] = _normalize_required_task_graph_text(
+                graph.get("graph_fingerprint"), field_name="graph_fingerprint"
+            )
+    return normalized_graph
 
 
 def build_mission_task_graph_contract_metadata(
