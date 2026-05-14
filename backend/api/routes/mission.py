@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
-from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
+from backend.domain.enums import ExecutionTaskState, MissionPlanStatus, MissionState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
@@ -33,11 +33,14 @@ from backend.domain.mission import (
     MISSION_WORKER_START_ADMISSION_METADATA_KEY,
     MISSION_WORKER_START_ADMISSION_SCHEMA_VERSION,
     Mission,
+    MissionPlan,
     build_graph_materialization_metadata,
     build_mission_intake_metadata,
+    build_mission_plan_contract_metadata,
     build_mission_plan_metadata,
     build_mission_task_graph_metadata,
     build_runtime_admission_metadata,
+    normalize_mission_plan_contract_metadata,
 )
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
@@ -45,6 +48,7 @@ from backend.repositories.capability_adapter_repository import CapabilityAdapter
 from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
+from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
@@ -342,6 +346,73 @@ class MissionPlanWrite(BaseModel):
         if not value:
             raise ValueError("planning notes must be non-empty when provided")
         return value
+
+
+class MissionPlanStep(BaseModel):
+    """Lightweight planned step contract; not a task graph node or execution task."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sequence: int = Field(ge=1)
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=2000)
+    depends_on: list[int] = Field(default_factory=list, max_length=50)
+    expected_output: str = Field(min_length=1, max_length=1000)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("title", "description", "expected_output")
+    @classmethod
+    def _normalize_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("planned step text fields must be non-empty")
+        return value
+
+    @field_validator("depends_on")
+    @classmethod
+    def _normalize_dependencies(cls, value: list[int]) -> list[int]:
+        if len(set(value)) != len(value):
+            raise ValueError("planned step dependencies must be unique")
+        return value
+
+    @field_validator("metadata")
+    @classmethod
+    def _validate_json_safe_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return cast(dict[str, Any], json.loads(json.dumps(value)))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("planned step metadata must be JSON-safe") from exc
+
+
+class MissionPlanCreate(BaseModel):
+    """Durable mission planning contract request; persistence only, never execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    objectives: list[str] = Field(default_factory=list, max_length=50)
+    constraints: list[str] = Field(default_factory=list, max_length=50)
+    assumptions: list[str] = Field(default_factory=list, max_length=50)
+    acceptance_criteria: list[str] = Field(default_factory=list, max_length=50)
+    planned_steps: list[MissionPlanStep] = Field(default_factory=list, max_length=200)
+    risk_notes: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("objectives", "constraints", "assumptions", "acceptance_criteria", "risk_notes")
+    @classmethod
+    def _normalize_string_list(cls, value: list[str]) -> list[str]:
+        return _normalize_unique_string_list(value)
+
+    @model_validator(mode="after")
+    def _validate_step_dependencies(self) -> MissionPlanCreate:
+        sequences = {step.sequence for step in self.planned_steps}
+        if len(sequences) != len(self.planned_steps):
+            raise ValueError("planned step sequences must be unique")
+        for step in self.planned_steps:
+            missing = [dependency for dependency in step.depends_on if dependency not in sequences]
+            if missing:
+                raise ValueError("planned step dependencies must reference existing sequences")
+            if step.sequence in step.depends_on:
+                raise ValueError("planned step cannot depend on itself")
+        return self
 
 
 class MissionTaskGraphCapabilityReference(BaseModel):
@@ -1065,12 +1136,16 @@ class WorkerRunAdmissionRead(BaseModel):
 
 
 class MissionPlanRead(BaseModel):
-    """Mission plan response envelope stored on the mission metadata."""
+    """Mission plan response envelope for durable plans and legacy metadata plans."""
 
     mission_id: UUID
     tenant_id: str
     plan: dict[str, Any]
     updated_at: str
+    plan_id: UUID | None = None
+    status: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
 
 
 class MissionRead(BaseModel):
@@ -1693,11 +1768,30 @@ def _mission_to_read(mission: Mission) -> MissionRead:
 
 
 def _mission_plan_to_read(mission: Mission) -> MissionPlanRead:
+    legacy_plan = mission.metadata_json.get(MISSION_PLAN_METADATA_KEY, {})
     return MissionPlanRead(
         mission_id=mission.id,
         tenant_id=mission.tenant_id,
-        plan=mission.metadata_json.get(MISSION_PLAN_METADATA_KEY, {}),
+        plan=legacy_plan,
+        metadata=legacy_plan,
         updated_at=mission.updated_at.isoformat(),
+    )
+
+
+def _durable_mission_plan_to_read(plan: MissionPlan) -> MissionPlanRead:
+    try:
+        normalized_metadata = normalize_mission_plan_contract_metadata(plan.metadata_json)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return MissionPlanRead(
+        plan_id=plan.id,
+        mission_id=plan.mission_id,
+        tenant_id=plan.tenant_id,
+        status=plan.status,
+        metadata=normalized_metadata,
+        plan=normalized_metadata,
+        created_at=plan.created_at.isoformat(),
+        updated_at=plan.updated_at.isoformat(),
     )
 
 
@@ -1725,6 +1819,7 @@ def _mission_lifecycle_to_read(
     evidence_records: list[Any],
     outcome_reviews: list[Any],
     retrieval_contracts: list[Any],
+    durable_plan: MissionPlan | None = None,
 ) -> MissionLifecycleRead:
     metadata = mission.metadata_json or {}
     intake = metadata.get(MISSION_INTAKE_METADATA_KEY)
@@ -1736,7 +1831,7 @@ def _mission_lifecycle_to_read(
 
     completeness = MissionLifecycleCompleteness(
         has_intake=isinstance(intake, dict),
-        has_plan=isinstance(plan, dict),
+        has_plan=isinstance(durable_plan, MissionPlan) or isinstance(plan, dict),
         has_task_graph=isinstance(task_graph, dict),
         has_materialization=isinstance(materialization, dict),
         has_runtime_admission=(
@@ -1902,12 +1997,43 @@ def read_mission_lifecycle(
     retrieval_contracts = RetrievalContractRepository(db).list_for_mission(
         mission_id=mission_id, tenant_id=tenant_scope
     )
+    durable_plan = MissionPlanRepository(db).get_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
     return _mission_lifecycle_to_read(
         mission=mission,
         evidence_records=evidence_records,
         outcome_reviews=outcome_reviews,
         retrieval_contracts=retrieval_contracts,
+        durable_plan=durable_plan if isinstance(durable_plan, MissionPlan) else None,
     )
+
+
+@router.post("/{mission_id}/plan", response_model=MissionPlanRead)
+def create_mission_plan(
+    mission_id: UUID,
+    body: MissionPlanCreate,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MissionPlanRead:
+    """Create or return an active tenant-scoped mission plan without runtime side effects."""
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    metadata = build_mission_plan_contract_metadata(
+        objectives=body.objectives,
+        constraints=body.constraints,
+        assumptions=body.assumptions,
+        acceptance_criteria=body.acceptance_criteria,
+        planned_steps=[step.model_dump() for step in body.planned_steps],
+        risk_notes=body.risk_notes,
+    )
+    plan = MissionPlanRepository(db).create_or_get_active_for_mission(
+        mission=mission,
+        status=MissionPlanStatus.DRAFT.value,
+        metadata_json=metadata,
+    )
+    return _durable_mission_plan_to_read(plan)
 
 
 @router.put("/{mission_id}/plan", response_model=MissionPlanRead)
@@ -1949,10 +2075,15 @@ def read_mission_plan(
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> MissionPlanRead:
-    """Read a tenant-scoped mission plan if one has been persisted."""
+    """Read a tenant-scoped durable mission plan without creating one as a side effect."""
     mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    durable_plan = MissionPlanRepository(db).get_for_mission(mission_id=mission_id, tenant_id=str(tenant_id))
+    if isinstance(durable_plan, MissionPlan):
+        return _durable_mission_plan_to_read(durable_plan)
+
     if MISSION_PLAN_METADATA_KEY not in (mission.metadata_json or {}):
         raise HTTPException(status_code=404, detail="mission plan not found")
     return _mission_plan_to_read(mission)

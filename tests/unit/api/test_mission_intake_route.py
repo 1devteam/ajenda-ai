@@ -17,7 +17,9 @@ from backend.domain.mission import (
     MISSION_PLAN_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
+    MissionPlan,
     build_mission_intake_metadata,
+    build_mission_plan_contract_metadata,
 )
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.request_context import RequestContextMiddleware
@@ -1378,6 +1380,48 @@ def test_mission_lifecycle_returns_contract_metadata_and_related_summaries_witho
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
     quota_cls.assert_not_called()
+
+
+def test_mission_lifecycle_counts_durable_plan_without_legacy_metadata_marker() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={MISSION_INTAKE_METADATA_KEY: {"schema_version": 1}},
+    )
+    durable_plan = MissionPlan(
+        tenant_id=str(tenant_id),
+        mission_id=mission_id,
+        metadata_json=build_mission_plan_contract_metadata(objectives=["Durable-only plan."]),
+    )
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    plan_repo = MagicMock()
+    plan_repo.get_for_mission.return_value = durable_plan
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.MissionPlanRepository", return_value=plan_repo),
+        patch("backend.api.routes.mission.EvidenceRepository") as evidence_repo_cls,
+        patch("backend.api.routes.mission.OutcomeReviewRepository") as outcome_repo_cls,
+        patch("backend.api.routes.mission.RetrievalContractRepository") as retrieval_repo_cls,
+    ):
+        evidence_repo_cls.return_value.list_for_mission.return_value = []
+        outcome_repo_cls.return_value.list_for_mission.return_value = []
+        retrieval_repo_cls.return_value.list_for_mission.return_value = []
+        response = client.get(f"/v1/missions/{mission_id}/lifecycle")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["plan"] is None
+    assert body["completeness"]["has_plan"] is True
+    assert "create_mission_plan" not in body["missing_next_steps"]
+    assert MISSION_PLAN_METADATA_KEY not in mission.metadata_json
+    mission_repo.update_metadata.assert_not_called()
+    plan_repo.get_for_mission.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
 
 
 def test_mission_lifecycle_reports_missing_next_steps_when_layers_are_absent() -> None:

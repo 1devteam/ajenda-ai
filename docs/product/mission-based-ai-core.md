@@ -319,22 +319,27 @@ Mission intake does not queue work. Runtime admission remains explicit through t
 
 ## Mission Planning V1 Contracts
 
-Mission planning contracts now define structured execution intent between mission intake and future task graph generation. `PUT /v1/missions/{mission_id}/plan` creates or replaces a tenant-scoped mission plan, and `GET /v1/missions/{mission_id}/plan` reads it back through the same tenant-scoped mission repository boundary. The plan is persisted additively in `Mission.metadata_json["mission_plan"]` with `schema_version = 1`.
+Mission planning contracts now define durable, tenant-owned execution intent between mission intake and future task graph generation. `POST /v1/missions/{mission_id}/plan` creates or returns the idempotent active `MissionPlan` record for a tenant-owned mission, and `GET /v1/missions/{mission_id}/plan` reads the tenant-owned plan without creating one as a side effect. Legacy `PUT /v1/missions/{mission_id}/plan` metadata upsert remains as a compatibility contract for older metadata-only plan shape, but the durable planning layer is the `mission_plans` table with `schema_version = 1`.
 
 First-class in this block:
 
-- phases and stages;
-- planning notes;
-- desired outputs;
-- capability requirements;
-- execution strategy hints;
-- approval gates;
-- operator overrides;
-- estimated scope;
-- risk annotations;
-- planning status.
+- stable plan identity and tenant ownership;
+- mission association;
+- active plan statuses `draft` and `ready`;
+- inactive lifecycle statuses `superseded` and `cancelled`;
+- objectives;
+- constraints;
+- assumptions;
+- acceptance criteria;
+- typed planned steps;
+- risk notes;
+- deterministic JSON-safe metadata.
 
-Mission planning remains a contract layer only. Persisting a plan does not queue work, create execution tasks, generate a task graph, enforce a capability registry, promote memory, run outcome review, or modify worker/runtime orchestration. Runtime authority remains with the governed queue, lease, policy, recovery, and validation layers.
+Lifecycle is explicit and intentionally narrow before task graph work exists. Allowed status transitions are `draft -> ready`, `draft -> cancelled`, `ready -> superseded`, and `ready -> cancelled`. The create endpoint always creates new durable plans as `draft`; clients cannot create `ready`, `superseded`, or `cancelled` plans directly, and lifecycle changes require a future explicit transition endpoint or service rather than create-time status injection. Idempotent create returns the existing active plan unchanged, even when a later create request sends different metadata.
+
+Mission plan metadata reads support only `schema_version = 1`. V1 reads normalize deterministic defaults for omitted optional lists, validate JSON safety, and fail closed for unsupported future schema versions instead of guessing compatibility. Planned steps are lightweight planning records, not task graph nodes or execution tasks: each step requires a positive `sequence`, non-empty `title`, non-empty `description`, dependency references in `depends_on`, non-empty `expected_output`, and JSON-safe `metadata`; unknown planned-step fields are rejected.
+
+Mission planning remains a contract layer only. Persisting a plan does not queue work, create execution tasks, generate a task graph, enforce a capability registry, promote memory, run outcome review, dispatch workers, mutate worker leases, or modify runtime recovery/orchestration. Runtime authority remains with the governed queue, lease, policy, recovery, and validation layers.
 
 ## Capability Registry V1 Contracts
 

@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base
-from backend.domain.enums import MissionState
+from backend.domain.enums import MissionPlanStatus, MissionState
 
 MISSION_INTAKE_METADATA_KEY = "mission_intake"
 MISSION_INTAKE_SCHEMA_VERSION = 1
 MISSION_PLAN_METADATA_KEY = "mission_plan"
 MISSION_PLAN_SCHEMA_VERSION = 1
+MISSION_PLAN_CONTRACT_SCHEMA_VERSION = 1
 MISSION_TASK_GRAPH_METADATA_KEY = "mission_task_graph"
 MISSION_TASK_GRAPH_SCHEMA_VERSION = 1
 MISSION_GRAPH_MATERIALIZATION_METADATA_KEY = "graph_materialization"
@@ -31,6 +33,15 @@ MISSION_WORKER_START_ADMISSION_METADATA_KEY = "worker_start_admission"
 MISSION_WORKER_START_ADMISSION_SCHEMA_VERSION = 1
 MISSION_WORKER_RUN_ADMISSION_METADATA_KEY = "worker_run_admission"
 MISSION_WORKER_RUN_ADMISSION_SCHEMA_VERSION = 1
+
+MISSION_PLAN_ALLOWED_TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
+    {
+        (MissionPlanStatus.DRAFT.value, MissionPlanStatus.READY.value),
+        (MissionPlanStatus.DRAFT.value, MissionPlanStatus.CANCELLED.value),
+        (MissionPlanStatus.READY.value, MissionPlanStatus.SUPERSEDED.value),
+        (MissionPlanStatus.READY.value, MissionPlanStatus.CANCELLED.value),
+    }
+)
 
 
 def utcnow() -> datetime:
@@ -110,6 +121,176 @@ def build_mission_plan_metadata(
             "risk_annotations": risk_annotations,
         }
     }
+
+
+def _json_safe_copy(value: Any) -> Any:
+    try:
+        return json.loads(json.dumps(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("mission plan metadata must be JSON-safe") from exc
+
+
+def _normalize_string_list_field(metadata: dict[str, Any], field_name: str) -> list[str]:
+    raw_value = metadata.get(field_name, [])
+    if raw_value is None:
+        return []
+    if not isinstance(raw_value, list):
+        raise ValueError(f"mission plan metadata field {field_name!r} must be a list")
+    normalized: list[str] = []
+    for item in raw_value:
+        if not isinstance(item, str):
+            raise ValueError(f"mission plan metadata field {field_name!r} must contain strings")
+        item = item.strip()
+        if not item:
+            raise ValueError(f"mission plan metadata field {field_name!r} must not contain blank strings")
+        normalized.append(item)
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"mission plan metadata field {field_name!r} must contain unique strings")
+    return normalized
+
+
+def _normalize_planned_step(raw_step: Any) -> dict[str, Any]:
+    if not isinstance(raw_step, dict):
+        raise ValueError("mission plan planned_steps entries must be objects")
+    allowed_fields = {"sequence", "title", "description", "depends_on", "expected_output", "metadata"}
+    unknown_fields = set(raw_step) - allowed_fields
+    if unknown_fields:
+        raise ValueError("mission plan planned_steps entries contain unsupported fields")
+
+    raw_sequence = raw_step.get("sequence")
+    if isinstance(raw_sequence, bool) or not isinstance(raw_sequence, int) or raw_sequence < 1:
+        raise ValueError("mission plan planned_steps sequence must be a positive integer")
+
+    title = raw_step.get("title")
+    description = raw_step.get("description")
+    expected_output = raw_step.get("expected_output")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("mission plan planned_steps title must be a non-empty string")
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError("mission plan planned_steps description must be a non-empty string")
+    if not isinstance(expected_output, str) or not expected_output.strip():
+        raise ValueError("mission plan planned_steps expected_output must be a non-empty string")
+
+    raw_depends_on = raw_step.get("depends_on", [])
+    if raw_depends_on is None:
+        raw_depends_on = []
+    if not isinstance(raw_depends_on, list):
+        raise ValueError("mission plan planned_steps depends_on must be a list")
+    depends_on: list[int] = []
+    for dependency in raw_depends_on:
+        if isinstance(dependency, bool) or not isinstance(dependency, int) or dependency < 1:
+            raise ValueError("mission plan planned_steps depends_on values must be positive integers")
+        depends_on.append(dependency)
+    if len(set(depends_on)) != len(depends_on):
+        raise ValueError("mission plan planned_steps depends_on values must be unique")
+    if raw_sequence in depends_on:
+        raise ValueError("mission plan planned_steps cannot depend on themselves")
+
+    raw_metadata = raw_step.get("metadata", {})
+    if raw_metadata is None:
+        raw_metadata = {}
+    if not isinstance(raw_metadata, dict):
+        raise ValueError("mission plan planned_steps metadata must be an object")
+
+    return {
+        "sequence": raw_sequence,
+        "title": title.strip(),
+        "description": description.strip(),
+        "depends_on": depends_on,
+        "expected_output": expected_output.strip(),
+        "metadata": _json_safe_copy(raw_metadata),
+    }
+
+
+def normalize_mission_plan_contract_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Normalize persisted mission plan metadata for safe v1 reads.
+
+    The durable plan contract currently supports only schema_version 1. This
+    helper fails closed for unsupported versions, supplies deterministic v1
+    defaults for optional fields, validates planned-step shape, and returns a
+    JSON-safe copy without mutating the caller's dictionary.
+    """
+    metadata_copy = _json_safe_copy(metadata)
+    if not isinstance(metadata_copy, dict):
+        raise ValueError("mission plan metadata must be an object")
+
+    schema_version = metadata_copy.get("schema_version", MISSION_PLAN_CONTRACT_SCHEMA_VERSION)
+    if schema_version != MISSION_PLAN_CONTRACT_SCHEMA_VERSION:
+        raise ValueError("unsupported mission plan metadata schema_version")
+
+    raw_planned_steps = metadata_copy.get("planned_steps", [])
+    if raw_planned_steps is None:
+        raw_planned_steps = []
+    if not isinstance(raw_planned_steps, list):
+        raise ValueError("mission plan metadata field 'planned_steps' must be a list")
+    planned_steps = [_normalize_planned_step(step) for step in raw_planned_steps]
+    sequences = {step["sequence"] for step in planned_steps}
+    if len(sequences) != len(planned_steps):
+        raise ValueError("mission plan planned_steps sequence values must be unique")
+    for step in planned_steps:
+        missing_dependencies = [dependency for dependency in step["depends_on"] if dependency not in sequences]
+        if missing_dependencies:
+            raise ValueError("mission plan planned_steps dependencies must reference existing sequences")
+
+    return {
+        "schema_version": MISSION_PLAN_CONTRACT_SCHEMA_VERSION,
+        "objectives": _normalize_string_list_field(metadata_copy, "objectives"),
+        "constraints": _normalize_string_list_field(metadata_copy, "constraints"),
+        "assumptions": _normalize_string_list_field(metadata_copy, "assumptions"),
+        "acceptance_criteria": _normalize_string_list_field(metadata_copy, "acceptance_criteria"),
+        "planned_steps": planned_steps,
+        "risk_notes": _normalize_string_list_field(metadata_copy, "risk_notes"),
+    }
+
+
+def can_transition_mission_plan_status(from_status: str, to_status: str) -> bool:
+    """Return whether a mission plan lifecycle status transition is allowed."""
+    return (from_status, to_status) in MISSION_PLAN_ALLOWED_TRANSITIONS
+
+
+def validate_mission_plan_status_transition(from_status: str, to_status: str) -> None:
+    """Fail closed when a mission plan lifecycle transition is not allowed."""
+    valid_statuses = {status.value for status in MissionPlanStatus}
+    if from_status not in valid_statuses:
+        raise ValueError(f"unknown mission plan status: {from_status}")
+    if to_status not in valid_statuses:
+        raise ValueError(f"unknown mission plan status: {to_status}")
+    if not can_transition_mission_plan_status(from_status, to_status):
+        raise ValueError(f"mission plan status transition not allowed: {from_status} -> {to_status}")
+
+
+def build_mission_plan_contract_metadata(
+    *,
+    objectives: list[str] | None = None,
+    constraints: list[str] | None = None,
+    assumptions: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
+    planned_steps: list[dict[str, Any]] | None = None,
+    risk_notes: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build the durable mission planning contract metadata envelope.
+
+    This contract is intentionally data-only. It bridges mission intake to a
+    future task graph layer without creating execution tasks, enqueueing work,
+    dispatching workers, or mutating runtime leases. Defaults are deterministic
+    so omitted optional fields serialize identically across requests.
+    """
+    return normalize_mission_plan_contract_metadata(
+        {
+            "schema_version": MISSION_PLAN_CONTRACT_SCHEMA_VERSION,
+            "objectives": list(objectives or []),
+            "constraints": list(constraints or []),
+            "assumptions": list(assumptions or []),
+            "acceptance_criteria": list(acceptance_criteria or []),
+            "planned_steps": [dict(step) for step in planned_steps or []],
+            "risk_notes": list(risk_notes or []),
+        }
+    )
+
+
+def mission_plan_active_statuses() -> tuple[str, ...]:
+    """Return statuses that represent the one active plan slot for a mission."""
+    return (MissionPlanStatus.DRAFT.value, MissionPlanStatus.READY.value)
 
 
 def build_mission_task_graph_metadata(
@@ -245,6 +426,33 @@ class Mission(Base):
     compliance_category: Mapped[str] = mapped_column(String(64), nullable=False, default="operational")
     jurisdiction: Mapped[str] = mapped_column(String(64), nullable=False, default="US-ALL")
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
+class MissionPlan(Base):
+    __tablename__ = "mission_plans"
+    __table_args__ = (
+        Index("ix_mission_plans_tenant_id", "tenant_id"),
+        Index("ix_mission_plans_mission_id", "mission_id"),
+        Index("ix_mission_plans_mission_tenant", "mission_id", "tenant_id"),
+        Index(
+            "uq_mission_plans_active_mission_tenant",
+            "tenant_id",
+            "mission_id",
+            unique=True,
+            postgresql_where=text("status IN ('draft', 'ready')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    mission_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("missions.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=MissionPlanStatus.DRAFT.value)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    schema_version: Mapped[int] = mapped_column(nullable=False, default=MISSION_PLAN_CONTRACT_SCHEMA_VERSION)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
