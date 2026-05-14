@@ -38,9 +38,10 @@ from backend.domain.mission import (
     build_mission_intake_metadata,
     build_mission_plan_contract_metadata,
     build_mission_plan_metadata,
-    build_mission_task_graph_metadata,
+    build_mission_task_graph_contract_metadata,
     build_runtime_admission_metadata,
     normalize_mission_plan_contract_metadata,
+    normalize_mission_task_graph_contract_metadata,
 )
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
@@ -415,132 +416,75 @@ class MissionPlanCreate(BaseModel):
         return self
 
 
-class MissionTaskGraphCapabilityReference(BaseModel):
-    """Capability reference for a planned graph node; declaration only."""
+class MissionTaskGraphNodeWrite(BaseModel):
+    """A declarative task graph node; not an ExecutionTask and not dispatchable."""
 
     model_config = ConfigDict(extra="forbid")
 
-    capability_id: UUID | None = None
-    name: str | None = Field(default=None, min_length=1, max_length=160)
-    version: str | None = Field(default=None, min_length=1, max_length=64)
-    purpose: str | None = Field(default=None, max_length=1000)
-
-    @field_validator("name", "version", "purpose")
-    @classmethod
-    def _normalize_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        if not value:
-            raise ValueError("capability reference text fields must be non-empty when provided")
-        return value
-
-    @model_validator(mode="after")
-    def _require_reference_identity(self) -> MissionTaskGraphCapabilityReference:
-        if self.capability_id is None and self.name is None:
-            raise ValueError("capability reference requires capability_id or name")
-        return self
-
-
-class MissionTaskGraphNode(BaseModel):
-    """A planned work node; not an ExecutionTask and not dispatchable yet."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    key: str = Field(min_length=1, max_length=160)
-    name: str = Field(min_length=1, max_length=200)
-    intended_task_type: str = Field(min_length=1, max_length=120)
-    capability_references: list[MissionTaskGraphCapabilityReference] = Field(default_factory=list, max_length=20)
+    node_key: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=2000)
+    capability_reference: str | dict[str, Any]
     input_contract: dict[str, Any] = Field(default_factory=dict)
-    expected_output_contract: dict[str, Any] = Field(default_factory=dict)
-    risk_level: MissionRiskLevel = "medium"
-    approval_required: bool = False
-    execution_constraints: dict[str, Any] = Field(default_factory=dict)
-    operator_notes: str | None = Field(default=None, max_length=5000)
+    output_contract: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("key", "name", "intended_task_type", "operator_notes")
+    @field_validator("node_key", "title", "description")
     @classmethod
-    def _normalize_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
+    def _normalize_text(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("task graph node text fields must be non-empty when provided")
+            raise ValueError("task graph node text fields must be non-empty")
+        return value
+
+    @field_validator("capability_reference")
+    @classmethod
+    def _normalize_capability_reference(cls, value: str | dict[str, Any]) -> str | dict[str, Any]:
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                raise ValueError("task graph capability_reference must be non-empty")
+            return value
+        if not value:
+            raise ValueError("task graph capability_reference object must not be empty")
         return value
 
 
-class MissionTaskGraphEdge(BaseModel):
+class MissionTaskGraphEdgeWrite(BaseModel):
     """A dependency edge from prerequisite node to dependent node."""
 
     model_config = ConfigDict(extra="forbid")
 
     from_node_key: str = Field(min_length=1, max_length=160)
     to_node_key: str = Field(min_length=1, max_length=160)
-    dependency_type: str = Field(default="depends_on", min_length=1, max_length=120)
-    description: str | None = Field(default=None, max_length=1000)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("from_node_key", "to_node_key", "dependency_type", "description")
+    @field_validator("from_node_key", "to_node_key")
     @classmethod
-    def _normalize_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
+    def _normalize_text(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("task graph edge text fields must be non-empty when provided")
+            raise ValueError("task graph edge node references must be non-empty")
         return value
 
 
 class MissionTaskGraphWrite(BaseModel):
-    """Create/update task graph contract; persistence only, never runtime dispatch."""
+    """Create/replace task graph contract; persistence only, never runtime dispatch."""
 
     model_config = ConfigDict(extra="forbid")
 
-    graph_status: MissionTaskGraphStatus = "draft"
-    nodes: list[MissionTaskGraphNode] = Field(min_length=1, max_length=200)
-    edges: list[MissionTaskGraphEdge] = Field(default_factory=list, max_length=1000)
-    operator_notes: str | None = Field(default=None, max_length=5000)
-
-    @field_validator("operator_notes")
-    @classmethod
-    def _normalize_notes(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        if not value:
-            raise ValueError("task graph operator notes must be non-empty when provided")
-        return value
+    nodes: list[MissionTaskGraphNodeWrite] = Field(min_length=1, max_length=200)
+    edges: list[MissionTaskGraphEdgeWrite] = Field(default_factory=list, max_length=1000)
 
     @model_validator(mode="after")
     def _validate_graph_shape(self) -> MissionTaskGraphWrite:
-        node_keys = [node.key for node in self.nodes]
-        if len(set(node_keys)) != len(node_keys):
-            raise ValueError("task graph node keys must be unique")
-
-        node_key_set = set(node_keys)
-        adjacency: dict[str, list[str]] = {key: [] for key in node_keys}
-        for edge in self.edges:
-            if edge.from_node_key not in node_key_set or edge.to_node_key not in node_key_set:
-                raise ValueError("task graph edges must reference existing node keys")
-            if edge.from_node_key == edge.to_node_key:
-                raise ValueError("task graph edges cannot point a node to itself")
-            adjacency[edge.from_node_key].append(edge.to_node_key)
-
-        visiting: set[str] = set()
-        visited: set[str] = set()
-
-        def _visit(key: str) -> None:
-            if key in visiting:
-                raise ValueError("task graph must be acyclic")
-            if key in visited:
-                return
-            visiting.add(key)
-            for dependent_key in adjacency[key]:
-                _visit(dependent_key)
-            visiting.remove(key)
-            visited.add(key)
-
-        for key in node_keys:
-            _visit(key)
+        try:
+            build_mission_task_graph_contract_metadata(
+                nodes=[node.model_dump(mode="json") for node in self.nodes],
+                edges=[edge.model_dump(mode="json") for edge in self.edges],
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
         return self
 
 
@@ -1796,10 +1740,13 @@ def _durable_mission_plan_to_read(plan: MissionPlan) -> MissionPlanRead:
 
 
 def _mission_task_graph_to_read(mission: Mission) -> MissionTaskGraphRead:
+    task_graph = normalize_mission_task_graph_contract_metadata(
+        mission.metadata_json.get(MISSION_TASK_GRAPH_METADATA_KEY, {})
+    )
     return MissionTaskGraphRead(
         mission_id=mission.id,
         tenant_id=mission.tenant_id,
-        task_graph=mission.metadata_json.get(MISSION_TASK_GRAPH_METADATA_KEY, {}),
+        task_graph=task_graph,
         updated_at=mission.updated_at.isoformat(),
     )
 
@@ -1823,7 +1770,13 @@ def _mission_lifecycle_to_read(
     metadata = mission.metadata_json or {}
     intake = metadata.get(MISSION_INTAKE_METADATA_KEY)
     plan = metadata.get(MISSION_PLAN_METADATA_KEY)
-    task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
+    raw_task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
+    task_graph = None
+    if isinstance(raw_task_graph, dict):
+        try:
+            task_graph = normalize_mission_task_graph_contract_metadata(raw_task_graph)
+        except ValueError:
+            task_graph = None
     materialization = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
     runtime_admission = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
     has_memory_promotions = False
@@ -1831,7 +1784,7 @@ def _mission_lifecycle_to_read(
     completeness = MissionLifecycleCompleteness(
         has_intake=isinstance(intake, dict),
         has_plan=isinstance(plan, dict),
-        has_task_graph=isinstance(task_graph, dict),
+        has_task_graph=task_graph is not None,
         has_materialization=isinstance(materialization, dict),
         has_runtime_admission=(
             isinstance(runtime_admission, dict) and runtime_admission.get("admission_status") == "admitted"
@@ -1872,7 +1825,7 @@ def _mission_lifecycle_to_read(
         ),
         intake=intake if isinstance(intake, dict) else None,
         plan=plan if isinstance(plan, dict) else None,
-        task_graph=task_graph if isinstance(task_graph, dict) else None,
+        task_graph=task_graph,
         materialization=materialization if isinstance(materialization, dict) else None,
         runtime_admission=runtime_admission if isinstance(runtime_admission, dict) else None,
         evidence=MissionLifecycleEvidenceSummary(
@@ -2086,6 +2039,7 @@ def read_mission_plan(
     return _mission_plan_to_read(mission)
 
 
+@router.post("/{mission_id}/task-graph", response_model=MissionTaskGraphRead)
 @router.put("/{mission_id}/task-graph", response_model=MissionTaskGraphRead)
 def upsert_mission_task_graph(
     mission_id: UUID,
@@ -2094,75 +2048,18 @@ def upsert_mission_task_graph(
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> MissionTaskGraphRead:
-    """Create or replace a tenant-scoped task graph contract without queueing work."""
+    """Create or replace a tenant-scoped task graph contract without runtime side effects."""
     repo = MissionRepository(db)
     mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
 
-    graph_updated_at = datetime.now(UTC).isoformat()
-    validation_metadata = {
-        "validation_status": "valid",
-        "validated_at": graph_updated_at,
-        "node_count": len(body.nodes),
-        "edge_count": len(body.edges),
-        "cycle_check": "passed",
-        "missing_node_check": "passed",
-        "duplicate_node_key_check": "passed",
-    }
+    graph_contract = build_mission_task_graph_contract_metadata(
+        nodes=[node.model_dump(mode="json") for node in body.nodes],
+        edges=[edge.model_dump(mode="json") for edge in body.edges],
+    )
     metadata = dict(mission.metadata_json or {})
-    previous_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
-    graph_version = _next_task_graph_version(previous_graph)
-    graph_nodes = [node.model_dump(mode="json", exclude_none=True) for node in body.nodes]
-    graph_edges = [edge.model_dump(exclude_none=True) for edge in body.edges]
-    graph_fingerprint = _task_graph_fingerprint(
-        mission_id=str(mission_id),
-        graph_status=body.graph_status,
-        nodes=graph_nodes,
-        edges=graph_edges,
-        operator_notes=body.operator_notes,
-    )
-    graph_metadata = build_mission_task_graph_metadata(
-        mission_id=str(mission_id),
-        graph_status=body.graph_status,
-        graph_version=graph_version,
-        graph_fingerprint=graph_fingerprint,
-        nodes=graph_nodes,
-        edges=graph_edges,
-        operator_notes=body.operator_notes,
-        validation_metadata=validation_metadata,
-    )
-    metadata.update(graph_metadata)
-    _supersede_graph_materialization(
-        metadata=metadata,
-        graph_version=graph_version,
-        graph_fingerprint=graph_fingerprint,
-        updated_at=graph_updated_at,
-    )
-    _supersede_runtime_admission(
-        metadata=metadata,
-        graph_version=graph_version,
-        graph_fingerprint=graph_fingerprint,
-        updated_at=graph_updated_at,
-    )
-    cancelled_task_ids: list[str] = []
-    if isinstance(metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY), dict):
-        cancelled_task_ids = _cancel_superseded_materialized_planned_tasks(
-            metadata=metadata,
-            task_repo=ExecutionTaskRepository(db),
-            tenant_id=str(tenant_id),
-            mission_id=mission_id,
-        )
-    supersede_runtime_task_materialization(
-        metadata=metadata,
-        reason="task_graph_replaced",
-        updated_at=graph_updated_at,
-        supersession={
-            "superseded_by_graph_version": graph_version,
-            "superseded_by_graph_fingerprint": graph_fingerprint,
-            "cancelled_execution_task_ids": cancelled_task_ids,
-        },
-    )
+    metadata[MISSION_TASK_GRAPH_METADATA_KEY] = graph_contract
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _mission_task_graph_to_read(mission)
 
@@ -2180,7 +2077,20 @@ def read_mission_task_graph(
         raise HTTPException(status_code=404, detail="mission not found for tenant")
     if MISSION_TASK_GRAPH_METADATA_KEY not in (mission.metadata_json or {}):
         raise HTTPException(status_code=404, detail="mission task graph not found")
-    return _mission_task_graph_to_read(mission)
+    try:
+        return _mission_task_graph_to_read(mission)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _task_graph_node_key(node: dict[str, Any]) -> str | None:
+    node_key = node.get("node_key")
+    if isinstance(node_key, str) and node_key:
+        return node_key
+    legacy_key = node.get("key")
+    if isinstance(legacy_key, str) and legacy_key:
+        return legacy_key
+    return None
 
 
 @router.post("/{mission_id}/materialize-graph", response_model=GraphMaterializationRead)
@@ -2206,7 +2116,7 @@ def materialize_mission_graph(
     graph_nodes = task_graph.get("nodes")
     if not isinstance(graph_nodes, list):
         raise HTTPException(status_code=400, detail="mission task graph nodes are required before materialization")
-    node_keys = {node.get("key") for node in graph_nodes if isinstance(node, dict)}
+    node_keys = {_task_graph_node_key(node) for node in graph_nodes if isinstance(node, dict)}
     if len(node_keys) != len(graph_nodes) or any(not isinstance(key, str) or not key for key in node_keys):
         raise HTTPException(status_code=400, detail="mission task graph nodes must have valid keys")
 
@@ -2333,7 +2243,9 @@ def admit_mission_graph_to_runtime(
     graph_nodes = task_graph.get("nodes")
     if not isinstance(graph_nodes, list) or not all(isinstance(node, dict) for node in graph_nodes):
         raise HTTPException(status_code=400, detail="mission task graph nodes are required before runtime admission")
-    nodes_by_key = {node.get("key"): node for node in graph_nodes if isinstance(node.get("key"), str)}
+    nodes_by_key = {
+        node_key: node for node in graph_nodes if isinstance(node, dict) and (node_key := _task_graph_node_key(node))
+    }
     if len(nodes_by_key) != len(graph_nodes):
         raise HTTPException(status_code=400, detail="mission task graph nodes must have valid keys")
 
@@ -2383,9 +2295,8 @@ def admit_mission_graph_to_runtime(
             )
         runtime_task_type = runtime_task_type.strip()
 
-        node_capability_refs = (
-            node.get("capability_references") if isinstance(node.get("capability_references"), list) else []
-        )
+        raw_node_capability_refs = node.get("capability_references")
+        node_capability_refs: list[Any] = raw_node_capability_refs if isinstance(raw_node_capability_refs, list) else []
         materialized_selection = selections_by_node.get(selection.node_key)
         capability_id = selection.capability_id
         materialized_capability_id: UUID | None = None
@@ -2480,7 +2391,7 @@ def admit_mission_graph_to_runtime(
                 "capability_id": str(capability_id) if capability_id is not None else None,
                 "adapter_id": str(adapter_id) if adapter_id is not None else None,
                 "graph_node_reference": {
-                    "key": node.get("key"),
+                    "key": _task_graph_node_key(node) or "",
                     "name": node.get("name"),
                     "intended_task_type": node.get("intended_task_type"),
                 },
@@ -2758,7 +2669,11 @@ def _build_mission_runtime_readiness(
     adapter_repo = CapabilityAdapterRepository(db)
     nodes_by_key: dict[str, dict[str, Any]] = {}
     if task_graph is not None and isinstance(task_graph.get("nodes"), list):
-        nodes_by_key = {node["key"]: node for node in task_graph["nodes"] if isinstance(node, dict) and node.get("key")}
+        nodes_by_key = {
+            node_key: node
+            for node in task_graph["nodes"]
+            if isinstance(node, dict) and (node_key := _task_graph_node_key(node))
+        }
 
     for selected_node in selected_nodes:
         if not isinstance(selected_node, dict):

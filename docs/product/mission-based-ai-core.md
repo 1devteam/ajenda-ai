@@ -364,24 +364,20 @@ Capability registry remains a contract layer only. Persisting or updating a capa
 
 ## Task Graph Contracts V1
 
-Task graph contracts now define durable, tenant-scoped planned work structure between mission planning and future materialization/execution. `PUT /v1/missions/{mission_id}/task-graph` creates or replaces a graph contract, and `GET /v1/missions/{mission_id}/task-graph` reads it back through the same tenant-scoped mission repository boundary. The graph is persisted additively in `Mission.metadata_json["mission_task_graph"]` with `schema_version = 1`.
+Task graph contracts now define durable, tenant-scoped planned work structure between mission planning and future materialization/execution. `POST /v1/missions/{mission_id}/task-graph` validates and replaces the full graph contract, `PUT /v1/missions/{mission_id}/task-graph` remains a compatibility alias with the same full-replace semantics, and `GET /v1/missions/{mission_id}/task-graph` reads the normalized graph back through the same tenant-scoped mission repository boundary. The graph is persisted additively in `Mission.metadata_json["mission_task_graph"]` with `schema_version = 1`; no task graph table is introduced.
 
 First-class in this block:
 
-- graph status and schema version;
-- mission identifier binding;
-- graph nodes;
+- schema version;
+- graph nodes with unique `node_key` values;
 - graph edges/dependencies;
-- node capability references;
-- node intended task type;
-- node input and expected output contracts;
-- node risk level and approval requirement;
-- node execution constraints;
-- operator notes;
-- graph validation metadata;
-- graph version and immutable graph fingerprint for downstream materialization references.
+- node title and description;
+- node capability reference as a string or structured JSON object;
+- node input and output contracts;
+- node metadata as JSON-safe structured data;
+- edge metadata as JSON-safe structured data.
 
-Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects duplicate node keys, rejects edges pointing to missing nodes, and rejects cycles, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
+Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects duplicate node keys, rejects edges pointing to missing nodes, rejects self-dependencies, rejects cycles, rejects unsupported schema versions, and rejects non-JSON-safe metadata, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, mutate worker leases, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
 
 ## Planner-to-Graph Materialization V1 Contracts
 
@@ -399,7 +395,7 @@ First-class in this block:
 - timestamps for materialization and updates;
 - graph reference version/fingerprint so consumers can detect stale materialization metadata.
 
-Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may validate mission ownership, the existence of a task graph, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Task graph replacement increments the graph version, changes the graph fingerprint, and supersedes any existing materialization metadata so approved/validated materialization cannot silently point at an older graph. Runtime execution/materialization remain future layers above the governed runtime foundation.
+Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may validate mission ownership, the existence of a task graph, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Task graph replacement is intentionally data-only in the task graph layer; downstream materialization/admission contracts remain responsible for detecting stale references before any future runtime materialization. Runtime execution/materialization remain future layers above the governed runtime foundation.
 
 ## Graph-to-Runtime Admission V1 Contracts
 

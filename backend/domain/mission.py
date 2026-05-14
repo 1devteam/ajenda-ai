@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -123,11 +124,11 @@ def build_mission_plan_metadata(
     }
 
 
-def _json_safe_copy(value: Any) -> Any:
+def _json_safe_copy(value: Any, *, contract_name: str = "mission plan metadata") -> Any:
     try:
         return json.loads(json.dumps(value))
     except (TypeError, ValueError) as exc:
-        raise ValueError("mission plan metadata must be JSON-safe") from exc
+        raise ValueError(f"{contract_name} must be JSON-safe") from exc
 
 
 def _normalize_string_list_field(metadata: dict[str, Any], field_name: str) -> list[str]:
@@ -241,6 +242,229 @@ def normalize_mission_plan_contract_metadata(metadata: dict[str, Any]) -> dict[s
         "planned_steps": planned_steps,
         "risk_notes": _normalize_string_list_field(metadata_copy, "risk_notes"),
     }
+
+
+@dataclass(frozen=True)
+class TaskGraphNode:
+    """A declarative mission task graph node.
+
+    This is a data-only planning contract. It is not an ExecutionTask and must
+    not be interpreted as queue admission, worker dispatch, or lease ownership.
+    """
+
+    node_key: str
+    title: str
+    description: str
+    capability_reference: str | dict[str, Any]
+    input_contract: dict[str, Any] = field(default_factory=dict)
+    output_contract: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_metadata(self) -> dict[str, Any]:
+        return {
+            "node_key": self.node_key,
+            "title": self.title,
+            "description": self.description,
+            "capability_reference": _json_safe_copy(
+                self.capability_reference, contract_name="mission task graph capability reference"
+            ),
+            "input_contract": _json_safe_copy(self.input_contract, contract_name="mission task graph input contract"),
+            "output_contract": _json_safe_copy(
+                self.output_contract, contract_name="mission task graph output contract"
+            ),
+            "metadata": _json_safe_copy(self.metadata, contract_name="mission task graph node metadata"),
+        }
+
+
+@dataclass(frozen=True)
+class TaskGraphEdge:
+    """A declarative dependency from one node to a dependent node."""
+
+    from_node_key: str
+    to_node_key: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_metadata(self) -> dict[str, Any]:
+        return {
+            "from_node_key": self.from_node_key,
+            "to_node_key": self.to_node_key,
+            "metadata": _json_safe_copy(self.metadata, contract_name="mission task graph edge metadata"),
+        }
+
+
+@dataclass(frozen=True)
+class MissionTaskGraph:
+    """A validated, tenant-scoped mission task graph contract container."""
+
+    nodes: list[TaskGraphNode]
+    edges: list[TaskGraphEdge] = field(default_factory=list)
+    schema_version: int = MISSION_TASK_GRAPH_SCHEMA_VERSION
+
+    def to_metadata(self) -> dict[str, Any]:
+        return normalize_mission_task_graph_contract_metadata(
+            {
+                "schema_version": self.schema_version,
+                "nodes": [node.to_metadata() for node in self.nodes],
+                "edges": [edge.to_metadata() for edge in self.edges],
+            }
+        )
+
+
+def _normalize_required_task_graph_text(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"mission task graph {field_name} must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"mission task graph {field_name} must be a non-empty string")
+    return normalized
+
+
+def _normalize_task_graph_object(value: Any, field_name: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"mission task graph {field_name} must be an object")
+    return cast(dict[str, Any], _json_safe_copy(value, contract_name=f"mission task graph {field_name}"))
+
+
+def _normalize_task_graph_capability_reference(value: Any) -> str | dict[str, Any]:
+    if isinstance(value, str):
+        return _normalize_required_task_graph_text(value, "capability_reference")
+    if not isinstance(value, dict):
+        raise ValueError("mission task graph capability_reference must be a string or object")
+    reference = cast(dict[str, Any], _json_safe_copy(value, contract_name="mission task graph capability_reference"))
+    if not reference:
+        raise ValueError("mission task graph capability_reference object must not be empty")
+    return reference
+
+
+def _normalize_task_graph_node(raw_node: Any) -> dict[str, Any]:
+    if not isinstance(raw_node, dict):
+        raise ValueError("mission task graph nodes entries must be objects")
+    allowed_fields = {
+        "node_key",
+        "title",
+        "description",
+        "capability_reference",
+        "input_contract",
+        "output_contract",
+        "metadata",
+    }
+    if set(raw_node) - allowed_fields:
+        raise ValueError("mission task graph nodes entries contain unsupported fields")
+    return {
+        "node_key": _normalize_required_task_graph_text(raw_node.get("node_key"), "node_key"),
+        "title": _normalize_required_task_graph_text(raw_node.get("title"), "title"),
+        "description": _normalize_required_task_graph_text(raw_node.get("description"), "description"),
+        "capability_reference": _normalize_task_graph_capability_reference(raw_node.get("capability_reference")),
+        "input_contract": _normalize_task_graph_object(raw_node.get("input_contract", {}), "input_contract"),
+        "output_contract": _normalize_task_graph_object(raw_node.get("output_contract", {}), "output_contract"),
+        "metadata": _normalize_task_graph_object(raw_node.get("metadata", {}), "metadata"),
+    }
+
+
+def _normalize_task_graph_edge(raw_edge: Any) -> dict[str, Any]:
+    if not isinstance(raw_edge, dict):
+        raise ValueError("mission task graph edges entries must be objects")
+    allowed_fields = {"from_node_key", "to_node_key", "metadata"}
+    if set(raw_edge) - allowed_fields:
+        raise ValueError("mission task graph edges entries contain unsupported fields")
+    return {
+        "from_node_key": _normalize_required_task_graph_text(raw_edge.get("from_node_key"), "from_node_key"),
+        "to_node_key": _normalize_required_task_graph_text(raw_edge.get("to_node_key"), "to_node_key"),
+        "metadata": _normalize_task_graph_object(raw_edge.get("metadata", {}), "edge metadata"),
+    }
+
+
+def _validate_task_graph_is_dag(*, node_keys: set[str], edges: list[dict[str, Any]]) -> None:
+    adjacency: dict[str, list[str]] = {node_key: [] for node_key in node_keys}
+    for edge in edges:
+        from_node_key = edge["from_node_key"]
+        to_node_key = edge["to_node_key"]
+        if from_node_key not in node_keys or to_node_key not in node_keys:
+            raise ValueError("mission task graph edges must reference existing node_keys")
+        if from_node_key == to_node_key:
+            raise ValueError("mission task graph edges cannot self-depend")
+        adjacency[from_node_key].append(to_node_key)
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(node_key: str) -> None:
+        if node_key in visiting:
+            raise ValueError("mission task graph must be acyclic")
+        if node_key in visited:
+            return
+        visiting.add(node_key)
+        for dependent_key in adjacency[node_key]:
+            visit(dependent_key)
+        visiting.remove(node_key)
+        visited.add(node_key)
+
+    for node_key in sorted(node_keys):
+        visit(node_key)
+
+
+def normalize_mission_task_graph_contract_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Normalize and validate a v1 mission task graph contract.
+
+    Task graph contracts are data only. This function fails closed on malformed
+    node references, duplicate node keys, self-dependencies, cycles, unsupported
+    schema versions, and non-JSON-safe content. The caller's metadata is never
+    mutated.
+    """
+    metadata_copy = _json_safe_copy(metadata, contract_name="mission task graph metadata")
+    if not isinstance(metadata_copy, dict):
+        raise ValueError("mission task graph metadata must be an object")
+    allowed_fields = {"schema_version", "nodes", "edges"}
+    if set(metadata_copy) - allowed_fields:
+        raise ValueError("mission task graph metadata contains unsupported fields")
+
+    schema_version = metadata_copy.get("schema_version", MISSION_TASK_GRAPH_SCHEMA_VERSION)
+    if schema_version != MISSION_TASK_GRAPH_SCHEMA_VERSION:
+        raise ValueError("unsupported mission task graph metadata schema_version")
+
+    raw_nodes = metadata_copy.get("nodes")
+    if not isinstance(raw_nodes, list) or not raw_nodes:
+        raise ValueError("mission task graph nodes must be a non-empty list")
+    nodes = [_normalize_task_graph_node(node) for node in raw_nodes]
+    node_keys = [node["node_key"] for node in nodes]
+    if len(set(node_keys)) != len(node_keys):
+        raise ValueError("mission task graph node_key values must be unique")
+
+    raw_edges = metadata_copy.get("edges", [])
+    if raw_edges is None:
+        raw_edges = []
+    if not isinstance(raw_edges, list):
+        raise ValueError("mission task graph edges must be a list")
+    edges = [_normalize_task_graph_edge(edge) for edge in raw_edges]
+    _validate_task_graph_is_dag(node_keys=set(node_keys), edges=edges)
+
+    return {
+        "schema_version": MISSION_TASK_GRAPH_SCHEMA_VERSION,
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+def build_mission_task_graph_contract_metadata(
+    *,
+    nodes: list[dict[str, Any]] | None = None,
+    edges: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build deterministic v1 mission task graph contract metadata.
+
+    The returned graph is validated and JSON-safe, but it is only a structural
+    Mission Plan -> Task Graph bridge. Building it must not create tasks, enqueue
+    work, dispatch workers, or mutate leases.
+    """
+    return normalize_mission_task_graph_contract_metadata(
+        {
+            "schema_version": MISSION_TASK_GRAPH_SCHEMA_VERSION,
+            "nodes": [dict(node) for node in nodes or []],
+            "edges": [dict(edge) for edge in edges or []],
+        }
+    )
 
 
 def can_transition_mission_plan_status(from_status: str, to_status: str) -> bool:
