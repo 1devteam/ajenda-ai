@@ -34,12 +34,14 @@ from backend.domain.mission import (
     MISSION_WORKER_START_ADMISSION_SCHEMA_VERSION,
     Mission,
     MissionPlan,
-    build_graph_materialization_metadata,
+    build_graph_materialization_contract_metadata,
     build_mission_intake_metadata,
     build_mission_plan_contract_metadata,
     build_mission_plan_metadata,
     build_mission_task_graph_contract_metadata,
     build_runtime_admission_metadata,
+    normalize_graph_materialization_contract_metadata,
+    normalize_graph_materialization_graph_reference,
     normalize_mission_plan_contract_metadata,
     normalize_mission_task_graph_contract_metadata,
 )
@@ -563,36 +565,54 @@ class DeterministicCompilationMetadata(BaseModel):
         return _normalize_optional_non_empty_text(value, "deterministic compilation text fields must be non-empty")
 
 
+class GraphMaterializationGraphReference(BaseModel):
+    """Current task graph identity selected for materialization."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mission_id: str = Field(min_length=1)
+    graph_version: int = Field(ge=1)
+    graph_fingerprint: str = Field(min_length=1)
+
+    @field_validator("mission_id", "graph_fingerprint")
+    @classmethod
+    def _normalize_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("graph reference fields must be non-empty")
+        return value
+
+
 class GraphMaterializationWrite(BaseModel):
     """Create/update planner-to-graph materialization metadata; never runtime execution."""
 
     model_config = ConfigDict(extra="forbid")
 
+    schema_version: int = 1
     materialization_status: GraphMaterializationStatus = "draft"
-    materialization_source: str = Field(min_length=1, max_length=160)
-    materialization_source_version: str = Field(min_length=1, max_length=64)
-    planner_provenance: GraphPlannerProvenance
-    capability_selection_provenance: list[GraphCapabilitySelectionProvenance] = Field(
-        default_factory=list, max_length=200
-    )
-    graph_validation_result: GraphValidationResult
-    operator_review: GraphOperatorReview = Field(default_factory=GraphOperatorReview)
-    graph_generation_metadata: GraphGenerationMetadata
-    deterministic_compilation_metadata: DeterministicCompilationMetadata
-    generation_notes: list[str] = Field(default_factory=list, max_length=50)
+    graph_reference: GraphMaterializationGraphReference | None = None
+    planner_provenance: dict[str, Any] = Field(default_factory=dict)
+    capability_selection_provenance: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    graph_validation_result: dict[str, Any] = Field(default_factory=dict)
+    operator_review: dict[str, Any] = Field(default_factory=dict)
+    graph_generation_metadata: dict[str, Any] = Field(default_factory=dict)
+    deterministic_compilation_metadata: dict[str, Any] = Field(default_factory=dict)
+    generation_notes: list[Any] = Field(default_factory=list, max_length=50)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("materialization_source", "materialization_source_version")
-    @classmethod
-    def _normalize_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("materialization source fields must be non-empty")
-        return value
-
-    @field_validator("generation_notes")
-    @classmethod
-    def _normalize_notes(cls, value: list[str]) -> list[str]:
-        return _normalize_unique_string_list(value)
+    @model_validator(mode="after")
+    def _validate_schema_and_status(self) -> GraphMaterializationWrite:
+        if self.schema_version != 1:
+            raise ValueError("unsupported graph materialization metadata schema_version")
+        if self.materialization_status == "superseded":
+            raise ValueError("graph materialization materialization_status is system-only")
+        validation_status = self.graph_validation_result.get("validation_status")
+        summary = self.graph_validation_result.get("summary")
+        if validation_status is not None and not isinstance(validation_status, str):
+            raise ValueError("graph validation_result validation_status must be a string")
+        if summary is not None and (not isinstance(summary, str) or not summary.strip()):
+            raise ValueError("graph validation_result summary must be non-empty")
+        return self
 
 
 class GraphMaterializationRead(BaseModel):
@@ -1237,6 +1257,51 @@ def _task_graph_with_identity(
     return graph_with_identity
 
 
+def _current_task_graph_reference(task_graph: Any) -> dict[str, Any]:
+    if not isinstance(task_graph, dict):
+        raise HTTPException(status_code=409, detail="mission task graph is required before graph materialization")
+    try:
+        normalized_task_graph = normalize_mission_task_graph_contract_metadata(task_graph, allow_legacy_v1=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not _task_graph_has_identity(normalized_task_graph):
+        raise HTTPException(
+            status_code=409, detail="mission task graph identity is required before graph materialization"
+        )
+    return {
+        "mission_id": normalized_task_graph["mission_id"],
+        "graph_version": normalized_task_graph["graph_version"],
+        "graph_fingerprint": normalized_task_graph["graph_fingerprint"],
+    }
+
+
+def _graph_materialization_content_for_idempotency(materialization: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in materialization.items() if key != "updated_at"}
+
+
+def _graph_materialization_is_current(
+    *, materialization: dict[str, Any], current_graph_reference: dict[str, Any]
+) -> bool:
+    return materialization.get("graph_reference") == current_graph_reference
+
+
+def _normalize_current_graph_materialization(
+    *, metadata: dict[str, Any], current_graph_reference: dict[str, Any] | None, stale_detail: str
+) -> dict[str, Any]:
+    materialization = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
+    if not isinstance(materialization, dict):
+        raise HTTPException(status_code=404, detail="mission graph materialization not found")
+    try:
+        normalized = normalize_graph_materialization_contract_metadata(materialization)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if current_graph_reference is None or not _graph_materialization_is_current(
+        materialization=normalized, current_graph_reference=current_graph_reference
+    ):
+        raise HTTPException(status_code=409, detail=stale_detail)
+    return normalized
+
+
 def _fingerprint_existing_task_graph(task_graph: dict[str, Any]) -> str | None:
     nodes = task_graph.get("nodes")
     edges = task_graph.get("edges")
@@ -1391,9 +1456,14 @@ def _runtime_readiness_reference(metadata: dict[str, Any] | None, key: str) -> d
 
 
 def _graph_matches_reference(*, task_graph: dict[str, Any], graph_reference: dict[str, Any] | None) -> bool:
+    if not isinstance(graph_reference, dict):
+        return False
     graph_fingerprint = task_graph.get("graph_fingerprint") or _fingerprint_existing_task_graph(task_graph)
-    return isinstance(graph_reference, dict) and (
-        graph_reference.get("metadata_key") == MISSION_TASK_GRAPH_METADATA_KEY
+    mission_matches = "mission_id" not in graph_reference or graph_reference.get("mission_id") == task_graph.get(
+        "mission_id"
+    )
+    return (
+        mission_matches
         and graph_reference.get("graph_version") == task_graph.get("graph_version")
         and graph_reference.get("graph_fingerprint") == graph_fingerprint
     )
@@ -1721,10 +1791,17 @@ def _mission_task_graph_to_read(mission: Mission) -> MissionTaskGraphRead:
 
 
 def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead:
+    metadata = mission.metadata_json or {}
+    current_graph_reference = _current_task_graph_reference(metadata.get(MISSION_TASK_GRAPH_METADATA_KEY))
+    normalized = _normalize_current_graph_materialization(
+        metadata=metadata,
+        current_graph_reference=current_graph_reference,
+        stale_detail="mission graph materialization graph_reference is stale",
+    )
     return GraphMaterializationRead(
         mission_id=mission.id,
         tenant_id=mission.tenant_id,
-        materialization=mission.metadata_json.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY, {}),
+        materialization=normalized,
         updated_at=mission.updated_at.isoformat(),
     )
 
@@ -1747,6 +1824,27 @@ def _mission_lifecycle_to_read(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
     materialization = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
+    normalized_materialization: dict[str, Any] | None = None
+    if materialization is not None:
+        if not isinstance(materialization, dict):
+            raise HTTPException(status_code=409, detail="graph materialization metadata must be an object")
+        try:
+            candidate_materialization = normalize_graph_materialization_contract_metadata(materialization)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if (
+            normalized_task_graph is not None
+            and _task_graph_has_identity(normalized_task_graph)
+            and _graph_materialization_is_current(
+                materialization=candidate_materialization,
+                current_graph_reference={
+                    "mission_id": normalized_task_graph["mission_id"],
+                    "graph_version": normalized_task_graph["graph_version"],
+                    "graph_fingerprint": normalized_task_graph["graph_fingerprint"],
+                },
+            )
+        ):
+            normalized_materialization = candidate_materialization
     runtime_admission = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
     has_memory_promotions = False
 
@@ -1754,7 +1852,7 @@ def _mission_lifecycle_to_read(
         has_intake=isinstance(intake, dict),
         has_plan=isinstance(plan, dict),
         has_task_graph=normalized_task_graph is not None,
-        has_materialization=isinstance(materialization, dict),
+        has_materialization=normalized_materialization is not None,
         has_runtime_admission=(
             isinstance(runtime_admission, dict) and runtime_admission.get("admission_status") == "admitted"
         ),
@@ -1769,7 +1867,7 @@ def _mission_lifecycle_to_read(
     if not completeness.has_task_graph:
         missing_next_steps.append("create_task_graph")
     if not completeness.has_materialization:
-        missing_next_steps.append("materialize_task_graph")
+        missing_next_steps.append("create_graph_materialization")
     if not completeness.has_runtime_admission:
         missing_next_steps.append("admit_graph_to_runtime")
     if not completeness.has_evidence:
@@ -1795,7 +1893,7 @@ def _mission_lifecycle_to_read(
         intake=intake if isinstance(intake, dict) else None,
         plan=plan if isinstance(plan, dict) else None,
         task_graph=normalized_task_graph,
-        materialization=materialization if isinstance(materialization, dict) else None,
+        materialization=normalized_materialization,
         runtime_admission=runtime_admission if isinstance(runtime_admission, dict) else None,
         evidence=MissionLifecycleEvidenceSummary(
             count=len(evidence_records),
@@ -2124,15 +2222,14 @@ def read_mission_task_graph(
     return _mission_task_graph_to_read(mission)
 
 
-@router.post("/{mission_id}/materialize-graph", response_model=GraphMaterializationRead)
-def materialize_mission_graph(
+def _write_mission_graph_materialization(
+    *,
     mission_id: UUID,
     body: GraphMaterializationWrite,
-    request: Request,
-    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
-    db: Session = Depends(get_tenant_db_session),
+    tenant_id: _uuid.UUID,
+    db: Session,
 ) -> GraphMaterializationRead:
-    """Persist planner-to-graph materialization metadata without runtime work."""
+    """Create or fully replace graph materialization metadata without runtime work."""
     tenant_id_str = str(tenant_id)
     repo = MissionRepository(db)
     mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
@@ -2140,68 +2237,99 @@ def materialize_mission_graph(
         raise HTTPException(status_code=404, detail="mission not found for tenant")
 
     metadata = dict(mission.metadata_json or {})
-    task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
-    if not isinstance(task_graph, dict):
-        raise HTTPException(status_code=400, detail="mission task graph is required before materialization")
+    current_graph_reference = _current_task_graph_reference(metadata.get(MISSION_TASK_GRAPH_METADATA_KEY))
+    client_graph_reference = body.graph_reference.model_dump(mode="json") if body.graph_reference is not None else None
+    if client_graph_reference is not None:
+        try:
+            client_graph_reference = normalize_graph_materialization_graph_reference(client_graph_reference)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if client_graph_reference != current_graph_reference:
+            raise HTTPException(status_code=409, detail="graph_reference does not match current task graph")
 
-    graph_nodes = task_graph.get("nodes")
-    if not isinstance(graph_nodes, list):
-        raise HTTPException(status_code=400, detail="mission task graph nodes are required before materialization")
-    node_keys = {node.get("key") for node in graph_nodes if isinstance(node, dict)}
-    if len(node_keys) != len(graph_nodes) or any(not isinstance(key, str) or not key for key in node_keys):
-        raise HTTPException(status_code=400, detail="mission task graph nodes must have valid keys")
-
+    task_graph = normalize_mission_task_graph_contract_metadata(
+        metadata[MISSION_TASK_GRAPH_METADATA_KEY], allow_legacy_v1=True
+    )
+    graph_nodes = task_graph["nodes"]
+    node_keys = {node["key"] for node in graph_nodes}
     capability_repo = CapabilityRepository(db)
     for selection in body.capability_selection_provenance:
-        if selection.node_key not in node_keys:
-            raise HTTPException(
-                status_code=400, detail=f"capability selection references missing node: {selection.node_key}"
-            )
-        if selection.capability_id is not None:
-            capability = capability_repo.get_visible_for_tenant(
-                capability_id=selection.capability_id, tenant_id=tenant_id_str
-            )
+        node_key = selection.get("node_key")
+        if not isinstance(node_key, str) or node_key not in node_keys:
+            raise HTTPException(status_code=422, detail=f"capability selection references missing node: {node_key}")
+        raw_capability_id = selection.get("capability_id")
+        if raw_capability_id is not None:
+            try:
+                capability_id = UUID(str(raw_capability_id))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=f"capability_id is invalid for node: {node_key}") from exc
+            capability = capability_repo.get_visible_for_tenant(capability_id=capability_id, tenant_id=tenant_id_str)
             if capability is None:
-                raise HTTPException(
-                    status_code=400, detail=f"capability not found for tenant: {selection.capability_id}"
-                )
+                raise HTTPException(status_code=422, detail=f"capability not found for tenant: {capability_id}")
 
     previous = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
-    previous_version = previous.get("materialization_version", 0) if isinstance(previous, dict) else 0
+    normalized_previous: dict[str, Any] | None = None
+    if isinstance(previous, dict):
+        try:
+            normalized_previous = normalize_graph_materialization_contract_metadata(previous)
+        except ValueError:
+            normalized_previous = None
+    previous_version = normalized_previous["materialization_version"] if normalized_previous is not None else 0
+    if previous_version == 0 and isinstance(previous, dict):
+        raw_previous_version = previous.get("materialization_version")
+        if (
+            isinstance(raw_previous_version, int)
+            and not isinstance(raw_previous_version, bool)
+            and raw_previous_version > 0
+        ):
+            previous_version = raw_previous_version
     now = datetime.now(UTC).isoformat()
-    materialization_metadata = build_graph_materialization_metadata(
-        mission_id=str(mission_id),
-        materialization_status=body.materialization_status,
-        materialization_source=body.materialization_source,
-        materialization_source_version=body.materialization_source_version,
-        materialization_version=previous_version + 1,
-        planner_provenance=body.planner_provenance.model_dump(mode="json", exclude_none=True),
-        capability_selection_provenance=[
-            selection.model_dump(mode="json", exclude_none=True) for selection in body.capability_selection_provenance
-        ],
-        graph_validation_result=body.graph_validation_result.model_dump(mode="json", exclude_none=True),
-        operator_review=body.operator_review.model_dump(mode="json", exclude_none=True),
-        graph_generation_metadata=body.graph_generation_metadata.model_dump(mode="json", exclude_none=True),
-        deterministic_compilation_metadata=body.deterministic_compilation_metadata.model_dump(
-            mode="json", exclude_none=True
-        ),
-        generation_notes=body.generation_notes,
-        materialized_at=previous.get("materialized_at", now) if isinstance(previous, dict) else now,
-        updated_at=now,
-        graph_reference={
-            "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
-            "schema_version": task_graph.get("schema_version"),
-            "graph_status": task_graph.get("graph_status"),
-            "graph_version": task_graph.get("graph_version"),
-            "graph_fingerprint": task_graph.get("graph_fingerprint") or _fingerprint_existing_task_graph(task_graph),
-            "node_count": len(graph_nodes),
-            "edge_count": len(task_graph.get("edges", [])) if isinstance(task_graph.get("edges", []), list) else 0,
-        },
-    )
+    if normalized_previous is not None:
+        materialized_at = normalized_previous.get("materialized_at")
+    elif isinstance(previous, dict) and isinstance(previous.get("materialized_at"), str):
+        materialized_at = previous["materialized_at"]
+    else:
+        materialized_at = now
+
+    try:
+        candidate = build_graph_materialization_contract_metadata(
+            mission_id=str(mission_id),
+            materialization_status=body.materialization_status,
+            materialization_version=previous_version or 1,
+            materialized_at=materialized_at,
+            updated_at=now,
+            graph_reference=current_graph_reference,
+            planner_provenance=body.planner_provenance,
+            capability_selection_provenance=body.capability_selection_provenance,
+            graph_validation_result=body.graph_validation_result,
+            operator_review=body.operator_review,
+            graph_generation_metadata=body.graph_generation_metadata,
+            deterministic_compilation_metadata=body.deterministic_compilation_metadata,
+            generation_notes=body.generation_notes,
+            metadata=body.metadata,
+            allow_system_status=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if normalized_previous is not None and _graph_materialization_content_for_idempotency(
+        normalized_previous
+    ) == _graph_materialization_content_for_idempotency(candidate):
+        return GraphMaterializationRead(
+            mission_id=mission.id,
+            tenant_id=mission.tenant_id,
+            materialization=normalized_previous,
+            updated_at=mission.updated_at.isoformat(),
+        )
+
+    next_version = previous_version + 1 if previous_version else 1
+    if candidate["materialization_version"] != next_version:
+        candidate = {**candidate, "materialization_version": next_version}
+
     if isinstance(metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY), dict):
         _supersede_runtime_admission_for_materialization(
             metadata=metadata,
-            materialization_version=previous_version + 1,
+            materialization_version=next_version,
             updated_at=now,
         )
     cancelled_task_ids: list[str] = []
@@ -2217,13 +2345,37 @@ def materialize_mission_graph(
         reason="graph_materialization_replaced",
         updated_at=now,
         supersession={
-            "superseded_by_materialization_version": previous_version + 1,
+            "superseded_by_materialization_version": next_version,
             "cancelled_execution_task_ids": cancelled_task_ids,
         },
     )
-    metadata.update(materialization_metadata)
+    metadata[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = candidate
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
     return _graph_materialization_to_read(mission)
+
+
+@router.post("/{mission_id}/materialize-graph", response_model=GraphMaterializationRead)
+def materialize_mission_graph(
+    mission_id: UUID,
+    body: GraphMaterializationWrite,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> GraphMaterializationRead:
+    """Persist planner-to-graph materialization metadata without runtime work."""
+    return _write_mission_graph_materialization(mission_id=mission_id, body=body, tenant_id=tenant_id, db=db)
+
+
+@router.put("/{mission_id}/materialize-graph", response_model=GraphMaterializationRead)
+def replace_mission_graph_materialization(
+    mission_id: UUID,
+    body: GraphMaterializationWrite,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> GraphMaterializationRead:
+    """Replace planner-to-graph materialization metadata without runtime work."""
+    return _write_mission_graph_materialization(mission_id=mission_id, body=body, tenant_id=tenant_id, db=db)
 
 
 @router.get("/{mission_id}/materialization", response_model=GraphMaterializationRead)

@@ -6,7 +6,9 @@ import math
 import pytest
 
 from backend.domain.mission import (
+    build_graph_materialization_contract_metadata,
     build_mission_task_graph_contract_metadata,
+    normalize_graph_materialization_contract_metadata,
     normalize_mission_task_graph_contract_metadata,
 )
 
@@ -236,3 +238,136 @@ def test_normalize_mission_task_graph_contract_metadata_rejects_legacy_fields_on
 
     with pytest.raises(ValueError, match="unsupported fields"):
         normalize_mission_task_graph_contract_metadata(graph)
+
+
+def _valid_graph_materialization() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "mission_id": "mission-123",
+        "materialization_status": "validated",
+        "materialization_version": 1,
+        "materialized_at": "2026-05-14T00:00:00+00:00",
+        "updated_at": "2026-05-14T00:00:00+00:00",
+        "graph_reference": {
+            "mission_id": "mission-123",
+            "graph_version": 3,
+            "graph_fingerprint": "sha256:graph",
+        },
+        "planner_provenance": {"planner": "deterministic"},
+        "capability_selection_provenance": [{"node_key": "collect", "capability_id": "cap-1"}],
+        "graph_validation_result": {"validation_status": "valid"},
+        "operator_review": {"review_status": "approved"},
+        "graph_generation_metadata": {"generator": "tests"},
+        "deterministic_compilation_metadata": {"compiler_name": "tests"},
+        "generation_notes": ["stable"],
+        "metadata": {"owner": "contracts"},
+    }
+
+
+def test_normalize_graph_materialization_contract_metadata_valid_contract_is_deterministic() -> None:
+    materialization = _valid_graph_materialization()
+
+    first = normalize_graph_materialization_contract_metadata(materialization)
+    second = normalize_graph_materialization_contract_metadata(materialization)
+
+    assert first == second == materialization
+
+
+def test_build_graph_materialization_contract_metadata_is_deterministic() -> None:
+    materialization = _valid_graph_materialization()
+
+    first = build_graph_materialization_contract_metadata(
+        mission_id="mission-123",
+        materialization_status="validated",
+        materialization_version=1,
+        materialized_at="2026-05-14T00:00:00+00:00",
+        updated_at="2026-05-14T00:00:00+00:00",
+        graph_reference=materialization["graph_reference"],
+        planner_provenance=materialization["planner_provenance"],
+        capability_selection_provenance=materialization["capability_selection_provenance"],
+        graph_validation_result=materialization["graph_validation_result"],
+        operator_review=materialization["operator_review"],
+        graph_generation_metadata=materialization["graph_generation_metadata"],
+        deterministic_compilation_metadata=materialization["deterministic_compilation_metadata"],
+        generation_notes=materialization["generation_notes"],
+        metadata=materialization["metadata"],
+    )
+    second = build_graph_materialization_contract_metadata(
+        mission_id="mission-123",
+        materialization_status="validated",
+        materialization_version=1,
+        materialized_at="2026-05-14T00:00:00+00:00",
+        updated_at="2026-05-14T00:00:00+00:00",
+        graph_reference=materialization["graph_reference"],
+        planner_provenance=materialization["planner_provenance"],
+        capability_selection_provenance=materialization["capability_selection_provenance"],
+        graph_validation_result=materialization["graph_validation_result"],
+        operator_review=materialization["operator_review"],
+        graph_generation_metadata=materialization["graph_generation_metadata"],
+        deterministic_compilation_metadata=materialization["deterministic_compilation_metadata"],
+        generation_notes=materialization["generation_notes"],
+        metadata=materialization["metadata"],
+    )
+
+    assert first == second == materialization
+
+
+def test_normalize_graph_materialization_contract_metadata_does_not_mutate_input() -> None:
+    materialization = _valid_graph_materialization()
+    original = copy.deepcopy(materialization)
+
+    normalize_graph_materialization_contract_metadata(materialization)
+
+    assert materialization == original
+
+
+def test_normalize_graph_materialization_contract_metadata_unsupported_fields_fail() -> None:
+    materialization = _valid_graph_materialization()
+    materialization["materialization_source"] = "legacy"
+
+    with pytest.raises(ValueError, match="unsupported fields"):
+        normalize_graph_materialization_contract_metadata(materialization)
+
+
+def test_normalize_graph_materialization_contract_metadata_unsupported_schema_version_fails() -> None:
+    materialization = _valid_graph_materialization()
+    materialization["schema_version"] = 2
+
+    with pytest.raises(ValueError, match="unsupported graph materialization metadata schema_version"):
+        normalize_graph_materialization_contract_metadata(materialization)
+
+
+def test_normalize_graph_materialization_contract_metadata_missing_graph_reference_fields_fail() -> None:
+    materialization = _valid_graph_materialization()
+    del materialization["graph_reference"]["graph_fingerprint"]
+
+    with pytest.raises(ValueError, match="missing required fields"):
+        normalize_graph_materialization_contract_metadata(materialization)
+
+
+def test_normalize_graph_materialization_contract_metadata_malformed_graph_reference_fails() -> None:
+    materialization = _valid_graph_materialization()
+    materialization["graph_reference"] = {
+        "mission_id": "mission-123",
+        "graph_version": "3",
+        "graph_fingerprint": "sha256:graph",
+    }
+
+    with pytest.raises(ValueError, match="graph_version must be a positive integer"):
+        normalize_graph_materialization_contract_metadata(materialization)
+
+
+def test_normalize_graph_materialization_contract_metadata_non_json_safe_metadata_fails() -> None:
+    materialization = _valid_graph_materialization()
+    materialization["metadata"] = {"score": math.nan}
+
+    with pytest.raises(ValueError, match="JSON-safe"):
+        normalize_graph_materialization_contract_metadata(materialization)
+
+
+def test_normalize_graph_materialization_contract_metadata_client_superseded_status_rejected() -> None:
+    materialization = _valid_graph_materialization()
+    materialization["materialization_status"] = "superseded"
+
+    with pytest.raises(ValueError, match="system-only"):
+        normalize_graph_materialization_contract_metadata(materialization, allow_system_status=False)

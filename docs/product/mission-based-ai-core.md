@@ -379,21 +379,21 @@ Task graph contracts remain a product-layer contract only. Persisting a graph va
 
 ## Planner-to-Graph Materialization V1 Contracts
 
-Planner-to-graph materialization contracts now define durable metadata describing how a mission plan becomes a validated task graph using declared capabilities. `POST /v1/missions/{mission_id}/materialize-graph` creates or updates the metadata contract, and `GET /v1/missions/{mission_id}/materialization` reads it back through the same tenant-scoped mission repository boundary. The contract is persisted additively in `Mission.metadata_json["graph_materialization"]` with `schema_version = 1`.
+Planner-to-graph materialization contracts define durable metadata describing how the current valid task graph was compiled, validated, reviewed, and selected for future runtime admission. `POST /v1/missions/{mission_id}/materialize-graph` and `PUT /v1/missions/{mission_id}/materialize-graph` share the same full-replacement write path, while `GET /v1/missions/{mission_id}/materialization` reads only a normalized, current contract through the tenant-scoped mission repository boundary. The contract is persisted additively in `Mission.metadata_json["graph_materialization"]` with `schema_version = 1`.
 
 First-class in this block:
 
-- materialization status, source, source version, schema version, and version counter;
+- materialization status, schema version, version counter, materialized timestamp, and update timestamp;
+- strict graph reference identity: `mission_id`, `graph_version`, and `graph_fingerprint`;
 - planner provenance;
 - capability-selection provenance;
 - graph validation result summaries and checks;
 - operator review/approval status;
 - graph generation metadata and notes;
 - deterministic compilation boundaries and fingerprints;
-- timestamps for materialization and updates;
-- graph reference version/fingerprint so consumers can detect stale materialization metadata.
+- caller metadata that remains JSON-safe and contract-scoped.
 
-Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may validate mission ownership, the existence of a task graph, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Task graph replacement increments the graph version, changes the graph fingerprint, and supersedes any existing materialization metadata so approved/validated materialization cannot silently point at an older graph. Runtime execution/materialization remain future layers above the governed runtime foundation.
+Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata validates mission ownership, the existence of a current task graph, task graph identity, optional client graph-reference freshness, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Writes are idempotent on the full normalized contract excluding volatile `updated_at`; idempotent writes return the existing materialization without updating mission metadata or superseding downstream runtime metadata. Changed writes increment `materialization_version`, preserve unrelated mission metadata, and reuse existing runtime-admission and runtime-task-materialization supersession helpers. Reads fail closed with 409 for invalid or stale persisted materialization, and lifecycle reports `has_materialization = true` only when the normalized materialization graph reference matches the current task graph identity. Runtime execution/materialization remain future layers above the governed runtime foundation.
 
 ## Graph-to-Runtime Admission V1 Contracts
 

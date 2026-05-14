@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -624,6 +624,204 @@ def build_mission_task_graph_contract_metadata(
     )
 
 
+_GRAPH_MATERIALIZATION_ALLOWED_FIELDS = {
+    "schema_version",
+    "mission_id",
+    "materialization_status",
+    "materialization_version",
+    "materialized_at",
+    "updated_at",
+    "graph_reference",
+    "planner_provenance",
+    "capability_selection_provenance",
+    "graph_validation_result",
+    "operator_review",
+    "graph_generation_metadata",
+    "deterministic_compilation_metadata",
+    "generation_notes",
+    "metadata",
+}
+_GRAPH_MATERIALIZATION_ALLOWED_STATUSES = {"draft", "validated", "blocked", "approved", "superseded"}
+_GRAPH_MATERIALIZATION_CLIENT_STATUSES = {"draft", "validated", "blocked", "approved"}
+_GRAPH_MATERIALIZATION_GRAPH_REFERENCE_FIELDS = {"mission_id", "graph_version", "graph_fingerprint"}
+
+
+def _normalize_graph_materialization_text(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"graph materialization {field_name} must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"graph materialization {field_name} must be non-empty")
+    return normalized
+
+
+def _normalize_graph_materialization_timestamp(value: Any, *, field_name: str, nullable: bool = False) -> str | None:
+    if value is None and nullable:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"graph materialization {field_name} must be an ISO timestamp string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"graph materialization {field_name} must be non-empty")
+    try:
+        datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"graph materialization {field_name} must be an ISO timestamp string") from exc
+    return normalized
+
+
+def _normalize_graph_materialization_object(value: Any, *, field_name: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"graph materialization {field_name} must be an object")
+    return cast(dict[str, Any], _json_safe_contract_copy(value, field_name=f"graph materialization {field_name}"))
+
+
+def _normalize_graph_materialization_list(value: Any, *, field_name: str) -> list[Any]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"graph materialization {field_name} must be a list")
+    return cast(list[Any], _json_safe_contract_copy(value, field_name=f"graph materialization {field_name}"))
+
+
+def normalize_graph_materialization_graph_reference(reference: Any) -> dict[str, Any]:
+    if not isinstance(reference, dict):
+        raise ValueError("graph materialization graph_reference must be an object")
+    reference_copy = _json_safe_contract_copy(reference, field_name="graph materialization graph_reference")
+    unknown_fields = set(reference_copy) - _GRAPH_MATERIALIZATION_GRAPH_REFERENCE_FIELDS
+    if unknown_fields:
+        raise ValueError("graph materialization graph_reference contains unsupported fields")
+    missing_fields = _GRAPH_MATERIALIZATION_GRAPH_REFERENCE_FIELDS - set(reference_copy)
+    if missing_fields:
+        raise ValueError("graph materialization graph_reference missing required fields")
+    graph_version = reference_copy.get("graph_version")
+    if isinstance(graph_version, bool) or not isinstance(graph_version, int) or graph_version < 1:
+        raise ValueError("graph materialization graph_reference graph_version must be a positive integer")
+    return {
+        "mission_id": _normalize_graph_materialization_text(
+            reference_copy.get("mission_id"), field_name="graph_reference.mission_id"
+        ),
+        "graph_version": graph_version,
+        "graph_fingerprint": _normalize_graph_materialization_text(
+            reference_copy.get("graph_fingerprint"), field_name="graph_reference.graph_fingerprint"
+        ),
+    }
+
+
+def normalize_graph_materialization_contract_metadata(
+    metadata: dict[str, Any], *, allow_system_status: bool = True
+) -> dict[str, Any]:
+    """Normalize deterministic graph materialization contract metadata.
+
+    Graph materialization is pure mission metadata. The contract fails closed on
+    unknown fields, unsupported schema versions, malformed graph references,
+    unsupported statuses, and non-JSON-safe values while preserving a stable
+    write == persisted == read shape.
+    """
+    metadata_copy = _json_safe_contract_copy(metadata, field_name="graph materialization metadata")
+    if not isinstance(metadata_copy, dict):
+        raise ValueError("graph materialization metadata must be an object")
+    unknown_fields = set(metadata_copy) - _GRAPH_MATERIALIZATION_ALLOWED_FIELDS
+    if unknown_fields:
+        raise ValueError("graph materialization metadata contains unsupported fields")
+    if metadata_copy.get("schema_version") != MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION:
+        raise ValueError("unsupported graph materialization metadata schema_version")
+
+    status = metadata_copy.get("materialization_status", "draft")
+    if status not in _GRAPH_MATERIALIZATION_ALLOWED_STATUSES:
+        raise ValueError("graph materialization materialization_status is unsupported")
+    if not allow_system_status and status not in _GRAPH_MATERIALIZATION_CLIENT_STATUSES:
+        raise ValueError("graph materialization materialization_status is system-only")
+
+    materialization_version = metadata_copy.get("materialization_version")
+    if (
+        isinstance(materialization_version, bool)
+        or not isinstance(materialization_version, int)
+        or materialization_version < 1
+    ):
+        raise ValueError("graph materialization materialization_version must be a positive integer")
+
+    return {
+        "schema_version": MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION,
+        "mission_id": _normalize_graph_materialization_text(metadata_copy.get("mission_id"), field_name="mission_id"),
+        "materialization_status": status,
+        "materialization_version": materialization_version,
+        "materialized_at": _normalize_graph_materialization_timestamp(
+            metadata_copy.get("materialized_at"), field_name="materialized_at", nullable=True
+        ),
+        "updated_at": _normalize_graph_materialization_timestamp(
+            metadata_copy.get("updated_at"), field_name="updated_at"
+        ),
+        "graph_reference": normalize_graph_materialization_graph_reference(metadata_copy.get("graph_reference")),
+        "planner_provenance": _normalize_graph_materialization_object(
+            metadata_copy.get("planner_provenance", {}), field_name="planner_provenance"
+        ),
+        "capability_selection_provenance": _normalize_graph_materialization_list(
+            metadata_copy.get("capability_selection_provenance", []), field_name="capability_selection_provenance"
+        ),
+        "graph_validation_result": _normalize_graph_materialization_object(
+            metadata_copy.get("graph_validation_result", {}), field_name="graph_validation_result"
+        ),
+        "operator_review": _normalize_graph_materialization_object(
+            metadata_copy.get("operator_review", {}), field_name="operator_review"
+        ),
+        "graph_generation_metadata": _normalize_graph_materialization_object(
+            metadata_copy.get("graph_generation_metadata", {}), field_name="graph_generation_metadata"
+        ),
+        "deterministic_compilation_metadata": _normalize_graph_materialization_object(
+            metadata_copy.get("deterministic_compilation_metadata", {}),
+            field_name="deterministic_compilation_metadata",
+        ),
+        "generation_notes": _normalize_graph_materialization_list(
+            metadata_copy.get("generation_notes", []), field_name="generation_notes"
+        ),
+        "metadata": _normalize_graph_materialization_object(metadata_copy.get("metadata", {}), field_name="metadata"),
+    }
+
+
+def build_graph_materialization_contract_metadata(
+    *,
+    mission_id: str,
+    materialization_status: str = "draft",
+    materialization_version: int,
+    materialized_at: str | None,
+    updated_at: str,
+    graph_reference: dict[str, Any],
+    planner_provenance: dict[str, Any] | None = None,
+    capability_selection_provenance: list[Any] | None = None,
+    graph_validation_result: dict[str, Any] | None = None,
+    operator_review: dict[str, Any] | None = None,
+    graph_generation_metadata: dict[str, Any] | None = None,
+    deterministic_compilation_metadata: dict[str, Any] | None = None,
+    generation_notes: list[Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    allow_system_status: bool = True,
+) -> dict[str, Any]:
+    """Build a deterministic graph materialization contract metadata object."""
+    return normalize_graph_materialization_contract_metadata(
+        {
+            "schema_version": MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION,
+            "mission_id": mission_id,
+            "materialization_status": materialization_status,
+            "materialization_version": materialization_version,
+            "materialized_at": materialized_at,
+            "updated_at": updated_at,
+            "graph_reference": dict(graph_reference),
+            "planner_provenance": dict(planner_provenance or {}),
+            "capability_selection_provenance": list(capability_selection_provenance or []),
+            "graph_validation_result": dict(graph_validation_result or {}),
+            "operator_review": dict(operator_review or {}),
+            "graph_generation_metadata": dict(graph_generation_metadata or {}),
+            "deterministic_compilation_metadata": dict(deterministic_compilation_metadata or {}),
+            "generation_notes": list(generation_notes or []),
+            "metadata": dict(metadata or {}),
+        },
+        allow_system_status=allow_system_status,
+    )
+
+
 def mission_plan_active_statuses() -> tuple[str, ...]:
     """Return statuses that represent the one active plan slot for a mission."""
     return (MissionPlanStatus.DRAFT.value, MissionPlanStatus.READY.value)
@@ -658,54 +856,6 @@ def build_mission_task_graph_metadata(
             "edges": edges,
             "operator_notes": operator_notes,
             "validation_metadata": validation_metadata,
-        }
-    }
-
-
-def build_graph_materialization_metadata(
-    *,
-    mission_id: str,
-    materialization_status: str,
-    materialization_source: str,
-    materialization_source_version: str,
-    materialization_version: int,
-    planner_provenance: dict[str, Any],
-    capability_selection_provenance: list[dict[str, Any]],
-    graph_validation_result: dict[str, Any],
-    operator_review: dict[str, Any],
-    graph_generation_metadata: dict[str, Any],
-    deterministic_compilation_metadata: dict[str, Any],
-    generation_notes: list[str],
-    materialized_at: str,
-    updated_at: str,
-    graph_reference: dict[str, Any],
-) -> dict[str, Any]:
-    """Build the durable metadata envelope for planner-to-graph materialization v1.
-
-    Planner-to-graph materialization contracts describe how an approved or
-    reviewed mission plan becomes a validated task graph using declared
-    capabilities. This envelope is deliberately metadata-only: persisting it
-    must not create execution tasks, queue work, call runtime coordinators,
-    dispatch workers, or execute capabilities.
-    """
-    return {
-        MISSION_GRAPH_MATERIALIZATION_METADATA_KEY: {
-            "schema_version": MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION,
-            "mission_id": mission_id,
-            "materialization_status": materialization_status,
-            "materialization_source": materialization_source,
-            "materialization_source_version": materialization_source_version,
-            "materialization_version": materialization_version,
-            "planner_provenance": planner_provenance,
-            "capability_selection_provenance": capability_selection_provenance,
-            "graph_validation_result": graph_validation_result,
-            "operator_review": operator_review,
-            "graph_generation_metadata": graph_generation_metadata,
-            "deterministic_compilation_metadata": deterministic_compilation_metadata,
-            "generation_notes": generation_notes,
-            "materialized_at": materialized_at,
-            "updated_at": updated_at,
-            "graph_reference": graph_reference,
         }
     }
 
