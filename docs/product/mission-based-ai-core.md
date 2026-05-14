@@ -364,24 +364,18 @@ Capability registry remains a contract layer only. Persisting or updating a capa
 
 ## Task Graph Contracts V1
 
-Task graph contracts now define durable, tenant-scoped planned work structure between mission planning and future materialization/execution. `PUT /v1/missions/{mission_id}/task-graph` creates or replaces a graph contract, and `GET /v1/missions/{mission_id}/task-graph` reads it back through the same tenant-scoped mission repository boundary. The graph is persisted additively in `Mission.metadata_json["mission_task_graph"]` with `schema_version = 1`.
+Task graph contracts now define durable, tenant-scoped planned work structure between mission planning and future materialization/execution. `POST /v1/missions/{mission_id}/task-graph` and `PUT /v1/missions/{mission_id}/task-graph` share one full-replacement write path, and `GET /v1/missions/{mission_id}/task-graph` reads the normalized contract back through the same tenant-scoped mission repository boundary. The graph is persisted additively and only in `Mission.metadata_json["mission_task_graph"]` with `schema_version = 1`.
 
 First-class in this block:
 
-- graph status and schema version;
-- mission identifier binding;
-- graph nodes;
-- graph edges/dependencies;
-- node capability references;
-- node intended task type;
-- node input and expected output contracts;
-- node risk level and approval requirement;
-- node execution constraints;
-- operator notes;
-- graph validation metadata;
-- graph version and immutable graph fingerprint for downstream materialization references.
+- `schema_version = 1`, `graph_status = "draft"`, mission identity, graph version, and deterministic graph fingerprint;
+- graph nodes keyed by non-empty unique `node_key` values and currently also echoing legacy-compatible `key` with the same value;
+- graph edges from prerequisite `from_node_key` to dependent `to_node_key`;
+- canonical `capability_reference` per node, requiring `capability_id` or `name`, plus a temporary `capability_references` single-item list for downstream compatibility;
+- node input and output contracts;
+- node and edge metadata plus graph-level metadata.
 
-Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects duplicate node keys, rejects edges pointing to missing nodes, and rejects cycles, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
+Task graph contracts remain a product-layer contract only. Persisting a graph validates shape, rejects unsupported fields, rejects duplicate or empty node keys, rejects edges pointing to missing nodes, rejects self-edges, rejects cycles, rejects unsupported schema versions, and rejects non-JSON-safe metadata/contracts. Writes are deterministic and idempotent: when the normalized incoming graph content equals the normalized stored graph content, mission metadata is not updated and the existing `mission_id`, `graph_version`, and `graph_fingerprint` are retained; otherwise the `mission_task_graph` metadata key is replaced, unrelated mission metadata is preserved, graph-dependent materialization/admission/task-materialization metadata is superseded through the existing supersession helpers, stale planned materialized tasks are cancelled through the existing cancellation helper, `graph_version` increments from the prior graph when available, and `graph_fingerprint` is recomputed from normalized graph content. Reads fail closed with 409 when stored graph metadata is invalid, while legacy schema_version=1 graphs produced by the prior writer are adapted into the normalized response shape so existing mission metadata remains readable. Persisting or reading a graph does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, mutate worker leases, enforce capability runtime behavior, or materialize the graph into runtime tasks. Runtime materialization and execution remain future layers above the governed runtime foundation.
 
 ## Planner-to-Graph Materialization V1 Contracts
 
