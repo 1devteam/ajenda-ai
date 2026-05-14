@@ -326,14 +326,18 @@ First-class in this block:
 - stable plan identity and tenant ownership;
 - mission association;
 - active plan statuses `draft` and `ready`;
-- inactive future-compatible statuses `superseded` and `cancelled`;
+- inactive lifecycle statuses `superseded` and `cancelled`;
 - objectives;
 - constraints;
 - assumptions;
 - acceptance criteria;
-- lightweight planned steps;
+- typed planned steps;
 - risk notes;
 - deterministic JSON-safe metadata.
+
+Lifecycle is explicit and intentionally narrow before task graph work exists. Allowed status transitions are `draft -> ready`, `draft -> cancelled`, `ready -> superseded`, and `ready -> cancelled`. The create endpoint always creates new durable plans as `draft`; clients cannot create `ready`, `superseded`, or `cancelled` plans directly, and lifecycle changes require a future explicit transition endpoint or service rather than create-time status injection. Idempotent create returns the existing active plan unchanged, even when a later create request sends different metadata.
+
+Mission plan metadata reads support only `schema_version = 1`. V1 reads normalize deterministic defaults for omitted optional lists, validate JSON safety, and fail closed for unsupported future schema versions instead of guessing compatibility. Planned steps are lightweight planning records, not task graph nodes or execution tasks: each step requires a positive `sequence`, non-empty `title`, non-empty `description`, dependency references in `depends_on`, non-empty `expected_output`, and JSON-safe `metadata`; unknown planned-step fields are rejected.
 
 Mission planning remains a contract layer only. Persisting a plan does not queue work, create execution tasks, generate a task graph, enforce a capability registry, promote memory, run outcome review, dispatch workers, mutate worker leases, or modify runtime recovery/orchestration. Runtime authority remains with the governed queue, lease, policy, recovery, and validation layers.
 

@@ -28,13 +28,12 @@ def test_create_plan_for_tenant_mission_flushes_and_refreshes() -> None:
     result = MissionPlanRepository(session).create_or_get_active_for_mission(
         mission=mission,
         metadata_json=metadata,
-        status=MissionPlanStatus.READY.value,
     )
 
     assert isinstance(result, MissionPlan)
     assert result.tenant_id == mission.tenant_id
     assert result.mission_id == mission.id
-    assert result.status == "ready"
+    assert result.status == MissionPlanStatus.DRAFT.value
     assert result.metadata_json == metadata
     session.add.assert_called_once_with(result)
     session.flush.assert_called_once_with()
@@ -118,3 +117,27 @@ def test_duplicate_create_race_reraises_when_no_active_plan_can_be_reloaded() ->
             mission=mission,
             metadata_json=build_mission_plan_contract_metadata(),
         )
+
+
+def test_idempotent_create_with_different_status_returns_existing_plan_unchanged() -> None:
+    mission = _mission()
+    existing = MissionPlan(
+        tenant_id=mission.tenant_id,
+        mission_id=mission.id,
+        status=MissionPlanStatus.DRAFT.value,
+        metadata_json={"existing": True},
+    )
+    session = MagicMock()
+    session.scalar.return_value = existing
+
+    result = MissionPlanRepository(session).create_or_get_active_for_mission(
+        mission=mission,
+        status=MissionPlanStatus.READY.value,
+        metadata_json=build_mission_plan_contract_metadata(objectives=["Attempted replacement."]),
+    )
+
+    assert result is existing
+    assert result.status == MissionPlanStatus.DRAFT.value
+    assert result.metadata_json == {"existing": True}
+    session.add.assert_not_called()
+    session.flush.assert_not_called()

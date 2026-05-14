@@ -242,3 +242,117 @@ def test_mission_plan_contract_metadata_preserves_json_safe_planned_steps() -> N
 
     assert metadata["planned_steps"][0]["sequence"] == 1
     assert json.loads(json.dumps(metadata)) == metadata
+
+
+def test_mission_plan_lifecycle_allows_only_explicit_transitions() -> None:
+    from backend.domain.mission import can_transition_mission_plan_status
+
+    allowed = {
+        ("draft", "ready"),
+        ("draft", "cancelled"),
+        ("ready", "superseded"),
+        ("ready", "cancelled"),
+    }
+    statuses = ["draft", "ready", "superseded", "cancelled"]
+
+    for from_status in statuses:
+        for to_status in statuses:
+            assert can_transition_mission_plan_status(from_status, to_status) is ((from_status, to_status) in allowed)
+
+
+def test_validate_mission_plan_lifecycle_rejects_disallowed_transitions() -> None:
+    import pytest
+
+    from backend.domain.mission import validate_mission_plan_status_transition
+
+    validate_mission_plan_status_transition("draft", "ready")
+    validate_mission_plan_status_transition("draft", "cancelled")
+    validate_mission_plan_status_transition("ready", "superseded")
+    validate_mission_plan_status_transition("ready", "cancelled")
+
+    disallowed = [
+        ("cancelled", "draft"),
+        ("cancelled", "ready"),
+        ("cancelled", "superseded"),
+        ("superseded", "draft"),
+        ("superseded", "ready"),
+        ("superseded", "cancelled"),
+        ("ready", "draft"),
+    ]
+    for from_status, to_status in disallowed:
+        with pytest.raises(ValueError):
+            validate_mission_plan_status_transition(from_status, to_status)
+
+
+def test_normalize_mission_plan_contract_metadata_reads_v1_and_does_not_mutate_input() -> None:
+    from backend.domain.mission import normalize_mission_plan_contract_metadata
+
+    metadata = {
+        "schema_version": 1,
+        "objectives": ["  Recover stale opportunities.  "],
+        "planned_steps": [
+            {
+                "sequence": 1,
+                "title": "  Collect signals  ",
+                "description": "  Read approved CRM fields. ",
+                "depends_on": [],
+                "expected_output": " Signal summary ",
+                "metadata": {"source": "crm"},
+            }
+        ],
+    }
+    original = json.loads(json.dumps(metadata))
+
+    normalized = normalize_mission_plan_contract_metadata(metadata)
+
+    assert metadata == original
+    assert normalized == {
+        "schema_version": 1,
+        "objectives": ["Recover stale opportunities."],
+        "constraints": [],
+        "assumptions": [],
+        "acceptance_criteria": [],
+        "planned_steps": [
+            {
+                "sequence": 1,
+                "title": "Collect signals",
+                "description": "Read approved CRM fields.",
+                "depends_on": [],
+                "expected_output": "Signal summary",
+                "metadata": {"source": "crm"},
+            }
+        ],
+        "risk_notes": [],
+    }
+
+
+def test_normalize_mission_plan_contract_metadata_rejects_unsupported_schema_version() -> None:
+    import pytest
+
+    from backend.domain.mission import normalize_mission_plan_contract_metadata
+
+    with pytest.raises(ValueError):
+        normalize_mission_plan_contract_metadata({"schema_version": 2})
+
+
+def test_normalize_mission_plan_contract_metadata_rejects_invalid_planned_steps() -> None:
+    import pytest
+
+    from backend.domain.mission import normalize_mission_plan_contract_metadata
+
+    with pytest.raises(ValueError):
+        normalize_mission_plan_contract_metadata(
+            {
+                "schema_version": 1,
+                "planned_steps": [
+                    {
+                        "sequence": 1,
+                        "title": "Collect signals",
+                        "description": "Read approved CRM fields.",
+                        "depends_on": [2],
+                        "expected_output": "Signal summary",
+                        "metadata": {},
+                    }
+                ],
+            }
+        )

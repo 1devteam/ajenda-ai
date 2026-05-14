@@ -40,6 +40,7 @@ from backend.domain.mission import (
     build_mission_plan_metadata,
     build_mission_task_graph_metadata,
     build_runtime_admission_metadata,
+    normalize_mission_plan_contract_metadata,
 )
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
@@ -73,7 +74,6 @@ router = APIRouter(prefix="/missions", tags=["missions"])
 
 MissionPriority = Literal["low", "normal", "high", "urgent"]
 MissionPlanningStatus = Literal["draft", "in_review", "approved", "rejected", "superseded"]
-MissionPlanContractStatus = Literal["draft", "ready"]
 MissionRiskLevel = Literal["low", "medium", "high", "critical"]
 MissionApprovalGateStatus = Literal["not_required", "required", "approved", "rejected"]
 MissionTaskGraphStatus = Literal["draft", "in_review", "approved", "rejected", "superseded"]
@@ -357,17 +357,15 @@ class MissionPlanStep(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=2000)
     depends_on: list[int] = Field(default_factory=list, max_length=50)
-    expected_output: str | None = Field(default=None, max_length=1000)
+    expected_output: str = Field(min_length=1, max_length=1000)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("title", "description", "expected_output")
     @classmethod
-    def _normalize_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
+    def _normalize_text(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("planned step text fields must be non-empty when provided")
+            raise ValueError("planned step text fields must be non-empty")
         return value
 
     @field_validator("depends_on")
@@ -377,13 +375,20 @@ class MissionPlanStep(BaseModel):
             raise ValueError("planned step dependencies must be unique")
         return value
 
+    @field_validator("metadata")
+    @classmethod
+    def _validate_json_safe_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return cast(dict[str, Any], json.loads(json.dumps(value)))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("planned step metadata must be JSON-safe") from exc
+
 
 class MissionPlanCreate(BaseModel):
     """Durable mission planning contract request; persistence only, never execution."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: MissionPlanContractStatus = MissionPlanStatus.DRAFT.value
     objectives: list[str] = Field(default_factory=list, max_length=50)
     constraints: list[str] = Field(default_factory=list, max_length=50)
     assumptions: list[str] = Field(default_factory=list, max_length=50)
@@ -1774,13 +1779,17 @@ def _mission_plan_to_read(mission: Mission) -> MissionPlanRead:
 
 
 def _durable_mission_plan_to_read(plan: MissionPlan) -> MissionPlanRead:
+    try:
+        normalized_metadata = normalize_mission_plan_contract_metadata(plan.metadata_json)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return MissionPlanRead(
         plan_id=plan.id,
         mission_id=plan.mission_id,
         tenant_id=plan.tenant_id,
         status=plan.status,
-        metadata=plan.metadata_json,
-        plan=plan.metadata_json,
+        metadata=normalized_metadata,
+        plan=normalized_metadata,
         created_at=plan.created_at.isoformat(),
         updated_at=plan.updated_at.isoformat(),
     )
@@ -2018,7 +2027,7 @@ def create_mission_plan(
     )
     plan = MissionPlanRepository(db).create_or_get_active_for_mission(
         mission=mission,
-        status=body.status,
+        status=MissionPlanStatus.DRAFT.value,
         metadata_json=metadata,
     )
     return _durable_mission_plan_to_read(plan)
