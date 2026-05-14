@@ -1295,6 +1295,8 @@ def _normalize_current_graph_materialization(
         normalized = normalize_graph_materialization_contract_metadata(materialization)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if normalized.get("materialization_status") == "superseded":
+        raise HTTPException(status_code=409, detail=stale_detail)
     if current_graph_reference is None or not _graph_materialization_is_current(
         materialization=normalized, current_graph_reference=current_graph_reference
     ):
@@ -1831,7 +1833,8 @@ def _mission_lifecycle_to_read(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         if (
-            normalized_task_graph is not None
+            candidate_materialization.get("materialization_status") != "superseded"
+            and normalized_task_graph is not None
             and _task_graph_has_identity(normalized_task_graph)
             and _graph_materialization_is_current(
                 materialization=candidate_materialization,

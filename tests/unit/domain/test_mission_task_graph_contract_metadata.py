@@ -371,3 +371,32 @@ def test_normalize_graph_materialization_contract_metadata_client_superseded_sta
 
     with pytest.raises(ValueError, match="system-only"):
         normalize_graph_materialization_contract_metadata(materialization, allow_system_status=False)
+
+
+def test_normalize_graph_materialization_contract_metadata_accepts_system_supersession_fields() -> None:
+    materialization = _valid_graph_materialization()
+    materialization.update(
+        {
+            "materialization_status": "superseded",
+            "superseded_at": "2026-05-14T00:01:00+00:00",
+            "superseded_reason": "task_graph_replaced",
+            "superseded_by_graph_version": 4,
+            "superseded_by_graph_fingerprint": "sha256:new-graph",
+        }
+    )
+
+    normalized = normalize_graph_materialization_contract_metadata(materialization)
+
+    assert normalized["materialization_status"] == "superseded"
+    assert normalized["superseded_at"] == "2026-05-14T00:01:00+00:00"
+    assert normalized["superseded_reason"] == "task_graph_replaced"
+    assert normalized["superseded_by_graph_version"] == 4
+    assert normalized["superseded_by_graph_fingerprint"] == "sha256:new-graph"
+
+
+def test_normalize_graph_materialization_contract_metadata_rejects_system_supersession_fields_on_write() -> None:
+    materialization = _valid_graph_materialization()
+    materialization["superseded_reason"] = "task_graph_replaced"
+
+    with pytest.raises(ValueError, match="unsupported fields"):
+        normalize_graph_materialization_contract_metadata(materialization, allow_system_supersession_fields=False)

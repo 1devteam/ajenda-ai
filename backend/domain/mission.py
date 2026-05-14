@@ -644,6 +644,12 @@ _GRAPH_MATERIALIZATION_ALLOWED_FIELDS = {
 _GRAPH_MATERIALIZATION_ALLOWED_STATUSES = {"draft", "validated", "blocked", "approved", "superseded"}
 _GRAPH_MATERIALIZATION_CLIENT_STATUSES = {"draft", "validated", "blocked", "approved"}
 _GRAPH_MATERIALIZATION_GRAPH_REFERENCE_FIELDS = {"mission_id", "graph_version", "graph_fingerprint"}
+_GRAPH_MATERIALIZATION_SYSTEM_SUPERSESSION_FIELDS = {
+    "superseded_at",
+    "superseded_reason",
+    "superseded_by_graph_version",
+    "superseded_by_graph_fingerprint",
+}
 
 
 def _normalize_graph_materialization_text(value: Any, *, field_name: str) -> str:
@@ -711,7 +717,7 @@ def normalize_graph_materialization_graph_reference(reference: Any) -> dict[str,
 
 
 def normalize_graph_materialization_contract_metadata(
-    metadata: dict[str, Any], *, allow_system_status: bool = True
+    metadata: dict[str, Any], *, allow_system_status: bool = True, allow_system_supersession_fields: bool = True
 ) -> dict[str, Any]:
     """Normalize deterministic graph materialization contract metadata.
 
@@ -723,7 +729,10 @@ def normalize_graph_materialization_contract_metadata(
     metadata_copy = _json_safe_contract_copy(metadata, field_name="graph materialization metadata")
     if not isinstance(metadata_copy, dict):
         raise ValueError("graph materialization metadata must be an object")
-    unknown_fields = set(metadata_copy) - _GRAPH_MATERIALIZATION_ALLOWED_FIELDS
+    allowed_fields = set(_GRAPH_MATERIALIZATION_ALLOWED_FIELDS)
+    if allow_system_supersession_fields:
+        allowed_fields.update(_GRAPH_MATERIALIZATION_SYSTEM_SUPERSESSION_FIELDS)
+    unknown_fields = set(metadata_copy) - allowed_fields
     if unknown_fields:
         raise ValueError("graph materialization metadata contains unsupported fields")
     if metadata_copy.get("schema_version") != MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION:
@@ -743,7 +752,7 @@ def normalize_graph_materialization_contract_metadata(
     ):
         raise ValueError("graph materialization materialization_version must be a positive integer")
 
-    return {
+    normalized = {
         "schema_version": MISSION_GRAPH_MATERIALIZATION_SCHEMA_VERSION,
         "mission_id": _normalize_graph_materialization_text(metadata_copy.get("mission_id"), field_name="mission_id"),
         "materialization_status": status,
@@ -779,6 +788,28 @@ def normalize_graph_materialization_contract_metadata(
         ),
         "metadata": _normalize_graph_materialization_object(metadata_copy.get("metadata", {}), field_name="metadata"),
     }
+    if "superseded_at" in metadata_copy:
+        normalized["superseded_at"] = _normalize_graph_materialization_timestamp(
+            metadata_copy.get("superseded_at"), field_name="superseded_at"
+        )
+    if "superseded_reason" in metadata_copy:
+        normalized["superseded_reason"] = _normalize_graph_materialization_text(
+            metadata_copy.get("superseded_reason"), field_name="superseded_reason"
+        )
+    if "superseded_by_graph_version" in metadata_copy:
+        superseded_by_graph_version = metadata_copy.get("superseded_by_graph_version")
+        if (
+            isinstance(superseded_by_graph_version, bool)
+            or not isinstance(superseded_by_graph_version, int)
+            or superseded_by_graph_version < 1
+        ):
+            raise ValueError("graph materialization superseded_by_graph_version must be a positive integer")
+        normalized["superseded_by_graph_version"] = superseded_by_graph_version
+    if "superseded_by_graph_fingerprint" in metadata_copy:
+        normalized["superseded_by_graph_fingerprint"] = _normalize_graph_materialization_text(
+            metadata_copy.get("superseded_by_graph_fingerprint"), field_name="superseded_by_graph_fingerprint"
+        )
+    return normalized
 
 
 def build_graph_materialization_contract_metadata(
@@ -819,6 +850,7 @@ def build_graph_materialization_contract_metadata(
             "metadata": dict(metadata or {}),
         },
         allow_system_status=allow_system_status,
+        allow_system_supersession_fields=False,
     )
 
 

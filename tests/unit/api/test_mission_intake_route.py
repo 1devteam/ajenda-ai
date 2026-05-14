@@ -3289,3 +3289,72 @@ def test_graph_materialization_get_missing_and_invalid_behaviors() -> None:
 
     assert invalid_response.status_code == 409
     assert lifecycle_response.status_code == 409
+
+
+def test_graph_materialization_get_and_lifecycle_handle_system_superseded_fields() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    superseded = _current_graph_materialization_metadata(mission_id)
+    superseded.update(
+        {
+            "materialization_status": "superseded",
+            "superseded_at": "2026-05-09T12:00:00+00:00",
+            "superseded_reason": "task_graph_replaced",
+            "superseded_by_graph_version": 8,
+            "superseded_by_graph_fingerprint": "sha256:new-graph",
+        }
+    )
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = superseded
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    evidence_repo = MagicMock()
+    evidence_repo.list_for_mission.return_value = []
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = []
+    retrieval_repo = MagicMock()
+    retrieval_repo.list_for_mission.return_value = []
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.EvidenceRepository", return_value=evidence_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.RetrievalContractRepository", return_value=retrieval_repo),
+    ):
+        read_response = client.get(f"/v1/missions/{mission_id}/materialization")
+        lifecycle_response = client.get(f"/v1/missions/{mission_id}/lifecycle")
+
+    assert read_response.status_code == 409
+    assert lifecycle_response.status_code == 200
+    lifecycle = lifecycle_response.json()
+    assert lifecycle["completeness"]["has_materialization"] is False
+    assert "create_graph_materialization" in lifecycle["missing_next_steps"]
+    repo.update_metadata.assert_not_called()
+
+
+def test_graph_materialization_write_rejects_system_supersession_fields() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_task_graph(tenant_id, mission_id)
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    for method_name, path in (
+        ("post", f"/v1/missions/{mission_id}/materialize-graph"),
+        ("put", f"/v1/missions/{mission_id}/materialize-graph"),
+    ):
+        payload = _valid_materialization_payload()
+        payload["superseded_at"] = "2026-05-09T12:00:00+00:00"
+        payload["superseded_reason"] = "task_graph_replaced"
+        payload["superseded_by_graph_version"] = 8
+        payload["superseded_by_graph_fingerprint"] = "sha256:new-graph"
+        with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+            response = getattr(client, method_name)(path, json=payload)
+
+        assert response.status_code == 422
+
+    repo.update_metadata.assert_not_called()
