@@ -7,7 +7,13 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
-from backend.queue.base import QueueAdapter, QueueMessage, QueueOperationResult
+from backend.queue.base import (
+    QueueAdapter,
+    QueueDeadLetterEntry,
+    QueueMessage,
+    QueueOperationResult,
+    QueuePayloadInspection,
+)
 
 
 class RedisProtocolError(RuntimeError):
@@ -147,6 +153,115 @@ end
 redis.call("RPUSH", processing_key, claimed_payload)
 redis.call("SET", lease_key, worker_id, "EX", ttl_seconds)
 return {1, "ok"}
+"""
+
+    _RETRY_DEAD_LETTER_SCRIPT = """
+local pending_key = KEYS[1]
+local processing_key = KEYS[2]
+local dead_letter_key = KEYS[3]
+local tenant_id = ARGV[1]
+local task_id = ARGV[2]
+
+local function key_type(key)
+    local result = redis.call("TYPE", key)
+    if type(result) == "table" then
+        return result["ok"]
+    end
+    return result
+end
+
+local function ensure_list_or_none(key, name)
+    local current_type = key_type(key)
+    if current_type ~= "none" and current_type ~= "list" then
+        return false, name .. " key is not a list"
+    end
+    return true, "ok"
+end
+
+local function payload_task_id(raw)
+    local ok, payload = pcall(cjson.decode, raw)
+    if not ok or type(payload) ~= "table" then
+        return nil
+    end
+    if payload["task_id"] == nil then
+        return nil
+    end
+    return tostring(payload["task_id"])
+end
+
+local function validate_queue_message(payload)
+    if type(payload) ~= "table" then
+        return false, "dead-letter payload is corrupt: payload is not an object"
+    end
+    if payload["tenant_id"] == nil or tostring(payload["tenant_id"]) ~= tenant_id then
+        return false, "dead-letter payload is corrupt: tenant_id mismatch"
+    end
+    if payload["task_id"] == nil or tostring(payload["task_id"]) ~= task_id then
+        return false, "dead-letter payload is corrupt: task_id mismatch"
+    end
+    if payload["mission_id"] == nil then
+        return false, "dead-letter payload is corrupt: missing mission_id"
+    end
+    if payload["payload"] == nil or type(payload["payload"]) ~= "table" then
+        return false, "dead-letter payload is corrupt: missing payload"
+    end
+    if payload["enqueued_at"] == nil then
+        return false, "dead-letter payload is corrupt: missing enqueued_at"
+    end
+    return true, "ok"
+end
+
+local pending_ok, pending_reason = ensure_list_or_none(pending_key, "pending")
+if not pending_ok then
+    return {0, pending_reason}
+end
+local processing_ok, processing_reason = ensure_list_or_none(processing_key, "processing")
+if not processing_ok then
+    return {0, processing_reason}
+end
+local dead_letter_ok, dead_letter_reason = ensure_list_or_none(dead_letter_key, "dead-letter")
+if not dead_letter_ok then
+    return {0, dead_letter_reason}
+end
+
+local pending_values = redis.call("LRANGE", pending_key, 0, -1)
+for _, raw in ipairs(pending_values) do
+    if payload_task_id(raw) == task_id then
+        return {0, "task already pending"}
+    end
+end
+
+local processing_values = redis.call("LRANGE", processing_key, 0, -1)
+for _, raw in ipairs(processing_values) do
+    if payload_task_id(raw) == task_id then
+        return {0, "task already processing"}
+    end
+end
+
+local dead_letter_values = redis.call("LRANGE", dead_letter_key, 0, -1)
+for _, raw in ipairs(dead_letter_values) do
+    local envelope_ok, envelope = pcall(cjson.decode, raw)
+    if envelope_ok and type(envelope) == "table" then
+        local payload = envelope["payload"]
+        if type(payload) == "table"
+            and tostring(payload["tenant_id"]) == tenant_id
+            and tostring(envelope["task_id"]) == task_id then
+            local valid, validation_reason = validate_queue_message(payload)
+            if not valid then
+                return {0, validation_reason}
+            end
+            local pending_payload = cjson.encode(payload)
+            local removed = redis.call("LREM", dead_letter_key, 1, raw)
+            if removed < 1 then
+                return {0, "dead-letter entry not found"}
+            end
+            redis.call("RPUSH", pending_key, pending_payload)
+            return {1, "ok"}
+        end
+    end
+end
+
+return {0, "dead-letter entry not found"}
 """
 
     def __init__(self, redis_url: str, *, heartbeat_ttl_seconds: int = 90, block_seconds: int = 1) -> None:
@@ -350,6 +465,110 @@ return {1, "ok"}
             return QueueOperationResult(ok=True)
         except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"move_to_dead_letter failed: {exc}")
+
+    def list_processing(self, *, tenant_id: str) -> list[QueuePayloadInspection]:
+        try:
+            inspections: list[QueuePayloadInspection] = []
+            for raw in self._list_payloads(self._processing_key(tenant_id)):
+                try:
+                    message = self._decode_message(raw)
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                    inspections.append(
+                        QueuePayloadInspection(
+                            tenant_id=tenant_id,
+                            raw=raw,
+                            message=None,
+                            error=f"processing payload is corrupt: {exc}",
+                        )
+                    )
+                    continue
+                if message.tenant_id != tenant_id:
+                    inspections.append(
+                        QueuePayloadInspection(
+                            tenant_id=tenant_id,
+                            raw=raw,
+                            message=message,
+                            error="processing payload tenant mismatch",
+                        )
+                    )
+                    continue
+                inspections.append(QueuePayloadInspection(tenant_id=tenant_id, raw=raw, message=message))
+            return inspections
+        except Exception as exc:
+            raise RuntimeError(f"list_processing failed: {exc}") from exc
+
+    def list_dead_letter(self, *, tenant_id: str) -> list[QueueDeadLetterEntry]:
+        try:
+            entries: list[QueueDeadLetterEntry] = []
+            for raw in self._list_payloads(self._dead_letter_key(tenant_id)):
+                try:
+                    envelope = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    entries.append(
+                        QueueDeadLetterEntry(
+                            tenant_id=tenant_id,
+                            task_id=None,
+                            raw=raw,
+                            error=f"dead-letter payload is corrupt: {exc}",
+                        )
+                    )
+                    continue
+                if not isinstance(envelope, dict):
+                    entries.append(
+                        QueueDeadLetterEntry(
+                            tenant_id=tenant_id,
+                            task_id=None,
+                            raw=raw,
+                            error="dead-letter payload is not an object",
+                        )
+                    )
+                    continue
+                payload = envelope.get("payload")
+                payload_tenant = payload.get("tenant_id") if isinstance(payload, dict) else None
+                if payload_tenant != tenant_id:
+                    continue
+                task_id: uuid.UUID | None = None
+                error: str | None = None
+                try:
+                    task_id = uuid.UUID(str(envelope.get("task_id")))
+                except (TypeError, ValueError):
+                    error = "dead-letter envelope has invalid task_id"
+                entries.append(
+                    QueueDeadLetterEntry(
+                        tenant_id=tenant_id,
+                        task_id=task_id,
+                        raw=raw,
+                        payload=envelope,
+                        reason=str(envelope.get("reason")) if envelope.get("reason") is not None else None,
+                        error=error,
+                    )
+                )
+            return entries
+        except Exception as exc:
+            raise RuntimeError(f"list_dead_letter failed: {exc}") from exc
+
+    def retry_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
+        try:
+            result = self._execute(
+                [
+                    "EVAL",
+                    self._RETRY_DEAD_LETTER_SCRIPT,
+                    "3",
+                    self._pending_key(tenant_id),
+                    self._processing_key(tenant_id),
+                    self._dead_letter_key(tenant_id),
+                    tenant_id,
+                    str(task_id),
+                ]
+            )
+            if not isinstance(result, list) or len(result) != 2:
+                return QueueOperationResult(ok=False, reason="retry script returned unexpected result")
+            ok, reason = result
+            if ok != 1:
+                return QueueOperationResult(ok=False, reason=str(reason))
+            return QueueOperationResult(ok=True)
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"retry_dead_letter failed: {exc}")
 
     def _touch_lease_key(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> None:
         result = self._execute(

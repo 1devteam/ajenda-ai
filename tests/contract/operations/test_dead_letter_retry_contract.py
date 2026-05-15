@@ -13,12 +13,13 @@ from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.queue.base import QueueOperationResult
 from backend.services.operations_service import OperationsService
 
 
 class _RejectingOpsService:
     def retry_dead_letter(self, **_kwargs):
-        raise ValueError("Invalid task transition: 'dead_lettered' -> 'queued'.")
+        raise ValueError("task is not dead-lettered or failed")
 
 
 class _RecordingRetryOpsService:
@@ -30,7 +31,7 @@ class _RecordingRetryOpsService:
         return {"task_id": str(kwargs["task_id"]), "status": "queued"}
 
 
-def test_rg_dead_letter_retry_returns_400_on_illegal_transition(monkeypatch) -> None:
+def test_rg_dead_letter_retry_returns_400_on_non_retryable_task(monkeypatch) -> None:
     tenant_id = uuid.uuid4()
     app = FastAPI()
 
@@ -63,7 +64,7 @@ def test_rg_dead_letter_retry_returns_400_on_illegal_transition(monkeypatch) -> 
     response = client.post(f"/v1/operations/dead-letter/{uuid.uuid4()}/retry")
 
     assert response.status_code == 400
-    assert "dead_lettered" in str(response.json())
+    assert "dead-lettered or failed" in str(response.json())
 
 
 def test_rg_dead_letter_retry_route_passes_request_tenant_and_task_to_service(monkeypatch) -> None:
@@ -121,11 +122,18 @@ class _QueueStub:
     def __init__(self) -> None:
         self.enqueued = False
         self.messages: list[object] = []
+        self.recovered = False
+
+    def list_dead_letter(self, *, tenant_id: str):
+        return []
+
+    def recover_task_for_retry(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+        return QueueOperationResult(ok=False, reason="task not found in processing or pending queue")
 
     def enqueue_task(self, message):
         self.enqueued = True
         self.messages.append(message)
-        return MagicMock(ok=True)
+        return QueueOperationResult(ok=True)
 
 
 def test_retry_dead_letter_contract_rejects_missing_task_for_tenant() -> None:
@@ -163,7 +171,7 @@ def test_retry_dead_letter_contract_rejects_foreign_tenant_task_before_side_effe
     service._audit.append.assert_not_called()
 
 
-def test_retry_dead_letter_contract_rejects_illegal_dead_lettered_transition() -> None:
+def test_retry_dead_letter_contract_requeues_db_only_dead_lettered_task() -> None:
     tenant_id = str(uuid.uuid4())
     task = ExecutionTask(
         tenant_id=tenant_id,
@@ -177,12 +185,12 @@ def test_retry_dead_letter_contract_rejects_illegal_dead_lettered_transition() -
     service = OperationsService(_SessionStub(task), queue)
     service._audit = MagicMock()
 
-    with pytest.raises(ValueError, match="Invalid task transition"):
-        service.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
+    result = service.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
 
-    assert queue.enqueued is False
-    assert session_flush_count(service) == 0
-    service._audit.append.assert_not_called()
+    assert result == {"task_id": str(task.id), "status": ExecutionTaskState.QUEUED.value}
+    assert queue.enqueued is True
+    assert session_flush_count(service) == 2
+    service._audit.append.assert_called_once()
 
 
 def session_flush_count(service: OperationsService) -> int:

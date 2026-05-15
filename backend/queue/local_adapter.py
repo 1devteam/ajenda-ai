@@ -7,7 +7,13 @@ from collections import deque
 from datetime import UTC, datetime
 from typing import cast
 
-from backend.queue.base import QueueAdapter, QueueMessage, QueueOperationResult
+from backend.queue.base import (
+    QueueAdapter,
+    QueueDeadLetterEntry,
+    QueueMessage,
+    QueueOperationResult,
+    QueuePayloadInspection,
+)
 
 
 class LocalQueueAdapter(QueueAdapter):
@@ -156,6 +162,69 @@ class LocalQueueAdapter(QueueAdapter):
             )
         return QueueOperationResult(ok=True)
 
+    def list_processing(self, *, tenant_id: str) -> list[QueuePayloadInspection]:
+        with self._lock:
+            return [
+                QueuePayloadInspection(tenant_id=tenant_id, raw=self._message_payload(message), message=message)
+                for (claim_tenant_id, _), (_, message) in self._claims.items()
+                if claim_tenant_id == tenant_id
+            ]
+
+    def list_dead_letter(self, *, tenant_id: str) -> list[QueueDeadLetterEntry]:
+        with self._lock:
+            entries: list[QueueDeadLetterEntry] = []
+            for envelope in self._dead_letter:
+                payload = envelope.get("payload")
+                payload_tenant = payload.get("tenant_id") if isinstance(payload, dict) else None
+                if payload_tenant != tenant_id:
+                    continue
+                task_value = envelope.get("task_id")
+                task_id: uuid.UUID | None = None
+                error: str | None = None
+                try:
+                    task_id = uuid.UUID(str(task_value))
+                except (TypeError, ValueError):
+                    error = "dead-letter envelope has invalid task_id"
+                entries.append(
+                    QueueDeadLetterEntry(
+                        tenant_id=tenant_id,
+                        task_id=task_id,
+                        raw=dict(envelope),
+                        payload=dict(envelope) if isinstance(envelope, dict) else None,
+                        reason=str(envelope.get("reason")) if envelope.get("reason") is not None else None,
+                        error=error,
+                    )
+                )
+            return entries
+
+    def retry_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
+        with self._lock:
+            if any(message.tenant_id == tenant_id and message.task_id == task_id for message in self._queue):
+                return QueueOperationResult(ok=False, reason="task already pending")
+            if (tenant_id, task_id) in self._claims:
+                return QueueOperationResult(ok=False, reason="task already processing")
+
+            matched_index: int | None = None
+            matched_message: QueueMessage | None = None
+            for index, envelope in enumerate(self._dead_letter):
+                if envelope.get("task_id") != str(task_id):
+                    continue
+                payload = envelope.get("payload")
+                if not isinstance(payload, dict) or payload.get("tenant_id") != tenant_id:
+                    continue
+                try:
+                    matched_message = self._message_from_payload(payload)
+                except (KeyError, TypeError, ValueError) as exc:
+                    return QueueOperationResult(ok=False, reason=f"dead-letter payload is corrupt: {exc}")
+                matched_index = index
+                break
+
+            if matched_index is None or matched_message is None:
+                return QueueOperationResult(ok=False, reason="dead-letter entry not found")
+            self._queue.append(matched_message)
+            self._dead_letter.pop(matched_index)
+            return QueueOperationResult(ok=True)
+
     def _dead_letter_envelope(
         self,
         *,
@@ -183,6 +252,17 @@ class LocalQueueAdapter(QueueAdapter):
         if worker_id is not None:
             envelope["worker_id"] = worker_id
         return envelope
+
+    def _message_from_payload(self, payload: dict[str, object]) -> QueueMessage:
+        return QueueMessage(
+            tenant_id=str(payload["tenant_id"]),
+            task_id=uuid.UUID(str(payload["task_id"])),
+            mission_id=uuid.UUID(str(payload["mission_id"])),
+            fleet_id=uuid.UUID(str(payload["fleet_id"])) if payload.get("fleet_id") else None,
+            branch_id=uuid.UUID(str(payload["branch_id"])) if payload.get("branch_id") else None,
+            payload=cast(dict[str, object], payload.get("payload", {})),
+            enqueued_at=datetime.fromisoformat(str(payload["enqueued_at"])),
+        )
 
     def _message_payload(self, message: QueueMessage) -> dict[str, object]:
         payload = json.loads(

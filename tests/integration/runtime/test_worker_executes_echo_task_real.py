@@ -115,7 +115,7 @@ def test_worker_executes_echo_task_and_persists_output(pg_engine, queue_adapter,
         verify_session.close()
 
 
-def test_echo_output_is_not_persisted_when_completion_fails(
+def test_echo_output_is_persisted_when_db_commit_succeeds_before_queue_cleanup_fails(
     pg_engine,
     queue_adapter,
     redis_client,
@@ -147,7 +147,7 @@ def test_echo_output_is_not_persisted_when_completion_fails(
             tenant_id=tenant_id,
             mission_id=mission.id,
             title="Echo failure task",
-            description="Task proves output is not persisted before completion",
+            description="Task proves DB terminal truth is durable before queue cleanup",
             status=ExecutionTaskState.PLANNED.value,
             metadata_json={"task_type": "echo", "input": {"message": "hello"}},
             compliance_category="operational",
@@ -201,9 +201,13 @@ def test_echo_output_is_not_persisted_when_completion_fails(
             )
         )
         final_task = verify_session.get(ExecutionTask, task_id)
+        final_lease = verify_session.get(WorkerLease, lease_id)
 
-        assert lineage_count == 0
+        assert lineage_count == 1
         assert final_task is not None
-        assert final_task.status != ExecutionTaskState.COMPLETED.value
+        assert final_task.status == ExecutionTaskState.COMPLETED.value
+        assert final_lease is not None
+        assert final_lease.status == WorkerLeaseState.RELEASED.value
+        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 1
     finally:
         verify_session.close()

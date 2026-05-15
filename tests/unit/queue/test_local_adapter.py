@@ -79,3 +79,30 @@ def test_move_to_dead_letter_removes_pending_work_and_preserves_retry_inspection
     assert envelope["task_id"] == str(message.task_id)
     assert envelope["reason"] == "max retries"
     assert envelope["payload"]["task_id"] == str(message.task_id)
+
+
+def test_list_processing_exposes_claimed_payload_for_recovery() -> None:
+    adapter = LocalQueueAdapter()
+    message = _message()
+    assert adapter.enqueue_task(message).ok is True
+    assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1") == message
+
+    rows = adapter.list_processing(tenant_id="tenant-a")
+
+    assert len(rows) == 1
+    assert rows[0].message == message
+    assert rows[0].error is None
+
+
+def test_retry_dead_letter_moves_one_entry_back_to_pending_once() -> None:
+    adapter = LocalQueueAdapter()
+    message = _message()
+    assert adapter.enqueue_task(message).ok is True
+    assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1") == message
+    assert adapter.fail_task(tenant_id="tenant-a", task_id=message.task_id, worker_id="worker-1", reason="boom").ok
+
+    result = adapter.retry_dead_letter(tenant_id="tenant-a", task_id=message.task_id)
+
+    assert result.ok is True
+    assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-2") == message
+    assert adapter.retry_dead_letter(tenant_id="tenant-a", task_id=message.task_id).ok is False
