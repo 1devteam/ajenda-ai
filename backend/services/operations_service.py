@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
-from backend.queue.base import QueueAdapter, QueueMessage
+from backend.queue.base import QueueAdapter, QueueMessage, QueueOperationResult
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.runtime.transitions import transition_task
 from backend.services.runtime_maintainer import RecoverySummary, RuntimeMaintainer
@@ -104,7 +104,7 @@ class OperationsService:
         *,
         tenant_id: str,
         task: ExecutionTask,
-    ):
+    ) -> QueueOperationResult:
         recovery_result = self._queue.recover_task_for_retry(
             tenant_id=tenant_id,
             task_id=task.id,
