@@ -17,6 +17,7 @@ from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.permissions import Permission
+from backend.domain.compliance import is_supported_compliance_category, is_supported_jurisdiction
 from backend.domain.enums import ExecutionTaskState, MissionPlanStatus, MissionState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
@@ -174,6 +175,20 @@ class MissionCreate(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("text fields must be non-empty when provided")
+        return value
+
+    @field_validator("compliance_category")
+    @classmethod
+    def _validate_compliance_category(cls, value: str) -> str:
+        if not is_supported_compliance_category(value):
+            raise ValueError("unsupported compliance_category")
+        return value
+
+    @field_validator("jurisdiction")
+    @classmethod
+    def _validate_jurisdiction(cls, value: str) -> str:
+        if not is_supported_jurisdiction(value):
+            raise ValueError("unsupported jurisdiction")
         return value
 
     @field_validator("approval_expectations", "scope_limits", "allowed_actions", "allowed_tools")

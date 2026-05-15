@@ -4,13 +4,15 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base
 
 RETRIEVAL_CONTRACT_SCHEMA_VERSION = 1
+RETRIEVAL_STATUSES = ("requested", "fulfilled", "rejected", "superseded", "revoked")
+RETRIEVAL_STRATEGIES = ("semantic", "keyword", "hybrid", "operator_selected", "policy_selected", "procedural")
 
 
 def utcnow() -> datetime:
@@ -27,6 +29,16 @@ class RetrievalContract(Base):
     """
 
     __tablename__ = "retrieval_contracts"
+    __table_args__ = (
+        CheckConstraint(
+            "retrieval_status IN ('requested', 'fulfilled', 'rejected', 'superseded', 'revoked')",
+            name="ck_retrieval_contracts_retrieval_status",
+        ),
+        CheckConstraint(
+            "retrieval_strategy IN ('semantic', 'keyword', 'hybrid', 'operator_selected', 'policy_selected', 'procedural')",
+            name="ck_retrieval_contracts_retrieval_strategy",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)

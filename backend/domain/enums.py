@@ -9,23 +9,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-
-class ComplianceCategory(StrEnum):
-    OPERATIONAL = "operational"
-    CONSUMER_INTERACTION = "consumer_interaction"
-    MARKETING = "marketing"
-    EMPLOYMENT = "employment"
-    FINANCIAL = "financial"
-    HEALTHCARE = "healthcare"
-    PUBLIC_CONTENT = "public_content"
-
-
-class ComplianceJurisdiction(StrEnum):
-    EU = "eu"
-    COLORADO = "colorado"
-    NYC = "nyc"
-    FEDERAL_US = "federal_us"
-    GLOBAL = "global"
+from backend.domain.compliance import ComplianceCategory as ComplianceCategory
+from backend.domain.compliance import ComplianceJurisdiction as ComplianceJurisdiction
 
 
 class MissionState(StrEnum):

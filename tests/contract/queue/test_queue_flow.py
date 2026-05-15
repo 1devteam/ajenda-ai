@@ -87,3 +87,23 @@ def test_move_to_dead_letter_removes_pending_work_and_records_retry_envelope() -
     assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1") is None
     assert adapter._dead_letter[0]["reason"] == "max retries"
     assert adapter._dead_letter[0]["payload"]["task_id"] == str(message.task_id)
+
+
+def test_dead_letter_public_entry_uses_base_contract_fields() -> None:
+    adapter = LocalQueueAdapter()
+    message = _message()
+    adapter.enqueue_task(message)
+
+    result = adapter.move_to_dead_letter(tenant_id="tenant-a", task_id=message.task_id, reason="max retries")
+    entries = adapter.list_dead_letter(tenant_id="tenant-a")
+
+    assert result.ok is True
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.tenant_id == "tenant-a"
+    assert entry.task_id == message.task_id
+    assert entry.reason == "max retries"
+    assert entry.error is None
+    assert isinstance(entry.raw, dict)
+    assert isinstance(entry.payload, dict)
+    assert entry.payload["payload"]["tenant_id"] == "tenant-a"

@@ -34,3 +34,20 @@ def test_api_key_hasher_builds_record_without_storing_plaintext() -> None:
     assert record.scopes == ("tasks:read",)
     assert record.revoked is False
     assert hasher.verify(plaintext=plaintext, hashed_secret=record.hashed_secret) is True
+
+
+def test_api_key_repository_revoke_sets_updated_at_and_revoked_at() -> None:
+    from unittest.mock import MagicMock
+
+    from backend.domain.api_key_record import ApiKeyRecordModel
+    from backend.repositories.api_key_repository import ApiKeyRepository
+
+    session = MagicMock()
+    record = ApiKeyRecordModel(tenant_id="tenant-1", key_id="key-1", hashed_secret="$argon2id$hash")
+
+    ApiKeyRepository(session).revoke(record)
+
+    assert record.revoked is True
+    assert record.revoked_at is not None
+    assert record.updated_at == record.revoked_at
+    session.flush.assert_called_once()

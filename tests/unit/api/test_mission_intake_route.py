@@ -3105,3 +3105,25 @@ def test_runtime_admission_supersession_supersedes_runtime_task_materialization_
     assert task_materialization["materialization_status"] == "superseded"
     assert task_materialization["superseded_reason"] == "runtime_admission_replaced"
     assert task_materialization["cancelled_execution_task_ids"] == [str(task_id)]
+
+
+def test_create_mission_rejects_unsupported_compliance_category() -> None:
+    payload = _valid_payload()
+    payload["compliance_category"] = "regulated_decision"
+    app = _build_app(uuid.uuid4())
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_create_mission_rejects_legacy_lowercase_jurisdiction() -> None:
+    payload = _valid_payload()
+    payload["jurisdiction"] = "colorado"
+    app = _build_app(uuid.uuid4())
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 422

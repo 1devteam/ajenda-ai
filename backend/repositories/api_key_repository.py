@@ -23,8 +23,10 @@ class ApiKeyRepository:
         return self._session.scalars(stmt).first()
 
     def revoke(self, record: ApiKeyRecordModel) -> ApiKeyRecordModel:
+        now = datetime.now(UTC)
         record.revoked = True
-        record.revoked_at = datetime.now(UTC)
+        record.revoked_at = now
+        record.updated_at = now
         self._session.flush()
         return record
 
