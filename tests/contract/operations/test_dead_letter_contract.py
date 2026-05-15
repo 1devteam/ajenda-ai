@@ -4,19 +4,31 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes import operations as operations_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.services.operations_service import OperationsService
 
 
-def _build_app(tenant_id: uuid.UUID) -> FastAPI:
+def _build_app(tenant_id: uuid.UUID, *, roles: tuple[str, ...]) -> FastAPI:
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal(
+            subject_id="test-principal",
+            tenant_id=str(tenant_id),
+            principal_type=PrincipalType.USER,
+            roles=roles,
+        )
+        return await call_next(request)
+
     app.include_router(operations_module.router, prefix="/v1")
 
     def _override_tenant_id():
@@ -36,7 +48,7 @@ def _build_app(tenant_id: uuid.UUID) -> FastAPI:
 
 def test_dead_letter_inspection_contract_returns_service_payload() -> None:
     tenant_id = uuid.uuid4()
-    app = _build_app(tenant_id)
+    app = _build_app(tenant_id, roles=("viewer",))
     client = TestClient(app, raise_server_exceptions=False)
 
     service = MagicMock()
@@ -59,7 +71,7 @@ def test_dead_letter_inspection_contract_returns_service_payload() -> None:
 def test_dead_letter_retry_contract_returns_service_payload() -> None:
     tenant_id = uuid.uuid4()
     task_id = uuid.uuid4()
-    app = _build_app(tenant_id)
+    app = _build_app(tenant_id, roles=("operator",))
     client = TestClient(app, raise_server_exceptions=False)
 
     service = MagicMock()
@@ -79,7 +91,7 @@ def test_dead_letter_retry_contract_returns_service_payload() -> None:
 def test_dead_letter_retry_contract_returns_400_on_illegal_retry() -> None:
     tenant_id = uuid.uuid4()
     task_id = uuid.uuid4()
-    app = _build_app(tenant_id)
+    app = _build_app(tenant_id, roles=("operator",))
     client = TestClient(app, raise_server_exceptions=False)
 
     service = MagicMock()
