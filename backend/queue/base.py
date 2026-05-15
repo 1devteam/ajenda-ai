@@ -19,6 +19,24 @@ class QueueMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class QueuePayloadInspection:
+    tenant_id: str
+    raw: Any
+    message: QueueMessage | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class QueueDeadLetterEntry:
+    tenant_id: str
+    task_id: uuid.UUID | None
+    raw: Any
+    payload: dict[str, Any] | None = None
+    reason: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class QueueOperationResult:
     ok: bool
     reason: str | None = None
@@ -80,4 +98,16 @@ class QueueAdapter(abc.ABC):
 
     @abc.abstractmethod
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def list_processing(self, *, tenant_id: str) -> list[QueuePayloadInspection]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def list_dead_letter(self, *, tenant_id: str) -> list[QueueDeadLetterEntry]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def retry_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
         raise NotImplementedError

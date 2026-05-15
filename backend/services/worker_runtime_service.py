@@ -138,11 +138,6 @@ class WorkerRuntimeService:
 
         transition_task(task, ExecutionTaskState.COMPLETED)
         self._transition_lease_to_released(lease)
-        result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
-        if not result.ok:
-            self._session.rollback()
-            raise ValueError(result.reason or "complete rejected")
-
         lease.heartbeat_at = datetime.now(UTC)
         if task_output is not None:
             LineageRecordRepository(self._session).append(
@@ -172,6 +167,14 @@ class WorkerRuntimeService:
         )
         self._session.flush()
         self._session.commit()
+
+        result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+        if not result.ok:
+            logger.critical(
+                "queue_complete_after_db_commit_failed",
+                extra={"task_id": str(task.id), "lease_id": str(lease.id), "reason": result.reason},
+            )
+            raise ValueError(result.reason or "complete rejected")
         return task
 
     def fail(
@@ -193,16 +196,6 @@ class WorkerRuntimeService:
 
         transition_task(task, ExecutionTaskState.FAILED)
         self._transition_lease_to_released(lease)
-        result = self._queue.fail_task(
-            tenant_id=tenant_id,
-            task_id=task.id,
-            worker_id=worker_id,
-            reason=reason,
-        )
-        if not result.ok:
-            self._session.rollback()
-            raise ValueError(result.reason or "fail rejected")
-
         lease.heartbeat_at = datetime.now(UTC)
         self._audit.append(
             AuditEvent(
@@ -217,6 +210,19 @@ class WorkerRuntimeService:
         )
         self._session.flush()
         self._session.commit()
+
+        result = self._queue.fail_task(
+            tenant_id=tenant_id,
+            task_id=task.id,
+            worker_id=worker_id,
+            reason=reason,
+        )
+        if not result.ok:
+            logger.critical(
+                "queue_fail_after_db_commit_failed",
+                extra={"task_id": str(task.id), "lease_id": str(lease.id), "reason": result.reason},
+            )
+            raise ValueError(result.reason or "fail rejected")
         return task
 
     def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:

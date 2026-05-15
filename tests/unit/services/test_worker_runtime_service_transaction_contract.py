@@ -105,23 +105,33 @@ def test_worker_runtime_mutating_lease_methods_own_commit_boundary() -> None:
         assert _calls_session_method(method, "commit"), f"{method.__name__} must commit its session boundary"
 
 
-def test_worker_runtime_queue_rejection_paths_roll_back_session_before_raise() -> None:
-    queue_mutation_methods: tuple[RuntimeMethod, ...] = (
-        WorkerRuntimeService.complete,
-        WorkerRuntimeService.fail,
-        WorkerRuntimeService.release,
-    )
+def test_worker_runtime_release_queue_rejection_rolls_back_before_raise() -> None:
+    rejection_branch = _queue_rejection_branch(WorkerRuntimeService.release)
+    rollback_lines = [node.lineno for node in ast.walk(rejection_branch) if _is_session_method_call(node, "rollback")]
+    raise_lines = [node.lineno for node in ast.walk(rejection_branch) if isinstance(node, ast.Raise)]
 
-    for method in queue_mutation_methods:
-        rejection_branch = _queue_rejection_branch(method)
-        rollback_lines = [
-            node.lineno for node in ast.walk(rejection_branch) if _is_session_method_call(node, "rollback")
+    assert rollback_lines, "release must roll back inside the queue rejection branch"
+    assert raise_lines, "release must raise inside the queue rejection branch"
+    assert min(rollback_lines) < min(raise_lines), "release must roll back before raising"
+
+
+def test_worker_runtime_terminal_db_commit_precedes_irreversible_queue_cleanup() -> None:
+    for method in (WorkerRuntimeService.complete, WorkerRuntimeService.fail):
+        function = _method_ast(method)
+        commit_lines = _session_method_line_numbers(method, "commit")
+        queue_cleanup_lines = [
+            node.lineno
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"complete_task", "fail_task"}
         ]
-        raise_lines = [node.lineno for node in ast.walk(rejection_branch) if isinstance(node, ast.Raise)]
 
-        assert rollback_lines, f"{method.__name__} must roll back inside the queue rejection branch"
-        assert raise_lines, f"{method.__name__} must raise inside the queue rejection branch"
-        assert min(rollback_lines) < min(raise_lines), f"{method.__name__} must roll back before raising"
+        assert commit_lines, f"{method.__name__} must durably commit DB terminal truth"
+        assert queue_cleanup_lines, f"{method.__name__} must still clean up queue processing payloads"
+        assert max(commit_lines) < min(queue_cleanup_lines), (
+            f"{method.__name__} must commit DB terminal truth before irreversible queue cleanup"
+        )
 
 
 def test_worker_runtime_complete_persists_lineage_and_audit_before_commit() -> None:

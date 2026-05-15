@@ -27,42 +27,70 @@ class OperationsService:
             ExecutionTask.tenant_id == tenant_id,
             ExecutionTask.status == ExecutionTaskState.DEAD_LETTERED.value,
         )
-        tasks = list(self._session.scalars(stmt))
-        return [
-            {
+        rows: dict[str, dict[str, str]] = {}
+        for task in self._session.scalars(stmt):
+            rows[str(task.id)] = {
                 "task_id": str(task.id),
                 "mission_id": str(task.mission_id),
                 "status": task.status,
             }
-            for task in tasks
-        ]
+
+        for entry in self._queue.list_dead_letter(tenant_id=tenant_id):
+            if entry.task_id is None:
+                rows[f"corrupt:{len(rows)}"] = {
+                    "task_id": "",
+                    "mission_id": "",
+                    "status": "corrupt_dead_letter",
+                }
+                continue
+            queue_task = self._session.get(ExecutionTask, entry.task_id)
+            if queue_task is None or queue_task.tenant_id != tenant_id:
+                continue
+            rows.setdefault(
+                str(queue_task.id),
+                {
+                    "task_id": str(queue_task.id),
+                    "mission_id": str(queue_task.mission_id),
+                    "status": queue_task.status,
+                },
+            )
+        return list(rows.values())
 
     def retry_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID) -> dict[str, str]:
         task = self._session.get(ExecutionTask, task_id)
         if task is None or task.tenant_id != tenant_id:
             raise ValueError("task not found for tenant")
-        if task.status != ExecutionTaskState.DEAD_LETTERED.value:
-            raise ValueError("task is not dead-lettered")
+        if task.status not in {ExecutionTaskState.DEAD_LETTERED.value, ExecutionTaskState.FAILED.value}:
+            raise ValueError("task is not dead-lettered or failed")
 
         previous_state = task.status
-        transition_task(task, ExecutionTaskState.QUEUED)
-        self._session.flush()
-
-        enqueue_result = self._queue.enqueue_task(
-            QueueMessage(
-                tenant_id=tenant_id,
-                task_id=task.id,
-                mission_id=task.mission_id,
-                fleet_id=task.fleet_id,
-                branch_id=task.branch_id,
-                payload=task.metadata_json,
-                enqueued_at=datetime.now(UTC),
+        queue_entries = [
+            entry for entry in self._queue.list_dead_letter(tenant_id=tenant_id) if entry.task_id == task.id
+        ]
+        if queue_entries:
+            enqueue_result = self._queue.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
+        else:
+            enqueue_result = self._queue.enqueue_task(
+                QueueMessage(
+                    tenant_id=tenant_id,
+                    task_id=task.id,
+                    mission_id=task.mission_id,
+                    fleet_id=task.fleet_id,
+                    branch_id=task.branch_id,
+                    payload=task.metadata_json,
+                    enqueued_at=datetime.now(UTC),
+                )
             )
-        )
         if not enqueue_result.ok:
+            raise ValueError(enqueue_result.reason or "queue enqueue failed")
+
+        try:
+            transition_task(task, ExecutionTaskState.QUEUED)
+        except ValueError:
             task.status = previous_state
             self._session.flush()
-            raise ValueError(enqueue_result.reason or "queue enqueue failed")
+            raise
+        self._session.flush()
 
         self._audit.append(
             AuditEvent(

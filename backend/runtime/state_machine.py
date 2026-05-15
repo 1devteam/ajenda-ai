@@ -94,6 +94,7 @@ class StateMachine:
         "recovering": {"queued", "dead_lettered"},
         "blocked": {"queued"},
         "failed": {"queued", "dead_lettered"},
+        "dead_lettered": {"queued"},
         # pending_review: entered by PolicyGuardian when a task requires human
         # approval before execution (e.g. employment/financial decisions in
         # regulated jurisdictions). Approved → queued; rejected → cancelled.

@@ -48,6 +48,11 @@ _RECOVERABLE_TASK_STATES = {
     ExecutionTaskState.RUNNING.value,
     ExecutionTaskState.CLAIMED.value,
 }
+_TERMINAL_TASK_STATES = {
+    ExecutionTaskState.COMPLETED.value,
+    ExecutionTaskState.CANCELLED.value,
+    ExecutionTaskState.DEAD_LETTERED.value,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +328,11 @@ class RuntimeMaintainer:
                 self._session.rollback()
                 raise
 
+        queue_reconciliation = self._reconcile_queue_processing_payloads()
+        requeued_count += queue_reconciliation.requeued_task_count
+        dead_lettered_count += queue_reconciliation.dead_lettered_count
+        mismatched_state_count += queue_reconciliation.mismatched_state_count
+
         logger.info(
             "runtime_maintainer_recovery_complete",
             extra={
@@ -339,3 +349,136 @@ class RuntimeMaintainer:
             dead_lettered_count=dead_lettered_count,
             mismatched_state_count=mismatched_state_count,
         )
+
+    def _reconcile_queue_processing_payloads(self) -> RecoverySummary:
+        tenant_ids = set(self._session.scalars(select(ExecutionTask.tenant_id)).all())
+        requeued_count = 0
+        dead_lettered_count = 0
+        mismatched_state_count = 0
+
+        for tenant_id in tenant_ids:
+            for inspection in self._queue.list_processing(tenant_id=tenant_id):
+                if inspection.error is not None or inspection.message is None:
+                    mismatched_state_count += 1
+                    logger.error(
+                        "runtime_maintainer_corrupt_processing_payload",
+                        extra={"tenant_id": tenant_id, "error": inspection.error},
+                    )
+                    continue
+
+                message = inspection.message
+                task = self._session.get(ExecutionTask, message.task_id)
+                if task is None or task.tenant_id != tenant_id:
+                    mismatched_state_count += 1
+                    logger.error(
+                        "runtime_maintainer_orphan_processing_payload_without_task",
+                        extra={"tenant_id": tenant_id, "task_id": str(message.task_id)},
+                    )
+                    continue
+
+                active_lease = self._active_lease_for_task(tenant_id=tenant_id, task_id=task.id)
+                if active_lease is not None:
+                    continue
+
+                if task.status == ExecutionTaskState.COMPLETED.value:
+                    holder = self._latest_lease_holder(tenant_id=tenant_id, task_id=task.id) or "runtime_maintainer"
+                    result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=holder)
+                    if not result.ok:
+                        mismatched_state_count += 1
+                        logger.error(
+                            "runtime_maintainer_terminal_cleanup_failed",
+                            extra={"tenant_id": tenant_id, "task_id": str(task.id), "reason": result.reason},
+                        )
+                    continue
+
+                if task.status in {ExecutionTaskState.FAILED.value, ExecutionTaskState.DEAD_LETTERED.value}:
+                    result = self._queue.move_to_dead_letter(
+                        tenant_id=tenant_id,
+                        task_id=task.id,
+                        reason=f"reconciled {task.status} task from processing without active lease",
+                    )
+                    if not result.ok:
+                        mismatched_state_count += 1
+                        logger.error(
+                            "runtime_maintainer_failed_task_dead_letter_cleanup_failed",
+                            extra={"tenant_id": tenant_id, "task_id": str(task.id), "reason": result.reason},
+                        )
+                    else:
+                        dead_lettered_count += 1
+                    continue
+
+                if task.status in _TERMINAL_TASK_STATES:
+                    mismatched_state_count += 1
+                    logger.warning(
+                        "runtime_maintainer_terminal_processing_payload_left_diagnostic",
+                        extra={"tenant_id": tenant_id, "task_id": str(task.id), "task_status": task.status},
+                    )
+                    continue
+
+                result = self._queue.recover_task_for_retry(
+                    tenant_id=tenant_id,
+                    task_id=task.id,
+                    worker_id="runtime_maintainer",
+                )
+                if not result.ok:
+                    mismatched_state_count += 1
+                    logger.error(
+                        "runtime_maintainer_orphan_processing_requeue_failed",
+                        extra={"tenant_id": tenant_id, "task_id": str(task.id), "reason": result.reason},
+                    )
+                    continue
+
+                if task.status == ExecutionTaskState.RUNNING.value:
+                    transition_task(task, ExecutionTaskState.RECOVERING)
+                    task.retry_count += 1
+                    transition_task(task, ExecutionTaskState.QUEUED)
+                elif task.status in {ExecutionTaskState.CLAIMED.value, ExecutionTaskState.BLOCKED.value}:
+                    transition_task(task, ExecutionTaskState.QUEUED)
+                elif task.status == ExecutionTaskState.RECOVERING.value:
+                    transition_task(task, ExecutionTaskState.QUEUED)
+                elif task.status != ExecutionTaskState.QUEUED.value:
+                    mismatched_state_count += 1
+                    logger.warning(
+                        "runtime_maintainer_processing_payload_unhandled_state",
+                        extra={"tenant_id": tenant_id, "task_id": str(task.id), "task_status": task.status},
+                    )
+                    continue
+
+                self._audit.append(
+                    AuditEvent(
+                        tenant_id=tenant_id,
+                        mission_id=task.mission_id,
+                        category="runtime_recovery",
+                        action="orphan_processing_payload_requeued",
+                        actor="runtime_maintainer",
+                        details=f"Requeued processing payload for task {task.id} without an active DB lease.",
+                        payload_json={"task_id": str(task.id), "task_status": task.status},
+                    )
+                )
+                self._session.flush()
+                self._session.commit()
+                requeued_count += 1
+
+        return RecoverySummary(
+            expired_lease_count=0,
+            requeued_task_count=requeued_count,
+            dead_lettered_count=dead_lettered_count,
+            mismatched_state_count=mismatched_state_count,
+        )
+
+    def _active_lease_for_task(self, *, tenant_id: str, task_id: object) -> WorkerLease | None:
+        stmt = select(WorkerLease).where(
+            WorkerLease.tenant_id == tenant_id,
+            WorkerLease.task_id == task_id,
+            WorkerLease.status.in_([WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value]),
+        )
+        return self._session.scalars(stmt).first()
+
+    def _latest_lease_holder(self, *, tenant_id: str, task_id: object) -> str | None:
+        stmt = (
+            select(WorkerLease)
+            .where(WorkerLease.tenant_id == tenant_id, WorkerLease.task_id == task_id)
+            .order_by(WorkerLease.updated_at.desc())
+        )
+        lease = self._session.scalars(stmt).first()
+        return lease.holder_identity if lease is not None else None
