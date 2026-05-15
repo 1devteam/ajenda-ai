@@ -13,7 +13,7 @@ from backend.auth.permissions import Permission
 from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
+from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -28,9 +28,9 @@ def queue_task(
 ) -> dict[str, str]:
     """Queue a single task for execution.
 
-    Verifies tenant ownership before queueing. Until every ExecutionTask row
-    creation path records task quota at creation time, direct task queueing
-    remains the quota enforcement boundary for existing task queue attempts.
+    Verifies tenant ownership before consuming quota so missing or foreign tasks
+    do not burn task-creation allowance. Returns HTTP 429 with a structured body
+    if the tenant has reached their plan limit.
     """
     require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
     tenant_id_str = str(tenant_id)
@@ -40,7 +40,24 @@ def queue_task(
     if task is None or task.tenant_id != tenant_id_str:
         raise HTTPException(status_code=400, detail="task not found for tenant")
 
-    QuotaEnforcementService(db).check_and_record_task_creation(tenant_id)
+    # --- Quota check: task creation ---
+    try:
+        QuotaEnforcementService(db).check_and_record_task_creation(tenant_id)
+    except QuotaExceededError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "QUOTA_EXCEEDED",
+                "field": exc.field,
+                "limit": exc.limit,
+                "current": exc.current,
+                "plan": exc.plan,
+                "message": (
+                    f"You have reached the {exc.field} limit ({exc.limit}) "
+                    f"for the {exc.plan!r} plan. Upgrade to continue."
+                ),
+            },
+        ) from exc
 
     try:
         result = ExecutionCoordinator(db, queue).queue_task(tenant_id=tenant_id_str, task_id=task_id)
