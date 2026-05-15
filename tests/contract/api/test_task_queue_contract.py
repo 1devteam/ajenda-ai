@@ -99,7 +99,9 @@ def test_task_queue_contract_returns_400_when_task_not_found_for_tenant_without_
     coordinator.queue_task.assert_not_called()
 
 
-def test_task_queue_contract_returns_400_when_task_belongs_to_other_tenant_without_quota_or_queue_side_effects() -> None:
+def test_task_queue_contract_returns_400_when_task_belongs_to_other_tenant_without_quota_or_queue_side_effects() -> (
+    None
+):
     tenant_id = uuid.uuid4()
     other_tenant_id = uuid.uuid4()
     task_id = uuid.uuid4()
@@ -155,7 +157,9 @@ def test_task_queue_contract_returns_400_when_coordinator_raises_value_error_aft
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
-def test_task_queue_contract_returns_500_when_coordinator_raises_unexpected_exception_after_tenant_preflight_and_quota() -> None:
+def test_task_queue_contract_returns_500_when_coordinator_raises_unexpected_exception_after_tenant_preflight_and_quota() -> (
+    None
+):
     tenant_id = uuid.uuid4()
     task_id = uuid.uuid4()
     app = _build_app(tenant_id)
