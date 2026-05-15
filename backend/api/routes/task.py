@@ -13,6 +13,7 @@ from backend.auth.permissions import Permission
 from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.quota_enforcement import QuotaEnforcementService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -27,9 +28,9 @@ def queue_task(
 ) -> dict[str, str]:
     """Queue a single task for execution.
 
-    Verifies tenant ownership before queueing. Queueing an existing task does
-    not consume the tasks_created quota counter; that counter is reserved for
-    ExecutionTask row creation paths.
+    Verifies tenant ownership before queueing. Until every ExecutionTask row
+    creation path records task quota at creation time, direct task queueing
+    remains the quota enforcement boundary for existing task queue attempts.
     """
     require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
     tenant_id_str = str(tenant_id)
@@ -38,6 +39,8 @@ def queue_task(
     task = ExecutionTaskRepository(db).get(task_id)
     if task is None or task.tenant_id != tenant_id_str:
         raise HTTPException(status_code=400, detail="task not found for tenant")
+
+    QuotaEnforcementService(db).check_and_record_task_creation(tenant_id)
 
     try:
         result = ExecutionCoordinator(db, queue).queue_task(tenant_id=tenant_id_str, task_id=task_id)
