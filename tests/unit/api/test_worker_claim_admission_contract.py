@@ -5,16 +5,28 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes import mission as mission_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 
 
 def _build_app(tenant_id: uuid.UUID) -> FastAPI:
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal(
+            subject_id="test-user",
+            tenant_id=str(tenant_id),
+            principal_type=PrincipalType.USER,
+            roles=("tenant_admin",),
+        )
+        return await call_next(request)
+
     app.include_router(mission_module.router, prefix="/v1")
 
     def _override_tenant_id() -> uuid.UUID:
@@ -26,6 +38,25 @@ def _build_app(tenant_id: uuid.UUID) -> FastAPI:
     app.dependency_overrides[get_request_tenant_id] = _override_tenant_id
     app.dependency_overrides[get_tenant_db_session] = _override_db
     return app
+
+
+class _AnyTenantId:
+    def __eq__(self, _other: object) -> bool:
+        return True
+
+    def __ne__(self, _other: object) -> bool:
+        return False
+
+
+def _authorized_request() -> MagicMock:
+    request = MagicMock(headers={})
+    request.state.principal = SimpleNamespace(
+        subject_id="test-user",
+        tenant_id=_AnyTenantId(),
+        roles=("operator",),
+        permissions=frozenset(),
+    )
+    return request
 
 
 def _make_task(
@@ -127,7 +158,7 @@ def test_worker_claim_admission_claims_preview_eligible_queued_task_and_persists
         patch("backend.api.routes.mission.WorkerLeaseRepository", return_value=lease_repo),
     ):
         result = mission_module.worker_claim_admission(
-            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=db
+            mission_id=mission_id, request=_authorized_request(), tenant_id=tenant_uuid, db=db
         )
 
     assert result.claim_admission_status == "admitted"
@@ -159,13 +190,13 @@ def test_worker_claim_admission_is_idempotent_for_current_admission_and_does_not
         patch("backend.api.routes.mission.WorkerLeaseRepository", return_value=lease_repo),
     ):
         first = mission_module.worker_claim_admission(
-            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+            mission_id=mission_id, request=_authorized_request(), tenant_id=tenant_uuid, db=MagicMock()
         )
         second = mission_module.worker_claim_admission(
-            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+            mission_id=mission_id, request=_authorized_request(), tenant_id=tenant_uuid, db=MagicMock()
         )
         third = mission_module.worker_claim_admission(
-            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+            mission_id=mission_id, request=_authorized_request(), tenant_id=tenant_uuid, db=MagicMock()
         )
 
     assert first.claimed_task_ids == [str(task.id)]
@@ -200,7 +231,7 @@ def test_worker_claim_admission_blocks_task_claimed_by_different_active_lease() 
         patch("backend.api.routes.mission.WorkerLeaseRepository", return_value=lease_repo),
     ):
         result = mission_module.worker_claim_admission(
-            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+            mission_id=mission_id, request=_authorized_request(), tenant_id=tenant_uuid, db=MagicMock()
         )
 
     assert result.claim_admission_status == "blocked"
@@ -224,7 +255,7 @@ def test_worker_claim_admission_blocks_missing_preview_stale_queue_and_missing_t
         patch("backend.api.routes.mission.WorkerLeaseRepository", return_value=lease_repo),
     ):
         result = mission_module.worker_claim_admission(
-            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+            mission_id=mission_id, request=_authorized_request(), tenant_id=tenant_uuid, db=MagicMock()
         )
 
     codes = {blocker["code"] for blocker in result.blockers}
@@ -260,7 +291,7 @@ def test_worker_claim_admission_returns_partial_when_one_task_claim_fails_after_
         patch("backend.api.routes.mission.WorkerLeaseRepository", return_value=lease_repo),
     ):
         result = mission_module.worker_claim_admission(
-            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+            mission_id=mission_id, request=_authorized_request(), tenant_id=tenant_uuid, db=MagicMock()
         )
 
     assert result.claim_admission_status == "partially_admitted"
@@ -289,7 +320,7 @@ def test_worker_claim_admission_negative_authority_does_not_call_execution_paths
         patch("backend.api.routes.mission.task_dispatcher", create=True) as dispatcher,
     ):
         result = mission_module.worker_claim_admission(
-            mission_id=mission_id, request=MagicMock(headers={}), tenant_id=tenant_uuid, db=MagicMock()
+            mission_id=mission_id, request=_authorized_request(), tenant_id=tenant_uuid, db=MagicMock()
         )
 
     assert result.worker_claim_authority.starts_execution is False

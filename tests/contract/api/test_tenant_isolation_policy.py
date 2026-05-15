@@ -357,15 +357,13 @@ def test_system_readiness_requires_no_tenant_header() -> None:
     )
 
 
-def test_operations_recovery_requires_no_tenant_header() -> None:
-    """POST /operations/recovery must succeed without X-Tenant-Id (cross-tenant admin op)."""
+def test_operations_recovery_requires_tenant_header() -> None:
+    """POST /operations/recovery is a protected control-plane mutation requiring tenant envelope."""
     app = _build_app(operations_module.router)
     client = TestClient(app, raise_server_exceptions=False)
     resp = client.post("/operations/recovery")
-    # 200 or 500 (no DB in test) — but NOT 400 (tenant required) or 401 (auth required)
-    assert resp.status_code not in (400, 401, 403), (
-        f"Cross-tenant recovery route should not require tenant/auth, got {resp.status_code}: {resp.text}"
-    )
+    assert resp.status_code == 400
+    assert "MISSING_TENANT_ID" in str(resp.json())
 
 
 # ---------------------------------------------------------------------------

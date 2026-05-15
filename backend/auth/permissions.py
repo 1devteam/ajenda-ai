@@ -11,5 +11,8 @@ class Permission(StrEnum):
     API_KEYS_REVOKE = "api_keys:revoke"
     EXECUTION_VIEW = "execution:view"
     EXECUTION_QUEUE = "execution:queue"
+    MISSION_CREATE = "mission:create"
+    MISSION_MANAGE = "mission:manage"
+    RUNTIME_OPERATE = "runtime:operate"
     PROVISION_WORKFORCE = "workforce:provision"
     RUNTIME_VIEW = "runtime:view"

@@ -13,8 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.auth.permissions import Permission
 from backend.domain.enums import ExecutionTaskState, MissionPlanStatus, MissionState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
@@ -1864,6 +1866,7 @@ def create_mission(
     db: Session = Depends(get_tenant_db_session),
 ) -> MissionRead:
     """Create a tenant-owned mission intake record without queueing runtime work."""
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_CREATE, tenant_id=tenant_id)
     try:
         QuotaEnforcementService(db).check_and_record_mission_creation(tenant_id)
     except QuotaExceededError as exc:
@@ -1946,6 +1949,7 @@ def create_mission_plan(
     db: Session = Depends(get_tenant_db_session),
 ) -> MissionPlanRead:
     """Create or return an active tenant-scoped mission plan without runtime side effects."""
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
     mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
@@ -1975,6 +1979,7 @@ def upsert_mission_plan(
     db: Session = Depends(get_tenant_db_session),
 ) -> MissionPlanRead:
     """Create or replace a tenant-scoped mission plan without queueing work."""
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
     repo = MissionRepository(db)
     mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
     if mission is None:
@@ -2108,6 +2113,7 @@ def create_mission_task_graph(
     db: Session = Depends(get_tenant_db_session),
 ) -> MissionTaskGraphRead:
     """Create or replace a tenant-scoped task graph contract without queueing work."""
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
     return _write_mission_task_graph(mission_id=mission_id, body=body, tenant_id=tenant_id, db=db)
 
 
@@ -2120,6 +2126,7 @@ def upsert_mission_task_graph(
     db: Session = Depends(get_tenant_db_session),
 ) -> MissionTaskGraphRead:
     """Create or fully replace a tenant-scoped task graph contract without queueing work."""
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
     return _write_mission_task_graph(mission_id=mission_id, body=body, tenant_id=tenant_id, db=db)
 
 
@@ -2148,6 +2155,7 @@ def materialize_mission_graph(
     db: Session = Depends(get_tenant_db_session),
 ) -> GraphMaterializationRead:
     """Persist planner-to-graph materialization metadata without runtime work."""
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
     tenant_id_str = str(tenant_id)
     repo = MissionRepository(db)
     mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
@@ -2266,6 +2274,7 @@ def admit_mission_graph_to_runtime(
     db: Session = Depends(get_tenant_db_session),
 ) -> RuntimeAdmissionRead:
     """Persist graph-to-runtime admission metadata without queueing or dispatch."""
+    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     tenant_id_str = str(tenant_id)
     repo = MissionRepository(db)
     mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
@@ -2972,6 +2981,7 @@ def materialize_mission_runtime_tasks(
     db: Session = Depends(get_tenant_db_session),
 ) -> RuntimeTaskMaterializationRead:
     """Create planned ExecutionTask rows from a ready admitted mission graph without queueing work."""
+    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     tenant_id_str = str(tenant_id)
     mission_repo = MissionRepository(db)
     mission = mission_repo.lock_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
@@ -4278,6 +4288,7 @@ def worker_claim_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerClaimAdmissionRead:
     """Claim preview-eligible queued tasks without starting execution or dispatching workers."""
+    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     return _build_worker_claim_admission(mission_id=mission_id, tenant_id=tenant_id, db=db, request=request)
 
 
@@ -4821,6 +4832,7 @@ def worker_start_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerStartAdmissionRead:
     """Start claim-admitted tasks without dispatching workers or executing handlers."""
+    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     return _build_worker_start_admission(mission_id=mission_id, tenant_id=tenant_id, db=db, request=request)
 
 
@@ -5529,6 +5541,7 @@ def worker_run_admission(
     queue: QueueAdapter = Depends(get_queue_adapter),
 ) -> WorkerRunAdmissionRead:
     """Execute running start-admitted tasks through the governed dispatcher bridge."""
+    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     return _build_worker_run_admission(mission_id=mission_id, tenant_id=tenant_id, db=db, request=request, queue=queue)
 
 
@@ -5562,6 +5575,7 @@ def runtime_queue_admission(
     queue: QueueAdapter = Depends(get_queue_adapter),
 ) -> dict[str, object]:
     """Queue eligible planned tasks from the current runtime task materialization."""
+    require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
     tenant_id_str = str(tenant_id)
     mission_repo = MissionRepository(db)
     mission = mission_repo.lock_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
@@ -5713,6 +5727,7 @@ def queue_mission(
     Returns HTTP 429 with structured body if the tenant has reached their
     plan limit.
     """
+    require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
     # --- Count tenant-owned planned tasks that will actually be enqueued ---
     task_repo = ExecutionTaskRepository(db)
     all_tasks = task_repo.list_for_mission(mission_id=mission_id)

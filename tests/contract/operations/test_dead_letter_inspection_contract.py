@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes.operations import router
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.auth.principal import Principal, PrincipalType
 
 
 class _InspectionOpsService:
@@ -37,8 +38,14 @@ class _EmptyInspectionOpsService:
 
 def _build_client(monkeypatch, service: object, *, tenant_id: uuid.UUID | None = None) -> TestClient:
     app = FastAPI()
-    app.include_router(router, prefix="/v1")
     request_tenant_id = tenant_id or uuid.uuid4()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal("viewer", str(request_tenant_id), PrincipalType.USER, roles=("viewer",))
+        return await call_next(request)
+
+    app.include_router(router, prefix="/v1")
 
     def _tenant_dep() -> uuid.UUID:
         return request_tenant_id

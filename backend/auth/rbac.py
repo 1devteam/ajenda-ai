@@ -21,6 +21,22 @@ class AuthorizationDecision:
 class RbacAuthorizer:
     def __init__(self) -> None:
         self._roles: dict[str, frozenset[Permission]] = {
+            "admin": frozenset(
+                {
+                    Permission.AUTH_READ,
+                    Permission.AUTH_MANAGE,
+                    Permission.API_KEYS_CREATE,
+                    Permission.API_KEYS_READ,
+                    Permission.API_KEYS_REVOKE,
+                    Permission.EXECUTION_VIEW,
+                    Permission.EXECUTION_QUEUE,
+                    Permission.MISSION_CREATE,
+                    Permission.MISSION_MANAGE,
+                    Permission.RUNTIME_OPERATE,
+                    Permission.PROVISION_WORKFORCE,
+                    Permission.RUNTIME_VIEW,
+                }
+            ),
             "tenant_admin": frozenset(
                 {
                     Permission.AUTH_READ,
@@ -30,6 +46,9 @@ class RbacAuthorizer:
                     Permission.API_KEYS_REVOKE,
                     Permission.EXECUTION_VIEW,
                     Permission.EXECUTION_QUEUE,
+                    Permission.MISSION_CREATE,
+                    Permission.MISSION_MANAGE,
+                    Permission.RUNTIME_OPERATE,
                     Permission.PROVISION_WORKFORCE,
                     Permission.RUNTIME_VIEW,
                 }
@@ -38,6 +57,8 @@ class RbacAuthorizer:
                 {
                     Permission.EXECUTION_VIEW,
                     Permission.EXECUTION_QUEUE,
+                    Permission.MISSION_MANAGE,
+                    Permission.RUNTIME_OPERATE,
                     Permission.RUNTIME_VIEW,
                 }
             ),
@@ -65,6 +86,8 @@ class RbacAuthorizer:
     def authorize(self, *, principal: Principal, permission: Permission, tenant_id: str) -> AuthorizationDecision:
         if principal.tenant_id != tenant_id:
             return AuthorizationDecision(False, "cross-tenant access denied")
-        if permission not in principal.permissions:
+        effective_permissions = set(principal.permissions)
+        effective_permissions.update(self.resolve_permissions(tuple(principal.roles)))
+        if permission not in effective_permissions:
             return AuthorizationDecision(False, f"missing permission: {permission.value}")
         return AuthorizationDecision(True, "authorized")

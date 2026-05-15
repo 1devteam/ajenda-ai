@@ -3,18 +3,30 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes import mission as mission_module
 from backend.api.routes import task as task_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.auth.principal import Principal, PrincipalType
 from backend.services.quota_enforcement import QuotaExceededError
 
 
 def _build_task_app(tenant_id: uuid.UUID) -> FastAPI:
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal(
+            subject_id="test-operator",
+            tenant_id=str(tenant_id),
+            principal_type=PrincipalType.USER,
+            roles=("operator",),
+        )
+        return await call_next(request)
+
     app.include_router(task_module.router, prefix="/v1")
 
     def _override_tenant_id():
@@ -34,6 +46,17 @@ def _build_task_app(tenant_id: uuid.UUID) -> FastAPI:
 
 def _build_mission_app(tenant_id: uuid.UUID) -> FastAPI:
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal(
+            subject_id="test-operator",
+            tenant_id=str(tenant_id),
+            principal_type=PrincipalType.USER,
+            roles=("operator",),
+        )
+        return await call_next(request)
+
     app.include_router(mission_module.router, prefix="/v1")
 
     def _override_tenant_id():

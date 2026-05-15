@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -8,6 +9,25 @@ from fastapi import HTTPException
 
 from backend.services.execution_coordinator import CoordinationResult
 from backend.services.quota_enforcement import QuotaExceededError
+
+
+class _AnyTenantId:
+    def __eq__(self, _other: object) -> bool:
+        return True
+
+    def __ne__(self, _other: object) -> bool:
+        return False
+
+
+def _authorized_request() -> MagicMock:
+    request = MagicMock()
+    request.state.principal = SimpleNamespace(
+        subject_id="test-user",
+        tenant_id=_AnyTenantId(),
+        roles=("operator",),
+        permissions=frozenset(),
+    )
+    return request
 
 
 def test_queue_task_route_returns_success_payload_when_task_is_queued() -> None:
@@ -18,7 +38,7 @@ def test_queue_task_route_returns_success_payload_when_task_is_queued() -> None:
 
     db = MagicMock()
     queue = MagicMock()
-    request = MagicMock()
+    request = _authorized_request()
 
     task = MagicMock()
     task.tenant_id = str(tenant_id)
@@ -59,7 +79,7 @@ def test_queue_task_route_returns_400_when_task_not_found_for_tenant() -> None:
 
     db = MagicMock()
     queue = MagicMock()
-    request = MagicMock()
+    request = _authorized_request()
 
     task_repo = MagicMock()
     task_repo.get.return_value = None
@@ -95,7 +115,7 @@ def test_queue_task_route_returns_400_when_task_belongs_to_other_tenant() -> Non
 
     db = MagicMock()
     queue = MagicMock()
-    request = MagicMock()
+    request = _authorized_request()
 
     task = MagicMock()
     task.tenant_id = str(other_tenant_id)
@@ -133,7 +153,7 @@ def test_queue_task_route_returns_structured_429_when_quota_exceeded_for_valid_t
 
     db = MagicMock()
     queue = MagicMock()
-    request = MagicMock()
+    request = _authorized_request()
 
     task = MagicMock()
     task.tenant_id = str(tenant_id)
@@ -183,7 +203,7 @@ def test_queue_task_route_returns_400_when_coordinator_raises_value_error_after_
 
     db = MagicMock()
     queue = MagicMock()
-    request = MagicMock()
+    request = _authorized_request()
 
     task = MagicMock()
     task.tenant_id = str(tenant_id)
@@ -222,7 +242,7 @@ def test_queue_task_route_returns_500_when_coordinator_raises_unexpected_excepti
 
     db = MagicMock()
     queue = MagicMock()
-    request = MagicMock()
+    request = _authorized_request()
 
     task = MagicMock()
     task.tenant_id = str(tenant_id)
@@ -259,7 +279,7 @@ def test_queue_task_route_returns_400_when_service_rejects_non_queueable_state()
 
     db = MagicMock()
     queue = MagicMock()
-    request = MagicMock()
+    request = _authorized_request()
 
     task = MagicMock()
     task.tenant_id = str(tenant_id)
@@ -303,7 +323,7 @@ def test_queue_task_route_returns_400_when_task_is_routed_to_pending_review() ->
 
     db = MagicMock()
     queue = MagicMock()
-    request = MagicMock()
+    request = _authorized_request()
 
     task = MagicMock()
     task.tenant_id = str(tenant_id)

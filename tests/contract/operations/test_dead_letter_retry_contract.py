@@ -4,12 +4,13 @@ import uuid
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes.operations import router
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.services.operations_service import OperationsService
@@ -30,11 +31,18 @@ class _RecordingRetryOpsService:
 
 
 def test_rg_dead_letter_retry_returns_400_on_illegal_transition(monkeypatch) -> None:
+    tenant_id = uuid.uuid4()
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal("operator", str(tenant_id), PrincipalType.USER, roles=("operator",))
+        return await call_next(request)
+
     app.include_router(router, prefix="/v1")
 
     def _tenant_dep() -> uuid.UUID:
-        return uuid.uuid4()
+        return tenant_id
 
     def _db_dep():
         yield MagicMock()
@@ -60,8 +68,14 @@ def test_rg_dead_letter_retry_returns_400_on_illegal_transition(monkeypatch) -> 
 
 def test_rg_dead_letter_retry_route_passes_request_tenant_and_task_to_service(monkeypatch) -> None:
     app = FastAPI()
-    app.include_router(router, prefix="/v1")
     tenant_id = uuid.uuid4()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal("operator", str(tenant_id), PrincipalType.USER, roles=("operator",))
+        return await call_next(request)
+
+    app.include_router(router, prefix="/v1")
     task_id = uuid.uuid4()
     service = _RecordingRetryOpsService()
 
