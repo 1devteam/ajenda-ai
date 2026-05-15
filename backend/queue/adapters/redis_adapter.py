@@ -189,6 +189,28 @@ local function payload_task_id(raw)
     return tostring(payload["task_id"])
 end
 
+local function validate_queue_message(payload)
+    if type(payload) ~= "table" then
+        return false, "dead-letter payload is corrupt: payload is not an object"
+    end
+    if payload["tenant_id"] == nil or tostring(payload["tenant_id"]) ~= tenant_id then
+        return false, "dead-letter payload is corrupt: tenant_id mismatch"
+    end
+    if payload["task_id"] == nil or tostring(payload["task_id"]) ~= task_id then
+        return false, "dead-letter payload is corrupt: task_id mismatch"
+    end
+    if payload["mission_id"] == nil then
+        return false, "dead-letter payload is corrupt: missing mission_id"
+    end
+    if payload["payload"] == nil or type(payload["payload"]) ~= "table" then
+        return false, "dead-letter payload is corrupt: missing payload"
+    end
+    if payload["enqueued_at"] == nil then
+        return false, "dead-letter payload is corrupt: missing enqueued_at"
+    end
+    return true, "ok"
+end
+
 local pending_ok, pending_reason = ensure_list_or_none(pending_key, "pending")
 if not pending_ok then
     return {0, pending_reason}
@@ -219,21 +241,23 @@ end
 local dead_letter_values = redis.call("LRANGE", dead_letter_key, 0, -1)
 for _, raw in ipairs(dead_letter_values) do
     local envelope_ok, envelope = pcall(cjson.decode, raw)
-    if not envelope_ok or type(envelope) ~= "table" then
-        return {0, "dead-letter payload is corrupt: invalid envelope"}
-    end
-
-    local payload = envelope["payload"]
-    if type(payload) == "table"
-        and tostring(payload["tenant_id"]) == tenant_id
-        and tostring(envelope["task_id"]) == task_id then
-        local pending_payload = cjson.encode(payload)
-        local removed = redis.call("LREM", dead_letter_key, 1, raw)
-        if removed < 1 then
-            return {0, "dead-letter entry not found"}
+    if envelope_ok and type(envelope) == "table" then
+        local payload = envelope["payload"]
+        if type(payload) == "table"
+            and tostring(payload["tenant_id"]) == tenant_id
+            and tostring(envelope["task_id"]) == task_id then
+            local valid, validation_reason = validate_queue_message(payload)
+            if not valid then
+                return {0, validation_reason}
+            end
+            local pending_payload = cjson.encode(payload)
+            local removed = redis.call("LREM", dead_letter_key, 1, raw)
+            if removed < 1 then
+                return {0, "dead-letter entry not found"}
+            end
+            redis.call("RPUSH", pending_key, pending_payload)
+            return {1, "ok"}
         end
-        redis.call("RPUSH", pending_key, pending_payload)
-        return {1, "ok"}
     end
 end
 

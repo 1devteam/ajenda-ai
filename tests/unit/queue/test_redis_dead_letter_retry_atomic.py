@@ -59,3 +59,20 @@ def test_retry_dead_letter_unexpected_script_result_fails_closed(monkeypatch) ->
 
     assert result.ok is False
     assert result.reason == "retry script returned unexpected result"
+
+
+def test_retry_dead_letter_script_validates_queue_message_payload_shape() -> None:
+    script = RedisQueueAdapter._RETRY_DEAD_LETTER_SCRIPT
+
+    assert "validate_queue_message" in script
+    assert "missing mission_id" in script
+    assert "missing payload" in script
+    assert "missing enqueued_at" in script
+    assert 'redis.call("RPUSH", pending_key, pending_payload)' in script
+
+
+def test_retry_dead_letter_script_skips_unrelated_corrupt_dead_letter_entries() -> None:
+    script = RedisQueueAdapter._RETRY_DEAD_LETTER_SCRIPT
+
+    assert 'if envelope_ok and type(envelope) == "table" then' in script
+    assert 'return {0, "dead-letter payload is corrupt: invalid envelope"}' not in script
