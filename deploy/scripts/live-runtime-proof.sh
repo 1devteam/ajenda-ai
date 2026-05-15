@@ -2,6 +2,7 @@
 set -euo pipefail
 
 COMPOSE_FILE="${AJENDA_PROOF_COMPOSE_FILE:-deploy/compose/docker-compose.prod.yml}"
+COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"
 API_BASE_URL="${AJENDA_PROOF_API_BASE_URL:-http://localhost:8000}"
 PROMETHEUS_BASE_URL="${AJENDA_PROOF_PROMETHEUS_BASE_URL:-http://localhost:9090}"
 PROMETHEUS_JOB_NAME="${AJENDA_PROOF_PROMETHEUS_JOB_NAME:-ajenda-api}"
@@ -21,6 +22,10 @@ fail() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+compose() {
+  docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 wait_for_http_ok() {
@@ -104,14 +109,18 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
   fail "compose file not found: $COMPOSE_FILE"
 fi
 
+if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then
+  fail "compose env file not found: $COMPOSE_ENV_FILE"
+fi
+
 log "validating compose configuration"
-docker compose -f "$COMPOSE_FILE" config --quiet
+compose config --quiet
 
 log "starting compose services"
-docker compose -f "$COMPOSE_FILE" up -d --build db redis migrate api worker prometheus
+compose up -d --build db redis migrate api worker prometheus
 
 log "checking compose service state"
-docker compose -f "$COMPOSE_FILE" ps
+compose ps
 
 log "checking api health/readiness"
 wait_for_http_ok "$API_BASE_URL/health"
@@ -120,14 +129,14 @@ wait_for_http_ok "$API_BASE_URL/v1/system/health"
 wait_for_http_ok "$API_BASE_URL/v1/system/readiness"
 
 log "checking postgres readiness"
-docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U ajenda -d ajenda >/dev/null
+compose exec -T db pg_isready -U ajenda -d ajenda >/dev/null
 
 log "checking redis ping"
-docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli PING | grep -q '^PONG$'
+compose exec -T redis redis-cli PING | grep -q '^PONG$'
 
 log "queueing real echo task for configured worker tenant and waiting for worker completion"
 proof_json="$(
-  docker compose -f "$COMPOSE_FILE" exec -T \
+  compose exec -T \
     -e AJENDA_PROOF_TIMEOUT_SECONDS="$TIMEOUT_SECONDS" \
     -e AJENDA_PROOF_POLL_SECONDS="$POLL_SECONDS" \
     api python - <<'PY'
@@ -324,7 +333,7 @@ wait_for_http_ok "$PROMETHEUS_BASE_URL/-/ready"
 wait_for_prometheus_target_up "$PROMETHEUS_JOB_NAME"
 
 log "checking Redis lease cleanup for proof task"
-lease_value="$(docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli GET "ajenda:queue:${proof_tenant_id}:lease:${proof_task_id}")"
+lease_value="$(compose exec -T redis redis-cli GET "ajenda:queue:${proof_tenant_id}:lease:${proof_task_id}")"
 
 if [[ -n "$lease_value" ]]; then
   fail "expected Redis lease key to be absent; got $lease_value"

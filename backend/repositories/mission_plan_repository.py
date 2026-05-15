@@ -52,6 +52,9 @@ class MissionPlanRepository:
         status: str = MissionPlanStatus.DRAFT.value,
     ) -> MissionPlan:
         """Create or return the one active plan slot for a tenant-owned mission."""
+        allowed_statuses = {value.value for value in MissionPlanStatus}
+        if status not in allowed_statuses:
+            raise ValueError(f"unknown mission plan status: {status}")
         existing = self.get_active_for_mission(mission_id=mission.id, tenant_id=mission.tenant_id)
         if existing is not None:
             return existing

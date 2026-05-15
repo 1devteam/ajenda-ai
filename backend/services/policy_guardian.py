@@ -69,7 +69,7 @@ class PolicyGuardian:
         # default to safe values if not set.
         category = task.compliance_category or ComplianceCategory.OPERATIONAL
         jurisdiction = task.jurisdiction or "US-ALL"
-        metadata = task.metadata_json or {}
+        metadata = task.compliance_metadata or {}
         return self._evaluate_jurisdiction_policy(category, jurisdiction, metadata)
 
     def _evaluate_jurisdiction_policy(

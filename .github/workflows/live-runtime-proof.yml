@@ -44,6 +44,7 @@ jobs:
     env:
       AJENDA_PROOF_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
       AJENDA_PROOF_POLL_SECONDS: "2"
+      AJENDA_PROOF_COMPOSE_ENV_FILE: deploy/compose/.env.prod
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -63,11 +64,12 @@ jobs:
 
           env_path = Path("deploy/compose/.env.prod")
           worker_tenant_id = uuid4()
+          postgres_password = f"ci-{uuid4().hex}"
           env_path.write_text(
               "\n".join(
                   [
-                      "POSTGRES_PASSWORD=change-me",
-                      "AJENDA_DATABASE_URL=postgresql+psycopg://ajenda:change-me@db:5432/ajenda",
+                      f"POSTGRES_PASSWORD={postgres_password}",
+                      f"AJENDA_DATABASE_URL=postgresql+psycopg://ajenda:{postgres_password}@db:5432/ajenda",
                       "AJENDA_DB_POOL_SIZE=10",
                       "AJENDA_DB_MAX_OVERFLOW=20",
                       "AJENDA_DB_POOL_TIMEOUT=30",
@@ -101,8 +103,8 @@ jobs:
         if: always()
         run: |
           mkdir -p artifacts/live-runtime-proof
-          docker compose -f deploy/compose/docker-compose.prod.yml ps > artifacts/live-runtime-proof/compose-ps.txt || true
-          docker compose -f deploy/compose/docker-compose.prod.yml logs --no-color --tail=300 > artifacts/live-runtime-proof/compose-logs.txt || true
+          docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml ps > artifacts/live-runtime-proof/compose-ps.txt || true
+          docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml logs --no-color --tail=300 > artifacts/live-runtime-proof/compose-logs.txt || true
 
       - name: Upload diagnostics
         if: always()
@@ -114,4 +116,4 @@ jobs:
 
       - name: Stop compose stack
         if: always()
-        run: docker compose -f deploy/compose/docker-compose.prod.yml down -v --remove-orphans
+        run: docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml down -v --remove-orphans

@@ -1732,13 +1732,22 @@ def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead
 def _mission_lifecycle_to_read(
     *,
     mission: Mission,
+    durable_plan: MissionPlan | None,
     evidence_records: list[Any],
     outcome_reviews: list[Any],
     retrieval_contracts: list[Any],
 ) -> MissionLifecycleRead:
     metadata = mission.metadata_json or {}
     intake = metadata.get(MISSION_INTAKE_METADATA_KEY)
-    plan = metadata.get(MISSION_PLAN_METADATA_KEY)
+    legacy_plan = metadata.get(MISSION_PLAN_METADATA_KEY)
+    plan: dict[str, Any] | None = None
+    if durable_plan is not None:
+        try:
+            plan = normalize_mission_plan_contract_metadata(durable_plan.metadata_json)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    elif isinstance(legacy_plan, dict):
+        plan = legacy_plan
     task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
     normalized_task_graph: dict[str, Any] | None = None
     if task_graph is not None:
@@ -1752,7 +1761,7 @@ def _mission_lifecycle_to_read(
 
     completeness = MissionLifecycleCompleteness(
         has_intake=isinstance(intake, dict),
-        has_plan=isinstance(plan, dict),
+        has_plan=plan is not None,
         has_task_graph=normalized_task_graph is not None,
         has_materialization=isinstance(materialization, dict),
         has_runtime_admission=(
@@ -1793,7 +1802,7 @@ def _mission_lifecycle_to_read(
             updated_at=mission.updated_at.isoformat(),
         ),
         intake=intake if isinstance(intake, dict) else None,
-        plan=plan if isinstance(plan, dict) else None,
+        plan=plan,
         task_graph=normalized_task_graph,
         materialization=materialization if isinstance(materialization, dict) else None,
         runtime_admission=runtime_admission if isinstance(runtime_admission, dict) else None,
@@ -1913,6 +1922,7 @@ def read_mission_lifecycle(
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
 
+    durable_plan = MissionPlanRepository(db).get_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
     evidence_records = EvidenceRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
     outcome_reviews = OutcomeReviewRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
     retrieval_contracts = RetrievalContractRepository(db).list_for_mission(
@@ -1920,6 +1930,7 @@ def read_mission_lifecycle(
     )
     return _mission_lifecycle_to_read(
         mission=mission,
+        durable_plan=durable_plan if isinstance(durable_plan, MissionPlan) else None,
         evidence_records=evidence_records,
         outcome_reviews=outcome_reviews,
         retrieval_contracts=retrieval_contracts,
@@ -1968,6 +1979,10 @@ def upsert_mission_plan(
     mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
+
+    durable_plan = MissionPlanRepository(db).get_for_mission(mission_id=mission_id, tenant_id=str(tenant_id))
+    if isinstance(durable_plan, MissionPlan):
+        return _durable_mission_plan_to_read(durable_plan)
 
     plan_metadata = build_mission_plan_metadata(
         planning_status=body.planning_status,

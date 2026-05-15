@@ -319,3 +319,94 @@ def test_two_create_calls_through_api_return_repository_active_plan_without_dupl
     assert first.json()["plan_id"] == str(plan_id)
     assert second.json()["plan_id"] == str(plan_id)
     assert plan_repo.create_or_get_active_for_mission.call_count == 2
+
+
+def test_read_plan_prefers_durable_plan_when_legacy_metadata_also_exists() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission(tenant_id=tenant_id, mission_id=mission_id)
+    mission.metadata_json = {"mission_plan": {"schema_version": 1, "planning_status": "legacy-approved"}}
+    durable_plan = _plan(tenant_id=tenant_id, mission_id=mission_id)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    plan_repo = MagicMock()
+    plan_repo.get_for_mission.return_value = durable_plan
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.MissionPlanRepository", return_value=plan_repo),
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/plan")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["plan_id"] == str(durable_plan.id)
+    assert body["plan"]["objectives"] == ["Recover stale opportunities."]
+    assert "planning_status" not in body["plan"]
+
+
+def test_post_plan_creates_durable_plan_and_lifecycle_reports_plan_present() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = _mission(tenant_id=tenant_id, mission_id=mission_id)
+    durable_plan = _plan(tenant_id=tenant_id, mission_id=mission_id)
+    plan_repo = MagicMock()
+    plan_repo.create_or_get_active_for_mission.return_value = durable_plan
+    plan_repo.get_for_mission.return_value = durable_plan
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.MissionPlanRepository", return_value=plan_repo),
+        patch("backend.api.routes.mission.EvidenceRepository") as evidence_repo_cls,
+        patch("backend.api.routes.mission.OutcomeReviewRepository") as outcome_repo_cls,
+        patch("backend.api.routes.mission.RetrievalContractRepository") as retrieval_repo_cls,
+    ):
+        evidence_repo_cls.return_value.list_for_mission.return_value = []
+        outcome_repo_cls.return_value.list_for_mission.return_value = []
+        retrieval_repo_cls.return_value.list_for_mission.return_value = []
+        post_response = client.post(f"/v1/missions/{mission_id}/plan", json=_payload())
+        lifecycle_response = client.get(f"/v1/missions/{mission_id}/lifecycle")
+
+    assert post_response.status_code == 200
+    assert post_response.json()["plan_id"] == str(durable_plan.id)
+    assert lifecycle_response.status_code == 200
+    lifecycle = lifecycle_response.json()
+    assert lifecycle["completeness"]["has_plan"] is True
+    assert lifecycle["plan"] == durable_plan.metadata_json
+    assert "create_mission_plan" not in lifecycle["missing_next_steps"]
+
+
+def test_legacy_put_returns_existing_durable_plan_without_overwriting_canonical_truth() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission(tenant_id=tenant_id, mission_id=mission_id)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    durable_plan = _plan(tenant_id=tenant_id, mission_id=mission_id)
+    plan_repo = MagicMock()
+    plan_repo.get_for_mission.return_value = durable_plan
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.MissionPlanRepository", return_value=plan_repo),
+    ):
+        response = client.put(
+            f"/v1/missions/{mission_id}/plan",
+            json={
+                "planning_status": "approved",
+                "phases": [{"name": "Legacy", "objective": "Legacy objective", "stages": []}],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["plan_id"] == str(durable_plan.id)
+    assert body["plan"] == durable_plan.metadata_json
+    mission_repo.update_metadata.assert_not_called()
