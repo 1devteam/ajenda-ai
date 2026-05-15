@@ -54,7 +54,7 @@ services:
     environment:
       POSTGRES_DB: ajenda
       POSTGRES_USER: ajenda
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.prod}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:latest
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from collections import deque
+from datetime import UTC, datetime
+from typing import cast
 
 from backend.queue.base import QueueAdapter, QueueMessage, QueueOperationResult
 
@@ -14,7 +17,7 @@ class LocalQueueAdapter(QueueAdapter):
         self._lock = threading.Lock()
         self._queue: deque[QueueMessage] = deque()
         self._claims: dict[tuple[str, uuid.UUID], tuple[str, QueueMessage]] = {}
-        self._dead_letter: list[tuple[str, uuid.UUID, str]] = []
+        self._dead_letter: list[dict[str, object]] = []
 
     def ping(self) -> bool:
         return True
@@ -72,10 +75,25 @@ class LocalQueueAdapter(QueueAdapter):
         return QueueOperationResult(ok=True)
 
     def complete_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
-        return self.release_lease(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
+        with self._lock:
+            key = (tenant_id, task_id)
+            claim = self._claims.get(key)
+            owner = claim[0] if claim is not None else None
+            if owner != worker_id:
+                return QueueOperationResult(ok=False, reason="worker does not own claim")
+            self._claims.pop(key)
+        return QueueOperationResult(ok=True)
 
     def fail_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str, reason: str) -> QueueOperationResult:
-        return self.release_lease(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
+        with self._lock:
+            key = (tenant_id, task_id)
+            claim = self._claims.get(key)
+            owner = claim[0] if claim is not None else None
+            if owner != worker_id:
+                return QueueOperationResult(ok=False, reason="worker does not own claim")
+            _, message = self._claims.pop(key)
+            self._dead_letter.append(self._dead_letter_envelope(message=message, worker_id=worker_id, reason=reason))
+        return QueueOperationResult(ok=True)
 
     def release_lease(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
         with self._lock:
@@ -122,11 +140,62 @@ class LocalQueueAdapter(QueueAdapter):
 
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
         with self._lock:
-            self._dead_letter.append((tenant_id, task_id, reason))
-            self._claims.pop((tenant_id, task_id), None)
-            self._queue = deque(
-                message
-                for message in self._queue
-                if not (message.tenant_id == tenant_id and message.task_id == task_id)
+            claim = self._claims.pop((tenant_id, task_id), None)
+            matched: QueueMessage | None = claim[1] if claim is not None else None
+            kept_queue: deque[QueueMessage] = deque()
+            while self._queue:
+                message = self._queue.popleft()
+                if matched is None and message.tenant_id == tenant_id and message.task_id == task_id:
+                    matched = message
+                    continue
+                if not (message.tenant_id == tenant_id and message.task_id == task_id):
+                    kept_queue.append(message)
+            self._queue = kept_queue
+            self._dead_letter.append(
+                self._dead_letter_envelope(message=matched, tenant_id=tenant_id, task_id=task_id, reason=reason)
             )
         return QueueOperationResult(ok=True)
+
+    def _dead_letter_envelope(
+        self,
+        *,
+        reason: str,
+        message: QueueMessage | None = None,
+        tenant_id: str | None = None,
+        task_id: uuid.UUID | None = None,
+        worker_id: str | None = None,
+    ) -> dict[str, object]:
+        payload = (
+            self._message_payload(message)
+            if message is not None
+            else {
+                "tenant_id": tenant_id,
+                "task_id": str(task_id) if task_id is not None else None,
+                "source": "runtime_recovery_without_processing_payload",
+            }
+        )
+        envelope: dict[str, object] = {
+            "task_id": str(message.task_id if message is not None else task_id),
+            "reason": reason,
+            "failed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "payload": payload,
+        }
+        if worker_id is not None:
+            envelope["worker_id"] = worker_id
+        return envelope
+
+    def _message_payload(self, message: QueueMessage) -> dict[str, object]:
+        payload = json.loads(
+            json.dumps(
+                {
+                    "tenant_id": message.tenant_id,
+                    "task_id": str(message.task_id),
+                    "mission_id": str(message.mission_id),
+                    "fleet_id": str(message.fleet_id) if message.fleet_id is not None else None,
+                    "branch_id": str(message.branch_id) if message.branch_id is not None else None,
+                    "payload": message.payload,
+                    "enqueued_at": message.enqueued_at.isoformat(),
+                }
+            )
+        )
+        return cast(dict[str, object], payload)

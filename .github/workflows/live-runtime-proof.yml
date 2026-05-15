@@ -63,11 +63,12 @@ jobs:
 
           env_path = Path("deploy/compose/.env.prod")
           worker_tenant_id = uuid4()
+          postgres_password = f"ci-{uuid4().hex}"
           env_path.write_text(
               "\n".join(
                   [
-                      "POSTGRES_PASSWORD=change-me",
-                      "AJENDA_DATABASE_URL=postgresql+psycopg://ajenda:change-me@db:5432/ajenda",
+                      f"POSTGRES_PASSWORD={postgres_password}",
+                      f"AJENDA_DATABASE_URL=postgresql+psycopg://ajenda:{postgres_password}@db:5432/ajenda",
                       "AJENDA_DB_POOL_SIZE=10",
                       "AJENDA_DB_MAX_OVERFLOW=20",
                       "AJENDA_DB_POOL_TIMEOUT=30",

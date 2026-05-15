@@ -1,25 +1,10 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from backend.queue.base import QueueMessage
 from backend.queue.local_adapter import LocalQueueAdapter
-
-
-def test_queue_enqueue_and_claim_flow() -> None:
-    adapter = LocalQueueAdapter()
-    message = QueueMessage(
-        tenant_id="tenant-a",
-        task_id=uuid4(),
-        mission_id=uuid4(),
-        fleet_id=None,
-        branch_id=None,
-        payload={},
-        enqueued_at=datetime.now(UTC),
-    )
-    assert adapter.enqueue_task(message).ok is True
-    claimed = adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1")
-    assert claimed is not None
-    assert claimed.task_id == message.task_id
 
 
 def _message(tenant_id: str = "tenant-a") -> QueueMessage:
@@ -29,12 +14,12 @@ def _message(tenant_id: str = "tenant-a") -> QueueMessage:
         mission_id=uuid4(),
         fleet_id=None,
         branch_id=None,
-        payload={"kind": "contract"},
+        payload={"kind": "unit"},
         enqueued_at=datetime.now(UTC),
     )
 
 
-def test_complete_task_removes_claim_without_requeueing() -> None:
+def test_complete_task_removes_claimed_message_and_lease_without_requeue() -> None:
     adapter = LocalQueueAdapter()
     message = _message()
     assert adapter.enqueue_task(message).ok is True
@@ -44,9 +29,10 @@ def test_complete_task_removes_claim_without_requeueing() -> None:
 
     assert result.ok is True
     assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-2") is None
+    assert adapter.heartbeat(tenant_id="tenant-a", task_id=message.task_id, worker_id="worker-1").ok is False
 
 
-def test_fail_task_dead_letters_claim_without_requeueing() -> None:
+def test_fail_task_removes_claimed_message_and_records_redis_compatible_dead_letter() -> None:
     adapter = LocalQueueAdapter()
     message = _message()
     assert adapter.enqueue_task(message).ok is True
@@ -56,15 +42,18 @@ def test_fail_task_dead_letters_claim_without_requeueing() -> None:
 
     assert result.ok is True
     assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-2") is None
+    assert adapter.heartbeat(tenant_id="tenant-a", task_id=message.task_id, worker_id="worker-1").ok is False
     assert len(adapter._dead_letter) == 1
     envelope = adapter._dead_letter[0]
     assert envelope["task_id"] == str(message.task_id)
     assert envelope["worker_id"] == "worker-1"
     assert envelope["reason"] == "boom"
+    assert envelope["failed_at"]
     assert envelope["payload"]["task_id"] == str(message.task_id)
+    assert envelope["payload"]["payload"] == {"kind": "unit"}
 
 
-def test_release_lease_requeues_claimed_work() -> None:
+def test_release_lease_is_the_only_terminal_claim_method_that_requeues_work() -> None:
     adapter = LocalQueueAdapter()
     message = _message()
     assert adapter.enqueue_task(message).ok is True
@@ -76,7 +65,7 @@ def test_release_lease_requeues_claimed_work() -> None:
     assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-2") == message
 
 
-def test_move_to_dead_letter_removes_pending_work_and_records_retry_envelope() -> None:
+def test_move_to_dead_letter_removes_pending_work_and_preserves_retry_inspection() -> None:
     adapter = LocalQueueAdapter()
     message = _message()
     assert adapter.enqueue_task(message).ok is True
@@ -85,5 +74,8 @@ def test_move_to_dead_letter_removes_pending_work_and_records_retry_envelope() -
 
     assert result.ok is True
     assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1") is None
-    assert adapter._dead_letter[0]["reason"] == "max retries"
-    assert adapter._dead_letter[0]["payload"]["task_id"] == str(message.task_id)
+    assert len(adapter._dead_letter) == 1
+    envelope = adapter._dead_letter[0]
+    assert envelope["task_id"] == str(message.task_id)
+    assert envelope["reason"] == "max retries"
+    assert envelope["payload"]["task_id"] == str(message.task_id)

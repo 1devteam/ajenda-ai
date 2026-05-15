@@ -11,7 +11,7 @@ def test_mission_plan_migration_has_single_head_and_short_revision_id() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0017_add_mission_plans"]
+    assert heads == ["0018_harden_mission_plan_status"]
     assert len(heads[0]) <= 32
 
 
@@ -30,3 +30,15 @@ def test_mission_plan_migration_contains_tenant_indexes_jsonb_unique_active_plan
     assert "FORCE ROW LEVEL SECURITY" in migration
     assert "tenant_mission_plan_isolation" in migration
     assert "def downgrade" in migration
+
+
+def test_mission_plan_status_hardening_migration_adds_valid_value_constraint() -> None:
+    migration = Path("alembic/versions/0018_harden_mission_plan_status.py").read_text(encoding="utf-8")
+
+    assert "ck_mission_plans_status" in migration
+    assert "draft" in migration
+    assert "ready" in migration
+    assert "superseded" in migration
+    assert "cancelled" in migration
+    assert "op.create_check_constraint" in migration
+    assert "op.drop_constraint" in migration

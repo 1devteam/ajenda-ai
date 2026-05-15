@@ -31,6 +31,7 @@ def _task(
     jurisdiction: str = "US-ALL",
     requires_human_review: bool = False,
     metadata: dict | None = None,
+    metadata_json: dict | None = None,
 ) -> MagicMock:
     """Build a mock ExecutionTask with the given compliance fields."""
     task = MagicMock()
@@ -38,7 +39,8 @@ def _task(
     task.compliance_category = category
     task.jurisdiction = jurisdiction
     task.requires_human_review = requires_human_review
-    task.metadata_json = metadata or {}
+    task.compliance_metadata = metadata or {}
+    task.metadata_json = metadata_json or {}
     task.status = ExecutionTaskState.PLANNED.value
     return task
 
@@ -129,6 +131,35 @@ class TestHumanReviewEnforcement:
         )
         decision = guardian.evaluate_task(task)
         assert decision.allowed is True
+
+
+class TestComplianceMetadataAuthority:
+    def test_task_compliance_metadata_is_authoritative(self) -> None:
+        """PolicyGuardian reads ExecutionTask.compliance_metadata for compliance evidence."""
+        guardian = _guardian()
+        task = _task(
+            category=ComplianceCategory.EMPLOYMENT,
+            jurisdiction="US-NY",
+            requires_human_review=True,
+            metadata={"bias_audit_date": "2026-01-15"},
+            metadata_json={},
+        )
+        decision = guardian.evaluate_task(task)
+        assert decision.allowed is True
+
+    def test_task_metadata_json_only_evidence_does_not_satisfy_compliance(self) -> None:
+        """Legacy task metadata_json is not authoritative compliance evidence."""
+        guardian = _guardian()
+        task = _task(
+            category=ComplianceCategory.EMPLOYMENT,
+            jurisdiction="US-NY",
+            requires_human_review=True,
+            metadata={},
+            metadata_json={"bias_audit_date": "2026-01-15"},
+        )
+        decision = guardian.evaluate_task(task)
+        assert decision.allowed is False
+        assert "NYC" in decision.reason or "LL144" in decision.reason
 
 
 # ─────────────────────────────────────────────────────────────────────────────
