@@ -74,7 +74,7 @@ def _build_mission_app(tenant_id: uuid.UUID) -> FastAPI:
     return app
 
 
-def test_task_queue_contract_does_not_consume_task_creation_quota_for_existing_task() -> None:
+def test_task_queue_contract_consumes_task_creation_quota_for_existing_task() -> None:
     tenant_id = uuid.uuid4()
     task_id = uuid.uuid4()
     app = _build_task_app(tenant_id)
@@ -85,17 +85,20 @@ def test_task_queue_contract_does_not_consume_task_creation_quota_for_existing_t
 
     task_repo = MagicMock()
     task_repo.get.return_value = task
+    quota_svc = MagicMock()
     coordinator = MagicMock()
     coordinator.queue_task.return_value = MagicMock(ok=True, task_id=task_id, state="queued")
 
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         response = client.post(f"/v1/tasks/{task_id}/queue")
 
     assert response.status_code == 200
     assert response.json() == {"task_id": str(task_id), "state": "queued"}
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
 
 
 def test_mission_queue_contract_returns_structured_429_on_quota_exceeded() -> None:
