@@ -70,17 +70,7 @@ class OperationsService:
         if queue_entries:
             enqueue_result = self._queue.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
         else:
-            enqueue_result = self._queue.enqueue_task(
-                QueueMessage(
-                    tenant_id=tenant_id,
-                    task_id=task.id,
-                    mission_id=task.mission_id,
-                    fleet_id=task.fleet_id,
-                    branch_id=task.branch_id,
-                    payload=task.metadata_json,
-                    enqueued_at=datetime.now(UTC),
-                )
-            )
+            enqueue_result = self._recover_existing_queue_payload_or_enqueue_from_db(tenant_id=tenant_id, task=task)
         if not enqueue_result.ok:
             raise ValueError(enqueue_result.reason or "queue enqueue failed")
 
@@ -108,3 +98,32 @@ class OperationsService:
 
     def trigger_recovery(self) -> RecoverySummary:
         return self._maintainer.recover_expired_leases()
+
+    def _recover_existing_queue_payload_or_enqueue_from_db(
+        self,
+        *,
+        tenant_id: str,
+        task: ExecutionTask,
+    ):
+        recovery_result = self._queue.recover_task_for_retry(
+            tenant_id=tenant_id,
+            task_id=task.id,
+            worker_id="operations_service_retry",
+        )
+        if recovery_result.ok:
+            return recovery_result
+        if recovery_result.reason != "task not found in processing or pending queue":
+            return recovery_result
+        return self._queue.enqueue_task(self._queue_message_for_task(tenant_id=tenant_id, task=task))
+
+    @staticmethod
+    def _queue_message_for_task(*, tenant_id: str, task: ExecutionTask) -> QueueMessage:
+        return QueueMessage(
+            tenant_id=tenant_id,
+            task_id=task.id,
+            mission_id=task.mission_id,
+            fleet_id=task.fleet_id,
+            branch_id=task.branch_id,
+            payload=task.metadata_json,
+            enqueued_at=datetime.now(UTC),
+        )
