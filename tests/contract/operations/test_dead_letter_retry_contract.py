@@ -13,6 +13,7 @@ from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.queue.base import QueueOperationResult
 from backend.services.operations_service import OperationsService
 
 
@@ -121,14 +122,18 @@ class _QueueStub:
     def __init__(self) -> None:
         self.enqueued = False
         self.messages: list[object] = []
+        self.recovered = False
 
     def list_dead_letter(self, *, tenant_id: str):
         return []
 
+    def recover_task_for_retry(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+        return QueueOperationResult(ok=False, reason="task not found in processing or pending queue")
+
     def enqueue_task(self, message):
         self.enqueued = True
         self.messages.append(message)
-        return MagicMock(ok=True)
+        return QueueOperationResult(ok=True)
 
 
 def test_retry_dead_letter_contract_rejects_missing_task_for_tenant() -> None:
