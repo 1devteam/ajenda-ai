@@ -92,8 +92,12 @@ def test_worker_service_waits_for_queue_database_and_migrations() -> None:
 def test_live_runtime_proof_starts_core_proof_services() -> None:
     script = _read(LIVE_RUNTIME_PROOF)
 
-    expected_command = 'docker compose -f "$COMPOSE_FILE" up -d --build ' + " ".join(LIVE_PROOF_STARTED_SERVICES)
+    expected_command = "compose up -d --build " + " ".join(LIVE_PROOF_STARTED_SERVICES)
 
+    assert 'COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"' in script
+    assert 'if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then' in script
+    assert 'fail "compose env file not found: $COMPOSE_ENV_FILE"' in script
+    assert 'docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert expected_command in script
 
 
