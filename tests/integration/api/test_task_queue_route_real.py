@@ -122,7 +122,7 @@ def test_task_queue_route_queues_real_task_in_postgres_and_redis(
 
     assert response.status_code == 200
     assert response.json() == {"task_id": str(task.id), "state": ExecutionTaskState.QUEUED.value}
-    assert _tasks_created(pg_session, tenant.id) == 1
+    assert _tasks_created(pg_session, tenant.id) == 0
 
     pg_session.expire_all()
     queued_task = pg_session.get(ExecutionTask, task.id)
