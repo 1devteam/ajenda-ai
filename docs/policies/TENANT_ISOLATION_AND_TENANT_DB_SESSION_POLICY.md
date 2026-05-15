@@ -224,7 +224,7 @@ This is implemented in `DatabaseRuntime.tenant_session_scope()`.
 
 ### 8.3 Admin session contract
 
-`get_db_session` is a cross-tenant-capable session and therefore must be treated as privileged. It is never the default choice for tenant-facing request handling.
+`get_db_session` is a cross-tenant-capable session and therefore must be treated as privileged. It is never the default choice for tenant-facing request handling. Cross-tenant control-plane mutations such as lease recovery may use `get_db_session` only when they still require a validated tenant/auth envelope and explicit operator/admin authorization.
 
 ---
 
@@ -327,6 +327,7 @@ A worker may not fetch or mutate tenant-owned rows through a globally scoped ses
 | `backend/api/routes/auth.py` | Auth bootstrap — no tenant business data |
 | `backend/api/routes/admin.py` | Explicitly cross-tenant control plane |
 | `backend/api/routes/runtime.py` | Returns global runtime mode, not tenant data |
+| `backend/api/routes/operations.py` recovery route only | Protected cross-tenant lease recovery; requires validated tenant/auth envelope plus operator/admin runtime authorization |
 
 ---
 

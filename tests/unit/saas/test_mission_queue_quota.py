@@ -61,6 +61,25 @@ def _make_service(tenant, plan, usage) -> QuotaEnforcementService:
     return svc
 
 
+class _AnyTenantId:
+    def __eq__(self, _other: object) -> bool:
+        return True
+
+    def __ne__(self, _other: object) -> bool:
+        return False
+
+
+def _authorized_request() -> MagicMock:
+    request = MagicMock()
+    request.state.principal = SimpleNamespace(
+        subject_id="test-user",
+        tenant_id=_AnyTenantId(),
+        roles=("tenant_admin",),
+        permissions=frozenset(),
+    )
+    return request
+
+
 # ---------------------------------------------------------------------------
 # QuotaEnforcementService.check_and_record_task_creation(count=N)
 # ---------------------------------------------------------------------------
@@ -163,7 +182,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
@@ -200,7 +219,7 @@ class TestMissionQueueRouteQuotaEnforcement:
         mission_id = uuid.uuid4()
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         task_repo = MagicMock()
         task_repo.list_for_mission.return_value = []
@@ -236,7 +255,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         quota_svc.check_and_record_task_creation.side_effect = QuotaExceededError(
             field="tasks_per_month",
@@ -282,7 +301,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
@@ -322,7 +341,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         executor = MagicMock()
         task_repo = MagicMock()
@@ -362,7 +381,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
@@ -409,7 +428,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         quota_svc.check_and_record_task_creation.side_effect = QuotaExceededError(
             field="tasks_per_month",
@@ -460,7 +479,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.side_effect = ValueError("mission not queueable")
@@ -497,7 +516,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.side_effect = RuntimeError("mission queue blew up")
@@ -534,7 +553,7 @@ class TestMissionQueueRouteQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         quota_svc = MagicMock()
         executor = MagicMock()
         executor.queue_all_planned_tasks.return_value = MissionQueueSummary(
@@ -621,7 +640,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
 
         db = MagicMock()
         queue = MagicMock()
-        request = MagicMock()
+        request = _authorized_request()
         mission_repo = MagicMock()
         mission_repo.lock_for_tenant.return_value = mission
         task_repo = MagicMock()
@@ -683,7 +702,11 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         ):
             with pytest.raises(HTTPException) as exc_info:
                 runtime_queue_admission(
-                    mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock(), queue=MagicMock()
+                    mission_id=mission_id,
+                    request=_authorized_request(),
+                    tenant_id=tenant_uuid,
+                    db=MagicMock(),
+                    queue=MagicMock(),
                 )
 
         assert exc_info.value.status_code == 429
@@ -713,7 +736,11 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
             patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
         ):
             result = runtime_queue_admission(
-                mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock(), queue=MagicMock()
+                mission_id=mission_id,
+                request=_authorized_request(),
+                tenant_id=tenant_uuid,
+                db=MagicMock(),
+                queue=MagicMock(),
             )
 
         assert result["queued_task_ids"] == []
@@ -752,7 +779,11 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
             patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
         ):
             result = runtime_queue_admission(
-                mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock(), queue=MagicMock()
+                mission_id=mission_id,
+                request=_authorized_request(),
+                tenant_id=tenant_uuid,
+                db=MagicMock(),
+                queue=MagicMock(),
             )
 
         assert result["admission_status"] == "partially_admitted"
@@ -789,7 +820,11 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
             patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
         ):
             result = runtime_queue_admission(
-                mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock(), queue=MagicMock()
+                mission_id=mission_id,
+                request=_authorized_request(),
+                tenant_id=tenant_uuid,
+                db=MagicMock(),
+                queue=MagicMock(),
             )
 
         assert result["admission_status"] == "blocked"
@@ -829,7 +864,11 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
             patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
         ):
             result = runtime_queue_admission(
-                mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock(), queue=MagicMock()
+                mission_id=mission_id,
+                request=_authorized_request(),
+                tenant_id=tenant_uuid,
+                db=MagicMock(),
+                queue=MagicMock(),
             )
 
         assert result["admission_status"] == "admitted"

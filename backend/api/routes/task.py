@@ -6,8 +6,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.auth.permissions import Permission
 from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
@@ -30,6 +32,7 @@ def queue_task(
     do not burn task-creation allowance. Returns HTTP 429 with a structured body
     if the tenant has reached their plan limit.
     """
+    require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
     tenant_id_str = str(tenant_id)
 
     # --- Preflight: task must exist for the authenticated tenant before quota ---

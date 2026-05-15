@@ -125,11 +125,25 @@ def _repos(mission: SimpleNamespace, tasks: list[SimpleNamespace], leases: list[
     return mission_repo, task_repo, lease_repo
 
 
+class _AnyTenantId:
+    def __eq__(self, _other: object) -> bool:
+        return True
+
+    def __ne__(self, _other: object) -> bool:
+        return False
+
+
 def _request() -> MagicMock:
     session = MagicMock()
     session.execute = MagicMock()
     runtime = SimpleNamespace(session_factory=MagicMock(return_value=session))
     request = MagicMock(headers={})
+    request.state.principal = SimpleNamespace(
+        subject_id="test-user",
+        tenant_id=_AnyTenantId(),
+        roles=("operator",),
+        permissions=frozenset(),
+    )
     request.app.state.database_runtime = runtime
     return request
 

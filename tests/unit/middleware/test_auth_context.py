@@ -350,3 +350,13 @@ def test_dispatch_unexpected_error_returns_500(monkeypatch) -> None:
 
     assert response.status_code == 500
     assert b"internal authentication error" in response.body
+
+
+def test_recovery_path_no_longer_bypasses_auth() -> None:
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(path="/v1/operations/recovery", tenant_id="tenant-a")
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 401
+    assert b"missing authentication credentials" in response.body

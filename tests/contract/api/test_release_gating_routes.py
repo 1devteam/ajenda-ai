@@ -10,6 +10,8 @@ from backend.api.routes import operations as operations_module
 from backend.api.routes import system as system_module
 from backend.app.dependencies.db import get_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.auth.oidc import OidcValidationResult
+from backend.auth.principal import Principal, PrincipalType
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
@@ -81,37 +83,45 @@ def test_rg_system_status_envelope() -> None:
     assert missing_auth.status_code == 401
 
 
-def test_rg_recovery_route_remains_public_under_middleware_stack() -> None:
+def test_rg_recovery_route_requires_tenant_and_auth_under_middleware_stack() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
 
     service = MagicMock()
-    service.trigger_recovery.return_value = _RecoverySummary(
-        expired_lease_count=2,
-        requeued_task_count=1,
-        dead_lettered_count=1,
-    )
-
     with patch("backend.api.routes.operations.OperationsService", return_value=service):
-        response = client.post("/v1/operations/recovery")
+        missing_tenant = client.post("/v1/operations/recovery")
+        missing_auth = client.post(
+            "/v1/operations/recovery",
+            headers={"X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"},
+        )
 
-    assert response.status_code == 200
-    assert response.json() == {
-        "expired_lease_count": 2,
-        "requeued_task_count": 1,
-        "dead_lettered_count": 1,
-    }
+    assert missing_tenant.status_code == 400
+    assert missing_auth.status_code == 401
+    service.trigger_recovery.assert_not_called()
 
 
-def test_rg_recovery_route_fails_closed_on_service_exception() -> None:
+def test_rg_recovery_route_fails_closed_on_service_exception_for_authorized_operator() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
+    tenant_id = "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"
 
     service = MagicMock()
     service.trigger_recovery.side_effect = RuntimeError("recovery failed")
+    principal = Principal("operator", tenant_id, PrincipalType.USER, roles=("operator",))
+    oidc_result = OidcValidationResult(
+        claims=MagicMock(sub="operator", tenant_id=tenant_id, roles=("operator",)),
+        principal=principal,
+        provider="test",
+    )
 
-    with patch("backend.api.routes.operations.OperationsService", return_value=service):
-        response = client.post("/v1/operations/recovery")
+    with (
+        patch("backend.middleware.auth_context.OidcAuthenticator.validate_bearer_token", return_value=oidc_result),
+        patch("backend.api.routes.operations.OperationsService", return_value=service),
+    ):
+        response = client.post(
+            "/v1/operations/recovery",
+            headers={"X-Tenant-Id": tenant_id, "Authorization": "Bearer test-token"},
+        )
 
     assert response.status_code == 500
     service.trigger_recovery.assert_called_once_with()

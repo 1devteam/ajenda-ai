@@ -4,19 +4,31 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes import mission as mission_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.auth.principal import Principal, PrincipalType
 from backend.services.execution_coordinator import CoordinationResult
 from backend.services.mission_executor import MissionQueueSummary, MissionTaskDenial
 from backend.services.quota_enforcement import QuotaExceededError
 
 
-def _build_app(tenant_id: uuid.UUID) -> FastAPI:
+def _build_app(tenant_id: uuid.UUID, *, roles: tuple[str, ...] = ("tenant_admin",)) -> FastAPI:
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal(
+            subject_id="test-user",
+            tenant_id=str(tenant_id),
+            principal_type=PrincipalType.USER,
+            roles=roles,
+        )
+        return await call_next(request)
+
     app.include_router(mission_module.router, prefix="/v1")
 
     def _override_tenant_id():
@@ -502,5 +514,55 @@ def test_runtime_queue_admission_contract_skips_queued_and_cancelled_without_quo
     assert body["admission_status"] == "partially_admitted"
     assert body["admitted_task_ids"] == [str(queued_task.id)]
     assert body["blocked_task_ids"] == [str(cancelled_task.id)]
+    quota_svc.check_and_record_task_creation.assert_not_called()
+    coordinator.queue_task.assert_not_called()
+
+
+def test_mission_queue_rejects_viewer_before_side_effects() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id, roles=("viewer",))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    task_repo = MagicMock()
+    quota_svc = MagicMock()
+    executor = MagicMock()
+
+    with (
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission.MissionExecutor", return_value=executor),
+        patch("backend.api.routes.mission.ExecutionCoordinator"),
+    ):
+        response = client.post(f"/v1/missions/{mission_id}/queue")
+
+    assert response.status_code == 403
+    task_repo.list_for_mission.assert_not_called()
+    quota_svc.check_and_record_task_creation.assert_not_called()
+    executor.queue_all_planned_tasks.assert_not_called()
+
+
+def test_runtime_queue_admission_rejects_viewer_before_side_effects() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id, roles=("viewer",))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    mission_repo = MagicMock()
+    task_repo = MagicMock()
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+    ):
+        response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
+
+    assert response.status_code == 403
+    mission_repo.lock_for_tenant.assert_not_called()
+    task_repo.list_for_mission.assert_not_called()
     quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_not_called()

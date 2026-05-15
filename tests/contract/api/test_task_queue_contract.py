@@ -3,17 +3,29 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes import task as task_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.auth.principal import Principal, PrincipalType
 from backend.services.execution_coordinator import CoordinationResult
 
 
-def _build_app(tenant_id: uuid.UUID) -> FastAPI:
+def _build_app(tenant_id: uuid.UUID, *, roles: tuple[str, ...] = ("tenant_admin",)) -> FastAPI:
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal(
+            subject_id="test-user",
+            tenant_id=str(tenant_id),
+            principal_type=PrincipalType.USER,
+            roles=roles,
+        )
+        return await call_next(request)
+
     app.include_router(task_module.router, prefix="/v1")
 
     def _override_tenant_id():
@@ -234,3 +246,26 @@ def test_task_queue_contract_returns_400_when_task_is_routed_to_pending_review()
     assert response.json() == {"detail": "human review required"}
     quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
+
+
+def test_task_queue_rejects_viewer_before_side_effects() -> None:
+    tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    app = _build_app(tenant_id, roles=("viewer",))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    task_repo = MagicMock()
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+
+    with (
+        patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
+    ):
+        response = client.post(f"/v1/tasks/{task_id}/queue")
+
+    assert response.status_code == 403
+    task_repo.get.assert_not_called()
+    quota_svc.check_and_record_task_creation.assert_not_called()
+    coordinator.queue_task.assert_not_called()

@@ -6,11 +6,12 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes import mission as mission_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.auth.principal import Principal, PrincipalType
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_INTAKE_METADATA_KEY,
@@ -26,6 +27,17 @@ from backend.middleware.tenant_context import TenantContextMiddleware
 
 def _build_app(tenant_id: uuid.UUID) -> FastAPI:
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = Principal(
+            subject_id="test-user",
+            tenant_id=str(tenant_id),
+            principal_type=PrincipalType.USER,
+            roles=("tenant_admin",),
+        )
+        return await call_next(request)
+
     app.include_router(mission_module.router, prefix="/v1")
 
     def _override_tenant_id() -> uuid.UUID:
