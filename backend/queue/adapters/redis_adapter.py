@@ -155,6 +155,91 @@ redis.call("SET", lease_key, worker_id, "EX", ttl_seconds)
 return {1, "ok"}
 """
 
+    _RETRY_DEAD_LETTER_SCRIPT = """
+local pending_key = KEYS[1]
+local processing_key = KEYS[2]
+local dead_letter_key = KEYS[3]
+local tenant_id = ARGV[1]
+local task_id = ARGV[2]
+
+local function key_type(key)
+    local result = redis.call("TYPE", key)
+    if type(result) == "table" then
+        return result["ok"]
+    end
+    return result
+end
+
+local function ensure_list_or_none(key, name)
+    local current_type = key_type(key)
+    if current_type ~= "none" and current_type ~= "list" then
+        return false, name .. " key is not a list"
+    end
+    return true, "ok"
+end
+
+local function payload_task_id(raw)
+    local ok, payload = pcall(cjson.decode, raw)
+    if not ok or type(payload) ~= "table" then
+        return nil
+    end
+    if payload["task_id"] == nil then
+        return nil
+    end
+    return tostring(payload["task_id"])
+end
+
+local pending_ok, pending_reason = ensure_list_or_none(pending_key, "pending")
+if not pending_ok then
+    return {0, pending_reason}
+end
+local processing_ok, processing_reason = ensure_list_or_none(processing_key, "processing")
+if not processing_ok then
+    return {0, processing_reason}
+end
+local dead_letter_ok, dead_letter_reason = ensure_list_or_none(dead_letter_key, "dead-letter")
+if not dead_letter_ok then
+    return {0, dead_letter_reason}
+end
+
+local pending_values = redis.call("LRANGE", pending_key, 0, -1)
+for _, raw in ipairs(pending_values) do
+    if payload_task_id(raw) == task_id then
+        return {0, "task already pending"}
+    end
+end
+
+local processing_values = redis.call("LRANGE", processing_key, 0, -1)
+for _, raw in ipairs(processing_values) do
+    if payload_task_id(raw) == task_id then
+        return {0, "task already processing"}
+    end
+end
+
+local dead_letter_values = redis.call("LRANGE", dead_letter_key, 0, -1)
+for _, raw in ipairs(dead_letter_values) do
+    local envelope_ok, envelope = pcall(cjson.decode, raw)
+    if not envelope_ok or type(envelope) ~= "table" then
+        return {0, "dead-letter payload is corrupt: invalid envelope"}
+    end
+
+    local payload = envelope["payload"]
+    if type(payload) == "table"
+        and tostring(payload["tenant_id"]) == tenant_id
+        and tostring(envelope["task_id"]) == task_id then
+        local pending_payload = cjson.encode(payload)
+        local removed = redis.call("LREM", dead_letter_key, 1, raw)
+        if removed < 1 then
+            return {0, "dead-letter entry not found"}
+        end
+        redis.call("RPUSH", pending_key, pending_payload)
+        return {1, "ok"}
+    end
+end
+
+return {0, "dead-letter entry not found"}
+"""
+
     def __init__(self, redis_url: str, *, heartbeat_ttl_seconds: int = 90, block_seconds: int = 1) -> None:
         parsed = urlparse(redis_url)
         if parsed.scheme != "redis":
@@ -440,37 +525,23 @@ return {1, "ok"}
 
     def retry_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
         try:
-            if self._find_pending_payload(tenant_id=tenant_id, task_id=task_id) is not None:
-                return QueueOperationResult(ok=False, reason="task already pending")
-            if self._find_processing_payload(tenant_id=tenant_id, task_id=task_id) is not None:
-                return QueueOperationResult(ok=False, reason="task already processing")
-
-            matched_raw: str | None = None
-            matched_message: QueueMessage | None = None
-            for raw in self._list_payloads(self._dead_letter_key(tenant_id)):
-                try:
-                    envelope = json.loads(raw)
-                    payload = envelope.get("payload") if isinstance(envelope, dict) else None
-                    if not isinstance(payload, dict) or payload.get("tenant_id") != tenant_id:
-                        continue
-                    if str(envelope.get("task_id")) != str(task_id):
-                        continue
-                    matched_message = self._decode_message(json.dumps(payload))
-                    matched_raw = raw
-                    break
-                except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-                    return QueueOperationResult(ok=False, reason=f"dead-letter payload is corrupt: {exc}")
-
-            if matched_raw is None or matched_message is None:
-                return QueueOperationResult(ok=False, reason="dead-letter entry not found")
-
-            payload = self._encode_message(matched_message)
-            queued = self._execute(["RPUSH", self._pending_key(tenant_id), payload])
-            if not isinstance(queued, int):
-                return QueueOperationResult(ok=False, reason="redis did not confirm retry enqueue")
-            removed = self._execute(["LREM", self._dead_letter_key(tenant_id), "1", matched_raw])
-            if not isinstance(removed, int) or removed < 1:
-                return QueueOperationResult(ok=True, reason="dead-letter evidence retained after retry enqueue")
+            result = self._execute(
+                [
+                    "EVAL",
+                    self._RETRY_DEAD_LETTER_SCRIPT,
+                    "3",
+                    self._pending_key(tenant_id),
+                    self._processing_key(tenant_id),
+                    self._dead_letter_key(tenant_id),
+                    tenant_id,
+                    str(task_id),
+                ]
+            )
+            if not isinstance(result, list) or len(result) != 2:
+                return QueueOperationResult(ok=False, reason="retry script returned unexpected result")
+            ok, reason = result
+            if ok != 1:
+                return QueueOperationResult(ok=False, reason=str(reason))
             return QueueOperationResult(ok=True)
         except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"retry_dead_letter failed: {exc}")
