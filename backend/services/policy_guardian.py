@@ -6,7 +6,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from backend.domain.enums import ComplianceCategory
+from backend.domain.compliance import (
+    ComplianceCategory,
+    is_supported_compliance_category,
+    is_supported_jurisdiction,
+)
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 
@@ -76,6 +80,11 @@ class PolicyGuardian:
         self, category: str, jurisdiction: str, metadata: dict[str, Any]
     ) -> PolicyDecision:
         """Evaluate specific jurisdictional compliance requirements."""
+
+        if not is_supported_compliance_category(str(category)):
+            return PolicyDecision(False, f"Unsupported compliance category: {category}")
+        if not is_supported_jurisdiction(jurisdiction):
+            return PolicyDecision(False, f"Unsupported compliance jurisdiction: {jurisdiction}")
 
         # EU AI Act (effective 2026/2027)
         if jurisdiction.startswith("EU"):

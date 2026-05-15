@@ -553,3 +553,23 @@ class TestAdversarialMisuse:
         decision = guardian.evaluate_mission(mission)
         assert decision.allowed is False
         assert "EU AI Act" in decision.reason
+
+
+class TestCanonicalComplianceVocabulary:
+    def test_policy_guardian_rejects_unsupported_compliance_category(self) -> None:
+        guardian = _guardian()
+        task = _task(category="regulated_decision", jurisdiction="US-ALL")
+
+        decision = guardian.evaluate_task(task)
+
+        assert decision.allowed is False
+        assert "Unsupported compliance category" in decision.reason
+
+    def test_policy_guardian_rejects_legacy_lowercase_jurisdiction(self) -> None:
+        guardian = _guardian()
+        task = _task(category=ComplianceCategory.MARKETING, jurisdiction="colorado")
+
+        decision = guardian.evaluate_task(task)
+
+        assert decision.allowed is False
+        assert "Unsupported compliance jurisdiction" in decision.reason

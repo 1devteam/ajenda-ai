@@ -10,7 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
-from backend.domain.retrieval_contract import RETRIEVAL_CONTRACT_SCHEMA_VERSION, RetrievalContract
+from backend.domain.retrieval_contract import (
+    RETRIEVAL_CONTRACT_SCHEMA_VERSION,
+    RETRIEVAL_STATUSES,
+    RETRIEVAL_STRATEGIES,
+    RetrievalContract,
+)
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
 
@@ -18,6 +23,16 @@ router = APIRouter(prefix="/retrieval-contracts", tags=["retrieval-contracts"])
 
 RetrievalStatus = Literal["requested", "fulfilled", "rejected", "superseded", "revoked"]
 RetrievalStrategy = Literal["semantic", "keyword", "hybrid", "operator_selected", "policy_selected", "procedural"]
+
+assert set(RETRIEVAL_STATUSES) == {"requested", "fulfilled", "rejected", "superseded", "revoked"}
+assert set(RETRIEVAL_STRATEGIES) == {
+    "semantic",
+    "keyword",
+    "hybrid",
+    "operator_selected",
+    "policy_selected",
+    "procedural",
+}
 
 
 def _validate_memory_reference_shape(field_name: str, references: list[dict[str, Any]]) -> list[dict[str, Any]]:

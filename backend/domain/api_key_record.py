@@ -20,10 +20,13 @@ class ApiKeyRecordModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     key_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
-    hashed_secret: Mapped[str] = mapped_column(String(128), nullable=False)
+    hashed_secret: Mapped[str] = mapped_column(String(256), nullable=False)
     scopes_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=utcnow, onupdate=utcnow
+    )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     @property
