@@ -44,7 +44,11 @@ def test_health_is_lightweight_and_does_not_probe_dependencies() -> None:
     session = _FakeSession()
     queue = _FakeQueue(fails=True)
 
-    result = SystemStatusService(session=session, database_runtime=database_runtime, queue_adapter=queue).health()
+    result = SystemStatusService(
+        session=session,
+        database_runtime=database_runtime,
+        queue_adapter=queue,
+    ).health()
 
     assert result == {"database": "unchecked", "runtime": "ok", "queue": "unchecked"}
     assert database_runtime.pings == 0
@@ -57,7 +61,11 @@ def test_readiness_reports_ready_when_database_and_queue_are_ready() -> None:
     session = _FakeSession()
     queue = _FakeQueue()
 
-    result = SystemStatusService(session=session, database_runtime=database_runtime, queue_adapter=queue).readiness()
+    result = SystemStatusService(
+        session=session,
+        database_runtime=database_runtime,
+        queue_adapter=queue,
+    ).readiness()
 
     assert result == {"database": "ready", "queue": "ready", "dependencies": "ready"}
     assert database_runtime.pings == 1
@@ -69,7 +77,11 @@ def test_readiness_reports_database_failure_without_exception_details() -> None:
     database_runtime = _FakeDatabaseRuntime(ready=False)
     session = _FakeSession()
 
-    result = SystemStatusService(session=session, database_runtime=database_runtime, queue_adapter=_FakeQueue()).readiness()
+    result = SystemStatusService(
+        session=session,
+        database_runtime=database_runtime,
+        queue_adapter=_FakeQueue(),
+    ).readiness()
 
     assert result == {"database": "unavailable", "queue": "ready", "dependencies": "not_ready"}
     assert database_runtime.pings == 1
@@ -78,7 +90,10 @@ def test_readiness_reports_database_failure_without_exception_details() -> None:
 
 
 def test_readiness_reports_queue_failure_without_exception_details() -> None:
-    result = SystemStatusService(database_runtime=_FakeDatabaseRuntime(), queue_adapter=_FakeQueue(fails=True)).readiness()
+    result = SystemStatusService(
+        database_runtime=_FakeDatabaseRuntime(),
+        queue_adapter=_FakeQueue(fails=True),
+    ).readiness()
 
     assert result == {"database": "ready", "queue": "unavailable", "dependencies": "not_ready"}
     assert "redis://" not in str(result)
