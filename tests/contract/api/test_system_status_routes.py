@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from backend.api.routes.system import router
 from backend.app.dependencies.db import get_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.db.session import SKIP_COMMIT_SESSION_INFO_KEY
 
 
 class _FakeSession:
@@ -13,12 +14,17 @@ class _FakeSession:
         self.fails = fails
         self.secret = secret
         self.calls = 0
+        self.rollbacks = 0
+        self.info: dict[str, bool] = {}
 
     def execute(self, *_args, **_kwargs):
         self.calls += 1
         if self.fails:
             raise RuntimeError(f"database unavailable at {self.secret}")
         return None
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
 
 
 class _FakeQueue:
@@ -87,6 +93,9 @@ def test_system_readiness_includes_database_and_queue_components() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"database": "ready", "queue": "ready", "dependencies": "ready"}
+    assert session.calls == 1
+    assert session.rollbacks == 0
+    assert SKIP_COMMIT_SESSION_INFO_KEY not in session.info
 
 
 def test_system_readiness_returns_503_for_database_failure_without_leaking_secret() -> None:
@@ -98,6 +107,8 @@ def test_system_readiness_returns_503_for_database_failure_without_leaking_secre
 
     assert response.status_code == 503
     assert response.json() == {"database": "unavailable", "queue": "ready", "dependencies": "not_ready"}
+    assert session.rollbacks == 1
+    assert session.info[SKIP_COMMIT_SESSION_INFO_KEY] is True
     assert "postgresql://user:pass" not in response.text
 
 
