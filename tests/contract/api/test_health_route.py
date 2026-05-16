@@ -4,27 +4,19 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.routes.health import router
-from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.db import get_database_runtime
 from backend.app.dependencies.services import get_queue_adapter
-from backend.db.session import SKIP_COMMIT_SESSION_INFO_KEY
 
 
-class _FakeSession:
-    def __init__(self, *, fails: bool = False, secret: str = "postgresql://user:pass@db/name") -> None:
-        self.fails = fails
+class _FakeDatabaseRuntime:
+    def __init__(self, *, ready: bool = True, secret: str = "postgresql://user:pass@db/name") -> None:
+        self.ready = ready
         self.secret = secret
-        self.calls = 0
-        self.rollbacks = 0
-        self.info: dict[str, bool] = {}
+        self.pings = 0
 
-    def execute(self, *_args, **_kwargs):
-        self.calls += 1
-        if self.fails:
-            raise RuntimeError(f"database unavailable at {self.secret}")
-        return None
-
-    def rollback(self) -> None:
-        self.rollbacks += 1
+    def ping(self) -> bool:
+        self.pings += 1
+        return self.ready
 
 
 class _FakeQueue:
@@ -41,23 +33,18 @@ class _FakeQueue:
         return self.ready
 
 
-def _build_app(session: _FakeSession | None = None, queue: _FakeQueue | None = None) -> FastAPI:
+def _build_app(
+    database_runtime: _FakeDatabaseRuntime | None = None,
+    queue: _FakeQueue | None = None,
+) -> FastAPI:
     app = FastAPI()
     app.include_router(router)
 
-    if session is not None:
-
-        def _override_db():
-            yield session
-
-        app.dependency_overrides[get_db_session] = _override_db
+    if database_runtime is not None:
+        app.dependency_overrides[get_database_runtime] = lambda: database_runtime
 
     if queue is not None:
-
-        def _override_queue():
-            return queue
-
-        app.dependency_overrides[get_queue_adapter] = _override_queue
+        app.dependency_overrides[get_queue_adapter] = lambda: queue
 
     return app
 
@@ -73,41 +60,39 @@ def test_health_route_returns_ok_without_db_or_queue_dependencies() -> None:
 
 
 def test_readiness_route_returns_ready_when_db_and_queue_are_reachable() -> None:
-    session = _FakeSession()
+    database_runtime = _FakeDatabaseRuntime()
     queue = _FakeQueue()
-    client = TestClient(_build_app(session, queue), raise_server_exceptions=False)
+    client = TestClient(_build_app(database_runtime, queue), raise_server_exceptions=False)
 
     response = client.get("/readiness")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
-    assert session.calls == 1
-    assert session.rollbacks == 0
-    assert SKIP_COMMIT_SESSION_INFO_KEY not in session.info
+    assert database_runtime.pings == 1
     assert queue.pings == 1
 
 
 def test_readiness_route_returns_503_when_database_is_unavailable_without_leaking_secret() -> None:
-    session = _FakeSession(fails=True)
+    database_runtime = _FakeDatabaseRuntime(ready=False)
     queue = _FakeQueue()
-    client = TestClient(_build_app(session, queue), raise_server_exceptions=False)
+    client = TestClient(_build_app(database_runtime, queue), raise_server_exceptions=False)
 
     response = client.get("/readiness")
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "database": "unavailable", "queue": "ready"}
-    assert session.rollbacks == 1
-    assert session.info[SKIP_COMMIT_SESSION_INFO_KEY] is True
+    assert database_runtime.pings == 1
     assert "postgresql://user:pass" not in response.text
 
 
 def test_readiness_route_returns_503_when_queue_is_unavailable_without_leaking_secret() -> None:
-    session = _FakeSession()
+    database_runtime = _FakeDatabaseRuntime()
     queue = _FakeQueue(fails=True)
-    client = TestClient(_build_app(session, queue), raise_server_exceptions=False)
+    client = TestClient(_build_app(database_runtime, queue), raise_server_exceptions=False)
 
     response = client.get("/readiness")
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "database": "ready", "queue": "unavailable"}
+    assert database_runtime.pings == 1
     assert "redis://:pass" not in response.text
