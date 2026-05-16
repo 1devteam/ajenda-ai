@@ -28,6 +28,7 @@ LIVE_PROOF_STARTED_SERVICES = (
     "api",
     "worker",
     "prometheus",
+    "otel-collector",
 )
 
 
