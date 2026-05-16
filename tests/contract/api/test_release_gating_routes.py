@@ -44,7 +44,7 @@ def _build_app() -> FastAPI:
     app.state.settings = MagicMock(
         oidc_jwks_uri="https://example/jwks", oidc_issuer="https://example", oidc_audience="ajenda"
     )
-    app.state.database_runtime = _FakeDatabaseRuntime()
+    app.state.database_runtime = None
 
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(AuthContextMiddleware)
@@ -62,7 +62,7 @@ def _build_app() -> FastAPI:
         mock.ping.return_value = True
         return mock
 
-    app.dependency_overrides[get_database_runtime] = lambda: app.state.database_runtime
+    app.dependency_overrides[get_database_runtime] = lambda: _FakeDatabaseRuntime()
     app.dependency_overrides[get_db_session] = _override_db
     app.dependency_overrides[get_queue_adapter] = _override_queue
     return app
