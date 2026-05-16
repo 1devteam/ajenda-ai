@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.db.session import SKIP_COMMIT_SESSION_INFO_KEY
+from backend.db.session import DatabaseRuntime
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.domain.workforce_fleet import WorkforceFleet
@@ -13,9 +13,15 @@ from backend.queue.base import QueueAdapter
 
 
 class SystemStatusService:
-    def __init__(self, session: Session | None, queue_adapter: QueueAdapter | None = None) -> None:
+    def __init__(
+        self,
+        session: Session | None = None,
+        queue_adapter: QueueAdapter | None = None,
+        database_runtime: DatabaseRuntime | None = None,
+    ) -> None:
         self._session = session
         self._queue_adapter = queue_adapter
+        self._database_runtime = database_runtime
 
     def health(self) -> dict[str, str]:
         return {
@@ -42,27 +48,9 @@ class SystemStatusService:
         }
 
     def _database_ready(self) -> bool:
-        if self._session is None:
+        if self._database_runtime is None:
             return False
-        try:
-            self._session.execute(text("SELECT 1"))
-        except Exception:
-            self._mark_session_skip_commit()
-            self._rollback_failed_readiness_session()
-            return False
-        return True
-
-    def _mark_session_skip_commit(self) -> None:
-        if self._session is not None:
-            self._session.info[SKIP_COMMIT_SESSION_INFO_KEY] = True
-
-    def _rollback_failed_readiness_session(self) -> None:
-        if self._session is None:
-            return
-        try:
-            self._session.rollback()
-        except Exception:
-            return
+        return self._database_runtime.ping()
 
     def _queue_status(self) -> str:
         if self._queue_adapter is None:
