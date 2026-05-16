@@ -8,8 +8,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import Settings
 
-SKIP_COMMIT_SESSION_INFO_KEY = "ajenda.skip_commit"
-
 
 class DatabaseRuntime:
     def __init__(self, settings: Settings) -> None:
@@ -34,13 +32,21 @@ class DatabaseRuntime:
     def session_factory(self) -> sessionmaker[Session]:
         return self._session_factory
 
+    def ping(self) -> bool:
+        """Return whether the database accepts a lightweight non-mutating query."""
+        try:
+            with self._engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+        except Exception:
+            return False
+        return True
+
     def session_scope(self) -> Generator[Session, None, None]:
         """Yield a transactional session without tenant context."""
         session = self._session_factory()
         try:
             yield session
-            if not session.info.pop(SKIP_COMMIT_SESSION_INFO_KEY, False):
-                session.commit()
+            session.commit()
         except Exception:
             session.rollback()
             raise
@@ -60,8 +66,7 @@ class DatabaseRuntime:
                 {"tenant_id": tenant_id},
             )
             yield session
-            if not session.info.pop(SKIP_COMMIT_SESSION_INFO_KEY, False):
-                session.commit()
+            session.commit()
         except Exception:
             session.rollback()
             raise
