@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-
 import pytest
 
-from backend.db.session import SKIP_COMMIT_SESSION_INFO_KEY
+from backend.db.session import DatabaseRuntime, SKIP_COMMIT_SESSION_INFO_KEY
 
 
 class _FakeSession:
@@ -24,27 +22,15 @@ class _FakeSession:
         self.closed = True
 
 
-class _RuntimeLike:
-    def __init__(self, session: _FakeSession) -> None:
-        self.session = session
-
-    @contextmanager
-    def session_scope(self):
-        session = self.session
-        try:
-            yield session
-            if not session.info.pop(SKIP_COMMIT_SESSION_INFO_KEY, False):
-                session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+def _runtime_with_session(session: _FakeSession) -> DatabaseRuntime:
+    runtime = DatabaseRuntime.__new__(DatabaseRuntime)
+    runtime._session_factory = lambda: session
+    return runtime
 
 
 def test_session_scope_commits_successful_unmarked_session() -> None:
     session = _FakeSession()
-    runtime = _RuntimeLike(session)
+    runtime = _runtime_with_session(session)
 
     with runtime.session_scope():
         pass
@@ -56,7 +42,7 @@ def test_session_scope_commits_successful_unmarked_session() -> None:
 
 def test_session_scope_skips_commit_when_readiness_marks_failed_transaction() -> None:
     session = _FakeSession()
-    runtime = _RuntimeLike(session)
+    runtime = _runtime_with_session(session)
 
     with runtime.session_scope() as scoped_session:
         scoped_session.info[SKIP_COMMIT_SESSION_INFO_KEY] = True
@@ -69,7 +55,7 @@ def test_session_scope_skips_commit_when_readiness_marks_failed_transaction() ->
 
 def test_session_scope_still_rolls_back_unhandled_exceptions() -> None:
     session = _FakeSession()
-    runtime = _RuntimeLike(session)
+    runtime = _runtime_with_session(session)
 
     with pytest.raises(RuntimeError, match="boom"):
         with runtime.session_scope():
