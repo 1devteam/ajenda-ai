@@ -71,6 +71,21 @@ PRODUCTION_OPTIONAL_APP_ENV = frozenset(
     }
 )
 
+LEGACY_UNSUPPORTED_APP_ENV = frozenset(
+    {
+        "DATABASE_URL",
+        "QUEUE_URL",
+        "QUEUE_BACKEND",
+        "DB_HOST",
+        "DB_PORT",
+        "DB_NAME",
+        "DB_USER",
+        "DB_PASSWORD",
+        "REDIS_HOST",
+        "REDIS_PORT",
+    }
+)
+
 NON_SETTINGS_DEPLOYMENT_ENV = frozenset(
     {
         "AJENDA_PROOF_API_BASE_URL",
@@ -122,7 +137,9 @@ def _settings_env_aliases() -> set[str]:
 
 
 def _env_names(text: str) -> set[str]:
-    return set(re.findall(r"\b(?:AJENDA|POSTGRES|PROMETHEUS|OTEL)_[A-Z0-9_]+\b", text))
+    prefixed_names = set(re.findall(r"\b(?:AJENDA|POSTGRES|PROMETHEUS|OTEL)_[A-Z0-9_]+\b", text))
+    assigned_names = set(re.findall(r"\b([A-Z][A-Z0-9_]+)\s*(?==|:)", text))
+    return prefixed_names | (assigned_names & LEGACY_UNSUPPORTED_APP_ENV)
 
 
 def _assignment_names(text: str) -> set[str]:
@@ -145,6 +162,24 @@ def test_config_exposes_only_canonical_ajenda_env_aliases() -> None:
     assert "DATABASE_URL" not in aliases
     assert "QUEUE_URL" not in aliases
     assert "QUEUE_BACKEND" not in aliases
+
+
+def test_workflow_env_extraction_catches_legacy_unprefixed_app_aliases() -> None:
+    workflow_fragment = """
+    env:
+      DATABASE_URL: postgresql://example
+    run: |
+      QUEUE_URL=redis://redis:6379/0
+      AJENDA_ENV=production
+      POSTGRES_PASSWORD=example
+    """
+
+    assert _env_names(workflow_fragment) >= {
+        "AJENDA_ENV",
+        "DATABASE_URL",
+        "POSTGRES_PASSWORD",
+        "QUEUE_URL",
+    }
 
 
 def test_production_env_template_uses_supported_settings_env_names() -> None:
