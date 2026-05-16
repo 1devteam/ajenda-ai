@@ -4,15 +4,22 @@ from backend.services.system_status_service import SystemStatusService
 
 
 class _FakeSession:
-    def __init__(self, *, fails: bool = False) -> None:
+    def __init__(self, *, fails: bool = False, rollback_fails: bool = False) -> None:
         self.fails = fails
+        self.rollback_fails = rollback_fails
         self.calls = 0
+        self.rollbacks = 0
 
     def execute(self, *_args, **_kwargs):
         self.calls += 1
         if self.fails:
             raise RuntimeError("database failure postgresql://user:pass@db/name")
         return None
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+        if self.rollback_fails:
+            raise RuntimeError("rollback failure postgresql://user:pass@db/name")
 
 
 class _FakeQueue:
@@ -51,13 +58,27 @@ def test_readiness_reports_ready_when_database_and_queue_are_ready() -> None:
 
     assert result == {"database": "ready", "queue": "ready", "dependencies": "ready"}
     assert session.calls == 1
+    assert session.rollbacks == 0
     assert queue.pings == 1
 
 
 def test_readiness_reports_database_failure_without_exception_details() -> None:
-    result = SystemStatusService(_FakeSession(fails=True), _FakeQueue()).readiness()
+    session = _FakeSession(fails=True)
+
+    result = SystemStatusService(session, _FakeQueue()).readiness()
 
     assert result == {"database": "unavailable", "queue": "ready", "dependencies": "not_ready"}
+    assert session.rollbacks == 1
+    assert "postgresql://" not in str(result)
+
+
+def test_readiness_suppresses_rollback_failure_without_exception_details() -> None:
+    session = _FakeSession(fails=True, rollback_fails=True)
+
+    result = SystemStatusService(session, _FakeQueue()).readiness()
+
+    assert result == {"database": "unavailable", "queue": "ready", "dependencies": "not_ready"}
+    assert session.rollbacks == 1
     assert "postgresql://" not in str(result)
 
 
