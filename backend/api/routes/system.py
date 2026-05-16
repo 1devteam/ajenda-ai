@@ -1,34 +1,45 @@
 from __future__ import annotations
 
 import uuid as _uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
+from backend.app.dependencies.services import get_queue_adapter
+from backend.queue.base import QueueAdapter
 from backend.services.system_status_service import SystemStatusService
 
 router = APIRouter(tags=["system"])
 
 
 @router.get("/system/health")
-def system_health(db: Session = Depends(get_db_session)) -> dict[str, str]:
+def system_health() -> dict[str, str]:
     """Infrastructure health check. Public — no tenant context required.
 
-    Uses get_db_session intentionally. See:
-    docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.2
+    This is a lightweight process/system surface and intentionally does not
+    perform database or queue dependency checks.
     """
-    return SystemStatusService(db).health()
+    return SystemStatusService(session=None).health()
 
 
 @router.get("/system/readiness")
-def system_readiness(db: Session = Depends(get_db_session)) -> dict[str, str]:
+def system_readiness(
+    db: Session = Depends(get_db_session),
+    queue_adapter: QueueAdapter = Depends(get_queue_adapter),
+) -> Any:
     """Infrastructure readiness check. Public — no tenant context required.
 
     Uses get_db_session intentionally. See:
     docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.2
     """
-    return SystemStatusService(db).readiness()
+    readiness_status = SystemStatusService(db, queue_adapter).readiness()
+    status_code = 200 if readiness_status["dependencies"] == "ready" else 503
+    if status_code == 503:
+        return JSONResponse(status_code=status_code, content=readiness_status)
+    return readiness_status
 
 
 @router.get("/system/status")

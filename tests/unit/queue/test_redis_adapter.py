@@ -38,6 +38,20 @@ def test_ping_returns_false_on_socket_error(monkeypatch) -> None:
     assert adapter.ping() is False
 
 
+def test_ping_uses_only_ping_command(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    commands: list[list[str]] = []
+
+    def _execute(command):
+        commands.append(command)
+        return "PONG"
+
+    monkeypatch.setattr(adapter, "_execute", _execute)
+
+    assert adapter.ping() is True
+    assert commands == [["PING"]]
+
+
 def test_enqueue_task_returns_ok_on_integer_reply(monkeypatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
     result = adapter.enqueue_task(_message())
