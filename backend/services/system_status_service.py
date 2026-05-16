@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from backend.db.session import SKIP_COMMIT_SESSION_INFO_KEY
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.domain.workforce_fleet import WorkforceFleet
@@ -46,9 +47,14 @@ class SystemStatusService:
         try:
             self._session.execute(text("SELECT 1"))
         except Exception:
+            self._mark_session_skip_commit()
             self._rollback_failed_readiness_session()
             return False
         return True
+
+    def _mark_session_skip_commit(self) -> None:
+        if self._session is not None:
+            self._session.info[SKIP_COMMIT_SESSION_INFO_KEY] = True
 
     def _rollback_failed_readiness_session(self) -> None:
         if self._session is None:
