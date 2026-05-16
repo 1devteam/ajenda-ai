@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from backend.db.session import SKIP_COMMIT_SESSION_INFO_KEY
 from backend.services.system_status_service import SystemStatusService
 
 
@@ -9,6 +10,7 @@ class _FakeSession:
         self.rollback_fails = rollback_fails
         self.calls = 0
         self.rollbacks = 0
+        self.info: dict[str, bool] = {}
 
     def execute(self, *_args, **_kwargs):
         self.calls += 1
@@ -59,6 +61,7 @@ def test_readiness_reports_ready_when_database_and_queue_are_ready() -> None:
     assert result == {"database": "ready", "queue": "ready", "dependencies": "ready"}
     assert session.calls == 1
     assert session.rollbacks == 0
+    assert SKIP_COMMIT_SESSION_INFO_KEY not in session.info
     assert queue.pings == 1
 
 
@@ -69,6 +72,7 @@ def test_readiness_reports_database_failure_without_exception_details() -> None:
 
     assert result == {"database": "unavailable", "queue": "ready", "dependencies": "not_ready"}
     assert session.rollbacks == 1
+    assert session.info[SKIP_COMMIT_SESSION_INFO_KEY] is True
     assert "postgresql://" not in str(result)
 
 
@@ -79,6 +83,7 @@ def test_readiness_suppresses_rollback_failure_without_exception_details() -> No
 
     assert result == {"database": "unavailable", "queue": "ready", "dependencies": "not_ready"}
     assert session.rollbacks == 1
+    assert session.info[SKIP_COMMIT_SESSION_INFO_KEY] is True
     assert "postgresql://" not in str(result)
 
 
