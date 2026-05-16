@@ -85,8 +85,11 @@ def test_session_scope_keeps_normal_commit_contract() -> None:
     session = _FakeSession()
     runtime = _runtime_with_session(session)
 
-    with runtime.session_scope():
-        pass
+    generator = runtime.session_scope()
+    scoped_session = next(generator)
+    assert scoped_session is session
+    with pytest.raises(StopIteration):
+        next(generator)
 
     assert session.commits == 1
     assert session.rollbacks == 0
@@ -97,9 +100,11 @@ def test_session_scope_still_rolls_back_unhandled_exceptions() -> None:
     session = _FakeSession()
     runtime = _runtime_with_session(session)
 
+    generator = runtime.session_scope()
+    scoped_session = next(generator)
+    assert scoped_session is session
     with pytest.raises(RuntimeError, match="boom"):
-        with runtime.session_scope():
-            raise RuntimeError("boom")
+        generator.throw(RuntimeError("boom"))
 
     assert session.commits == 0
     assert session.rollbacks == 1
