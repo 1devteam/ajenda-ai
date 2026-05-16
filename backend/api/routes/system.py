@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
+from backend.app.dependencies.db import get_database_runtime, get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.db.session import DatabaseRuntime
 from backend.queue.base import QueueAdapter
 from backend.services.system_status_service import SystemStatusService
 
@@ -27,15 +28,15 @@ def system_health() -> dict[str, str]:
 
 @router.get("/system/readiness")
 def system_readiness(
-    db: Session = Depends(get_db_session),
+    database_runtime: DatabaseRuntime = Depends(get_database_runtime),
     queue_adapter: QueueAdapter = Depends(get_queue_adapter),
 ) -> Any:
     """Infrastructure readiness check. Public — no tenant context required.
 
-    Uses get_db_session intentionally. See:
-    docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.2
+    Uses DatabaseRuntime.ping intentionally so dependency readiness checks do
+    not participate in request transaction teardown.
     """
-    readiness_status = SystemStatusService(db, queue_adapter).readiness()
+    readiness_status = SystemStatusService(database_runtime=database_runtime, queue_adapter=queue_adapter).readiness()
     status_code = 200 if readiness_status["dependencies"] == "ready" else 503
     if status_code == 503:
         return JSONResponse(status_code=status_code, content=readiness_status)
@@ -53,4 +54,4 @@ def system_status(
     Tenant-facing — uses get_tenant_db_session to activate RLS. See:
     docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.1
     """
-    return SystemStatusService(db).status(tenant_id=str(tenant_id))
+    return SystemStatusService(session=db).status(tenant_id=str(tenant_id))
