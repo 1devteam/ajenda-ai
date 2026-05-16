@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from backend.api.routes.health import router
 from backend.app.dependencies.db import get_db_session
 from backend.app.dependencies.services import get_queue_adapter
+from backend.db.session import SKIP_COMMIT_SESSION_INFO_KEY
 
 
 class _FakeSession:
@@ -13,12 +14,17 @@ class _FakeSession:
         self.fails = fails
         self.secret = secret
         self.calls = 0
+        self.rollbacks = 0
+        self.info: dict[str, bool] = {}
 
     def execute(self, *_args, **_kwargs):
         self.calls += 1
         if self.fails:
             raise RuntimeError(f"database unavailable at {self.secret}")
         return None
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
 
 
 class _FakeQueue:
@@ -76,6 +82,8 @@ def test_readiness_route_returns_ready_when_db_and_queue_are_reachable() -> None
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
     assert session.calls == 1
+    assert session.rollbacks == 0
+    assert SKIP_COMMIT_SESSION_INFO_KEY not in session.info
     assert queue.pings == 1
 
 
@@ -88,6 +96,8 @@ def test_readiness_route_returns_503_when_database_is_unavailable_without_leakin
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "database": "unavailable", "queue": "ready"}
+    assert session.rollbacks == 1
+    assert session.info[SKIP_COMMIT_SESSION_INFO_KEY] is True
     assert "postgresql://user:pass" not in response.text
 
 
