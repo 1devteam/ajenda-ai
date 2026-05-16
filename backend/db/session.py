@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import Settings
 
+SKIP_COMMIT_SESSION_INFO_KEY = "ajenda.skip_commit"
+
 
 class DatabaseRuntime:
     def __init__(self, settings: Settings) -> None:
@@ -37,7 +39,8 @@ class DatabaseRuntime:
         session = self._session_factory()
         try:
             yield session
-            session.commit()
+            if not session.info.pop(SKIP_COMMIT_SESSION_INFO_KEY, False):
+                session.commit()
         except Exception:
             session.rollback()
             raise
@@ -57,7 +60,8 @@ class DatabaseRuntime:
                 {"tenant_id": tenant_id},
             )
             yield session
-            session.commit()
+            if not session.info.pop(SKIP_COMMIT_SESSION_INFO_KEY, False):
+                session.commit()
         except Exception:
             session.rollback()
             raise
