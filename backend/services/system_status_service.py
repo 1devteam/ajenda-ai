@@ -46,8 +46,17 @@ class SystemStatusService:
         try:
             self._session.execute(text("SELECT 1"))
         except Exception:
+            self._rollback_failed_readiness_session()
             return False
         return True
+
+    def _rollback_failed_readiness_session(self) -> None:
+        if self._session is None:
+            return
+        try:
+            self._session.rollback()
+        except Exception:
+            return
 
     def _queue_status(self) -> str:
         if self._queue_adapter is None:
