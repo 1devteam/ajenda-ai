@@ -117,7 +117,7 @@ log "validating compose configuration"
 compose config --quiet
 
 log "starting compose services"
-compose up -d --build db redis migrate api worker prometheus
+compose up -d --build db redis migrate api worker prometheus otel-collector
 
 log "checking compose service state"
 compose ps
