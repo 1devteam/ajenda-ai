@@ -24,6 +24,7 @@ _TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "worker_leases",
     "lineage_records",
     "governance_events",
+    "audit_events",
     "api_key_records",
 )
 
