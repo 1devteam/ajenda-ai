@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.services.api_key_service import ApiKeyService
@@ -21,8 +21,8 @@ class CreateApiKeyRequest(BaseModel):
 def create_api_key(
     body: CreateApiKeyRequest,
     request: Request,
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    tenant_id: str = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
 ) -> dict[str, object]:
     principal = getattr(request.state, "principal", None)
     if principal is None:
@@ -46,8 +46,8 @@ def create_api_key(
 def revoke_api_key(
     key_id: str,
     request: Request,
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    tenant_id: str = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
 ) -> dict[str, str]:
     principal = getattr(request.state, "principal", None)
     if principal is None:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
 from backend.services.system_status_service import SystemStatusService
 
 router = APIRouter(tags=["system"])
@@ -21,7 +21,7 @@ def system_readiness(db: Session = Depends(get_db_session)) -> dict[str, str]:
 
 @router.get("/system/status")
 def system_status(
-    tenant_id: str = Header(alias="X-Tenant-Id"),
-    db: Session = Depends(get_db_session),
+    tenant_id: str = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
 ) -> dict[str, dict[str, int]]:
     return SystemStatusService(db).status(tenant_id=tenant_id)
