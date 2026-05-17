@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 
 class InvalidTransitionError(ValueError):
@@ -14,9 +15,9 @@ class TransitionRule:
 
 
 class StateMachine:
-    """Centralized Phase 2 state transition validator."""
+    """Centralized state transition validator."""
 
-    _MISSION_ALLOWED: dict[str, set[str]] = {
+    _MISSION_ALLOWED: ClassVar[dict[str, set[str]]] = {
         "planned": {"approved"},
         "approved": {"queued"},
         "queued": {"running", "cancelled"},
@@ -27,7 +28,7 @@ class StateMachine:
         "cancelled": {"archived"},
     }
 
-    _FLEET_ALLOWED: dict[str, set[str]] = {
+    _FLEET_ALLOWED: ClassVar[dict[str, set[str]]] = {
         "planned": {"provisioning"},
         "provisioning": {"ready"},
         "ready": {"running"},
@@ -37,7 +38,7 @@ class StateMachine:
         "failed": {"retired"},
     }
 
-    _AGENT_ALLOWED: dict[str, set[str]] = {
+    _AGENT_ALLOWED: ClassVar[dict[str, set[str]]] = {
         "planned": {"provisioned"},
         "provisioned": {"assigned"},
         "assigned": {"running"},
@@ -47,16 +48,17 @@ class StateMachine:
         "failed": {"retired"},
     }
 
-    _TASK_ALLOWED: dict[str, set[str]] = {
+    _TASK_ALLOWED: ClassVar[dict[str, set[str]]] = {
         "planned": {"queued"},
         "queued": {"claimed", "cancelled"},
-        "claimed": {"running", "cancelled"},
-        "running": {"blocked", "completed", "failed"},
+        "claimed": {"running", "queued", "cancelled"},
+        "running": {"blocked", "completed", "failed", "recovering"},
+        "recovering": {"queued", "dead_lettered"},
         "blocked": {"queued"},
         "failed": {"queued", "dead_lettered"},
     }
 
-    _BRANCH_ALLOWED: dict[str, set[str]] = {
+    _BRANCH_ALLOWED: ClassVar[dict[str, set[str]]] = {
         "open": {"running"},
         "running": {"selected", "superseded", "failed"},
         "selected": {"closed"},
@@ -64,7 +66,7 @@ class StateMachine:
         "failed": {"closed"},
     }
 
-    _LEASE_ALLOWED: dict[str, set[str]] = {
+    _LEASE_ALLOWED: ClassVar[dict[str, set[str]]] = {
         "claimed": {"active"},
         "active": {"released", "expired"},
         "expired": {"released"},

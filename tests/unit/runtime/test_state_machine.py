@@ -1,8 +1,9 @@
 import pytest
 
+from backend.domain.enums import ExecutionTaskState
+from backend.domain.execution_task import ExecutionTask
 from backend.runtime.state_machine import InvalidTransitionError, StateMachine
 from backend.runtime.transitions import transition_task
-from backend.domain.execution_task import ExecutionTask
 
 
 def test_valid_task_transition_passes() -> None:
@@ -14,11 +15,29 @@ def test_invalid_task_transition_raises() -> None:
         StateMachine.ensure_task_transition("planned", "completed")
 
 
+def test_recovery_task_transitions_are_allowed() -> None:
+    StateMachine.ensure_task_transition("running", "recovering")
+    StateMachine.ensure_task_transition("recovering", "queued")
+    StateMachine.ensure_task_transition("recovering", "dead_lettered")
+    StateMachine.ensure_task_transition("claimed", "queued")
+
+
+def test_recovering_task_transition_rejects_invalid_terminal_jump() -> None:
+    with pytest.raises(InvalidTransitionError):
+        StateMachine.ensure_task_transition("recovering", "completed")
+
+
 def test_valid_fleet_transition_passes() -> None:
     StateMachine.ensure_fleet_transition("planned", "provisioning")
 
 
 def test_transition_helper_mutates_via_validator() -> None:
-    task = ExecutionTask(tenant_id="tenant-a", mission_id=None, title="x", description="y")  # type: ignore[arg-type]
-    transition_task(task, __import__("backend.domain.enums", fromlist=["ExecutionTaskState"]).ExecutionTaskState.QUEUED)
+    task = ExecutionTask(
+        tenant_id="tenant-a",
+        mission_id=None,
+        title="x",
+        description="y",
+        status=ExecutionTaskState.PLANNED.value,
+    )  # type: ignore[arg-type]
+    transition_task(task, ExecutionTaskState.QUEUED)
     assert task.status == "queued"
