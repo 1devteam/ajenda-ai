@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -45,6 +45,25 @@ class DatabaseRuntime:
     def session_scope(self) -> Generator[Session, None, None]:
         session = self.session_factory()
         try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def tenant_session_scope(self, tenant_id: str) -> Generator[Session, None, None]:
+        """Open a DB session with PostgreSQL tenant context set for RLS."""
+        if not tenant_id:
+            raise ValueError("tenant_id is required for tenant-scoped DB sessions")
+
+        session = self.session_factory()
+        try:
+            session.execute(
+                text("SET LOCAL app.current_tenant_id = :tenant_id"),
+                {"tenant_id": str(tenant_id)},
+            )
             yield session
             session.commit()
         except Exception:
