@@ -1,34 +1,48 @@
 from __future__ import annotations
 
 import uuid as _uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
+from backend.app.dependencies.db import get_database_runtime, get_request_tenant_id, get_tenant_db_session
+from backend.app.dependencies.services import get_queue_adapter
+from backend.db.session import DatabaseRuntime
+from backend.queue.base import QueueAdapter
 from backend.services.system_status_service import SystemStatusService
 
 router = APIRouter(tags=["system"])
 
 
 @router.get("/system/health")
-def system_health(db: Session = Depends(get_db_session)) -> dict[str, str]:
+def system_health() -> dict[str, str]:
     """Infrastructure health check. Public — no tenant context required.
 
-    Uses get_db_session intentionally. See:
-    docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.2
+    This is a lightweight process/system surface and intentionally does not
+    perform database or queue dependency checks.
     """
-    return SystemStatusService(db).health()
+    return SystemStatusService(session=None).health()
 
 
 @router.get("/system/readiness")
-def system_readiness(db: Session = Depends(get_db_session)) -> dict[str, str]:
+def system_readiness(
+    database_runtime: DatabaseRuntime = Depends(get_database_runtime),
+    queue_adapter: QueueAdapter = Depends(get_queue_adapter),
+) -> Any:
     """Infrastructure readiness check. Public — no tenant context required.
 
-    Uses get_db_session intentionally. See:
-    docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.2
+    Uses DatabaseRuntime.ping intentionally so dependency readiness checks do
+    not participate in request transaction teardown.
     """
-    return SystemStatusService(db).readiness()
+    readiness_status = SystemStatusService(
+        database_runtime=database_runtime,
+        queue_adapter=queue_adapter,
+    ).readiness()
+    if readiness_status["dependencies"] != "ready":
+        return JSONResponse(status_code=503, content=readiness_status)
+    return readiness_status
 
 
 @router.get("/system/status")
@@ -42,4 +56,4 @@ def system_status(
     Tenant-facing — uses get_tenant_db_session to activate RLS. See:
     docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.1
     """
-    return SystemStatusService(db).status(tenant_id=str(tenant_id))
+    return SystemStatusService(session=db).status(tenant_id=str(tenant_id))

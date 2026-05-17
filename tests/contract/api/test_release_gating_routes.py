@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from backend.api.routes import health as health_module
 from backend.api.routes import operations as operations_module
 from backend.api.routes import system as system_module
-from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.db import get_database_runtime, get_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.oidc import OidcValidationResult
 from backend.auth.principal import Principal, PrincipalType
@@ -20,6 +20,16 @@ from backend.middleware.tenant_context import TenantContextMiddleware
 class _FakeSession:
     def execute(self, *_args, **_kwargs):
         return None
+
+
+class _FakeDatabaseRuntime:
+    def __init__(self, *, ready: bool = True) -> None:
+        self.ready = ready
+        self.pings = 0
+
+    def ping(self) -> bool:
+        self.pings += 1
+        return self.ready
 
 
 class _RecoverySummary:
@@ -35,6 +45,7 @@ def _build_app() -> FastAPI:
         oidc_jwks_uri="https://example/jwks", oidc_issuer="https://example", oidc_audience="ajenda"
     )
     app.state.database_runtime = None
+    readiness_database_runtime = _FakeDatabaseRuntime()
 
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(AuthContextMiddleware)
@@ -48,8 +59,11 @@ def _build_app() -> FastAPI:
         yield _FakeSession()
 
     def _override_queue():
-        return MagicMock()
+        mock = MagicMock()
+        mock.ping.return_value = True
+        return mock
 
+    app.dependency_overrides[get_database_runtime] = lambda: readiness_database_runtime
     app.dependency_overrides[get_db_session] = _override_db
     app.dependency_overrides[get_queue_adapter] = _override_queue
     return app

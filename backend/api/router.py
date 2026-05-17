@@ -30,7 +30,7 @@ Route inventory under /v1/:
 
 Routes at root (/):
   /health             — Liveness probe (no auth required)
-  /readiness          — Readiness probe (DB ping, no auth required)
+  /readiness          — Readiness probe (DB and queue ping, no auth required)
 
 Metrics route:
   /v1/observability/metrics — Prometheus metrics scrape endpoint

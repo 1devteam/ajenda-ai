@@ -2,22 +2,27 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app.config import Settings
 from backend.db.session import DatabaseRuntime
 
 
-class SqliteDatabaseRuntime(DatabaseRuntime):
-    @property
-    def engine(self):  # type: ignore[override]
-        if self._engine is None:
-            self._engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
-        return self._engine
+def _sqlite_runtime() -> DatabaseRuntime:
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    runtime = DatabaseRuntime.__new__(DatabaseRuntime)
+    runtime._engine = engine
+    runtime._session_factory = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        future=True,
+    )
+    return runtime
 
 
 def test_session_scope_commits_and_closes() -> None:
-    runtime = SqliteDatabaseRuntime(Settings())
+    runtime = _sqlite_runtime()
     generator = runtime.session_scope()
     session = next(generator)
     assert isinstance(session, Session)
@@ -27,7 +32,7 @@ def test_session_scope_commits_and_closes() -> None:
 
 
 def test_session_scope_rolls_back_on_error() -> None:
-    runtime = SqliteDatabaseRuntime(Settings())
+    runtime = _sqlite_runtime()
     generator = runtime.session_scope()
     session = next(generator)
     assert isinstance(session, Session)
