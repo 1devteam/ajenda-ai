@@ -42,6 +42,7 @@ class ExecutionTaskState(StrEnum):
     QUEUED = "queued"
     CLAIMED = "claimed"
     RUNNING = "running"
+    RECOVERING = "recovering"
     BLOCKED = "blocked"
     COMPLETED = "completed"
     FAILED = "failed"
