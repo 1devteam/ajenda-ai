@@ -106,3 +106,13 @@ def test_retry_dead_letter_moves_one_entry_back_to_pending_once() -> None:
     assert result.ok is True
     assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-2") == message
     assert adapter.retry_dead_letter(tenant_id="tenant-a", task_id=message.task_id).ok is False
+
+
+def test_ping_is_ready_and_non_mutating() -> None:
+    adapter = LocalQueueAdapter()
+    message = _message()
+    assert adapter.enqueue_task(message).ok is True
+
+    assert adapter.ping() is True
+
+    assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1") == message
