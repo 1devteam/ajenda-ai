@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.domain.api_key_record import ApiKeyRecordModel
@@ -24,6 +24,17 @@ class ApiKeyRepository:
 
     def revoke(self, record: ApiKeyRecordModel) -> ApiKeyRecordModel:
         record.revoked = True
-        record.revoked_at = datetime.now(timezone.utc)
+        record.revoked_at = datetime.now(UTC)
         self._session.flush()
         return record
+
+    def count_active_for_tenant(self, tenant_id: str) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(ApiKeyRecordModel)
+            .where(
+                ApiKeyRecordModel.tenant_id == tenant_id,
+                ApiKeyRecordModel.revoked.is_(False),
+            )
+        )
+        return int(self._session.scalar(stmt) or 0)
