@@ -70,6 +70,9 @@ class PolicyGuardian:
                 "Human review is required for employment or financial workflows.",
             )
 
+        if category == ComplianceCategory.MARKETING.value:
+            return self._evaluate_marketing_policy(metadata=metadata)
+
         if jurisdiction == ComplianceJurisdiction.EU.value:
             return self._evaluate_eu_policy(category=category, metadata=metadata)
 
@@ -78,9 +81,6 @@ class PolicyGuardian:
 
         if jurisdiction == ComplianceJurisdiction.NYC.value:
             return self._evaluate_nyc_policy(category=category, metadata=metadata)
-
-        if category == ComplianceCategory.MARKETING.value:
-            return self._evaluate_marketing_policy(metadata=metadata)
 
         return PolicyDecision(True, "Compliance checks passed")
 
