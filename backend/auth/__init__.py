@@ -1,14 +1,13 @@
 from backend.auth.api_keys import ApiKeyHasher, ApiKeyRecord
-from backend.auth.jwt_validator import JwtClaims, JwtValidationError, JwtValidator
+from backend.auth.jwt_validator import JwtValidationError, JwtValidator
 from backend.auth.permissions import Permission
 from backend.auth.principal import MachinePrincipal, Principal, PrincipalType, UserPrincipal
-from backend.auth.rbac import AuthorizationDecision, RoleBinding, RbacAuthorizer
+from backend.auth.rbac import AuthorizationDecision, RbacAuthorizer, RoleBinding
 
 __all__ = [
     "ApiKeyHasher",
     "ApiKeyRecord",
     "AuthorizationDecision",
-    "JwtClaims",
     "JwtValidationError",
     "JwtValidator",
     "MachinePrincipal",
