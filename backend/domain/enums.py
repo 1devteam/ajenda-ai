@@ -3,6 +3,24 @@ from __future__ import annotations
 from enum import StrEnum
 
 
+class ComplianceCategory(StrEnum):
+    OPERATIONAL = "operational"
+    CONSUMER_INTERACTION = "consumer_interaction"
+    MARKETING = "marketing"
+    EMPLOYMENT = "employment"
+    FINANCIAL = "financial"
+    HEALTHCARE = "healthcare"
+    PUBLIC_CONTENT = "public_content"
+
+
+class ComplianceJurisdiction(StrEnum):
+    GLOBAL = "global"
+    EU = "eu"
+    COLORADO = "colorado"
+    NYC = "nyc"
+    FEDERAL_US = "federal_us"
+
+
 class MissionState(StrEnum):
     PLANNED = "planned"
     APPROVED = "approved"
