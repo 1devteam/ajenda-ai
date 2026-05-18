@@ -54,6 +54,7 @@ def test_execution_task_states_are_canonical() -> None:
         "queued",
         "claimed",
         "running",
+        "recovering",
         "blocked",
         "completed",
         "failed",
