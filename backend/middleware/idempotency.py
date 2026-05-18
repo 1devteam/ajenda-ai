@@ -24,6 +24,7 @@ Usage (in main.py)::
     from backend.middleware.idempotency import IdempotencyMiddleware
     app.add_middleware(IdempotencyMiddleware)
 """
+
 from __future__ import annotations
 
 import threading
@@ -53,7 +54,9 @@ class _InProcessIdempotencyStore:
     Not suitable for multi-instance deployments. Replace with Redis for production.
     """
 
-    def __init__(self, ttl: float = _IDEMPOTENCY_TTL_SECONDS, max_size: int = _MAX_STORE_SIZE) -> None:
+    def __init__(
+        self, ttl: float = _IDEMPOTENCY_TTL_SECONDS, max_size: int = _MAX_STORE_SIZE
+    ) -> None:
         self._ttl = ttl
         self._max_size = max_size
         self._store: dict[str, _StoredResponse] = {}
@@ -140,14 +143,16 @@ class IdempotencyMiddleware:
         if not _is_valid_uuid(key):
             # Malformed key — reject immediately
             error_body = b'{"detail":"Idempotency-Key must be a valid UUID v4."}'
-            await send({
-                "type": "http.response.start",
-                "status": 400,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(error_body)).encode()),
-                ],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 400,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(error_body)).encode()),
+                    ],
+                }
+            )
             await send({"type": "http.response.body", "body": error_body, "more_body": False})
             return
 
@@ -155,12 +160,14 @@ class IdempotencyMiddleware:
         cached = _store.get(key)
         if cached is not None:
             # Replay the stored response
-            replay_headers = list(cached.headers) + [(b"idempotency-replayed", b"true")]
-            await send({
-                "type": "http.response.start",
-                "status": cached.status_code,
-                "headers": replay_headers,
-            })
+            replay_headers = [*cached.headers, (b"idempotency-replayed", b"true")]
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": cached.status_code,
+                    "headers": replay_headers,
+                }
+            )
             await send({"type": "http.response.body", "body": cached.body, "more_body": False})
             return
 
@@ -175,7 +182,7 @@ class IdempotencyMiddleware:
                 captured_status = message["status"]
                 captured_headers = list(message.get("headers", []))
                 # Add replay marker to live response
-                outgoing_headers = captured_headers + [(b"idempotency-replayed", b"false")]
+                outgoing_headers = [*captured_headers, (b"idempotency-replayed", b"false")]
                 await send({**message, "headers": outgoing_headers})
             elif message["type"] == "http.response.body":
                 body_chunk = message.get("body", b"")

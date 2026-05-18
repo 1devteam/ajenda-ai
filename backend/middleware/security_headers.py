@@ -23,6 +23,7 @@ Design notes:
 - Header values are computed once at class instantiation (not per-request) since
   they are static strings.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -41,12 +42,7 @@ _CSP = (
     "frame-ancestors 'none';"
 )
 
-_PERMISSIONS_POLICY = (
-    "camera=(), "
-    "microphone=(), "
-    "geolocation=(), "
-    "interest-cohort=()"
-)
+_PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
 
 _STATIC_HEADERS: list[tuple[bytes, bytes]] = [
     (b"strict-transport-security", f"max-age={_HSTS_MAX_AGE}; includeSubDomains; preload".encode()),
