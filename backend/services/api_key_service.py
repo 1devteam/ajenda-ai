@@ -93,6 +93,15 @@ class ApiKeyService:
             key_id=record.key_id,
         )
 
+    def count_active_keys(self, *, tenant_id: str) -> int:
+        if self._repo is not None:
+            return self._repo.count_active_for_tenant(tenant_id)
+        return sum(
+            1
+            for stored in self._memory_store.values()
+            if stored.record.tenant_id == tenant_id and not stored.record.revoked
+        )
+
     def _load_record(self, key_id: str) -> ApiKeyRecordModel:
         if self._repo is not None:
             record = self._repo.get_by_key_id(key_id)
