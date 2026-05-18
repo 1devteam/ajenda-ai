@@ -1,29 +1,57 @@
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from __future__ import annotations
 
-from backend.db.base import Base
+import pytest
+
+from backend.domain.api_key_record import ApiKeyRecordModel
 from backend.services.api_key_service import ApiKeyService
 
 
-def _session() -> Session:
-    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)()
-
-
 def test_api_key_service_create_and_authenticate() -> None:
-    session = _session()
-    service = ApiKeyService(session)
-    plaintext, record = service.create_key(tenant_id="tenant-a", scopes=("execution:queue",))
-    principal = service.authenticate_machine(tenant_id="tenant-a", key_id=record.key_id, plaintext=plaintext)
+    service = ApiKeyService()
+
+    plaintext, record = service.create_key(
+        tenant_id="tenant-a",
+        scopes=("execution:queue",),
+    )
+
+    principal = service.authenticate_machine(
+        tenant_id="tenant-a",
+        key_id=record.key_id,
+        plaintext=plaintext,
+    )
+
+    assert isinstance(record, ApiKeyRecordModel)
     assert principal.tenant_id == "tenant-a"
 
 
 def test_api_key_service_rejects_revoked_key() -> None:
-    session = _session()
-    service = ApiKeyService(session)
+    service = ApiKeyService()
+
     plaintext, record = service.create_key(tenant_id="tenant-a", scopes=())
     service.revoke_key(key_id=record.key_id)
+
     with pytest.raises(ValueError):
-        service.authenticate_machine(tenant_id="tenant-a", key_id=record.key_id, plaintext=plaintext)
+        service.authenticate_machine(
+            tenant_id="tenant-a",
+            key_id=record.key_id,
+            plaintext=plaintext,
+        )
+
+
+def test_api_key_service_memory_mode_returns_record_not_wrapper() -> None:
+    service = ApiKeyService()
+
+    plaintext, record = service.create_key(
+        tenant_id="tenant-a",
+        scopes=("execution:queue",),
+    )
+
+    principal = service.authenticate_machine(
+        tenant_id="tenant-a",
+        key_id=record.key_id,
+        plaintext=plaintext,
+    )
+
+    assert isinstance(record, ApiKeyRecordModel)
+    assert record.tenant_id == "tenant-a"
+    assert principal.tenant_id == "tenant-a"
