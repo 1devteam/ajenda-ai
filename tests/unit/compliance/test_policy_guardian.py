@@ -108,3 +108,15 @@ def test_mission_uses_same_compliance_contract() -> None:
 
     assert decision.allowed is False
     assert "AI disclosure" in decision.reason
+
+
+def test_marketing_requires_opt_out_even_under_eu_jurisdiction() -> None:
+    decision = _guardian().evaluate_task(
+        _task(
+            category=ComplianceCategory.MARKETING.value,
+            jurisdiction=ComplianceJurisdiction.EU.value,
+        )
+    )
+
+    assert decision.allowed is False
+    assert "opt-out" in decision.reason
