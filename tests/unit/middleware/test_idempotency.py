@@ -7,6 +7,7 @@ Verifies:
 - GET requests pass through without idempotency logic
 - Idempotency-Replayed header is set correctly
 """
+
 from __future__ import annotations
 
 import uuid
@@ -19,7 +20,6 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from backend.middleware.idempotency import IdempotencyMiddleware, _store
-
 
 _call_count = 0
 

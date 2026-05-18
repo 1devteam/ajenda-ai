@@ -3,6 +3,7 @@
 Verifies that all required security headers are injected on every response,
 including error responses and health probe responses.
 """
+
 from __future__ import annotations
 
 import pytest

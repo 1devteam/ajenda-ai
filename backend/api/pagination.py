@@ -13,7 +13,12 @@ Design:
 
 Usage in a route::
 
-    from backend.api.pagination import PaginatedResponse, encode_cursor, decode_cursor, MAX_PAGE_SIZE
+    from backend.api.pagination import (
+        MAX_PAGE_SIZE,
+        PaginatedResponse,
+        decode_cursor,
+        encode_cursor,
+    )
 
     @router.get("/tasks", response_model=PaginatedResponse[TaskResponse])
     def list_tasks(
@@ -25,11 +30,12 @@ Usage in a route::
         tasks, next_cursor = task_repo.list_page(limit=limit, after_id=after_id)
         return PaginatedResponse.build(items=tasks, next_cursor=next_cursor, limit=limit)
 """
+
 from __future__ import annotations
 
 import base64
 import uuid
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -62,7 +68,7 @@ def decode_cursor(cursor: str) -> uuid.UUID:
         raise ValueError(f"Invalid pagination cursor: {cursor!r}") from exc
 
 
-class PaginatedResponse(BaseModel, Generic[T]):
+class PaginatedResponse[T](BaseModel):
     """Generic paginated response envelope.
 
     Attributes:
@@ -90,7 +96,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
         items: list[T],
         next_cursor: str | None,
         limit: int,
-    ) -> "PaginatedResponse[T]":
+    ) -> PaginatedResponse[T]:
         """Construct a PaginatedResponse from a list of items and an optional next cursor."""
         return cls(
             items=items,

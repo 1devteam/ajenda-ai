@@ -14,6 +14,7 @@ monkeypatching.
 Rate limit decisions are keyed by (tenant_id, principal_id, route) so that
 different tenants and principals have independent buckets.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -23,7 +24,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from backend.app.config import get_settings
-from backend.rate_limit.limiter import RateLimitKey, RateLimiter
+from backend.rate_limit.limiter import RateLimiter, RateLimitKey
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -39,7 +40,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 window_seconds=settings.rate_limit_window_seconds,
             )
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         principal = getattr(request.state, "principal", None)
         tenant_id = getattr(request.state, "tenant_id", None) or "anonymous"
         principal_id = getattr(principal, "subject_id", "anonymous")
@@ -53,7 +56,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not decision.allowed:
             return JSONResponse(
                 status_code=429,
-                content={"detail": "rate limit exceeded", "retry_after": decision.retry_after_seconds},
+                content={
+                    "detail": "rate limit exceeded",
+                    "retry_after": decision.retry_after_seconds,
+                },
                 headers={"Retry-After": str(decision.retry_after_seconds)},
             )
         response = await call_next(request)

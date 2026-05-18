@@ -1,5 +1,7 @@
-from backend.middleware.auth_context import AuthContextMiddleware
-from backend.middleware.request_context import RequestContextMiddleware
-from backend.middleware.tenant_context import TenantContextMiddleware
+"""Middleware package for Ajenda AI.
 
-__all__ = ["AuthContextMiddleware", "RequestContextMiddleware", "TenantContextMiddleware"]
+Import middleware classes from their concrete modules to avoid package-import
+side effects during isolated middleware tests.
+"""
+
+__all__: list[str] = []
