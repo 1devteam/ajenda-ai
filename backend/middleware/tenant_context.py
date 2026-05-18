@@ -18,6 +18,7 @@ _TENANT_EXEMPT_PREFIXES = (
     "/system/health",
     "/system/readiness",
     "/v1/auth",
+    "/v1/admin",
     "/v1/system/health",
     "/v1/system/readiness",
     "/v1/observability/metrics",

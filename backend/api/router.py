@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from backend.api.routes.admin import router as admin_router
 from backend.api.routes.api_keys import router as api_keys_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.branch import router as branch_router
@@ -58,6 +59,7 @@ def build_api_router() -> APIRouter:
 
     # --- v1 versioned business routes ---
     v1 = APIRouter(prefix="/v1")
+    v1.include_router(admin_router)  # /v1/admin/*
     v1.include_router(auth_router)  # /v1/auth/*
     v1.include_router(api_keys_router)  # /v1/api-keys/*
     v1.include_router(mission_router)  # /v1/missions/*
