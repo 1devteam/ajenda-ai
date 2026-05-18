@@ -4,13 +4,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.domain.mission import utcnow
 from backend.db.base import Base
-from backend.domain.enums import ExecutionTaskState
+from backend.domain.enums import ComplianceCategory, ComplianceJurisdiction, ExecutionTaskState
+from backend.domain.mission import utcnow
 
 
 class ExecutionTask(Base):
@@ -47,6 +47,17 @@ class ExecutionTask(Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=ExecutionTaskState.PLANNED.value
     )
+    compliance_category: Mapped[str] = mapped_column(
+        String(64), nullable=False, default=ComplianceCategory.OPERATIONAL.value
+    )
+    jurisdiction: Mapped[str] = mapped_column(
+        String(64), nullable=False, default=ComplianceJurisdiction.GLOBAL.value
+    )
+    requires_human_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
