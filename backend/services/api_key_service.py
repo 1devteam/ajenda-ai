@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from backend.auth.api_keys import ApiKeyHasher
-from backend.auth.permissions import Permission
 from backend.auth.principal import MachinePrincipal, PrincipalType
 from backend.auth.rbac import RbacAuthorizer
 from backend.domain.api_key_record import ApiKeyRecordModel
@@ -28,28 +27,29 @@ class ApiKeyService:
         self._audit = AuditEventRepository(session) if session is not None else None
         self._memory_store: dict[str, StoredApiKey] = {}
 
-    def create_key(self, *, tenant_id: str, scopes: tuple[str, ...]) -> tuple[str, ApiKeyRecordModel | StoredApiKey]:
+    def create_key(
+        self, *, tenant_id: str, scopes: tuple[str, ...]
+    ) -> tuple[str, ApiKeyRecordModel]:
         plaintext, record = self._hasher.build_record(tenant_id=tenant_id, scopes=scopes)
-        if self._repo is not None:
-            db_record = self._repo.add(
-                ApiKeyRecordModel(
-                    tenant_id=tenant_id,
-                    key_id=record.key_id,
-                    hashed_secret=record.hashed_secret,
-                    scopes_json=list(record.scopes),
-                    revoked=False,
-                )
-            )
-            self._emit_audit(tenant_id=tenant_id, action="api_key_created", details=f"API key {db_record.key_id} created")
-            return plaintext, db_record
-        self._memory_store[record.key_id] = StoredApiKey(record=ApiKeyRecordModel(
+        api_key_record = ApiKeyRecordModel(
             tenant_id=tenant_id,
             key_id=record.key_id,
             hashed_secret=record.hashed_secret,
             scopes_json=list(record.scopes),
             revoked=False,
-        ))
-        return plaintext, self._memory_store[record.key_id]
+        )
+
+        if self._repo is not None:
+            db_record = self._repo.add(api_key_record)
+            self._emit_audit(
+                tenant_id=tenant_id,
+                action="api_key_created",
+                details=f"API key {db_record.key_id} created",
+            )
+            return plaintext, db_record
+
+        self._memory_store[record.key_id] = StoredApiKey(record=api_key_record)
+        return plaintext, api_key_record
 
     def revoke_key(self, *, key_id: str) -> None:
         if self._repo is not None:
@@ -57,14 +57,20 @@ class ApiKeyService:
             if record is None:
                 raise ValueError("api key not found")
             self._repo.revoke(record)
-            self._emit_audit(tenant_id=record.tenant_id, action="api_key_revoked", details=f"API key {record.key_id} revoked")
+            self._emit_audit(
+                tenant_id=record.tenant_id,
+                action="api_key_revoked",
+                details=f"API key {record.key_id} revoked",
+            )
             return
         stored = self._memory_store.get(key_id)
         if stored is None:
             raise ValueError("api key not found")
         stored.record.revoked = True
 
-    def authenticate_machine(self, *, tenant_id: str, key_id: str, plaintext: str) -> MachinePrincipal:
+    def authenticate_machine(
+        self, *, tenant_id: str, key_id: str, plaintext: str
+    ) -> MachinePrincipal:
         record = self._load_record(key_id)
         if record.tenant_id != tenant_id:
             raise ValueError("cross-tenant api key use denied")
@@ -73,7 +79,11 @@ class ApiKeyService:
         if not self._hasher.verify(plaintext=plaintext, hashed_secret=record.hashed_secret):
             raise ValueError("invalid api key")
         permissions = self._rbac.resolve_permissions(("machine_executor",))
-        self._emit_audit(tenant_id=tenant_id, action="api_key_authenticated", details=f"API key {record.key_id} used")
+        self._emit_audit(
+            tenant_id=tenant_id,
+            action="api_key_authenticated",
+            details=f"API key {record.key_id} used",
+        )
         return MachinePrincipal(
             subject_id=f"machine:{record.key_id}",
             tenant_id=tenant_id,
