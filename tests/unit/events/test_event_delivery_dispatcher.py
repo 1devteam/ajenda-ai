@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from backend.domain.enums import EventDeliveryState
 from backend.domain.event_delivery import EventDelivery
@@ -187,8 +187,11 @@ def test_dispatch_due_flushes_claim_before_transport() -> None:
         deliveries=[delivery],
         transport_result=EventDeliveryTransportResult.success(),
     )
+    calls = MagicMock()
+    calls.attach_mock(session.flush, "flush")
+    calls.attach_mock(transport.deliver, "deliver")
 
     dispatcher.dispatch_due()
 
     assert session.flush.call_count == 2
-    assert session.flush.call_args_list[0] < transport.deliver.call_args_list[0]
+    calls.assert_has_calls([call.flush(), call.deliver(delivery)])
