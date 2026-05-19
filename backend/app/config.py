@@ -42,7 +42,9 @@ class Settings(BaseSettings):
     )
     queue_adapter: Literal["local", "redis"] = Field(default="local", alias="AJENDA_QUEUE_ADAPTER")
     queue_url: str | None = Field(default=None, alias="AJENDA_QUEUE_URL")
-    worker_poll_interval_seconds: float = Field(default=2.0, alias="AJENDA_WORKER_POLL_INTERVAL_SECONDS")
+    worker_poll_interval_seconds: float = Field(
+        default=2.0, alias="AJENDA_WORKER_POLL_INTERVAL_SECONDS"
+    )
     # Dynamic worker identity: prefer POD_NAME (K8s), fall back to hostname+pid
     worker_identity: str = Field(
         default_factory=lambda: os.getenv("POD_NAME") or f"{socket.gethostname()}-{os.getpid()}",

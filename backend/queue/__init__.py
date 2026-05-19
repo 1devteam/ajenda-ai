@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from backend.app.config import Settings
+from backend.queue.adapters.redis_adapter import RedisQueueAdapter
 from backend.queue.base import QueueAdapter, QueueMessage, QueueOperationResult
 from backend.queue.local_adapter import LocalQueueAdapter
-from backend.queue.adapters.redis_adapter import RedisQueueAdapter
 
 
 def build_queue_adapter(settings: Settings) -> QueueAdapter:
@@ -17,10 +17,10 @@ def build_queue_adapter(settings: Settings) -> QueueAdapter:
 
 
 __all__ = [
+    "LocalQueueAdapter",
     "QueueAdapter",
     "QueueMessage",
     "QueueOperationResult",
-    "LocalQueueAdapter",
     "RedisQueueAdapter",
     "build_queue_adapter",
 ]

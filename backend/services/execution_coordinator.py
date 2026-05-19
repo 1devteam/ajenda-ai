@@ -10,12 +10,13 @@ This implementation:
 - Logs the decision mode for observability
 - Rolls back DB state if queue enqueue fails (prevents split-brain)
 """
+
 from __future__ import annotations
 
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -85,7 +86,7 @@ class ExecutionCoordinator:
                 fleet_id=task.fleet_id,
                 branch_id=task.branch_id,
                 payload=task.metadata_json,
-                enqueued_at=datetime.now(timezone.utc),
+                enqueued_at=datetime.now(UTC),
             )
         )
 

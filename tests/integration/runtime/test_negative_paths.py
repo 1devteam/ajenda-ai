@@ -1,5 +1,4 @@
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from backend.queue.base import QueueMessage
@@ -17,7 +16,7 @@ def test_duplicate_claim_is_blocked() -> None:
             fleet_id=None,
             branch_id=None,
             payload={},
-            enqueued_at=datetime.now(timezone.utc),
+            enqueued_at=datetime.now(UTC),
         )
     )
     first = adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1")
@@ -36,7 +35,7 @@ def test_cross_tenant_claim_is_rejected_by_absence() -> None:
             fleet_id=None,
             branch_id=None,
             payload={},
-            enqueued_at=datetime.now(timezone.utc),
+            enqueued_at=datetime.now(UTC),
         )
     )
     claimed = adapter.claim_task(tenant_id="tenant-b", worker_id="worker-1")

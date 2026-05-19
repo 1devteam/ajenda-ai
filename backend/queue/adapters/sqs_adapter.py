@@ -16,7 +16,9 @@ class SqsQueueAdapter(QueueAdapter):
     def complete_task(self, *, tenant_id: str, task_id, worker_id: str) -> QueueOperationResult:
         return QueueOperationResult(ok=True)
 
-    def fail_task(self, *, tenant_id: str, task_id, worker_id: str, reason: str) -> QueueOperationResult:
+    def fail_task(
+        self, *, tenant_id: str, task_id, worker_id: str, reason: str
+    ) -> QueueOperationResult:
         return QueueOperationResult(ok=True)
 
     def release_lease(self, *, tenant_id: str, task_id, worker_id: str) -> QueueOperationResult:

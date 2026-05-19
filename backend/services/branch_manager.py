@@ -45,7 +45,9 @@ class BranchManager:
                 branch_id=branch.id,
                 relationship_type="branch_created",
                 relationship_reason=reason,
-                metadata_json={"parent_branch_id": str(parent_branch_id) if parent_branch_id else None},
+                metadata_json={
+                    "parent_branch_id": str(parent_branch_id) if parent_branch_id else None
+                },
             )
         )
         self._audit.append(

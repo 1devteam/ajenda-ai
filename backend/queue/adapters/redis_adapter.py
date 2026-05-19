@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import socket
 import uuid
-from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -30,7 +29,9 @@ class RedisQueueAdapter(QueueAdapter):
     - claim_task() returns None only when Redis checked the queue and it was empty
     """
 
-    def __init__(self, redis_url: str, *, heartbeat_ttl_seconds: int = 90, block_seconds: int = 1) -> None:
+    def __init__(
+        self, redis_url: str, *, heartbeat_ttl_seconds: int = 90, block_seconds: int = 1
+    ) -> None:
         parsed = urlparse(redis_url)
         if parsed.scheme != "redis":
             raise ValueError("Redis queue adapter requires redis:// URL")
@@ -55,7 +56,7 @@ class RedisQueueAdapter(QueueAdapter):
             if not isinstance(result, int):
                 return QueueOperationResult(ok=False, reason="redis did not confirm enqueue")
             return QueueOperationResult(ok=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"enqueue failed: {exc}")
 
     def claim_task(self, *, tenant_id: str, worker_id: str) -> QueueMessage | None:
@@ -75,17 +76,21 @@ class RedisQueueAdapter(QueueAdapter):
             message = self._decode_message(result)
             self._touch_lease_key(tenant_id=tenant_id, task_id=message.task_id, worker_id=worker_id)
             return message
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise RuntimeError(f"claim_task failed: {exc}") from exc
 
-    def heartbeat(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+    def heartbeat(
+        self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str
+    ) -> QueueOperationResult:
         try:
             self._touch_lease_key(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
             return QueueOperationResult(ok=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"heartbeat failed: {exc}")
 
-    def complete_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+    def complete_task(
+        self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str
+    ) -> QueueOperationResult:
         try:
             payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
             if payload is None:
@@ -95,10 +100,12 @@ class RedisQueueAdapter(QueueAdapter):
             if not isinstance(removed, int) or removed < 1:
                 return QueueOperationResult(ok=False, reason="processing payload was not removed")
             return QueueOperationResult(ok=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"complete_task failed: {exc}")
 
-    def fail_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str, reason: str) -> QueueOperationResult:
+    def fail_task(
+        self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str, reason: str
+    ) -> QueueOperationResult:
         try:
             payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
             if payload is None:
@@ -120,19 +127,25 @@ class RedisQueueAdapter(QueueAdapter):
             self._execute(["LPUSH", self._dead_letter_key(tenant_id), failed_envelope])
             self._execute(["DEL", self._lease_key(tenant_id, task_id)])
             return QueueOperationResult(ok=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"fail_task failed: {exc}")
 
-    def release_lease(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+    def release_lease(
+        self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str
+    ) -> QueueOperationResult:
         try:
             deleted = self._execute(["DEL", self._lease_key(tenant_id, task_id)])
             if not isinstance(deleted, int):
-                return QueueOperationResult(ok=False, reason="lease delete returned unexpected result")
+                return QueueOperationResult(
+                    ok=False, reason="lease delete returned unexpected result"
+                )
             return QueueOperationResult(ok=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"release_lease failed: {exc}")
 
-    def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
+    def move_to_dead_letter(
+        self, *, tenant_id: str, task_id: uuid.UUID, reason: str
+    ) -> QueueOperationResult:
         try:
             payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
             if payload is None:
@@ -153,7 +166,7 @@ class RedisQueueAdapter(QueueAdapter):
             self._execute(["LPUSH", self._dead_letter_key(tenant_id), envelope])
             self._execute(["DEL", self._lease_key(tenant_id, task_id)])
             return QueueOperationResult(ok=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"move_to_dead_letter failed: {exc}")
 
     def _touch_lease_key(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> None:
@@ -242,10 +255,10 @@ class RedisQueueAdapter(QueueAdapter):
             return self._read_response(file_obj)
 
     def _write_command(self, file_obj: Any, command: list[str]) -> None:
-        encoded = f"*{len(command)}\r\n".encode("utf-8")
+        encoded = f"*{len(command)}\r\n".encode()
         for part in command:
             item = part.encode("utf-8")
-            encoded += f"${len(item)}\r\n".encode("utf-8") + item + b"\r\n"
+            encoded += f"${len(item)}\r\n".encode() + item + b"\r\n"
         file_obj.write(encoded)
         file_obj.flush()
 

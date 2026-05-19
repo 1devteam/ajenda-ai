@@ -10,6 +10,7 @@ This implementation:
 - Enforces issuer, audience, and expiry claims
 - Fails closed on any error — no partial validation
 """
+
 from __future__ import annotations
 
 import logging
@@ -60,7 +61,7 @@ class JwksCache:
                 logger.info("jwks_refreshed", extra={"key_count": len(self._keys)})
             else:
                 logger.warning("jwks_returned_empty_keyset", extra={"uri": self._jwks_uri})
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("jwks_refresh_failed", extra={"error": str(exc)})
             # Retain stale keys on transient failure — better than hard outage
             if not self._keys:
@@ -112,7 +113,7 @@ class JwtValidator:
                 )
                 return claims
             except ExpiredSignatureError:
-                raise JwtValidationError("token has expired")
+                raise JwtValidationError("token has expired") from None
             except JWTClaimsError as exc:
                 raise JwtValidationError(f"token claims invalid: {exc}") from exc
             except JWTError as exc:

@@ -8,6 +8,8 @@ from backend.app.dependencies.db import get_db_session
 
 router = APIRouter(tags=["health"])
 
+_DB_SESSION = Depends(get_db_session)
+
 
 @router.get("/health")
 def health() -> dict[str, str]:
@@ -15,6 +17,6 @@ def health() -> dict[str, str]:
 
 
 @router.get("/readiness")
-def readiness(db: Session = Depends(get_db_session)) -> dict[str, str]:
+def readiness(db: Session = _DB_SESSION) -> dict[str, str]:
     db.execute(text("SELECT 1"))
     return {"status": "ready"}

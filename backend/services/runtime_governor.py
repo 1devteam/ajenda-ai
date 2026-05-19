@@ -10,6 +10,7 @@ This implementation:
 - RESTRICTED: execution_allowed=False (operator-imposed halt)
 - RECOVERY: execution_allowed=False (active recovery in progress)
 """
+
 from __future__ import annotations
 
 import logging
@@ -73,7 +74,11 @@ class RuntimeGovernor:
 
         logger.warning(
             "runtime_governor_degraded",
-            extra={"reason": assessment.failure_reason if hasattr(assessment, "failure_reason") else "unknown"},
+            extra={
+                "reason": assessment.failure_reason
+                if hasattr(assessment, "failure_reason")
+                else "unknown"
+            },
         )
         return RuntimeDecision(
             mode=RuntimeMode.DEGRADED,

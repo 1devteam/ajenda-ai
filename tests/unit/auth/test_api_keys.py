@@ -1,5 +1,3 @@
-import pytest
-
 from backend.auth.api_keys import ApiKeyHasher
 
 

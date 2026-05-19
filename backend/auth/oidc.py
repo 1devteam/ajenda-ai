@@ -3,6 +3,7 @@
 Wraps JwtValidator with application-level settings injection.
 The OidcAuthenticator is the single entry point for all Bearer token validation.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -9,6 +9,7 @@ Keys created via the API are immediately visible to authentication.
 API Key format: ``X-Api-Key: <key_id>.<plaintext_secret>``
 Bearer format:  ``Authorization: Bearer <jwt>``
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,7 +21,6 @@ from starlette.responses import JSONResponse, Response
 
 from backend.auth.jwt_validator import JwtValidationError
 from backend.auth.oidc import OidcAuthenticator
-from backend.repositories.api_key_repository import ApiKeyRepository
 from backend.services.api_key_service import ApiKeyService
 
 logger = logging.getLogger("ajenda.auth_context")
@@ -67,7 +67,9 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 if tenant_id is None:
                     return JSONResponse(
                         status_code=400,
-                        content={"detail": "X-Tenant-Id header required for API key authentication"},
+                        content={
+                            "detail": "X-Tenant-Id header required for API key authentication"
+                        },
                     )
                 return await self._handle_api_key(request, call_next, tenant_id, api_key_header)
 
@@ -101,7 +103,6 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         # No in-memory fallback exists. This is intentional.
         db_runtime = request.app.state.database_runtime
         with db_runtime.session_scope() as session:
-            repo = ApiKeyRepository(session)
             service = ApiKeyService(session=session)
             try:
                 principal = service.authenticate_machine(

@@ -18,6 +18,8 @@ from backend.services.tenant_lifecycle import TenantLifecycleService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+_DB_SESSION = Depends(get_db_session)
+
 
 class ProvisionTenantRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
@@ -64,7 +66,7 @@ def _require_admin(request: Request) -> None:
 def provision_tenant(
     body: ProvisionTenantRequest,
     request: Request,
-    db: Session = Depends(get_db_session),
+    db: Session = _DB_SESSION,
 ) -> ProvisionTenantResponse:
     _require_admin(request)
     try:
@@ -92,7 +94,7 @@ def suspend_tenant(
     tenant_id: uuid.UUID,
     body: SuspendTenantRequest,
     request: Request,
-    db: Session = Depends(get_db_session),
+    db: Session = _DB_SESSION,
 ) -> dict[str, str]:
     _require_admin(request)
     try:
@@ -116,7 +118,7 @@ def suspend_tenant(
 def reactivate_tenant(
     tenant_id: uuid.UUID,
     request: Request,
-    db: Session = Depends(get_db_session),
+    db: Session = _DB_SESSION,
 ) -> dict[str, str]:
     _require_admin(request)
     try:
@@ -133,7 +135,7 @@ def reactivate_tenant(
 def delete_tenant(
     tenant_id: uuid.UUID,
     request: Request,
-    db: Session = Depends(get_db_session),
+    db: Session = _DB_SESSION,
 ) -> dict[str, str]:
     _require_admin(request)
     try:
@@ -151,7 +153,7 @@ def change_plan(
     tenant_id: uuid.UUID,
     body: ChangePlanRequest,
     request: Request,
-    db: Session = Depends(get_db_session),
+    db: Session = _DB_SESSION,
 ) -> dict[str, str]:
     _require_admin(request)
     try:
@@ -172,7 +174,7 @@ def change_plan(
 def get_quota_status(
     tenant_id: uuid.UUID,
     request: Request,
-    db: Session = Depends(get_db_session),
+    db: Session = _DB_SESSION,
 ) -> dict[str, Any]:
     _require_admin(request)
     try:

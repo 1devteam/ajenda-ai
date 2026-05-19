@@ -11,6 +11,9 @@ from backend.services.branch_manager import BranchManager
 
 router = APIRouter(prefix="/branches", tags=["branches"])
 
+_REQUEST_TENANT_ID = Depends(get_request_tenant_id)
+_TENANT_DB_SESSION = Depends(get_tenant_db_session)
+
 
 class BranchCreateRequest(BaseModel):
     mission_id: UUID
@@ -21,8 +24,8 @@ class BranchCreateRequest(BaseModel):
 @router.post("")
 def create_branch(
     body: BranchCreateRequest,
-    tenant_id: str = Depends(get_request_tenant_id),
-    db: Session = Depends(get_tenant_db_session),
+    tenant_id: str = _REQUEST_TENANT_ID,
+    db: Session = _TENANT_DB_SESSION,
 ) -> dict[str, str]:
     manager = BranchManager(db)
     branch = manager.create_branch(
