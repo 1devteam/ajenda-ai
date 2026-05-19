@@ -7,6 +7,15 @@ import httpx
 from backend.domain.event_delivery import EventDelivery
 from backend.services.event_delivery_dispatcher import EventDeliveryTransportResult
 
+_RESERVED_HEADER_NAMES = {
+    "content-type",
+    "user-agent",
+    "x-ajenda-delivery-id",
+    "x-ajenda-tenant-id",
+    "x-ajenda-event-type",
+    "x-ajenda-idempotency-key",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class HttpEventDeliveryTransportConfig:
@@ -54,13 +63,22 @@ class HttpEventDeliveryTransport:
         json: dict[str, object],
     ) -> httpx.Response:
         if self._client is not None:
-            return self._client.post(url, headers=headers, json=json)
+            return self._client.post(
+                url,
+                headers=headers,
+                json=json,
+                timeout=self._config.timeout_seconds,
+            )
 
         with httpx.Client(timeout=self._config.timeout_seconds) as client:
             return client.post(url, headers=headers, json=json)
 
     def _build_headers(self, delivery: EventDelivery) -> dict[str, str]:
-        headers = dict(delivery.headers_json or {})
+        headers = {
+            key: value
+            for key, value in (delivery.headers_json or {}).items()
+            if key.lower() not in _RESERVED_HEADER_NAMES
+        }
         headers.update(
             {
                 "Content-Type": "application/json",
