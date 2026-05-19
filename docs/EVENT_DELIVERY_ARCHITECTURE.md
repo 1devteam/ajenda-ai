@@ -6,13 +6,15 @@ Event delivery is Ajenda's durable outbox foundation for tenant-owned events. It
 
 ## Current foundation
 
-The current implementation has five layers:
+The current implementation has seven layers:
 
 1. Event delivery state vocabulary.
 2. Tenant-owned event delivery domain model.
 3. Event delivery migration and database contract.
 4. Event delivery repository state transitions.
 5. Event delivery service enqueue/cancel audit surface.
+6. Event delivery dispatcher coordination.
+7. Event delivery transport protocol boundary.
 
 ## State machine
 
@@ -132,6 +134,7 @@ Important repository rules:
 
 - `create()` initializes Python-side defaults before flush, including `attempts=0` and `pending` status.
 - `get_for_tenant()` rejects missing and cross-tenant records with the same not-found error.
+- `get_due()` selects due `pending` and `retrying` records with `FOR UPDATE SKIP LOCKED` semantics through `with_for_update(skip_locked=True)`.
 - `mark_delivering()` only accepts attemptable records.
 - `mark_delivered()` only accepts records currently marked `delivering`.
 - `mark_failed_attempt()` moves records to `retrying` until `max_attempts` is reached, then moves them to `dead_lettered`.
@@ -148,9 +151,34 @@ Implemented operations:
 
 The service writes audit evidence for event delivery enqueue and cancellation actions. This keeps event delivery aligned with Ajenda's evidence-first architecture instead of hiding integration activity inside transport code.
 
+## Dispatcher contract
+
+`EventDeliveryDispatcher` coordinates due delivery attempts through an injected `EventDeliveryTransport` implementation.
+
+Implemented dispatcher types:
+
+- `EventDeliveryTransport`
+- `EventDeliveryTransportResult`
+- `EventDeliveryDispatchResult`
+- `EventDeliveryDispatcher`
+
+Implemented dispatcher behavior:
+
+- asks `EventDeliveryRepository.get_due()` for due records
+- skips terminal or non-attemptable records defensively
+- marks each attempt as `delivering`
+- flushes the `delivering` claim before transport is called
+- calls the injected transport boundary
+- marks successful transport results as `delivered`
+- converts transport failure results into retry or dead-letter transitions
+- converts transport exceptions into failed attempts
+- returns attempted, delivered, retrying, and dead-lettered counts
+
+The dispatcher performs no direct network I/O. Network behavior belongs behind the `EventDeliveryTransport` protocol.
+
 ## Proof gates
 
-The event delivery foundation is protected by three proof layers.
+The event delivery foundation is protected by five proof layers.
 
 Foundation unit tests:
 
@@ -160,11 +188,22 @@ Contract hardening tests:
 
 - `tests/contract/test_event_delivery_contracts.py`
 
+Architecture documentation contract tests:
+
+- `tests/contract/test_event_delivery_architecture_doc.py`
+
 Opt-in live persistence tests:
 
 - `tests/integration/events/test_event_delivery_persistence_real.py`
 
-The live persistence proof skips unless `AJENDA_TEST_DATABASE_URL` is set. This matches the repo's existing live dependency pattern and keeps the default validation suite deterministic.
+Dispatcher tests:
+
+- `tests/unit/events/test_event_delivery_dispatcher.py`
+- `tests/integration/events/test_event_delivery_dispatcher_real.py`
+
+The live persistence proofs skip unless `AJENDA_TEST_DATABASE_URL` is set. This matches the repo's existing live dependency pattern and keeps the default validation suite deterministic.
+
+The dispatcher live persistence proof also avoids deleting unrelated live database rows. It skips when unrelated due event deliveries already exist and cleans up test-owned rows in `finally` blocks.
 
 ## Current boundary
 
@@ -176,14 +215,21 @@ Implemented now:
 - repository state transitions
 - enqueue/cancel service surface
 - audit event creation for enqueue/cancel
+- dispatcher coordination contract
+- transport protocol boundary
+- claim flush before transport
+- transport exception failure handling
+- `FOR UPDATE SKIP LOCKED` due-row selection
 - default contract proof
 - opt-in live persistence proof
+- opt-in dispatcher persistence proof
+- dispatcher live cleanup hardening
 
 Not implemented yet:
 
 - HTTP webhook routes
 - delivery endpoint registration
-- external HTTP transport
+- external HTTP transport implementation
 - signing or signature verification
 - retry worker loop
 - dead-letter operations API
@@ -195,11 +241,13 @@ Event delivery is the messenger layer for mission-driven execution.
 
 Mission-driven execution decides and performs work. Event delivery records and reports what happened. This lets Ajenda notify external systems without turning runtime actions into hidden network side effects.
 
-The next implementation layer should add a dispatcher around this foundation while preserving these constraints:
+The next implementation layer should add an HTTP transport implementation behind the existing transport protocol while preserving these constraints:
 
 - tenant ownership remains mandatory
 - idempotency remains tenant-scoped
 - delivery attempts remain durable
-- failures move through retry and dead-letter states
-- transport behavior stays outside the repository
+- due delivery selection remains lock-safe
+- claims are flushed before transport is invoked
+- transport exceptions move through retry and dead-letter states
+- repository code remains transport-free
 - audit evidence remains visible
