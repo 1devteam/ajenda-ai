@@ -24,3 +24,7 @@ alembic upgrade head
 uvicorn backend.main:app --reload
 pytest
 ```
+
+## Rebuild validation
+
+The authoritative rebuild validation commands are documented in `docs/validation/rebuild-validation-baseline.md`.
