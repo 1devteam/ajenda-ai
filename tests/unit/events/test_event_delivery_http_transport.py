@@ -94,6 +94,70 @@ def test_http_transport_prevents_custom_headers_from_overriding_reserved_headers
     assert request.headers["X-Custom-Header"] == "custom-value"
 
 
+def test_http_transport_strips_case_insensitive_reserved_header_collisions() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    delivery = _delivery(
+        {
+            "content-type": "text/plain",
+            "user-agent": "spoofed-agent",
+            "x-ajenda-delivery-id": "spoofed-delivery",
+            "x-ajenda-tenant-id": "spoofed-tenant",
+            "x-ajenda-event-type": "spoofed.event",
+            "x-ajenda-idempotency-key": "spoofed-key",
+            "X-Custom-Header": "custom-value",
+        }
+    )
+    transport = HttpEventDeliveryTransport(
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        config=HttpEventDeliveryTransportConfig(user_agent="Ajenda-Test/1.0"),
+    )
+
+    result = transport.deliver(delivery)
+
+    assert result.succeeded is True
+    request = requests[0]
+    assert request.headers.get_list("content-type") == ["application/json"]
+    assert request.headers.get_list("user-agent") == ["Ajenda-Test/1.0"]
+    assert request.headers.get_list("x-ajenda-delivery-id") == [
+        "11111111-1111-1111-1111-111111111111"
+    ]
+    assert request.headers.get_list("x-ajenda-tenant-id") == ["tenant-a"]
+    assert request.headers.get_list("x-ajenda-event-type") == ["mission.completed"]
+    assert request.headers.get_list("x-ajenda-idempotency-key") == [
+        "tenant-a:mission.completed:mission-1"
+    ]
+    assert request.headers["X-Custom-Header"] == "custom-value"
+
+
+def test_http_transport_applies_configured_timeout_to_injected_client() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    transport = HttpEventDeliveryTransport(
+        client=httpx.Client(timeout=None, transport=httpx.MockTransport(handler)),
+        config=HttpEventDeliveryTransportConfig(timeout_seconds=17.5),
+    )
+
+    result = transport.deliver(_delivery())
+
+    assert result.succeeded is True
+    request = requests[0]
+    assert request.extensions["timeout"] == {
+        "connect": 17.5,
+        "read": 17.5,
+        "write": 17.5,
+        "pool": 17.5,
+    }
+
+
 def test_http_transport_treats_non_2xx_response_as_failure() -> None:
     transport = HttpEventDeliveryTransport(
         client=httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(503)))
