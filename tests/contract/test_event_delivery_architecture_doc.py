@@ -13,18 +13,25 @@ EVENT_REQUIRED_TERMS = (
     "EventDeliveryTransport",
     "EventDeliveryTransportResult",
     "EventDeliveryDispatchResult",
+    "HttpEventDeliveryTransport",
+    "HttpEventDeliveryTransportConfig",
     "tenant_id + idempotency_key",
     "with_for_update(skip_locked=True)",
     "claim before transport",
     "transport exceptions",
+    "httpx",
+    "reserved Ajenda header collisions case-insensitively",
+    "HttpEventDeliveryTransportConfig.timeout_seconds",
     "tests/unit/events/test_event_delivery_foundation.py",
     "tests/unit/events/test_event_delivery_dispatcher.py",
+    "tests/unit/events/test_event_delivery_http_transport.py",
     "tests/contract/test_event_delivery_contracts.py",
     "tests/integration/events/test_event_delivery_persistence_real.py",
     "tests/integration/events/test_event_delivery_dispatcher_real.py",
     "AJENDA_TEST_DATABASE_URL",
     "Not implemented yet",
-    "external HTTP transport implementation",
+    "HTTP webhook routes",
+    "delivery endpoint registration",
     "retry worker loop",
 )
 
@@ -34,6 +41,13 @@ def test_event_delivery_architecture_doc_exists_and_defines_contract() -> None:
 
     for term in EVENT_REQUIRED_TERMS:
         assert term in text
+
+
+def test_event_delivery_architecture_doc_no_longer_lists_http_transport_as_missing() -> None:
+    text = EVENT_DOC.read_text()
+
+    assert "external HTTP transport implementation" not in text
+    assert "HTTP event delivery transport implementation" in text
 
 
 def test_readme_links_event_delivery_architecture_doc() -> None:
