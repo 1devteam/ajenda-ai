@@ -25,6 +25,10 @@ uvicorn backend.main:app --reload
 pytest
 ```
 
+## Architecture docs
+
+- `docs/SAAS_ARCHITECTURE.md`
+
 ## Rebuild validation
 
 The authoritative rebuild validation commands are documented in `docs/validation/rebuild-validation-baseline.md`.
