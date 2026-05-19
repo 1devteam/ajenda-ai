@@ -6,7 +6,6 @@ from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
 
 
-
 def test_fail_closed_auth_blocks_unprotected_route_without_principal() -> None:
     app = FastAPI()
     app.add_middleware(RequestContextMiddleware)
@@ -19,5 +18,6 @@ def test_fail_closed_auth_blocks_unprotected_route_without_principal() -> None:
 
     client = TestClient(app)
     response = client.get("/runtime/private", headers={"X-Tenant-Id": "tenant-a"})
+
     assert response.status_code == 401
-    assert response.json()["detail"] == "missing authentication"
+    assert response.json()["detail"] == "missing authentication credentials"

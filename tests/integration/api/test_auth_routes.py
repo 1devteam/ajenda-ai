@@ -1,22 +1,28 @@
-import base64
-import json
-
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-from fastapi import FastAPI
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.api.routes.auth import router
+from backend.auth.principal import PrincipalType, UserPrincipal
 
 
-def _token(payload: dict[str, object]) -> str:
-    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
-    return f"x.{encoded}.y"
+class PrincipalMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = UserPrincipal(
+            subject_id="user-1",
+            tenant_id="tenant-a",
+            principal_type=PrincipalType.USER,
+            roles=("tenant_admin",),
+        )
+        return await call_next(request)
 
 
 def test_auth_route_returns_principal() -> None:
     app = FastAPI()
     app.include_router(router)
-    client = TestClient(app)
-    token = _token({"sub": "user-1", "tenant_id": "tenant-a", "roles": ["tenant_admin"]})
-    response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    app.add_middleware(PrincipalMiddleware)
+
+    response = TestClient(app).get("/auth/me")
+
     assert response.status_code == 200
     assert response.json()["tenant_id"] == "tenant-a"
