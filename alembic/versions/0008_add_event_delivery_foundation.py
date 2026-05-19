@@ -25,8 +25,18 @@ def upgrade() -> None:
         sa.Column("event_type", sa.String(length=128), nullable=False),
         sa.Column("destination_url", sa.Text(), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="pending"),
-        sa.Column("payload_json", postgresql.JSONB(), nullable=False, server_default="'{}'::jsonb"),
-        sa.Column("headers_json", postgresql.JSONB(), nullable=False, server_default="'{}'::jsonb"),
+        sa.Column(
+            "payload_json",
+            postgresql.JSONB(),
+            nullable=False,
+            server_default="'{}'::jsonb",
+        ),
+        sa.Column(
+            "headers_json",
+            postgresql.JSONB(),
+            nullable=False,
+            server_default="'{}'::jsonb",
+        ),
         sa.Column("idempotency_key", sa.String(length=255), nullable=False),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("max_attempts", sa.Integer(), nullable=False, server_default="3"),
@@ -35,8 +45,18 @@ def upgrade() -> None:
         sa.Column("delivered_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("dead_lettered_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("mission_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(["mission_id"], ["missions.id"], ondelete="RESTRICT"),
     )
     op.create_index("ix_event_deliveries_tenant_id", "event_deliveries", ["tenant_id"])
