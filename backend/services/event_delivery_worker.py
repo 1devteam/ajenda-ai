@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from backend.services.event_delivery_dispatcher import (
-    EventDeliveryDispatchResult,
     EventDeliveryDispatcher,
+    EventDeliveryDispatchResult,
     EventDeliveryTransport,
 )
 from backend.services.event_delivery_http_transport import HttpEventDeliveryTransport
