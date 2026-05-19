@@ -10,12 +10,14 @@ from backend.app.dependencies.db import get_tenant_db_session
 from backend.auth.principal import PrincipalType, UserPrincipal
 from backend.middleware.tenant_context import TenantContextMiddleware
 
+TENANT_ID = "11111111-1111-1111-1111-111111111111"
+
 
 class PrincipalMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
         request.state.principal = UserPrincipal(
             subject_id="user-1",
-            tenant_id="tenant-a",
+            tenant_id=TENANT_ID,
             principal_type=PrincipalType.USER,
             roles=("tenant_admin",),
         )
@@ -31,7 +33,7 @@ def test_api_key_routes_create() -> None:
 
     record = SimpleNamespace(
         key_id="key-1",
-        tenant_id="tenant-a",
+        tenant_id=TENANT_ID,
         scopes_json=["execution:queue"],
     )
 
@@ -49,10 +51,10 @@ def test_api_key_routes_create() -> None:
 
         response = TestClient(app).post(
             "/api-keys",
-            headers={"X-Tenant-Id": "tenant-a"},
+            headers={"X-Tenant-Id": TENANT_ID},
             json={"scopes": ["execution:queue"]},
         )
 
     assert response.status_code == 200
-    assert response.json()["tenant_id"] == "tenant-a"
+    assert response.json()["tenant_id"] == TENANT_ID
     assert response.json()["plaintext_key"] == "key-1.secret"
