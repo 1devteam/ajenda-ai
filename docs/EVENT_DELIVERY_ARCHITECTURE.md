@@ -6,7 +6,7 @@ Event delivery is Ajenda's durable outbox foundation for tenant-owned events. It
 
 ## Current foundation
 
-The current implementation has seven layers:
+The current implementation has eight layers:
 
 1. Event delivery state vocabulary.
 2. Tenant-owned event delivery domain model.
@@ -15,6 +15,7 @@ The current implementation has seven layers:
 5. Event delivery service enqueue/cancel audit surface.
 6. Event delivery dispatcher coordination.
 7. Event delivery transport protocol boundary.
+8. HTTP event delivery transport implementation.
 
 ## State machine
 
@@ -176,9 +177,40 @@ Implemented dispatcher behavior:
 
 The dispatcher performs no direct network I/O. Network behavior belongs behind the `EventDeliveryTransport` protocol.
 
+## HTTP transport contract
+
+`HttpEventDeliveryTransport` is the current HTTP implementation behind the event delivery transport protocol.
+
+Implemented HTTP transport types:
+
+- `HttpEventDeliveryTransport`
+- `HttpEventDeliveryTransportConfig`
+
+Implemented HTTP transport behavior:
+
+- sends event delivery payloads as JSON through `httpx`
+- sends delivery, tenant, event type, and idempotency metadata as Ajenda-owned headers
+- treats 2xx responses as successful transport results
+- treats non-2xx responses as transport failures
+- treats timeout and request errors as transport failures
+- applies `HttpEventDeliveryTransportConfig.timeout_seconds` to injected clients and internally created clients
+- strips reserved Ajenda header collisions case-insensitively before applying transport-owned metadata
+- preserves non-reserved custom headers from `EventDelivery.headers_json`
+
+Reserved transport-owned headers:
+
+- `Content-Type`
+- `User-Agent`
+- `X-Ajenda-Delivery-Id`
+- `X-Ajenda-Tenant-Id`
+- `X-Ajenda-Event-Type`
+- `X-Ajenda-Idempotency-Key`
+
+The HTTP transport does not register endpoints, perform signing, own retry scheduling, or run a worker loop. It only converts a single `EventDelivery` record into one HTTP delivery attempt and returns an `EventDeliveryTransportResult`.
+
 ## Proof gates
 
-The event delivery foundation is protected by five proof layers.
+The event delivery foundation is protected by six proof layers.
 
 Foundation unit tests:
 
@@ -201,6 +233,10 @@ Dispatcher tests:
 - `tests/unit/events/test_event_delivery_dispatcher.py`
 - `tests/integration/events/test_event_delivery_dispatcher_real.py`
 
+HTTP transport tests:
+
+- `tests/unit/events/test_event_delivery_http_transport.py`
+
 The live persistence proofs skip unless `AJENDA_TEST_DATABASE_URL` is set. This matches the repo's existing live dependency pattern and keeps the default validation suite deterministic.
 
 The dispatcher live persistence proof also avoids deleting unrelated live database rows. It skips when unrelated due event deliveries already exist and cleans up test-owned rows in `finally` blocks.
@@ -217,6 +253,9 @@ Implemented now:
 - audit event creation for enqueue/cancel
 - dispatcher coordination contract
 - transport protocol boundary
+- HTTP event delivery transport implementation
+- HTTP transport timeout enforcement
+- HTTP transport reserved header protection
 - claim flush before transport
 - transport exception failure handling
 - `FOR UPDATE SKIP LOCKED` due-row selection
@@ -224,12 +263,12 @@ Implemented now:
 - opt-in live persistence proof
 - opt-in dispatcher persistence proof
 - dispatcher live cleanup hardening
+- mocked HTTP transport proof
 
 Not implemented yet:
 
 - HTTP webhook routes
 - delivery endpoint registration
-- external HTTP transport implementation
 - signing or signature verification
 - retry worker loop
 - dead-letter operations API
@@ -241,7 +280,7 @@ Event delivery is the messenger layer for mission-driven execution.
 
 Mission-driven execution decides and performs work. Event delivery records and reports what happened. This lets Ajenda notify external systems without turning runtime actions into hidden network side effects.
 
-The next implementation layer should add an HTTP transport implementation behind the existing transport protocol while preserving these constraints:
+The next implementation layer should connect the existing dispatcher and HTTP transport through an explicit runtime/worker entry point while preserving these constraints:
 
 - tenant ownership remains mandatory
 - idempotency remains tenant-scoped
@@ -249,5 +288,6 @@ The next implementation layer should add an HTTP transport implementation behind
 - due delivery selection remains lock-safe
 - claims are flushed before transport is invoked
 - transport exceptions move through retry and dead-letter states
+- reserved Ajenda headers cannot be spoofed by custom headers
 - repository code remains transport-free
 - audit evidence remains visible
