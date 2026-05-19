@@ -33,7 +33,7 @@ def _dispatcher(
     *,
     deliveries: list[EventDelivery],
     transport_result: EventDeliveryTransportResult,
-) -> tuple[EventDeliveryDispatcher, MagicMock, MagicMock]:
+) -> tuple[EventDeliveryDispatcher, MagicMock, MagicMock, MagicMock]:
     session = MagicMock()
     repository = MagicMock()
     repository.get_due.return_value = deliveries
@@ -69,12 +69,12 @@ def _dispatcher(
             retry_delay_seconds=30,
         )
 
-    return dispatcher, repository, transport
+    return dispatcher, repository, transport, session
 
 
 def test_dispatch_due_marks_successful_delivery_delivered() -> None:
     delivery = _delivery(EventDeliveryState.PENDING)
-    dispatcher, repository, transport = _dispatcher(
+    dispatcher, repository, transport, _session = _dispatcher(
         deliveries=[delivery],
         transport_result=EventDeliveryTransportResult.success(),
     )
@@ -94,7 +94,7 @@ def test_dispatch_due_marks_successful_delivery_delivered() -> None:
 
 def test_dispatch_due_marks_failed_delivery_retrying() -> None:
     delivery = _delivery(EventDeliveryState.PENDING, max_attempts=3)
-    dispatcher, repository, _transport = _dispatcher(
+    dispatcher, repository, _transport, _session = _dispatcher(
         deliveries=[delivery],
         transport_result=EventDeliveryTransportResult.failure("timeout"),
     )
@@ -116,7 +116,7 @@ def test_dispatch_due_marks_failed_delivery_retrying() -> None:
 
 def test_dispatch_due_marks_failed_delivery_dead_lettered_after_max_attempts() -> None:
     delivery = _delivery(EventDeliveryState.PENDING, attempts=2, max_attempts=3)
-    dispatcher, _repository, _transport = _dispatcher(
+    dispatcher, _repository, _transport, _session = _dispatcher(
         deliveries=[delivery],
         transport_result=EventDeliveryTransportResult.failure("timeout"),
     )
@@ -134,7 +134,7 @@ def test_dispatch_due_marks_failed_delivery_dead_lettered_after_max_attempts() -
 
 def test_dispatch_due_skips_terminal_records() -> None:
     delivery = _delivery(EventDeliveryState.DELIVERED)
-    dispatcher, repository, transport = _dispatcher(
+    dispatcher, repository, transport, _session = _dispatcher(
         deliveries=[delivery],
         transport_result=EventDeliveryTransportResult.success(),
     )
@@ -151,11 +151,11 @@ def test_dispatch_due_skips_terminal_records() -> None:
 
 def test_dispatch_due_flushes_once_after_processing() -> None:
     delivery = _delivery(EventDeliveryState.PENDING)
-    dispatcher, _repository, _transport = _dispatcher(
+    dispatcher, _repository, _transport, session = _dispatcher(
         deliveries=[delivery],
         transport_result=EventDeliveryTransportResult.success(),
     )
 
     dispatcher.dispatch_due()
 
-    dispatcher._session.flush.assert_called_once()
+    session.flush.assert_called_once()
