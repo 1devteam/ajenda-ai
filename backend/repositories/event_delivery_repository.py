@@ -74,6 +74,7 @@ class EventDeliveryRepository:
             )
             .order_by(EventDelivery.created_at.asc())
             .limit(limit)
+            .with_for_update(skip_locked=True)
         )
         return list(self._session.scalars(stmt))
 
