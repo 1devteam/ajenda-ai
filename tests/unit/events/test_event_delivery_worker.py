@@ -4,8 +4,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.services.event_delivery_dispatcher import EventDeliveryDispatchResult
+from backend.domain.event_delivery import EventDelivery
+from backend.services.event_delivery_dispatcher import (
+    EventDeliveryDispatchResult,
+    EventDeliveryTransportResult,
+)
 from backend.services.event_delivery_worker import EventDeliveryWorker, EventDeliveryWorkerConfig
+
+
+class FalseyTransport:
+    def __bool__(self) -> bool:
+        return False
+
+    def deliver(self, delivery: EventDelivery) -> EventDeliveryTransportResult:
+        return EventDeliveryTransportResult.success()
 
 
 def _dispatch_result() -> EventDeliveryDispatchResult:
@@ -77,6 +89,28 @@ def test_event_delivery_worker_uses_http_transport_by_default() -> None:
         result = worker.run_once()
 
     transport_cls.assert_called_once_with()
+    dispatcher_cls.assert_called_once_with(session, transport, retry_delay_seconds=60)
+    dispatcher.dispatch_due.assert_called_once_with(limit=100)
+    assert result == _dispatch_result()
+
+
+def test_event_delivery_worker_preserves_explicit_falsey_transport() -> None:
+    session = MagicMock()
+    transport = FalseyTransport()
+    dispatcher = MagicMock()
+    dispatcher.dispatch_due.return_value = _dispatch_result()
+
+    with (
+        patch("backend.services.event_delivery_worker.HttpEventDeliveryTransport") as transport_cls,
+        patch(
+            "backend.services.event_delivery_worker.EventDeliveryDispatcher",
+            return_value=dispatcher,
+        ) as dispatcher_cls,
+    ):
+        worker = EventDeliveryWorker(session, transport)
+        result = worker.run_once()
+
+    transport_cls.assert_not_called()
     dispatcher_cls.assert_called_once_with(session, transport, retry_delay_seconds=60)
     dispatcher.dispatch_due.assert_called_once_with(limit=100)
     assert result == _dispatch_result()
