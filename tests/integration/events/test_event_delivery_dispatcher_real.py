@@ -4,9 +4,10 @@ import os
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session
 
 from backend.db.base import Base
@@ -77,9 +78,14 @@ def _create_delivery(
     )
 
 
-def _clear_event_deliveries(session: Session) -> None:
-    session.execute(delete(EventDelivery))
-    session.commit()
+def _skip_if_unrelated_due_rows_exist(session: Session) -> None:
+    now = datetime.now(UTC)
+    stmt = select(EventDelivery.id).where(
+        EventDelivery.status.in_([EventDeliveryState.PENDING.value, EventDeliveryState.RETRYING.value]),
+        (EventDelivery.next_attempt_at.is_(None) | (EventDelivery.next_attempt_at <= now)),
+    )
+    if session.scalars(stmt).first() is not None:
+        pytest.skip("live dispatcher persistence requires no unrelated due event deliveries")
 
 
 def _cleanup(session: Session, delivery_ids: list[uuid.UUID]) -> None:
@@ -99,7 +105,7 @@ def _idempotency_key() -> str:
 def test_dispatcher_persists_successful_delivery() -> None:
     delivery_ids: list[uuid.UUID] = []
     with _database_session() as session:
-        _clear_event_deliveries(session)
+        _skip_if_unrelated_due_rows_exist(session)
         repo = EventDeliveryRepository(session)
         tenant_id = _tenant_id()
         delivery = _create_delivery(
@@ -133,7 +139,7 @@ def test_dispatcher_persists_successful_delivery() -> None:
 def test_dispatcher_persists_transport_failure_as_retrying() -> None:
     delivery_ids: list[uuid.UUID] = []
     with _database_session() as session:
-        _clear_event_deliveries(session)
+        _skip_if_unrelated_due_rows_exist(session)
         repo = EventDeliveryRepository(session)
         tenant_id = _tenant_id()
         delivery = _create_delivery(
@@ -168,7 +174,7 @@ def test_dispatcher_persists_transport_failure_as_retrying() -> None:
 def test_dispatcher_persists_transport_exception_as_retrying() -> None:
     delivery_ids: list[uuid.UUID] = []
     with _database_session() as session:
-        _clear_event_deliveries(session)
+        _skip_if_unrelated_due_rows_exist(session)
         repo = EventDeliveryRepository(session)
         tenant_id = _tenant_id()
         delivery = _create_delivery(
@@ -203,7 +209,7 @@ def test_dispatcher_persists_transport_exception_as_retrying() -> None:
 def test_dispatcher_persists_max_attempt_failure_as_dead_lettered() -> None:
     delivery_ids: list[uuid.UUID] = []
     with _database_session() as session:
-        _clear_event_deliveries(session)
+        _skip_if_unrelated_due_rows_exist(session)
         repo = EventDeliveryRepository(session)
         tenant_id = _tenant_id()
         delivery = _create_delivery(
