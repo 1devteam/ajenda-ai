@@ -1,32 +1,58 @@
-import base64
-import json
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.api.routes.api_keys import router
-from backend.middleware.auth_context import AuthContextMiddleware
-from backend.middleware.request_context import RequestContextMiddleware
+from backend.app.dependencies.db import get_tenant_db_session
+from backend.auth.principal import PrincipalType, UserPrincipal
 from backend.middleware.tenant_context import TenantContextMiddleware
 
 
-def _token(payload: dict[str, object]) -> str:
-    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
-    return f"x.{encoded}.y"
+class PrincipalMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.principal = UserPrincipal(
+            subject_id="user-1",
+            tenant_id="tenant-a",
+            principal_type=PrincipalType.USER,
+            roles=("tenant_admin",),
+        )
+        return await call_next(request)
 
 
 def test_api_key_routes_create() -> None:
     app = FastAPI()
-    app.add_middleware(RequestContextMiddleware)
-    app.add_middleware(TenantContextMiddleware)
-    app.add_middleware(AuthContextMiddleware)
+    app.dependency_overrides[get_tenant_db_session] = lambda: MagicMock()
     app.include_router(router)
-    client = TestClient(app)
-    token = _token({"sub": "user-1", "tenant_id": "tenant-a", "roles": ["tenant_admin"]})
-    response = client.post(
-        "/api-keys",
-        headers={"X-Tenant-Id": "tenant-a", "Authorization": f"Bearer {token}"},
-        json={"scopes": ["execution:queue"]},
+    app.add_middleware(TenantContextMiddleware)
+    app.add_middleware(PrincipalMiddleware)
+
+    record = SimpleNamespace(
+        key_id="key-1",
+        tenant_id="tenant-a",
+        scopes_json=["execution:queue"],
     )
+
+    with (
+        patch("backend.api.routes.api_keys.AuthorizationService") as authz_cls,
+        patch("backend.api.routes.api_keys.ApiKeyService") as service_cls,
+        patch("backend.api.routes.api_keys.QuotaEnforcementService") as quota_cls,
+    ):
+        authz_cls.return_value.require.return_value = None
+        service = MagicMock()
+        service.count_active_keys.return_value = 0
+        service.create_key.return_value = ("secret", record)
+        service_cls.return_value = service
+        quota_cls.return_value.check_api_key_limit.return_value = None
+
+        response = TestClient(app).post(
+            "/api-keys",
+            headers={"X-Tenant-Id": "tenant-a"},
+            json={"scopes": ["execution:queue"]},
+        )
+
     assert response.status_code == 200
     assert response.json()["tenant_id"] == "tenant-a"
+    assert response.json()["plaintext_key"] == "key-1.secret"
