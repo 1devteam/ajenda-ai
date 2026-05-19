@@ -77,6 +77,11 @@ def _create_delivery(
     )
 
 
+def _clear_event_deliveries(session: Session) -> None:
+    session.execute(delete(EventDelivery))
+    session.commit()
+
+
 def _cleanup(session: Session, delivery_ids: list[uuid.UUID]) -> None:
     if delivery_ids:
         session.execute(delete(EventDelivery).where(EventDelivery.id.in_(delivery_ids)))
@@ -94,6 +99,7 @@ def _idempotency_key() -> str:
 def test_dispatcher_persists_successful_delivery() -> None:
     delivery_ids: list[uuid.UUID] = []
     with _database_session() as session:
+        _clear_event_deliveries(session)
         repo = EventDeliveryRepository(session)
         tenant_id = _tenant_id()
         delivery = _create_delivery(
@@ -106,7 +112,7 @@ def test_dispatcher_persists_successful_delivery() -> None:
         session.commit()
 
         transport = RecordingTransport(EventDeliveryTransportResult.success())
-        result = EventDeliveryDispatcher(session, transport).dispatch_due(limit=10)
+        result = EventDeliveryDispatcher(session, transport).dispatch_due(limit=1)
         session.commit()
 
         persisted = repo.get_for_tenant(tenant_id=tenant_id, delivery_id=delivery_id)
@@ -127,6 +133,7 @@ def test_dispatcher_persists_successful_delivery() -> None:
 def test_dispatcher_persists_transport_failure_as_retrying() -> None:
     delivery_ids: list[uuid.UUID] = []
     with _database_session() as session:
+        _clear_event_deliveries(session)
         repo = EventDeliveryRepository(session)
         tenant_id = _tenant_id()
         delivery = _create_delivery(
@@ -139,7 +146,9 @@ def test_dispatcher_persists_transport_failure_as_retrying() -> None:
         session.commit()
 
         transport = RecordingTransport(EventDeliveryTransportResult.failure("timeout"))
-        result = EventDeliveryDispatcher(session, transport, retry_delay_seconds=0).dispatch_due()
+        result = EventDeliveryDispatcher(session, transport, retry_delay_seconds=0).dispatch_due(
+            limit=1
+        )
         session.commit()
 
         persisted = repo.get_for_tenant(tenant_id=tenant_id, delivery_id=delivery_id)
@@ -159,6 +168,7 @@ def test_dispatcher_persists_transport_failure_as_retrying() -> None:
 def test_dispatcher_persists_transport_exception_as_retrying() -> None:
     delivery_ids: list[uuid.UUID] = []
     with _database_session() as session:
+        _clear_event_deliveries(session)
         repo = EventDeliveryRepository(session)
         tenant_id = _tenant_id()
         delivery = _create_delivery(
@@ -171,7 +181,9 @@ def test_dispatcher_persists_transport_exception_as_retrying() -> None:
         session.commit()
 
         transport = RecordingTransport(error=TimeoutError("socket timeout"))
-        result = EventDeliveryDispatcher(session, transport, retry_delay_seconds=0).dispatch_due()
+        result = EventDeliveryDispatcher(session, transport, retry_delay_seconds=0).dispatch_due(
+            limit=1
+        )
         session.commit()
 
         persisted = repo.get_for_tenant(tenant_id=tenant_id, delivery_id=delivery_id)
@@ -191,6 +203,7 @@ def test_dispatcher_persists_transport_exception_as_retrying() -> None:
 def test_dispatcher_persists_max_attempt_failure_as_dead_lettered() -> None:
     delivery_ids: list[uuid.UUID] = []
     with _database_session() as session:
+        _clear_event_deliveries(session)
         repo = EventDeliveryRepository(session)
         tenant_id = _tenant_id()
         delivery = _create_delivery(
@@ -205,7 +218,9 @@ def test_dispatcher_persists_max_attempt_failure_as_dead_lettered() -> None:
         session.commit()
 
         transport = RecordingTransport(EventDeliveryTransportResult.failure("timeout"))
-        result = EventDeliveryDispatcher(session, transport, retry_delay_seconds=0).dispatch_due()
+        result = EventDeliveryDispatcher(session, transport, retry_delay_seconds=0).dispatch_due(
+            limit=1
+        )
         session.commit()
 
         persisted = repo.get_for_tenant(tenant_id=tenant_id, delivery_id=delivery_id)
