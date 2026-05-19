@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 import pytest
 from sqlalchemy import create_engine, delete
@@ -16,6 +17,7 @@ from backend.domain.mission import Mission
 from backend.repositories.event_delivery_repository import EventDeliveryRepository
 
 
+@contextmanager
 def _database_session() -> Iterator[Session]:
     database_url = os.getenv("AJENDA_TEST_DATABASE_URL")
     if not database_url:
@@ -57,7 +59,7 @@ def _cleanup(session: Session, delivery_ids: list[uuid.UUID]) -> None:
 
 def test_event_delivery_idempotency_is_unique_per_tenant_in_database() -> None:
     delivery_ids: list[uuid.UUID] = []
-    with next(_database_session()) as session:
+    with _database_session() as session:
         repo = EventDeliveryRepository(session)
         shared_key = f"proof-{uuid.uuid4()}"
         tenant_a = f"tenant-a-{uuid.uuid4()}"
@@ -79,7 +81,7 @@ def test_event_delivery_idempotency_is_unique_per_tenant_in_database() -> None:
 
 def test_event_delivery_state_transitions_persist_in_database() -> None:
     delivery_ids: list[uuid.UUID] = []
-    with next(_database_session()) as session:
+    with _database_session() as session:
         repo = EventDeliveryRepository(session)
         tenant_id = f"tenant-{uuid.uuid4()}"
         idempotency_key = f"proof-{uuid.uuid4()}"
