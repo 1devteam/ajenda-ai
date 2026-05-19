@@ -181,13 +181,14 @@ def test_dispatch_due_skips_terminal_records() -> None:
     assert result.dead_lettered == 0
 
 
-def test_dispatch_due_flushes_once_after_processing() -> None:
+def test_dispatch_due_flushes_claim_before_transport() -> None:
     delivery = _delivery(EventDeliveryState.PENDING)
-    dispatcher, _repository, _transport, session = _dispatcher(
+    dispatcher, _repository, transport, session = _dispatcher(
         deliveries=[delivery],
         transport_result=EventDeliveryTransportResult.success(),
     )
 
     dispatcher.dispatch_due()
 
-    session.flush.assert_called_once()
+    assert session.flush.call_count == 2
+    assert session.flush.call_args_list[0] < transport.deliver.call_args_list[0]
