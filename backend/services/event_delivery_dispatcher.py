@@ -71,7 +71,10 @@ class EventDeliveryDispatcher:
 
             attempted += 1
             self._repository.mark_delivering(delivery)
-            result = self._transport.deliver(delivery)
+            try:
+                result = self._transport.deliver(delivery)
+            except Exception as exc:
+                result = EventDeliveryTransportResult.failure(str(exc) or exc.__class__.__name__)
 
             if result.succeeded:
                 self._repository.mark_delivered(delivery)
