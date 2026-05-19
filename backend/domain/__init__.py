@@ -1,5 +1,6 @@
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import (
+    EventDeliveryState,
     ExecutionBranchState,
     ExecutionTaskState,
     MissionState,
@@ -7,6 +8,7 @@ from backend.domain.enums import (
     WorkerLeaseState,
     WorkforceFleetState,
 )
+from backend.domain.event_delivery import EventDelivery
 from backend.domain.execution_branch import ExecutionBranch
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.governance_event import GovernanceEvent
@@ -21,6 +23,8 @@ from backend.domain.workforce_fleet import WorkforceFleet
 
 __all__ = [
     "AuditEvent",
+    "EventDelivery",
+    "EventDeliveryState",
     "ExecutionBranch",
     "ExecutionBranchState",
     "ExecutionTask",
