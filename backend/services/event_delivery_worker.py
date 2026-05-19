@@ -34,7 +34,7 @@ class EventDeliveryWorker:
         config: EventDeliveryWorkerConfig | None = None,
     ) -> None:
         self._session = session
-        self._transport = transport or HttpEventDeliveryTransport()
+        self._transport = transport if transport is not None else HttpEventDeliveryTransport()
         self._config = config or EventDeliveryWorkerConfig()
 
     def run_once(self, *, limit: int | None = None) -> EventDeliveryDispatchResult:
