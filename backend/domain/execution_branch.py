@@ -8,9 +8,9 @@ from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.domain.mission import utcnow
 from backend.db.base import Base
 from backend.domain.enums import ExecutionBranchState
+from backend.domain.mission import utcnow
 
 
 class ExecutionBranch(Base):
@@ -35,4 +35,6 @@ class ExecutionBranch(Base):
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )

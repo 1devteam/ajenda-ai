@@ -26,7 +26,9 @@ class FleetManager:
         self._fleets = WorkforceFleetRepository(session)
         self._audit = AuditEventRepository(session)
 
-    def transition(self, *, tenant_id: str, fleet_id: uuid.UUID, target_state: WorkforceFleetState) -> FleetResult:
+    def transition(
+        self, *, tenant_id: str, fleet_id: uuid.UUID, target_state: WorkforceFleetState
+    ) -> FleetResult:
         fleet = self._require_fleet(fleet_id=fleet_id, tenant_id=tenant_id)
         transition_fleet(fleet, target_state)
         self._session.flush()

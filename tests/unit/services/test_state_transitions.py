@@ -1,5 +1,4 @@
 from backend.domain.enums import ExecutionTaskState, WorkforceFleetState
-from backend.services.fleet_manager import FleetManager
 
 
 def test_execution_task_transition_vocab_includes_dead_lettered() -> None:

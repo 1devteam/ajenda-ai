@@ -8,9 +8,11 @@ from backend.services.runtime_governor import RuntimeGovernor
 
 router = APIRouter(prefix="/runtime", tags=["runtime"])
 
+_DB_SESSION = Depends(get_db_session)
+
 
 @router.get("/mode")
-def get_runtime_mode(db: Session = Depends(get_db_session)) -> dict[str, str | bool]:
+def get_runtime_mode(db: Session = _DB_SESSION) -> dict[str, str | bool]:
     decision = RuntimeGovernor(db).evaluate()
     return {
         "mode": decision.mode.value,

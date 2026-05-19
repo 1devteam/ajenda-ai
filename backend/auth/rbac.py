@@ -62,7 +62,9 @@ class RbacAuthorizer:
             permissions.update(self._roles.get(role, frozenset()))
         return frozenset(permissions)
 
-    def authorize(self, *, principal: Principal, permission: Permission, tenant_id: str) -> AuthorizationDecision:
+    def authorize(
+        self, *, principal: Principal, permission: Permission, tenant_id: str
+    ) -> AuthorizationDecision:
         if principal.tenant_id != tenant_id:
             return AuthorizationDecision(False, "cross-tenant access denied")
         if permission not in principal.permissions:

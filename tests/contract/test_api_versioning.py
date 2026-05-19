@@ -8,6 +8,7 @@ Verifies that:
 These tests import the router directly and inspect route paths without
 starting a live server, making them fast and dependency-free.
 """
+
 from __future__ import annotations
 
 from fastapi import FastAPI

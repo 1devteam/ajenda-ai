@@ -2,18 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from time import monotonic
-from typing import Generic, TypeVar
-
-T = TypeVar("T")
 
 
 @dataclass(slots=True)
-class _CacheEntry(Generic[T]):
+class _CacheEntry[T]:
     value: T
     expires_at: float
 
 
-class TtlCache(Generic[T]):
+class TtlCache[T]:
     def __init__(self, *, ttl_seconds: int) -> None:
         if ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be positive")

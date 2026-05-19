@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from backend.queue.base import QueueMessage
@@ -14,7 +14,7 @@ def test_queue_enqueue_and_claim_flow() -> None:
         fleet_id=None,
         branch_id=None,
         payload={},
-        enqueued_at=datetime.now(timezone.utc),
+        enqueued_at=datetime.now(UTC),
     )
     assert adapter.enqueue_task(message).ok is True
     claimed = adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1")

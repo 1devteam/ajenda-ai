@@ -3,7 +3,6 @@ from __future__ import annotations
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from backend.domain.enums import WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.domain.workforce_fleet import WorkforceFleet

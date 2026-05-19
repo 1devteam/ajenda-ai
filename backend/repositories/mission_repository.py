@@ -24,5 +24,7 @@ class MissionRepository:
         return self._session.get(Mission, mission_id)
 
     def list_by_tenant(self, tenant_id: str) -> list[Mission]:
-        stmt = select(Mission).where(Mission.tenant_id == tenant_id).order_by(Mission.created_at.asc())
+        stmt = (
+            select(Mission).where(Mission.tenant_id == tenant_id).order_by(Mission.created_at.asc())
+        )
         return list(self._session.scalars(stmt))

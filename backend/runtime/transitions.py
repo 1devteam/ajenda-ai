@@ -27,7 +27,9 @@ def transition_fleet(fleet: WorkforceFleet, target: WorkforceFleetState) -> Work
     return fleet
 
 
-def transition_agent(agent: UserWorkforceAgent, target: UserWorkforceAgentState) -> UserWorkforceAgent:
+def transition_agent(
+    agent: UserWorkforceAgent, target: UserWorkforceAgentState
+) -> UserWorkforceAgent:
     StateMachine.ensure_agent_transition(agent.status, target.value)
     agent.status = target.value
     return agent

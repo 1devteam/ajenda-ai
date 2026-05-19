@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,7 +23,7 @@ class LeaseManager:
         self._expiry_seconds = expiry_seconds
 
     def expire_stale_leases(self) -> LeaseSweepResult:
-        threshold = datetime.now(timezone.utc) - timedelta(seconds=self._expiry_seconds)
+        threshold = datetime.now(UTC) - timedelta(seconds=self._expiry_seconds)
         stmt = select(WorkerLease).where(
             WorkerLease.status == WorkerLeaseState.ACTIVE.value,
             WorkerLease.heartbeat_at.is_not(None),

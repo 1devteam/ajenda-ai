@@ -11,16 +11,16 @@ This implementation:
 - Handles heartbeat loss gracefully (fail the task, don't crash the loop)
 - Separates the poll loop from the execution loop cleanly
 """
+
 from __future__ import annotations
 
 import logging
-import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from backend.domain.enums import ExecutionTaskState
 from backend.queue.base import QueueAdapter
@@ -67,9 +67,7 @@ class WorkerLoop:
         session = self.session_factory()
         try:
             runtime = WorkerRuntimeService(session, self.queue)
-            task = runtime.claim_next_task(
-                tenant_id=self.tenant_id, worker_id=self.worker_id
-            )
+            task = runtime.claim_next_task(tenant_id=self.tenant_id, worker_id=self.worker_id)
             if task is None:
                 session.rollback()
                 return None
@@ -108,8 +106,6 @@ class WorkerLoop:
 
     def _run_claimed_task(self, *, task_id: uuid.UUID, lease_id: uuid.UUID) -> None:
         """Dispatch real task execution and manage the heartbeat/completion lifecycle."""
-        last_heartbeat_at = time.monotonic()
-
         try:
             dispatcher = TaskDispatcher(
                 session_factory=self.session_factory,

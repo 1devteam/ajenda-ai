@@ -12,12 +12,17 @@ from backend.services.operations_service import OperationsService
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 
+_REQUEST_TENANT_ID = Depends(get_request_tenant_id)
+_TENANT_DB_SESSION = Depends(get_tenant_db_session)
+_QUEUE_ADAPTER = Depends(get_queue_adapter)
+_DB_SESSION = Depends(get_db_session)
+
 
 @router.get("/dead-letter")
 def dead_letter_inspection(
-    tenant_id: str = Depends(get_request_tenant_id),
-    db: Session = Depends(get_tenant_db_session),
-    queue: QueueAdapter = Depends(get_queue_adapter),
+    tenant_id: str = _REQUEST_TENANT_ID,
+    db: Session = _TENANT_DB_SESSION,
+    queue: QueueAdapter = _QUEUE_ADAPTER,
 ) -> list[dict[str, str]]:
     return OperationsService(db, queue).inspect_dead_letter(tenant_id=tenant_id)
 
@@ -25,9 +30,9 @@ def dead_letter_inspection(
 @router.post("/dead-letter/{task_id}/retry")
 def retry_dead_letter(
     task_id: UUID,
-    tenant_id: str = Depends(get_request_tenant_id),
-    db: Session = Depends(get_tenant_db_session),
-    queue: QueueAdapter = Depends(get_queue_adapter),
+    tenant_id: str = _REQUEST_TENANT_ID,
+    db: Session = _TENANT_DB_SESSION,
+    queue: QueueAdapter = _QUEUE_ADAPTER,
 ) -> dict[str, str]:
     try:
         return OperationsService(db, queue).retry_dead_letter(tenant_id=tenant_id, task_id=task_id)
@@ -37,8 +42,8 @@ def retry_dead_letter(
 
 @router.post("/recovery")
 def trigger_recovery(
-    db: Session = Depends(get_db_session),
-    queue: QueueAdapter = Depends(get_queue_adapter),
+    db: Session = _DB_SESSION,
+    queue: QueueAdapter = _QUEUE_ADAPTER,
 ) -> dict[str, int]:
     summary = OperationsService(db, queue).trigger_recovery()
     return {

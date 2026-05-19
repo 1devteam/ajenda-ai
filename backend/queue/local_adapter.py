@@ -3,7 +3,6 @@ from __future__ import annotations
 import threading
 import uuid
 from collections import deque
-from typing import Deque
 
 from backend.queue.base import QueueAdapter, QueueMessage, QueueOperationResult
 
@@ -13,7 +12,7 @@ class LocalQueueAdapter(QueueAdapter):
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._queue: Deque[QueueMessage] = deque()
+        self._queue: deque[QueueMessage] = deque()
         self._claims: dict[tuple[str, uuid.UUID], str] = {}
         self._dead_letter: list[tuple[str, uuid.UUID, str]] = []
 
@@ -40,20 +39,28 @@ class LocalQueueAdapter(QueueAdapter):
                 return message
         return None
 
-    def heartbeat(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+    def heartbeat(
+        self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str
+    ) -> QueueOperationResult:
         with self._lock:
             owner = self._claims.get((tenant_id, task_id))
             if owner != worker_id:
                 return QueueOperationResult(ok=False, reason="worker does not own claim")
         return QueueOperationResult(ok=True)
 
-    def complete_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+    def complete_task(
+        self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str
+    ) -> QueueOperationResult:
         return self.release_lease(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
 
-    def fail_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str, reason: str) -> QueueOperationResult:
+    def fail_task(
+        self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str, reason: str
+    ) -> QueueOperationResult:
         return self.release_lease(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
 
-    def release_lease(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+    def release_lease(
+        self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str
+    ) -> QueueOperationResult:
         with self._lock:
             key = (tenant_id, task_id)
             owner = self._claims.get(key)
@@ -62,7 +69,9 @@ class LocalQueueAdapter(QueueAdapter):
             del self._claims[key]
         return QueueOperationResult(ok=True)
 
-    def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
+    def move_to_dead_letter(
+        self, *, tenant_id: str, task_id: uuid.UUID, reason: str
+    ) -> QueueOperationResult:
         with self._lock:
             self._dead_letter.append((tenant_id, task_id, reason))
             self._claims.pop((tenant_id, task_id), None)

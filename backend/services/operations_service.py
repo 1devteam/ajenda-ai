@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -56,7 +56,7 @@ class OperationsService:
                 fleet_id=task.fleet_id,
                 branch_id=task.branch_id,
                 payload=task.metadata_json,
-                enqueued_at=datetime.now(timezone.utc),
+                enqueued_at=datetime.now(UTC),
             )
         )
         if not enqueue_result.ok:
