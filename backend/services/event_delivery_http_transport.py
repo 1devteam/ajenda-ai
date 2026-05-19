@@ -60,13 +60,15 @@ class HttpEventDeliveryTransport:
             return client.post(url, headers=headers, json=json)
 
     def _build_headers(self, delivery: EventDelivery) -> dict[str, str]:
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": self._config.user_agent,
-            "X-Ajenda-Delivery-Id": str(delivery.id),
-            "X-Ajenda-Tenant-Id": delivery.tenant_id,
-            "X-Ajenda-Event-Type": delivery.event_type,
-            "X-Ajenda-Idempotency-Key": delivery.idempotency_key,
-        }
-        headers.update(delivery.headers_json or {})
+        headers = dict(delivery.headers_json or {})
+        headers.update(
+            {
+                "Content-Type": "application/json",
+                "User-Agent": self._config.user_agent,
+                "X-Ajenda-Delivery-Id": str(delivery.id),
+                "X-Ajenda-Tenant-Id": delivery.tenant_id,
+                "X-Ajenda-Event-Type": delivery.event_type,
+                "X-Ajenda-Idempotency-Key": delivery.idempotency_key,
+            }
+        )
         return headers
