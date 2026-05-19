@@ -32,13 +32,17 @@ def _delivery(
 def _dispatcher(
     *,
     deliveries: list[EventDelivery],
-    transport_result: EventDeliveryTransportResult,
+    transport_result: EventDeliveryTransportResult | None = None,
+    transport_error: Exception | None = None,
 ) -> tuple[EventDeliveryDispatcher, MagicMock, MagicMock, MagicMock]:
     session = MagicMock()
     repository = MagicMock()
     repository.get_due.return_value = deliveries
     transport = MagicMock()
-    transport.deliver.return_value = transport_result
+    if transport_error is not None:
+        transport.deliver.side_effect = transport_error
+    else:
+        transport.deliver.return_value = transport_result
 
     def mark_delivering(delivery: EventDelivery) -> None:
         delivery.status = EventDeliveryState.DELIVERING.value
@@ -113,6 +117,29 @@ def test_dispatch_due_marks_failed_delivery_retrying() -> None:
     )
     assert delivery.status == EventDeliveryState.RETRYING.value
     assert delivery.last_error == "timeout"
+    assert result.attempted == 1
+    assert result.delivered == 0
+    assert result.retrying == 1
+    assert result.dead_lettered == 0
+
+
+def test_dispatch_due_converts_transport_exception_to_failed_attempt() -> None:
+    delivery = _delivery(EventDeliveryState.PENDING, max_attempts=3)
+    dispatcher, repository, transport, _session = _dispatcher(
+        deliveries=[delivery],
+        transport_error=TimeoutError("socket timeout"),
+    )
+
+    result = dispatcher.dispatch_due()
+
+    transport.deliver.assert_called_once_with(delivery)
+    repository.mark_failed_attempt.assert_called_once_with(
+        delivery,
+        error="socket timeout",
+        retry_delay_seconds=30,
+    )
+    assert delivery.status == EventDeliveryState.RETRYING.value
+    assert delivery.last_error == "socket timeout"
     assert result.attempted == 1
     assert result.delivered == 0
     assert result.retrying == 1
