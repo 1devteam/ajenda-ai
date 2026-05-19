@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,6 +17,13 @@ class EventDelivery(Base):
     """Durable tenant-owned event delivery record."""
 
     __tablename__ = "event_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="uq_event_deliveries_tenant_id_idempotency_key",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
@@ -33,7 +40,6 @@ class EventDelivery(Base):
     idempotency_key: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
-        unique=True,
         index=True,
     )
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

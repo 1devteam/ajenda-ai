@@ -156,3 +156,16 @@ def test_delivery_timestamps_accept_timezone_aware_values() -> None:
     delivery.next_attempt_at = now
 
     assert delivery.next_attempt_at == now
+
+
+def test_event_delivery_idempotency_key_is_tenant_scoped() -> None:
+    constraints = {
+        constraint.name: tuple(constraint.columns.keys())
+        for constraint in EventDelivery.__table__.constraints
+        if constraint.name is not None
+    }
+
+    assert constraints["uq_event_deliveries_tenant_id_idempotency_key"] == (
+        "tenant_id",
+        "idempotency_key",
+    )

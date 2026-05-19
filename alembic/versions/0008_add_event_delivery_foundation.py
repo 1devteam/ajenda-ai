@@ -64,9 +64,9 @@ def upgrade() -> None:
     op.create_index("ix_event_deliveries_status", "event_deliveries", ["status"])
     op.create_index("ix_event_deliveries_mission_id", "event_deliveries", ["mission_id"])
     op.create_unique_constraint(
-        "uq_event_deliveries_idempotency_key",
+        "uq_event_deliveries_tenant_id_idempotency_key",
         "event_deliveries",
-        ["idempotency_key"],
+        ["tenant_id", "idempotency_key"],
     )
     op.create_index(
         "ix_event_deliveries_idempotency_key",
