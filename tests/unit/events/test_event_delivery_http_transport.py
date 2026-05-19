@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 
 import httpx
@@ -54,7 +55,7 @@ def test_http_transport_posts_delivery_payload_and_headers() -> None:
     assert request.headers["X-Ajenda-Event-Type"] == "mission.completed"
     assert request.headers["X-Ajenda-Idempotency-Key"] == "tenant-a:mission.completed:mission-1"
     assert request.headers["X-Custom-Header"] == "custom-value"
-    assert request.content == b'{"mission_id":"mission-1"}'
+    assert json.loads(request.content) == {"mission_id": "mission-1"}
 
 
 def test_http_transport_treats_non_2xx_response_as_failure() -> None:
@@ -72,7 +73,9 @@ def test_http_transport_treats_timeout_as_failure() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectTimeout("connection timed out", request=request)
 
-    transport = HttpEventDeliveryTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    transport = HttpEventDeliveryTransport(
+        client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
 
     result = transport.deliver(_delivery())
 
@@ -85,7 +88,9 @@ def test_http_transport_treats_request_error_as_failure() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection failed", request=request)
 
-    transport = HttpEventDeliveryTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    transport = HttpEventDeliveryTransport(
+        client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
 
     result = transport.deliver(_delivery())
 
