@@ -13,7 +13,7 @@ from backend.services.event_delivery_http_transport import (
 )
 
 
-def _delivery() -> EventDelivery:
+def _delivery(headers: dict[str, str] | None = None) -> EventDelivery:
     return EventDelivery(
         id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
         tenant_id="tenant-a",
@@ -21,7 +21,7 @@ def _delivery() -> EventDelivery:
         destination_url="https://example.test/webhooks/ajenda",
         status=EventDeliveryState.DELIVERING.value,
         payload_json={"mission_id": "mission-1"},
-        headers_json={"X-Custom-Header": "custom-value"},
+        headers_json=headers or {"X-Custom-Header": "custom-value"},
         idempotency_key="tenant-a:mission.completed:mission-1",
         attempts=1,
         max_attempts=3,
@@ -56,6 +56,42 @@ def test_http_transport_posts_delivery_payload_and_headers() -> None:
     assert request.headers["X-Ajenda-Idempotency-Key"] == "tenant-a:mission.completed:mission-1"
     assert request.headers["X-Custom-Header"] == "custom-value"
     assert json.loads(request.content) == {"mission_id": "mission-1"}
+
+
+def test_http_transport_prevents_custom_headers_from_overriding_reserved_headers() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    delivery = _delivery(
+        {
+            "Content-Type": "text/plain",
+            "User-Agent": "spoofed-agent",
+            "X-Ajenda-Delivery-Id": "spoofed-delivery",
+            "X-Ajenda-Tenant-Id": "spoofed-tenant",
+            "X-Ajenda-Event-Type": "spoofed.event",
+            "X-Ajenda-Idempotency-Key": "spoofed-key",
+            "X-Custom-Header": "custom-value",
+        }
+    )
+    transport = HttpEventDeliveryTransport(
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        config=HttpEventDeliveryTransportConfig(user_agent="Ajenda-Test/1.0"),
+    )
+
+    result = transport.deliver(delivery)
+
+    assert result.succeeded is True
+    request = requests[0]
+    assert request.headers["Content-Type"] == "application/json"
+    assert request.headers["User-Agent"] == "Ajenda-Test/1.0"
+    assert request.headers["X-Ajenda-Delivery-Id"] == "11111111-1111-1111-1111-111111111111"
+    assert request.headers["X-Ajenda-Tenant-Id"] == "tenant-a"
+    assert request.headers["X-Ajenda-Event-Type"] == "mission.completed"
+    assert request.headers["X-Ajenda-Idempotency-Key"] == "tenant-a:mission.completed:mission-1"
+    assert request.headers["X-Custom-Header"] == "custom-value"
 
 
 def test_http_transport_treats_non_2xx_response_as_failure() -> None:
