@@ -70,10 +70,7 @@ class EventDeliveryRepository:
                 EventDelivery.status.in_(
                     [EventDeliveryState.PENDING.value, EventDeliveryState.RETRYING.value]
                 ),
-                (
-                    EventDelivery.next_attempt_at.is_(None)
-                    | (EventDelivery.next_attempt_at <= now)
-                ),
+                (EventDelivery.next_attempt_at.is_(None) | (EventDelivery.next_attempt_at <= now)),
             )
             .order_by(EventDelivery.created_at.asc())
             .limit(limit)
