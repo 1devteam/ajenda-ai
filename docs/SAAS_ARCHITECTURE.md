@@ -6,13 +6,14 @@ Ajenda is not only a SaaS wrapper around agents. The platform direction is tenan
 
 ## Current foundation
 
-The current SaaS foundation has five implemented layers:
+The current SaaS foundation has six implemented layers:
 
 1. Tenant domain records.
 2. Tenant plan and usage contracts.
 3. Tenant lifecycle service.
 4. Quota enforcement service.
 5. Admin control-plane routes and tenant route quota gates.
+6. Event delivery foundation.
 
 ## Tenant domain
 
@@ -128,6 +129,22 @@ Implemented quota-gated routes:
 
 These gates convert quota violations into structured HTTP 429 responses using `QUOTA_EXCEEDED` detail payloads.
 
+## Event delivery foundation
+
+Event delivery is the durable outbox foundation for tenant-owned external notifications and future webhook dispatch.
+
+Implemented event delivery layers:
+
+- event delivery state vocabulary
+- tenant-owned event delivery domain model
+- `event_deliveries` migration
+- event delivery repository transitions
+- enqueue/cancel service surface
+- contract hardening proof
+- opt-in live persistence proof
+
+See `docs/EVENT_DELIVERY_ARCHITECTURE.md` for the dedicated event delivery contract.
+
 ## Architecture boundary
 
 Implemented now:
@@ -138,6 +155,7 @@ Implemented now:
 - quota service contracts
 - admin tenant control plane
 - quota gates on high-pressure tenant routes
+- event delivery foundation
 - validation baseline for lint, unit/contract, and integration proof
 
 Not implemented yet:
@@ -147,8 +165,11 @@ Not implemented yet:
 - tenant self-service UI
 - organization membership management
 - per-seat billing
-- webhook/event delivery foundation
+- HTTP webhook routes
+- external webhook dispatcher
+- webhook signing and endpoint registration
 - full live Redis proof unless `AJENDA_TEST_REDIS_URL` is provided
+- full live DB event persistence proof unless `AJENDA_TEST_DATABASE_URL` is provided
 
 ## Strategic direction
 
@@ -161,6 +182,7 @@ Ajenda should expose agents and runtime execution through tenant-aware controls 
 - quota gates stop runaway activity
 - lifecycle events create evidence
 - admin routes control tenant state
+- event delivery records tenant-owned external notifications
 - validation gates prove the baseline remains clean
 
-The next functional layer should build on this foundation by adding event delivery and webhook contracts with retry, dead-letter, tenant isolation, and auditability.
+The next functional layer should build on the event delivery foundation by adding dispatcher contracts with retry, dead-letter, tenant isolation, and auditability.
