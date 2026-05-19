@@ -16,7 +16,12 @@ from backend.repositories.event_delivery_repository import (
 from backend.services.event_delivery import EventDeliveryRequest, EventDeliveryService
 
 
-def _delivery(status: EventDeliveryState, *, attempts: int = 0, max_attempts: int = 3) -> EventDelivery:
+def _delivery(
+    status: EventDeliveryState,
+    *,
+    attempts: int = 0,
+    max_attempts: int = 3,
+) -> EventDelivery:
     return EventDelivery(
         tenant_id="tenant-a",
         event_type="mission.completed",
