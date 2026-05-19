@@ -21,6 +21,15 @@ class ComplianceJurisdiction(StrEnum):
     FEDERAL_US = "federal_us"
 
 
+class EventDeliveryState(StrEnum):
+    PENDING = "pending"
+    DELIVERING = "delivering"
+    RETRYING = "retrying"
+    DELIVERED = "delivered"
+    DEAD_LETTERED = "dead_lettered"
+    CANCELLED = "cancelled"
+
+
 class MissionState(StrEnum):
     PLANNED = "planned"
     APPROVED = "approved"
