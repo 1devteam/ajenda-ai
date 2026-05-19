@@ -28,6 +28,7 @@ pytest
 ## Architecture docs
 
 - `docs/SAAS_ARCHITECTURE.md`
+- `docs/EVENT_DELIVERY_ARCHITECTURE.md`
 
 ## Rebuild validation
 
