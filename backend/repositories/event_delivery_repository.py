@@ -49,6 +49,7 @@ class EventDeliveryRepository:
             headers_json=headers or {},
             idempotency_key=idempotency_key,
             mission_id=mission_id,
+            attempts=0,
             max_attempts=max_attempts,
             status=EventDeliveryState.PENDING.value,
         )
