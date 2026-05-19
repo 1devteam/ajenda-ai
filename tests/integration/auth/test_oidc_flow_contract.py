@@ -1,15 +1,24 @@
-import base64
-import json
+from unittest.mock import patch
 
 from backend.auth.oidc import OidcAuthenticator
 
 
-def _token(payload: dict[str, object]) -> str:
-    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
-    return f"x.{encoded}.y"
+def test_oidc_authenticator_returns_principal_from_claims() -> None:
+    claims = {
+        "sub": "user-1",
+        "tenant_id": "tenant-a",
+        "roles": ["tenant_admin"],
+    }
 
+    with patch("backend.auth.oidc.JwtValidator") as validator_cls:
+        validator_cls.return_value.validate_and_extract_claims.return_value = claims
+        result = OidcAuthenticator(
+            jwks_uri="https://issuer.example.test/jwks.json",
+            issuer="https://issuer.example.test/",
+            audience="ajenda-api",
+        ).validate_bearer_token("opaque-test-token")
 
-def test_oidc_authenticator_returns_claims() -> None:
-    token = _token({"sub": "user-1", "tenant_id": "tenant-a", "roles": ["tenant_admin"]})
-    result = OidcAuthenticator().validate_bearer_token(token)
-    assert result.claims.tenant_id == "tenant-a"
+    assert result.claims == claims
+    assert result.principal.tenant_id == "tenant-a"
+    assert result.principal.subject_id == "user-1"
+    assert result.principal.roles == ("tenant_admin",)
