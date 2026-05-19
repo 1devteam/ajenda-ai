@@ -81,7 +81,9 @@ def _create_delivery(
 def _skip_if_unrelated_due_rows_exist(session: Session) -> None:
     now = datetime.now(UTC)
     stmt = select(EventDelivery.id).where(
-        EventDelivery.status.in_([EventDeliveryState.PENDING.value, EventDeliveryState.RETRYING.value]),
+        EventDelivery.status.in_(
+            [EventDeliveryState.PENDING.value, EventDeliveryState.RETRYING.value]
+        ),
         (EventDelivery.next_attempt_at.is_(None) | (EventDelivery.next_attempt_at <= now)),
     )
     if session.scalars(stmt).first() is not None:
