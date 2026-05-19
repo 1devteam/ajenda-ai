@@ -71,6 +71,7 @@ class EventDeliveryDispatcher:
 
             attempted += 1
             self._repository.mark_delivering(delivery)
+            self._session.flush()
             try:
                 result = self._transport.deliver(delivery)
             except Exception as exc:
