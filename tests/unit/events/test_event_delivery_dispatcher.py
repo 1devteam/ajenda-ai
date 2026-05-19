@@ -47,7 +47,12 @@ def _dispatcher(
     def mark_delivered(delivery: EventDelivery) -> None:
         delivery.status = EventDeliveryState.DELIVERED.value
 
-    def mark_failed_attempt(delivery: EventDelivery, *, error: str, retry_delay_seconds: int) -> None:
+    def mark_failed_attempt(
+        delivery: EventDelivery,
+        *,
+        error: str,
+        retry_delay_seconds: int,
+    ) -> None:
         delivery.last_error = error
         if delivery.attempts >= delivery.max_attempts:
             delivery.status = EventDeliveryState.DEAD_LETTERED.value
