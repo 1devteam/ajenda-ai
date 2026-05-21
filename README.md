@@ -138,17 +138,28 @@ The following contract surfaces are approved on `main`. This inventory is a navi
 | Contract area | Current source of truth | Current behavior / authority | Proof surface |
 |---|---|---|---|
 | Runtime startup | `backend/main.py`, `backend/app/config.py`, queue adapter construction | startup validates runtime configuration and queue reachability before serving | unit/config tests, deployment proof |
+| Authentication modes | auth middleware, OIDC/JWT validation, API-key services and routes | supports bearer/OIDC and tenant-scoped API-key flows with fail-closed invalid credential handling and cross-tenant rejection | auth/unit/contract tests |
 | Tenant/auth envelope | middleware, auth services, tenant DB dependencies, RLS migrations | tenant-scoped routes require valid tenant/auth envelope; public probes stay public | contract auth/isolation tests |
+| SaaS quota and plan enforcement | tenant plan/usage models, tenant repository, quota service, task/mission/API-key routes | tenant lifecycle, feature limits, and quota checks gate platform use before unsafe over-consumption | unit/contract service and route tests |
 | Queue-backed execution | `ExecutionCoordinator`, queue adapters, task routes | admitted runtime work must be represented in DB and queue authority | integration/runtime tests, live proof |
 | Worker lease ownership | `WorkerRuntimeService`, `WorkerLease`, runtime transitions | worker leases control claim/start/complete/fail authority | runtime integration tests, live proof |
 | Recovery reconciliation | `RuntimeMaintainer`, `QueueAdapter` recovery methods | stale work recovery uses queue evidence, expires stale leases, and avoids synthetic replacement work after payload loss | runtime recovery integration tests |
 | Dead-letter inspection/retry | queue adapters, `OperationsService`, operations routes | dead-letter retry/inspection reconciles DB and queue evidence with tenant scope | contract/integration operations tests |
+| Governance and audit evidence | audit/governance event models, policy path, runtime services, validation artifacts | admission, denial, completion, policy, and recovery decisions must leave reviewable evidence where required | unit/contract/integration tests, live proof |
 | Compliance and policy gates | `PolicyGuardian`, mission/task compliance fields | compliance metadata and policy checks can prevent unsafe queue admission and route work to review | unit/contract tests |
 | Durable mission plans | `MissionPlan`, repository, mission routes, migrations | durable mission plans are canonical over legacy mission metadata fallback | unit/API/repository/migration contract tests |
+| Capability registry | capability routes, models, repositories, migrations | capabilities declare task types, schemas, required permissions/tools, risk, approval, evidence, constraints, enabled state, scope, version, and schema version; registry declarations do not execute work or bind handlers by themselves | unit/API/repository/migration contract tests |
+| Capability execution adapters | adapter routes, models, repositories, migrations | adapters declare capability bindings, execution mode, input/output contracts, side-effect class, timeout/retry/idempotency expectations, and evidence expectations; adapter records do not execute work or register runtime handlers by themselves | unit/API/repository/migration contract tests |
 | Task graph contracts | mission metadata normalizer and task-graph routes | task graphs are normalized metadata contracts and do not dispatch runtime work | unit/API/domain tests |
+| Mission-to-runtime bridge contracts | mission materialization/admission/readiness/preview/worker admission endpoints and mission metadata keys | mission graphs move toward runtime through explicit, tenant-scoped bridge contracts; each bridge records metadata or performs one bounded mutation and does not skip queue, lease, dispatcher, or recovery authority | unit/API/domain tests |
+| Evidence records | evidence routes, models, repositories, migrations | evidence records store tenant-owned proof/provenance for missions, graph nodes, materializations, tasks, capabilities, adapters, artifacts, trust, and collection state without executing work or scoring outcomes | unit/API/repository/migration contract tests |
+| Outcome reviews | outcome-review routes, models, repositories, migrations | outcome reviews evaluate mission result claims against success criteria and evidence, storing review decisions, findings, confidence, gaps, and human-approval fields without mutating runtime state | unit/API/repository/migration contract tests |
+| Retrieval and recall contracts | retrieval-contract routes, models, repositories, migrations | retrieval contracts govern future memory retrieval requests, filters, provenance, status, supersession, and revocation without generating embeddings, running vector search, or mutating runtime state | unit/API/repository/migration contract tests |
+| Mission lifecycle read model | mission lifecycle route and mission/product contract aggregators | lifecycle reads aggregate mission, intake, plan, graph, materialization, evidence, outcome, memory, retrieval, completeness, and missing-next-step state without mutating or executing runtime work | unit/API tests |
+| Webhook delivery and replay | webhook routes, models, repositories, services, migrations | tenants can manage endpoints, delivery records, replay flows, reliability summaries, signing, and encrypted signing-secret storage | unit/contract/integration tests |
 | Deployment runtime contract | Compose/K8s manifests, production env contract, live proof script | deployment surfaces use canonical `AJENDA_*` env aliases, supported entrypoints, probes, metrics path, and prod-like proof stack | deployment tests, live-runtime proof |
 | Observability contract | observability route, Prometheus config, live proof | metrics are exposed at `/v1/observability/metrics` and scraped by Prometheus | contract/deployment tests, live proof |
-| Validation matrix | validation docs and runner scripts | release-gating scenarios define expected evidence and promotion-blocking semantics | validation docs, runner, tests |
+| Validation matrix and artifacts | validation docs, runner scripts, artifact schema, release-gating scenarios | release-gating scenarios define expected evidence, dynamic run truth, artifact provenance, safety classes, and promotion-blocking semantics | validation docs, runner, tests |
 
 ---
 
@@ -305,6 +316,9 @@ Ajenda currently has strong foundations in:
 - bounded runtime recovery
 - dead-letter inspection and retry surfaces
 - durable mission planning and task graph contract layers
+- capability registry and adapter declaration contracts
+- mission-to-runtime bridge contracts
+- evidence, outcome review, and retrieval governance layers
 - quota and SaaS lifecycle support
 - webhook reliability and replay support
 - live runtime validation artifacts and release-gating structure
@@ -395,5 +409,10 @@ The following areas are intentionally identified for follow-up review rather tha
 
 - readiness dependency precision: keep health lightweight while making readiness explicitly reflect database and configured queue dependency truth with sanitized failure responses
 - approved-contract replay audit: compare README/docs, code, migrations, tests, and live proof behavior for every approved contract area
+- mission-to-runtime bridge replay: verify every materialization, admission, readiness, preview, worker-claim, worker-start, and worker-run bridge remains bounded to its documented authority
+- capability and adapter enforcement boundary audit: verify declaration contracts remain separate from runtime handler binding until an explicit binding layer exists
+- evidence/outcome/retrieval lifecycle audit: verify proof, review, and recall records remain governance contracts and do not mutate runtime execution state
+- webhook reliability contract replay: verify endpoint, delivery, signing-secret encryption, replay, and reliability summary behavior remain aligned
+- SaaS/quota admission replay: verify plan limits and quota accounting still gate admission paths consistently
 - mission approval/admission semantics: classify which approval/admission fields are enforced gates and which are advisory metadata
-- validation matrix freshness: keep release-gating rows aligned with protected control-plane routes, current proof scripts, and current test evidence
+- validation matrix freshness: keep release-gating rows aligned with protected control-plane routes, current proof scripts, current artifact semantics, and current test evidence
