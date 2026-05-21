@@ -103,6 +103,7 @@ Current implementation note:
 
 - current `main` has the stable route surfaces above
 - dependency-readiness precision is an active hardening target; follow-up work should keep health lightweight while making readiness explicitly reflect database plus configured queue readiness with sanitized failure responses
+- this README update identifies the follow-up contract; it does not implement or prove readiness dependency behavior by itself
 
 ### API versioning
 
@@ -131,11 +132,13 @@ Current implementation note:
 
 ---
 
-## Current approved contract inventory
+## Current contract inventory
 
-The following contract surfaces are approved on `main`. This inventory is a navigation map, not a replacement for the source files, tests, or validation artifacts.
+The following contract surfaces exist on `main`. Some are runtime-enforced contracts, some are database/schema-enforced contracts, some are metadata/read-model contracts, and some are declaration contracts whose runtime binding is intentionally deferred. This inventory describes each contract's current authority boundary; it is a navigation map, not a replacement for the source files, tests, validation artifacts, or live proof output.
 
-| Contract area | Current source of truth | Current behavior / authority | Proof surface |
+The `Current proof/backing` column identifies the strongest known verification surface for the row. It must not be read as full end-to-end proof for every behavior in that row.
+
+| Contract area | Current source of truth | Current behavior / authority boundary | Current proof/backing |
 |---|---|---|---|
 | Runtime startup | `backend/main.py`, `backend/app/config.py`, queue adapter construction | startup validates runtime configuration and queue reachability before serving | unit/config tests, deployment proof |
 | Authentication modes | auth middleware, OIDC/JWT validation, API-key services and routes | supports bearer/OIDC and tenant-scoped API-key flows with fail-closed invalid credential handling and cross-tenant rejection | auth/unit/contract tests |
@@ -149,11 +152,11 @@ The following contract surfaces are approved on `main`. This inventory is a navi
 | Compliance and policy gates | `PolicyGuardian`, mission/task compliance fields | compliance metadata and policy checks can prevent unsafe queue admission and route work to review | unit/contract tests |
 | Durable mission plans | `MissionPlan`, repository, mission routes, migrations | durable mission plans are canonical over legacy mission metadata fallback | unit/API/repository/migration contract tests |
 | Capability registry | capability routes, models, repositories, migrations | capabilities declare task types, schemas, required permissions/tools, risk, approval, evidence, constraints, enabled state, scope, version, and schema version; registry declarations do not execute work or bind handlers by themselves | unit/API/repository/migration contract tests |
-| Capability execution adapters | adapter routes, models, repositories, migrations | adapters declare capability bindings, execution mode, input/output contracts, side-effect class, timeout/retry/idempotency expectations, and evidence expectations; adapter records do not execute work or register runtime handlers by themselves | unit/API/repository/migration contract tests |
+| Capability execution adapters | adapter routes, models, repositories, migrations | adapters declare capability bindings, execution mode, input/output contracts, side-effect class, timeout/retry/idempotency expectations, and evidence expectations; adapter records do not execute work or register runtime handlers by themselves; an adapter contract is not a worker-callable runtime binding unless a separate binding/execution contract explicitly makes it so | unit/API/repository/migration contract tests |
 | Task graph contracts | mission metadata normalizer and task-graph routes | task graphs are normalized metadata contracts and do not dispatch runtime work | unit/API/domain tests |
-| Mission-to-runtime bridge contracts | mission materialization/admission/readiness/preview/worker admission endpoints and mission metadata keys | mission graphs move toward runtime through explicit, tenant-scoped bridge contracts; each bridge records metadata or performs one bounded mutation and does not skip queue, lease, dispatcher, or recovery authority | unit/API/domain tests |
+| Mission-to-runtime bridge contracts | mission materialization/admission/readiness/preview/worker admission endpoints and mission metadata keys | mission graphs move toward runtime through explicit, tenant-scoped bridge stages; those stages must not be collapsed into one implicit execution path; each stage records metadata or performs one bounded mutation and does not skip queue, lease, dispatcher, or recovery authority | unit/API/domain tests |
 | Evidence records | evidence routes, models, repositories, migrations | evidence records store tenant-owned proof/provenance for missions, graph nodes, materializations, tasks, capabilities, adapters, artifacts, trust, and collection state without executing work or scoring outcomes | unit/API/repository/migration contract tests |
-| Outcome reviews | outcome-review routes, models, repositories, migrations | outcome reviews evaluate mission result claims against success criteria and evidence, storing review decisions, findings, confidence, gaps, and human-approval fields without mutating runtime state | unit/API/repository/migration contract tests |
+| Outcome reviews | outcome-review routes, models, repositories, migrations | outcome review records store review decisions, findings, confidence, gaps, and human-approval fields for mission result claims; they do not autonomously generate decisions or mutate runtime state unless a future explicit reviewer/scoring layer exists | unit/API/repository/migration contract tests |
 | Retrieval and recall contracts | retrieval-contract routes, models, repositories, migrations | retrieval contracts govern future memory retrieval requests, filters, provenance, status, supersession, and revocation without generating embeddings, running vector search, or mutating runtime state | unit/API/repository/migration contract tests |
 | Mission lifecycle read model | mission lifecycle route and mission/product contract aggregators | lifecycle reads aggregate mission, intake, plan, graph, materialization, evidence, outcome, memory, retrieval, completeness, and missing-next-step state without mutating or executing runtime work | unit/API tests |
 | Webhook delivery and replay | webhook routes, models, repositories, services, migrations | tenants can manage endpoints, delivery records, replay flows, reliability summaries, signing, and encrypted signing-secret storage | unit/contract/integration tests |
@@ -298,7 +301,7 @@ The validation system uses three safety classes:
 Operational meaning:
 
 - read-only checks are suitable for broad repeated use
-- tenant-scoped mutations change one tenant’s state and require scoped care
+- tenant-scoped mutations change one tenant's state and require scoped care
 - global mutation scenarios must run only where cross-tenant operational mutation is acceptable
 
 See the validation docs for the current execution-policy semantics.
@@ -344,7 +347,7 @@ Recent hardening work already merged on `main` includes:
 - retrieval/API-key/compliance/quota/dead-letter contract-schema parity audit
 - mission-plan status hardening through migration constraints
 - deployment/runtime contract hardening for canonical `AJENDA_*` env aliases, Compose env-file behavior, worker entrypoint alignment, probe/metrics paths, Prometheus scrape health, and OpenTelemetry collector inclusion in the live proof stack
-- local proof on current `main` has additionally validated full non-integration tests, full integration tests, targeted runtime recovery tests, live-runtime-proof, lint/format/type checks, and Compose Alembic head `0019_harden_retrieval_values`
+- local proof against `main` commit `53b4ee4` additionally validated full non-integration tests, full integration tests, targeted runtime recovery tests, live-runtime-proof, lint/format/type checks, and Compose Alembic head `0019_harden_retrieval_values`; future commits must rerun applicable gates instead of treating this proof as evergreen
 
 ---
 
@@ -408,11 +411,12 @@ Start here when working on product direction and current runtime behavior:
 The following areas are intentionally identified for follow-up review rather than silently assumed complete:
 
 - readiness dependency precision: keep health lightweight while making readiness explicitly reflect database and configured queue dependency truth with sanitized failure responses
-- approved-contract replay audit: compare README/docs, code, migrations, tests, and live proof behavior for every approved contract area
-- mission-to-runtime bridge replay: verify every materialization, admission, readiness, preview, worker-claim, worker-start, and worker-run bridge remains bounded to its documented authority
+- approved-contract replay audit: for each inventory row, compare README/docs claims against code, migrations, routes, services, repositories, tests, and live/runtime proof surfaces; classify the row as runtime-enforced, schema-enforced, metadata-only, read-only, declaration-only, partial, future-boundary, or drift
+- mission-to-runtime bridge replay: verify every materialization, admission, readiness, preview, worker-claim, worker-start, and worker-run bridge remains bounded to its documented authority and has not collapsed multiple authority stages into one implicit execution path
 - capability and adapter enforcement boundary audit: verify declaration contracts remain separate from runtime handler binding until an explicit binding layer exists
 - evidence/outcome/retrieval lifecycle audit: verify proof, review, and recall records remain governance contracts and do not mutate runtime execution state
 - webhook reliability contract replay: verify endpoint, delivery, signing-secret encryption, replay, and reliability summary behavior remain aligned
 - SaaS/quota admission replay: verify plan limits and quota accounting still gate admission paths consistently
 - mission approval/admission semantics: classify which approval/admission fields are enforced gates and which are advisory metadata
-- validation matrix freshness: keep release-gating rows aligned with protected control-plane routes, current proof scripts, current artifact semantics, and current test evidence
+- validation matrix freshness: keep release-gating rows aligned with protected control-plane routes, current proof scripts, current artifact semantics, and current test evidence; known stale public-route wording around recovery must be refreshed before using the matrix as executable prompt context
+- project state report freshness: reconcile older deployment-surface wording, including any Terraform/ECS references, with the current repository snapshot before using that document as authoritative prompt context
