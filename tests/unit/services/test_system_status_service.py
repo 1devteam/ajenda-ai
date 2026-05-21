@@ -18,6 +18,10 @@ class _ExplodingDependency:
         raise RuntimeError("redis://secret@host")
 
 
+class _MissingPingDependency:
+    pass
+
+
 def test_health_is_lightweight_liveness() -> None:
     assert SystemStatusService(session=None).health() == {"status": "ok"}
 
@@ -48,3 +52,18 @@ def test_readiness_sanitizes_failures() -> None:
         "queue": {"status": "unavailable", "reason": "QUEUE_UNAVAILABLE"},
     }
     assert "redis://" not in str(payload)
+
+
+def test_readiness_fails_closed_when_dependency_missing_or_invalid() -> None:
+    payload = SystemStatusService(session=None).readiness(
+        database_runtime=None,
+        queue_adapter=_MissingPingDependency(),
+    )
+    assert payload == {
+        "status": "unavailable",
+        "dependencies": {
+            "database": {"status": "unavailable", "reason": "DATABASE_UNAVAILABLE"},
+            "queue": {"status": "unavailable", "reason": "QUEUE_UNAVAILABLE"},
+        },
+        "reason": "DEPENDENCY_UNAVAILABLE",
+    }

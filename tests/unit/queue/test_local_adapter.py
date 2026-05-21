@@ -32,6 +32,15 @@ def test_complete_task_removes_claimed_message_and_lease_without_requeue() -> No
     assert adapter.heartbeat(tenant_id="tenant-a", task_id=message.task_id, worker_id="worker-1").ok is False
 
 
+def test_ping_is_deterministic_and_non_mutating() -> None:
+    adapter = LocalQueueAdapter()
+    message = _message()
+    assert adapter.enqueue_task(message).ok is True
+    assert adapter.ping() is True
+    assert adapter.ping() is True
+    assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1") == message
+
+
 def test_fail_task_removes_claimed_message_and_records_redis_compatible_dead_letter() -> None:
     adapter = LocalQueueAdapter()
     message = _message()

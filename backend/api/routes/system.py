@@ -13,24 +13,24 @@ router = APIRouter(tags=["system"])
 
 @router.get("/system/health")
 def system_health() -> dict[str, str]:
-    """Infrastructure health check. Public — no tenant context required.
+    """Infrastructure liveness check.
 
-    Uses get_db_session intentionally. See:
-    docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.2
+    Public route that only proves the API process is serving requests.
+    No database or queue dependency probes are performed here.
     """
     return SystemStatusService(session=None).health()
 
 
 @router.get("/system/readiness")
 def system_readiness(request: Request, response: Response) -> dict[str, object]:
-    """Infrastructure readiness check. Public — no tenant context required.
+    """Infrastructure dependency readiness check.
 
-    Uses get_db_session intentionally. See:
-    docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.2
+    Public route that evaluates app-level runtime dependencies
+    (database runtime and configured queue adapter).
     """
     payload = SystemStatusService(session=None).readiness(
-        database_runtime=request.app.state.database_runtime,
-        queue_adapter=request.app.state.queue_adapter,
+        database_runtime=getattr(request.app.state, "database_runtime", None),
+        queue_adapter=getattr(request.app.state, "queue_adapter", None),
     )
     if payload["status"] != "ready":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -45,7 +45,7 @@ def system_status(
 ) -> dict[str, dict[str, int]]:
     """Return operational status for the authenticated tenant.
 
-    Tenant-facing — uses get_tenant_db_session to activate RLS. See:
-    docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.1
+    Tenant-facing route that remains separate from public liveness/readiness.
+    Uses get_tenant_db_session to activate tenant RLS context.
     """
     return SystemStatusService(db).status(tenant_id=str(tenant_id))

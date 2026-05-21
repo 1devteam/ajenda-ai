@@ -16,8 +16,8 @@ def health() -> dict[str, str]:
 def readiness(request: Request, response: Response) -> dict[str, object]:
     service = SystemStatusService(session=None)
     payload = service.readiness(
-        database_runtime=request.app.state.database_runtime,
-        queue_adapter=request.app.state.queue_adapter,
+        database_runtime=getattr(request.app.state, "database_runtime", None),
+        queue_adapter=getattr(request.app.state, "queue_adapter", None),
     )
     if payload["status"] != "ready":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

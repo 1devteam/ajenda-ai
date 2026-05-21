@@ -33,3 +33,8 @@ def test_session_scope_rolls_back_on_error() -> None:
     assert isinstance(session, Session)
     with pytest.raises(RuntimeError):
         generator.throw(RuntimeError("boom"))
+
+
+def test_database_runtime_ping_uses_isolated_engine_connection() -> None:
+    runtime = SqliteDatabaseRuntime(Settings())
+    assert runtime.ping() is True

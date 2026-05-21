@@ -33,10 +33,13 @@ class SystemStatusService:
         return {"status": "ok"}
 
     def readiness(
-        self, *, database_runtime: DatabaseRuntimeProtocol, queue_adapter: QueueAdapterProtocol
+        self,
+        *,
+        database_runtime: DatabaseRuntimeProtocol | None,
+        queue_adapter: QueueAdapterProtocol | None,
     ) -> dict[str, Any]:
-        database = self._safe_dependency_ping(database_runtime.ping, unavailable_code="DATABASE_UNAVAILABLE")
-        queue = self._safe_dependency_ping(queue_adapter.ping, unavailable_code="QUEUE_UNAVAILABLE")
+        database = self._safe_dependency_ping(database_runtime, unavailable_code="DATABASE_UNAVAILABLE")
+        queue = self._safe_dependency_ping(queue_adapter, unavailable_code="QUEUE_UNAVAILABLE")
         ready = database.status == "ready" and queue.status == "ready"
         dependencies: dict[str, dict[str, str]] = {
             "database": self._dependency_payload(database),
@@ -64,7 +67,12 @@ class SystemStatusService:
         return {str(status): int(count) for status, count in self._session.execute(stmt).all()}
 
     @staticmethod
-    def _safe_dependency_ping(ping_callable: Any, *, unavailable_code: str) -> DependencyStatus:
+    def _safe_dependency_ping(dependency: Any, *, unavailable_code: str) -> DependencyStatus:
+        if dependency is None:
+            return DependencyStatus(status="unavailable", reason=unavailable_code)
+        ping_callable = getattr(dependency, "ping", None)
+        if not callable(ping_callable):
+            return DependencyStatus(status="unavailable", reason=unavailable_code)
         try:
             healthy = bool(ping_callable())
             return DependencyStatus(
