@@ -361,9 +361,9 @@ Run integration and validation flows when your change affects runtime behavior, 
 | 0007 | Webhook endpoints and deliveries |
 | 0008 | Add retry count and pending-review state |
 | 0009 | Add webhook secret ciphertext |
-| 0010 | Add webhook delivery status fields |
-| 0011 | Add governance events |
-| 0012 | Add tenant usage counters |
+| 0010 | Align free-plan quota contract |
+| 0011 | Add capability registry contracts |
+| 0012 | Add capability execution adapter contracts |
 | 0013 | Add evidence records |
 | 0014 | Add outcome reviews |
 | 0015 | Add memory promotion records |
