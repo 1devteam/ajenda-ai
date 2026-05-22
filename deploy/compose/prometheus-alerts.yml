@@ -1,0 +1,20 @@
+groups:
+  - name: ajenda-readiness-dependencies
+    rules:
+      - alert: AjendaDatabaseReadinessUnavailable
+        expr: ajenda_readiness_dependency_status{dependency="database"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ajenda database readiness dependency is unavailable.
+          description: The database readiness dependency has reported unavailable or has not produced a successful readiness evaluation.
+
+      - alert: AjendaQueueReadinessUnavailable
+        expr: ajenda_readiness_dependency_status{dependency="queue"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ajenda queue readiness dependency is unavailable.
+          description: The queue readiness dependency has reported unavailable or has not produced a successful readiness evaluation.
