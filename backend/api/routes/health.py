@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
-from backend.app.dependencies.db import get_db_session
+from backend.services.system_status_service import SystemStatusService
 
 router = APIRouter(tags=["health"])
 
@@ -15,6 +14,10 @@ def health() -> dict[str, str]:
 
 
 @router.get("/readiness")
-def readiness(db: Session = Depends(get_db_session)) -> dict[str, str]:
-    db.execute(text("SELECT 1"))
-    return {"status": "ready"}
+def readiness(request: Request) -> JSONResponse:
+    service = SystemStatusService(session=None)
+    status_code, payload = service.readiness(
+        database_runtime=getattr(request.app.state, "database_runtime", None),
+        queue_adapter=getattr(request.app.state, "queue_adapter", None),
+    )
+    return JSONResponse(status_code=status_code, content=payload)
