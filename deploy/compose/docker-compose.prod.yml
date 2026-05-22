@@ -18,7 +18,7 @@ services:
       - "8000:8000"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "/app/deploy/scripts/healthcheck.sh"]
+      test: ["CMD-SHELL", "/app/deploy/scripts/readinesscheck.sh"]
       interval: 15s
       timeout: 5s
       retries: 5
