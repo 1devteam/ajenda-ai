@@ -68,6 +68,14 @@ class DatabaseRuntime:
     def tenant_session_context(self, tenant_id: str) -> Generator[Session, None, None]:
         yield from self.tenant_session_scope(tenant_id)
 
+    def ping(self) -> bool:
+        try:
+            with self._engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            return True
+        except Exception:
+            return False
+
     def dispose(self) -> None:
         if self._engine is not None:
             self._engine.dispose()
