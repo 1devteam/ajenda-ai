@@ -18,3 +18,21 @@ groups:
         annotations:
           summary: Ajenda queue readiness dependency is unavailable.
           description: The queue readiness dependency has reported unavailable or has not produced a successful readiness evaluation.
+
+      - alert: AjendaQueueBacklogDetected
+        expr: ajenda_queue_depth > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ajenda queue backlog detected.
+          description: Queue depth has exceeded 100 tasks for at least 5 minutes.
+
+      - alert: AjendaDeadLettersPresent
+        expr: ajenda_dead_letter_count > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ajenda dead-letter entries present.
+          description: Dead-letter queue contains one or more tasks for at least 2 minutes.
