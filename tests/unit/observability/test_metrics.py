@@ -14,3 +14,4 @@ def test_metrics_snapshot_shape() -> None:
     )
     assert snapshot.tasks_completed == 2
     assert snapshot.worker_utilization == 0.5
+    assert snapshot.queued_tasks == 7

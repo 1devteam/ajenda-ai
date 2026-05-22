@@ -58,3 +58,33 @@ def test_compose_prometheus_loads_readiness_alert_rules() -> None:
     content = Path("deploy/compose/prometheus.yml").read_text(encoding="utf-8")
     assert "rule_files:" in content
     assert "- /etc/prometheus/alerts/prometheus-alerts.yml" in content
+
+
+def test_alert_rules_include_supported_runtime_invariant_alerts() -> None:
+    content = Path("deploy/compose/prometheus-alerts.yml").read_text(encoding="utf-8")
+
+    assert "alert: AjendaQueueBacklogDetected" in content
+    assert "expr: ajenda_queue_depth > 100" in content
+    assert "alert: AjendaDeadLettersPresent" in content
+    assert "expr: ajenda_dead_letter_count > 0" in content
+    assert "AjendaStaleLeasesDetected" not in content
+
+
+def test_alert_expressions_reference_metrics_only() -> None:
+    content = Path("deploy/compose/prometheus-alerts.yml").read_text(encoding="utf-8")
+    banned_substrings = (
+        "/health",
+        "/readiness",
+        "/metrics",
+        "/v1/observability/metrics",
+        "http://",
+        "https://",
+        "tenant",
+        "hostname",
+        "exception",
+    )
+    for line in content.splitlines():
+        if not line.strip().startswith("expr:"):
+            continue
+        for banned in banned_substrings:
+            assert banned not in line

@@ -30,6 +30,8 @@ class PrometheusExporter:
             f"ajenda_tasks_failed {snapshot.tasks_failed}",
             "# TYPE ajenda_dead_letter_count gauge",
             f"ajenda_dead_letter_count {snapshot.dead_letter_count}",
+            "# TYPE ajenda_queue_depth gauge",
+            f"ajenda_queue_depth {snapshot.queued_tasks}",
             "# TYPE ajenda_lease_expirations counter",
             f"ajenda_lease_expirations {snapshot.lease_expirations}",
             "# TYPE ajenda_active_leases gauge",
