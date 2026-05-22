@@ -6,7 +6,7 @@ READINESS_METRIC_NAME = "ajenda_readiness_dependency_status"
 READINESS_DEPENDENCIES = ("database", "queue")
 
 
-_readiness_dependency_values: dict[str, int] = {dependency: 1 for dependency in READINESS_DEPENDENCIES}
+_readiness_dependency_values: dict[str, int] = {dependency: 0 for dependency in READINESS_DEPENDENCIES}
 
 
 def set_readiness_dependency_status(*, dependency: str, status: str) -> None:
