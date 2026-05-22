@@ -26,10 +26,10 @@ def test_root_readiness_dependency_failure() -> None:
     db.ping.return_value = False
     queue = Mock()
     queue.ping.return_value = True
-    app.state.database_runtime = db
-    app.state.queue_adapter = queue
 
     with TestClient(app) as client:
+        app.state.database_runtime = db
+        app.state.queue_adapter = queue
         response = client.get("/readiness")
 
     assert response.status_code == 503
@@ -42,10 +42,10 @@ def test_root_readiness_sanitizes_exception() -> None:
     db.ping.side_effect = RuntimeError("postgresql://user:secret@db:5432/app")
     queue = Mock()
     queue.ping.return_value = True
-    app.state.database_runtime = db
-    app.state.queue_adapter = queue
 
     with TestClient(app) as client:
+        app.state.database_runtime = db
+        app.state.queue_adapter = queue
         response = client.get("/readiness")
 
     assert response.status_code == 503
