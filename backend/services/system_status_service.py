@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.domain.workforce_fleet import WorkforceFleet
+from backend.metrics.prometheus_exporter import set_readiness_dependency_status
 
 
 class SystemStatusService:
@@ -20,6 +21,8 @@ class SystemStatusService:
     def readiness(self, *, database_runtime: Any, queue_adapter: Any) -> tuple[int, dict[str, Any]]:
         database_status = self._dependency_status(database_runtime)
         queue_status = self._dependency_status(queue_adapter)
+        set_readiness_dependency_status(dependency="database", status=database_status)
+        set_readiness_dependency_status(dependency="queue", status=queue_status)
 
         response: dict[str, Any] = {
             "status": "ready",
