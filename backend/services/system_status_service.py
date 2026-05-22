@@ -62,6 +62,6 @@ class SystemStatusService:
 
     def _count_grouped(self, model: type[Any], *, tenant_id: str) -> dict[str, int]:
         if self._session is None:
-            return {}
+            raise RuntimeError("System status requires a database session.")
         stmt = select(model.status, func.count()).where(model.tenant_id == tenant_id).group_by(model.status)
         return {str(status): int(count) for status, count in self._session.execute(stmt).all()}
