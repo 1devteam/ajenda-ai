@@ -3,6 +3,7 @@ from unittest.mock import Mock
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
+from backend.metrics.prometheus_exporter import readiness_dependency_samples
 
 
 class _FailIfCalled:
@@ -50,3 +51,15 @@ def test_root_readiness_sanitizes_exception() -> None:
 
     assert response.status_code == 503
     assert response.json()["reason"] == "DATABASE_UNAVAILABLE"
+
+
+def test_health_does_not_update_readiness_metrics() -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        client.get("/readiness")
+        before = dict(readiness_dependency_samples())
+        response = client.get("/health")
+        after = dict(readiness_dependency_samples())
+
+    assert response.status_code == 200
+    assert after == before

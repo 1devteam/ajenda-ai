@@ -2,6 +2,22 @@ from __future__ import annotations
 
 from backend.observability.metrics import MetricsSnapshot
 
+READINESS_METRIC_NAME = "ajenda_readiness_dependency_status"
+READINESS_DEPENDENCIES = ("database", "queue")
+
+
+_readiness_dependency_values: dict[str, int] = {dependency: 1 for dependency in READINESS_DEPENDENCIES}
+
+
+def set_readiness_dependency_status(*, dependency: str, status: str) -> None:
+    if dependency not in READINESS_DEPENDENCIES:
+        return
+    _readiness_dependency_values[dependency] = 0 if status == "unavailable" else 1
+
+
+def readiness_dependency_samples() -> list[tuple[str, int]]:
+    return [(dependency, _readiness_dependency_values[dependency]) for dependency in READINESS_DEPENDENCIES]
+
 
 class PrometheusExporter:
     def render(self, snapshot: MetricsSnapshot) -> str:
@@ -20,5 +36,9 @@ class PrometheusExporter:
             f"ajenda_active_leases {snapshot.active_leases}",
             "# TYPE ajenda_worker_utilization gauge",
             f"ajenda_worker_utilization {snapshot.worker_utilization}",
+            f"# HELP {READINESS_METRIC_NAME} Runtime dependency readiness status.",
+            f"# TYPE {READINESS_METRIC_NAME} gauge",
         ]
+        for dependency, value in readiness_dependency_samples():
+            lines.append(f'{READINESS_METRIC_NAME}{{dependency="{dependency}"}} {value}')
         return "\n".join(lines) + "\n"
