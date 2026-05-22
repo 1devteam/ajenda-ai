@@ -4,6 +4,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import Settings
@@ -11,14 +12,20 @@ from backend.app.config import Settings
 
 class DatabaseRuntime:
     def __init__(self, settings: Settings) -> None:
+        database_url = make_url(settings.database_url)
+        sqlite_runtime = database_url.get_backend_name() == "sqlite"
+        engine_kwargs = {
+            "future": True,
+            "pool_pre_ping": True,
+            "pool_recycle": settings.db_pool_recycle,
+        }
+        if not sqlite_runtime:
+            engine_kwargs["pool_size"] = settings.db_pool_size
+            engine_kwargs["max_overflow"] = settings.db_max_overflow
+            engine_kwargs["pool_timeout"] = settings.db_pool_timeout
         self._engine = create_engine(
             settings.database_url,
-            future=True,
-            pool_pre_ping=True,
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_max_overflow,
-            pool_timeout=settings.db_pool_timeout,
-            pool_recycle=settings.db_pool_recycle,
+            **engine_kwargs,
         )
         self._session_factory: sessionmaker[Session] = sessionmaker(
             bind=self._engine,

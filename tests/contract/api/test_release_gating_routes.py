@@ -34,7 +34,8 @@ def _build_app() -> FastAPI:
     app.state.settings = MagicMock(
         oidc_jwks_uri="https://example/jwks", oidc_issuer="https://example", oidc_audience="ajenda"
     )
-    app.state.database_runtime = None
+    app.state.database_runtime = MagicMock(ping=MagicMock(return_value=True))
+    app.state.queue_adapter = MagicMock(ping=MagicMock(return_value=True))
 
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(AuthContextMiddleware)

@@ -1,23 +1,23 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-from backend.app.config import Settings
+from backend.app.config import get_settings
 from backend.db.session import DatabaseRuntime
 
 
-class SqliteDatabaseRuntime(DatabaseRuntime):
-    @property
-    def engine(self):  # type: ignore[override]
-        if self._engine is None:
-            self._engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
-        return self._engine
+def _sqlite_runtime(monkeypatch: pytest.MonkeyPatch) -> DatabaseRuntime:
+    monkeypatch.setenv("AJENDA_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    get_settings.cache_clear()
+    return DatabaseRuntime(get_settings())
 
 
-def test_session_scope_commits_and_closes() -> None:
-    runtime = SqliteDatabaseRuntime(Settings())
+def test_session_scope_commits_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _sqlite_runtime(monkeypatch)
     generator = runtime.session_scope()
     session = next(generator)
     assert isinstance(session, Session)
@@ -26,8 +26,8 @@ def test_session_scope_commits_and_closes() -> None:
         next(generator)
 
 
-def test_session_scope_rolls_back_on_error() -> None:
-    runtime = SqliteDatabaseRuntime(Settings())
+def test_session_scope_rolls_back_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _sqlite_runtime(monkeypatch)
     generator = runtime.session_scope()
     session = next(generator)
     assert isinstance(session, Session)
