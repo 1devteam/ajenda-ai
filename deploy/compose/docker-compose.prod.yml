@@ -18,7 +18,7 @@ services:
       - "8000:8000"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "/app/deploy/scripts/healthcheck.sh"]
+      test: ["CMD-SHELL", "/app/deploy/scripts/readinesscheck.sh"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -73,6 +73,7 @@ services:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-alerts.yml:/etc/prometheus/alerts/prometheus-alerts.yml:ro
     ports:
       - "9090:9090"
     restart: unless-stopped

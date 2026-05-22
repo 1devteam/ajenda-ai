@@ -121,3 +121,9 @@ def test_compose_mounts_prometheus_and_otel_config() -> None:
         compose,
         "otel-collector",
     )
+
+
+def test_compose_api_healthcheck_uses_readiness_endpoint() -> None:
+    api_block = _service_block(_read(COMPOSE_FILE), "api")
+    assert "/app/deploy/scripts/readinesscheck.sh" in api_block
+    assert "/app/deploy/scripts/healthcheck.sh" not in api_block
