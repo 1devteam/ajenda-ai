@@ -8,6 +8,12 @@ def _readiness_values() -> dict[str, int]:
     return dict(readiness_dependency_samples())
 
 
+def test_metrics_default_to_unavailable_before_readiness() -> None:
+    values = _readiness_values()
+    assert values["database"] == 0
+    assert values["queue"] == 0
+
+
 def test_service_class_exists() -> None:
     assert SystemStatusService is not None
 
