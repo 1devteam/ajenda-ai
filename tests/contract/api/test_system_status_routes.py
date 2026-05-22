@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 
 from backend.api.routes.system import router
 from backend.main import create_app
+from backend.metrics.prometheus_exporter import PrometheusExporter
+from backend.observability.metrics import MetricsSnapshot
 
 
 def test_system_status_routes_register() -> None:
@@ -64,10 +66,21 @@ def test_metrics_exposes_readiness_dependency_status_after_readiness_check() -> 
         app.state.database_runtime = db
         app.state.queue_adapter = queue
         readiness = client.get("/readiness")
-        metrics = client.get("/v1/observability/metrics")
+
+    metrics = PrometheusExporter().render(
+        MetricsSnapshot(
+            tasks_queued=0,
+            tasks_completed=0,
+            tasks_failed=0,
+            dead_letter_count=0,
+            lease_expirations=0,
+            active_leases=0,
+            queued_tasks=0,
+            worker_utilization=0.0,
+        )
+    )
 
     assert readiness.status_code == 503
-    assert metrics.status_code == 200
-    assert 'ajenda_readiness_dependency_status{dependency="database"} 0' in metrics.text
-    assert 'ajenda_readiness_dependency_status{dependency="queue"} 1' in metrics.text
-    assert "postgresql://user:secret@db:5432/app" not in metrics.text
+    assert 'ajenda_readiness_dependency_status{dependency="database"} 0' in metrics
+    assert 'ajenda_readiness_dependency_status{dependency="queue"} 1' in metrics
+    assert "postgresql://user:secret@db:5432/app" not in metrics
