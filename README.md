@@ -47,6 +47,19 @@ The system is built around these core guarantees:
 
 ---
 
+## Architecture decision records (ADR)
+
+Architecture governance for authority boundaries, schema compatibility, and readiness semantics is tracked in:
+
+- `docs/architecture/ADR_INDEX.md`
+- `docs/architecture/ADR-0001-authority-classification-doctrine.md`
+- `docs/architecture/ADR-0002-schema-evolution-strategy.md`
+- `docs/architecture/ADR-0003-readiness-semantics-doctrine.md`
+
+These ADRs are accepted doctrines and should be updated alongside implementation/tests when authority semantics, schema contracts, or readiness behavior changes.
+
+---
+
 ## Runtime architecture
 
 ### Startup contract
