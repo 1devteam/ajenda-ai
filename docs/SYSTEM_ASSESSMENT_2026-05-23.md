@@ -169,7 +169,7 @@ To "sell itself," AJENDA-AI needs explicit architecture for **Revenue Mission Ty
 
 ---
 
-## Specific files and key points missing from architecture package
+## Specific files and key points to add/extend in the architecture package
 
 These are high-value additions to your architecture package and spec-ready structure.
 
