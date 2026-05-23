@@ -63,6 +63,114 @@ authority_entries:
       - tests/contract/api/test_system_status_routes.py
       - tests/deployment/test_probe_paths.py
 
+  - id: auth_identity_contract
+    area: authentication and identity
+    source_of_truth:
+      - backend/api/routes/auth.py
+      - backend/middleware/auth_context.py
+    route_scope:
+      - /v1/auth/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_identity_session
+    allowed_side_effects:
+      - validate identity credentials and token introspection requests
+      - establish authenticated request context through supported auth flows
+    forbidden_side_effects:
+      - bypass tenant/auth envelope requirements
+      - issue cross-tenant authorization context
+    required_proofs:
+      - tests/contract/api/test_auth_routes.py
+      - tests/unit/auth/test_auth_context.py
+
+  - id: api_key_lifecycle_contract
+    area: API key lifecycle
+    source_of_truth:
+      - backend/api/routes/api_keys.py
+      - backend/services/api_key_service.py
+    route_scope:
+      - /v1/api-keys/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_api_key_mutation
+    allowed_side_effects:
+      - create, list, revoke, and validate tenant-scoped API key records
+    forbidden_side_effects:
+      - expose API key secrets after creation
+      - mutate API keys outside the authenticated tenant boundary
+    required_proofs:
+      - tests/unit/api/test_api_key_routes.py
+      - tests/unit/services/test_api_key_service.py
+
+  - id: workforce_control_contract
+    area: workforce control plane
+    source_of_truth:
+      - backend/api/routes/workforce.py
+      - backend/services/workforce_coordinator.py
+      - backend/services/workforce_provisioner.py
+    route_scope:
+      - /v1/workforce/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_or_admin_scoped_workforce_control
+    allowed_side_effects:
+      - manage workforce fleet metadata and controlled provisioning requests
+    forbidden_side_effects:
+      - bypass tenant/admin authorization boundaries
+      - start ungoverned worker execution outside runtime admission paths
+    required_proofs:
+      - tests/unit/api/test_workforce_routes.py
+      - tests/unit/services/test_workforce_coordinator.py
+
+  - id: branch_contract
+    area: execution branch management
+    source_of_truth:
+      - backend/api/routes/branch.py
+    route_scope:
+      - /v1/branches/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_branch_metadata_mutation
+    allowed_side_effects:
+      - create and manage tenant-scoped execution branch metadata
+    forbidden_side_effects:
+      - dispatch runtime work directly from branch metadata
+      - mutate branches outside the tenant boundary
+    required_proofs:
+      - tests/unit/api/test_branch_routes.py
+      - tests/unit/repositories/test_branch_repository.py
+
+  - id: runtime_control_contract
+    area: runtime governor controls
+    source_of_truth:
+      - backend/api/routes/runtime.py
+      - backend/services/runtime_governor.py
+    route_scope:
+      - /v1/runtime/*
+    authority_class: runtime_authoritative
+    side_effect_class: governed_runtime_control_mutation
+    allowed_side_effects:
+      - expose and mutate bounded runtime governor control state
+    forbidden_side_effects:
+      - bypass configured authorization for runtime control-plane actions
+      - synthesize queue or lease state outside authoritative runtime paths
+    required_proofs:
+      - tests/unit/api/test_runtime_routes.py
+      - tests/unit/runtime/test_runtime_governor.py
+
+  - id: admin_control_plane_contract
+    area: platform admin control plane
+    source_of_truth:
+      - backend/api/routes/admin.py
+    route_scope:
+      - /v1/admin/*
+    authority_class: runtime_authoritative
+    side_effect_class: admin_scoped_control_plane_mutation
+    allowed_side_effects:
+      - perform explicitly authorized platform administration operations
+    forbidden_side_effects:
+      - permit tenant-scoped principals to perform platform admin actions
+      - perform uncontrolled global mutation without authorization proof
+    required_proofs:
+      - tests/unit/api/test_admin_routes.py
+      - tests/contract/api/test_admin_control_plane_contract.py
+
   - id: mission_intake_contract
     area: mission intake
     source_of_truth:
