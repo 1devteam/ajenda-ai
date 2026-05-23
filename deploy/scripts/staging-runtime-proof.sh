@@ -49,7 +49,7 @@ if tenant is None:
     tenant = Tenant(
         id=uuid.UUID(tenant_id),
         name="runtime-proof",
-        slug="runtime-proof",
+        slug=f"runtime-proof-{tenant_id[:8]}",
         plan="free",
     )
     db.add(tenant)
@@ -122,15 +122,51 @@ if [ "$STATUS" != "completed" ]; then
   exit 1
 fi
 
-echo "Checking Redis queues..."
+echo "Verifying worker lease metadata..."
 
-PENDING=$(compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:pending")
-PROCESSING=$(compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:processing")
+WORKER_LEASE_ID=$(compose exec -T api python - <<PY
+from backend.app.config import get_settings
+from backend.db.session import DatabaseRuntime
+from backend.domain.execution_task import ExecutionTask
 
-echo "pending=$PENDING processing=$PROCESSING"
+task_id = "$TASK_ID"
+
+runtime = DatabaseRuntime(get_settings())
+db = runtime.session_factory()
+task = db.get(ExecutionTask, task_id)
+metadata = task.metadata_json if task is not None else {}
+print(metadata.get("worker_lease_id", ""))
+PY
+)
+
+if [ -z "$WORKER_LEASE_ID" ]; then
+  echo "FAIL: completed task does not record worker_lease_id"
+  exit 1
+fi
+
+echo "worker_lease_id=$WORKER_LEASE_ID"
+
+echo "Waiting for Redis queues to drain..."
+
+PENDING=""
+PROCESSING=""
+SECONDS_WAITED=0
+while [ "$SECONDS_WAITED" -le "$PROOF_TIMEOUT_SECONDS" ]; do
+  PENDING=$(compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:pending")
+  PROCESSING=$(compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:processing")
+
+  echo "Queue state after ${SECONDS_WAITED}s: pending=$PENDING processing=$PROCESSING"
+
+  if [ "$PENDING" = "0" ] && [ "$PROCESSING" = "0" ]; then
+    break
+  fi
+
+  sleep "$PROOF_POLL_SECONDS"
+  SECONDS_WAITED=$((SECONDS_WAITED + PROOF_POLL_SECONDS))
+done
 
 if [ "$PENDING" != "0" ] || [ "$PROCESSING" != "0" ]; then
-  echo "FAIL: queues not drained"
+  echo "FAIL: queues not drained before timeout"
   exit 1
 fi
 
