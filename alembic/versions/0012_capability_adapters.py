@@ -63,8 +63,7 @@ def upgrade() -> None:
             name="ck_capability_adapters_capability_name_version_pair",
         ),
         sa.CheckConstraint(
-            "capability_id IS NOT NULL OR "
-            "(capability_name IS NOT NULL AND capability_version IS NOT NULL)",
+            "capability_id IS NOT NULL OR (capability_name IS NOT NULL AND capability_version IS NOT NULL)",
             name="ck_capability_adapters_requires_capability_binding",
         ),
         sa.ForeignKeyConstraint(["capability_id"], ["capabilities.id"], name="fk_capability_adapters_capability_id"),

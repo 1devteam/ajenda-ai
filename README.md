@@ -393,10 +393,11 @@ Run integration and validation flows when your change affects runtime behavior, 
 
 ## Source-of-truth docs
 
-Start here when working on product direction and current runtime behavior:
+Start here when working on product direction and current runtime behavior.
+`PROJECT_SPEC.md` is the canonical source-of-truth specification:
 
-- `README.md`
 - `PROJECT_SPEC.md`
+- `README.md`
 - `docs/product/mission-based-ai-core.md`
 - `docs/deployment/production-env-contract.md`
 - `docs/validation/live-runtime-matrix.md`

@@ -46,9 +46,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_retrieval_contracts_tenant_id", "retrieval_contracts", ["tenant_id"])
     op.create_index("ix_retrieval_contracts_mission_id", "retrieval_contracts", ["mission_id"])
-    op.create_index(
-        "ix_retrieval_contracts_mission_tenant", "retrieval_contracts", ["mission_id", "tenant_id"]
-    )
+    op.create_index("ix_retrieval_contracts_mission_tenant", "retrieval_contracts", ["mission_id", "tenant_id"])
     op.create_index(
         "ix_retrieval_contracts_superseded_by_retrieval_id",
         "retrieval_contracts",

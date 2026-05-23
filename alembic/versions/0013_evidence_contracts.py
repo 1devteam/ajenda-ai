@@ -51,7 +51,9 @@ def upgrade() -> None:
             "collection_status IN ('draft', 'collected', 'verified', 'rejected', 'superseded')",
             name="ck_evidence_records_collection_status",
         ),
-        sa.CheckConstraint("confidence IS NULL OR (confidence >= 0 AND confidence <= 1)", name="ck_evidence_records_confidence"),
+        sa.CheckConstraint(
+            "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)", name="ck_evidence_records_confidence"
+        ),
         sa.ForeignKeyConstraint(["mission_id"], ["missions.id"], name="fk_evidence_records_mission_id"),
         sa.ForeignKeyConstraint(
             ["execution_task_id"], ["execution_tasks.id"], name="fk_evidence_records_execution_task_id"
