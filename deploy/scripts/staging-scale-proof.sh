@@ -23,6 +23,11 @@ metric_value() {
   curl -fsS http://localhost:8000/v1/observability/metrics | awk -v metric="$metric_name" '$1 == metric {print $2}'
 }
 
+queue_len() {
+  local queue_name="$1"
+  compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:${queue_name}"
+}
+
 WORKER_TENANT_ID=$(grep '^AJENDA_WORKER_TENANT_ID=' "$ENV_FILE" | cut -d '=' -f2)
 
 if [ -z "$WORKER_TENANT_ID" ]; then
@@ -35,8 +40,11 @@ echo "Task count: $TASK_COUNT"
 
 DEAD_LETTERS_BEFORE=$(metric_value "ajenda_dead_letter_count")
 ACTIVE_LEASES_BEFORE=$(metric_value "ajenda_active_leases")
+PENDING_BEFORE=$(queue_len "pending")
+PROCESSING_BEFORE=$(queue_len "processing")
 
 echo "baseline metrics: dead_letters=${DEAD_LETTERS_BEFORE:-missing} active_leases=${ACTIVE_LEASES_BEFORE:-missing}"
+echo "baseline queues: pending=$PENDING_BEFORE processing=$PROCESSING_BEFORE"
 
 if [ -z "${DEAD_LETTERS_BEFORE:-}" ]; then
   echo "FAIL: missing ajenda_dead_letter_count metric before proof"
@@ -57,6 +65,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.enums import ExecutionTaskState
 from backend.queue.adapters.redis_adapter import RedisQueueAdapter
 from backend.services.execution_coordinator import ExecutionCoordinator
+import sys
 import uuid
 
 tenant_id = "$WORKER_TENANT_ID"
@@ -101,10 +110,14 @@ for index in range(task_count):
     db.add(task)
     db.flush()
 
-    ExecutionCoordinator(db, queue).queue_task(
+    result = ExecutionCoordinator(db, queue).queue_task(
         tenant_id=tenant_id,
         task_id=str(task.id),
     )
+    if not result.ok:
+        db.rollback()
+        print(f"queue admission denied for task {task.id}: {result.reason or 'unknown reason'}", file=sys.stderr)
+        raise SystemExit(1)
     task_ids.append(str(task.id))
 
 db.commit()
@@ -191,19 +204,19 @@ if [ "$UNIQUE_LEASES" != "$TASK_COUNT" ]; then
   exit 1
 fi
 
-echo "Waiting for Redis queues to drain..."
+echo "Waiting for Redis queues to return to baseline..."
 
 PENDING=""
 PROCESSING=""
 SECONDS_WAITED=0
 
 while [ "$SECONDS_WAITED" -le "$PROOF_TIMEOUT_SECONDS" ]; do
-  PENDING=$(compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:pending")
-  PROCESSING=$(compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:processing")
+  PENDING=$(queue_len "pending")
+  PROCESSING=$(queue_len "processing")
 
   echo "queue after ${SECONDS_WAITED}s: pending=$PENDING processing=$PROCESSING"
 
-  if [ "$PENDING" = "0" ] && [ "$PROCESSING" = "0" ]; then
+  if [ "$PENDING" -le "$PENDING_BEFORE" ] && [ "$PROCESSING" -le "$PROCESSING_BEFORE" ]; then
     break
   fi
 
@@ -211,8 +224,10 @@ while [ "$SECONDS_WAITED" -le "$PROOF_TIMEOUT_SECONDS" ]; do
   SECONDS_WAITED=$((SECONDS_WAITED + PROOF_POLL_SECONDS))
 done
 
-if [ "$PENDING" != "0" ] || [ "$PROCESSING" != "0" ]; then
-  echo "FAIL: queues not drained before timeout"
+if [ "$PENDING" -gt "$PENDING_BEFORE" ] || [ "$PROCESSING" -gt "$PROCESSING_BEFORE" ]; then
+  echo "FAIL: proof increased queue backlog beyond baseline"
+  echo "before pending=$PENDING_BEFORE processing=$PROCESSING_BEFORE"
+  echo "after pending=$PENDING processing=$PROCESSING"
   exit 1
 fi
 
@@ -227,6 +242,6 @@ if [ "${DEAD_LETTERS_AFTER:-missing}" != "$DEAD_LETTERS_BEFORE" ]; then
   exit 1
 fi
 
-echo "active lease metric is system-wide; proof relies on proof-task lease IDs plus Redis drain instead of asserting global zero"
+echo "active lease metric is system-wide; proof relies on proof-task lease IDs plus queue baseline instead of asserting global zero"
 
 echo "PASS: staging scale proof complete"
