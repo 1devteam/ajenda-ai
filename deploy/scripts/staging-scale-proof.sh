@@ -18,6 +18,11 @@ compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
+metric_value() {
+  local metric_name="$1"
+  curl -fsS http://localhost:8000/v1/observability/metrics | awk -v metric="$metric_name" '$1 == metric {print $2}'
+}
+
 WORKER_TENANT_ID=$(grep '^AJENDA_WORKER_TENANT_ID=' "$ENV_FILE" | cut -d '=' -f2)
 
 if [ -z "$WORKER_TENANT_ID" ]; then
@@ -27,6 +32,21 @@ fi
 
 echo "Worker tenant: $WORKER_TENANT_ID"
 echo "Task count: $TASK_COUNT"
+
+DEAD_LETTERS_BEFORE=$(metric_value "ajenda_dead_letter_count")
+ACTIVE_LEASES_BEFORE=$(metric_value "ajenda_active_leases")
+
+echo "baseline metrics: dead_letters=${DEAD_LETTERS_BEFORE:-missing} active_leases=${ACTIVE_LEASES_BEFORE:-missing}"
+
+if [ -z "${DEAD_LETTERS_BEFORE:-}" ]; then
+  echo "FAIL: missing ajenda_dead_letter_count metric before proof"
+  exit 1
+fi
+
+if [ -z "${ACTIVE_LEASES_BEFORE:-}" ]; then
+  echo "FAIL: missing ajenda_active_leases metric before proof"
+  exit 1
+fi
 
 TASK_IDS=$(compose exec -T api python - <<PY
 from backend.app.config import get_settings
@@ -196,20 +216,17 @@ if [ "$PENDING" != "0" ] || [ "$PROCESSING" != "0" ]; then
   exit 1
 fi
 
-METRICS=$(curl -fsS http://localhost:8000/v1/observability/metrics)
-DEAD_LETTERS=$(printf "%s\n" "$METRICS" | awk '/^ajenda_dead_letter_count / {print $2}')
-ACTIVE_LEASES=$(printf "%s\n" "$METRICS" | awk '/^ajenda_active_leases / {print $2}')
+DEAD_LETTERS_AFTER=$(metric_value "ajenda_dead_letter_count")
+ACTIVE_LEASES_AFTER=$(metric_value "ajenda_active_leases")
 
-echo "metrics: dead_letters=$DEAD_LETTERS active_leases=$ACTIVE_LEASES"
+echo "final metrics: dead_letters=$DEAD_LETTERS_AFTER active_leases=$ACTIVE_LEASES_AFTER"
 
-if [ "${DEAD_LETTERS:-missing}" != "0" ]; then
-  echo "FAIL: dead letters detected"
+if [ "${DEAD_LETTERS_AFTER:-missing}" != "$DEAD_LETTERS_BEFORE" ]; then
+  echo "FAIL: dead-letter count changed during proof"
+  echo "before=$DEAD_LETTERS_BEFORE after=$DEAD_LETTERS_AFTER"
   exit 1
 fi
 
-if [ "${ACTIVE_LEASES:-missing}" != "0" ]; then
-  echo "FAIL: active leases did not return to zero"
-  exit 1
-fi
+echo "active lease metric is system-wide; proof relies on proof-task lease IDs plus Redis drain instead of asserting global zero"
 
 echo "PASS: staging scale proof complete"
