@@ -186,3 +186,28 @@ def test_mark_dead_letter_moves_task_to_dead_letter_and_emits_governance_evidenc
     assert governance_event.decision == "retry budget exhausted"
     assert governance_event.payload_json == {"task_id": str(task.id)}
     assert coordinator._session.flush.call_count == 2
+
+
+def test_queue_task_rejects_duplicate_already_queued_task_without_enqueuing() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.QUEUED.value)
+    queue = MagicMock()
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    with pytest.raises(ValueError, match="Invalid task transition"):
+        coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+
+    queue.enqueue_task.assert_not_called()
+    coordinator._audit.append.assert_not_called()
+
+
+def test_queue_task_rejects_terminal_completed_task() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    queue = MagicMock()
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    with pytest.raises(ValueError, match="Invalid task transition"):
+        coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+
+    queue.enqueue_task.assert_not_called()
