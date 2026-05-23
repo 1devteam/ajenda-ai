@@ -30,7 +30,6 @@ authority_entries:
     area: liveness probe
     source_of_truth:
       - backend/api/routes/health.py
-      - backend/api/routes/system.py
     route_scope:
       - /health
       - /v1/system/health
