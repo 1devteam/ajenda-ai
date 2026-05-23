@@ -396,6 +396,7 @@ Run integration and validation flows when your change affects runtime behavior, 
 Start here when working on product direction and current runtime behavior:
 
 - `README.md`
+- `PROJECT_SPEC.md`
 - `docs/product/mission-based-ai-core.md`
 - `docs/deployment/production-env-contract.md`
 - `docs/validation/live-runtime-matrix.md`
