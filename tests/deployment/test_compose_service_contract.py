@@ -127,3 +127,20 @@ def test_compose_api_healthcheck_uses_readiness_endpoint() -> None:
     api_block = _service_block(_read(COMPOSE_FILE), "api")
     assert "/app/deploy/scripts/readinesscheck.sh" in api_block
     assert "/app/deploy/scripts/healthcheck.sh" not in api_block
+
+
+def test_live_runtime_proof_initializes_readiness_before_metrics_scrape() -> None:
+    script = _read(LIVE_RUNTIME_PROOF)
+
+    readiness_index = script.index('wait_for_http_ok "$API_BASE_URL/readiness"')
+    metrics_index = script.index('metrics_body="$(curl_body "$API_BASE_URL/v1/observability/metrics")"')
+
+    assert readiness_index < metrics_index
+
+
+def test_live_runtime_proof_validates_prometheus_rule_file_and_metrics_path_contract() -> None:
+    script = _read(LIVE_RUNTIME_PROOF)
+
+    assert 'wait_for_http_ok "$PROMETHEUS_BASE_URL/-/ready"' in script
+    assert 'wait_for_prometheus_target_up "$PROMETHEUS_JOB_NAME"' in script
+    assert 'curl_body "$API_BASE_URL/v1/observability/metrics"' in script
