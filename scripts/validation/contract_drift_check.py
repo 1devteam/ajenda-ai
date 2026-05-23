@@ -17,6 +17,7 @@ DOCS_FRESHNESS_POLICY = REPO_ROOT / "docs" / "policies" / "DOCS_FRESHNESS_POLICY
 
 ROUTE_FAMILY_RE = re.compile(r"^\s*- `/v1/([^`*]+)/\*`\s*$")
 ROUTE_SCOPE_RE = re.compile(r"^\s*-\s+(/\S+)\s*$")
+PROOF_PATH_RE = re.compile(r"^\s*-\s+(tests/\S+)\s*$")
 REVIEWED_DATE_RE = re.compile(r"\*\*Last reviewed:\*\*\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})")
 
 TIER_1_DOCS = [
@@ -71,6 +72,26 @@ def _parse_ledger_route_scopes(ledger_text: str) -> set[str]:
     return scopes
 
 
+def _parse_ledger_required_proofs(ledger_text: str) -> set[str]:
+    proofs: set[str] = set()
+    in_required_proofs = False
+    for raw_line in ledger_text.splitlines():
+        line = raw_line.rstrip()
+        if line.strip() == "required_proofs:":
+            in_required_proofs = True
+            continue
+        if in_required_proofs:
+            m = PROOF_PATH_RE.match(line)
+            if m:
+                proofs.add(m.group(1))
+                continue
+            if line.startswith("    ") and line.strip() and not line.strip().startswith("-"):
+                in_required_proofs = False
+            elif line.startswith("  - id:"):
+                in_required_proofs = False
+    return proofs
+
+
 def _route_families_from_scopes(scopes: set[str]) -> set[str]:
     families: set[str] = set()
     for scope in scopes:
@@ -116,6 +137,17 @@ def _check() -> list[DriftIssue]:
         issues.append(
             DriftIssue(
                 "fail", f"Authority ledger route_scope missing README route families: {', '.join(missing_in_ledger)}"
+            )
+        )
+
+    missing_proofs = sorted(
+        rel for rel in _parse_ledger_required_proofs(ledger_text) if not (REPO_ROOT / rel).is_file()
+    )
+    if missing_proofs:
+        issues.append(
+            DriftIssue(
+                "fail",
+                f"Authority ledger required_proofs reference missing files: {', '.join(missing_proofs)}",
             )
         )
 
