@@ -405,6 +405,7 @@ Start here when working on product direction and current runtime behavior.
 - `artifacts/validation/README.md`
 - `docs/PROJECT_STATE_REPORT.md`
 - `docs/SAAS_ARCHITECTURE.md`
+- `docs/policies/DOCS_FRESHNESS_POLICY.md`
 
 ---
 

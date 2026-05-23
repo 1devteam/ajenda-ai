@@ -215,6 +215,7 @@ Canonical source-of-truth docs:
 5. `docs/validation/live-runtime-matrix.md`
 6. `docs/validation/live-runtime-proof-release-gate.md`
 7. `docs/deployment/production-env-contract.md`
+8. `docs/policies/DOCS_FRESHNESS_POLICY.md`
 
 If documents conflict, precedence order is:
 
