@@ -28,7 +28,7 @@ queue_len() {
   compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:${queue_name}"
 }
 
-WORKER_TENANT_ID=$(grep '^AJENDA_WORKER_TENANT_ID=' "$ENV_FILE" | cut -d '=' -f2)
+WORKER_TENANT_ID=$(grep '^AJENDA_WORKER_TENANT_ID=' "$ENV_FILE" | cut -d '=' -f2 || true)
 
 if [ -z "$WORKER_TENANT_ID" ]; then
   echo "AJENDA_WORKER_TENANT_ID not set"
@@ -109,18 +109,20 @@ for index in range(task_count):
     )
     db.add(task)
     db.flush()
-
-    result = ExecutionCoordinator(db, queue).queue_task(
-        tenant_id=tenant_id,
-        task_id=str(task.id),
-    )
-    if not result.ok:
-        db.rollback()
-        print(f"queue admission denied for task {task.id}: {result.reason or 'unknown reason'}", file=sys.stderr)
-        raise SystemExit(1)
     task_ids.append(str(task.id))
 
 db.commit()
+
+for task_id in task_ids:
+    result = ExecutionCoordinator(db, queue).queue_task(
+        tenant_id=tenant_id,
+        task_id=task_id,
+    )
+    if not result.ok:
+        db.rollback()
+        print(f"queue admission denied for task {task_id}: {result.reason or 'unknown reason'}", file=sys.stderr)
+        raise SystemExit(1)
+    db.commit()
 
 print("\\n".join(task_ids))
 PY
