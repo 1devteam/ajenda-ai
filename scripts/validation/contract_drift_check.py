@@ -38,6 +38,10 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _today() -> dt.date:
+    return dt.date.today()
+
+
 def _parse_readme_route_families(readme_text: str) -> set[str]:
     return {m.group(1) for line in readme_text.splitlines() if (m := ROUTE_FAMILY_RE.match(line))}
 
@@ -121,7 +125,7 @@ def _check() -> list[DriftIssue]:
             DriftIssue("warn", "DOCS_FRESHNESS_POLICY.md missing '**Last reviewed:** <Month DD, YYYY>' metadata.")
         )
     else:
-        age_days = (dt.date.today() - reviewed).days
+        age_days = (_today() - reviewed).days
         if age_days > 30:
             issues.append(
                 DriftIssue(
