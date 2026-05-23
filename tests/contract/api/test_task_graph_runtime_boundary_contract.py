@@ -223,7 +223,10 @@ def test_runtime_task_materialization_contract_creates_planned_rows_without_enqu
         patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
         patch("backend.api.routes.mission._build_mission_runtime_readiness", return_value=readiness),
-        patch("backend.api.routes.mission._build_runtime_task_preview_items", return_value=[_runtime_preview_item(mission_id=mission_id)]),
+        patch(
+            "backend.api.routes.mission._build_runtime_task_preview_items",
+            return_value=[_runtime_preview_item(mission_id=mission_id)],
+        ),
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-task-materialization")
 
