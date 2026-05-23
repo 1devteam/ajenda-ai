@@ -151,6 +151,9 @@ The following contract surfaces exist on `main`. Some are runtime-enforced contr
 
 The `Current proof/backing` column identifies the strongest known verification surface for the row. It must not be read as full end-to-end proof for every behavior in that row.
 
+The machine-readable authority map for these surfaces is maintained in `docs/contracts/authority-ledger.v1.yaml`.
+That ledger is normative for authority-class intent and required proof surfaces when contract boundaries evolve.
+
 | Contract area | Current source of truth | Current behavior / authority boundary | Current proof/backing |
 |---|---|---|---|
 | Runtime startup | `backend/main.py`, `backend/app/config.py`, queue adapter construction | startup validates runtime configuration and queue reachability before serving | unit/config tests, deployment proof |
@@ -419,6 +422,7 @@ Start here when working on product direction and current runtime behavior.
 - `docs/PROJECT_STATE_REPORT.md`
 - `docs/SAAS_ARCHITECTURE.md`
 - `docs/policies/DOCS_FRESHNESS_POLICY.md`
+- `docs/contracts/authority-ledger.v1.yaml`
 
 ---
 
