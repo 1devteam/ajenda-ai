@@ -22,7 +22,11 @@ def _read(path: Path) -> str:
 
 def _ledger_blocks() -> list[str]:
     content = _read(LEDGER)
-    return [block for block in content.split("\n  - id: ") if "authority_class:" in block]
+    # Split on top-level authority entry marker and keep every declared entry.
+    # Do not pre-filter by any required field (such as authority_class), or
+    # malformed entries could evade required-field validation.
+    parts = content.split("\n  - id: ")
+    return [f"id: {block}" for block in parts[1:] if block.strip()]
 
 
 def test_authority_ledger_is_present_and_referenced_in_readme() -> None:
