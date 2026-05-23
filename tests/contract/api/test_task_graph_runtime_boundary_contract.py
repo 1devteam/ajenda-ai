@@ -51,7 +51,7 @@ def _mission(*, tenant_id: uuid.UUID, mission_id: uuid.UUID) -> SimpleNamespace:
 def _graph_payload() -> dict[str, object]:
     return {
         "schema_version": 1,
-        "graph_status": "approved",
+        "graph_status": "draft",
         "nodes": [
             {
                 "node_key": "collect-signals",
