@@ -268,6 +268,14 @@ scripts/validation/live_runtime_matrix.sh --group read-only
 scripts/validation/live_runtime_matrix.sh --scenario RG-03
 ```
 
+```bash
+# Drift sentinel (warn mode)
+python scripts/validation/contract_drift_check.py
+
+# Drift sentinel (strict mode)
+python scripts/validation/contract_drift_check.py --strict
+```
+
 ---
 
 ## Validation environment variables
@@ -396,6 +404,7 @@ Run integration and validation flows when your change affects runtime behavior, 
 Start here when working on product direction and current runtime behavior:
 
 - `README.md`
+- `PROJECT_SPEC.md`
 - `docs/product/mission-based-ai-core.md`
 - `docs/deployment/production-env-contract.md`
 - `docs/validation/live-runtime-matrix.md`
