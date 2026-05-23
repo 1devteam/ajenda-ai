@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMPOSE_FILE="deploy/compose/docker-compose.prod.yml"
-ENV_FILE="deploy/compose/.env.prod"
+COMPOSE_FILE="${AJENDA_PROOF_COMPOSE_FILE:-deploy/compose/docker-compose.prod.yml}"
+ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"
+PROOF_TIMEOUT_SECONDS="${AJENDA_PROOF_TIMEOUT_SECONDS:-60}"
+PROOF_POLL_SECONDS="${AJENDA_PROOF_POLL_SECONDS:-2}"
 
 echo "== Staging Runtime Proof =="
 
-# Ensure env file exists
 if [ ! -f "$ENV_FILE" ]; then
   echo "Missing $ENV_FILE"
   exit 1
 fi
 
-# Extract worker tenant
+compose() {
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
 WORKER_TENANT_ID=$(grep '^AJENDA_WORKER_TENANT_ID=' "$ENV_FILE" | cut -d '=' -f2)
 
 if [ -z "$WORKER_TENANT_ID" ]; then
@@ -22,8 +26,7 @@ fi
 
 echo "Worker tenant: $WORKER_TENANT_ID"
 
-# Create + queue task inside API container
-TASK_ID=$(docker exec -i compose-api-1 python - <<PY
+TASK_ID=$(compose exec -T api python - <<PY
 from backend.app.config import get_settings
 from backend.db.session import DatabaseRuntime
 from backend.domain.tenant import Tenant
@@ -84,12 +87,12 @@ PY
 )
 
 echo "Task ID: $TASK_ID"
+echo "Waiting for completion up to ${PROOF_TIMEOUT_SECONDS}s..."
 
-echo "Waiting for completion..."
-
-sleep 5
-
-STATUS=$(docker exec -i compose-api-1 python - <<PY
+STATUS=""
+SECONDS_WAITED=0
+while [ "$SECONDS_WAITED" -le "$PROOF_TIMEOUT_SECONDS" ]; do
+  STATUS=$(compose exec -T api python - <<PY
 from backend.app.config import get_settings
 from backend.db.session import DatabaseRuntime
 from backend.domain.execution_task import ExecutionTask
@@ -100,21 +103,29 @@ runtime = DatabaseRuntime(get_settings())
 db = runtime.session_factory()
 task = db.get(ExecutionTask, task_id)
 
-print(task.status)
+print(task.status if task is not None else "missing")
 PY
 )
 
-echo "Task status: $STATUS"
+  echo "Task status after ${SECONDS_WAITED}s: $STATUS"
+
+  if [ "$STATUS" = "completed" ]; then
+    break
+  fi
+
+  sleep "$PROOF_POLL_SECONDS"
+  SECONDS_WAITED=$((SECONDS_WAITED + PROOF_POLL_SECONDS))
+done
 
 if [ "$STATUS" != "completed" ]; then
-  echo "FAIL: task did not complete"
+  echo "FAIL: task did not complete before timeout"
   exit 1
 fi
 
 echo "Checking Redis queues..."
 
-PENDING=$(docker exec -i compose-redis-1 redis-cli llen ajenda:queue:${WORKER_TENANT_ID}:pending)
-PROCESSING=$(docker exec -i compose-redis-1 redis-cli llen ajenda:queue:${WORKER_TENANT_ID}:processing)
+PENDING=$(compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:pending")
+PROCESSING=$(compose exec -T redis redis-cli llen "ajenda:queue:${WORKER_TENANT_ID}:processing")
 
 echo "pending=$PENDING processing=$PROCESSING"
 
