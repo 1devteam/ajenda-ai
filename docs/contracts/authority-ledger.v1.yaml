@@ -1,0 +1,381 @@
+version: 1
+last_reviewed: 2026-05-23
+owner: architecture-runtime-governance
+
+notes:
+  - "Authority classes: declarative, read_model, governed_mutation, runtime_authoritative."
+  - "This ledger is normative for contract intent and must be reconciled against implementation/tests in drift checks."
+  - "When a contract changes authority class, update ADRs/tests/validation artifacts in the same workstream."
+
+authority_entries:
+  - id: runtime_startup_contract
+    area: runtime startup
+    source_of_truth:
+      - backend/main.py
+      - backend/app/config.py
+    route_scope: []
+    authority_class: runtime_authoritative
+    side_effect_class: global_runtime_initialization
+    allowed_side_effects:
+      - validate runtime configuration
+      - initialize database runtime dependencies
+      - initialize and ping queue adapter before serving
+    forbidden_side_effects:
+      - serve requests when required runtime dependencies are unusable
+    required_proofs:
+      - tests/unit/config/test_runtime_contract_production.py
+      - tests/contract/bootstrap/test_app_bootstrap.py
+
+  - id: health_probe_contract
+    area: liveness probe
+    source_of_truth:
+      - backend/api/routes/health.py
+    route_scope:
+      - /health
+      - /v1/system/health
+    authority_class: read_model
+    side_effect_class: read_only_liveness
+    allowed_side_effects:
+      - return lightweight liveness status
+    forbidden_side_effects:
+      - mutate runtime state
+      - expose sensitive internals
+    required_proofs:
+      - tests/contract/api/test_health_route.py
+      - tests/contract/api/test_system_status_routes.py
+
+  - id: readiness_probe_contract
+    area: readiness probe
+    source_of_truth:
+      - backend/api/routes/health.py
+      - backend/api/routes/system.py
+    route_scope:
+      - /readiness
+      - /v1/system/readiness
+    authority_class: read_model
+    side_effect_class: dependency_truth_read
+    allowed_side_effects:
+      - report dependency readiness truth in sanitized form
+    forbidden_side_effects:
+      - mutate runtime state
+      - leak secrets or low-level sensitive failure details
+    required_proofs:
+      - tests/contract/api/test_system_status_routes.py
+      - tests/deployment/test_probe_paths.py
+
+  - id: mission_intake_contract
+    area: mission intake
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/services/mission_executor.py
+    route_scope:
+      - /v1/missions
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_metadata_create
+    allowed_side_effects:
+      - create tenant-owned mission records
+      - persist mission intake envelope metadata
+    forbidden_side_effects:
+      - enqueue runtime work directly from intake
+      - bypass tenant/auth envelope
+    required_proofs:
+      - tests/unit/api/test_mission_intake_route.py
+      - tests/unit/domain/test_mission_intake_metadata.py
+
+  - id: mission_plan_contract
+    area: mission planning
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/repositories/mission_plan_repository.py
+    route_scope:
+      - /v1/missions/{mission_id}/plan
+    authority_class: declarative
+    side_effect_class: tenant_scoped_plan_contract_mutation
+    allowed_side_effects:
+      - create or update mission planning contract records
+      - validate plan contract shape and status transitions
+    forbidden_side_effects:
+      - dispatch runtime tasks
+      - mutate queue or lease state
+    required_proofs:
+      - tests/unit/api/test_mission_planning_contract.py
+      - tests/unit/repositories/test_mission_plan_repository.py
+
+  - id: mission_task_graph_contract
+    area: mission task graph
+    source_of_truth:
+      - backend/api/routes/mission.py
+    route_scope:
+      - /v1/missions/{mission_id}/task-graph
+    authority_class: declarative
+    side_effect_class: tenant_scoped_graph_contract_mutation
+    allowed_side_effects:
+      - validate and persist normalized graph metadata
+      - supersede stale graph-linked contract metadata where defined
+    forbidden_side_effects:
+      - create execution tasks directly
+      - dispatch workers
+    required_proofs:
+      - tests/unit/domain/test_mission_task_graph_contract_metadata.py
+      - tests/contract/api/test_task_graph_runtime_boundary_contract.py
+
+  - id: runtime_admission_readiness_preview_contracts
+    area: mission runtime bridge read surfaces
+    source_of_truth:
+      - backend/api/routes/mission.py
+    route_scope:
+      - /v1/missions/{mission_id}/runtime-readiness
+      - /v1/missions/{mission_id}/runtime-task-preview
+      - /v1/missions/{mission_id}/runtime-dispatch-readiness
+      - /v1/missions/{mission_id}/worker-dispatch-eligibility
+      - /v1/missions/{mission_id}/worker-claim-preview
+    authority_class: read_model
+    side_effect_class: tenant_scoped_readiness_projection
+    allowed_side_effects:
+      - aggregate deterministic readiness/preview projections
+    forbidden_side_effects:
+      - mutate mission/task state
+      - enqueue/dispatch runtime work
+    required_proofs:
+      - tests/unit/api/test_runtime_dispatch_readiness_contract.py
+      - tests/unit/api/test_worker_dispatch_eligibility_contract.py
+
+  - id: runtime_task_materialization_contract
+    area: runtime task materialization bridge
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/repositories/execution_task_repository.py
+    route_scope:
+      - /v1/missions/{mission_id}/runtime-task-materialization
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_planned_task_creation
+    allowed_side_effects:
+      - create planned execution task rows from admitted graph preview
+      - persist materialization receipts/metadata
+    forbidden_side_effects:
+      - enqueue queue payloads
+      - dispatch workers
+      - execute handlers/adapters
+    required_proofs:
+      - tests/contract/api/test_task_queue_contract.py
+      - tests/unit/services/test_mission_runtime_projection.py
+
+  - id: worker_claim_start_admission_contracts
+    area: worker claim/start admissions
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/services/worker_runtime_service.py
+    route_scope:
+      - /v1/missions/{mission_id}/worker-claim-admission
+      - /v1/missions/{mission_id}/worker-start-admission
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_task_state_transition
+    allowed_side_effects:
+      - perform bounded queued->claimed and claimed->running transitions
+      - establish and validate worker lease ownership contract
+    forbidden_side_effects:
+      - run task dispatcher for arbitrary non-admitted tasks
+      - bypass lease ownership checks
+    required_proofs:
+      - tests/unit/api/test_worker_claim_admission_contract.py
+      - tests/unit/api/test_worker_start_admission_contract.py
+      - tests/unit/services/test_worker_runtime_service_transaction_contract.py
+
+  - id: worker_run_admission_contract
+    area: worker run admission
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/workers/task_dispatcher.py
+      - backend/workers/worker_loop.py
+    route_scope:
+      - /v1/missions/{mission_id}/worker-run-admission
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_runtime_dispatch
+    allowed_side_effects:
+      - invoke dispatcher on admitted running tasks with valid lease ownership
+      - complete/fail/dead-letter through canonical runtime paths
+    forbidden_side_effects:
+      - execute unadmitted tasks
+      - bypass queue claim/processing authority
+      - bypass tenant/RLS protections
+    required_proofs:
+      - tests/unit/api/test_worker_run_admission_contract.py
+      - tests/integration/runtime/test_worker_loop_dispatcher_compensation_real.py
+      - tests/contract/workers/test_real_worker_loop.py
+
+  - id: capability_registry_contract
+    area: capability declarations
+    source_of_truth:
+      - backend/api/routes/capability.py
+      - backend/domain/capability.py
+    route_scope:
+      - /v1/capabilities
+      - /v1/capabilities/{capability_id}
+    authority_class: declarative
+    side_effect_class: tenant_scoped_capability_contract_mutation
+    allowed_side_effects:
+      - persist capability declaration contracts
+    forbidden_side_effects:
+      - bind runtime handlers automatically
+      - execute runtime work
+    required_proofs:
+      - tests/unit/api/test_capability_registry_route.py
+      - tests/unit/repositories/test_capability_repository.py
+
+  - id: capability_adapter_contract
+    area: capability adapter declarations
+    source_of_truth:
+      - backend/api/routes/capability_adapter.py
+      - backend/domain/capability_adapter.py
+    route_scope:
+      - /v1/capability-adapters
+      - /v1/capability-adapters/{adapter_id}
+    authority_class: declarative
+    side_effect_class: tenant_scoped_adapter_contract_mutation
+    allowed_side_effects:
+      - persist adapter contract declarations
+    forbidden_side_effects:
+      - register executable runtime bindings automatically
+      - execute tools/providers directly
+    required_proofs:
+      - tests/unit/api/test_capability_adapter_route.py
+      - tests/unit/repositories/test_capability_adapter_repository.py
+
+  - id: evidence_contract
+    area: evidence records
+    source_of_truth:
+      - backend/api/routes/evidence.py
+      - backend/domain/evidence.py
+    route_scope:
+      - /v1/evidence
+      - /v1/evidence/{evidence_id}
+    authority_class: declarative
+    side_effect_class: tenant_scoped_evidence_contract_mutation
+    allowed_side_effects:
+      - persist and update evidence/provenance records
+    forbidden_side_effects:
+      - score outcomes automatically
+      - dispatch runtime work
+    required_proofs:
+      - tests/unit/api/test_evidence_route.py
+      - tests/unit/repositories/test_evidence_repository.py
+
+  - id: outcome_review_contract
+    area: outcome reviews
+    source_of_truth:
+      - backend/api/routes/outcome_review.py
+      - backend/domain/outcome_review.py
+    route_scope:
+      - /v1/outcome-reviews
+      - /v1/outcome-reviews/{review_id}
+    authority_class: declarative
+    side_effect_class: tenant_scoped_review_contract_mutation
+    allowed_side_effects:
+      - persist review findings/decisions metadata
+    forbidden_side_effects:
+      - mutate runtime execution state directly
+      - execute autonomous reviewer actions without explicit runtime contract
+    required_proofs:
+      - tests/unit/api/test_outcome_review_route.py
+      - tests/unit/repositories/test_outcome_review_repository.py
+
+  - id: retrieval_contract
+    area: retrieval contracts
+    source_of_truth:
+      - backend/api/routes/retrieval_contract.py
+      - backend/domain/retrieval_contract.py
+    route_scope:
+      - /v1/retrieval-contracts
+      - /v1/retrieval-contracts/{retrieval_id}
+    authority_class: declarative
+    side_effect_class: tenant_scoped_retrieval_contract_mutation
+    allowed_side_effects:
+      - persist retrieval governance requests and statuses
+    forbidden_side_effects:
+      - run embedding/vector retrieval implicitly
+      - mutate runtime task execution state
+    required_proofs:
+      - tests/unit/api/test_retrieval_contract_route.py
+      - tests/unit/repositories/test_retrieval_contract_repository.py
+
+  - id: task_queue_runtime_contract
+    area: task queue runtime routes
+    source_of_truth:
+      - backend/api/routes/task.py
+      - backend/services/execution_coordinator.py
+      - backend/queue/adapters/redis_adapter.py
+    route_scope:
+      - /v1/tasks/*
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_queue_mutation
+    allowed_side_effects:
+      - enqueue admitted tasks via authoritative queue adapter paths
+      - coordinate runtime task transitions with queue evidence
+    forbidden_side_effects:
+      - bypass policy/compliance gating for unsafe tasks
+      - bypass tenant scope controls
+    required_proofs:
+      - tests/contract/api/test_task_queue_contract.py
+      - tests/integration/api/test_task_queue_route_real.py
+      - tests/integration/queue/test_queue_flow_real.py
+
+  - id: operations_dead_letter_recovery_contract
+    area: operations dead-letter and recovery
+    source_of_truth:
+      - backend/api/routes/operations.py
+      - backend/services/operations_service.py
+      - backend/services/runtime_maintainer.py
+    route_scope:
+      - /v1/operations/*
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_or_admin_scoped_recovery_mutation
+    allowed_side_effects:
+      - inspect dead-letter state with tenant/admin boundaries
+      - perform bounded retry/recovery operations
+    forbidden_side_effects:
+      - perform uncontrolled global mutation without required authorization
+      - synthesize queue state contradictory to canonical evidence
+    required_proofs:
+      - tests/contract/operations/test_dead_letter_retry_contract.py
+      - tests/integration/operations/test_dead_letter_retry_real.py
+      - tests/integration/runtime/test_runtime_recovery_queue_corruption_real.py
+
+  - id: webhook_contract
+    area: webhook endpoints/deliveries/replay
+    source_of_truth:
+      - backend/api/routes/webhooks.py
+      - backend/services/webhook_dispatch.py
+      - backend/domain/webhook_endpoint.py
+      - backend/domain/webhook_delivery.py
+    route_scope:
+      - /v1/webhooks/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_outbound_delivery
+    allowed_side_effects:
+      - manage tenant webhook endpoints and replay operations
+      - produce signed webhook delivery records under tenant scope
+    forbidden_side_effects:
+      - expose signing secrets
+      - dispatch cross-tenant webhook actions
+    required_proofs:
+      - tests/unit/webhooks/test_webhook_dispatch.py
+      - tests/integration/webhooks/test_webhook_repository_real.py
+
+  - id: observability_metrics_contract
+    area: metrics exposure
+    source_of_truth:
+      - backend/api/routes/observability.py
+      - backend/metrics/prometheus_exporter.py
+      - backend/observability/metrics.py
+    route_scope:
+      - /v1/observability/metrics
+    authority_class: read_model
+    side_effect_class: read_only_metrics_export
+    allowed_side_effects:
+      - expose metrics in scrape-compatible format
+    forbidden_side_effects:
+      - mutate business/runtime state during metrics read
+      - expose sensitive tenant payload data
+    required_proofs:
+      - tests/contract/metrics/test_metrics_endpoint.py
+      - tests/unit/metrics/test_prometheus_exporter.py
