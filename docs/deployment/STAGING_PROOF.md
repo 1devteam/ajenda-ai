@@ -1,0 +1,99 @@
+# Staging Runtime Proof (Compose)
+
+This document defines the staging proof contract for the Docker Compose runtime path. It records required behavior and proof checks, not exploratory terminal history.
+
+## Required Conditions
+
+A staging Compose deployment is considered booted only when all of the following are true:
+
+- API container is running and healthy.
+- Worker container is running.
+- Postgres container is running and healthy.
+- Redis container is running.
+- Prometheus container is running.
+- OpenTelemetry collector container is running when enabled by Compose.
+- Prometheus target for the API is up.
+
+## Required Endpoints
+
+| Endpoint | Expected result |
+| --- | --- |
+| `GET /health` | liveness response with `status=ok` |
+| `GET /readiness` | `status=ready`, `database=ready`, `queue=ready` |
+| `GET /v1/observability/metrics` | Prometheus metric output containing readiness and runtime invariant metrics |
+
+## Required Metrics
+
+The metrics endpoint must expose these runtime signals:
+
+- `ajenda_readiness_dependency_status{dependency="database"}`
+- `ajenda_readiness_dependency_status{dependency="queue"}`
+- `ajenda_queue_depth`
+- `ajenda_dead_letter_count`
+- `ajenda_active_leases`
+- `ajenda_worker_utilization`
+
+Healthy idle staging state is expected to report:
+
+- readiness dependency metrics at `1` for database and queue after readiness has been evaluated;
+- queue depth at `0` when no tasks are pending;
+- dead-letter count at `0` when no tasks have terminal queue failures;
+- active leases at `0` when no task is in flight.
+
+## Prometheus Proof
+
+Prometheus must prove all of the following:
+
+- Server readiness endpoint `/-/ready` returns ready.
+- API target is up.
+- API scrape URL remains `/v1/observability/metrics`.
+- Alert rules are loaded from the configured Compose rule file.
+
+Required alert rules:
+
+- `AjendaDatabaseReadinessUnavailable`
+- `AjendaQueueReadinessUnavailable`
+- `AjendaQueueBacklogDetected`
+- `AjendaDeadLettersPresent`
+
+Under a healthy idle staging deployment, these alerts should be loaded and inactive.
+
+## Queue Execution Proof
+
+Given:
+
+- a tenant matching the worker tenant scope;
+- a mission owned by that tenant;
+- a planned execution task with supported task metadata;
+- queue admission through `ExecutionCoordinator.queue_task`;
+
+then the runtime must prove:
+
+- the task enters Redis pending queue;
+- the worker claims the task;
+- the worker executes the task;
+- the task reaches `completed` state;
+- a `worker_lease_id` is recorded in task metadata;
+- Redis pending and processing queues drain back to `0`.
+
+Expected state flow:
+
+```text
+planned -> queued -> claimed/running -> completed
+```
+
+The exact intermediate states may move quickly because the worker can claim and complete the task before manual observation.
+
+## Done Condition
+
+A staging Compose deployment is considered proof-passing when all of the following are true:
+
+- Compose config resolves with the explicit Compose env file.
+- Full stack starts without API or worker restart loops.
+- `/health` returns liveness success.
+- `/readiness` reports database and queue ready.
+- `/v1/observability/metrics` exposes readiness and runtime invariant metrics.
+- Prometheus target is up.
+- Alert rules are loaded and inactive under healthy idle conditions.
+- A worker-tenant task can be queued and completed by the worker.
+- Redis pending and processing queues drain after task completion.
