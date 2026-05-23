@@ -96,7 +96,7 @@ This alignment is reinforced across product architecture and SaaS documentation,
 ### 2) Areas that are partially aligned / drift-prone
 
 - **State-report recency risk**: `docs/PROJECT_STATE_REPORT.md` is explicitly dated April 22, 2026; this is not necessarily stale, but it introduces drift risk if operational truth has moved since then.
-- **Project-spec pointer gap**: workflow references `PROJECT_SPEC.md` as single source of truth, but this file is absent in the repository root at assessment time.
+- **Project-spec adoption follow-through**: `PROJECT_SPEC.md` now exists; next risk is keeping all legacy references and downstream docs aligned to it as canonical source-of-truth.
 - **Roadmap-stage clarity**: mission-layer contracts are clearly documented, but operators may still over-assume runtime binding where boundaries remain intentionally deferred.
 
 ### 3) Areas that are misaligned in practice risk (logic-level)
@@ -237,7 +237,7 @@ These are high-value additions to your architecture package and spec-ready struc
 
 ### P0 (highest value / highest risk)
 
-1. **Missing `PROJECT_SPEC.md` in repo root** despite workflow claiming it as single source of truth.
+1. **`PROJECT_SPEC.md` governance adoption must be enforced** so all workflow/doc references consistently treat it as canonical source-of-truth.
 2. **No first-class GTM mission architecture** for lead-gen/follow-up/ad/blog mission flows.
 3. **Declarative contract layers need explicit operator UX cues** to prevent misuse/assumption of execution authority.
 4. **Readiness signal semantics require completion of declared hardening objective** (DB + queue dependency truth with sanitized failure contract).
@@ -377,7 +377,7 @@ Use this structure for your upcoming `PROJECT_SPEC.md`:
 
 ### 0-30 days
 
-- Create missing `PROJECT_SPEC.md` (or re-point workflow to existing canonical docs).
+- Enforce `PROJECT_SPEC.md` as canonical in all workflow docs/checklists and remove conflicting or stale references.
 - Implement Contract Authority Ledger v1.
 - Define GTM mission family contract set and outbound policy baseline.
 - Finish readiness precision hardening with explicit tests + release-gate row updates.

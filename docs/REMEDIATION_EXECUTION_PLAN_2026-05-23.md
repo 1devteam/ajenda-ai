@@ -28,7 +28,7 @@ This plan is designed so each PR bundle is independently mergeable, testable, an
 
 ### Workstream A — Canonical spec + drift control
 Addresses:
-- P0.1 missing `PROJECT_SPEC.md`
+- P0.1 canonical `PROJECT_SPEC.md` adoption and anti-drift enforcement
 - P1.4 cross-document freshness governance
 - README drift-prone alignment risks
 
