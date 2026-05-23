@@ -175,7 +175,7 @@ These are high-value additions to your architecture package and spec-ready struc
 
 ### A) New documentation files to add
 
-1. `PROJECT_SPEC.md` (root)
+1. `PROJECT_SPEC.md` (root) **(already added; now enforce adoption)**
    - Canonical product + runtime + GTM scope
    - Non-negotiable authority boundaries
    - Success metrics and release gates

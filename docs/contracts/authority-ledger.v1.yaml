@@ -30,6 +30,7 @@ authority_entries:
     area: liveness probe
     source_of_truth:
       - backend/api/routes/health.py
+      - backend/api/routes/system.py
     route_scope:
       - /health
       - /v1/system/health
@@ -119,6 +120,57 @@ authority_entries:
       - tests/unit/domain/test_mission_task_graph_contract_metadata.py
       - tests/contract/api/test_task_graph_runtime_boundary_contract.py
 
+  - id: graph_materialization_write_contract
+    area: planner-to-graph materialization (write)
+    source_of_truth:
+      - backend/api/routes/mission.py
+    route_scope:
+      - POST /v1/missions/{mission_id}/materialize-graph
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_materialization_contract_mutation
+    allowed_side_effects:
+      - validate current mission graph/capability visibility boundaries
+      - persist graph materialization contract metadata
+    forbidden_side_effects:
+      - create execution tasks directly
+      - enqueue/dispatch runtime work
+    required_proofs:
+      - tests/unit/api/test_mission_planning_contract.py
+      - tests/unit/domain/test_mission_task_graph_contract_metadata.py
+
+  - id: runtime_admission_read_contract
+    area: runtime admission (read)
+    source_of_truth:
+      - backend/api/routes/mission.py
+    route_scope:
+      - GET /v1/missions/{mission_id}/runtime-admission
+    authority_class: read_model
+    side_effect_class: tenant_scoped_runtime_admission_read
+    allowed_side_effects:
+      - read runtime admission metadata and receipts
+    forbidden_side_effects:
+      - mutate mission/task/runtime state
+      - enqueue/dispatch runtime work
+    required_proofs:
+      - tests/unit/api/test_runtime_mode.py
+
+  - id: runtime_admission_write_contract
+    area: runtime admission (write)
+    source_of_truth:
+      - backend/api/routes/mission.py
+    route_scope:
+      - POST /v1/missions/{mission_id}/runtime-admission
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_runtime_admission_mutation
+    allowed_side_effects:
+      - persist admission metadata for selected graph nodes
+      - validate admission/mapping constraints before later runtime steps
+    forbidden_side_effects:
+      - create execution tasks directly
+      - enqueue/dispatch runtime work
+    required_proofs:
+      - tests/unit/api/test_runtime_mode.py
+
   - id: runtime_admission_readiness_preview_contracts
     area: mission runtime bridge read surfaces
     source_of_truth:
@@ -140,13 +192,30 @@ authority_entries:
       - tests/unit/api/test_runtime_dispatch_readiness_contract.py
       - tests/unit/api/test_worker_dispatch_eligibility_contract.py
 
-  - id: runtime_task_materialization_contract
-    area: runtime task materialization bridge
+  - id: runtime_task_materialization_read_contract
+    area: runtime task materialization bridge (read)
+    source_of_truth:
+      - backend/api/routes/mission.py
+    route_scope:
+      - GET /v1/missions/{mission_id}/runtime-task-materialization
+    authority_class: read_model
+    side_effect_class: tenant_scoped_materialization_receipt_read
+    allowed_side_effects:
+      - read runtime task materialization metadata and receipts
+    forbidden_side_effects:
+      - mutate mission/task/runtime state
+      - enqueue/dispatch runtime work
+    required_proofs:
+      - tests/contract/api/test_task_queue_contract.py
+      - tests/unit/services/test_mission_runtime_projection.py
+
+  - id: runtime_task_materialization_write_contract
+    area: runtime task materialization bridge (write)
     source_of_truth:
       - backend/api/routes/mission.py
       - backend/repositories/execution_task_repository.py
     route_scope:
-      - /v1/missions/{mission_id}/runtime-task-materialization
+      - POST /v1/missions/{mission_id}/runtime-task-materialization
     authority_class: governed_mutation
     side_effect_class: tenant_scoped_planned_task_creation
     allowed_side_effects:
@@ -181,14 +250,30 @@ authority_entries:
       - tests/unit/api/test_worker_start_admission_contract.py
       - tests/unit/services/test_worker_runtime_service_transaction_contract.py
 
-  - id: worker_run_admission_contract
-    area: worker run admission
+  - id: worker_run_admission_read_contract
+    area: worker run admission (read)
+    source_of_truth:
+      - backend/api/routes/mission.py
+    route_scope:
+      - GET /v1/missions/{mission_id}/worker-run-admission
+    authority_class: read_model
+    side_effect_class: tenant_scoped_run_receipt_read
+    allowed_side_effects:
+      - read worker run admission receipts and metadata
+    forbidden_side_effects:
+      - mutate task/runtime state
+      - dispatch runtime work
+    required_proofs:
+      - tests/unit/api/test_worker_run_admission_contract.py
+
+  - id: worker_run_admission_write_contract
+    area: worker run admission (write)
     source_of_truth:
       - backend/api/routes/mission.py
       - backend/workers/task_dispatcher.py
       - backend/workers/worker_loop.py
     route_scope:
-      - /v1/missions/{mission_id}/worker-run-admission
+      - POST /v1/missions/{mission_id}/worker-run-admission
     authority_class: runtime_authoritative
     side_effect_class: tenant_scoped_runtime_dispatch
     allowed_side_effects:
@@ -202,6 +287,44 @@ authority_entries:
       - tests/unit/api/test_worker_run_admission_contract.py
       - tests/integration/runtime/test_worker_loop_dispatcher_compensation_real.py
       - tests/contract/workers/test_real_worker_loop.py
+
+  - id: runtime_queue_admission_write_contract
+    area: runtime queue admission (write)
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/services/execution_coordinator.py
+    route_scope:
+      - POST /v1/missions/{mission_id}/runtime-queue-admission
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_queue_admission_mutation
+    allowed_side_effects:
+      - enqueue admitted materialized tasks into authoritative queue paths
+      - persist queue admission receipts/metadata
+    forbidden_side_effects:
+      - bypass policy/compliance or tenant boundary checks
+      - enqueue non-admitted or foreign-tenant tasks
+    required_proofs:
+      - tests/unit/api/test_task_queue_route.py
+      - tests/integration/api/test_task_queue_route_real.py
+
+  - id: mission_queue_write_contract
+    area: mission queue route (write)
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/services/mission_executor.py
+    route_scope:
+      - POST /v1/missions/{mission_id}/queue
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_mission_queue_mutation
+    allowed_side_effects:
+      - enqueue mission-scoped work through governed mission queue pathway
+      - emit mission queue admission metadata/evidence
+    forbidden_side_effects:
+      - bypass tenant/auth/policy controls
+      - dispatch worker execution outside queue authority
+    required_proofs:
+      - tests/contract/api/test_mission_queue_contract.py
+      - tests/contract/api/test_mission_queue_envelope_contract.py
 
   - id: capability_registry_contract
     area: capability declarations
