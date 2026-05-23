@@ -169,13 +169,13 @@ To "sell itself," AJENDA-AI needs explicit architecture for **Revenue Mission Ty
 
 ---
 
-## Specific files and key points missing from architecture package
+## Specific files and key points to add/extend in the architecture package
 
 These are high-value additions to your architecture package and spec-ready structure.
 
 ### A) New documentation files to add
 
-1. `PROJECT_SPEC.md` (root)
+1. `PROJECT_SPEC.md` (root) **(already added; now enforce adoption)**
    - Canonical product + runtime + GTM scope
    - Non-negotiable authority boundaries
    - Success metrics and release gates
