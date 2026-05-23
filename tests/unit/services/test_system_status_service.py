@@ -1,7 +1,17 @@
 from unittest.mock import Mock
 
-from backend.metrics.prometheus_exporter import readiness_dependency_samples
+import pytest
+
+from backend.metrics.prometheus_exporter import (
+    readiness_dependency_samples,
+    reset_readiness_dependency_statuses,
+)
 from backend.services.system_status_service import SystemStatusService
+
+
+@pytest.fixture(autouse=True)
+def _reset_readiness_metrics() -> None:
+    reset_readiness_dependency_statuses()
 
 
 def _readiness_values() -> dict[str, int]:

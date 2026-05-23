@@ -9,6 +9,11 @@ READINESS_DEPENDENCIES = ("database", "queue")
 _readiness_dependency_values: dict[str, int] = {dependency: 0 for dependency in READINESS_DEPENDENCIES}
 
 
+def reset_readiness_dependency_statuses() -> None:
+    for dependency in READINESS_DEPENDENCIES:
+        _readiness_dependency_values[dependency] = 0
+
+
 def set_readiness_dependency_status(*, dependency: str, status: str) -> None:
     if dependency not in READINESS_DEPENDENCIES:
         return
