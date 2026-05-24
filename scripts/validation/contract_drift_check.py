@@ -107,7 +107,10 @@ def _parse_last_reviewed(path: Path) -> dt.date | None:
     match = REVIEWED_DATE_RE.search(content)
     if not match:
         return None
-    return dt.datetime.strptime(match.group(1), "%B %d, %Y").date()
+    try:
+        return dt.datetime.strptime(match.group(1), "%B %d, %Y").date()
+    except ValueError:
+        return None
 
 
 def _check() -> list[DriftIssue]:
@@ -117,54 +120,64 @@ def _check() -> list[DriftIssue]:
         if not (REPO_ROOT / rel).exists():
             issues.append(DriftIssue("fail", f"Missing Tier-1 canonical doc: {rel}"))
 
-    readme_text = _read(README)
-    ledger_text = _read(LEDGER)
+    if not LEDGER.exists():
+        issues.append(DriftIssue("fail", f"Missing authority ledger: {LEDGER.relative_to(REPO_ROOT)}"))
 
-    readme_families = _parse_readme_route_families(readme_text)
-    ledger_scopes = _parse_ledger_route_scopes(ledger_text)
-    ledger_families = _route_families_from_scopes(ledger_scopes)
+    readme_text = _read(README) if README.exists() else None
+    ledger_text = _read(LEDGER) if LEDGER.exists() else None
 
-    missing_in_readme = sorted(ledger_families - readme_families)
-    missing_in_ledger = sorted(readme_families - ledger_families)
+    if readme_text is not None and ledger_text is not None:
+        readme_families = _parse_readme_route_families(readme_text)
+        ledger_scopes = _parse_ledger_route_scopes(ledger_text)
+        ledger_families = _route_families_from_scopes(ledger_scopes)
 
-    if missing_in_readme:
-        issues.append(
-            DriftIssue(
-                "fail", f"README route inventory missing families from authority ledger: {', '.join(missing_in_readme)}"
+        missing_in_readme = sorted(ledger_families - readme_families)
+        missing_in_ledger = sorted(readme_families - ledger_families)
+
+        if missing_in_readme:
+            issues.append(
+                DriftIssue(
+                    "fail",
+                    f"README route inventory missing families from authority ledger: {', '.join(missing_in_readme)}",
+                )
             )
-        )
-    if missing_in_ledger:
-        issues.append(
-            DriftIssue(
-                "fail", f"Authority ledger route_scope missing README route families: {', '.join(missing_in_ledger)}"
+        if missing_in_ledger:
+            issues.append(
+                DriftIssue(
+                    "fail", f"Authority ledger route_scope missing README route families: {', '.join(missing_in_ledger)}"
+                )
             )
-        )
 
-    missing_proofs = sorted(
-        rel for rel in _parse_ledger_required_proofs(ledger_text) if not (REPO_ROOT / rel).is_file()
-    )
-    if missing_proofs:
-        issues.append(
-            DriftIssue(
-                "fail",
-                f"Authority ledger required_proofs reference missing files: {', '.join(missing_proofs)}",
+        missing_proofs = sorted(
+            rel for rel in _parse_ledger_required_proofs(ledger_text) if not (REPO_ROOT / rel).is_file()
+        )
+        if missing_proofs:
+            issues.append(
+                DriftIssue(
+                    "fail",
+                    f"Authority ledger required_proofs reference missing files: {', '.join(missing_proofs)}",
+                )
             )
-        )
 
-    reviewed = _parse_last_reviewed(DOCS_FRESHNESS_POLICY)
-    if reviewed is None:
+    if not DOCS_FRESHNESS_POLICY.exists():
         issues.append(
             DriftIssue("warn", "DOCS_FRESHNESS_POLICY.md missing '**Last reviewed:** <Month DD, YYYY>' metadata.")
         )
     else:
-        age_days = (_today() - reviewed).days
-        if age_days > 30:
+        reviewed = _parse_last_reviewed(DOCS_FRESHNESS_POLICY)
+        if reviewed is None:
             issues.append(
-                DriftIssue(
-                    "warn",
-                    f"DOCS_FRESHNESS_POLICY.md is stale by Tier-2 SLA ({age_days} days since {reviewed.isoformat()}).",
-                )
+                DriftIssue("warn", "DOCS_FRESHNESS_POLICY.md missing '**Last reviewed:** <Month DD, YYYY>' metadata.")
             )
+        else:
+            age_days = (_today() - reviewed).days
+            if age_days > 30:
+                issues.append(
+                    DriftIssue(
+                        "warn",
+                        f"DOCS_FRESHNESS_POLICY.md is stale by Tier-2 SLA ({age_days} days since {reviewed.isoformat()}).",
+                    )
+                )
 
     return issues
 
