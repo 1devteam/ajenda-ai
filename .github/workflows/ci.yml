@@ -60,6 +60,9 @@ jobs:
       - name: Mypy — type check
         run: mypy backend/
 
+      - name: Contract drift sentinel
+        run: python scripts/validation/contract_drift_check.py
+
   # ─────────────────────────────────────────────────────────────────────────
   # Job 2: Unit tests — no infrastructure, fast
   # ─────────────────────────────────────────────────────────────────────────
