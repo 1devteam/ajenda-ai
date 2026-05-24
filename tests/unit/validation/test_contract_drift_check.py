@@ -82,6 +82,29 @@ def test_malformed_entries_checked_before_authority_filter(tmp_path: Path, monke
     assert any("Malformed ledger entry" in i.message for i in issues)
 
 
+def test_unsupported_authority_class_fails(tmp_path: Path, monkeypatch) -> None:
+    _minimal_repo(tmp_path)
+    _write(
+        tmp_path / "docs/contracts/authority-ledger.v1.yaml",
+        """
+version: 1
+authority_entries:
+  - id: mission_contract
+    area: mission
+    source_of_truth: [backend/api/routes/mission.py]
+    route_scope: [/v1/missions]
+    authority_class: runtime_magic
+    side_effect_class: x
+    allowed_side_effects: [a]
+    forbidden_side_effects: [b]
+    required_proofs: []
+""",
+    )
+    _patch_repo(monkeypatch, tmp_path)
+    issues = drift_check._check()
+    assert any(i.severity == "fail" and "unsupported authority_class" in i.message for i in issues)
+
+
 def test_missing_readme_or_ledger_does_not_crash(tmp_path: Path, monkeypatch) -> None:
     _write(tmp_path / "docs/policies/DOCS_FRESHNESS_POLICY.md", "x\n")
     _patch_repo(monkeypatch, tmp_path)
