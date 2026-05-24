@@ -29,7 +29,8 @@ ROUTE_FAMILY_RE = re.compile(r"^\s*- `/v1/([^`*]+)/\*`\s*$")
 LAST_REVIEWED_RE = re.compile(r"\*\*Last reviewed:\*\*\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})")
 INCLUDE_ROUTER_IMPORT_RE = re.compile(r"from backend\.api\.routes\.([a-z_]+) import router as")
 INCLUDE_ROUTER_CALL_RE = re.compile(r"v1\.include_router\(([a-z_]+)_router\)")
-ROUTER_PREFIX_RE = re.compile(r"APIRouter\(prefix=\"(/[^\"]*)\"")
+ROUTER_PREFIX_RE = re.compile(r"APIRouter\([^\n)]*prefix\s*=\s*[\"'](/[^\"']*)[\"']")
+ROUTE_DECORATOR_RE = re.compile(r"@router\.(?:get|post|put|patch|delete|options|head)\(\s*[\"'](/[^\"']*)[\"']")
 
 REQUIRED_ENTRY_FIELDS = (
     "id",
@@ -75,15 +76,25 @@ def _parse_readme_route_families(readme_text: str) -> set[str]:
     return {m.group(1) for line in readme_text.splitlines() if (m := ROUTE_FAMILY_RE.match(line))}
 
 
+def _route_family_from_path(path: str) -> str | None:
+    if path.startswith("/v1/"):
+        candidate = path.split("/v1/", maxsplit=1)[1]
+    elif path.startswith("/"):
+        candidate = path.lstrip("/")
+    else:
+        return None
+    family = candidate.split("/", maxsplit=1)[0]
+    return family or None
+
+
 def _route_families_from_scopes(scopes: set[str]) -> set[str]:
     families: set[str] = set()
     for scope in scopes:
         if not scope.startswith("/v1/"):
             continue
-        after_v1 = scope.split("/v1/", maxsplit=1)[1]
-        head = after_v1.split("/", maxsplit=1)[0]
-        if head:
-            families.add(head)
+        family = _route_family_from_path(scope)
+        if family:
+            families.add(family)
     return families
 
 
@@ -159,16 +170,20 @@ def _implemented_v1_route_families() -> tuple[set[str], list[DriftIssue]]:
         issues.extend(route_issues)
         if not route_text:
             continue
+
+        module_families: set[str] = set()
         for m in ROUTER_PREFIX_RE.finditer(route_text):
-            prefix = m.group(1)
-            if prefix.startswith("/v1/"):
-                family = prefix.split("/v1/", 1)[1].split("/", 1)[0]
-            elif prefix.startswith("/"):
-                family = prefix.lstrip("/").split("/", 1)[0]
-            else:
-                family = ""
+            family = _route_family_from_path(m.group(1))
             if family:
-                families.add(family)
+                module_families.add(family)
+
+        if not module_families:
+            for m in ROUTE_DECORATOR_RE.finditer(route_text):
+                family = _route_family_from_path(m.group(1))
+                if family:
+                    module_families.add(family)
+
+        families.update(module_families)
     return families, issues
 
 
