@@ -217,7 +217,9 @@ def _check(strict_baseline: bool = False) -> list[DriftIssue]:
     ):
         issues.append(DriftIssue("warn", "Route family naming mismatch detected: workforce vs workforces."))
 
-    if policy_text:
+    if not policy_text.strip():
+        issues.append(DriftIssue("warn", "DOCS_FRESHNESS_POLICY.md is missing Last reviewed metadata."))
+    else:
         reviewed = _parse_last_reviewed(policy_text)
         if reviewed is None:
             if "Last reviewed" in policy_text:
