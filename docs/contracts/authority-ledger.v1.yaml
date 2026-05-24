@@ -63,6 +63,42 @@ authority_entries:
       - tests/contract/api/test_system_status_routes.py
       - tests/deployment/test_probe_paths.py
 
+  - id: auth_identity_contract
+    area: authenticated principal identity route
+    source_of_truth:
+      - backend/api/routes/auth.py
+      - backend/middleware/auth_context.py
+    route_scope:
+      - /v1/auth/*
+    authority_class: read_model
+    side_effect_class: tenant_scoped_identity_read
+    allowed_side_effects:
+      - return authenticated caller identity claims
+    forbidden_side_effects:
+      - mutate runtime or tenant state
+      - bypass fail-closed authentication
+    required_proofs:
+      - tests/contract/api/test_auth_routes.py
+      - tests/contract/test_auth_contract.py
+
+  - id: api_key_lifecycle_contract
+    area: tenant api key lifecycle
+    source_of_truth:
+      - backend/api/routes/api_keys.py
+      - backend/services/api_key_service.py
+    route_scope:
+      - /v1/api-keys/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_credential_mutation
+    allowed_side_effects:
+      - create and revoke tenant-scoped api keys under authorization and quota checks
+    forbidden_side_effects:
+      - create cross-tenant credentials
+      - bypass authorization or quota enforcement
+    required_proofs:
+      - tests/contract/api/test_api_key_routes.py
+      - tests/integration/auth/test_api_key_lifecycle.py
+
   - id: mission_intake_contract
     area: mission intake
     source_of_truth:
@@ -81,6 +117,42 @@ authority_entries:
     required_proofs:
       - tests/unit/api/test_mission_intake_route.py
       - tests/unit/domain/test_mission_intake_metadata.py
+
+  - id: branch_contract
+    area: mission branch management
+    source_of_truth:
+      - backend/api/routes/branch.py
+      - backend/services/branch_manager.py
+    route_scope:
+      - /v1/branches/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_branch_mutation
+    allowed_side_effects:
+      - create tenant-scoped execution branches for missions
+    forbidden_side_effects:
+      - mutate cross-tenant branch state
+      - bypass tenant envelope
+    required_proofs:
+      - tests/unit/services/test_mission_runtime_projection.py
+      - tests/integration/runtime/test_task_graph_runtime_admission_real.py
+
+  - id: workforce_provisioning_contract
+    area: workforce fleet provisioning
+    source_of_truth:
+      - backend/api/routes/workforce.py
+      - backend/services/workforce_provisioner.py
+    route_scope:
+      - /v1/workforces/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_workforce_mutation
+    allowed_side_effects:
+      - provision tenant-scoped workforce fleet records under quota controls
+    forbidden_side_effects:
+      - bypass quota checks
+      - provision cross-tenant workforce resources
+    required_proofs:
+      - tests/unit/services/test_mission_runtime_projection.py
+      - tests/integration/runtime/test_task_graph_runtime_admission_real.py
 
   - id: mission_plan_contract
     area: mission planning
@@ -340,6 +412,41 @@ authority_entries:
       - tests/integration/operations/test_dead_letter_retry_real.py
       - tests/integration/runtime/test_runtime_recovery_queue_corruption_real.py
 
+  - id: runtime_mode_contract
+    area: runtime governor mode read
+    source_of_truth:
+      - backend/api/routes/runtime.py
+      - backend/services/runtime_governor.py
+    route_scope:
+      - /v1/runtime/*
+    authority_class: read_model
+    side_effect_class: runtime_mode_projection_read
+    allowed_side_effects:
+      - return evaluated runtime mode and execution/provisioning allowances
+    forbidden_side_effects:
+      - mutate runtime state during mode evaluation
+    required_proofs:
+      - tests/unit/api/routes/test_runtime_mode.py
+      - tests/unit/services/test_runtime_governor.py
+
+  - id: admin_tenant_control_plane_contract
+    area: admin tenant lifecycle control plane
+    source_of_truth:
+      - backend/api/routes/admin.py
+      - backend/services/tenant_lifecycle.py
+    route_scope:
+      - /v1/admin/*
+    authority_class: governed_mutation
+    side_effect_class: admin_scoped_tenant_lifecycle_mutation
+    allowed_side_effects:
+      - provision, suspend, reactivate, and plan-manage tenant lifecycle records
+    forbidden_side_effects:
+      - allow non-admin callers
+      - bypass tenant lifecycle safeguards
+    required_proofs:
+      - tests/unit/saas/test_admin_actor.py
+      - tests/integration/saas/test_tenant_lifecycle_real.py
+
   - id: webhook_contract
     area: webhook endpoints/deliveries/replay
     source_of_truth:
@@ -379,101 +486,3 @@ authority_entries:
     required_proofs:
       - tests/contract/metrics/test_metrics_endpoint.py
       - tests/unit/metrics/test_prometheus_exporter.py
-
-  - id: branch_contract
-    area: mission branch management
-    source_of_truth:
-      - backend/api/routes/branch.py
-    route_scope:
-      - /v1/branches/*
-    authority_class: governed_mutation
-    side_effect_class: tenant_scoped_branch_mutation
-    allowed_side_effects:
-      - create tenant-scoped execution branches
-    forbidden_side_effects:
-      - cross-tenant mutation
-    required_proofs:
-      - tests/contract/api/test_branch_contract.py
-
-  - id: workforce_provisioning_contract
-    area: workforce provisioning
-    source_of_truth:
-      - backend/api/routes/workforce.py
-    route_scope:
-      - /v1/workforces/*
-    authority_class: governed_mutation
-    side_effect_class: tenant_scoped_workforce_mutation
-    allowed_side_effects:
-      - provision tenant workforce
-    forbidden_side_effects:
-      - bypass quota or tenant isolation
-    required_proofs:
-      - tests/contract/api/test_workforce_contract.py
-
-  - id: admin_tenant_control_plane_contract
-    area: admin tenant lifecycle
-    source_of_truth:
-      - backend/api/routes/admin.py
-    route_scope:
-      - /v1/admin/*
-    authority_class: governed_mutation
-    side_effect_class: admin_scoped_tenant_mutation
-    allowed_side_effects:
-      - manage tenant lifecycle
-    forbidden_side_effects:
-      - allow non-admin access
-    required_proofs:
-      - tests/contract/api/test_admin_contract.py
-
-  - id: auth_identity_contract
-    area: authenticated principal identity route
-    source_of_truth:
-      - backend/api/routes/auth.py
-      - backend/middleware/auth_context.py
-    route_scope:
-      - /v1/auth/*
-    authority_class: read_model
-    side_effect_class: tenant_scoped_identity_read
-    allowed_side_effects:
-      - return authenticated caller identity claims
-    forbidden_side_effects:
-      - mutate runtime or tenant state
-      - bypass fail-closed authentication
-    required_proofs:
-      - tests/contract/api/test_auth_routes.py
-      - tests/contract/test_auth_contract.py
-
-  - id: api_key_lifecycle_contract
-    area: tenant api key lifecycle
-    source_of_truth:
-      - backend/api/routes/api_keys.py
-      - backend/services/api_key_service.py
-    route_scope:
-      - /v1/api-keys/*
-    authority_class: governed_mutation
-    side_effect_class: tenant_scoped_credential_mutation
-    allowed_side_effects:
-      - create and revoke tenant-scoped api keys under authorization and quota checks
-    forbidden_side_effects:
-      - create cross-tenant credentials
-      - bypass authorization or quota enforcement
-    required_proofs:
-      - tests/contract/api/test_api_key_routes.py
-      - tests/integration/auth/test_api_key_lifecycle.py
-
-  - id: runtime_mode_contract
-    area: runtime governor mode read
-    source_of_truth:
-      - backend/api/routes/runtime.py
-      - backend/services/runtime_governor.py
-    route_scope:
-      - /v1/runtime/*
-    authority_class: read_model
-    side_effect_class: runtime_mode_projection_read
-    allowed_side_effects:
-      - return evaluated runtime mode and execution/provisioning allowances
-    forbidden_side_effects:
-      - mutate runtime state during mode evaluation
-    required_proofs:
-      - tests/unit/api/routes/test_runtime_mode.py
-      - tests/unit/services/test_runtime_governor.py
