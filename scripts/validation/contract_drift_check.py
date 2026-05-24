@@ -55,10 +55,6 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _today() -> dt.date:
-    return dt.date.today()
-
-
 def _safe_read(path: Path, *, missing_is_fail: bool = False, label: str = "file") -> tuple[str, list[DriftIssue]]:
     issues: list[DriftIssue] = []
     try:
@@ -88,14 +84,7 @@ def _route_family_from_path(path: str) -> str | None:
 
 
 def _route_families_from_scopes(scopes: set[str]) -> set[str]:
-    families: set[str] = set()
-    for scope in scopes:
-        if not scope.startswith("/v1/"):
-            continue
-        family = _route_family_from_path(scope)
-        if family:
-            families.add(family)
-    return families
+    return {family for scope in scopes if (family := _route_family_from_path(scope)) and scope.startswith("/v1/")}
 
 
 def _parse_last_reviewed(text: str) -> dt.date | None:
@@ -127,6 +116,7 @@ def _load_ledger_entries(ledger_text: str) -> tuple[list[dict], list[DriftIssue]
         if not isinstance(entry, dict):
             issues.append(DriftIssue("fail", f"Malformed ledger entry at index {idx}: expected mapping."))
             continue
+
         missing = [field for field in REQUIRED_ENTRY_FIELDS if field not in entry]
         if missing:
             issues.append(
@@ -136,6 +126,7 @@ def _load_ledger_entries(ledger_text: str) -> tuple[list[dict], list[DriftIssue]
                 )
             )
             continue
+
         authority_class = entry.get("authority_class")
         if authority_class not in SUPPORTED_AUTHORITY_CLASSES:
             issues.append(
@@ -145,6 +136,7 @@ def _load_ledger_entries(ledger_text: str) -> tuple[list[dict], list[DriftIssue]
                 )
             )
             continue
+
         normalized.append(entry)
     return normalized, issues
 
@@ -173,14 +165,12 @@ def _implemented_v1_route_families() -> tuple[set[str], list[DriftIssue]]:
 
         module_families: set[str] = set()
         for m in ROUTER_PREFIX_RE.finditer(route_text):
-            family = _route_family_from_path(m.group(1))
-            if family:
+            if (family := _route_family_from_path(m.group(1))) and family != "v1":
                 module_families.add(family)
 
         if not module_families:
             for m in ROUTE_DECORATOR_RE.finditer(route_text):
-                family = _route_family_from_path(m.group(1))
-                if family:
+                if (family := _route_family_from_path(m.group(1))) and family != "v1":
                     module_families.add(family)
 
         families.update(module_families)
@@ -218,14 +208,24 @@ def _check(strict_baseline: bool = False) -> list[DriftIssue]:
     for family in sorted(ledger_families - readme_families):
         issues.append(DriftIssue("warn", f"Ledger route family missing from README: {family}"))
     for family in sorted(implemented_families - (readme_families | ledger_families)):
-        issues.append(DriftIssue("warn", f"Implemented router family not represented in README or ledger: {family}"))
+        issues.append(DriftIssue("warn", f"Router-mounted family missing from README or ledger: {family}"))
     for family in sorted(readme_families - implemented_families):
         issues.append(DriftIssue("warn", f"README route family not mounted by implementation: {family}"))
 
-    if policy_text:
+    if "workforce" in (readme_families | ledger_families | implemented_families) and "workforces" in (
+        readme_families | ledger_families | implemented_families
+    ):
+        issues.append(DriftIssue("warn", "Route family naming mismatch detected: workforce vs workforces."))
+
+    if not policy_text.strip():
+        issues.append(DriftIssue("warn", "DOCS_FRESHNESS_POLICY.md is missing Last reviewed metadata."))
+    else:
         reviewed = _parse_last_reviewed(policy_text)
-        if reviewed is None and "Last reviewed" in policy_text:
-            issues.append(DriftIssue("warn", "DOCS_FRESHNESS_POLICY.md has invalid Last reviewed date format."))
+        if reviewed is None:
+            if "Last reviewed" in policy_text:
+                issues.append(DriftIssue("warn", "DOCS_FRESHNESS_POLICY.md has invalid Last reviewed date format."))
+            else:
+                issues.append(DriftIssue("warn", "DOCS_FRESHNESS_POLICY.md is missing Last reviewed metadata."))
 
     if strict_baseline:
         for issue in issues:
