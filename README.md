@@ -134,7 +134,7 @@ Current implementation note:
   - `/v1/outcome-reviews/*`
   - `/v1/retrieval-contracts/*`
   - `/v1/tasks/*`
-  - `/v1/workforce/*`
+  - `/v1/workforces/*`
   - `/v1/branches/*`
   - `/v1/runtime/*`
   - `/v1/operations/*`
