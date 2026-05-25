@@ -63,3 +63,30 @@ def test_health_does_not_update_readiness_metrics() -> None:
 
     assert response.status_code == 200
     assert after == before
+
+
+def test_root_and_system_readiness_share_normalized_contract() -> None:
+    app = create_app()
+    db = Mock()
+    db.ping.return_value = True
+    queue = Mock()
+    queue.ping.return_value = True
+
+    with TestClient(app) as client:
+        app.state.database_runtime = db
+        app.state.queue_adapter = queue
+        root_response = client.get("/readiness")
+        system_response = client.get("/v1/system/readiness")
+
+    assert root_response.status_code == 200
+    assert system_response.status_code == 200
+    expected_payload = {
+        "status": "ready",
+        "dependencies": {
+            "database": {"status": "ready"},
+            "queue": {"status": "ready"},
+        },
+        "reason": "NONE",
+    }
+    assert root_response.json() == expected_payload
+    assert system_response.json() == expected_payload
