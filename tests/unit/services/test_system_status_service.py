@@ -48,6 +48,7 @@ def test_readiness_ready_when_dependencies_ping() -> None:
             "database": {"status": "ready"},
             "queue": {"status": "ready"},
         },
+        "reason": None,
     }
 
 
@@ -87,6 +88,7 @@ def test_readiness_skips_none_dependencies() -> None:
             "database": {"status": "skipped"},
             "queue": {"status": "skipped"},
         },
+        "reason": None,
     }
 
 

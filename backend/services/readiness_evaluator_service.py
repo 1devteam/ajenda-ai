@@ -27,6 +27,7 @@ class ReadinessEvaluatorService:
                 "database": {"status": database_status},
                 "queue": {"status": queue_status},
             },
+            "reason": None,
         }
 
         unavailable = [
