@@ -59,4 +59,5 @@ def test_empty_freshness_policy_warns(tmp_path: Path, monkeypatch) -> None:
     issues = drift_check._check()
     assert any("missing Last reviewed metadata" in i.message for i in issues)
 
+
 # existing tests remain unchanged
