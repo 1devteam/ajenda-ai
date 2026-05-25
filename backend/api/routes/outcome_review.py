@@ -17,10 +17,10 @@ from backend.repositories.outcome_review_repository import OutcomeReviewReposito
 
 router = APIRouter(prefix="/outcome-reviews", tags=["outcome-reviews"])
 
-ReviewStatus = Literal["draft", "in_review", "completed", "superseded"]
+ReviewStatus = Literal["draft", "in_review", "completed", "superseded", "escalated", "archived"]
 ReviewDecision = Literal["accepted", "rejected", "partial", "inconclusive", "needs_human_review"]
 ReviewerType = Literal["operator", "system", "policy", "external"]
-HumanApprovalStatus = Literal["not_required", "pending", "approved", "rejected"]
+HumanApprovalStatus = Literal["not_required", "pending", "approved", "rejected", "escalated"]
 
 
 def _validate_evidence_reference_shape(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
