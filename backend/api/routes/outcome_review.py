@@ -9,11 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
+from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.domain.outcome_review import OUTCOME_REVIEW_SCHEMA_VERSION, OutcomeReview
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
+from backend.services.lifecycle_policy_service import LifecyclePolicyConfig, LifecyclePolicyService
 
 router = APIRouter(prefix="/outcome-reviews", tags=["outcome-reviews"])
 
@@ -214,6 +216,16 @@ def create_outcome_review(
 ) -> OutcomeReviewRead:
     """Persist an evidence-backed outcome review contract without runtime side effects."""
     tenant_scope = str(tenant_id)
+    settings = get_settings()
+    lifecycle_policy = LifecyclePolicyService(
+        LifecyclePolicyConfig(
+            enforce_retention_class=settings.lifecycle_policy_enforce_retention_class,
+            enforce_escalation_transitions=settings.lifecycle_policy_enforce_escalation_transitions,
+            enforce_provenance_confidence_floor=settings.lifecycle_policy_enforce_provenance_confidence_floor,
+            provenance_confidence_floor=settings.lifecycle_policy_provenance_confidence_floor,
+        )
+    )
+    lifecycle_policy.validate_outcome_create(review_status=body.review_status, confidence=body.confidence)
     _validate_mission(mission_id=body.mission_id, tenant_id=tenant_scope, db=db)
     _validate_evidence_references_for_mission(
         evidence_references=body.evidence_references, mission_id=body.mission_id, tenant_id=tenant_scope, db=db
@@ -296,6 +308,23 @@ def update_outcome_review(
             tenant_id=tenant_scope,
             db=db,
         )
+    settings = get_settings()
+    lifecycle_policy = LifecyclePolicyService(
+        LifecyclePolicyConfig(
+            enforce_retention_class=settings.lifecycle_policy_enforce_retention_class,
+            enforce_escalation_transitions=settings.lifecycle_policy_enforce_escalation_transitions,
+            enforce_provenance_confidence_floor=settings.lifecycle_policy_enforce_provenance_confidence_floor,
+            provenance_confidence_floor=settings.lifecycle_policy_provenance_confidence_floor,
+        )
+    )
+    next_status = updates.get("review_status", review.review_status)
+    next_confidence = updates.get("confidence", review.confidence)
+    lifecycle_policy.validate_outcome_status_transition(
+        previous_status=review.review_status,
+        next_status=next_status,
+        confidence=next_confidence,
+    )
+
     for field_name, value in updates.items():
         setattr(review, field_name, value)
 

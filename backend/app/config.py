@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import math
 import os
 import socket
 from functools import lru_cache
@@ -84,6 +85,19 @@ class Settings(BaseSettings):
     webhook_secret_encryption_key_prev: str | None = Field(
         default=None,
         alias="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
+    )
+
+    lifecycle_policy_enforce_retention_class: bool = Field(
+        default=False, alias="AJENDA_LIFECYCLE_POLICY_ENFORCE_RETENTION_CLASS"
+    )
+    lifecycle_policy_enforce_escalation_transitions: bool = Field(
+        default=False, alias="AJENDA_LIFECYCLE_POLICY_ENFORCE_ESCALATION_TRANSITIONS"
+    )
+    lifecycle_policy_enforce_provenance_confidence_floor: bool = Field(
+        default=False, alias="AJENDA_LIFECYCLE_POLICY_ENFORCE_PROVENANCE_CONFIDENCE_FLOOR"
+    )
+    lifecycle_policy_provenance_confidence_floor: float = Field(
+        default=0.75, alias="AJENDA_LIFECYCLE_POLICY_PROVENANCE_CONFIDENCE_FLOOR"
     )
 
     @property
@@ -186,6 +200,13 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"AJENDA_AUTHZ_OPA_URL is required when AJENDA_AUTHZ_POLICY_MODE={self.authz_policy_mode}"
                 )
+        if (
+            math.isnan(self.lifecycle_policy_provenance_confidence_floor)
+            or self.lifecycle_policy_provenance_confidence_floor < 0
+            or self.lifecycle_policy_provenance_confidence_floor > 1
+        ):
+            raise ValueError("AJENDA_LIFECYCLE_POLICY_PROVENANCE_CONFIDENCE_FLOOR must be between 0 and 1")
+
         if self.authz_opa_timeout_seconds <= 0:
             raise ValueError(
                 f"AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS must be a positive number, got {self.authz_opa_timeout_seconds}"
