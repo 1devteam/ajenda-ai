@@ -34,30 +34,49 @@ def _build_app(tenant_id: uuid.UUID) -> FastAPI:
 
 def test_mission_timeline_endpoint_returns_read_only_tenant_scoped_events() -> None:
     tenant_id = uuid.uuid4()
+    foreign_tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
-    now = datetime(2026, 5, 25, 12, 0, tzinfo=UTC)
+    created_at = datetime(2026, 5, 25, 12, 0, tzinfo=UTC)
+    updated_at = datetime(2026, 5, 25, 12, 10, tzinfo=UTC)
+
     mission = SimpleNamespace(
         id=mission_id,
         tenant_id=str(tenant_id),
         status="planned",
-        created_at=now,
-        updated_at=now,
-        metadata_json={"mission_plan": {"planning_status": "draft", "updated_at": now.isoformat()}},
+        created_at=created_at,
+        updated_at=updated_at,
+        metadata_json={
+            "mission_plan": {
+                "planning_status": "draft",
+                "updated_at": datetime(2026, 5, 25, 12, 5, tzinfo=UTC).isoformat(),
+            },
+            "runtime_admission": {
+                "admission_status": "admitted",
+                "updated_at": datetime(2026, 5, 25, 12, 8, tzinfo=UTC).isoformat(),
+            },
+        },
     )
-    task = SimpleNamespace(
+    tenant_task = SimpleNamespace(
         id=uuid.uuid4(),
         tenant_id=str(tenant_id),
         status="planned",
-        created_at=now,
-        updated_at=now,
+        created_at=datetime(2026, 5, 25, 12, 6, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 25, 12, 9, tzinfo=UTC),
+    )
+    foreign_task = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=str(foreign_tenant_id),
+        status="planned",
+        created_at=datetime(2026, 5, 25, 12, 7, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 25, 12, 7, tzinfo=UTC),
     )
 
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
     task_repo = MagicMock()
-    task_repo.list_for_mission.return_value = [task]
+    task_repo.list_for_mission.return_value = [tenant_task, foreign_task]
 
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
@@ -68,9 +87,57 @@ def test_mission_timeline_endpoint_returns_read_only_tenant_scoped_events() -> N
     assert response.status_code == 200
     body = response.json()
     assert body["authority_class"] == "read_model"
+    assert body["side_effect_class"] == "none"
     assert body["does_not_execute_runtime_work"] is True
-    assert len(body["events"]) >= 3
-    assert any(event["event_type"] == "mission_plan_recorded" for event in body["events"])
+
+    timestamps = [datetime.fromisoformat(event["timestamp"]) for event in body["events"]]
+    assert timestamps == sorted(timestamps)
+
+    included_task_ids = {
+        event["details"]["task_id"]
+        for event in body["events"]
+        if event["source"] == "execution_task" and "task_id" in event["details"]
+    }
+    assert str(tenant_task.id) in included_task_ids
+    assert str(foreign_task.id) not in included_task_ids
+
+
+def test_mission_timeline_endpoint_fallbacks_invalid_metadata_updated_at_without_500() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_updated_at = datetime(2026, 5, 25, 14, 0, tzinfo=UTC)
+
+    mission = SimpleNamespace(
+        id=mission_id,
+        tenant_id=str(tenant_id),
+        status="planned",
+        created_at=datetime(2026, 5, 25, 13, 0, tzinfo=UTC),
+        updated_at=mission_updated_at,
+        metadata_json={
+            "mission_plan": {"planning_status": "draft", "updated_at": "not-an-iso-date"},
+            "runtime_admission": {"admission_status": "admitted", "updated_at": 12345},
+        },
+    )
+
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    task_repo = MagicMock()
+    task_repo.list_for_mission.return_value = []
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/timeline")
+
+    assert response.status_code == 200
+    body = response.json()
+    fallback_events = [event for event in body["events"] if event["source"] == "mission_metadata"]
+    assert fallback_events
+    for event in fallback_events:
+        assert event["timestamp"] == mission_updated_at.isoformat()
 
 
 def test_mission_timeline_endpoint_fails_closed_for_missing_or_foreign_mission() -> None:

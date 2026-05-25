@@ -1794,7 +1794,28 @@ def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead
     )
 
 
+def _timeline_timestamp_or_mission_updated(*, value: Any, mission_updated_at_iso: str) -> str:
+    """Return a valid ISO timestamp string or mission updated-at fallback."""
+    if not isinstance(value, str):
+        return mission_updated_at_iso
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return mission_updated_at_iso
+    return value
+
+
+def _timeline_sort_key(event: MissionTimelineEvent) -> tuple[datetime, str, str, str]:
+    """Produce a deterministic sort key using parsed timestamp when possible."""
+    try:
+        parsed = datetime.fromisoformat(event.timestamp)
+    except ValueError:
+        parsed = datetime.min.replace(tzinfo=UTC)
+    return (parsed, event.timestamp, event.event_type, event.stage)
+
+
 def _mission_timeline_to_read(*, mission: Mission, tasks: list[ExecutionTask]) -> MissionTimelineRead:
+    mission_updated_at_iso = mission.updated_at.isoformat()
     events: list[MissionTimelineEvent] = [
         MissionTimelineEvent(
             timestamp=mission.created_at.isoformat(),
@@ -1828,8 +1849,8 @@ def _mission_timeline_to_read(*, mission: Mission, tasks: list[ExecutionTask]) -
         value = metadata.get(key)
         if not isinstance(value, dict):
             continue
-        updated_at = (
-            value.get("updated_at") if isinstance(value.get("updated_at"), str) else mission.updated_at.isoformat()
+        updated_at = _timeline_timestamp_or_mission_updated(
+            value=value.get("updated_at"), mission_updated_at_iso=mission_updated_at_iso
         )
         status = (
             value.get("admission_status")
@@ -1872,7 +1893,7 @@ def _mission_timeline_to_read(*, mission: Mission, tasks: list[ExecutionTask]) -
                 )
             )
 
-    events.sort(key=lambda item: (item.timestamp, item.event_type))
+    events.sort(key=_timeline_sort_key)
     return MissionTimelineRead(mission_id=mission.id, tenant_id=mission.tenant_id, events=events)
 
 
