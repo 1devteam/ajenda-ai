@@ -263,6 +263,132 @@ def test_outcome_review_update_requires_confidence_when_floor_enabled() -> None:
     review_repo.update.assert_not_called()
 
 
+def test_evidence_create_allows_missing_retention_and_confidence_when_policy_flags_disabled() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+    evidence_repo = MagicMock()
+    now = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
+    evidence_repo.add.return_value = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=str(tenant_id),
+        mission_id=mission_id,
+        task_graph_node_key="research-node",
+        materialization_reference={"metadata_key": "graph_materialization", "version": 1},
+        execution_task_id=None,
+        capability_id=None,
+        capability_adapter_id=None,
+        evidence_type="artifact",
+        evidence_source="capability-adapter",
+        summary="Adapter produced an artifact proving the task output.",
+        structured_payload={"record_count": 3},
+        artifact_references=[{"uri": "s3://tenant/artifact.json", "sha256": "abc"}],
+        provenance_metadata={"collector": "unit-test"},
+        trust_signal={"method": "checksum", "verified": True},
+        confidence=None,
+        collection_status="collected",
+        schema_version=1,
+        created_at=now,
+        updated_at=now,
+    )
+
+    permissive_settings = SimpleNamespace(
+        lifecycle_policy_enforce_retention_class=False,
+        lifecycle_policy_enforce_escalation_transitions=False,
+        lifecycle_policy_enforce_provenance_confidence_floor=False,
+        lifecycle_policy_provenance_confidence_floor=0.75,
+    )
+
+    payload = _evidence_payload(mission_id=mission_id, confidence=None)
+    payload["provenance_metadata"] = {"collector": "unit-test"}
+
+    with (
+        patch("backend.api.routes.evidence.get_settings", return_value=permissive_settings),
+        patch("backend.api.routes.evidence.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.evidence.EvidenceRepository", return_value=evidence_repo),
+    ):
+        response = client.post("/v1/evidence", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["confidence"] is None
+    assert response.json()["provenance_metadata"] == {"collector": "unit-test"}
+    mission_repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    evidence_repo.add.assert_called_once()
+
+
+def test_outcome_review_create_allows_escalated_without_confidence_when_policy_flags_disabled() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+    review_repo = MagicMock()
+    review_id = uuid.uuid4()
+    review_repo.add.return_value = _review_record(tenant_id=str(tenant_id), mission_id=mission_id, review_id=review_id)
+    review_repo.add.return_value.review_status = "escalated"
+    review_repo.add.return_value.confidence = None
+
+    permissive_settings = SimpleNamespace(
+        lifecycle_policy_enforce_retention_class=False,
+        lifecycle_policy_enforce_escalation_transitions=False,
+        lifecycle_policy_enforce_provenance_confidence_floor=False,
+        lifecycle_policy_provenance_confidence_floor=0.75,
+    )
+
+    payload = _outcome_review_payload(mission_id=mission_id, confidence=None)
+    payload["review_status"] = "escalated"
+
+    with (
+        patch("backend.api.routes.outcome_review.get_settings", return_value=permissive_settings),
+        patch("backend.api.routes.outcome_review.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.outcome_review.OutcomeReviewRepository", return_value=review_repo),
+        patch("backend.api.routes.outcome_review.EvidenceRepository") as evidence_repo_cls,
+    ):
+        evidence_repo_cls.return_value.get_for_tenant.return_value = None
+        response = client.post("/v1/outcome-reviews", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["review_status"] == "escalated"
+    assert response.json()["confidence"] is None
+    review_repo.add.assert_called_once()
+
+
+def test_outcome_review_update_allows_invalid_transition_when_enforcement_disabled() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    review_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    review_repo = MagicMock()
+    review = _review_record(tenant_id=str(tenant_id), mission_id=mission_id, review_id=review_id)
+    review.review_status = "draft"
+    review_repo.get_for_tenant.return_value = review
+    review_repo.update.side_effect = lambda updated: updated
+
+    permissive_settings = SimpleNamespace(
+        lifecycle_policy_enforce_retention_class=False,
+        lifecycle_policy_enforce_escalation_transitions=False,
+        lifecycle_policy_enforce_provenance_confidence_floor=False,
+        lifecycle_policy_provenance_confidence_floor=0.75,
+    )
+
+    with (
+        patch("backend.api.routes.outcome_review.get_settings", return_value=permissive_settings),
+        patch("backend.api.routes.outcome_review.OutcomeReviewRepository", return_value=review_repo),
+    ):
+        response = client.patch(f"/v1/outcome-reviews/{review_id}", json={"review_status": "completed"})
+
+    assert response.status_code == 200
+    assert response.json()["review_status"] == "completed"
+    review_repo.update.assert_called_once_with(review)
+
+
 def _settings_with_confidence_floor(value: float) -> Settings:
     return Settings.model_construct(
         app_name="Ajenda AI",
