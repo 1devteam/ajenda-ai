@@ -1809,6 +1809,8 @@ def _timeline_sort_key(event: MissionTimelineEvent) -> tuple[datetime, str, str,
     """Produce a deterministic sort key using parsed timestamp when possible."""
     try:
         parsed = datetime.fromisoformat(event.timestamp)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
     except ValueError:
         parsed = datetime.min.replace(tzinfo=UTC)
     return (parsed, event.timestamp, event.event_type, event.stage)

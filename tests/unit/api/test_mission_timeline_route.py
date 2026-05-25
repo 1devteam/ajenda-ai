@@ -157,3 +157,52 @@ def test_mission_timeline_endpoint_fails_closed_for_missing_or_foreign_mission()
     assert response.status_code == 404
     assert response.json() == {"detail": "mission not found for tenant"}
     task_repo_cls.assert_not_called()
+
+
+def test_mission_timeline_endpoint_handles_mixed_naive_and_aware_timestamps() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    mission = SimpleNamespace(
+        id=mission_id,
+        tenant_id=str(tenant_id),
+        status="planned",
+        created_at=datetime(2026, 5, 25, 11, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 25, 11, 30, tzinfo=UTC),
+        metadata_json={
+            "mission_plan": {"planning_status": "draft", "updated_at": "2026-05-25T11:05:00"},
+            "runtime_admission": {"admission_status": "admitted", "updated_at": "2026-05-25T11:10:00+00:00"},
+        },
+    )
+    task = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=str(tenant_id),
+        status="planned",
+        created_at=datetime(2026, 5, 25, 11, 15, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 25, 11, 20, tzinfo=UTC),
+    )
+
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    task_repo = MagicMock()
+    task_repo.list_for_mission.return_value = [task]
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+    ):
+        response = client.get(f"/v1/missions/{mission_id}/timeline")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    def _normalized(ts: str) -> datetime:
+        parsed = datetime.fromisoformat(ts)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed
+
+    timestamps = [_normalized(event["timestamp"]) for event in body["events"]]
+    assert timestamps == sorted(timestamps)
