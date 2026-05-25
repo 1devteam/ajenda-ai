@@ -1881,7 +1881,7 @@ def _mission_timeline_to_read(*, mission: Mission, tasks: list[ExecutionTask]) -
                 event_type="execution_task_created",
                 stage="runtime_task",
                 source="execution_task",
-                details={"task_id": str(task.id), "status": task.status},
+                details={"task_id": str(task.id)},
             )
         )
         if task.updated_at != task.created_at:
