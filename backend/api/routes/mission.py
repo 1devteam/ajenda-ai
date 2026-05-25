@@ -694,6 +694,9 @@ class RuntimeReadinessItem(BaseModel):
 class RuntimeReadinessRead(BaseModel):
     """Read-only runtime admission readiness validation result."""
 
+    authority_class: Literal["read_model"] = "read_model"
+    side_effect_class: Literal["tenant_scoped_readiness_projection"] = "tenant_scoped_readiness_projection"
+    does_not_execute_runtime_work: bool = True
     mission_id: UUID
     tenant_id: str
     ready: bool
@@ -745,6 +748,9 @@ class RuntimeTaskPreviewItem(BaseModel):
 class RuntimeTaskPreviewRead(BaseModel):
     """Read-only preview of future runtime task materialization."""
 
+    authority_class: Literal["read_model"] = "read_model"
+    side_effect_class: Literal["tenant_scoped_readiness_projection"] = "tenant_scoped_readiness_projection"
+    does_not_execute_runtime_work: bool = True
     mission_id: UUID
     tenant_id: str
     ready: bool
@@ -770,6 +776,9 @@ WorkerRunAdmissionStatus = Literal["completed", "partially_completed", "failed",
 class RuntimeTaskMaterializationRead(BaseModel):
     """ExecutionTask materialization response envelope for a mission graph admission."""
 
+    authority_class: Literal["governed_mutation"] = "governed_mutation"
+    side_effect_class: Literal["tenant_scoped_planned_task_creation"] = "tenant_scoped_planned_task_creation"
+    does_not_execute_runtime_work: bool = True
     mission_id: UUID
     tenant_id: str
     materialization_status: RuntimeTaskMaterializationStatus
@@ -800,6 +809,9 @@ class RuntimeDispatchAuthority(BaseModel):
 class RuntimeDispatchReadinessRead(BaseModel):
     """Read-only readiness view for queued materialized task dispatch."""
 
+    authority_class: Literal["read_model"] = "read_model"
+    side_effect_class: Literal["tenant_scoped_readiness_projection"] = "tenant_scoped_readiness_projection"
+    does_not_execute_runtime_work: bool = True
     mission_id: UUID
     tenant_id: str
     readiness_status: RuntimeDispatchReadinessStatus
@@ -839,6 +851,9 @@ class WorkerClaimAuthority(WorkerDispatchAuthority):
 class WorkerDispatchEligibilityRead(BaseModel):
     """Read-only eligibility view for future worker claims."""
 
+    authority_class: Literal["read_model"] = "read_model"
+    side_effect_class: Literal["tenant_scoped_readiness_projection"] = "tenant_scoped_readiness_projection"
+    does_not_execute_runtime_work: bool = True
     mission_id: UUID
     tenant_id: str
     eligibility_status: WorkerDispatchEligibilityStatus
@@ -878,6 +893,9 @@ class WorkerClaimPreviewEnvelope(BaseModel):
 class WorkerClaimPreviewRead(BaseModel):
     """Read-only preview of future worker claim envelopes."""
 
+    authority_class: Literal["read_model"] = "read_model"
+    side_effect_class: Literal["tenant_scoped_readiness_projection"] = "tenant_scoped_readiness_projection"
+    does_not_execute_runtime_work: bool = True
     mission_id: UUID
     tenant_id: str
     preview_status: WorkerClaimPreviewStatus
@@ -909,6 +927,9 @@ class WorkerClaimReceipt(BaseModel):
 class WorkerClaimAdmissionRead(BaseModel):
     """Tenant-scoped worker claim admission response and readback."""
 
+    authority_class: Literal["governed_mutation"] = "governed_mutation"
+    side_effect_class: Literal["tenant_scoped_task_state_transition"] = "tenant_scoped_task_state_transition"
+    does_not_execute_runtime_work: bool = True
     mission_id: UUID
     tenant_id: str
     claim_admission_status: WorkerClaimAdmissionStatus
@@ -959,6 +980,9 @@ class WorkerStartReceipt(BaseModel):
 class WorkerStartAdmissionRead(BaseModel):
     """Tenant-scoped worker execution start admission response and readback."""
 
+    authority_class: Literal["governed_mutation"] = "governed_mutation"
+    side_effect_class: Literal["tenant_scoped_task_state_transition"] = "tenant_scoped_task_state_transition"
+    does_not_execute_runtime_work: bool = True
     mission_id: UUID
     tenant_id: str
     start_admission_status: WorkerStartAdmissionStatus
@@ -1008,6 +1032,9 @@ class WorkerRunReceipt(BaseModel):
 class WorkerRunAdmissionRead(BaseModel):
     """Tenant-scoped governed worker dispatcher execution response and readback."""
 
+    authority_class: Literal["runtime_authoritative"] = "runtime_authoritative"
+    side_effect_class: Literal["tenant_scoped_runtime_dispatch"] = "tenant_scoped_runtime_dispatch"
+    does_not_execute_runtime_work: bool = False
     mission_id: UUID
     tenant_id: str
     run_admission_status: WorkerRunAdmissionStatus
