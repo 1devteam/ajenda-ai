@@ -86,7 +86,7 @@ def test_root_and_system_readiness_share_normalized_contract() -> None:
             "database": {"status": "ready"},
             "queue": {"status": "ready"},
         },
-        "reason": "NONE",
+        "reason": None,
     }
     assert root_response.json() == expected_payload
     assert system_response.json() == expected_payload

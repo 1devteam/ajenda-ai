@@ -20,7 +20,7 @@ def test_readiness_evaluator_ready_when_dependencies_ping() -> None:
             "database": {"status": "ready"},
             "queue": {"status": "ready"},
         },
-        "reason": "NONE",
+        "reason": None,
     }
 
 
@@ -58,4 +58,4 @@ def test_readiness_evaluator_skips_none_dependencies() -> None:
     assert result.status_code == 200
     assert result.database_status == "skipped"
     assert result.queue_status == "skipped"
-    assert result.payload["reason"] == "NONE"
+    assert result.payload["reason"] is None
