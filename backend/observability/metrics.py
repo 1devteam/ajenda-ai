@@ -13,6 +13,7 @@ class MetricsSnapshot:
     active_leases: int
     queued_tasks: int
     worker_utilization: float
+    released_leases: int = 0
 
 
 class ObservabilityMetrics:
@@ -27,6 +28,7 @@ class ObservabilityMetrics:
         active_leases: int,
         queued_tasks: int,
         worker_utilization: float,
+        released_leases: int = 0,
     ) -> MetricsSnapshot:
         return MetricsSnapshot(
             tasks_queued=tasks_queued,
@@ -37,4 +39,5 @@ class ObservabilityMetrics:
             active_leases=active_leases,
             queued_tasks=queued_tasks,
             worker_utilization=worker_utilization,
+            released_leases=released_leases,
         )
