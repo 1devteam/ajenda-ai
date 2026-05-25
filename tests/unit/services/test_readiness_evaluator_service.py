@@ -52,6 +52,47 @@ def test_readiness_evaluator_unavailable_when_both_dependencies_fail() -> None:
     assert result.payload["reason"] == "DEPENDENCY_UNAVAILABLE"
 
 
+def test_readiness_evaluator_unavailable_when_queue_raises() -> None:
+    db = Mock()
+    db.ping.return_value = True
+    queue = Mock()
+    queue.ping.side_effect = RuntimeError("redis://cache:6379/0")
+
+    result = ReadinessEvaluatorService().evaluate(database_runtime=db, queue_adapter=queue)
+
+    assert result.status_code == 503
+    assert result.database_status == "ready"
+    assert result.queue_status == "unavailable"
+    assert result.payload == {
+        "status": "unavailable",
+        "dependencies": {
+            "database": {"status": "ready"},
+            "queue": {"status": "unavailable"},
+        },
+        "reason": "QUEUE_UNAVAILABLE",
+    }
+    assert "redis://cache:6379/0" not in str(result.payload)
+
+
+def test_readiness_evaluator_handles_mixed_skipped_and_unavailable_dependencies() -> None:
+    queue = Mock()
+    queue.ping.return_value = False
+
+    result = ReadinessEvaluatorService().evaluate(database_runtime=None, queue_adapter=queue)
+
+    assert result.status_code == 503
+    assert result.database_status == "skipped"
+    assert result.queue_status == "unavailable"
+    assert result.payload == {
+        "status": "unavailable",
+        "dependencies": {
+            "database": {"status": "skipped"},
+            "queue": {"status": "unavailable"},
+        },
+        "reason": "QUEUE_UNAVAILABLE",
+    }
+
+
 def test_readiness_evaluator_skips_none_dependencies() -> None:
     result = ReadinessEvaluatorService().evaluate(database_runtime=None, queue_adapter=None)
 
