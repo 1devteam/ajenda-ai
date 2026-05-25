@@ -28,7 +28,9 @@ EvidenceType = Literal[
     "operator_note",
     "external_reference",
 ]
-EvidenceCollectionStatus = Literal["draft", "collected", "verified", "rejected", "superseded"]
+EvidenceCollectionStatus = Literal[
+    "draft", "collected", "verified", "rejected", "superseded", "retention_hold", "archived", "purged"
+]
 
 
 class EvidenceCreate(BaseModel):
