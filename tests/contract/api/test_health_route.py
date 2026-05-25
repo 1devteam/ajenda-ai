@@ -1,5 +1,6 @@
 from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
@@ -51,6 +52,7 @@ def test_root_readiness_sanitizes_exception() -> None:
 
     assert response.status_code == 503
     assert response.json()["reason"] == "DATABASE_UNAVAILABLE"
+    assert "postgresql://user:secret@db:5432/app" not in response.text
 
 
 def test_health_does_not_update_readiness_metrics() -> None:
@@ -88,5 +90,57 @@ def test_root_and_system_readiness_share_normalized_contract() -> None:
         },
         "reason": None,
     }
+    assert root_response.json() == expected_payload
+    assert system_response.json() == expected_payload
+
+
+@pytest.mark.parametrize(
+    ("database_ready", "queue_ready", "expected_reason", "expected_dependencies"),
+    [
+        (
+            False,
+            True,
+            "DATABASE_UNAVAILABLE",
+            {"database": {"status": "unavailable"}, "queue": {"status": "ready"}},
+        ),
+        (
+            True,
+            False,
+            "QUEUE_UNAVAILABLE",
+            {"database": {"status": "ready"}, "queue": {"status": "unavailable"}},
+        ),
+        (
+            False,
+            False,
+            "DEPENDENCY_UNAVAILABLE",
+            {"database": {"status": "unavailable"}, "queue": {"status": "unavailable"}},
+        ),
+    ],
+)
+def test_root_and_system_readiness_share_degraded_contract(
+    database_ready: bool,
+    queue_ready: bool,
+    expected_reason: str,
+    expected_dependencies: dict[str, dict[str, str]],
+) -> None:
+    app = create_app()
+    db = Mock()
+    db.ping.return_value = database_ready
+    queue = Mock()
+    queue.ping.return_value = queue_ready
+
+    with TestClient(app) as client:
+        app.state.database_runtime = db
+        app.state.queue_adapter = queue
+        root_response = client.get("/readiness")
+        system_response = client.get("/v1/system/readiness")
+
+    expected_payload = {
+        "status": "unavailable",
+        "dependencies": expected_dependencies,
+        "reason": expected_reason,
+    }
+    assert root_response.status_code == 503
+    assert system_response.status_code == 503
     assert root_response.json() == expected_payload
     assert system_response.json() == expected_payload
