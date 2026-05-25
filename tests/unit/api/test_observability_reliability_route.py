@@ -76,6 +76,7 @@ def test_tenant_reliability_summary_route_returns_read_only_projection() -> None
         "recovery_success_ratio": 0.375,
     }
 
+
 def test_tenant_reliability_summary_bounds_dead_letter_rate_when_only_dead_letters() -> None:
     tenant_id = uuid.uuid4()
     app = _build_app(tenant_id)
