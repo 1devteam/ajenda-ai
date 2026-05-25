@@ -539,3 +539,29 @@ def test_evidence_patch_rejects_explicit_null_collection_status() -> None:
 
     assert response.status_code == 422
     assert "cannot be null" in response.text
+
+
+def test_evidence_creation_enforces_retention_class_when_flag_enabled() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+
+    with (
+        patch("backend.api.routes.evidence.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.evidence.get_settings") as settings_getter,
+    ):
+        settings_getter.return_value = SimpleNamespace(
+            lifecycle_policy_enforce_retention_class=True,
+            lifecycle_policy_enforce_escalation_transitions=False,
+            lifecycle_policy_enforce_provenance_confidence_floor=False,
+            lifecycle_policy_provenance_confidence_floor=0.75,
+        )
+        payload = _valid_payload(mission_id=mission_id)
+        payload["provenance_metadata"] = {"collector": "unit-test"}
+        response = client.post("/v1/evidence", json=payload)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "retention_class is required by lifecycle policy"}

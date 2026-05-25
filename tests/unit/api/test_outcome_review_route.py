@@ -275,3 +275,55 @@ def test_explicit_null_patch_values_rejected_except_intentionally_nullable_field
 
     assert response.status_code == 422
     assert "outcome review patch fields cannot be null: review_status" in response.text
+
+
+def test_outcome_review_create_blocks_escalated_when_flag_enabled() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = SimpleNamespace(id=mission_id, tenant_id=str(tenant_id))
+
+    with (
+        patch("backend.api.routes.outcome_review.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.outcome_review.get_settings") as settings_getter,
+    ):
+        settings_getter.return_value = SimpleNamespace(
+            lifecycle_policy_enforce_retention_class=False,
+            lifecycle_policy_enforce_escalation_transitions=True,
+            lifecycle_policy_enforce_provenance_confidence_floor=False,
+            lifecycle_policy_provenance_confidence_floor=0.75,
+        )
+        payload = _valid_payload(mission_id=mission_id)
+        payload["review_status"] = "escalated"
+        response = client.post("/v1/outcome-reviews", json=payload)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "cannot create outcome review directly in escalated status"}
+
+
+def test_outcome_review_update_blocks_invalid_transition_when_flag_enabled() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    review_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    record = _review_record(tenant_id=str(tenant_id), mission_id=mission_id, review_id=review_id, review_status="draft")
+    review_repo = MagicMock()
+    review_repo.get_for_tenant.return_value = record
+
+    with (
+        patch("backend.api.routes.outcome_review.OutcomeReviewRepository", return_value=review_repo),
+        patch("backend.api.routes.outcome_review.get_settings") as settings_getter,
+    ):
+        settings_getter.return_value = SimpleNamespace(
+            lifecycle_policy_enforce_retention_class=False,
+            lifecycle_policy_enforce_escalation_transitions=True,
+            lifecycle_policy_enforce_provenance_confidence_floor=False,
+            lifecycle_policy_provenance_confidence_floor=0.75,
+        )
+        response = client.patch(f"/v1/outcome-reviews/{review_id}", json={"review_status": "completed"})
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "invalid lifecycle status transition: draft -> completed"}

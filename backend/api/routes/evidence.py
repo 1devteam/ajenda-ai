@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
+from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.domain.evidence import EVIDENCE_CONTRACT_SCHEMA_VERSION, EvidenceRecord
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
@@ -16,6 +17,7 @@ from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_repository import MissionRepository
+from backend.services.lifecycle_policy_service import LifecyclePolicyConfig, LifecyclePolicyService
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
 
@@ -206,6 +208,19 @@ def create_evidence(
 ) -> EvidenceRead:
     """Persist a proof/provenance evidence contract without runtime side effects."""
     tenant_scope = str(tenant_id)
+    settings = get_settings()
+    lifecycle_policy = LifecyclePolicyService(
+        LifecyclePolicyConfig(
+            enforce_retention_class=settings.lifecycle_policy_enforce_retention_class,
+            enforce_escalation_transitions=settings.lifecycle_policy_enforce_escalation_transitions,
+            enforce_provenance_confidence_floor=settings.lifecycle_policy_enforce_provenance_confidence_floor,
+            provenance_confidence_floor=settings.lifecycle_policy_provenance_confidence_floor,
+        )
+    )
+    lifecycle_policy.validate_evidence_payload(
+        provenance_metadata=body.provenance_metadata,
+        confidence=body.confidence,
+    )
     _validate_references(body=body, tenant_id=tenant_scope, db=db)
 
     evidence = EvidenceRepository(db).add(
