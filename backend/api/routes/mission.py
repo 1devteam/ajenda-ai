@@ -1188,6 +1188,27 @@ class MissionLifecycleRead(BaseModel):
     missing_next_steps: list[str]
 
 
+class MissionTimelineEvent(BaseModel):
+    """Normalized read-only timeline event for mission explainability."""
+
+    timestamp: str
+    event_type: str
+    stage: str
+    source: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class MissionTimelineRead(BaseModel):
+    """Read-only mission timeline aggregation across mission/runtime/governance surfaces."""
+
+    mission_id: UUID
+    tenant_id: str
+    authority_class: Literal["read_model"] = "read_model"
+    side_effect_class: Literal["none"] = "none"
+    does_not_execute_runtime_work: bool = True
+    events: list[MissionTimelineEvent]
+
+
 class MissionQueueResponse(BaseModel):
     queued_task_ids: list[str]
     pending_review_task_ids: list[str]
@@ -1773,6 +1794,111 @@ def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead
     )
 
 
+def _timeline_timestamp_or_mission_updated(*, value: Any, mission_updated_at_iso: str) -> str:
+    """Return a valid ISO timestamp string or mission updated-at fallback."""
+    if not isinstance(value, str):
+        return mission_updated_at_iso
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return mission_updated_at_iso
+    return value
+
+
+def _timeline_sort_key(event: MissionTimelineEvent) -> tuple[datetime, str, str, str]:
+    """Produce a deterministic sort key using parsed timestamp when possible."""
+    try:
+        parsed = datetime.fromisoformat(event.timestamp)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+    except ValueError:
+        parsed = datetime.min.replace(tzinfo=UTC)
+    return (parsed, event.timestamp, event.event_type, event.stage)
+
+
+def _mission_timeline_to_read(*, mission: Mission, tasks: list[ExecutionTask]) -> MissionTimelineRead:
+    mission_updated_at_iso = mission.updated_at.isoformat()
+    events: list[MissionTimelineEvent] = [
+        MissionTimelineEvent(
+            timestamp=mission.created_at.isoformat(),
+            event_type="mission_created",
+            stage="mission_intake",
+            source="mission",
+            details={"status": mission.status},
+        ),
+        MissionTimelineEvent(
+            timestamp=mission.updated_at.isoformat(),
+            event_type="mission_updated",
+            stage="mission_lifecycle",
+            source="mission",
+            details={"status": mission.status},
+        ),
+    ]
+
+    metadata = mission.metadata_json or {}
+    metadata_stage_map = {
+        MISSION_PLAN_METADATA_KEY: "mission_plan",
+        MISSION_TASK_GRAPH_METADATA_KEY: "task_graph",
+        MISSION_GRAPH_MATERIALIZATION_METADATA_KEY: "graph_materialization",
+        MISSION_RUNTIME_ADMISSION_METADATA_KEY: "runtime_admission",
+        MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY: "runtime_task_materialization",
+        MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY: "runtime_queue_admission",
+        MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY: "worker_claim_admission",
+        MISSION_WORKER_START_ADMISSION_METADATA_KEY: "worker_start_admission",
+        MISSION_WORKER_RUN_ADMISSION_METADATA_KEY: "worker_run_admission",
+    }
+    for key, stage in metadata_stage_map.items():
+        value = metadata.get(key)
+        if not isinstance(value, dict):
+            continue
+        updated_at = _timeline_timestamp_or_mission_updated(
+            value=value.get("updated_at"), mission_updated_at_iso=mission_updated_at_iso
+        )
+        status = (
+            value.get("admission_status")
+            or value.get("materialization_status")
+            or value.get("run_admission_status")
+            or value.get("claim_admission_status")
+            or value.get("start_admission_status")
+            or value.get("planning_status")
+            or value.get("graph_status")
+            or "recorded"
+        )
+        events.append(
+            MissionTimelineEvent(
+                timestamp=updated_at,
+                event_type=f"{stage}_recorded",
+                stage=stage,
+                source="mission_metadata",
+                details={"status": status},
+            )
+        )
+
+    for task in tasks:
+        events.append(
+            MissionTimelineEvent(
+                timestamp=task.created_at.isoformat(),
+                event_type="execution_task_created",
+                stage="runtime_task",
+                source="execution_task",
+                details={"task_id": str(task.id)},
+            )
+        )
+        if task.updated_at != task.created_at:
+            events.append(
+                MissionTimelineEvent(
+                    timestamp=task.updated_at.isoformat(),
+                    event_type="execution_task_updated",
+                    stage="runtime_task",
+                    source="execution_task",
+                    details={"task_id": str(task.id), "status": task.status},
+                )
+            )
+
+    events.sort(key=_timeline_sort_key)
+    return MissionTimelineRead(mission_id=mission.id, tenant_id=mission.tenant_id, events=events)
+
+
 def _mission_lifecycle_to_read(
     *,
     mission: Mission,
@@ -1980,6 +2106,26 @@ def read_mission_lifecycle(
         outcome_reviews=outcome_reviews,
         retrieval_contracts=retrieval_contracts,
     )
+
+
+@router.get("/{mission_id}/timeline", response_model=MissionTimelineRead)
+def read_mission_timeline(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MissionTimelineRead:
+    """Read-only mission timeline across mission bridge and runtime surfaces."""
+    tenant_scope = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_scope)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    tasks = [
+        task
+        for task in ExecutionTaskRepository(db).list_for_mission(mission_id=mission_id)
+        if task.tenant_id == tenant_scope
+    ]
+    return _mission_timeline_to_read(mission=mission, tasks=tasks)
 
 
 @router.post("/{mission_id}/plan", response_model=MissionPlanRead)
