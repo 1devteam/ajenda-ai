@@ -44,6 +44,7 @@ def test_tenant_reliability_summary_route_returns_read_only_projection() -> None
         active_leases=12,
         queued_tasks=10,
         worker_utilization=0.6,
+        released_leases=7,
     )
 
     with patch(
@@ -62,11 +63,11 @@ def test_tenant_reliability_summary_route_returns_read_only_projection() -> None
     assert body["mission_throughput_completed"] == 30
     assert body["mission_throughput_failed"] == 10
     assert body["mission_throughput_success_rate"] == 0.75
-    assert body["dead_letter_rate"] == 0.1
+    assert body["dead_letter_rate"] == 0.1111
     assert body["lease_health"] == {
         "active_leases": 12,
         "expired_leases": 8,
-        "released_leases": 30,
+        "released_leases": 7,
         "lease_expiration_rate": 0.4,
     }
     assert body["recovery"] == {
@@ -74,3 +75,29 @@ def test_tenant_reliability_summary_route_returns_read_only_projection() -> None
         "dead_lettered_tasks": 5,
         "recovery_success_ratio": 0.375,
     }
+
+def test_tenant_reliability_summary_bounds_dead_letter_rate_when_only_dead_letters() -> None:
+    tenant_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    snapshot = MetricsSnapshot(
+        tasks_queued=0,
+        tasks_completed=0,
+        tasks_failed=0,
+        dead_letter_count=5,
+        lease_expirations=0,
+        active_leases=0,
+        queued_tasks=0,
+        worker_utilization=0.0,
+        released_leases=0,
+    )
+
+    with patch(
+        "backend.api.routes.observability.ObservabilityService.metrics_snapshot",
+        return_value=snapshot,
+    ):
+        response = client.get("/v1/observability/reliability/summary")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dead_letter_rate"] == 1.0

@@ -161,9 +161,10 @@ def tenant_reliability_summary(
     total_terminal = snapshot.tasks_completed + snapshot.tasks_failed
     throughput_total = total_terminal + snapshot.tasks_queued
     throughput_success_rate = float(snapshot.tasks_completed) / float(max(total_terminal, 1))
-    dead_letter_rate = float(snapshot.dead_letter_count) / float(max(throughput_total, 1))
+    dead_letter_denominator = total_terminal + snapshot.dead_letter_count
+    dead_letter_rate = float(snapshot.dead_letter_count) / float(max(dead_letter_denominator, 1))
     expired_leases = int(snapshot.lease_expirations)
-    released_leases = max(throughput_total - snapshot.active_leases - expired_leases, 0)
+    released_leases = int(snapshot.released_leases)
     lease_expiration_rate = float(expired_leases) / float(max(snapshot.active_leases + expired_leases, 1))
     recovered_tasks = max(expired_leases - snapshot.dead_letter_count, 0)
     recovery_success_ratio = float(recovered_tasks) / float(max(recovered_tasks + snapshot.dead_letter_count, 1))
