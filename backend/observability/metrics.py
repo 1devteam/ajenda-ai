@@ -14,6 +14,11 @@ class MetricsSnapshot:
     queued_tasks: int
     worker_utilization: float
     released_leases: int = 0
+    stage_budget_limit_cost_usd: float = 0.0
+    stage_budget_spend_cost_usd: float = 0.0
+    stage_budget_limit_runtime_minutes: float = 0.0
+    stage_budget_spend_runtime_minutes: float = 0.0
+    stage_budget_breach_total: int = 0
 
 
 class ObservabilityMetrics:
@@ -29,6 +34,11 @@ class ObservabilityMetrics:
         queued_tasks: int,
         worker_utilization: float,
         released_leases: int = 0,
+        stage_budget_limit_cost_usd: float = 0.0,
+        stage_budget_spend_cost_usd: float = 0.0,
+        stage_budget_limit_runtime_minutes: float = 0.0,
+        stage_budget_spend_runtime_minutes: float = 0.0,
+        stage_budget_breach_total: int = 0,
     ) -> MetricsSnapshot:
         return MetricsSnapshot(
             tasks_queued=tasks_queued,
@@ -40,4 +50,9 @@ class ObservabilityMetrics:
             queued_tasks=queued_tasks,
             worker_utilization=worker_utilization,
             released_leases=released_leases,
+            stage_budget_limit_cost_usd=stage_budget_limit_cost_usd,
+            stage_budget_spend_cost_usd=stage_budget_spend_cost_usd,
+            stage_budget_limit_runtime_minutes=stage_budget_limit_runtime_minutes,
+            stage_budget_spend_runtime_minutes=stage_budget_spend_runtime_minutes,
+            stage_budget_breach_total=stage_budget_breach_total,
         )

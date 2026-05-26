@@ -43,6 +43,23 @@ class PrometheusExporter:
             f"ajenda_active_leases {snapshot.active_leases}",
             "# TYPE ajenda_worker_utilization gauge",
             f"ajenda_worker_utilization {snapshot.worker_utilization}",
+            "# HELP ajenda_stage_budget_limit Observed stage budget limits (observe-only scaffolding).",
+            "# TYPE ajenda_stage_budget_limit gauge",
+            f'ajenda_stage_budget_limit{{stage="runtime",budget_kind="cost_usd"}} {snapshot.stage_budget_limit_cost_usd}',
+            (
+                f'ajenda_stage_budget_limit{{stage="runtime",budget_kind="runtime_minutes"}} '
+                f"{snapshot.stage_budget_limit_runtime_minutes}"
+            ),
+            "# HELP ajenda_stage_budget_spend Observed stage budget spend (observe-only scaffolding).",
+            "# TYPE ajenda_stage_budget_spend gauge",
+            f'ajenda_stage_budget_spend{{stage="runtime",budget_kind="cost_usd"}} {snapshot.stage_budget_spend_cost_usd}',
+            (
+                f'ajenda_stage_budget_spend{{stage="runtime",budget_kind="runtime_minutes"}} '
+                f"{snapshot.stage_budget_spend_runtime_minutes}"
+            ),
+            "# HELP ajenda_stage_budget_breach_total Count of stage budget breach observations.",
+            "# TYPE ajenda_stage_budget_breach_total counter",
+            f'ajenda_stage_budget_breach_total{{stage="runtime",budget_kind="any"}} {snapshot.stage_budget_breach_total}',
             f"# HELP {READINESS_METRIC_NAME} Runtime dependency readiness status.",
             f"# TYPE {READINESS_METRIC_NAME} gauge",
         ]
