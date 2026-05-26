@@ -13,22 +13,65 @@ snapshot for 15-30 seconds to match the Prometheus scrape interval.
 from __future__ import annotations
 
 import logging
+import uuid as _uuid
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.dependencies.db import get_db_session
+from backend.api.routes._authorization import require_route_permission
+from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
+from backend.auth.permissions import Permission
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.metrics.prometheus_exporter import PrometheusExporter
 from backend.observability.metrics import MetricsSnapshot
+from backend.services.observability_service import ObservabilityService
 
 logger = logging.getLogger("ajenda.observability")
 router = APIRouter()
 
 _exporter = PrometheusExporter()
+
+
+class ReliabilityLeaseHealthRead(BaseModel):
+    """Read-only queue lease health indicator summary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    active_leases: int = Field(ge=0)
+    expired_leases: int = Field(ge=0)
+    released_leases: int = Field(ge=0)
+    lease_expiration_rate: float = Field(ge=0.0, le=1.0)
+
+
+class ReliabilityRecoveryRead(BaseModel):
+    """Read-only bounded recovery posture summary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    recovered_tasks: int = Field(ge=0)
+    dead_lettered_tasks: int = Field(ge=0)
+    recovery_success_ratio: float = Field(ge=0.0, le=1.0)
+
+
+class TenantReliabilitySummaryRead(BaseModel):
+    """Read-only tenant reliability projection for runtime posture."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    authority_class: str = "read_model"
+    side_effect_class: str = "none"
+    does_not_execute_runtime_work: bool = True
+    mission_throughput_total: int = Field(ge=0)
+    mission_throughput_completed: int = Field(ge=0)
+    mission_throughput_failed: int = Field(ge=0)
+    mission_throughput_success_rate: float = Field(ge=0.0, le=1.0)
+    dead_letter_rate: float = Field(ge=0.0, le=1.0)
+    lease_health: ReliabilityLeaseHealthRead
+    recovery: ReliabilityRecoveryRead
 
 
 def _collect_snapshot(session: Session) -> MetricsSnapshot:
@@ -103,3 +146,43 @@ def metrics(session: Session = Depends(get_db_session)) -> Response:
 
     content = _exporter.render(snapshot)
     return Response(content=content, media_type="text/plain; version=0.0.4")
+
+
+@router.get("/observability/reliability/summary", response_model=TenantReliabilitySummaryRead)
+def tenant_reliability_summary(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+) -> TenantReliabilitySummaryRead:
+    """Return tenant-scoped read-only runtime reliability summary."""
+    require_route_permission(request=request, db=session, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
+    service = ObservabilityService(session)
+    snapshot = service.metrics_snapshot(tenant_id=str(tenant_id))
+    total_terminal = snapshot.tasks_completed + snapshot.tasks_failed
+    throughput_total = total_terminal + snapshot.tasks_queued
+    throughput_success_rate = float(snapshot.tasks_completed) / float(max(total_terminal, 1))
+    dead_letter_denominator = total_terminal + snapshot.dead_letter_count
+    dead_letter_rate = float(snapshot.dead_letter_count) / float(max(dead_letter_denominator, 1))
+    expired_leases = int(snapshot.lease_expirations)
+    released_leases = int(snapshot.released_leases)
+    lease_expiration_rate = float(expired_leases) / float(max(snapshot.active_leases + expired_leases, 1))
+    recovered_tasks = max(expired_leases - snapshot.dead_letter_count, 0)
+    recovery_success_ratio = float(recovered_tasks) / float(max(recovered_tasks + snapshot.dead_letter_count, 1))
+    return TenantReliabilitySummaryRead(
+        mission_throughput_total=throughput_total,
+        mission_throughput_completed=snapshot.tasks_completed,
+        mission_throughput_failed=snapshot.tasks_failed,
+        mission_throughput_success_rate=round(throughput_success_rate, 4),
+        dead_letter_rate=round(dead_letter_rate, 4),
+        lease_health=ReliabilityLeaseHealthRead(
+            active_leases=snapshot.active_leases,
+            expired_leases=expired_leases,
+            released_leases=released_leases,
+            lease_expiration_rate=round(lease_expiration_rate, 4),
+        ),
+        recovery=ReliabilityRecoveryRead(
+            recovered_tasks=recovered_tasks,
+            dead_lettered_tasks=snapshot.dead_letter_count,
+            recovery_success_ratio=round(recovery_success_ratio, 4),
+        ),
+    )
