@@ -23,6 +23,7 @@ class ObservabilityService:
         active_leases = self._count_leases_by_state(
             tenant_id=tenant_id, states=[WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value]
         )
+        released_leases = self._count_leases_by_state(tenant_id=tenant_id, states=[WorkerLeaseState.RELEASED.value])
         lease_expirations = self._count_audit_actions(tenant_id=tenant_id, action="lease_expired_task_requeued")
         worker_utilization = float(active_leases) / float(max(active_leases + queued_tasks, 1))
         return self._metrics.snapshot(
@@ -34,6 +35,7 @@ class ObservabilityService:
             active_leases=active_leases,
             queued_tasks=queued_tasks,
             worker_utilization=worker_utilization,
+            released_leases=released_leases,
         )
 
     def _count_tasks_by_state(self, *, tenant_id: str, state: str) -> int:
