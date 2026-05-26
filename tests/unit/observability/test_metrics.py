@@ -15,3 +15,5 @@ def test_metrics_snapshot_shape() -> None:
     assert snapshot.tasks_completed == 2
     assert snapshot.worker_utilization == 0.5
     assert snapshot.queued_tasks == 7
+    assert snapshot.stage_budget_limit_cost_usd == 0.0
+    assert snapshot.stage_budget_breach_total == 0

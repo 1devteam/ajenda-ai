@@ -18,6 +18,10 @@ Authority class posture follows `docs/contracts/authority-ledger.v1.yaml` and re
   - HTTP `200`
   - `content-type` includes `text/plain`
   - Prometheus text exposition payload contains Ajenda metric families (for example `ajenda_tasks_queued`)
+  - Economic observability schema includes additive, observe-only stage budget families:
+    - `ajenda_stage_budget_limit{stage,budget_kind}` (gauge)
+    - `ajenda_stage_budget_spend{stage,budget_kind}` (gauge)
+    - `ajenda_stage_budget_breach_total{stage,budget_kind}` (counter)
 - **Failure posture:** fail-safe scrape response with `200` and minimal safe metric text (`ajenda_up 0`) when collection fails.
 
 ## Route: `GET /v1/observability/reliability/summary`

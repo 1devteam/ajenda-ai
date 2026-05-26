@@ -9,6 +9,9 @@ def test_prometheus_exporter_renders_required_gauge_types() -> None:
     assert "# TYPE ajenda_dead_letter_count gauge" in output
     assert "# TYPE ajenda_worker_utilization gauge" in output
     assert "# TYPE ajenda_queue_depth gauge" in output
+    assert "# TYPE ajenda_stage_budget_limit gauge" in output
+    assert "# TYPE ajenda_stage_budget_spend gauge" in output
+    assert "# TYPE ajenda_stage_budget_breach_total counter" in output
     assert "# TYPE ajenda_stale_leases gauge" not in output
 
 
