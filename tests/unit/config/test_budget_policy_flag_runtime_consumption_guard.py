@@ -3,6 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+IGNORED_PATH_PREFIXES = (
+    ".git/",
+    ".mypy_cache/",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    "build/",
+    "dist/",
+    "htmlcov/",
+    "__pycache__/",
+)
 ALLOWED_PATH_PREFIXES = (
     "backend/app/config.py",
     "tests/",
@@ -26,7 +36,7 @@ def test_bundle_5_2_budget_policy_flags_not_consumed_by_runtime_paths() -> None:
         if not path.is_file():
             continue
         rel = path.relative_to(REPO_ROOT).as_posix()
-        if rel.startswith(".git/"):
+        if any(rel == ignored or rel.startswith(ignored) for ignored in IGNORED_PATH_PREFIXES):
             continue
         if any(rel == allowed or rel.startswith(allowed) for allowed in ALLOWED_PATH_PREFIXES):
             continue
