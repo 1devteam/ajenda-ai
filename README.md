@@ -423,6 +423,7 @@ Start here when working on product direction and current runtime behavior.
 - `docs/SAAS_ARCHITECTURE.md`
 - `docs/policies/DOCS_FRESHNESS_POLICY.md`
 - `docs/contracts/authority-ledger.v1.yaml`
+- `docs/contracts/observability-metrics-route-contract.md`
 
 ---
 
