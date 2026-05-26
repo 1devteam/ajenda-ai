@@ -23,6 +23,13 @@ _VALID_WEBHOOK_KEY = Fernet.generate_key().decode()
 _VALID_WEBHOOK_KEY_PREV = Fernet.generate_key().decode()
 
 
+def test_budget_policy_defaults_are_inert() -> None:
+    settings = Settings()
+    assert settings.budget_policy_enabled is False
+    assert settings.budget_policy_observe_only is True
+    assert settings.budget_policy_enforce is False
+
+
 def _settings(**overrides) -> Settings:
     """Build a Settings instance via model_construct (no env-var resolution)."""
     defaults = {
@@ -53,6 +60,9 @@ def _settings(**overrides) -> Settings:
         "authz_opa_timeout_seconds": 2.0,
         "webhook_secret_encryption_key": _VALID_WEBHOOK_KEY,
         "webhook_secret_encryption_key_prev": None,
+        "budget_policy_enabled": False,
+        "budget_policy_observe_only": True,
+        "budget_policy_enforce": False,
     }
     defaults.update(overrides)
     return Settings.model_construct(**defaults)
@@ -304,4 +314,33 @@ class TestWorkerTenantProductionGuards:
     def test_empty_worker_tenant_id_in_production_raises(self) -> None:
         settings = _settings(worker_tenant_id="   ")
         with pytest.raises(ValueError, match="AJENDA_WORKER_TENANT_ID must be explicitly configured in production"):
+            settings.validate_runtime_contract()
+
+
+class TestBudgetPolicyFlagGuards:
+    def test_default_disabled_state_passes(self) -> None:
+        settings = _settings(budget_policy_enabled=False, budget_policy_observe_only=True, budget_policy_enforce=False)
+        settings.validate_runtime_contract()
+
+    def test_observe_only_state_passes(self) -> None:
+        settings = _settings(budget_policy_enabled=True, budget_policy_observe_only=True, budget_policy_enforce=False)
+        settings.validate_runtime_contract()
+
+    def test_future_enforcement_ready_state_passes(self) -> None:
+        settings = _settings(budget_policy_enabled=True, budget_policy_observe_only=False, budget_policy_enforce=True)
+        settings.validate_runtime_contract()
+
+    def test_enabled_false_and_enforce_true_fails(self) -> None:
+        settings = _settings(budget_policy_enabled=False, budget_policy_observe_only=True, budget_policy_enforce=True)
+        with pytest.raises(ValueError, match="AJENDA_BUDGET_POLICY_ENFORCE requires AJENDA_BUDGET_POLICY_ENABLED=true"):
+            settings.validate_runtime_contract()
+
+    def test_observe_only_true_and_enforce_true_fails(self) -> None:
+        settings = _settings(budget_policy_enabled=True, budget_policy_observe_only=True, budget_policy_enforce=True)
+        with pytest.raises(ValueError, match="AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be false"):
+            settings.validate_runtime_contract()
+
+    def test_enabled_false_and_observe_only_false_fails(self) -> None:
+        settings = _settings(budget_policy_enabled=False, budget_policy_observe_only=False, budget_policy_enforce=False)
+        with pytest.raises(ValueError, match="AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be true"):
             settings.validate_runtime_contract()
