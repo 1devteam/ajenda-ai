@@ -25,6 +25,12 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _adapter_side_effect_classification(side_effect: str) -> str:
+    if side_effect == "none":
+        return "none"
+    return "external_side_effect"
+
+
 CAPABILITY_SEED_NAMES = (
     "gtm.lead.discovery.query_builder.v1",
     "gtm.lead.discovery.candidate_enrichment.v1",
@@ -141,7 +147,7 @@ def upgrade() -> None:
             "evidence_expectations": ["capability_id", "adapter_id", "policy_profile"],
             "timeout_retry_hints": {"strategy": "n/a_declarative_only"},
             "idempotency_expectations": {"required": True, "reason": "future runtime safety"},
-            "side_effect_classification": item["side_effect"],
+            "side_effect_classification": _adapter_side_effect_classification(item["side_effect"]),
             "enabled": item["enabled"],
             "schema_version": 1,
             "created_at": now,
