@@ -11,7 +11,7 @@ def test_api_key_migration_has_single_head_and_short_revision_id() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0020_expand_lifecycle_checks"]
+    assert heads == ["0021_seed_gtm_capability_seed"]
     assert len(heads[0]) <= 32
 
 
