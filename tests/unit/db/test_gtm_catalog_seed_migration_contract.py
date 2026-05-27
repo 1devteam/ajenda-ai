@@ -22,3 +22,10 @@ def test_gtm_catalog_seed_migration_is_cleanup_symmetric() -> None:
     ) >= 2
     assert "DELETE FROM capability_adapters" in migration
     assert "DELETE FROM capabilities" in migration
+
+
+def test_gtm_catalog_seed_migration_evidence_expectations_match_api_list_contract() -> None:
+    migration = Path("alembic/versions/0021_seed_gtm_capability_catalog.py").read_text(encoding="utf-8")
+
+    assert "'[\"approval_decision\", \"send_outcome\"]'::jsonb" in migration
+    assert "'[\"approval_decision\", \"delivery_outcome\"]'::jsonb" in migration

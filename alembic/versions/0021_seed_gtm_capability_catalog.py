@@ -111,7 +111,7 @@ def upgrade() -> None:
                     '["email"]'::jsonb,
                     'high',
                     '{"human_approval": true}'::jsonb,
-                    '{"required_events": ["approval_decision", "send_outcome"]}'::jsonb,
+                    '["approval_decision", "send_outcome"]'::jsonb,
                     '{"policy_gated": true, "feature_flag": "gtm_enabled"}'::jsonb,
                     true, 1, now(), now()
                 )
@@ -141,7 +141,7 @@ def upgrade() -> None:
                     '[]'::jsonb, '["email"]'::jsonb,
                     'declarative', 'high',
                     '{"human_approval": true}'::jsonb,
-                    '{"required_events": ["approval_decision", "delivery_outcome"]}'::jsonb,
+                    '["approval_decision", "delivery_outcome"]'::jsonb,
                     '{"timeout_seconds": 120, "max_retries": 1}'::jsonb,
                     '{"idempotency_key_required": true}'::jsonb,
                     'external_side_effect',
