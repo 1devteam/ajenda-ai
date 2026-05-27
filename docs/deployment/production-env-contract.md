@@ -20,6 +20,9 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_AUTHZ_POLICY_MODE` | yes | no | rbac, shadow_opa, or enforce_opa. |
 | `AJENDA_AUTHZ_OPA_URL` | conditional | no | Required when policy mode is shadow_opa or enforce_opa. |
 | `AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS` | yes | no | OPA request timeout. |
+| `AJENDA_BUDGET_POLICY_ENABLED` | yes | no | Enables budget-policy scaffolding. |
+| `AJENDA_BUDGET_POLICY_OBSERVE_ONLY` | yes | no | Observe-only mode for budget policy (Bundle 5.2 default). |
+| `AJENDA_BUDGET_POLICY_ENFORCE` | yes | no | Must remain false for Bundle 5.2. |
 
 ## Generate webhook encryption key
 
@@ -56,7 +59,9 @@ Settings.validate_runtime_contract() rejects production deployments that use:
 - deterministic development/test webhook key,
 - default or blank worker tenant id,
 - invalid rate-limit settings,
-- OPA modes without OPA URL.
+- OPA modes without OPA URL,
+- budget enforcement without budget policy enablement,
+- budget enforcement with observe-only still enabled.
 
 ## F3-B deployment/runtime source of truth
 

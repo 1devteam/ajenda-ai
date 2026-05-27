@@ -87,6 +87,10 @@ class Settings(BaseSettings):
         alias="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
     )
 
+    budget_policy_enabled: bool = Field(default=False, alias="AJENDA_BUDGET_POLICY_ENABLED")
+    budget_policy_observe_only: bool = Field(default=True, alias="AJENDA_BUDGET_POLICY_OBSERVE_ONLY")
+    budget_policy_enforce: bool = Field(default=False, alias="AJENDA_BUDGET_POLICY_ENFORCE")
+
     lifecycle_policy_enforce_retention_class: bool = Field(
         default=False, alias="AJENDA_LIFECYCLE_POLICY_ENFORCE_RETENTION_CLASS"
     )
@@ -211,6 +215,13 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS must be a positive number, got {self.authz_opa_timeout_seconds}"
             )
+        if self.budget_policy_enforce and not self.budget_policy_enabled:
+            raise ValueError("AJENDA_BUDGET_POLICY_ENFORCE requires AJENDA_BUDGET_POLICY_ENABLED=true")
+
+        if self.budget_policy_enforce and self.budget_policy_observe_only:
+            raise ValueError("AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be false when AJENDA_BUDGET_POLICY_ENFORCE=true")
+        if not self.budget_policy_enabled and not self.budget_policy_observe_only:
+            raise ValueError("AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be true when AJENDA_BUDGET_POLICY_ENABLED=false")
 
     @staticmethod
     def _validate_required_fernet_key(*, value: str | None, env_name: str) -> None:
