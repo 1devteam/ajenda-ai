@@ -6,6 +6,7 @@ from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
 
 
+
 def test_global_gtm_capability_seed_contract(pg_session) -> None:
     seeded = (
         pg_session.execute(
@@ -24,10 +25,27 @@ def test_global_gtm_capability_seed_contract(pg_session) -> None:
         "gtm.outbound.send_dispatch.v1",
     ]
 
-    send_dispatch = next(item for item in seeded if item.name == "gtm.outbound.send_dispatch.v1")
+    capability_by_name = {item.name: item for item in seeded}
+
+    send_dispatch = capability_by_name["gtm.outbound.send_dispatch.v1"]
     assert send_dispatch.enabled is False
     assert send_dispatch.execution_constraints["runtime_binding"] == "forbidden_until_bundle_6_3"
     assert send_dispatch.execution_constraints["side_effect_class"] == "external_send"
+    assert send_dispatch.execution_constraints["mission_family"] == "outbound_sequencing"
+
+    assert (
+        capability_by_name[
+            "gtm.lead.discovery.query_builder.v1"
+        ].execution_constraints["mission_family"]
+        == "lead_discovery"
+    )
+    assert (
+        capability_by_name[
+            "gtm.lead.discovery.candidate_enrichment.v1"
+        ].execution_constraints["mission_family"]
+        == "lead_discovery"
+    )
+
 
 
 def test_global_gtm_adapter_seed_contract(pg_session) -> None:
