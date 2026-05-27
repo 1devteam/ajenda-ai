@@ -27,6 +27,7 @@ def test_global_gtm_capability_seed_contract(pg_session) -> None:
     send_dispatch = next(item for item in seeded if item.name == "gtm.outbound.send_dispatch.v1")
     assert send_dispatch.enabled is False
     assert send_dispatch.execution_constraints["runtime_binding"] == "forbidden_until_bundle_6_3"
+    assert send_dispatch.execution_constraints["side_effect_class"] == "external_send"
 
 
 def test_global_gtm_adapter_seed_contract(pg_session) -> None:
@@ -56,9 +57,9 @@ def test_global_gtm_adapter_seed_contract(pg_session) -> None:
         adapter_by_name[
             "gtm.lead.discovery.candidate_enrichment.v1"
         ].side_effect_classification
-        == "external_write"
+        == "external_side_effect"
     )
     assert (
         adapter_by_name["gtm.outbound.send_dispatch.v1"].side_effect_classification
-        == "external_send"
+        == "external_side_effect"
     )
