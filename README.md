@@ -415,6 +415,9 @@ Start here when working on product direction and current runtime behavior.
 - `PROJECT_SPEC.md`
 - `README.md`
 - `docs/product/mission-based-ai-core.md`
+- `docs/product/GTM_SELF_SELLING_ARCHITECTURE.md`
+- `docs/product/GTM_CAPABILITY_CATALOG.md`
+- `docs/policies/OUTBOUND_COMMUNICATION_POLICY.md`
 - `docs/deployment/production-env-contract.md`
 - `docs/validation/live-runtime-matrix.md`
 - `docs/validation/live-runtime-proof-release-gate.md`
