@@ -192,8 +192,45 @@ def downgrade() -> None:
     """Disable Row-Level Security and drop all tenant isolation policies."""
     conn = op.get_bind()
 
+    # Revoke ajenda_admin object privileges that were granted in upgrade().
+    # This keeps downgrade-to-0002 symmetric and prevents lingering direct
+    # table/sequence access after RLS policies are removed.
+    conn.execute(sa.text("REVOKE USAGE ON SCHEMA public FROM ajenda_admin"))
+
     for table in _TENANT_SCOPED_TABLES:
+        conn.execute(sa.text(f"REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLE {table} FROM ajenda_admin"))
         # Drop policies first, then disable RLS
         conn.execute(__import__("sqlalchemy").text(f"DROP POLICY IF EXISTS tenant_isolation ON {table}"))
         conn.execute(__import__("sqlalchemy").text(f"DROP POLICY IF EXISTS admin_bypass ON {table}"))
         conn.execute(__import__("sqlalchemy").text(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY"))
+
+    conn.execute(
+        sa.text(
+            """
+            DO $$
+            DECLARE
+                table_name text;
+                sequence_name text;
+            BEGIN
+                FOREACH table_name IN ARRAY ARRAY[
+                    'missions',
+                    'execution_tasks',
+                    'execution_branches',
+                    'user_workforce_agents',
+                    'workforce_fleets',
+                    'worker_leases',
+                    'lineage_records',
+                    'governance_events',
+                    'api_key_records'
+                ]
+                LOOP
+                    sequence_name := pg_get_serial_sequence(table_name, 'id');
+                    IF sequence_name IS NOT NULL THEN
+                        EXECUTE format('REVOKE USAGE, SELECT ON SEQUENCE %s FROM ajenda_admin', sequence_name);
+                    END IF;
+                END LOOP;
+            END
+            $$;
+            """
+        )
+    )
