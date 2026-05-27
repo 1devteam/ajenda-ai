@@ -25,14 +25,29 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+CAPABILITY_SEED_NAMES = (
+    "gtm.lead.discovery.query_builder.v1",
+    "gtm.lead.discovery.candidate_enrichment.v1",
+    "gtm.outbound.send_dispatch.v1",
+)
+
+CAPABILITY_SEED_IDS = tuple(
+    uuid.uuid5(uuid.NAMESPACE_URL, f"ajenda-ai:capability:{name}") for name in CAPABILITY_SEED_NAMES
+)
+
+ADAPTER_SEED_IDS = tuple(
+    uuid.uuid5(uuid.NAMESPACE_URL, f"ajenda-ai:adapter:{name}:declarative") for name in CAPABILITY_SEED_NAMES
+)
+
+
 def upgrade() -> None:
     conn = op.get_bind()
     now = _utcnow()
 
     capabilities = [
         {
-            "id": uuid.uuid5(uuid.NAMESPACE_URL, "ajenda-ai:capability:gtm.lead.discovery.query_builder.v1"),
-            "name": "gtm.lead.discovery.query_builder.v1",
+            "id": CAPABILITY_SEED_IDS[0],
+            "name": CAPABILITY_SEED_NAMES[0],
             "description": "Lead discovery query builder for ICP-aligned search criteria.",
             "risk": "low",
             "approval": "none",
@@ -42,8 +57,8 @@ def upgrade() -> None:
             "task_types": ["gtm.lead.discovery.query_builder"],
         },
         {
-            "id": uuid.uuid5(uuid.NAMESPACE_URL, "ajenda-ai:capability:gtm.lead.discovery.candidate_enrichment.v1"),
-            "name": "gtm.lead.discovery.candidate_enrichment.v1",
+            "id": CAPABILITY_SEED_IDS[1],
+            "name": CAPABILITY_SEED_NAMES[1],
             "description": "Candidate enrichment with provenance-tagged fact updates.",
             "risk": "medium",
             "approval": "sample_review",
@@ -53,8 +68,8 @@ def upgrade() -> None:
             "task_types": ["gtm.lead.discovery.candidate_enrichment"],
         },
         {
-            "id": uuid.uuid5(uuid.NAMESPACE_URL, "ajenda-ai:capability:gtm.outbound.send_dispatch.v1"),
-            "name": "gtm.outbound.send_dispatch.v1",
+            "id": CAPABILITY_SEED_IDS[2],
+            "name": CAPABILITY_SEED_NAMES[2],
             "description": "Outbound dispatch declarative contract record only (no runtime binding).",
             "risk": "high",
             "approval": "multi_party_required",
@@ -105,7 +120,7 @@ def upgrade() -> None:
 
     capability_adapters_rows = [
         {
-            "id": uuid.uuid5(uuid.NAMESPACE_URL, f"ajenda-ai:adapter:{item['name']}:declarative"),
+            "id": ADAPTER_SEED_IDS[index],
             "tenant_id": None,
             "name": f"{item['name']}.adapter",
             "version": "1.0.0",
@@ -126,13 +141,13 @@ def upgrade() -> None:
             "evidence_expectations": ["capability_id", "adapter_id", "policy_profile"],
             "timeout_retry_hints": {"strategy": "n/a_declarative_only"},
             "idempotency_expectations": {"required": True, "reason": "future runtime safety"},
-            "side_effect_classification": "none",
+            "side_effect_classification": item["side_effect"],
             "enabled": item["enabled"],
             "schema_version": 1,
             "created_at": now,
             "updated_at": now,
         }
-        for item in capabilities
+        for index, item in enumerate(capabilities)
     ]
 
     capability_table = sa.table(
@@ -194,10 +209,12 @@ def upgrade() -> None:
 def downgrade() -> None:
     conn = op.get_bind()
     conn.execute(
-        sa.text(
-            "DELETE FROM capability_adapters WHERE tenant_id IS NULL AND capability_name LIKE 'gtm.%' AND version = '1.0.0'"
+        sa.text("DELETE FROM capability_adapters WHERE id IN :adapter_ids").bindparams(
+            sa.bindparam("adapter_ids", ADAPTER_SEED_IDS, expanding=True)
         )
     )
     conn.execute(
-        sa.text("DELETE FROM capabilities WHERE tenant_id IS NULL AND name LIKE 'gtm.%' AND version = '1.0.0'")
+        sa.text("DELETE FROM capabilities WHERE id IN :capability_ids").bindparams(
+            sa.bindparam("capability_ids", CAPABILITY_SEED_IDS, expanding=True)
+        )
     )
