@@ -24,7 +24,7 @@ _VALID_WEBHOOK_KEY_PREV = Fernet.generate_key().decode()
 
 
 def test_budget_policy_defaults_are_inert() -> None:
-    settings = Settings()
+    settings = _settings()
     assert settings.budget_policy_enabled is False
     assert settings.budget_policy_observe_only is True
     assert settings.budget_policy_enforce is False
@@ -329,8 +329,24 @@ class TestBudgetPolicyFlagGuards:
         settings.validate_runtime_contract()
 
     def test_future_enforcement_ready_state_passes(self) -> None:
-        settings = _settings(budget_policy_enabled=True, budget_policy_observe_only=False, budget_policy_enforce=True)
+        settings = _settings(
+            budget_policy_enabled=True,
+            budget_policy_observe_only=False,
+            budget_policy_enforce=True,
+            budget_policy_enforce_plans="pro",
+        )
         settings.validate_runtime_contract()
+
+    def test_enforcement_without_opt_in_cohort_fails(self) -> None:
+        settings = _settings(
+            budget_policy_enabled=True,
+            budget_policy_observe_only=False,
+            budget_policy_enforce=True,
+            budget_policy_enforce_tenant_ids="",
+            budget_policy_enforce_plans="",
+        )
+        with pytest.raises(ValueError, match="requires at least one opted-in tenant or plan"):
+            settings.validate_runtime_contract()
 
     def test_enabled_false_and_enforce_true_fails(self) -> None:
         settings = _settings(budget_policy_enabled=False, budget_policy_observe_only=True, budget_policy_enforce=True)

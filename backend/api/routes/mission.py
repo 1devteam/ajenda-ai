@@ -2038,12 +2038,12 @@ def create_mission(
     quota = QuotaEnforcementService(db)
     budget_limits = body.budget_limits.model_dump(exclude_none=True) if body.budget_limits else None
     try:
-        quota.check_and_record_mission_creation(tenant_id)
         quota.enforce_mission_budget_gate(tenant_id, budget_limits)
-    except QuotaExceededError as exc:
-        raise _quota_exceeded_response(exc) from exc
+        quota.check_and_record_mission_creation(tenant_id)
     except BudgetGateDeniedError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except QuotaExceededError as exc:
+        raise _quota_exceeded_response(exc) from exc
 
     intake_metadata = build_mission_intake_metadata(
         success_criteria=[criterion.model_dump() for criterion in body.success_criteria],
