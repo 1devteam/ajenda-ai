@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     budget_policy_enabled: bool = Field(default=False, alias="AJENDA_BUDGET_POLICY_ENABLED")
     budget_policy_observe_only: bool = Field(default=True, alias="AJENDA_BUDGET_POLICY_OBSERVE_ONLY")
     budget_policy_enforce: bool = Field(default=False, alias="AJENDA_BUDGET_POLICY_ENFORCE")
+    budget_policy_enforce_tenant_ids: str = Field(default="", alias="AJENDA_BUDGET_POLICY_ENFORCE_TENANT_IDS")
+    budget_policy_enforce_plans: str = Field(default="", alias="AJENDA_BUDGET_POLICY_ENFORCE_PLANS")
 
     lifecycle_policy_enforce_retention_class: bool = Field(
         default=False, alias="AJENDA_LIFECYCLE_POLICY_ENFORCE_RETENTION_CLASS"
@@ -107,6 +109,18 @@ class Settings(BaseSettings):
     @property
     def redact_key_set(self) -> set[str]:
         return {item.strip().lower() for item in self.redact_keys.split(",") if item.strip()}
+
+    @staticmethod
+    def _csv_set(value: str) -> set[str]:
+        return {item.strip().lower() for item in value.split(",") if item.strip()}
+
+    @property
+    def budget_policy_enforce_tenant_id_set(self) -> set[str]:
+        return self._csv_set(self.budget_policy_enforce_tenant_ids)
+
+    @property
+    def budget_policy_enforce_plan_set(self) -> set[str]:
+        return self._csv_set(self.budget_policy_enforce_plans)
 
     def validate_runtime_contract(self) -> None:
         """Validate production/runtime safety configuration.
@@ -220,6 +234,10 @@ class Settings(BaseSettings):
 
         if self.budget_policy_enforce and self.budget_policy_observe_only:
             raise ValueError("AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be false when AJENDA_BUDGET_POLICY_ENFORCE=true")
+        if self.budget_policy_enforce and not (
+            self.budget_policy_enforce_tenant_id_set or self.budget_policy_enforce_plan_set
+        ):
+            raise ValueError("AJENDA_BUDGET_POLICY_ENFORCE requires at least one opted-in tenant or plan")
         if not self.budget_policy_enabled and not self.budget_policy_observe_only:
             raise ValueError("AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be true when AJENDA_BUDGET_POLICY_ENABLED=false")
 

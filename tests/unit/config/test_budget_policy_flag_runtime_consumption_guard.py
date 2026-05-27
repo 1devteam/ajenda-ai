@@ -15,6 +15,7 @@ IGNORED_PATH_PREFIXES = (
 )
 ALLOWED_PATH_PREFIXES = (
     "backend/app/config.py",
+    "backend/services/quota_enforcement.py",
     "tests/",
     "docs/",
     "deploy/",
@@ -30,7 +31,7 @@ BUDGET_POLICY_TOKENS = (
 )
 
 
-def test_bundle_5_2_budget_policy_flags_not_consumed_by_runtime_paths() -> None:
+def test_bundle_5_3_budget_policy_flags_only_consumed_by_budget_gate_paths() -> None:
     unexpected: list[str] = []
     for path in REPO_ROOT.rglob("*"):
         if not path.is_file():
@@ -47,4 +48,4 @@ def test_bundle_5_2_budget_policy_flags_not_consumed_by_runtime_paths() -> None:
         if any(token in text for token in BUDGET_POLICY_TOKENS):
             unexpected.append(rel)
 
-    assert not unexpected, f"Bundle 5.2 runtime-consumption guard failed; unexpected paths: {sorted(unexpected)}"
+    assert not unexpected, f"Bundle 5.3 runtime-consumption guard failed; unexpected paths: {sorted(unexpected)}"

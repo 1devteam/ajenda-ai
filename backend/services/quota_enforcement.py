@@ -33,6 +33,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from backend.app.config import get_settings
 from backend.repositories.tenant_repository import (
     TenantRepository,
 )
@@ -67,6 +68,17 @@ class FeatureNotAvailableError(ValueError):
         super().__init__(
             f"Feature {feature!r} is not available on plan {plan!r}. Upgrade your plan to access this feature."
         )
+
+
+class BudgetGateDeniedError(ValueError):
+    """Raised when an opt-in budget gate denies mission intake limits."""
+
+    def __init__(self, *, field: str, limit: int, proposed: int, plan: str) -> None:
+        self.field = field
+        self.limit = limit
+        self.proposed = proposed
+        self.plan = plan
+        super().__init__(f"Budget gate denied for {field!r}: proposed={proposed}, limit={limit} (plan={plan!r}).")
 
 
 @dataclass(frozen=True)
@@ -278,3 +290,38 @@ class QuotaEnforcementService:
             api_calls_count=usage.api_calls_count,
             api_calls_limit=plan.max_monthly_api_calls if plan else -1,
         )
+
+    def enforce_mission_budget_gate(self, tenant_id: uuid.UUID, budget_limits: dict[str, object] | None) -> None:
+        """Optionally enforce budget policy gates for selected tenants/plans."""
+        if not budget_limits:
+            return
+        settings = get_settings()
+        if (
+            not settings.budget_policy_enabled
+            or settings.budget_policy_observe_only
+            or not settings.budget_policy_enforce
+        ):
+            return
+
+        tenant = self._tenants.get_active(tenant_id)
+        tenant_id_norm = str(tenant_id).strip().lower()
+        plan_norm = str(tenant.plan).strip().lower()
+        tenant_opt_in = tenant_id_norm in settings.budget_policy_enforce_tenant_id_set
+        plan_opt_in = plan_norm in settings.budget_policy_enforce_plan_set
+        if not tenant_opt_in and not plan_opt_in:
+            return
+
+        plan = self._tenants.get_plan(tenant.plan)
+        if plan is None:
+            return
+
+        max_tasks = budget_limits.get("max_tasks")
+        if isinstance(max_tasks, int):
+            limit = plan.max_tasks_per_month
+            if limit != -1 and max_tasks > limit:
+                raise BudgetGateDeniedError(
+                    field="max_tasks",
+                    limit=limit,
+                    proposed=max_tasks,
+                    plan=tenant.plan,
+                )

@@ -71,7 +71,7 @@ from backend.services.mission_runtime_projection import (
 from backend.services.mission_runtime_projection import (
     build_runtime_task_preview_items as project_runtime_task_preview_items,
 )
-from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
+from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaEnforcementService, QuotaExceededError
 from backend.workers.task_dispatcher import TaskDispatcher
 
 router = APIRouter(prefix="/missions", tags=["missions"])
@@ -2035,8 +2035,13 @@ def create_mission(
 ) -> MissionRead:
     """Create a tenant-owned mission intake record without queueing runtime work."""
     require_route_permission(request=request, db=db, permission=Permission.MISSION_CREATE, tenant_id=tenant_id)
+    quota = QuotaEnforcementService(db)
+    budget_limits = body.budget_limits.model_dump(exclude_none=True) if body.budget_limits else None
     try:
-        QuotaEnforcementService(db).check_and_record_mission_creation(tenant_id)
+        quota.enforce_mission_budget_gate(tenant_id, budget_limits)
+        quota.check_and_record_mission_creation(tenant_id)
+    except BudgetGateDeniedError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except QuotaExceededError as exc:
         raise _quota_exceeded_response(exc) from exc
 
@@ -2048,7 +2053,7 @@ def create_mission(
         priority=body.priority,
         approval_required=body.approval_required,
         approval_expectations=body.approval_expectations,
-        budget_limits=body.budget_limits.model_dump(exclude_none=True) if body.budget_limits else None,
+        budget_limits=budget_limits,
         scope_limits=body.scope_limits,
         allowed_actions=body.allowed_actions,
         allowed_tools=body.allowed_tools,
