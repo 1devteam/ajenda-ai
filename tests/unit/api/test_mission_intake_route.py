@@ -3127,3 +3127,26 @@ def test_create_mission_rejects_legacy_lowercase_jurisdiction() -> None:
     response = client.post("/v1/missions", json=payload)
 
     assert response.status_code == 422
+
+
+def test_mission_intake_returns_422_when_opt_in_budget_gate_denies() -> None:
+    from backend.services.quota_enforcement import BudgetGateDeniedError
+
+    tenant_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    class _Quota:
+        def check_and_record_mission_creation(self, tenant_id):
+            return None
+
+        def enforce_mission_budget_gate(self, tenant_id, budget_limits):
+            raise BudgetGateDeniedError(field="max_tasks", limit=5, proposed=10, plan="free")
+
+    payload = _valid_payload()
+
+    with patch("backend.api.routes.mission.QuotaEnforcementService", return_value=_Quota()):
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 422
+    assert "Budget gate denied" in response.json()["detail"]

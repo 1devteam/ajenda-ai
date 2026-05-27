@@ -63,6 +63,8 @@ def _settings(**overrides) -> Settings:
         "budget_policy_enabled": False,
         "budget_policy_observe_only": True,
         "budget_policy_enforce": False,
+        "budget_policy_enforce_tenant_ids": "",
+        "budget_policy_enforce_plans": "",
     }
     defaults.update(overrides)
     return Settings.model_construct(**defaults)
@@ -344,3 +346,11 @@ class TestBudgetPolicyFlagGuards:
         settings = _settings(budget_policy_enabled=False, budget_policy_observe_only=False, budget_policy_enforce=False)
         with pytest.raises(ValueError, match="AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be true"):
             settings.validate_runtime_contract()
+
+    def test_budget_policy_opt_in_sets_parse_csv(self) -> None:
+        settings = _settings(
+            budget_policy_enforce_tenant_ids="TENANT-A, tenant-b ,",
+            budget_policy_enforce_plans="PRO,enterprise",
+        )
+        assert settings.budget_policy_enforce_tenant_id_set == {"tenant-a", "tenant-b"}
+        assert settings.budget_policy_enforce_plan_set == {"pro", "enterprise"}

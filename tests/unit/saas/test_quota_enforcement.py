@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from backend.services.quota_enforcement import (
+    BudgetGateDeniedError,
     FeatureNotAvailableError,
     QuotaEnforcementService,
     QuotaExceededError,
@@ -397,3 +398,40 @@ class TestPlanBoundaryConditions:
                 svc.check_and_record_mission_creation(uuid.uuid4())
         else:
             svc.check_and_record_mission_creation(uuid.uuid4())
+
+
+class TestBudgetPolicyOptInGates:
+    def test_gate_blocks_opted_in_plan_when_budget_exceeds_plan_limit(self, monkeypatch):
+        svc = _make_service(
+            _make_tenant("pro"),
+            _make_plan(max_tasks=25),
+            _make_usage(),
+        )
+
+        class _Settings:
+            budget_policy_enabled = True
+            budget_policy_observe_only = False
+            budget_policy_enforce = True
+            budget_policy_enforce_tenant_id_set = set()
+            budget_policy_enforce_plan_set = {"pro"}
+
+        monkeypatch.setattr("backend.services.quota_enforcement.get_settings", lambda: _Settings())
+        with pytest.raises(BudgetGateDeniedError):
+            svc.enforce_mission_budget_gate(uuid.uuid4(), {"max_tasks": 26})
+
+    def test_gate_skips_non_opted_tenant_and_plan(self, monkeypatch):
+        svc = _make_service(
+            _make_tenant("starter"),
+            _make_plan(max_tasks=5),
+            _make_usage(),
+        )
+
+        class _Settings:
+            budget_policy_enabled = True
+            budget_policy_observe_only = False
+            budget_policy_enforce = True
+            budget_policy_enforce_tenant_id_set = {"some-other-tenant"}
+            budget_policy_enforce_plan_set = {"pro"}
+
+        monkeypatch.setattr("backend.services.quota_enforcement.get_settings", lambda: _Settings())
+        svc.enforce_mission_budget_gate(uuid.uuid4(), {"max_tasks": 999})
