@@ -46,3 +46,19 @@ def test_global_gtm_adapter_seed_contract(pg_session) -> None:
         "gtm.outbound.send_dispatch.v1",
     ]
     assert all(item.execution_mode == "declarative" for item in adapters)
+
+    adapter_by_name = {item.capability_name: item for item in adapters}
+
+    assert (
+        adapter_by_name["gtm.lead.discovery.query_builder.v1"].side_effect_classification == "none"
+    )
+    assert (
+        adapter_by_name[
+            "gtm.lead.discovery.candidate_enrichment.v1"
+        ].side_effect_classification
+        == "external_write"
+    )
+    assert (
+        adapter_by_name["gtm.outbound.send_dispatch.v1"].side_effect_classification
+        == "external_send"
+    )
