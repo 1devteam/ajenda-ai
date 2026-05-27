@@ -37,13 +37,17 @@ def _global_seed_admin_role() -> Iterator[None]:
     isolation or pretending global rows belong to a tenant.
 
     The admin bypass policy handles RLS, but PostgreSQL still requires explicit
-    table privileges for the role performing INSERT and DELETE.
+    table privileges for the role performing INSERT and DELETE. RESET ROLE keeps
+    Alembic revision bookkeeping on the original migration role.
     """
     conn = op.get_bind()
     conn.execute(sa.text("GRANT INSERT, DELETE ON TABLE capabilities TO ajenda_admin"))
     conn.execute(sa.text("GRANT INSERT, DELETE ON TABLE capability_adapters TO ajenda_admin"))
     conn.execute(sa.text("SET LOCAL ROLE ajenda_admin"))
-    yield
+    try:
+        yield
+    finally:
+        conn.execute(sa.text("RESET ROLE"))
 
 
 def _capabilities_table() -> sa.Table:
