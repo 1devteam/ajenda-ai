@@ -99,10 +99,12 @@ def upgrade() -> None:
             """
         )
     )
+    conn.execute(sa.text("GRANT USAGE ON SCHEMA public TO ajenda_admin"))
     """Enable Row-Level Security on all tenant-scoped tables."""
     conn = op.get_bind()
 
     for table in _TENANT_SCOPED_TABLES:
+        conn.execute(sa.text(f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {table} TO ajenda_admin"))
         # Step 1: Enable RLS on the table
         conn.execute(__import__("sqlalchemy").text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
 
@@ -153,6 +155,36 @@ def upgrade() -> None:
             'Ajenda AI: Set app.current_tenant_id session variable before
              querying any tenant-scoped table. RLS enforces isolation.'
         """)
+    )
+    conn.execute(
+        sa.text(
+            """
+            DO $$
+            DECLARE
+                table_name text;
+                sequence_name text;
+            BEGIN
+                FOREACH table_name IN ARRAY ARRAY[
+                    'missions',
+                    'execution_tasks',
+                    'execution_branches',
+                    'user_workforce_agents',
+                    'workforce_fleets',
+                    'worker_leases',
+                    'lineage_records',
+                    'governance_events',
+                    'api_key_records'
+                ]
+                LOOP
+                    sequence_name := pg_get_serial_sequence(table_name, 'id');
+                    IF sequence_name IS NOT NULL THEN
+                        EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %s TO ajenda_admin', sequence_name);
+                    END IF;
+                END LOOP;
+            END
+            $$;
+            """
+        )
     )
 
 
