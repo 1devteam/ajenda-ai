@@ -237,9 +237,7 @@ class Settings(BaseSettings):
         if self.budget_policy_enforce and not (
             self.budget_policy_enforce_tenant_id_set or self.budget_policy_enforce_plan_set
         ):
-            raise ValueError(
-                "AJENDA_BUDGET_POLICY_ENFORCE requires at least one opted-in tenant or plan"
-            )
+            raise ValueError("AJENDA_BUDGET_POLICY_ENFORCE requires at least one opted-in tenant or plan")
         if not self.budget_policy_enabled and not self.budget_policy_observe_only:
             raise ValueError("AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be true when AJENDA_BUDGET_POLICY_ENABLED=false")
 
