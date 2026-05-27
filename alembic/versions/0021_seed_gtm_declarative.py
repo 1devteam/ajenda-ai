@@ -7,6 +7,8 @@ Create Date: 2026-05-27 00:00:00.000000
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -25,9 +27,27 @@ def _now() -> datetime:
     return datetime.now(tz=UTC)
 
 
-def upgrade() -> None:
-    now = _now()
-    capabilities_table = sa.table(
+@contextmanager
+def _global_seed_admin_role() -> Iterator[None]:
+    """Run global seed writes through the existing ajenda_admin RLS bypass.
+
+    The capabilities and capability_adapters tables force row-level security.
+    Their public mutation policies are tenant-owned only, so global system seed
+    records must use the existing admin bypass role instead of weakening tenant
+    isolation or pretending global rows belong to a tenant.
+
+    The admin bypass policy handles RLS, but PostgreSQL still requires explicit
+    table privileges for the role performing INSERT and DELETE.
+    """
+    conn = op.get_bind()
+    conn.execute(sa.text("GRANT INSERT, DELETE ON TABLE capabilities TO ajenda_admin"))
+    conn.execute(sa.text("GRANT INSERT, DELETE ON TABLE capability_adapters TO ajenda_admin"))
+    conn.execute(sa.text("SET LOCAL ROLE ajenda_admin"))
+    yield
+
+
+def _capabilities_table() -> sa.Table:
+    return sa.table(
         "capabilities",
         sa.column("id", postgresql.UUID(as_uuid=True)),
         sa.column("tenant_id", sa.String),
@@ -49,73 +69,9 @@ def upgrade() -> None:
         sa.column("updated_at", sa.DateTime(timezone=True)),
     )
 
-    op.bulk_insert(
-        capabilities_table,
-        [
-            {
-                "id": UUID("11111111-1111-4111-8111-111111111111"),
-                "tenant_id": None,
-                "name": "gtm.lead.discovery.query_builder",
-                "version": "1.0.0",
-                "description": "Generates ICP-aligned lead discovery query sets.",
-                "supported_task_types": ["analysis"],
-                "input_schema_hints": {"mission_family": "lead_discovery", "channel": "web"},
-                "output_schema_hints": {"artifact": "query_set"},
-                "required_permissions": [],
-                "required_tools": [],
-                "risk_level": "low",
-                "approval_requirements": {"mode": "none", "requires_human_gate": False},
-                "evidence_expectations": ["query_provenance", "selection_rationale"],
-                "execution_constraints": {"authority_class": "declarative", "runtime_binding_allowed": False},
-                "enabled": True,
-                "schema_version": 1,
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "id": UUID("22222222-2222-4222-8222-222222222222"),
-                "tenant_id": None,
-                "name": "gtm.outbound.message_draft",
-                "version": "1.0.0",
-                "description": "Generates outbound message drafts without send authority.",
-                "supported_task_types": ["analysis", "content_generation"],
-                "input_schema_hints": {"mission_family": "outbound_sequencing", "channel": "email_linkedin"},
-                "output_schema_hints": {"artifact": "draft_message"},
-                "required_permissions": [],
-                "required_tools": [],
-                "risk_level": "medium",
-                "approval_requirements": {"mode": "required", "requires_human_gate": True},
-                "evidence_expectations": ["draft_artifact", "policy_reference"],
-                "execution_constraints": {"authority_class": "declarative", "runtime_binding_allowed": False},
-                "enabled": True,
-                "schema_version": 1,
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "id": UUID("33333333-3333-4333-8333-333333333333"),
-                "tenant_id": None,
-                "name": "gtm.content.publish_dispatch",
-                "version": "1.0.0",
-                "description": "Represents high-risk publish dispatch contracts with runtime binding disabled.",
-                "supported_task_types": ["notification"],
-                "input_schema_hints": {"mission_family": "content_pipeline", "channel": "social_blog"},
-                "output_schema_hints": {"artifact": "publish_dispatch_envelope"},
-                "required_permissions": ["content.publish"],
-                "required_tools": ["publisher_adapter"],
-                "risk_level": "high",
-                "approval_requirements": {"mode": "multi_party_required", "requires_human_gate": True},
-                "evidence_expectations": ["approval_record", "policy_reference", "dispatch_intent"],
-                "execution_constraints": {"authority_class": "declarative", "runtime_binding_allowed": False},
-                "enabled": False,
-                "schema_version": 1,
-                "created_at": now,
-                "updated_at": now,
-            },
-        ],
-    )
 
-    adapters_table = sa.table(
+def _adapters_table() -> sa.Table:
+    return sa.table(
         "capability_adapters",
         sa.column("id", postgresql.UUID(as_uuid=True)),
         sa.column("tenant_id", sa.String),
@@ -142,100 +98,172 @@ def upgrade() -> None:
         sa.column("updated_at", sa.DateTime(timezone=True)),
     )
 
-    op.bulk_insert(
-        adapters_table,
-        [
-            {
-                "id": UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
-                "tenant_id": None,
-                "name": "gtm.adapter.lead.query_builder",
-                "version": "1.0.0",
-                "capability_id": UUID("11111111-1111-4111-8111-111111111111"),
-                "capability_name": "gtm.lead.discovery.query_builder",
-                "capability_version": "1.0.0",
-                "supported_task_types": ["analysis"],
-                "input_contract": {"schema": "lead_query_builder.v1"},
-                "output_contract": {"schema": "lead_query_set.v1"},
-                "required_permissions": [],
-                "required_tools": [],
-                "execution_mode": "declarative",
-                "risk_level": "low",
-                "approval_requirements": {"mode": "none"},
-                "evidence_expectations": ["query_provenance"],
-                "timeout_retry_hints": {"timeout_seconds": 30, "max_retries": 0},
-                "idempotency_expectations": {"required": False},
-                "side_effect_classification": "none",
-                "enabled": True,
-                "schema_version": 1,
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "id": UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
-                "tenant_id": None,
-                "name": "gtm.adapter.outbound.message_draft",
-                "version": "1.0.0",
-                "capability_id": UUID("22222222-2222-4222-8222-222222222222"),
-                "capability_name": "gtm.outbound.message_draft",
-                "capability_version": "1.0.0",
-                "supported_task_types": ["analysis", "content_generation"],
-                "input_contract": {"schema": "outbound_draft_input.v1"},
-                "output_contract": {"schema": "outbound_draft_output.v1"},
-                "required_permissions": [],
-                "required_tools": [],
-                "execution_mode": "declarative",
-                "risk_level": "medium",
-                "approval_requirements": {"mode": "required"},
-                "evidence_expectations": ["draft_artifact", "policy_reference"],
-                "timeout_retry_hints": {"timeout_seconds": 45, "max_retries": 0},
-                "idempotency_expectations": {"required": True, "key_scope": "tenant_mission_task"},
-                "side_effect_classification": "none",
-                "enabled": True,
-                "schema_version": 1,
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "id": UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
-                "tenant_id": None,
-                "name": "gtm.adapter.content.publish_dispatch",
-                "version": "1.0.0",
-                "capability_id": UUID("33333333-3333-4333-8333-333333333333"),
-                "capability_name": "gtm.content.publish_dispatch",
-                "capability_version": "1.0.0",
-                "supported_task_types": ["notification"],
-                "input_contract": {"schema": "content_publish_dispatch_input.v1"},
-                "output_contract": {"schema": "content_publish_dispatch_output.v1"},
-                "required_permissions": ["content.publish"],
-                "required_tools": ["publisher_adapter"],
-                "execution_mode": "declarative",
-                "risk_level": "high",
-                "approval_requirements": {"mode": "multi_party_required"},
-                "evidence_expectations": ["approval_record", "dispatch_intent", "policy_reference"],
-                "timeout_retry_hints": {"timeout_seconds": 60, "max_retries": 0},
-                "idempotency_expectations": {"required": True, "key_scope": "tenant_mission_task"},
-                "side_effect_classification": "external_side_effect",
-                "enabled": False,
-                "schema_version": 1,
-                "created_at": now,
-                "updated_at": now,
-            },
-        ],
-    )
+
+def upgrade() -> None:
+    now = _now()
+
+    with _global_seed_admin_role():
+        op.bulk_insert(
+            _capabilities_table(),
+            [
+                {
+                    "id": UUID("11111111-1111-4111-8111-111111111111"),
+                    "tenant_id": None,
+                    "name": "gtm.lead.discovery.query_builder",
+                    "version": "1.0.0",
+                    "description": "Generates ICP-aligned lead discovery query sets.",
+                    "supported_task_types": ["analysis"],
+                    "input_schema_hints": {"mission_family": "lead_discovery", "channel": "web"},
+                    "output_schema_hints": {"artifact": "query_set"},
+                    "required_permissions": [],
+                    "required_tools": [],
+                    "risk_level": "low",
+                    "approval_requirements": {"mode": "none", "requires_human_gate": False},
+                    "evidence_expectations": ["query_provenance", "selection_rationale"],
+                    "execution_constraints": {"authority_class": "declarative", "runtime_binding_allowed": False},
+                    "enabled": True,
+                    "schema_version": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                {
+                    "id": UUID("22222222-2222-4222-8222-222222222222"),
+                    "tenant_id": None,
+                    "name": "gtm.outbound.message_draft",
+                    "version": "1.0.0",
+                    "description": "Generates outbound message drafts without send authority.",
+                    "supported_task_types": ["analysis", "content_generation"],
+                    "input_schema_hints": {"mission_family": "outbound_sequencing", "channel": "email_linkedin"},
+                    "output_schema_hints": {"artifact": "draft_message"},
+                    "required_permissions": [],
+                    "required_tools": [],
+                    "risk_level": "medium",
+                    "approval_requirements": {"mode": "required", "requires_human_gate": True},
+                    "evidence_expectations": ["draft_artifact", "policy_reference"],
+                    "execution_constraints": {"authority_class": "declarative", "runtime_binding_allowed": False},
+                    "enabled": True,
+                    "schema_version": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                {
+                    "id": UUID("33333333-3333-4333-8333-333333333333"),
+                    "tenant_id": None,
+                    "name": "gtm.content.publish_dispatch",
+                    "version": "1.0.0",
+                    "description": "Represents high-risk publish dispatch contracts with runtime binding disabled.",
+                    "supported_task_types": ["notification"],
+                    "input_schema_hints": {"mission_family": "content_pipeline", "channel": "social_blog"},
+                    "output_schema_hints": {"artifact": "publish_dispatch_envelope"},
+                    "required_permissions": ["content.publish"],
+                    "required_tools": ["publisher_adapter"],
+                    "risk_level": "high",
+                    "approval_requirements": {"mode": "multi_party_required", "requires_human_gate": True},
+                    "evidence_expectations": ["approval_record", "policy_reference", "dispatch_intent"],
+                    "execution_constraints": {"authority_class": "declarative", "runtime_binding_allowed": False},
+                    "enabled": False,
+                    "schema_version": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            ],
+        )
+
+        op.bulk_insert(
+            _adapters_table(),
+            [
+                {
+                    "id": UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+                    "tenant_id": None,
+                    "name": "gtm.adapter.lead.query_builder",
+                    "version": "1.0.0",
+                    "capability_id": UUID("11111111-1111-4111-8111-111111111111"),
+                    "capability_name": "gtm.lead.discovery.query_builder",
+                    "capability_version": "1.0.0",
+                    "supported_task_types": ["analysis"],
+                    "input_contract": {"schema": "lead_query_builder.v1"},
+                    "output_contract": {"schema": "lead_query_set.v1"},
+                    "required_permissions": [],
+                    "required_tools": [],
+                    "execution_mode": "declarative",
+                    "risk_level": "low",
+                    "approval_requirements": {"mode": "none"},
+                    "evidence_expectations": ["query_provenance"],
+                    "timeout_retry_hints": {"timeout_seconds": 30, "max_retries": 0},
+                    "idempotency_expectations": {"required": False},
+                    "side_effect_classification": "none",
+                    "enabled": True,
+                    "schema_version": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                {
+                    "id": UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+                    "tenant_id": None,
+                    "name": "gtm.adapter.outbound.message_draft",
+                    "version": "1.0.0",
+                    "capability_id": UUID("22222222-2222-4222-8222-222222222222"),
+                    "capability_name": "gtm.outbound.message_draft",
+                    "capability_version": "1.0.0",
+                    "supported_task_types": ["analysis", "content_generation"],
+                    "input_contract": {"schema": "outbound_draft_input.v1"},
+                    "output_contract": {"schema": "outbound_draft_output.v1"},
+                    "required_permissions": [],
+                    "required_tools": [],
+                    "execution_mode": "declarative",
+                    "risk_level": "medium",
+                    "approval_requirements": {"mode": "required"},
+                    "evidence_expectations": ["draft_artifact", "policy_reference"],
+                    "timeout_retry_hints": {"timeout_seconds": 45, "max_retries": 0},
+                    "idempotency_expectations": {"required": True, "key_scope": "tenant_mission_task"},
+                    "side_effect_classification": "none",
+                    "enabled": True,
+                    "schema_version": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                {
+                    "id": UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+                    "tenant_id": None,
+                    "name": "gtm.adapter.content.publish_dispatch",
+                    "version": "1.0.0",
+                    "capability_id": UUID("33333333-3333-4333-8333-333333333333"),
+                    "capability_name": "gtm.content.publish_dispatch",
+                    "capability_version": "1.0.0",
+                    "supported_task_types": ["notification"],
+                    "input_contract": {"schema": "content_publish_dispatch_input.v1"},
+                    "output_contract": {"schema": "content_publish_dispatch_output.v1"},
+                    "required_permissions": ["content.publish"],
+                    "required_tools": ["publisher_adapter"],
+                    "execution_mode": "declarative",
+                    "risk_level": "high",
+                    "approval_requirements": {"mode": "multi_party_required"},
+                    "evidence_expectations": ["approval_record", "dispatch_intent", "policy_reference"],
+                    "timeout_retry_hints": {"timeout_seconds": 60, "max_retries": 0},
+                    "idempotency_expectations": {"required": True, "key_scope": "tenant_mission_task"},
+                    "side_effect_classification": "external_side_effect",
+                    "enabled": False,
+                    "schema_version": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            ],
+        )
 
 
 def downgrade() -> None:
-    op.execute(
-        sa.text("DELETE FROM capability_adapters WHERE id IN (:a, :b, :c)").bindparams(
-            a=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
-            b=UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
-            c=UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+    with _global_seed_admin_role():
+        op.execute(
+            sa.text("DELETE FROM capability_adapters WHERE id IN (:a, :b, :c)").bindparams(
+                a=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+                b=UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+                c=UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+            )
         )
-    )
-    op.execute(
-        sa.text("DELETE FROM capabilities WHERE id IN (:x, :y, :z)").bindparams(
-            x=UUID("11111111-1111-4111-8111-111111111111"),
-            y=UUID("22222222-2222-4222-8222-222222222222"),
-            z=UUID("33333333-3333-4333-8333-333333333333"),
+        op.execute(
+            sa.text("DELETE FROM capabilities WHERE id IN (:x, :y, :z)").bindparams(
+                x=UUID("11111111-1111-4111-8111-111111111111"),
+                y=UUID("22222222-2222-4222-8222-222222222222"),
+                z=UUID("33333333-3333-4333-8333-333333333333"),
+            )
         )
-    )
