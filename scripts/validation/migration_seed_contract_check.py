@@ -86,19 +86,59 @@ def _split_sql_csv(raw: str) -> list[str]:
     return chunks
 
 
-def _iter_insert_values(migration_text: str) -> list[tuple[str, list[str], list[str]]]:
+def _extract_select_projection_clause(sql: str) -> str | None:
+    lower_sql = sql.lower()
+    select_index = lower_sql.find("select")
+    if select_index == -1:
+        return None
+
+    cursor = select_index + len("select")
+    in_string = False
+    depth = 0
+
+    while cursor < len(sql):
+        char = sql[cursor]
+
+        if char == "'":
+            if in_string and cursor + 1 < len(sql) and sql[cursor + 1] == "'":
+                cursor += 1
+            else:
+                in_string = not in_string
+        elif not in_string and char == "(":
+            depth += 1
+        elif not in_string and char == ")":
+            depth = max(depth - 1, 0)
+        elif not in_string and depth == 0 and lower_sql[cursor : cursor + 4] == "from":
+            return sql[select_index + len("select") : cursor].strip()
+
+        cursor += 1
+
+    return None
+
+
+def _iter_insert_value_expressions(migration_text: str) -> list[tuple[str, list[str], list[str]]]:
     results: list[tuple[str, list[str], list[str]]] = []
+
     for columns_match in INSERT_COLUMNS_RE.finditer(migration_text):
         table_name = columns_match.group("table").strip().lower()
         columns = [column.strip().lower() for column in _split_sql_csv(columns_match.group("columns"))]
         trailing_sql = migration_text[columns_match.end() :]
+
         values_match = INSERT_VALUES_TUPLE_RE.search(trailing_sql)
-        if not values_match:
+        if values_match:
+            expressions = _split_sql_csv(values_match.group("values"))
+            if len(columns) == len(expressions):
+                results.append((table_name, columns, expressions))
             continue
-        values = _split_sql_csv(values_match.group("values"))
-        if len(columns) != len(values):
+
+        projection = _extract_select_projection_clause(trailing_sql)
+        if projection is None:
             continue
-        results.append((table_name, columns, values))
+
+        expressions = _split_sql_csv(projection)
+        if len(columns) == len(expressions):
+            results.append((table_name, columns, expressions))
+
     return results
 
 
@@ -111,16 +151,16 @@ def _extract_json_literal(value_expression: str) -> str | None:
 
 def _check_migration(path: Path, migration_text: str) -> list[SeedShapeIssue]:
     issues: list[SeedShapeIssue] = []
-    inserts = _iter_insert_values(migration_text)
+    inserts = _iter_insert_value_expressions(migration_text)
 
-    for table_name, columns, values in inserts:
-        value_by_column = dict(zip(columns, values, strict=True))
+    for table_name, columns, expressions in inserts:
+        expression_by_column = dict(zip(columns, expressions, strict=True))
         for field, expected_kind in FIELD_EXPECTED_JSON_KIND.items():
             expected_table, field_name = field.split(".", maxsplit=1)
-            if table_name != expected_table or field_name not in value_by_column:
+            if table_name != expected_table or field_name not in expression_by_column:
                 continue
 
-            literal = _extract_json_literal(value_by_column[field_name])
+            literal = _extract_json_literal(expression_by_column[field_name])
             if literal is None:
                 continue
 

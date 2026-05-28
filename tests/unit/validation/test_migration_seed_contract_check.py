@@ -14,7 +14,7 @@ def test_migration_seed_contract_check_accepts_array_literals_for_evidence_expec
     assert issues == []
 
 
-def test_migration_seed_contract_check_flags_object_literals_for_evidence_expectations() -> None:
+def test_migration_seed_contract_check_flags_object_literals_for_values_insert() -> None:
     migration = """
     INSERT INTO capability_adapters (name, evidence_expectations, timeout_retry_hints)
     VALUES (
@@ -77,6 +77,41 @@ def test_migration_seed_contract_check_flags_multiline_insert_value_far_from_col
 
     assert len(issues) == 1
     assert issues[0].field_name == "capabilities.evidence_expectations"
+    assert issues[0].expected_kind == "array"
+    assert issues[0].observed_kind == "object"
+
+
+def test_migration_seed_contract_check_flags_object_literals_for_insert_select() -> None:
+    migration = """
+    INSERT INTO capability_adapters (
+        id, tenant_id, name, version, capability_id,
+        capability_name, capability_version, supported_task_types,
+        input_contract, output_contract, required_permissions, required_tools,
+        execution_mode, risk_level, approval_requirements, evidence_expectations,
+        timeout_retry_hints, idempotency_expectations, side_effect_classification,
+        enabled, schema_version, created_at, updated_at
+    )
+    SELECT
+        gen_random_uuid(), NULL, 'gtm_outbound_email_adapter', '1.0.0', c.id,
+        c.name, c.version, '["outbound_campaign"]'::jsonb,
+        '{"required": ["campaign_brief"]}'::jsonb,
+        '{"produces": ["delivery_payload"]}'::jsonb,
+        '[]'::jsonb, '["email"]'::jsonb,
+        'declarative', 'high',
+        '{"human_approval": true}'::jsonb,
+        '{"required_events": ["approval_decision", "delivery_outcome"]}'::jsonb,
+        '{"timeout_seconds": 120, "max_retries": 1}'::jsonb,
+        '{"idempotency_key_required": true}'::jsonb,
+        'external_side_effect',
+        true, 1, now(), now()
+    FROM capabilities c
+    WHERE c.tenant_id IS NULL
+    """
+
+    issues = _check_migration(Path("alembic/versions/9999_demo.py"), migration)
+
+    assert len(issues) == 1
+    assert issues[0].field_name == "capability_adapters.evidence_expectations"
     assert issues[0].expected_kind == "array"
     assert issues[0].observed_kind == "object"
 
