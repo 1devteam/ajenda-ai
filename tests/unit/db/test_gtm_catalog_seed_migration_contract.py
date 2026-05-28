@@ -16,10 +16,11 @@ def test_gtm_catalog_seed_migration_uses_temporary_global_row_policy_for_upgrade
 def test_gtm_catalog_seed_migration_is_cleanup_symmetric() -> None:
     migration = Path("alembic/versions/0021_seed_gtm_capability_catalog.py").read_text(encoding="utf-8")
 
-    assert migration.count("_drop_seed_policy(conn, \"capabilities\", \"seed_global_gtm_capabilities_policy\")") >= 2
-    assert migration.count(
-        "_drop_seed_policy(conn, \"capability_adapters\", \"seed_global_gtm_capability_adapters_policy\")"
-    ) >= 2
+    assert migration.count('_drop_seed_policy(conn, "capabilities", "seed_global_gtm_capabilities_policy")') >= 2
+    assert (
+        migration.count('_drop_seed_policy(conn, "capability_adapters", "seed_global_gtm_capability_adapters_policy")')
+        >= 2
+    )
     assert "DELETE FROM capability_adapters" in migration
     assert "DELETE FROM capabilities" in migration
 
@@ -27,5 +28,5 @@ def test_gtm_catalog_seed_migration_is_cleanup_symmetric() -> None:
 def test_gtm_catalog_seed_migration_evidence_expectations_match_api_list_contract() -> None:
     migration = Path("alembic/versions/0021_seed_gtm_capability_catalog.py").read_text(encoding="utf-8")
 
-    assert "'[\"approval_decision\", \"send_outcome\"]'::jsonb" in migration
-    assert "'[\"approval_decision\", \"delivery_outcome\"]'::jsonb" in migration
+    assert '\'["approval_decision", "send_outcome"]\'::jsonb' in migration
+    assert '\'["approval_decision", "delivery_outcome"]\'::jsonb' in migration
