@@ -136,6 +136,8 @@ All stages must remain bounded; no implicit skipping of queue, lease, dispatcher
 4. No silent repurposing of existing keys.
 5. Transition strategy should allow dual-read when needed.
 6. Schema-impacting PRs require migration contract tests and rollback notes.
+7. Schema-impacting PRs that seed declarative JSON contracts must include seed-shape parity proof against API/domain contract types.
+8. RLS-temporary-policy migrations must prove downgrade under default migrator posture and residue-free policy cleanup.
 
 ---
 

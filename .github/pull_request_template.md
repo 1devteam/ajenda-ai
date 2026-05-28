@@ -22,6 +22,9 @@
 - [ ] `mypy` passes locally
 - [ ] `pytest tests/unit/ tests/contract/ tests/deployment/` passes locally
 - [ ] Migration added if schema changed, with downgrade path verified
+- [ ] Schema-impacting PR includes data-shape parity proof for seeded contract fields
+- [ ] Schema-impacting PR validates downgrade under default migrator posture assumptions
+- [ ] Temporary RLS policy residue checks attached when temporary policies are introduced
 - [ ] No secrets or credentials committed
 - [ ] Commit messages follow `type(scope): description` convention
 

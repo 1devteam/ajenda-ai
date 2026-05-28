@@ -63,6 +63,9 @@ jobs:
       - name: Contract drift sentinel
         run: python scripts/validation/contract_drift_check.py
 
+      - name: Migration seed contract parity sentinel
+        run: python scripts/validation/migration_seed_contract_check.py
+
   # ─────────────────────────────────────────────────────────────────────────
   # Job 2: Unit tests — no infrastructure, fast
   # ─────────────────────────────────────────────────────────────────────────
