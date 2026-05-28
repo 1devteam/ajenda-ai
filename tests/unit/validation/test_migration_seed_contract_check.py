@@ -81,6 +81,28 @@ def test_migration_seed_contract_check_flags_multiline_insert_value_far_from_col
     assert issues[0].observed_kind == "object"
 
 
+def test_migration_seed_contract_check_flags_insert_select_object_literals() -> None:
+    migration = """
+    INSERT INTO capability_adapters (
+        id,
+        evidence_expectations,
+        timeout_retry_hints
+    )
+    SELECT
+        gen_random_uuid(),
+        '{"required_events": ["approval_decision", "delivery_outcome"]}'::jsonb,
+        '{"timeout_seconds": 120}'::jsonb
+    FROM capabilities
+    """
+
+    issues = _check_migration(Path("alembic/versions/9999_demo.py"), migration)
+
+    assert len(issues) == 1
+    assert issues[0].field_name == "capability_adapters.evidence_expectations"
+    assert issues[0].expected_kind == "array"
+    assert issues[0].observed_kind == "object"
+
+
 def test_migration_seed_contract_check_ignores_untracked_fields() -> None:
     migration = """
     INSERT INTO capabilities (name, execution_constraints)
