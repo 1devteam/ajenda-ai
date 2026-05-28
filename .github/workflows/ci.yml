@@ -63,6 +63,9 @@ jobs:
       - name: Contract drift sentinel
         run: python scripts/validation/contract_drift_check.py
 
+      - name: Migration seed contract parity sentinel
+        run: python scripts/validation/migration_seed_contract_check.py
+
   # ─────────────────────────────────────────────────────────────────────────
   # Job 2: Unit tests — no infrastructure, fast
   # ─────────────────────────────────────────────────────────────────────────
@@ -179,11 +182,20 @@ jobs:
       - name: Upgrade to head
         run: alembic upgrade head
 
+      - name: Semantic probe after upgrade
+        run: python scripts/validation/migration_semantic_probe.py --stage post-upgrade
+
       - name: Downgrade to base
         run: alembic downgrade base
 
+      - name: Semantic probe after downgrade
+        run: python scripts/validation/migration_semantic_probe.py --stage post-downgrade
+
       - name: Upgrade again (verify idempotency)
         run: alembic upgrade head
+
+      - name: Semantic probe after re-upgrade
+        run: python scripts/validation/migration_semantic_probe.py --stage post-upgrade
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 5: Docker build — verify the image builds cleanly
