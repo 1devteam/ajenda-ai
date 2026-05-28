@@ -17,7 +17,11 @@ FIELD_EXPECTED_JSON_KIND: dict[str, str] = {
     "capability_adapters.evidence_expectations": "array",
 }
 
-INSERT_RE = re.compile(r"INSERT\s+INTO\s+(?P<table>[a-z_]+)\s*\((?P<columns>.*?)\)", re.IGNORECASE | re.DOTALL)
+INSERT_COLUMNS_RE = re.compile(
+    r"INSERT\s+INTO\s+(?P<table>[a-z_]+)\s*\((?P<columns>.*?)\)",
+    re.IGNORECASE | re.DOTALL,
+)
+INSERT_VALUES_TUPLE_RE = re.compile(r"\bVALUES\s*\((?P<values>.*?)\)\s*(?:ON\s+CONFLICT|$)", re.IGNORECASE | re.DOTALL)
 JSONB_LITERAL_RE = re.compile(r"'(?P<json>(?:[^']|'')*)'\s*::jsonb", re.IGNORECASE)
 
 
@@ -43,42 +47,88 @@ def _json_kind(value: object) -> str:
     return "scalar"
 
 
-def _table_has_column(migration_text: str, table_name: str, column_name: str) -> bool:
-    for match in INSERT_RE.finditer(migration_text):
-        if match.group("table").strip().lower() != table_name:
-            continue
-        columns = {column.strip().lower() for column in match.group("columns").split(",") if column.strip()}
-        if column_name in columns:
-            return True
-    return False
+def _split_sql_csv(raw: str) -> list[str]:
+    chunks: list[str] = []
+    current: list[str] = []
+    in_string = False
+    depth = 0
+    index = 0
+
+    while index < len(raw):
+        char = raw[index]
+
+        if char == "'":
+            current.append(char)
+            if in_string and index + 1 < len(raw) and raw[index + 1] == "'":
+                current.append(raw[index + 1])
+                index += 1
+            else:
+                in_string = not in_string
+        elif not in_string and char == "(":
+            depth += 1
+            current.append(char)
+        elif not in_string and char == ")":
+            depth = max(depth - 1, 0)
+            current.append(char)
+        elif not in_string and depth == 0 and char == ",":
+            value = "".join(current).strip()
+            if value:
+                chunks.append(value)
+            current = []
+        else:
+            current.append(char)
+
+        index += 1
+
+    tail = "".join(current).strip()
+    if tail:
+        chunks.append(tail)
+    return chunks
 
 
-def _field_context_literals(migration_text: str, field_name: str) -> list[str]:
-    literals: list[str] = []
-    lines = migration_text.splitlines()
-    for index, line in enumerate(lines):
-        if field_name not in line:
+def _iter_insert_values(migration_text: str) -> list[tuple[str, list[str], list[str]]]:
+    results: list[tuple[str, list[str], list[str]]] = []
+    for columns_match in INSERT_COLUMNS_RE.finditer(migration_text):
+        table_name = columns_match.group("table").strip().lower()
+        columns = [column.strip().lower() for column in _split_sql_csv(columns_match.group("columns"))]
+        trailing_sql = migration_text[columns_match.end() :]
+        values_match = INSERT_VALUES_TUPLE_RE.search(trailing_sql)
+        if not values_match:
             continue
-        window = "\n".join(lines[index : index + 8])
-        match = JSONB_LITERAL_RE.search(window)
-        if match:
-            literals.append(match.group("json").replace("''", "'"))
-    return literals
+        values = _split_sql_csv(values_match.group("values"))
+        if len(columns) != len(values):
+            continue
+        results.append((table_name, columns, values))
+    return results
+
+
+def _extract_json_literal(value_expression: str) -> str | None:
+    match = JSONB_LITERAL_RE.search(value_expression)
+    if match is None:
+        return None
+    return match.group("json").replace("''", "'")
 
 
 def _check_migration(path: Path, migration_text: str) -> list[SeedShapeIssue]:
     issues: list[SeedShapeIssue] = []
+    inserts = _iter_insert_values(migration_text)
 
-    for field, expected_kind in FIELD_EXPECTED_JSON_KIND.items():
-        table_name, field_name = field.split(".", maxsplit=1)
-        if not _table_has_column(migration_text, table_name, field_name):
-            continue
+    for table_name, columns, values in inserts:
+        value_by_column = dict(zip(columns, values, strict=True))
+        for field, expected_kind in FIELD_EXPECTED_JSON_KIND.items():
+            expected_table, field_name = field.split(".", maxsplit=1)
+            if table_name != expected_table or field_name not in value_by_column:
+                continue
 
-        for literal in _field_context_literals(migration_text, field_name):
+            literal = _extract_json_literal(value_by_column[field_name])
+            if literal is None:
+                continue
+
             try:
                 decoded = json.loads(literal)
             except json.JSONDecodeError:
                 continue
+
             observed_kind = _json_kind(decoded)
             if observed_kind != expected_kind:
                 issues.append(
