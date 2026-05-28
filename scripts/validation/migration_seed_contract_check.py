@@ -21,7 +21,6 @@ INSERT_COLUMNS_RE = re.compile(
     r"INSERT\s+INTO\s+(?P<table>[a-z_]+)\s*\((?P<columns>.*?)\)",
     re.IGNORECASE | re.DOTALL,
 )
-INSERT_VALUES_TUPLE_RE = re.compile(r"\bVALUES\s*\((?P<values>.*?)\)\s*(?:ON\s+CONFLICT|$)", re.IGNORECASE | re.DOTALL)
 JSONB_LITERAL_RE = re.compile(r"'(?P<json>(?:[^']|'')*)'\s*::jsonb", re.IGNORECASE)
 
 
@@ -86,16 +85,68 @@ def _split_sql_csv(raw: str) -> list[str]:
     return chunks
 
 
+def _find_keyword(sql: str, keyword: str, start: int) -> int | None:
+    lower_sql = sql.lower()
+    needle = keyword.lower()
+    cursor = start
+    in_string = False
+    depth = 0
+
+    while cursor < len(sql):
+        char = sql[cursor]
+
+        if char == "'":
+            if in_string and cursor + 1 < len(sql) and sql[cursor + 1] == "'":
+                cursor += 1
+            else:
+                in_string = not in_string
+        elif not in_string and char == "(":
+            depth += 1
+        elif not in_string and char == ")":
+            depth = max(depth - 1, 0)
+        elif not in_string and depth == 0 and lower_sql.startswith(needle, cursor):
+            before = lower_sql[cursor - 1] if cursor > 0 else " "
+            after_index = cursor + len(needle)
+            after = lower_sql[after_index] if after_index < len(lower_sql) else " "
+            if not (before.isalnum() or before == "_") and not (after.isalnum() or after == "_"):
+                return cursor
+
+        cursor += 1
+
+    return None
+
+
+def _extract_clause(sql: str, start_keyword: str, end_keywords: tuple[str, ...], start: int = 0) -> str | None:
+    start_index = _find_keyword(sql, start_keyword, start)
+    if start_index is None:
+        return None
+    clause_start = start_index + len(start_keyword)
+
+    end_positions = [
+        position
+        for keyword in end_keywords
+        if (position := _find_keyword(sql, keyword, clause_start)) is not None
+    ]
+    clause_end = min(end_positions) if end_positions else len(sql)
+    return sql[clause_start:clause_end].strip()
+
+
 def _iter_insert_values(migration_text: str) -> list[tuple[str, list[str], list[str]]]:
     results: list[tuple[str, list[str], list[str]]] = []
     for columns_match in INSERT_COLUMNS_RE.finditer(migration_text):
         table_name = columns_match.group("table").strip().lower()
         columns = [column.strip().lower() for column in _split_sql_csv(columns_match.group("columns"))]
         trailing_sql = migration_text[columns_match.end() :]
-        values_match = INSERT_VALUES_TUPLE_RE.search(trailing_sql)
-        if not values_match:
-            continue
-        values = _split_sql_csv(values_match.group("values"))
+
+        values_clause = _extract_clause(trailing_sql, "VALUES", ("ON CONFLICT", ";"))
+        if values_clause is not None and values_clause.startswith("(") and values_clause.endswith(")"):
+            values = _split_sql_csv(values_clause[1:-1])
+        else:
+            select_clause = _extract_clause(trailing_sql, "SELECT", ("FROM",))
+            if select_clause is None:
+                continue
+            values = _split_sql_csv(select_clause)
+
         if len(columns) != len(values):
             continue
         results.append((table_name, columns, values))
