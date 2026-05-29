@@ -136,6 +136,8 @@ All stages must remain bounded; no implicit skipping of queue, lease, dispatcher
 4. No silent repurposing of existing keys.
 5. Transition strategy should allow dual-read when needed.
 6. Schema-impacting PRs require migration contract tests and rollback notes.
+7. Seeded JSONB data that is API-visible or domain-contract-visible must prove shape parity with the API/domain contract before merge.
+8. RLS-protected seed migrations must prove upgrade and downgrade behavior under the same migrator role assumptions and leave no temporary policy residue.
 
 ---
 

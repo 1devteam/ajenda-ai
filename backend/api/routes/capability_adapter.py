@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid as _uuid
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Literal
 from uuid import UUID
 
@@ -10,9 +11,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CAPABILITY_ADAPTER_SCHEMA_VERSION, CapabilityAdapter
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
 from backend.repositories.capability_repository import CapabilityRepository
+from backend.services.capability_adapter_compatibility import (
+    CapabilityAdapterCompatibilityError,
+    CapabilityAdapterDeclaration,
+    validate_capability_adapter_compatibility,
+)
 
 router = APIRouter(prefix="/capability-adapters", tags=["capability-adapters"])
 
@@ -245,14 +252,47 @@ def _adapter_to_read(adapter: CapabilityAdapter) -> CapabilityAdapterRead:
     )
 
 
-def _validate_visible_capability_reference(
-    *, capability_id: UUID | None, tenant_id: str, capability_repo: CapabilityRepository
-) -> None:
-    if capability_id is None:
-        return
-    capability = capability_repo.get_visible_for_tenant(capability_id=capability_id, tenant_id=tenant_id)
+def _resolve_visible_capability_reference(
+    *, adapter: CapabilityAdapterDeclaration, tenant_id: str, capability_repo: CapabilityRepository
+) -> Capability:
+    capability = None
+    if adapter.capability_id is not None:
+        capability = capability_repo.get_visible_for_tenant(capability_id=adapter.capability_id, tenant_id=tenant_id)
+    elif adapter.capability_name is not None and adapter.capability_version is not None:
+        capability = capability_repo.get_visible_by_name_version(
+            name=adapter.capability_name,
+            version=adapter.capability_version,
+            tenant_id=tenant_id,
+        )
+
     if capability is None:
         raise HTTPException(status_code=422, detail="referenced capability is not visible to tenant")
+
+    try:
+        validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
+    except CapabilityAdapterCompatibilityError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"capability adapter is incompatible with referenced capability: {exc}",
+        ) from exc
+
+    return capability
+
+
+def _adapter_candidate(adapter: CapabilityAdapter, updates: dict[str, Any]) -> SimpleNamespace:
+    fields = (
+        "capability_id",
+        "capability_name",
+        "capability_version",
+        "supported_task_types",
+        "risk_level",
+        "approval_requirements",
+        "side_effect_classification",
+        "enabled",
+    )
+    values = {field: getattr(adapter, field) for field in fields}
+    values.update({field: value for field, value in updates.items() if field in values})
+    return SimpleNamespace(**values)
 
 
 @router.post("", response_model=CapabilityAdapterRead, status_code=status.HTTP_201_CREATED)
@@ -271,36 +311,35 @@ def create_capability_adapter(
     if adapter_repo.get_conflict_for_scope(name=body.name, version=body.version, tenant_id=tenant_scope) is not None:
         raise HTTPException(status_code=409, detail="capability adapter already exists for scope and version")
 
-    _validate_visible_capability_reference(
+    adapter_contract = CapabilityAdapter(
+        tenant_id=tenant_scope,
+        name=body.name,
+        version=body.version,
         capability_id=body.capability_id,
+        capability_name=body.capability_name,
+        capability_version=body.capability_version,
+        supported_task_types=body.supported_task_types,
+        input_contract=body.input_contract,
+        output_contract=body.output_contract,
+        required_permissions=body.required_permissions,
+        required_tools=body.required_tools,
+        execution_mode=body.execution_mode,
+        risk_level=body.risk_level,
+        approval_requirements=body.approval_requirements.model_dump(),
+        evidence_expectations=body.evidence_expectations,
+        timeout_retry_hints=body.timeout_retry_hints,
+        idempotency_expectations=body.idempotency_expectations,
+        side_effect_classification=body.side_effect_classification,
+        enabled=body.enabled,
+        schema_version=CAPABILITY_ADAPTER_SCHEMA_VERSION,
+    )
+    _resolve_visible_capability_reference(
+        adapter=adapter_contract,
         tenant_id=tenant_scope,
         capability_repo=CapabilityRepository(db),
     )
 
-    adapter = adapter_repo.add(
-        CapabilityAdapter(
-            tenant_id=tenant_scope,
-            name=body.name,
-            version=body.version,
-            capability_id=body.capability_id,
-            capability_name=body.capability_name,
-            capability_version=body.capability_version,
-            supported_task_types=body.supported_task_types,
-            input_contract=body.input_contract,
-            output_contract=body.output_contract,
-            required_permissions=body.required_permissions,
-            required_tools=body.required_tools,
-            execution_mode=body.execution_mode,
-            risk_level=body.risk_level,
-            approval_requirements=body.approval_requirements.model_dump(),
-            evidence_expectations=body.evidence_expectations,
-            timeout_retry_hints=body.timeout_retry_hints,
-            idempotency_expectations=body.idempotency_expectations,
-            side_effect_classification=body.side_effect_classification,
-            enabled=body.enabled,
-            schema_version=CAPABILITY_ADAPTER_SCHEMA_VERSION,
-        )
-    )
+    adapter = adapter_repo.add(adapter_contract)
     return _adapter_to_read(adapter)
 
 
@@ -346,15 +385,16 @@ def update_capability_adapter(
     if adapter.tenant_id is None:
         raise HTTPException(status_code=403, detail="global capability adapters are read-only from tenant routes")
 
-    _validate_visible_capability_reference(
-        capability_id=body.capability_id,
+    updates = body.model_dump(exclude_unset=True)
+    if "approval_requirements" in updates and body.approval_requirements is not None:
+        updates["approval_requirements"] = body.approval_requirements.model_dump()
+
+    _resolve_visible_capability_reference(
+        adapter=_adapter_candidate(adapter, updates),
         tenant_id=tenant_scope,
         capability_repo=CapabilityRepository(db),
     )
 
-    updates = body.model_dump(exclude_unset=True)
-    if "approval_requirements" in updates and body.approval_requirements is not None:
-        updates["approval_requirements"] = body.approval_requirements.model_dump()
     for field_name, value in updates.items():
         setattr(adapter, field_name, value)
 

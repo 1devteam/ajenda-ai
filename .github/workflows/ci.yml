@@ -52,16 +52,19 @@ jobs:
           pip install ".[dev]"
 
       - name: Ruff — lint
-        run: ruff check backend/ tests/
+        run: ruff check backend/ tests/ scripts/validation/
 
       - name: Ruff — format check
-        run: ruff format --check backend/ tests/
+        run: ruff format --check backend/ tests/ scripts/validation/
 
       - name: Mypy — type check
         run: mypy backend/
 
       - name: Contract drift sentinel
         run: python scripts/validation/contract_drift_check.py
+
+      - name: Migration seed contract sentinel
+        run: python scripts/validation/migration_seed_contract_check.py
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 2: Unit tests — no infrastructure, fast

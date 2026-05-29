@@ -27,6 +27,35 @@ def test_get_visible_for_tenant_allows_tenant_or_global_scope() -> None:
     assert tenant_id in compiled
 
 
+def test_get_visible_by_name_version_prefers_tenant_scope_over_global_scope() -> None:
+    tenant_id = str(uuid.uuid4())
+    capability = Capability(
+        tenant_id=tenant_id,
+        name="crm",
+        version="1",
+        description="CRM",
+        supported_task_types=["crm"],
+    )
+    session = MagicMock()
+    session.scalar.return_value = capability
+
+    result = CapabilityRepository(session).get_visible_by_name_version(
+        name="crm",
+        version="1",
+        tenant_id=tenant_id,
+    )
+
+    assert result is capability
+    statement = session.scalar.call_args.args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "capabilities.name = 'crm'" in compiled
+    assert "capabilities.version = '1'" in compiled
+    assert "capabilities.tenant_id" in compiled
+    assert "IS NULL" in compiled
+    assert tenant_id in compiled
+    assert "ORDER BY capabilities.tenant_id IS NULL ASC" in compiled
+
+
 def test_list_visible_for_tenant_filters_to_tenant_or_global_scope() -> None:
     tenant_id = str(uuid.uuid4())
     session = MagicMock()
