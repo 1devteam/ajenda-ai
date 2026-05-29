@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -11,7 +12,10 @@ class CapabilityDeclaration(Protocol):
     name: str
     version: str
     supported_task_types: list[str]
+    required_permissions: list[str]
+    required_tools: list[str]
     risk_level: str
+    approval_requirements: dict[str, Any]
     enabled: bool
 
 
@@ -22,8 +26,10 @@ class CapabilityAdapterDeclaration(Protocol):
     capability_name: str | None
     capability_version: str | None
     supported_task_types: list[str]
+    required_permissions: list[str]
+    required_tools: list[str]
     risk_level: str
-    approval_requirements: dict[str, Any] | Any
+    approval_requirements: dict[str, Any]
     side_effect_classification: str
     enabled: bool
 
@@ -57,23 +63,38 @@ def validate_capability_adapter_compatibility(
     if adapter.capability_version is not None and adapter.capability_version != capability.version:
         errors.append("capability_version does not match the resolved capability")
 
-    capability_task_types = set(capability.supported_task_types)
-    adapter_task_types = set(adapter.supported_task_types)
-    unsupported_task_types = sorted(adapter_task_types - capability_task_types)
-    if unsupported_task_types:
-        errors.append(
-            "adapter supported_task_types must be a subset of the capability supported_task_types "
-            f"(unsupported: {', '.join(unsupported_task_types)})"
-        )
+    _append_subset_error(
+        errors,
+        adapter_values=adapter.supported_task_types,
+        capability_values=capability.supported_task_types,
+        adapter_field="supported_task_types",
+        capability_field="supported_task_types",
+    )
+    _append_subset_error(
+        errors,
+        adapter_values=adapter.required_permissions,
+        capability_values=capability.required_permissions,
+        adapter_field="required_permissions",
+        capability_field="required_permissions",
+    )
+    _append_subset_error(
+        errors,
+        adapter_values=adapter.required_tools,
+        capability_values=capability.required_tools,
+        adapter_field="required_tools",
+        capability_field="required_tools",
+    )
 
     capability_risk = _risk_rank(capability.risk_level)
     adapter_risk = _risk_rank(adapter.risk_level)
     if adapter_risk < capability_risk:
         errors.append("adapter risk_level cannot understate the referenced capability risk_level")
 
-    if adapter.side_effect_classification == "external_side_effect" and not _approval_required(
-        adapter.approval_requirements
-    ):
+    adapter_approval_required = _approval_required(adapter.approval_requirements)
+    if _approval_required(capability.approval_requirements) and not adapter_approval_required:
+        errors.append("adapter approval_requirements cannot weaken required capability approval")
+
+    if adapter.side_effect_classification == "external_side_effect" and not adapter_approval_required:
         errors.append("external_side_effect adapters require explicit approval_requirements.required=true")
 
     if adapter.enabled and not capability.enabled:
@@ -83,6 +104,22 @@ def validate_capability_adapter_compatibility(
         raise CapabilityAdapterCompatibilityError("; ".join(errors))
 
 
+def _append_subset_error(
+    errors: list[str],
+    *,
+    adapter_values: list[str],
+    capability_values: list[str],
+    adapter_field: str,
+    capability_field: str,
+) -> None:
+    unsupported_values = sorted(set(adapter_values) - set(capability_values))
+    if unsupported_values:
+        errors.append(
+            f"adapter {adapter_field} must be a subset of the capability {capability_field} "
+            f"(unsupported: {', '.join(unsupported_values)})"
+        )
+
+
 def _risk_rank(risk_level: str) -> int:
     try:
         return _RISK_ORDER[risk_level]
@@ -90,7 +127,7 @@ def _risk_rank(risk_level: str) -> int:
         raise CapabilityAdapterCompatibilityError(f"unknown risk_level: {risk_level}") from exc
 
 
-def _approval_required(approval_requirements: dict[str, Any] | Any) -> bool:
-    if isinstance(approval_requirements, dict):
+def _approval_required(approval_requirements: dict[str, Any]) -> bool:
+    if isinstance(approval_requirements, Mapping):
         return approval_requirements.get("required") is True
     return getattr(approval_requirements, "required", False) is True

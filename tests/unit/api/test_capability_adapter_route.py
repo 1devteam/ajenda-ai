@@ -95,7 +95,10 @@ def _capability_record(
     name: str = "crm-record-review",
     version: str = "1.0.0",
     supported_task_types: list[str] | None = None,
+    required_permissions: list[str] | None = None,
+    required_tools: list[str] | None = None,
     risk_level: str = "medium",
+    approval_requirements: dict[str, object] | None = None,
     enabled: bool = True,
 ) -> SimpleNamespace:
     return SimpleNamespace(
@@ -104,7 +107,10 @@ def _capability_record(
         name=name,
         version=version,
         supported_task_types=supported_task_types or ["crm.review", "crm.summarize"],
+        required_permissions=required_permissions or ["crm:read"],
+        required_tools=required_tools or ["crm"],
         risk_level=risk_level,
+        approval_requirements=approval_requirements or {"required": False},
         enabled=enabled,
     )
 
@@ -407,6 +413,76 @@ def test_adapter_create_rejects_task_type_outside_capability_contract() -> None:
     assert response.status_code == 422
     assert "supported_task_types must be a subset" in response.text
     assert "crm.export" in response.text
+    adapter_repo.add.assert_not_called()
+
+
+def test_adapter_create_rejects_permission_outside_capability_contract() -> None:
+    tenant_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = _valid_payload()
+    payload["required_permissions"] = ["crm:read", "email:send"]
+    adapter_repo = MagicMock()
+    adapter_repo.get_conflict_for_scope.return_value = None
+    capability_repo = MagicMock()
+    capability_repo.get_visible_by_name_version.return_value = _capability_record(tenant_id=str(tenant_id))
+
+    with (
+        patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.capability_adapter.CapabilityRepository", return_value=capability_repo),
+    ):
+        response = client.post("/v1/capability-adapters", json=payload)
+
+    assert response.status_code == 422
+    assert "required_permissions must be a subset" in response.text
+    assert "email:send" in response.text
+    adapter_repo.add.assert_not_called()
+
+
+def test_adapter_create_rejects_tool_outside_capability_contract() -> None:
+    tenant_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = _valid_payload()
+    payload["required_tools"] = ["crm", "browser"]
+    adapter_repo = MagicMock()
+    adapter_repo.get_conflict_for_scope.return_value = None
+    capability_repo = MagicMock()
+    capability_repo.get_visible_by_name_version.return_value = _capability_record(tenant_id=str(tenant_id))
+
+    with (
+        patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.capability_adapter.CapabilityRepository", return_value=capability_repo),
+    ):
+        response = client.post("/v1/capability-adapters", json=payload)
+
+    assert response.status_code == 422
+    assert "required_tools must be a subset" in response.text
+    assert "browser" in response.text
+    adapter_repo.add.assert_not_called()
+
+
+def test_adapter_create_rejects_weaker_approval_than_capability_contract() -> None:
+    tenant_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = _valid_payload()
+    payload["approval_requirements"] = {"required": False, "approver_roles": [], "conditions": []}
+    adapter_repo = MagicMock()
+    adapter_repo.get_conflict_for_scope.return_value = None
+    capability_repo = MagicMock()
+    capability_repo.get_visible_by_name_version.return_value = _capability_record(
+        tenant_id=str(tenant_id), approval_requirements={"required": True}
+    )
+
+    with (
+        patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.capability_adapter.CapabilityRepository", return_value=capability_repo),
+    ):
+        response = client.post("/v1/capability-adapters", json=payload)
+
+    assert response.status_code == 422
+    assert "approval_requirements cannot weaken" in response.text
     adapter_repo.add.assert_not_called()
 
 

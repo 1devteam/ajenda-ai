@@ -285,6 +285,8 @@ def _adapter_candidate(adapter: CapabilityAdapter, updates: dict[str, Any]) -> S
         "capability_name",
         "capability_version",
         "supported_task_types",
+        "required_permissions",
+        "required_tools",
         "risk_level",
         "approval_requirements",
         "side_effect_classification",

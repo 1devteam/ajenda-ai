@@ -17,7 +17,10 @@ def _capability(**overrides: object) -> SimpleNamespace:
         "name": "crm-record-review",
         "version": "1.0.0",
         "supported_task_types": ["crm.review", "crm.summarize"],
+        "required_permissions": ["crm:read", "crm:write"],
+        "required_tools": ["crm", "email"],
         "risk_level": "medium",
+        "approval_requirements": {"required": False},
         "enabled": True,
     }
     values.update(overrides)
@@ -30,6 +33,8 @@ def _adapter(capability: SimpleNamespace, **overrides: object) -> SimpleNamespac
         "capability_name": capability.name,
         "capability_version": capability.version,
         "supported_task_types": ["crm.review"],
+        "required_permissions": ["crm:read"],
+        "required_tools": ["crm"],
         "risk_level": capability.risk_level,
         "approval_requirements": {"required": False},
         "side_effect_classification": "read_only",
@@ -87,4 +92,28 @@ def test_adapter_binding_fields_must_match_resolved_capability() -> None:
     adapter = _adapter(capability, capability_name="other-capability")
 
     with pytest.raises(CapabilityAdapterCompatibilityError, match="capability_name"):
+        validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
+
+
+def test_adapter_permissions_must_be_subset_of_capability_permissions() -> None:
+    capability = _capability()
+    adapter = _adapter(capability, required_permissions=["crm:read", "email:send"])
+
+    with pytest.raises(CapabilityAdapterCompatibilityError, match="email:send"):
+        validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
+
+
+def test_adapter_tools_must_be_subset_of_capability_tools() -> None:
+    capability = _capability()
+    adapter = _adapter(capability, required_tools=["crm", "browser"])
+
+    with pytest.raises(CapabilityAdapterCompatibilityError, match="browser"):
+        validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
+
+
+def test_adapter_approval_cannot_weaken_required_capability_approval() -> None:
+    capability = _capability(approval_requirements={"required": True})
+    adapter = _adapter(capability, approval_requirements={"required": False})
+
+    with pytest.raises(CapabilityAdapterCompatibilityError, match="cannot weaken"):
         validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
