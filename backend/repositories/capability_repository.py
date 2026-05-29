@@ -27,6 +27,18 @@ class CapabilityRepository:
         )
         return self._session.scalar(stmt)
 
+    def get_visible_by_name_version(self, *, name: str, version: str, tenant_id: str) -> Capability | None:
+        stmt = (
+            select(Capability)
+            .where(
+                Capability.name == name,
+                Capability.version == version,
+                or_(Capability.tenant_id == tenant_id, Capability.tenant_id.is_(None)),
+            )
+            .order_by(Capability.tenant_id.is_(None).asc())
+        )
+        return self._session.scalar(stmt)
+
     def list_visible_for_tenant(self, *, tenant_id: str) -> list[Capability]:
         stmt = (
             select(Capability)
