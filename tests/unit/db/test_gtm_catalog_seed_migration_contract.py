@@ -1,10 +1,3 @@
-"""Structural guardrails for the GTM seed migration.
-
-DB-backed seed round-trip behavior is covered by
-``tests/contract/saas/test_gtm_catalog_seed_semantics.py``; this file keeps
-fast text-level checks for the migration's required RLS lifecycle structure.
-"""
-
 from pathlib import Path
 
 
