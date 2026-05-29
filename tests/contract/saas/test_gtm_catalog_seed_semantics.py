@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+import pytest
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.engine import make_url
@@ -171,6 +172,7 @@ def _assert_seed_rows_absent(session: Session) -> None:
     assert adapter_count == 0
 
 
+@pytest.mark.integration
 def test_gtm_catalog_seed_round_trip_preserves_api_shapes_and_cleans_up_policies(pg_url: str) -> None:
     database = f"ajenda_seed_semantics_{uuid.uuid4().hex}"
     database_url = _database_url(pg_url, database)
