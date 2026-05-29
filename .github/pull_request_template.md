@@ -22,6 +22,8 @@
 - [ ] `mypy` passes locally
 - [ ] `pytest tests/unit/ tests/contract/ tests/deployment/` passes locally
 - [ ] Migration added if schema changed, with downgrade path verified
+- [ ] Schema/data seed changes prove JSONB seed-shape parity with API/domain contracts
+- [ ] RLS-backed seed migrations prove same-role downgrade behavior and no temporary policy residue
 - [ ] No secrets or credentials committed
 - [ ] Commit messages follow `type(scope): description` convention
 
@@ -31,8 +33,9 @@
 
 ## Migration Notes
 
-<!-- If this PR includes a database migration, describe the migration and any
-     deployment ordering requirements (e.g., must deploy before traffic). -->
+<!-- If this PR includes a database migration, describe the migration, rollback path,
+     deployment ordering requirements (e.g., must deploy before traffic), JSONB seed-shape
+     parity evidence, same-role downgrade proof, and temporary RLS policy residue checks. -->
 
 ## Breaking Changes
 
