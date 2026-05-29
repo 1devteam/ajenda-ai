@@ -265,15 +265,19 @@ def _resolve_visible_capability_reference(
         if capability is None:
             raise HTTPException(status_code=422, detail="referenced capability is not visible to tenant")
 
+    if capability is not None:
+        if capability_name is not None and capability.name != capability_name:
+            raise HTTPException(status_code=422, detail="capability_id does not match capability name/version binding")
+        if capability_version is not None and capability.version != capability_version:
+            raise HTTPException(status_code=422, detail="capability_id does not match capability name/version binding")
+        return capability
+
     if capability_name is not None and capability_version is not None:
-        named_capability = capability_repo.get_visible_by_name_version(
+        capability = capability_repo.get_visible_by_name_version(
             name=capability_name, version=capability_version, tenant_id=tenant_id
         )
-        if named_capability is None:
+        if capability is None:
             raise HTTPException(status_code=422, detail="referenced capability name/version is not visible to tenant")
-        if capability is not None and named_capability.id != capability.id:
-            raise HTTPException(status_code=422, detail="capability_id does not match capability name/version binding")
-        capability = named_capability
 
     if capability is None:
         raise HTTPException(status_code=422, detail="capability adapter requires a visible capability binding")
