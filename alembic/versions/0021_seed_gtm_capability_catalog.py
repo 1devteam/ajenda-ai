@@ -17,6 +17,8 @@ down_revision = "0020_expand_lifecycle_checks"
 branch_labels = None
 depends_on = None
 
+MIGRATION_SEED_MARKER = "0021_seed_gtm_capability_catalog"
+
 CAPABILITY_TABLE = sa.table(
     "capabilities",
     sa.column("id", postgresql.UUID(as_uuid=True)),
@@ -112,14 +114,18 @@ def upgrade() -> None:
                     'high',
                     '{"human_approval": true}'::jsonb,
                     '["approval_decision", "send_outcome"]'::jsonb,
-                    '{"policy_gated": true, "feature_flag": "gtm_enabled"}'::jsonb,
+                    jsonb_build_object(
+                        'policy_gated', true,
+                        'feature_flag', 'gtm_enabled',
+                        'seeded_by_migration', :seed_marker
+                    ),
                     true, 1, now(), now()
                 )
                 ON CONFLICT (name, version)
                 WHERE tenant_id IS NULL
                 DO NOTHING
                 """
-            )
+            ).bindparams(seed_marker=MIGRATION_SEED_MARKER)
         )
 
         conn.execute(
@@ -143,7 +149,10 @@ def upgrade() -> None:
                     '{"human_approval": true}'::jsonb,
                     '["approval_decision", "delivery_outcome"]'::jsonb,
                     '{"timeout_seconds": 120, "max_retries": 1}'::jsonb,
-                    '{"idempotency_key_required": true}'::jsonb,
+                    jsonb_build_object(
+                        'idempotency_key_required', true,
+                        'seeded_by_migration', :seed_marker
+                    ),
                     'external_side_effect',
                     true, 1, now(), now()
                 FROM capabilities c
@@ -154,7 +163,7 @@ def upgrade() -> None:
                 WHERE tenant_id IS NULL
                 DO NOTHING
                 """
-            )
+            ).bindparams(seed_marker=MIGRATION_SEED_MARKER)
         )
     finally:
         _drop_seed_policy(conn, "capability_adapters", "seed_global_gtm_capability_adapters_policy")
@@ -173,8 +182,9 @@ def downgrade() -> None:
                 WHERE tenant_id IS NULL
                   AND name = 'gtm_outbound_email_adapter'
                   AND version = '1.0.0'
+                  AND idempotency_expectations->>'seeded_by_migration' = :seed_marker
                 """
-            )
+            ).bindparams(seed_marker=MIGRATION_SEED_MARKER)
         )
         conn.execute(
             sa.text(
@@ -183,8 +193,9 @@ def downgrade() -> None:
                 WHERE tenant_id IS NULL
                   AND name = 'gtm_outbound_email'
                   AND version = '1.0.0'
+                  AND execution_constraints->>'seeded_by_migration' = :seed_marker
                 """
-            )
+            ).bindparams(seed_marker=MIGRATION_SEED_MARKER)
         )
     finally:
         _drop_seed_policy(conn, "capability_adapters", "seed_global_gtm_capability_adapters_policy")
