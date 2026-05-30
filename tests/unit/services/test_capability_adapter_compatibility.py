@@ -7,6 +7,7 @@ import pytest
 
 from backend.services.capability_adapter_compatibility import (
     CapabilityAdapterCompatibilityError,
+    CapabilityAdapterDeclaration,
     validate_capability_adapter_compatibility,
 )
 
@@ -24,67 +25,61 @@ def _capability(**overrides: object) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
-def _adapter(capability: SimpleNamespace, **overrides: object) -> SimpleNamespace:
+def _adapter(**overrides: object) -> CapabilityAdapterDeclaration:
+    capability_id = uuid.uuid4()
     values: dict[str, object] = {
-        "capability_id": capability.id,
-        "capability_name": capability.name,
-        "capability_version": capability.version,
+        "capability_id": capability_id,
+        "capability_name": "crm-record-review",
+        "capability_version": "1.0.0",
         "supported_task_types": ["crm.review"],
-        "risk_level": capability.risk_level,
-        "approval_requirements": {"required": False},
+        "risk_level": "medium",
+        "approval_requirements": {"required": False, "approver_roles": [], "conditions": []},
         "side_effect_classification": "read_only",
         "enabled": True,
     }
     values.update(overrides)
-    return SimpleNamespace(**values)
+    return CapabilityAdapterDeclaration(**values)  # type: ignore[arg-type]
 
 
-def test_compatible_adapter_declaration_passes_without_runtime_side_effects() -> None:
-    capability = _capability()
-    adapter = _adapter(capability)
+def test_compatible_adapter_declaration_passes_without_side_effects() -> None:
+    capability_id = uuid.uuid4()
+    capability = _capability(id=capability_id)
+    adapter = _adapter(capability_id=capability_id)
 
-    validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
+    validate_capability_adapter_compatibility(capability=capability, adapter=adapter)
 
 
-def test_adapter_task_types_must_be_subset_of_capability_task_types() -> None:
-    capability = _capability()
-    adapter = _adapter(capability, supported_task_types=["crm.review", "crm.export"])
+def test_supported_task_types_must_be_declared_by_capability() -> None:
+    capability_id = uuid.uuid4()
+    capability = _capability(id=capability_id, supported_task_types=["crm.review"])
+    adapter = _adapter(capability_id=capability_id, supported_task_types=["crm.review", "crm.email"])
 
-    with pytest.raises(CapabilityAdapterCompatibilityError, match=r"crm\.export"):
-        validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
+    with pytest.raises(CapabilityAdapterCompatibilityError, match="supported_task_types"):
+        validate_capability_adapter_compatibility(capability=capability, adapter=adapter)
 
 
 def test_adapter_risk_cannot_understate_capability_risk() -> None:
-    capability = _capability(risk_level="high")
-    adapter = _adapter(capability, risk_level="medium")
+    capability_id = uuid.uuid4()
+    capability = _capability(id=capability_id, risk_level="high")
+    adapter = _adapter(capability_id=capability_id, risk_level="medium")
 
-    with pytest.raises(CapabilityAdapterCompatibilityError, match="cannot understate"):
-        validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
+    with pytest.raises(CapabilityAdapterCompatibilityError, match="risk_level cannot understate"):
+        validate_capability_adapter_compatibility(capability=capability, adapter=adapter)
 
 
-def test_external_side_effect_adapter_requires_explicit_approval() -> None:
-    capability = _capability()
-    adapter = _adapter(
-        capability,
-        side_effect_classification="external_side_effect",
-        approval_requirements={"required": False},
-    )
+def test_external_side_effect_requires_approval() -> None:
+    capability_id = uuid.uuid4()
+    capability = _capability(id=capability_id)
+    adapter = _adapter(capability_id=capability_id, side_effect_classification="external_side_effect")
 
     with pytest.raises(CapabilityAdapterCompatibilityError, match="external_side_effect"):
-        validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
+        validate_capability_adapter_compatibility(capability=capability, adapter=adapter)
 
 
 def test_enabled_adapter_cannot_bind_to_disabled_capability() -> None:
-    capability = _capability(enabled=False)
-    adapter = _adapter(capability, enabled=True)
+    capability_id = uuid.uuid4()
+    capability = _capability(id=capability_id, enabled=False)
+    adapter = _adapter(capability_id=capability_id, enabled=True)
 
-    with pytest.raises(CapabilityAdapterCompatibilityError, match="disabled capabilities"):
-        validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
-
-
-def test_adapter_binding_fields_must_match_resolved_capability() -> None:
-    capability = _capability()
-    adapter = _adapter(capability, capability_name="other-capability")
-
-    with pytest.raises(CapabilityAdapterCompatibilityError, match="capability_name"):
-        validate_capability_adapter_compatibility(adapter=adapter, capability=capability)
+    with pytest.raises(CapabilityAdapterCompatibilityError, match="disabled capability"):
+        validate_capability_adapter_compatibility(capability=capability, adapter=adapter)

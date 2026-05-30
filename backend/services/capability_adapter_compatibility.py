@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+import uuid
+from dataclasses import dataclass
 from typing import Any, Protocol
-from uuid import UUID
+
+RISK_RANK: dict[str, int] = {
+    "low": 1,
+    "medium": 2,
+    "high": 3,
+    "critical": 4,
+}
 
 
 class CapabilityDeclaration(Protocol):
-    """Capability fields required for declarative adapter compatibility checks."""
+    """Capability fields required for pure adapter compatibility checks."""
 
-    id: UUID
+    id: uuid.UUID
     name: str
     version: str
     supported_task_types: list[str]
@@ -16,10 +23,11 @@ class CapabilityDeclaration(Protocol):
     enabled: bool
 
 
-class CapabilityAdapterDeclaration(Protocol):
-    """Adapter fields required for declarative compatibility checks."""
+@dataclass(frozen=True, slots=True)
+class CapabilityAdapterDeclaration:
+    """Adapter fields required for pure capability compatibility checks."""
 
-    capability_id: UUID | None
+    capability_id: uuid.UUID | None
     capability_name: str | None
     capability_version: str | None
     supported_task_types: list[str]
@@ -30,66 +38,69 @@ class CapabilityAdapterDeclaration(Protocol):
 
 
 class CapabilityAdapterCompatibilityError(ValueError):
-    """Raised when an adapter declaration contradicts its capability contract."""
-
-
-_RISK_ORDER = {
-    "low": 0,
-    "medium": 1,
-    "high": 2,
-    "critical": 3,
-}
+    """Raised when a declarative adapter overstates compatibility with a capability."""
 
 
 def validate_capability_adapter_compatibility(
-    *, adapter: CapabilityAdapterDeclaration, capability: CapabilityDeclaration
+    *, capability: CapabilityDeclaration, adapter: CapabilityAdapterDeclaration
 ) -> None:
-    """Validate a declarative adapter contract against its referenced capability.
+    """Validate a declarative capability adapter binding without side effects.
 
-    The checks are intentionally metadata-only. They do not register runtime
-    handlers, enqueue work, invoke tools, or grant execution authority.
+    This guardrail is intentionally metadata-only. It does not register runtime
+    handlers, enqueue work, grant execution authority, or inspect mutable state
+    outside the supplied declarations.
     """
-    errors: list[str] = []
+    _validate_binding_matches_capability(capability=capability, adapter=adapter)
+    _validate_task_type_compatibility(capability=capability, adapter=adapter)
+    _validate_risk_compatibility(capability=capability, adapter=adapter)
+    _validate_side_effect_approval(adapter=adapter)
+    _validate_enabled_compatibility(capability=capability, adapter=adapter)
 
+
+def _validate_binding_matches_capability(
+    *, capability: CapabilityDeclaration, adapter: CapabilityAdapterDeclaration
+) -> None:
     if adapter.capability_id is not None and adapter.capability_id != capability.id:
-        errors.append("capability_id does not match the resolved capability")
+        raise CapabilityAdapterCompatibilityError("adapter capability_id does not match resolved capability")
     if adapter.capability_name is not None and adapter.capability_name != capability.name:
-        errors.append("capability_name does not match the resolved capability")
+        raise CapabilityAdapterCompatibilityError("adapter capability_name does not match resolved capability")
     if adapter.capability_version is not None and adapter.capability_version != capability.version:
-        errors.append("capability_version does not match the resolved capability")
+        raise CapabilityAdapterCompatibilityError("adapter capability_version does not match resolved capability")
 
-    unsupported_task_types = sorted(set(adapter.supported_task_types) - set(capability.supported_task_types))
-    if unsupported_task_types:
-        errors.append(
-            "adapter supported_task_types must be a subset of the capability supported_task_types "
-            f"(unsupported: {', '.join(unsupported_task_types)})"
+
+def _validate_task_type_compatibility(
+    *, capability: CapabilityDeclaration, adapter: CapabilityAdapterDeclaration
+) -> None:
+    unsupported = sorted(set(adapter.supported_task_types) - set(capability.supported_task_types))
+    if unsupported:
+        joined = ", ".join(unsupported)
+        raise CapabilityAdapterCompatibilityError(
+            f"adapter supported_task_types must be declared by capability: {joined}"
         )
 
-    capability_risk = _risk_rank(capability.risk_level)
-    adapter_risk = _risk_rank(adapter.risk_level)
-    if adapter_risk < capability_risk:
-        errors.append("adapter risk_level cannot understate the referenced capability risk_level")
 
-    if adapter.side_effect_classification == "external_side_effect" and not _approval_required(
-        adapter.approval_requirements
-    ):
-        errors.append("external_side_effect adapters require explicit approval_requirements.required=true")
+def _validate_risk_compatibility(*, capability: CapabilityDeclaration, adapter: CapabilityAdapterDeclaration) -> None:
+    capability_rank = RISK_RANK.get(capability.risk_level)
+    adapter_rank = RISK_RANK.get(adapter.risk_level)
+    if capability_rank is None:
+        raise CapabilityAdapterCompatibilityError(f"capability risk_level is unsupported: {capability.risk_level}")
+    if adapter_rank is None:
+        raise CapabilityAdapterCompatibilityError(f"adapter risk_level is unsupported: {adapter.risk_level}")
+    if adapter_rank < capability_rank:
+        raise CapabilityAdapterCompatibilityError("adapter risk_level cannot understate capability risk_level")
 
+
+def _validate_side_effect_approval(*, adapter: CapabilityAdapterDeclaration) -> None:
+    if adapter.side_effect_classification != "external_side_effect":
+        return
+    if adapter.approval_requirements.get("required") is not True:
+        raise CapabilityAdapterCompatibilityError(
+            "external_side_effect adapters require approval_requirements.required"
+        )
+
+
+def _validate_enabled_compatibility(
+    *, capability: CapabilityDeclaration, adapter: CapabilityAdapterDeclaration
+) -> None:
     if adapter.enabled and not capability.enabled:
-        errors.append("enabled adapters cannot bind to disabled capabilities")
-
-    if errors:
-        raise CapabilityAdapterCompatibilityError("; ".join(errors))
-
-
-def _risk_rank(risk_level: str) -> int:
-    try:
-        return _RISK_ORDER[risk_level]
-    except KeyError as exc:
-        raise CapabilityAdapterCompatibilityError(f"unknown risk_level: {risk_level}") from exc
-
-
-def _approval_required(approval_requirements: dict[str, Any]) -> bool:
-    if isinstance(approval_requirements, Mapping):
-        return approval_requirements.get("required") is True
-    return getattr(approval_requirements, "required", False) is True
+        raise CapabilityAdapterCompatibilityError("enabled adapter cannot bind to a disabled capability")

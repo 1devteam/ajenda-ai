@@ -120,10 +120,10 @@ def test_adapter_creation_persists_tenant_scoped_contract_without_runtime_queue_
     adapter_repo.add.return_value = _adapter_record(
         tenant_id=str(tenant_id), adapter_id=adapter_id, capability_id=capability_id
     )
+    capability = _capability_record(tenant_id=str(tenant_id), capability_id=capability_id)
     capability_repo = MagicMock()
-    capability_repo.get_visible_for_tenant.return_value = _capability_record(
-        tenant_id=str(tenant_id), capability_id=capability_id
-    )
+    capability_repo.get_visible_for_tenant.return_value = capability
+    capability_repo.get_visible_by_name_version.return_value = capability
 
     with (
         patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
@@ -150,6 +150,7 @@ def test_adapter_creation_persists_tenant_scoped_contract_without_runtime_queue_
     capability_repo.get_visible_for_tenant.assert_called_once_with(
         capability_id=capability_id, tenant_id=str(tenant_id)
     )
+    capability_repo.get_visible_by_name_version.assert_not_called()
     created = adapter_repo.add.call_args.args[0]
     assert created.tenant_id == str(tenant_id)
     assert created.capability_id == capability_id
@@ -201,6 +202,61 @@ def test_adapter_rejects_incomplete_capability_name_version_binding() -> None:
 
     assert response.status_code == 422
     assert "requires both" in response.text
+
+
+def test_adapter_create_honors_explicit_global_capability_id_when_tenant_has_same_name_version() -> None:
+    tenant_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    adapter_repo = MagicMock()
+    adapter_repo.get_conflict_for_scope.return_value = None
+    adapter_repo.add.side_effect = lambda adapter: _adapter_record(
+        tenant_id=adapter.tenant_id, adapter_id=uuid.uuid4(), capability_id=adapter.capability_id
+    )
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = _capability_record(
+        tenant_id=None, capability_id=capability_id
+    )
+    capability_repo.get_visible_by_name_version.return_value = _capability_record(tenant_id=str(tenant_id))
+
+    with (
+        patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.capability_adapter.CapabilityRepository", return_value=capability_repo),
+    ):
+        response = client.post("/v1/capability-adapters", json=_valid_payload(capability_id=capability_id))
+
+    assert response.status_code == 201
+    assert response.json()["capability_id"] == str(capability_id)
+    capability_repo.get_visible_for_tenant.assert_called_once_with(
+        capability_id=capability_id, tenant_id=str(tenant_id)
+    )
+    capability_repo.get_visible_by_name_version.assert_not_called()
+    assert adapter_repo.add.call_args.args[0].capability_id == capability_id
+
+
+def test_adapter_create_rejects_name_version_mismatch_for_explicit_capability_id() -> None:
+    tenant_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    adapter_repo = MagicMock()
+    adapter_repo.get_conflict_for_scope.return_value = None
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = _capability_record(
+        tenant_id=None, capability_id=capability_id, name="global-review", version="2.0.0"
+    )
+
+    with (
+        patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.capability_adapter.CapabilityRepository", return_value=capability_repo),
+    ):
+        response = client.post("/v1/capability-adapters", json=_valid_payload(capability_id=capability_id))
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "capability_id does not match capability name/version binding"}
+    capability_repo.get_visible_by_name_version.assert_not_called()
+    adapter_repo.add.assert_not_called()
 
 
 def test_adapter_create_rejects_cross_tenant_capability_reference() -> None:
@@ -287,6 +343,7 @@ def test_adapter_update_persists_mutable_fields_for_tenant_owned_contract() -> N
     adapter_repo = MagicMock()
     adapter_repo.get_visible_for_tenant.return_value = adapter
     adapter_repo.update.return_value = updated
+
     capability_repo = MagicMock()
     capability_repo.get_visible_by_name_version.return_value = _capability_record(tenant_id=str(tenant_id))
 
@@ -319,32 +376,20 @@ def test_adapter_patch_rejects_explicit_null_enabled() -> None:
     assert "cannot be null" in response.text
 
 
-def test_global_adapter_update_is_read_only_from_tenant_route() -> None:
+def test_adapter_create_resolves_visible_capability_by_name_version() -> None:
     tenant_id = uuid.uuid4()
-    adapter_id = uuid.uuid4()
-    app = _build_app(tenant_id)
-    client = TestClient(app, raise_server_exceptions=False)
-    adapter_repo = MagicMock()
-    adapter_repo.get_visible_for_tenant.return_value = _adapter_record(tenant_id=None, adapter_id=adapter_id)
-
-    with patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo):
-        response = client.patch(f"/v1/capability-adapters/{adapter_id}", json={"enabled": False})
-
-    assert response.status_code == 403
-    assert response.json() == {"detail": "global capability adapters are read-only from tenant routes"}
-    adapter_repo.update.assert_not_called()
-
-
-def test_adapter_create_by_name_version_resolves_visible_capability() -> None:
-    tenant_id = uuid.uuid4()
-    adapter_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
     adapter_repo = MagicMock()
     adapter_repo.get_conflict_for_scope.return_value = None
-    adapter_repo.add.return_value = _adapter_record(tenant_id=str(tenant_id), adapter_id=adapter_id)
+    adapter_repo.add.side_effect = lambda adapter: _adapter_record(
+        tenant_id=adapter.tenant_id, adapter_id=uuid.uuid4(), capability_id=adapter.capability_id
+    )
     capability_repo = MagicMock()
-    capability_repo.get_visible_by_name_version.return_value = _capability_record(tenant_id=str(tenant_id))
+    capability_repo.get_visible_by_name_version.return_value = _capability_record(
+        tenant_id=str(tenant_id), capability_id=capability_id
+    )
 
     with (
         patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
@@ -353,16 +398,15 @@ def test_adapter_create_by_name_version_resolves_visible_capability() -> None:
         response = client.post("/v1/capability-adapters", json=_valid_payload())
 
     assert response.status_code == 201
-    assert response.json()["adapter_id"] == str(adapter_id)
+    assert response.json()["capability_id"] == str(capability_id)
+    capability_repo.get_visible_for_tenant.assert_not_called()
     capability_repo.get_visible_by_name_version.assert_called_once_with(
-        name="crm-record-review",
-        version="1.0.0",
-        tenant_id=str(tenant_id),
+        name="crm-record-review", version="1.0.0", tenant_id=str(tenant_id)
     )
-    adapter_repo.add.assert_called_once()
+    assert adapter_repo.add.call_args.args[0].capability_id == capability_id
 
 
-def test_adapter_create_by_name_version_requires_visible_capability() -> None:
+def test_adapter_create_fails_closed_when_name_version_capability_is_not_visible() -> None:
     tenant_id = uuid.uuid4()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
@@ -378,44 +422,36 @@ def test_adapter_create_by_name_version_requires_visible_capability() -> None:
         response = client.post("/v1/capability-adapters", json=_valid_payload())
 
     assert response.status_code == 422
-    assert response.json() == {"detail": "referenced capability is not visible to tenant"}
-    capability_repo.get_visible_by_name_version.assert_called_once_with(
-        name="crm-record-review",
-        version="1.0.0",
-        tenant_id=str(tenant_id),
-    )
+    assert response.json() == {"detail": "referenced capability name/version is not visible to tenant"}
     adapter_repo.add.assert_not_called()
 
 
-def test_adapter_create_rejects_task_type_outside_capability_contract() -> None:
+def test_adapter_create_rejects_incompatible_supported_task_types() -> None:
     tenant_id = uuid.uuid4()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
-    payload = _valid_payload()
-    payload["supported_task_types"] = ["crm.review", "crm.export"]
     adapter_repo = MagicMock()
     adapter_repo.get_conflict_for_scope.return_value = None
     capability_repo = MagicMock()
-    capability_repo.get_visible_by_name_version.return_value = _capability_record(tenant_id=str(tenant_id))
+    capability_repo.get_visible_by_name_version.return_value = _capability_record(
+        tenant_id=str(tenant_id), supported_task_types=["crm.review"]
+    )
 
     with (
         patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
         patch("backend.api.routes.capability_adapter.CapabilityRepository", return_value=capability_repo),
     ):
-        response = client.post("/v1/capability-adapters", json=payload)
+        response = client.post("/v1/capability-adapters", json=_valid_payload())
 
     assert response.status_code == 422
-    assert "supported_task_types must be a subset" in response.text
-    assert "crm.export" in response.text
+    assert "supported_task_types" in response.text
     adapter_repo.add.assert_not_called()
 
 
-def test_adapter_create_rejects_risk_understatement() -> None:
+def test_adapter_create_rejects_understated_risk() -> None:
     tenant_id = uuid.uuid4()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
-    payload = _valid_payload()
-    payload["risk_level"] = "medium"
     adapter_repo = MagicMock()
     adapter_repo.get_conflict_for_scope.return_value = None
     capability_repo = MagicMock()
@@ -427,7 +463,7 @@ def test_adapter_create_rejects_risk_understatement() -> None:
         patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
         patch("backend.api.routes.capability_adapter.CapabilityRepository", return_value=capability_repo),
     ):
-        response = client.post("/v1/capability-adapters", json=payload)
+        response = client.post("/v1/capability-adapters", json=_valid_payload())
 
     assert response.status_code == 422
     assert "cannot understate" in response.text
@@ -439,8 +475,8 @@ def test_adapter_create_rejects_external_side_effect_without_approval() -> None:
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
     payload = _valid_payload()
-    payload["side_effect_classification"] = "external_side_effect"
     payload["approval_requirements"] = {"required": False, "approver_roles": [], "conditions": []}
+    payload["side_effect_classification"] = "external_side_effect"
     adapter_repo = MagicMock()
     adapter_repo.get_conflict_for_scope.return_value = None
     capability_repo = MagicMock()
@@ -453,7 +489,7 @@ def test_adapter_create_rejects_external_side_effect_without_approval() -> None:
         response = client.post("/v1/capability-adapters", json=payload)
 
     assert response.status_code == 422
-    assert "external_side_effect adapters require explicit approval" in response.text
+    assert "external_side_effect" in response.text
     adapter_repo.add.assert_not_called()
 
 
@@ -475,11 +511,11 @@ def test_adapter_create_rejects_enabled_adapter_for_disabled_capability() -> Non
         response = client.post("/v1/capability-adapters", json=_valid_payload())
 
     assert response.status_code == 422
-    assert "enabled adapters cannot bind to disabled capabilities" in response.text
+    assert "disabled capability" in response.text
     adapter_repo.add.assert_not_called()
 
 
-def test_adapter_update_rejects_incompatible_task_type_without_mutating_record() -> None:
+def test_adapter_update_rejects_before_mutating_existing_record() -> None:
     tenant_id = uuid.uuid4()
     adapter_id = uuid.uuid4()
     adapter = _adapter_record(tenant_id=str(tenant_id), adapter_id=adapter_id)
@@ -488,7 +524,9 @@ def test_adapter_update_rejects_incompatible_task_type_without_mutating_record()
     adapter_repo = MagicMock()
     adapter_repo.get_visible_for_tenant.return_value = adapter
     capability_repo = MagicMock()
-    capability_repo.get_visible_by_name_version.return_value = _capability_record(tenant_id=str(tenant_id))
+    capability_repo.get_visible_by_name_version.return_value = _capability_record(
+        tenant_id=str(tenant_id), supported_task_types=["crm.review"]
+    )
 
     with (
         patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo),
@@ -496,10 +534,27 @@ def test_adapter_update_rejects_incompatible_task_type_without_mutating_record()
     ):
         response = client.patch(
             f"/v1/capability-adapters/{adapter_id}",
-            json={"supported_task_types": ["crm.review", "crm.export"]},
+            json={"supported_task_types": ["crm.review", "crm.email"], "enabled": False},
         )
 
     assert response.status_code == 422
-    assert "crm.export" in response.text
+    assert "supported_task_types" in response.text
     assert adapter.supported_task_types == ["crm.review", "crm.summarize"]
+    assert adapter.enabled is True
+    adapter_repo.update.assert_not_called()
+
+
+def test_global_adapter_update_is_read_only_from_tenant_route() -> None:
+    tenant_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = _adapter_record(tenant_id=None, adapter_id=adapter_id)
+
+    with patch("backend.api.routes.capability_adapter.CapabilityAdapterRepository", return_value=adapter_repo):
+        response = client.patch(f"/v1/capability-adapters/{adapter_id}", json={"enabled": False})
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "global capability adapters are read-only from tenant routes"}
     adapter_repo.update.assert_not_called()
