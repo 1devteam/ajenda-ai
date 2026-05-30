@@ -1,0 +1,22 @@
+from __future__ import annotations
+
+from backend.main import create_app
+from backend.middleware.auth_context import AuthContextMiddleware
+from backend.middleware.idempotency import IdempotencyMiddleware
+from backend.middleware.rate_limit import RateLimitMiddleware
+from backend.middleware.request_context import RequestContextMiddleware
+from backend.middleware.security_headers import SecurityHeadersMiddleware
+from backend.middleware.tenant_context import TenantContextMiddleware
+
+
+def test_middleware_registration_preserves_tenant_auth_before_rate_limit_and_idempotency() -> None:
+    app = create_app()
+
+    assert [entry.cls for entry in app.user_middleware] == [
+        SecurityHeadersMiddleware,
+        TenantContextMiddleware,
+        AuthContextMiddleware,
+        RateLimitMiddleware,
+        IdempotencyMiddleware,
+        RequestContextMiddleware,
+    ]

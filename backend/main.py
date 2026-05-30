@@ -11,10 +11,10 @@ Startup sequence (lifespan):
 
 Middleware stack (outermost to innermost — applied in reverse registration order):
   1. SecurityHeadersMiddleware  — injects HSTS, CSP, X-Frame-Options, etc.
-  2. IdempotencyMiddleware      — deduplicates mutating requests by Idempotency-Key header
-  3. RateLimitMiddleware        — per-(tenant, principal, route) fixed-window rate limiting
-  4. TenantContextMiddleware    — extracts and validates X-Tenant-Id header
-  5. AuthContextMiddleware      — resolves principal from JWT or API key, sets request.state
+  2. TenantContextMiddleware    — extracts and validates X-Tenant-Id header
+  3. AuthContextMiddleware      — resolves principal from JWT or API key, sets request.state
+  4. RateLimitMiddleware        — per-(tenant, principal, route) fixed-window rate limiting
+  5. IdempotencyMiddleware      — deduplicates mutating requests by scoped Idempotency-Key header
   6. RequestContextMiddleware   — assigns a unique request_id to every request
 
 Note on middleware ordering: FastAPI/Starlette applies middleware in reverse
@@ -35,6 +35,7 @@ from fastapi import FastAPI
 from backend.api.router import build_api_router
 from backend.app.config import get_settings
 from backend.app.logging import configure_logging
+from backend.auth.oidc import OidcAuthenticator
 from backend.db.session import DatabaseRuntime
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.idempotency import IdempotencyMiddleware
@@ -83,6 +84,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.settings = settings
     app.state.database_runtime = database_runtime
     app.state.queue_adapter = queue_adapter
+    app.state.oidc_authenticator = OidcAuthenticator(
+        jwks_uri=settings.oidc_jwks_uri,
+        issuer=settings.oidc_issuer,
+        audience=settings.oidc_audience,
+    )
 
     try:
         yield
@@ -117,7 +123,7 @@ def create_app() -> FastAPI:
     # The LAST middleware added here becomes the OUTERMOST wrapper.
     #
     # Execution order (outermost → innermost):
-    #   SecurityHeaders → Idempotency → RateLimit → Tenant → Auth → RequestContext → route
+    #   SecurityHeaders → Tenant → Auth → RateLimit → Idempotency → RequestContext → route
     #
     # Tenant MUST execute before Auth because:
     #   - AuthContextMiddleware reads request.state.tenant_id (set by TenantContextMiddleware)
@@ -131,6 +137,14 @@ def create_app() -> FastAPI:
     # Innermost: request context (assigns request_id to every request)
     app.add_middleware(RequestContextMiddleware)
 
+    # Idempotency: deduplicates POST/PUT/PATCH by scoped Idempotency-Key header.
+    # Runs after tenant/auth context exists so replay keys cannot cross tenants or principals.
+    app.add_middleware(IdempotencyMiddleware)
+
+    # Rate limiting: per-(tenant, principal, route) fixed-window.
+    # Runs after tenant/auth context exists so buckets are tenant/principal scoped.
+    app.add_middleware(RateLimitMiddleware)
+
     # Auth context: resolves principal from JWT or API key.
     # Registered before Tenant so that Tenant executes first at runtime.
     app.add_middleware(AuthContextMiddleware)
@@ -138,12 +152,6 @@ def create_app() -> FastAPI:
     # Tenant context: extracts X-Tenant-Id, validates tenant active status,
     # enforces cross-tenant rejection. Executes before Auth at runtime.
     app.add_middleware(TenantContextMiddleware)
-
-    # Rate limiting: per-(tenant, principal, route) fixed-window
-    app.add_middleware(RateLimitMiddleware)
-
-    # Idempotency: deduplicates POST/PUT/PATCH by Idempotency-Key header
-    app.add_middleware(IdempotencyMiddleware)
 
     # Outermost: security headers — applied to ALL responses including errors
     app.add_middleware(SecurityHeadersMiddleware)

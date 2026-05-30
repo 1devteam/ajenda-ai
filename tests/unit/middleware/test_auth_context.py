@@ -360,3 +360,26 @@ def test_recovery_path_no_longer_bypasses_auth() -> None:
 
     assert response.status_code == 401
     assert b"missing authentication credentials" in response.body
+
+
+def test_bearer_auth_reuses_app_state_oidc_authenticator() -> None:
+    class _ReusableOidcAuthenticator:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def validate_bearer_token(self, token: str):
+            self.calls += 1
+            return SimpleNamespace(principal=_Principal("tenant-a"))
+
+    reusable = _ReusableOidcAuthenticator()
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"Authorization": "Bearer good-token"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(oidc_authenticator=reusable),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 200
+    assert reusable.calls == 1

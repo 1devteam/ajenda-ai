@@ -35,6 +35,10 @@ class RbacAuthorizer:
                     Permission.RUNTIME_OPERATE,
                     Permission.PROVISION_WORKFORCE,
                     Permission.RUNTIME_VIEW,
+                    Permission.CAPABILITY_MANAGE,
+                    Permission.EVIDENCE_MANAGE,
+                    Permission.OUTCOME_REVIEW_MANAGE,
+                    Permission.RETRIEVAL_MANAGE,
                 }
             ),
             "tenant_admin": frozenset(
@@ -51,6 +55,10 @@ class RbacAuthorizer:
                     Permission.RUNTIME_OPERATE,
                     Permission.PROVISION_WORKFORCE,
                     Permission.RUNTIME_VIEW,
+                    Permission.CAPABILITY_MANAGE,
+                    Permission.EVIDENCE_MANAGE,
+                    Permission.OUTCOME_REVIEW_MANAGE,
+                    Permission.RETRIEVAL_MANAGE,
                 }
             ),
             "operator": frozenset(
