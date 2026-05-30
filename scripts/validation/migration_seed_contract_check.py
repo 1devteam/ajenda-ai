@@ -198,23 +198,47 @@ def _extract_insert_statements(text: str) -> list[InsertSeedStatement]:
         after_columns = _skip_whitespace(text, columns_close + 1)
         if text[after_columns : after_columns + len("VALUES")].upper() == "VALUES":
             values_pos = _skip_whitespace(text, after_columns + len("VALUES"))
-            if values_pos >= len(text) or text[values_pos] != "(":
-                continue
-            values_close = _find_matching_paren(text, values_pos)
-            expressions, offsets = _split_top_level_items(text[values_pos + 1 : values_close], values_pos + 1)
+            for expressions, offsets in _extract_values_rows(text, values_pos):
+                statements.append(
+                    InsertSeedStatement(
+                        table=table,
+                        columns=columns,
+                        expressions=expressions,
+                        expression_offsets=offsets,
+                    )
+                )
         elif text[after_columns : after_columns + len("SELECT")].upper() == "SELECT":
             select_start = after_columns + len("SELECT")
             from_pos = _find_top_level_keyword(text, select_start, "FROM")
             if from_pos == -1:
                 continue
             expressions, offsets = _split_top_level_items(text[select_start:from_pos], select_start)
+            statements.append(
+                InsertSeedStatement(table=table, columns=columns, expressions=expressions, expression_offsets=offsets)
+            )
         else:
             continue
-
-        statements.append(
-            InsertSeedStatement(table=table, columns=columns, expressions=expressions, expression_offsets=offsets)
-        )
     return statements
+
+
+def _extract_values_rows(text: str, start: int) -> list[tuple[list[str], list[int]]]:
+    rows: list[tuple[list[str], list[int]]] = []
+    pos = start
+    while pos < len(text):
+        pos = _skip_whitespace(text, pos)
+        if pos >= len(text) or text[pos] != "(":
+            break
+
+        values_close = _find_matching_paren(text, pos)
+        rows.append(_split_top_level_items(text[pos + 1 : values_close], pos + 1))
+
+        pos = _skip_whitespace(text, values_close + 1)
+        if pos >= len(text) or text[pos] != ",":
+            break
+        pos = _skip_whitespace(text, pos + 1)
+        if pos >= len(text) or text[pos] != "(":
+            break
+    return rows
 
 
 def _json_kind(expression: str) -> JsonKind | None:

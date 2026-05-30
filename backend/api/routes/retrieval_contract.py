@@ -5,11 +5,13 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
+from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.auth.permissions import Permission
 from backend.domain.retrieval_contract import (
     RETRIEVAL_CONTRACT_SCHEMA_VERSION,
     RETRIEVAL_STATUSES,
@@ -229,10 +231,12 @@ def _validate_mission(*, mission_id: UUID, tenant_id: str, db: Session) -> None:
 @router.post("", response_model=RetrievalContractRead, status_code=status.HTTP_201_CREATED)
 def create_retrieval_contract(
     body: RetrievalContractCreate,
+    request: Request,
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> RetrievalContractRead:
     """Persist a retrieval and recall contract without runtime side effects."""
+    require_route_permission(request=request, db=db, permission=Permission.RETRIEVAL_MANAGE, tenant_id=tenant_id)
     tenant_scope = str(tenant_id)
     _validate_mission(mission_id=body.mission_id, tenant_id=tenant_scope, db=db)
     _validate_memory_references_for_mission(
@@ -302,10 +306,12 @@ def read_retrieval_contract(
 def update_retrieval_contract(
     retrieval_id: UUID,
     body: RetrievalContractUpdate,
+    request: Request,
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> RetrievalContractRead:
     """Update mutable retrieval contract status/metadata fields without runtime side effects."""
+    require_route_permission(request=request, db=db, permission=Permission.RETRIEVAL_MANAGE, tenant_id=tenant_id)
     tenant_scope = str(tenant_id)
     repo = RetrievalContractRepository(db)
     retrieval = repo.get_for_tenant(retrieval_id=retrieval_id, tenant_id=tenant_scope)

@@ -16,3 +16,7 @@ class Permission(StrEnum):
     RUNTIME_OPERATE = "runtime:operate"
     PROVISION_WORKFORCE = "workforce:provision"
     RUNTIME_VIEW = "runtime:view"
+    CAPABILITY_MANAGE = "capability:manage"
+    EVIDENCE_MANAGE = "evidence:manage"
+    OUTCOME_REVIEW_MANAGE = "outcome_review:manage"
+    RETRIEVAL_MANAGE = "retrieval:manage"
