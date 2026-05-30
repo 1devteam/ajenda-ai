@@ -107,3 +107,34 @@ def test_nonliteral_contract_seed_requires_explicit_review(tmp_path: Path) -> No
     assert len(issues) == 1
     assert issues[0].field == "supported_task_types"
     assert "expected array JSONB seed literal" in issues[0].message
+
+
+def test_multi_row_values_seed_contracts_validate_every_row(tmp_path: Path) -> None:
+    migration = _write_migration(
+        tmp_path,
+        """
+        INSERT INTO capabilities (
+            name, version, supported_task_types, input_schema_hints,
+            output_schema_hints, required_permissions, required_tools,
+            approval_requirements, evidence_expectations, execution_constraints
+        )
+        VALUES
+            (
+                'good_capability', '1.0.0', '["task"]'::jsonb, '{}'::jsonb,
+                '{}'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                '{}'::jsonb, '["event"]'::jsonb, '{}'::jsonb
+            ),
+            (
+                'bad_capability', '1.0.0', '["task"]'::jsonb, '{}'::jsonb,
+                '{}'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                '{}'::jsonb, '{"required_events": ["x"]}'::jsonb, '{}'::jsonb
+            )
+        """,
+    )
+
+    issues = seed_check.check_migration_file(migration)
+
+    assert len(issues) == 1
+    assert issues[0].table == "capabilities"
+    assert issues[0].field == "evidence_expectations"
+    assert "expected array JSONB seed literal, found object" in issues[0].message

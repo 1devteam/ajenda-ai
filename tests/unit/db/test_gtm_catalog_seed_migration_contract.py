@@ -30,3 +30,13 @@ def test_gtm_catalog_seed_migration_evidence_expectations_match_api_list_contrac
 
     assert '\'["approval_decision", "send_outcome"]\'::jsonb' in migration
     assert '\'["approval_decision", "delivery_outcome"]\'::jsonb' in migration
+
+
+def test_gtm_catalog_seed_migration_approval_requirements_match_validator_contract() -> None:
+    migration = Path("alembic/versions/0021_seed_gtm_capability_catalog.py").read_text(encoding="utf-8")
+
+    assert (
+        '\'{"required": true, "approver_roles": ["operator"], "conditions": ["before outbound send"], "human_approval": true}\'::jsonb'
+        in migration
+    )
+    assert migration.count('"required": true') >= 2
