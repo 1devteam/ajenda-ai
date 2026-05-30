@@ -142,14 +142,14 @@ def create_app() -> FastAPI:
     # Innermost: request context (assigns request_id to every request)
     app.add_middleware(RequestContextMiddleware)
 
-    # Rate limiting: per-(tenant, principal, route) fixed-window.
-    # Runs after tenant/auth/idempotency so cached duplicate retries are replayed first.
-    app.add_middleware(RateLimitMiddleware)
-
     # Idempotency: deduplicates POST/PUT/PATCH by scoped Idempotency-Key header.
     # Runs after tenant/auth context exists so replay keys cannot cross tenants or principals,
     # and before rate limiting so retries do not consume rate-limit budget.
     app.add_middleware(IdempotencyMiddleware)
+
+    # Rate limiting: per-(tenant, principal, route) fixed-window.
+    # Runs after tenant/auth/idempotency so cached duplicate retries are replayed first.
+    app.add_middleware(RateLimitMiddleware)
 
     # Auth context: resolves principal from JWT or API key.
     # Registered before Tenant so that Tenant executes first at runtime.
