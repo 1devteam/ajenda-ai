@@ -1,22 +1,12 @@
-"""Unit tests for IdempotencyMiddleware.
-
-Verifies:
-- First request is passed through and stored
-- Duplicate request is replayed from store
-- Non-UUID keys are rejected with 400
-- GET requests pass through without idempotency logic
-- Idempotency-Replayed header is set correctly
-"""
+"""Unit tests for IdempotencyMiddleware."""
 
 from __future__ import annotations
 
 import uuid
 
 import pytest
-from starlette.applications import Starlette
-from starlette.requests import Request
+from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse
-from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from backend.middleware.idempotency import IdempotencyMiddleware, _store
@@ -27,27 +17,41 @@ _call_count = 0
 def create_resource(request: Request) -> JSONResponse:
     global _call_count
     _call_count += 1
-    return JSONResponse({"created": True, "call": _call_count}, status_code=201)
+    return JSONResponse(
+        {
+            "created": True,
+            "call": _call_count,
+            "tenant_id": getattr(request.state, "tenant_id", None),
+            "principal_id": getattr(getattr(request.state, "principal", None), "subject_id", None),
+        },
+        status_code=201,
+    )
 
 
 def get_resource(request: Request) -> JSONResponse:
     return JSONResponse({"resource": "data"})
 
 
-def make_app() -> Starlette:
-    app = Starlette(
-        routes=[
-            Route("/resources", create_resource, methods=["POST"]),
-            Route("/resources", get_resource, methods=["GET"]),
-        ]
-    )
+def make_app(*, tenant_id: str = "tenant-a", principal_id: str = "user-a") -> FastAPI:
+    app = FastAPI()
+
+    app.post("/resources")(create_resource)
+    app.post("/other-resources")(create_resource)
+    app.get("/resources")(get_resource)
+
     app.add_middleware(IdempotencyMiddleware)
+
+    @app.middleware("http")
+    async def inject_scope(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.tenant_id = tenant_id
+        request.state.principal = type("Principal", (), {"subject_id": principal_id})()
+        return await call_next(request)
+
     return app
 
 
 @pytest.fixture(autouse=True)
 def reset_state():
-    """Reset global call counter and idempotency store between tests."""
     global _call_count
     _call_count = 0
     _store._store.clear()
@@ -75,7 +79,6 @@ class TestIdempotencyMiddleware:
 
         assert first.status_code == 201
         assert second.status_code == 201
-        # The handler should only have been called once
         assert second.json()["call"] == first.json()["call"]
         assert second.headers.get("idempotency-replayed") == "true"
 
@@ -85,14 +88,11 @@ class TestIdempotencyMiddleware:
         assert "Idempotency-Key" in response.json()["detail"]
 
     def test_get_request_passes_through_without_idempotency(self, client: TestClient) -> None:
-        """GET requests must never be subject to idempotency logic."""
         response = client.get("/resources")
         assert response.status_code == 200
-        # No idempotency headers on GET
         assert "idempotency-replayed" not in response.headers
 
     def test_no_key_passes_through(self, client: TestClient) -> None:
-        """Requests without Idempotency-Key are passed through normally."""
         response = client.post("/resources")
         assert response.status_code == 201
         assert "idempotency-replayed" not in response.headers
@@ -102,5 +102,29 @@ class TestIdempotencyMiddleware:
         key2 = str(uuid.uuid4())
         r1 = client.post("/resources", headers={"Idempotency-Key": key1})
         r2 = client.post("/resources", headers={"Idempotency-Key": key2})
-        # Both should hit the handler — different keys, different buckets
         assert r1.json()["call"] != r2.json()["call"]
+
+    def test_same_key_is_scoped_by_tenant_and_principal(self) -> None:
+        key = str(uuid.uuid4())
+        tenant_a = TestClient(make_app(tenant_id="tenant-a", principal_id="user-a"), raise_server_exceptions=False)
+        tenant_b = TestClient(make_app(tenant_id="tenant-b", principal_id="user-a"), raise_server_exceptions=False)
+        user_b = TestClient(make_app(tenant_id="tenant-a", principal_id="user-b"), raise_server_exceptions=False)
+
+        first = tenant_a.post("/resources", headers={"Idempotency-Key": key})
+        second = tenant_b.post("/resources", headers={"Idempotency-Key": key})
+        third = user_b.post("/resources", headers={"Idempotency-Key": key})
+
+        assert first.headers.get("idempotency-replayed") == "false"
+        assert second.headers.get("idempotency-replayed") == "false"
+        assert third.headers.get("idempotency-replayed") == "false"
+        assert second.json()["tenant_id"] == "tenant-b"
+        assert third.json()["principal_id"] == "user-b"
+
+    def test_same_key_is_scoped_by_path(self, client: TestClient) -> None:
+        key = str(uuid.uuid4())
+        first = client.post("/resources", headers={"Idempotency-Key": key})
+        second = client.post("/other-resources", headers={"Idempotency-Key": key})
+
+        assert first.headers.get("idempotency-replayed") == "false"
+        assert second.headers.get("idempotency-replayed") == "false"
+        assert first.json()["call"] != second.json()["call"]

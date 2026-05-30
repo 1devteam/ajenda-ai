@@ -9,8 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
+from backend.api.routes._authorization import require_route_permission
 from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.auth.permissions import Permission
 from backend.domain.outcome_review import OUTCOME_REVIEW_SCHEMA_VERSION, OutcomeReview
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.mission_repository import MissionRepository
@@ -215,6 +217,7 @@ def create_outcome_review(
     db: Session = Depends(get_tenant_db_session),
 ) -> OutcomeReviewRead:
     """Persist an evidence-backed outcome review contract without runtime side effects."""
+    require_route_permission(request=request, db=db, permission=Permission.OUTCOME_REVIEW_MANAGE, tenant_id=tenant_id)
     tenant_scope = str(tenant_id)
     settings = get_settings()
     lifecycle_policy = LifecyclePolicyService(
@@ -294,6 +297,7 @@ def update_outcome_review(
     db: Session = Depends(get_tenant_db_session),
 ) -> OutcomeReviewRead:
     """Update mutable outcome review status/metadata fields without runtime side effects."""
+    require_route_permission(request=request, db=db, permission=Permission.OUTCOME_REVIEW_MANAGE, tenant_id=tenant_id)
     tenant_scope = str(tenant_id)
     repo = OutcomeReviewRepository(db)
     review = repo.get_for_tenant(review_id=review_id, tenant_id=tenant_scope)

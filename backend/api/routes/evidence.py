@@ -9,8 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
+from backend.api.routes._authorization import require_route_permission
 from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.auth.permissions import Permission
 from backend.domain.evidence import EVIDENCE_CONTRACT_SCHEMA_VERSION, EvidenceRecord
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
 from backend.repositories.capability_repository import CapabilityRepository
@@ -207,6 +209,7 @@ def create_evidence(
     db: Session = Depends(get_tenant_db_session),
 ) -> EvidenceRead:
     """Persist a proof/provenance evidence contract without runtime side effects."""
+    require_route_permission(request=request, db=db, permission=Permission.EVIDENCE_MANAGE, tenant_id=tenant_id)
     tenant_scope = str(tenant_id)
     settings = get_settings()
     lifecycle_policy = LifecyclePolicyService(
@@ -286,6 +289,7 @@ def update_evidence(
     db: Session = Depends(get_tenant_db_session),
 ) -> EvidenceRead:
     """Update mutable evidence status/metadata fields without runtime side effects."""
+    require_route_permission(request=request, db=db, permission=Permission.EVIDENCE_MANAGE, tenant_id=tenant_id)
     repo = EvidenceRepository(db)
     evidence = repo.get_for_tenant(evidence_id=evidence_id, tenant_id=str(tenant_id))
     if evidence is None:

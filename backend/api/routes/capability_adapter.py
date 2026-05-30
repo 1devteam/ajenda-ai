@@ -9,7 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
+from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.auth.permissions import Permission
 from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CAPABILITY_ADAPTER_SCHEMA_VERSION, CapabilityAdapter
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
@@ -303,6 +305,7 @@ def create_capability_adapter(
     db: Session = Depends(get_tenant_db_session),
 ) -> CapabilityAdapterRead:
     """Persist a declarative capability adapter contract without runtime effects."""
+    require_route_permission(request=request, db=db, permission=Permission.CAPABILITY_MANAGE, tenant_id=tenant_id)
     if body.scope == "global":
         raise HTTPException(status_code=403, detail="global capability adapters are read-only from tenant routes")
 
@@ -391,6 +394,7 @@ def update_capability_adapter(
     db: Session = Depends(get_tenant_db_session),
 ) -> CapabilityAdapterRead:
     """Update a tenant-owned capability adapter contract without runtime side effects."""
+    require_route_permission(request=request, db=db, permission=Permission.CAPABILITY_MANAGE, tenant_id=tenant_id)
     tenant_scope = str(tenant_id)
     adapter_repo = CapabilityAdapterRepository(db)
     adapter = adapter_repo.get_visible_for_tenant(adapter_id=adapter_id, tenant_id=tenant_scope)

@@ -232,12 +232,14 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         call_next: Callable[[Request], Awaitable[Response]],
         token: str,
     ) -> Response:
-        settings = request.app.state.settings
-        oidc = OidcAuthenticator(
-            jwks_uri=settings.oidc_jwks_uri,
-            issuer=settings.oidc_issuer,
-            audience=settings.oidc_audience,
-        )
+        oidc = getattr(request.app.state, "oidc_authenticator", None)
+        if oidc is None:
+            settings = request.app.state.settings
+            oidc = OidcAuthenticator(
+                jwks_uri=settings.oidc_jwks_uri,
+                issuer=settings.oidc_issuer,
+                audience=settings.oidc_audience,
+            )
         try:
             result = oidc.validate_bearer_token(token)
         except JwtValidationError as exc:

@@ -8,6 +8,8 @@ Design:
 - Storage backend: in-process LRU cache with TTL (suitable for single-instance
   dev/staging). For multi-instance production, swap _IdempotencyStore for a
   Redis-backed implementation — the interface is the same.
+- Cache keys are scoped by tenant, principal, method, and path so one tenant or
+  principal cannot replay another caller's response with the same raw key.
 - TTL: 24 hours (86400 seconds). Duplicate requests after TTL are treated as new.
 - Key format: UUID v4 string. Non-UUID keys are rejected with HTTP 400.
 - Only applies to POST, PUT, PATCH methods. GET/DELETE/HEAD pass through.
@@ -39,6 +41,7 @@ _IDEMPOTENCY_HEADER = "idempotency-key"
 _IDEMPOTENCY_TTL_SECONDS = 86_400  # 24 hours
 _MAX_STORE_SIZE = 10_000  # evict oldest when exceeded
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH"})
+_ANONYMOUS_SCOPE_VALUE = "anonymous"
 
 
 @dataclass
@@ -84,6 +87,22 @@ class _InProcessIdempotencyStore:
 _store = _InProcessIdempotencyStore()
 
 
+def _state_value(scope: Scope, name: str) -> Any:
+    state = scope.get("state")
+    if isinstance(state, dict):
+        return state.get(name)
+    return None
+
+
+def _build_scoped_cache_key(*, scope: Scope, raw_key: str) -> str:
+    tenant_id = _state_value(scope, "tenant_id") or _ANONYMOUS_SCOPE_VALUE
+    principal = _state_value(scope, "principal")
+    principal_id = getattr(principal, "subject_id", None) or _ANONYMOUS_SCOPE_VALUE
+    method = str(scope.get("method", "")).upper()
+    path = str(scope.get("path", ""))
+    return "|".join((str(tenant_id), str(principal_id), method, path, raw_key))
+
+
 def _is_valid_uuid(value: str) -> bool:
     try:
         uuid.UUID(value)
@@ -107,7 +126,8 @@ class IdempotencyMiddleware:
 
     If the Idempotency-Key header is present but not a valid UUID, returns HTTP 400.
     If the Idempotency-Key header is absent on a mutating endpoint, the request
-    passes through normally (idempotency is opt-in, not required).
+    passes through normally (idempotency is opt-in, not required). Cached entries
+    are scoped by tenant, principal, method, and path to preserve tenant isolation.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -132,9 +152,9 @@ class IdempotencyMiddleware:
             await self._app(scope, receive, send)
             return
 
-        key = raw_key.decode("utf-8", errors="replace").strip()
+        raw_idempotency_key = raw_key.decode("utf-8", errors="replace").strip()
 
-        if not _is_valid_uuid(key):
+        if not _is_valid_uuid(raw_idempotency_key):
             # Malformed key — reject immediately
             error_body = b'{"detail":"Idempotency-Key must be a valid UUID v4."}'
             await send(
@@ -150,8 +170,10 @@ class IdempotencyMiddleware:
             await send({"type": "http.response.body", "body": error_body, "more_body": False})
             return
 
+        scoped_key = _build_scoped_cache_key(scope=scope, raw_key=raw_idempotency_key)
+
         # Check store for existing response
-        cached = _store.get(key)
+        cached = _store.get(scoped_key)
         if cached is not None:
             # Replay the stored response
             replay_headers = [*cached.headers, (b"idempotency-replayed", b"true")]
@@ -185,7 +207,7 @@ class IdempotencyMiddleware:
                 if not message.get("more_body", False):
                     # Response complete — store it
                     _store.set(
-                        key,
+                        scoped_key,
                         _StoredResponse(
                             status_code=captured_status,
                             headers=captured_headers,
