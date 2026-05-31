@@ -10,6 +10,8 @@ Design:
   Redis-backed implementation — the interface is the same.
 - Cache keys are scoped by tenant, principal, method, and path so one tenant or
   principal cannot replay another caller's response with the same raw key.
+- Rate-limit denials are not cached so callers are re-evaluated after Retry-After
+  or window reset instead of replaying a stale 429 for the idempotency TTL.
 - TTL: 24 hours (86400 seconds). Duplicate requests after TTL are treated as new.
 - Key format: UUID v4 string. Non-UUID keys are rejected with HTTP 400.
 - Only applies to POST, PUT, PATCH methods. GET/DELETE/HEAD pass through.
@@ -42,6 +44,7 @@ _IDEMPOTENCY_TTL_SECONDS = 86_400  # 24 hours
 _MAX_STORE_SIZE = 10_000  # evict oldest when exceeded
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH"})
 _ANONYMOUS_SCOPE_VALUE = "anonymous"
+_UNCACHEABLE_STATUS_CODES = frozenset({429})
 
 
 @dataclass
@@ -111,6 +114,10 @@ def _is_valid_uuid(value: str) -> bool:
         return False
 
 
+def _should_store_response(status_code: int) -> bool:
+    return status_code not in _UNCACHEABLE_STATUS_CODES
+
+
 class IdempotencyMiddleware:
     """Raw ASGI middleware providing idempotency for mutating endpoints.
 
@@ -128,6 +135,8 @@ class IdempotencyMiddleware:
     If the Idempotency-Key header is absent on a mutating endpoint, the request
     passes through normally (idempotency is opt-in, not required). Cached entries
     are scoped by tenant, principal, method, and path to preserve tenant isolation.
+    Rate-limit denials are deliberately excluded from the cache so retries can be
+    evaluated against the current limiter window.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -204,8 +213,8 @@ class IdempotencyMiddleware:
                 body_chunk = message.get("body", b"")
                 captured_body_parts.append(body_chunk)
                 await send(message)
-                if not message.get("more_body", False):
-                    # Response complete — store it
+                if not message.get("more_body", False) and _should_store_response(captured_status):
+                    # Response complete — store cacheable responses only.
                     _store.set(
                         scoped_key,
                         _StoredResponse(

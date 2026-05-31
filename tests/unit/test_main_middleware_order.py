@@ -9,14 +9,14 @@ from backend.middleware.security_headers import SecurityHeadersMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
 
 
-def test_middleware_registration_preserves_tenant_auth_before_rate_limit_and_idempotency() -> None:
+def test_middleware_registration_preserves_tenant_auth_and_idempotency_before_rate_limit() -> None:
     app = create_app()
 
     assert [entry.cls for entry in app.user_middleware] == [
         SecurityHeadersMiddleware,
         TenantContextMiddleware,
         AuthContextMiddleware,
-        RateLimitMiddleware,
         IdempotencyMiddleware,
+        RateLimitMiddleware,
         RequestContextMiddleware,
     ]

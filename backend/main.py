@@ -13,8 +13,8 @@ Middleware stack (outermost to innermost — applied in reverse registration ord
   1. SecurityHeadersMiddleware  — injects HSTS, CSP, X-Frame-Options, etc.
   2. TenantContextMiddleware    — extracts and validates X-Tenant-Id header
   3. AuthContextMiddleware      — resolves principal from JWT or API key, sets request.state
-  4. RateLimitMiddleware        — per-(tenant, principal, route) fixed-window rate limiting
-  5. IdempotencyMiddleware      — deduplicates mutating requests by scoped Idempotency-Key header
+  4. IdempotencyMiddleware      — replays scoped duplicate mutating requests before rate limiting
+  5. RateLimitMiddleware        — per-(tenant, principal, route) fixed-window rate limiting
   6. RequestContextMiddleware   — assigns a unique request_id to every request
 
 Note on middleware ordering: FastAPI/Starlette applies middleware in reverse
@@ -123,7 +123,7 @@ def create_app() -> FastAPI:
     # The LAST middleware added here becomes the OUTERMOST wrapper.
     #
     # Execution order (outermost → innermost):
-    #   SecurityHeaders → Tenant → Auth → RateLimit → Idempotency → RequestContext → route
+    #   SecurityHeaders → Tenant → Auth → Idempotency → RateLimit → RequestContext → route
     #
     # Tenant MUST execute before Auth because:
     #   - AuthContextMiddleware reads request.state.tenant_id (set by TenantContextMiddleware)
@@ -131,19 +131,25 @@ def create_app() -> FastAPI:
     #   - Without tenant_id, API key auth falls back to a tenant-agnostic lookup,
     #     which is incorrect and a potential cross-tenant information leak.
     #
-    # Auth MUST execute before RateLimit because:
+    # Auth MUST execute before Idempotency and RateLimit because:
+    #   - IdempotencyMiddleware scopes replay keys with request.state.principal.
     #   - RateLimitMiddleware uses request.state.principal for per-principal bucketing.
+    #
+    # Idempotency MUST execute before RateLimit after tenant/auth context exists because:
+    #   - Duplicate retries with a cached scoped key must replay without consuming or failing
+    #     a fresh rate-limit decision.
 
     # Innermost: request context (assigns request_id to every request)
     app.add_middleware(RequestContextMiddleware)
 
-    # Idempotency: deduplicates POST/PUT/PATCH by scoped Idempotency-Key header.
-    # Runs after tenant/auth context exists so replay keys cannot cross tenants or principals.
-    app.add_middleware(IdempotencyMiddleware)
-
     # Rate limiting: per-(tenant, principal, route) fixed-window.
-    # Runs after tenant/auth context exists so buckets are tenant/principal scoped.
+    # Registered before Idempotency so Idempotency executes before RateLimit at runtime.
     app.add_middleware(RateLimitMiddleware)
+
+    # Idempotency: deduplicates POST/PUT/PATCH by scoped Idempotency-Key header.
+    # Runs after tenant/auth context exists so replay keys cannot cross tenants or principals,
+    # and before rate limiting so retries do not consume rate-limit budget.
+    app.add_middleware(IdempotencyMiddleware)
 
     # Auth context: resolves principal from JWT or API key.
     # Registered before Tenant so that Tenant executes first at runtime.
