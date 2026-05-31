@@ -111,6 +111,20 @@ class TestIdempotencyMiddleware:
         assert replay.json()["call"] == first.json()["call"]
         assert new_request.status_code == 429
 
+    def test_429_response_is_not_replayed_from_idempotency_cache(self) -> None:
+        key = str(uuid.uuid4())
+        client = TestClient(make_app(rate_limit_max_requests=1), raise_server_exceptions=False)
+
+        allowed = client.post("/resources", headers={"Idempotency-Key": str(uuid.uuid4())})
+        limited_once = client.post("/resources", headers={"Idempotency-Key": key})
+        limited_twice = client.post("/resources", headers={"Idempotency-Key": key})
+
+        assert allowed.status_code == 201
+        assert limited_once.status_code == 429
+        assert limited_once.headers.get("idempotency-replayed") == "false"
+        assert limited_twice.status_code == 429
+        assert limited_twice.headers.get("idempotency-replayed") == "false"
+
     def test_invalid_key_returns_400(self, client: TestClient) -> None:
         response = client.post("/resources", headers={"Idempotency-Key": "not-a-uuid"})
         assert response.status_code == 400
