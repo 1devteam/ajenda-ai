@@ -212,13 +212,33 @@ authority_entries:
       - tests/unit/api/test_runtime_dispatch_readiness_contract.py
       - tests/unit/api/test_worker_dispatch_eligibility_contract.py
 
-  - id: runtime_task_materialization_contract
+  - id: runtime_task_materialization_readback_contract
+    area: runtime task materialization readback
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/repositories/execution_task_repository.py
+    route_scope:
+      - GET /v1/missions/{mission_id}/runtime-task-materialization
+    authority_class: read_model
+    side_effect_class: tenant_scoped_materialization_readback
+    allowed_side_effects:
+      - read current materialization receipts and planned task metadata
+    forbidden_side_effects:
+      - create execution task rows
+      - enqueue queue payloads
+      - dispatch workers
+      - execute handlers/adapters
+    required_proofs:
+      - tests/contract/api/test_task_queue_contract.py
+      - tests/unit/services/test_mission_runtime_projection.py
+
+  - id: runtime_task_materialization_mutation_contract
     area: runtime task materialization bridge
     source_of_truth:
       - backend/api/routes/mission.py
       - backend/repositories/execution_task_repository.py
     route_scope:
-      - /v1/missions/{mission_id}/runtime-task-materialization
+      - POST /v1/missions/{mission_id}/runtime-task-materialization
     authority_class: governed_mutation
     side_effect_class: tenant_scoped_planned_task_creation
     allowed_side_effects:
@@ -232,35 +252,120 @@ authority_entries:
       - tests/contract/api/test_task_queue_contract.py
       - tests/unit/services/test_mission_runtime_projection.py
 
-  - id: worker_claim_start_admission_contracts
-    area: worker claim/start admissions
+  - id: worker_claim_admission_readback_contract
+    area: worker claim admission readback
     source_of_truth:
       - backend/api/routes/mission.py
       - backend/services/worker_runtime_service.py
     route_scope:
-      - /v1/missions/{mission_id}/worker-claim-admission
-      - /v1/missions/{mission_id}/worker-start-admission
+      - GET /v1/missions/{mission_id}/worker-claim-admission
+    authority_class: read_model
+    side_effect_class: tenant_scoped_worker_claim_readback
+    allowed_side_effects:
+      - read current worker claim admission metadata and receipts
+    forbidden_side_effects:
+      - create worker leases
+      - claim tasks
+      - start execution
+      - dispatch workers
+      - execute handlers/adapters
+    required_proofs:
+      - tests/unit/api/test_worker_claim_admission_contract.py
+      - tests/unit/services/test_worker_runtime_service_transaction_contract.py
+
+  - id: worker_claim_admission_mutation_contract
+    area: worker claim admission
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/services/worker_runtime_service.py
+    route_scope:
+      - POST /v1/missions/{mission_id}/worker-claim-admission
     authority_class: governed_mutation
     side_effect_class: tenant_scoped_task_state_transition
     allowed_side_effects:
-      - perform bounded queued->claimed and claimed->running transitions
+      - perform bounded queued->claimed transitions
       - establish and validate worker lease ownership contract
     forbidden_side_effects:
-      - run task dispatcher for arbitrary non-admitted tasks
+      - start execution
+      - dispatch workers
+      - execute handlers/adapters
       - bypass lease ownership checks
     required_proofs:
       - tests/unit/api/test_worker_claim_admission_contract.py
+      - tests/unit/services/test_worker_runtime_service_transaction_contract.py
+
+  - id: worker_start_admission_readback_contract
+    area: worker start admission readback
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/services/worker_runtime_service.py
+    route_scope:
+      - GET /v1/missions/{mission_id}/worker-start-admission
+    authority_class: read_model
+    side_effect_class: tenant_scoped_worker_start_readback
+    allowed_side_effects:
+      - read current worker start admission metadata and receipts
+    forbidden_side_effects:
+      - create worker leases
+      - claim tasks
+      - start execution
+      - dispatch workers
+      - execute handlers/adapters
+    required_proofs:
       - tests/unit/api/test_worker_start_admission_contract.py
       - tests/unit/services/test_worker_runtime_service_transaction_contract.py
 
-  - id: worker_run_admission_contract
+  - id: worker_start_admission_mutation_contract
+    area: worker start admission
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/services/worker_runtime_service.py
+    route_scope:
+      - POST /v1/missions/{mission_id}/worker-start-admission
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_task_state_transition
+    allowed_side_effects:
+      - perform bounded claimed->running transitions
+      - activate and heartbeat validated worker leases
+    forbidden_side_effects:
+      - dispatch workers
+      - execute handlers/adapters
+      - enqueue work
+      - bypass lease ownership checks
+    required_proofs:
+      - tests/unit/api/test_worker_start_admission_contract.py
+      - tests/unit/services/test_worker_runtime_service_transaction_contract.py
+
+  - id: worker_run_admission_readback_contract
+    area: worker run admission readback
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/workers/task_dispatcher.py
+      - backend/workers/worker_loop.py
+    route_scope:
+      - GET /v1/missions/{mission_id}/worker-run-admission
+    authority_class: read_model
+    side_effect_class: tenant_scoped_worker_run_readback
+    allowed_side_effects:
+      - read current worker run admission metadata, queue-claim receipts, and run receipts
+    forbidden_side_effects:
+      - invoke dispatcher
+      - claim queue payloads
+      - complete/fail/dead-letter tasks
+      - mutate runtime state
+    required_proofs:
+      - tests/unit/api/test_worker_run_admission_contract.py
+      - tests/integration/runtime/test_worker_loop_dispatcher_compensation_real.py
+      - tests/contract/workers/test_real_worker_loop.py
+
+  - id: worker_run_admission_mutation_contract
     area: worker run admission
     source_of_truth:
       - backend/api/routes/mission.py
       - backend/workers/task_dispatcher.py
       - backend/workers/worker_loop.py
     route_scope:
-      - /v1/missions/{mission_id}/worker-run-admission
+      - POST /v1/missions/{mission_id}/worker-run-admission
     authority_class: runtime_authoritative
     side_effect_class: tenant_scoped_runtime_dispatch
     allowed_side_effects:
