@@ -70,7 +70,7 @@ authority_entries:
   - id: mission_read_contract
     area: mission read
     source_of_truth: [backend/api/routes/mission.py]
-    route_scope: [GET /v1/missions/{mission_id}/worker-run-admission]
+    route_scope: ["GET /v1/missions/{mission_id}/worker-run-admission"]
     authority_class: read_model
     side_effect_class: read_only
     allowed_side_effects: [read]
@@ -79,7 +79,7 @@ authority_entries:
   - id: mission_mutation_contract
     area: mission mutation
     source_of_truth: [backend/api/routes/mission.py]
-    route_scope: [POST /v1/missions/{mission_id}/worker-run-admission]
+    route_scope: ["POST /v1/missions/{mission_id}/worker-run-admission"]
     authority_class: runtime_authoritative
     side_effect_class: dispatch
     allowed_side_effects: [dispatch]
