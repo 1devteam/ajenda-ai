@@ -15,6 +15,8 @@ EXPECTED_AUTHORITY_CLASSES = {
     "runtime_authoritative",
 }
 
+RUNTIME_QUEUE_ADMISSION_ROUTE = "POST /v1/missions/{mission_id}/runtime-queue-admission"
+
 MIXED_METHOD_ADMISSION_PATHS = {
     "/v1/missions/{mission_id}/runtime-task-materialization": {
         "GET": "read_model",
@@ -89,6 +91,14 @@ def test_authority_ledger_only_uses_supported_authority_classes() -> None:
     }
     assert classes_in_ledger
     assert classes_in_ledger.issubset(EXPECTED_AUTHORITY_CLASSES)
+
+
+def test_runtime_queue_admission_route_is_first_class_runtime_authority() -> None:
+    block = _block_for_route_scope(RUNTIME_QUEUE_ADMISSION_ROUTE)
+
+    assert "authority_class: runtime_authoritative" in block
+    assert "side_effect_class: tenant_scoped_queue_admission_mutation" in block
+    assert "tests/contract/api/test_mission_queue_contract.py" in block
 
 
 def test_mixed_method_admission_routes_are_method_specific() -> None:

@@ -252,6 +252,28 @@ authority_entries:
       - tests/contract/api/test_task_queue_contract.py
       - tests/unit/services/test_mission_runtime_projection.py
 
+  - id: runtime_queue_admission_contract
+    area: runtime queue admission bridge
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/services/execution_coordinator.py
+      - backend/repositories/execution_task_repository.py
+    route_scope:
+      - POST /v1/missions/{mission_id}/runtime-queue-admission
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_queue_admission_mutation
+    allowed_side_effects:
+      - enqueue current tenant/mission-owned planned materialized tasks through ExecutionCoordinator
+      - persist runtime queue admission receipts and blockers on mission metadata
+      - classify already queued materialized tasks as admitted without requeueing
+    forbidden_side_effects:
+      - create execution task rows
+      - dispatch workers or invoke task dispatcher handlers/adapters
+      - mutate worker leases or bypass current materialization, quota, tenant, or policy checks
+    required_proofs:
+      - tests/contract/api/test_mission_queue_contract.py
+      - tests/contract/api/test_task_queue_contract.py
+
   - id: worker_claim_admission_readback_contract
     area: worker claim admission readback
     source_of_truth:
