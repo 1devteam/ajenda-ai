@@ -15,6 +15,25 @@ EXPECTED_AUTHORITY_CLASSES = {
     "runtime_authoritative",
 }
 
+MIXED_METHOD_ADMISSION_PATHS = {
+    "/v1/missions/{mission_id}/runtime-task-materialization": {
+        "GET": "read_model",
+        "POST": "governed_mutation",
+    },
+    "/v1/missions/{mission_id}/worker-claim-admission": {
+        "GET": "read_model",
+        "POST": "governed_mutation",
+    },
+    "/v1/missions/{mission_id}/worker-start-admission": {
+        "GET": "read_model",
+        "POST": "governed_mutation",
+    },
+    "/v1/missions/{mission_id}/worker-run-admission": {
+        "GET": "read_model",
+        "POST": "runtime_authoritative",
+    },
+}
+
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -27,6 +46,12 @@ def _ledger_blocks() -> list[str]:
     # malformed entries could evade required-field validation.
     parts = content.split("\n  - id: ")
     return [f"id: {block}" for block in parts[1:] if block.strip()]
+
+
+def _block_for_route_scope(route_scope: str) -> str:
+    matching_blocks = [block for block in _ledger_blocks() if f"- {route_scope}" in block]
+    assert len(matching_blocks) == 1, f"Expected exactly one ledger entry for route scope: {route_scope}"
+    return matching_blocks[0]
 
 
 def test_authority_ledger_is_present_and_referenced_in_readme() -> None:
@@ -64,3 +89,19 @@ def test_authority_ledger_only_uses_supported_authority_classes() -> None:
     }
     assert classes_in_ledger
     assert classes_in_ledger.issubset(EXPECTED_AUTHORITY_CLASSES)
+
+
+def test_mixed_method_admission_routes_are_method_specific() -> None:
+    content = _read(LEDGER)
+
+    for path, methods in MIXED_METHOD_ADMISSION_PATHS.items():
+        assert f"- {path}" not in content, f"Ledger must classify mixed-method route by HTTP method: {path}"
+        for method in methods:
+            assert f"- {method} {path}" in content
+
+
+def test_mixed_method_admission_routes_use_expected_authority_classes() -> None:
+    for path, methods in MIXED_METHOD_ADMISSION_PATHS.items():
+        for method, expected_authority_class in methods.items():
+            block = _block_for_route_scope(f"{method} {path}")
+            assert f"authority_class: {expected_authority_class}" in block
