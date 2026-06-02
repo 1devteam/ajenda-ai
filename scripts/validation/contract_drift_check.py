@@ -24,6 +24,15 @@ SUPPORTED_AUTHORITY_CLASSES = {
     "governed_mutation",
     "runtime_authoritative",
 }
+SUPPORTED_ROUTE_METHODS = {
+    "DELETE",
+    "GET",
+    "HEAD",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+}
 
 ROUTE_FAMILY_RE = re.compile(r"^\s*- `/v1/([^`*]+)/\*`\s*$")
 LAST_REVIEWED_RE = re.compile(r"\*\*Last reviewed:\*\*\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})")
@@ -72,11 +81,19 @@ def _parse_readme_route_families(readme_text: str) -> set[str]:
     return {m.group(1) for line in readme_text.splitlines() if (m := ROUTE_FAMILY_RE.match(line))}
 
 
+def _normalize_route_scope(scope: str) -> str:
+    parts = scope.strip().split(maxsplit=1)
+    if len(parts) == 2 and parts[0].upper() in SUPPORTED_ROUTE_METHODS:
+        return parts[1].strip()
+    return scope.strip()
+
+
 def _route_family_from_path(path: str) -> str | None:
-    if path.startswith("/v1/"):
-        candidate = path.split("/v1/", maxsplit=1)[1]
-    elif path.startswith("/"):
-        candidate = path.lstrip("/")
+    normalized = _normalize_route_scope(path)
+    if normalized.startswith("/v1/"):
+        candidate = normalized.split("/v1/", maxsplit=1)[1]
+    elif normalized.startswith("/"):
+        candidate = normalized.lstrip("/")
     else:
         return None
     family = candidate.split("/", maxsplit=1)[0]
@@ -84,7 +101,12 @@ def _route_family_from_path(path: str) -> str | None:
 
 
 def _route_families_from_scopes(scopes: set[str]) -> set[str]:
-    return {family for scope in scopes if (family := _route_family_from_path(scope)) and scope.startswith("/v1/")}
+    families: set[str] = set()
+    for scope in scopes:
+        normalized = _normalize_route_scope(scope)
+        if normalized.startswith("/v1/") and (family := _route_family_from_path(normalized)):
+            families.add(family)
+    return families
 
 
 def _parse_last_reviewed(text: str) -> dt.date | None:
