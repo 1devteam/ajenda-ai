@@ -397,11 +397,27 @@ First-class in this block:
 - timestamps for materialization and updates;
 - graph reference version/fingerprint so consumers can detect stale materialization metadata.
 
-Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may mark a mission task graph as materialized for planning continuity, but it does not create `ExecutionTask` rows, enqueue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, mutate worker leases, or enforce runtime capability routing. Runtime execution remains behind the explicit runtime admission and task materialization bridges.
+Planner-to-graph materialization remains a contract layer only. Persisting materialization metadata may validate mission ownership, the existence of a task graph, and referenced capability visibility, but it does not create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, register worker handlers, execute capabilities, dispatch workers, or materialize runtime queue entries. Task graph replacement increments the graph version, changes the graph fingerprint, and supersedes any existing materialization metadata so approved/validated materialization cannot silently point at an older graph. Runtime execution/materialization remain future layers above the governed runtime foundation.
 
-## Runtime Admission Readiness V1 Contracts
+## Graph-to-Runtime Admission V1 Contracts
 
-The read-only runtime admission readiness gate is exposed at `GET /v1/missions/{mission_id}/runtime-readiness`. It evaluates the current mission task graph and graph materialization metadata for a tenant-owned mission and returns deterministic readiness status, blockers, warnings, admitted node keys, fingerprint/materialization references, and version markers. It does not create execution tasks, queue work, dispatch workers, execute nodes, call `MissionExecutor`, call `ExecutionCoordinator`, mutate leases, or invoke capability adapters. The response is read-only and intentionally separates product-layer graph readiness from runtime authority.
+Graph-to-runtime admission contracts now define a governed bridge from a materialized mission task graph toward future runtime task creation. `POST /v1/missions/{mission_id}/runtime-admission` creates or updates admission metadata, and `GET /v1/missions/{mission_id}/runtime-admission` reads it back through the same tenant-scoped mission repository boundary. The contract is persisted additively in `Mission.metadata_json["runtime_admission"]` with `schema_version = 1`.
+
+First-class in this block:
+
+- admitted mission graph reference, graph version, and graph fingerprint;
+- materialization reference and materialization version used for admission;
+- selected graph node keys;
+- runtime task type each selected node would map to later;
+- capability and optional adapter references involved in each selected node;
+- operator/system identity that approved admission;
+- admission status, validation result, validation gaps, and timestamps;
+- explicit `execution_task_records` metadata, currently empty because this block does not create runtime tasks;
+- runtime-authority flags documenting that admission does not queue work, dispatch workers, or bypass explicit queue admission.
+
+Graph-to-runtime admission remains a product-layer bridge only. Persisting admission metadata validates tenant ownership, task graph presence, materialization presence, non-superseded materialization state, materialization graph version/fingerprint alignment, selected node existence, duplicate selected node rejection, runtime task type availability, capability visibility, adapter visibility, and rejected outcome-review blockers where represented. It does not create `ExecutionTask` rows, enqueue work, call `MissionExecutor`, call `ExecutionCoordinator`, register handlers, execute adapters, dispatch workers, alter worker leases, or change recovery behavior.
+
+The read-only runtime admission readiness gate is exposed at `GET /v1/missions/{mission_id}/runtime-readiness`. It evaluates whether the currently admitted mission graph is eligible for future runtime task materialization by re-checking current task graph, materialization, admission, selected-node, capability, adapter, and outcome-review state through tenant-scoped read paths. The readiness gate returns structured checks, blockers, and warnings; it does not write mission metadata, create tasks, queue work, call runtime coordinators, execute graph nodes, or dispatch workers. Live runtime graph execution remains future work above the governed queue-backed runtime foundation.
 
 The runtime task materialization preview is exposed at `GET /v1/missions/{mission_id}/runtime-task-preview`. It reuses the readiness gate and, when the admitted graph is ready, returns deterministic preview rows for the selected graph nodes in admission order. Each preview row shows the future runtime task type, pending task state, graph node reference, capability/adapter references, materialization selection reference, dependency keys from task graph edges, and a safe payload envelope preview. The preview is read-only and pre-materialization only: it does not persist payloads, create `ExecutionTask` rows, enqueue work, call executors or coordinators, execute graph nodes, dispatch workers, or grant scheduler/runtime authority.
 
@@ -411,8 +427,137 @@ Runtime queue admission is exposed at `POST /v1/missions/{mission_id}/runtime-qu
 
 Runtime dispatch readiness is exposed at `GET /v1/missions/{mission_id}/runtime-dispatch-readiness`. It is a tenant-scoped, read-only bridge contract over the current `runtime_task_materialization` and `runtime_queue_admission` metadata. The response verifies that current materialized task IDs are tenant/mission-owned queued `ExecutionTask` rows with explicit non-empty dispatcher `task_type` metadata, classifies planned, cancelled, running, completed, failed, dead-lettered, missing, and foreign rows, and returns ready/partial/blocked status with blockers and warnings. It does not create execution tasks, enqueue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, inspect adapter code, execute adapters, or mutate mission/task state.
 
-Worker dispatch eligibility is exposed at `GET /v1/missions/{mission_id}/worker-dispatch-eligibility`. It is a tenant-scoped read-only bridge contract over current runtime dispatch readiness metadata and returns queued task candidates with deterministic worker identity, lease token, dispatcher task type, queue task id, and warnings for tasks that require operator/policy review before runtime claim/start/run admission. It does not claim tasks, create leases, start execution, enqueue work, dispatch workers, inspect adapter code, execute adapters, or mutate mission/task/lease state.
+Worker dispatch eligibility is exposed at `GET /v1/missions/{mission_id}/worker-dispatch-eligibility`, and worker claim preview is exposed at `GET /v1/missions/{mission_id}/worker-claim-preview`. Both endpoints are tenant-scoped and read-only. Eligibility determines which current materialized, queue-admitted, dispatch-ready, queued tasks with explicit `task_type` metadata are eligible for a future worker claim. Claim preview returns the deterministic future worker handoff envelope for each eligible task, including queued-to-claimed expectations, lease scope, runtime contract requirements, source references, and task metadata summaries. These contracts do not claim leases, start execution, dispatch workers, execute handlers or adapters, enqueue work, mutate mission metadata, mutate task state, or alter queue backend state.
 
-Worker claim preview is exposed at `GET /v1/missions/{mission_id}/worker-claim-preview`. It is a tenant-scoped read-only admission preview over current dispatch-eligible tasks. It derives deterministic lease candidates from queued execution tasks, existing active worker leases, queue task ids, graph node references, and mission/current admission references. It classifies candidates as claimable, already claimed, missing queue task id, review blocked, or state blocked; returns deterministic claim keys, worker ids, lease tokens, lease durations, and blockers; and persists nothing. It does not create leases, claim tasks, start execution, enqueue work, dispatch workers, run handlers/adapters, mutate mission/task/lease state, or bypass worker lease ownership.
+Worker claim admission is exposed at `POST /v1/missions/{mission_id}/worker-claim-admission` with readback at `GET /v1/missions/{mission_id}/worker-claim-admission`. It is the first controlled mutation after worker claim preview: the POST endpoint reuses the current preview/eligibility proof, claims only eligible queued current materialized tasks with explicit `task_type` metadata through the canonical queued-to-claimed state path, establishes WorkerLease-backed claim ownership, and records deterministic claim receipts in `Mission.metadata_json["worker_claim_admission"]`. The contract stops at claim admission. It does not start execution, dispatch workers, execute handlers or adapters, enqueue work, call the task dispatcher, complete/fail tasks, or perform graph orchestration; worker loop execution remains future work above this governed bridge.
 
-Worker claim admission is exposed at `POST /v1/missions/{mission_id}/worker-claim-admission` and `GET /v1/missions/{mission_id}/worker-claim-admission`. The POST endpoint is an explicit tenant-scoped worker-runtime bridge over the current worker claim preview. It establishes worker lease ownership for claimable queued tasks through `WorkerRuntimeService.claim_next_task`, performs bounded queued-to-claimed state transitions, records admitted/blocked/failed lease rows in `Mission.metadata_json["worker_claim_admission"]`, and is idempotent for current preview references. The GET endpoint reads the latest admission metadata without creating leases, claiming tasks, starting execution, dispatching workers, running handlers/adapters, or mutating runtime state.
+Worker execution start admission is exposed at `POST /v1/missions/{mission_id}/worker-start-admission` with readback at `GET /v1/missions/{mission_id}/worker-start-admission`. It is the second controlled mutation after worker claim preview and worker claim admission: the POST endpoint consumes only durable `worker_claim_admission.claimed_task_ids` and claim receipts, validates tenant/mission ownership plus current WorkerLease holder/scope/status, starts only claim-admitted tasks that remain in `claimed` state with explicit `task_type` metadata, and records deterministic start receipts in `Mission.metadata_json["worker_start_admission"]`. The contract performs the governed claimed-to-running transition and lease activation/heartbeat update, then stops. It does not dispatch workers, execute handlers or adapters, enqueue work, call the task dispatcher, complete/fail tasks, or perform graph orchestration; full worker-loop execution remains future work above this bridge.
+
+Worker run admission is exposed at `POST /v1/missions/{mission_id}/worker-run-admission` with readback at `GET /v1/missions/{mission_id}/worker-run-admission`. It is the first governed runtime bridge allowed to invoke the existing `TaskDispatcher` and registered handler path. The mutation consumes only the current `worker_start_admission.started_task_ids` and start receipts, executes only tenant-owned running tasks with explicit `task_type` metadata and valid active same-tenant/same-task WorkerLease ownership, requires tenant/RLS-aware dispatcher DB sessions, and requires queue claim/processing authority before dispatch completion or failure paths can run. The contract records queue-claim receipts and run receipts in `Mission.metadata_json["worker_run_admission"]`, then lets existing runtime semantics complete, fail, or dead-letter tasks. It does not schedule graph orchestration, enqueue new work, execute arbitrary unadmitted tasks, bypass RLS, synthesize missing queue payloads, remove or rewrite `default_handler`, promote memory, or automate outcome review.
+
+## Capability Execution Adapter Contracts V1
+
+Capability execution adapter contracts now define durable declarations for how registered capabilities may eventually connect to executable adapter surfaces. `POST /v1/capability-adapters`, `PATCH /v1/capability-adapters/{adapter_id}`, `GET /v1/capability-adapters`, and `GET /v1/capability-adapters/{adapter_id}` persist and read adapter metadata through tenant-authenticated route boundaries. Tenant-scoped adapters are owned by the request tenant; global adapters are visible to tenants when seeded through repository/migration/admin-safe paths and remain read-only from tenant routes.
+
+First-class in this block:
+
+- adapter name and version;
+- capability binding by visible `capability_id` or declared capability name/version;
+- supported task types;
+- input and output contracts;
+- required permissions and tools;
+- execution mode;
+- risk level and approval requirements;
+- evidence expectations;
+- timeout/retry hints;
+- idempotency expectations;
+- side-effect classification;
+- enabled/disabled state;
+- tenant or global scope;
+- schema version.
+
+Capability execution adapters remain a declarative contract layer only. Persisting or updating an adapter does not execute work, register worker handlers, bind runtime dispatch, create `ExecutionTask` rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, materialize graph nodes into runtime queue entries, invoke third-party tools, or persist evidence. Runtime binding and execution remain future layers above the governed runtime foundation.
+
+## Evidence Contract Layer V1
+
+Evidence contracts now define durable, tenant-owned proof/provenance records that future runtime execution, capability adapters, and outcome review can reference. `POST /v1/evidence`, `GET /v1/evidence/{evidence_id}`, `GET /v1/evidence?mission_id=...`, and `PATCH /v1/evidence/{evidence_id}` persist, read, list, and update evidence status/metadata through tenant-scoped repository boundaries.
+
+First-class in this block:
+
+- tenant ownership;
+- mission binding;
+- optional task graph node key;
+- optional planner-to-graph materialization reference;
+- optional execution task reference;
+- optional capability and capability adapter references;
+- evidence type and source;
+- evidence summary;
+- structured payload;
+- artifact references;
+- provenance metadata;
+- trust/confidence signal;
+- collection status;
+- schema version and timestamps.
+
+Evidence records are proof/provenance contracts only. Persisting or updating evidence may validate referenced mission ownership, capability visibility, adapter visibility, and execution task ownership, but it does not score outcomes, approve or reject outcomes, promote memory, create vector memory, execute adapters, call workers, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, or alter runtime dispatch. Outcome review is now the next contract layer above evidence; memory promotion remains future work.
+
+## Outcome Review Contract Layer V1
+
+Outcome review contracts now define durable, tenant-owned records for evaluating mission result claims against mission success criteria, task graph or materialization metadata, and evidence records. `POST /v1/outcome-reviews`, `GET /v1/outcome-reviews/{review_id}`, `GET /v1/outcome-reviews?mission_id=...`, and `PATCH /v1/outcome-reviews/{review_id}` persist, read, list, and update review status/metadata through tenant-scoped repository boundaries.
+
+First-class in this block:
+
+- tenant ownership;
+- mission binding;
+- optional materialization and task graph references;
+- reviewed success criteria;
+- evidence references constrained to the same tenant-owned mission;
+- review status and decision;
+- reviewer type and source;
+- review summary and structured findings;
+- confidence/trust metadata;
+- unresolved gaps and recommended next actions;
+- human approval requirement/status;
+- schema version and timestamps.
+
+Outcome review records are contract records only. Persisting or updating an outcome review may validate mission ownership and same-tenant/same-mission evidence ownership, but it does not perform autonomous scoring, promote memory, create memory candidates, execute adapters, create runtime task rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, alter worker dispatch, or mutate mission/task runtime state. Memory promotion remains a future layer above reviewed outcomes, and runtime execution remains governed separately by the existing runtime control plane.
+
+## Retrieval and Recall Contract Layer V1
+
+Retrieval and recall contracts now define durable, tenant-owned records describing how future systems request, track, govern, and validate memory retrieval. `POST /v1/retrieval-contracts`, `GET /v1/retrieval-contracts/{retrieval_id}`, `GET /v1/retrieval-contracts?mission_id=...`, and `PATCH /v1/retrieval-contracts/{retrieval_id}` persist, read, list, and update retrieval status/metadata through tenant-scoped repository boundaries.
+
+First-class in this block:
+
+- tenant ownership;
+- mission binding;
+- optional memory references and returned memory references;
+- retrieval request and reason metadata;
+- retrieval strategy and strategy metadata;
+- retrieval filters and governance constraints;
+- confidence/trust metadata;
+- retrieval provenance;
+- retrieval status, supersession, and revocation metadata;
+- schema version and timestamps.
+
+Retrieval remains governance-first and retrieval-engine-neutral. Persisting or updating a retrieval contract may validate mission ownership and memory-reference tenant/mission alignment, but it does not generate embeddings, execute vector search, rank semantic results, reason autonomously, create runtime task rows, queue work, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, alter worker dispatch, or mutate mission/task runtime state. Embeddings, vector databases, runtime reasoning, and autonomous execution remain future layers above these contracts.
+
+## Mission Lifecycle Read Model V1
+
+Mission lifecycle reads now provide a compact, tenant-scoped view across the product-layer contracts for one mission. `GET /v1/missions/{mission_id}/lifecycle` aggregates mission identity/status, intake metadata, plan metadata, task graph metadata, graph materialization metadata, evidence summaries, outcome review summaries, memory promotion summary state, retrieval contract summaries, deterministic completeness flags, and deterministic missing next-step indicators.
+
+This read model is aggregation only. It does not execute graphs, admit queues, create `ExecutionTask` rows, call `MissionExecutor`, call `ExecutionCoordinator`, dispatch workers, run adapter execution, score outcomes, perform retrieval/vector search, promote memory, or mutate mission/runtime state. Existing contract endpoints remain the write/read authorities for their individual layers.
+
+
+# Build Direction
+
+Ajenda should evolve through:
+
+1. mission intake
+2. mission planning contracts
+3. capability registry
+4. task graph contracts
+5. planner-to-graph materialization contracts
+6. capability execution adapter contracts
+7. evidence contract layer
+8. outcome review contract layer
+9. real worker skills
+10. evidence-backed execution
+11. memory promotion
+12. retrieval and recall contracts
+
+The runtime foundation should remain authoritative.
+
+---
+
+# Non-Goals
+
+Ajenda is not:
+
+- only a workflow builder
+- only an AI assistant
+- only an integration platform
+- only an agent sandbox
+- only a runtime validation system
+- only a static business module system
+
+Ajenda is a mission-centered governed execution platform for machine-performed business work.
