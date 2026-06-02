@@ -60,4 +60,53 @@ def test_empty_freshness_policy_warns(tmp_path: Path, monkeypatch) -> None:
     assert any("missing Last reviewed metadata" in i.message for i in issues)
 
 
-# existing tests remain unchanged
+def test_method_prefixed_route_scopes_contribute_route_families(tmp_path: Path, monkeypatch) -> None:
+    _minimal_repo(tmp_path)
+    _write(
+        tmp_path / "docs/contracts/authority-ledger.v1.yaml",
+        """
+version: 1
+authority_entries:
+  - id: mission_read_contract
+    area: mission read
+    source_of_truth: [backend/api/routes/mission.py]
+    route_scope: [GET /v1/missions/{mission_id}/worker-run-admission]
+    authority_class: read_model
+    side_effect_class: read_only
+    allowed_side_effects: [read]
+    forbidden_side_effects: [mutate]
+    required_proofs: [tests/unit/api/test_mission_intake_route.py]
+  - id: mission_mutation_contract
+    area: mission mutation
+    source_of_truth: [backend/api/routes/mission.py]
+    route_scope: [POST /v1/missions/{mission_id}/worker-run-admission]
+    authority_class: runtime_authoritative
+    side_effect_class: dispatch
+    allowed_side_effects: [dispatch]
+    forbidden_side_effects: [bypass]
+    required_proofs: [tests/unit/api/test_mission_intake_route.py]
+""",
+    )
+    _patch_repo(monkeypatch, tmp_path)
+
+    issues = drift_check._check()
+
+    assert not any("README route family missing from ledger: missions" in issue.message for issue in issues)
+    assert not any("Ledger route family missing from README: GET /v1/missions" in issue.message for issue in issues)
+    assert not any("Ledger route family missing from README: POST /v1/missions" in issue.message for issue in issues)
+
+
+def test_route_scope_normalization_preserves_path_only_scopes() -> None:
+    assert drift_check._normalize_route_scope("/v1/missions/{mission_id}") == "/v1/missions/{mission_id}"
+    assert drift_check._normalize_route_scope("GET /v1/missions/{mission_id}") == "/v1/missions/{mission_id}"
+    assert drift_check._normalize_route_scope("post /v1/missions/{mission_id}") == "/v1/missions/{mission_id}"
+
+
+def test_method_prefixed_scopes_parse_to_v1_route_family() -> None:
+    scopes = {
+        "GET /v1/missions/{mission_id}/worker-run-admission",
+        "POST /v1/tasks/{task_id}",
+        "/v1/auth/me",
+    }
+
+    assert drift_check._route_families_from_scopes(scopes) == {"auth", "missions", "tasks"}
