@@ -104,6 +104,7 @@ class BusinessProfileRepository:
         resolved_at: datetime,
         actor_id: str,
     ) -> BusinessProfileSuggestion:
+        self._require_pending_suggestion(suggestion)
         suggestion.status = "declined"
         suggestion.resolved_at = resolved_at
         suggestion.resolution = {"actor_id": actor_id, "decision": "declined"}
@@ -116,6 +117,7 @@ class BusinessProfileRepository:
         resolved_at: datetime,
         actor_id: str,
     ) -> BusinessProfileSuggestion:
+        self._require_pending_suggestion(suggestion)
         suggestion.status = "dismissed"
         suggestion.resolved_at = resolved_at
         suggestion.resolution = {"actor_id": actor_id, "decision": "dismissed"}
@@ -131,6 +133,7 @@ class BusinessProfileRepository:
         resolved_at: datetime,
         actor_id: str,
     ) -> tuple[BusinessProfile, BusinessProfileSuggestion]:
+        self._require_pending_suggestion(suggestion)
         if profile.tenant_id != suggestion.tenant_id:
             raise ValueError("business profile suggestion tenant does not match profile tenant")
         if suggestion.profile_id is not None and suggestion.profile_id != profile.id:
@@ -139,6 +142,8 @@ class BusinessProfileRepository:
         approved_facts = dict(profile.approved_facts or {})
         provenance = dict(profile.provenance or {})
         category = suggestion.suggested_category
+        previous_fact = approved_facts.get(category)
+        previous_provenance = provenance.get(category)
 
         approved_facts[category] = approved_fact
         provenance[category] = {
@@ -159,6 +164,10 @@ class BusinessProfileRepository:
             "decision": resolution_status,
             "approved_fact": approved_fact,
         }
+        if previous_fact is not None:
+            suggestion.resolution["superseded_fact"] = previous_fact
+        if previous_provenance is not None:
+            suggestion.resolution["superseded_provenance"] = previous_provenance
 
         self._session.add(profile)
         self._session.add(suggestion)
@@ -166,6 +175,10 @@ class BusinessProfileRepository:
         self._session.refresh(profile)
         self._session.refresh(suggestion)
         return profile, suggestion
+
+    def _require_pending_suggestion(self, suggestion: BusinessProfileSuggestion) -> None:
+        if suggestion.status != "pending":
+            raise ValueError("only pending business profile suggestions can be resolved")
 
     def _update_suggestion(self, suggestion: BusinessProfileSuggestion) -> BusinessProfileSuggestion:
         self._session.add(suggestion)
