@@ -120,3 +120,19 @@ def test_mission_brief_draft_does_not_call_runtime_or_mutation_repositories() ->
     task_add.assert_not_called()
     queue_all.assert_not_called()
     dispatch.assert_not_called()
+
+
+def test_mission_brief_draft_rejects_oversized_intent_list_item() -> None:
+    app = _build_app()
+    response = TestClient(app).post(
+        "/v1/mission-brief/draft",
+        json={
+            "current_intent": {
+                "objective": "Research buyers",
+                "success_criteria": ["x" * 1001],
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert "at most 1000 characters" in response.text

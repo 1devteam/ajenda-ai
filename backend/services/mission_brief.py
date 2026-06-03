@@ -22,6 +22,8 @@ MISSION_CREATE_MAX_APPROVAL_EXPECTATIONS = 20
 MISSION_CREATE_MAX_SCOPE_LIMITS = 20
 MISSION_CREATE_MAX_ALLOWED_ACTIONS = 50
 MISSION_CREATE_MAX_ALLOWED_TOOLS = 50
+MISSION_BRIEF_MAX_LIST_ITEM_LENGTH = 1000
+MISSION_BRIEF_MAX_PROFILE_CONTEXT_ITEMS = 50
 MissionBriefSource = Literal["current_intent", "business_profile", "request_context", "system_default"]
 
 
@@ -78,7 +80,12 @@ def _clean_text_list(value: Any) -> list[str]:
             text = _clean_text(item.get("description") or item.get("name") or item.get("value")) or ""
         else:
             text = ""
-        if text and text not in normalized:
+        if (
+            text
+            and len(text) <= MISSION_BRIEF_MAX_LIST_ITEM_LENGTH
+            and text not in normalized
+            and len(normalized) < MISSION_BRIEF_MAX_PROFILE_CONTEXT_ITEMS
+        ):
             normalized.append(text)
     return normalized
 
@@ -147,11 +154,15 @@ def _profile_budget(profile_facts: dict[str, Any]) -> tuple[dict[str, Any] | Non
     return None, None
 
 
-def _merge_lists(explicit: list[str], profile_values: list[str]) -> list[str]:
-    merged = list(explicit)
-    for item in profile_values:
-        if item not in merged:
-            merged.append(item)
+def _merge_lists(*, explicit: list[str], profile_values: list[str], max_items: int) -> list[str]:
+    merged: list[str] = []
+    for item in [*explicit, *profile_values]:
+        text = item.strip()
+        if not text or len(text) > MISSION_BRIEF_MAX_LIST_ITEM_LENGTH or text in merged:
+            continue
+        if len(merged) >= max_items:
+            break
+        merged.append(text)
     return merged
 
 
@@ -200,6 +211,8 @@ class MissionBriefIntent(BaseModel):
         normalized = [item.strip() for item in value]
         if any(not item for item in normalized):
             raise ValueError("list entries must be non-empty strings")
+        if any(len(item) > MISSION_BRIEF_MAX_LIST_ITEM_LENGTH for item in normalized):
+            raise ValueError(f"list entries must be at most {MISSION_BRIEF_MAX_LIST_ITEM_LENGTH} characters")
         if len(set(normalized)) != len(normalized):
             raise ValueError("list entries must be unique")
         return normalized
@@ -425,7 +438,9 @@ def build_mission_brief(
         provenance.append(MissionBriefProvenance(field="objective", source="current_intent"))
 
     success_profile, success_key = _profile_list(profile_facts, "success_criteria", "default_success_criteria")
-    success_criteria = _merge_lists(intent.success_criteria, success_profile)
+    success_criteria = _merge_lists(
+        explicit=intent.success_criteria, profile_values=success_profile, max_items=MISSION_CREATE_MAX_SUCCESS_CRITERIA
+    )
     if intent.success_criteria:
         provenance.append(MissionBriefProvenance(field="success_criteria", source="current_intent"))
     if success_profile:
@@ -436,7 +451,11 @@ def build_mission_brief(
     evidence_profile, evidence_key = _profile_list(
         profile_facts, "evidence_expectations", "default_evidence_expectations"
     )
-    evidence_expectations = _merge_lists(intent.evidence_expectations, evidence_profile)
+    evidence_expectations = _merge_lists(
+        explicit=intent.evidence_expectations,
+        profile_values=evidence_profile,
+        max_items=MISSION_CREATE_MAX_EVIDENCE_ITEMS,
+    )
     if intent.evidence_expectations:
         provenance.append(MissionBriefProvenance(field="evidence_expectations", source="current_intent"))
     if evidence_profile:
@@ -449,7 +468,9 @@ def build_mission_brief(
     constraint_profile, constraint_key = _profile_list(
         profile_facts, "constraints", "default_constraints", "operating_constraints"
     )
-    constraints = _merge_lists(intent.constraints, constraint_profile)
+    constraints = _merge_lists(
+        explicit=intent.constraints, profile_values=constraint_profile, max_items=MISSION_CREATE_MAX_CONSTRAINTS
+    )
     if intent.constraints:
         provenance.append(MissionBriefProvenance(field="constraints", source="current_intent"))
     if constraint_profile:
@@ -460,7 +481,11 @@ def build_mission_brief(
     allowed_action_profile, allowed_action_key = _profile_list(
         profile_facts, "allowed_actions", "default_allowed_actions"
     )
-    allowed_actions = _merge_lists(intent.allowed_actions, allowed_action_profile)
+    allowed_actions = _merge_lists(
+        explicit=intent.allowed_actions,
+        profile_values=allowed_action_profile,
+        max_items=MISSION_CREATE_MAX_ALLOWED_ACTIONS,
+    )
     if intent.allowed_actions:
         provenance.append(MissionBriefProvenance(field="allowed_actions", source="current_intent"))
     if allowed_action_profile:
@@ -471,7 +496,9 @@ def build_mission_brief(
         )
 
     allowed_tool_profile, allowed_tool_key = _profile_list(profile_facts, "allowed_tools", "default_allowed_tools")
-    allowed_tools = _merge_lists(intent.allowed_tools, allowed_tool_profile)
+    allowed_tools = _merge_lists(
+        explicit=intent.allowed_tools, profile_values=allowed_tool_profile, max_items=MISSION_CREATE_MAX_ALLOWED_TOOLS
+    )
     if intent.allowed_tools:
         provenance.append(MissionBriefProvenance(field="allowed_tools", source="current_intent"))
     if allowed_tool_profile:
@@ -480,7 +507,9 @@ def build_mission_brief(
         )
 
     scope_profile, scope_key = _profile_list(profile_facts, "scope_limits", "default_scope", "default_scope_limits")
-    scope_limits = _merge_lists(intent.scope_limits, scope_profile)
+    scope_limits = _merge_lists(
+        explicit=intent.scope_limits, profile_values=scope_profile, max_items=MISSION_CREATE_MAX_SCOPE_LIMITS
+    )
     if intent.scope_limits:
         provenance.append(MissionBriefProvenance(field="scope_limits", source="current_intent"))
     if scope_profile:
@@ -491,7 +520,11 @@ def build_mission_brief(
     approval_expectations_profile, approval_expectations_key = _profile_list(
         profile_facts, "approval_expectations", "approval_rules", "default_approval_expectations"
     )
-    approval_expectations = _merge_lists(intent.approval_expectations, approval_expectations_profile)
+    approval_expectations = _merge_lists(
+        explicit=intent.approval_expectations,
+        profile_values=approval_expectations_profile,
+        max_items=MISSION_CREATE_MAX_APPROVAL_EXPECTATIONS,
+    )
     if intent.approval_expectations:
         provenance.append(MissionBriefProvenance(field="approval_expectations", source="current_intent"))
     if approval_expectations_profile:

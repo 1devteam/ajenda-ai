@@ -135,8 +135,23 @@ def test_invalid_profile_defaults_are_not_emitted_as_mission_create_prefill() ->
     assert {conflict.field for conflict in result.conflicts} == {"compliance_category", "jurisdiction"}
 
 
+def test_mission_brief_request_rejects_oversized_intent_list_items_before_echoing() -> None:
+    long_value = "x" * 1001
+
+    with pytest.raises(ValidationError):
+        MissionBriefRequest(current_intent={"objective": "Plan launch", "success_criteria": [long_value]})
+
+    with pytest.raises(ValidationError):
+        MissionBriefRequest(
+            current_intent={
+                "objective": "Plan launch",
+                "success_criteria": ["Plan exists"],
+                "constraints": [long_value],
+            }
+        )
+
+
 def test_mission_create_prefill_filters_success_criteria_to_mission_create_contract() -> None:
-    long_criterion = "x" * 1001
     profile = BusinessProfile(
         tenant_id="tenant-a",
         approved_facts={
@@ -145,28 +160,21 @@ def test_mission_create_prefill_filters_success_criteria_to_mission_create_contr
         },
     )
     request = MissionBriefRequest(
-        current_intent={"objective": "Plan launch", "success_criteria": [long_criterion, "valid current success"]}
+        current_intent={"objective": "Plan launch", "success_criteria": ["valid current success"]}
     )
 
     result = build_mission_brief(tenant_id="tenant-a", profile=profile, request=request)
 
     prefill_success = result.mission_create_prefill["success_criteria"]
     assert len(prefill_success) == 20
+    assert result.brief["success_criteria"] == [item["description"] for item in prefill_success]
     assert prefill_success[0]["description"] == "valid current success"
     assert all(len(item["description"]) <= 1000 for item in prefill_success)
     assert all(len(item["evidence"]) == 10 for item in prefill_success)
-    assert any(
-        item.field == "success_criteria" and "1000-character" in item.reason for item in result.missing_information
-    )
-    assert any(item.field == "success_criteria" and "at most 20" in item.reason for item in result.missing_information)
-    assert any(
-        item.field == "success_criteria.evidence" and "at most 10" in item.reason for item in result.missing_information
-    )
     MissionCreate.model_validate(result.mission_create_prefill)
 
 
 def test_mission_create_prefill_filters_constraints_to_mission_create_contract() -> None:
-    long_constraint = "y" * 1001
     profile = BusinessProfile(
         tenant_id="tenant-a",
         approved_facts={"default_constraints": [f"profile constraint {index}" for index in range(25)]},
@@ -175,7 +183,7 @@ def test_mission_create_prefill_filters_constraints_to_mission_create_contract()
         current_intent={
             "objective": "Plan launch",
             "success_criteria": ["Plan exists"],
-            "constraints": [long_constraint, "valid current constraint"],
+            "constraints": ["valid current constraint"],
         }
     )
 
@@ -183,6 +191,7 @@ def test_mission_create_prefill_filters_constraints_to_mission_create_contract()
 
     prefill_constraints = result.mission_create_prefill["constraints"]
     assert len(prefill_constraints) == 20
+    assert result.brief["constraints"] == [item["description"] for item in prefill_constraints]
     assert prefill_constraints[0] == {
         "name": "valid current constraint",
         "description": "valid current constraint",
@@ -190,6 +199,4 @@ def test_mission_create_prefill_filters_constraints_to_mission_create_contract()
     }
     assert all(len(item["description"]) <= 1000 for item in prefill_constraints)
     assert all(len(item["name"]) <= 120 for item in prefill_constraints)
-    assert any(item.field == "constraints" and "1000-character" in item.reason for item in result.missing_information)
-    assert any(item.field == "constraints" and "at most 20" in item.reason for item in result.missing_information)
     MissionCreate.model_validate(result.mission_create_prefill)
