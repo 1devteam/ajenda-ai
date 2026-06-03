@@ -16,6 +16,7 @@ MAX_MISSION_BRIEF_JSON_KEYS = 192
 MISSION_CREATE_MAX_SUCCESS_CRITERIA = 20
 MISSION_CREATE_MAX_CONSTRAINTS = 20
 MISSION_CREATE_MAX_DESCRIPTION_LENGTH = 1000
+MISSION_CREATE_MAX_POLICY_FIELD_LENGTH = 64
 MISSION_CREATE_MAX_CONSTRAINT_NAME_LENGTH = 120
 MISSION_CREATE_MAX_EVIDENCE_ITEMS = 10
 MISSION_CREATE_MAX_APPROVAL_EXPECTATIONS = 20
@@ -90,16 +91,20 @@ def _clean_text_list(value: Any) -> list[str]:
     return normalized
 
 
-def _profile_text(profile_facts: dict[str, Any], *keys: str) -> tuple[str | None, str | None]:
+def _profile_text(
+    profile_facts: dict[str, Any],
+    *keys: str,
+    max_length: int = MISSION_BRIEF_MAX_LIST_ITEM_LENGTH,
+) -> tuple[str | None, str | None]:
     for key in keys:
         value = profile_facts.get(key)
         if isinstance(value, str):
             text = _clean_text(value)
-            if text:
+            if text and len(text) <= max_length:
                 return text, key
         if isinstance(value, dict):
             text = _clean_text(value.get("value") or value.get("default") or value.get("name"))
-            if text:
+            if text and len(text) <= max_length:
                 return text, key
     return None, None
 
@@ -577,7 +582,10 @@ def build_mission_brief(
         )
 
     profile_compliance, compliance_key = _profile_text(
-        profile_facts, "compliance_category", "default_compliance_category"
+        profile_facts,
+        "compliance_category",
+        "default_compliance_category",
+        max_length=MISSION_CREATE_MAX_POLICY_FIELD_LENGTH,
     )
     compliance_category = intent.compliance_category or (profile_compliance if profile_compliance else "operational")
     if not is_supported_compliance_category(compliance_category):
@@ -610,7 +618,9 @@ def build_mission_brief(
     else:
         provenance.append(MissionBriefProvenance(field="compliance_category", source="system_default"))
 
-    profile_jurisdiction, jurisdiction_key = _profile_text(profile_facts, "jurisdiction", "default_jurisdiction")
+    profile_jurisdiction, jurisdiction_key = _profile_text(
+        profile_facts, "jurisdiction", "default_jurisdiction", max_length=MISSION_CREATE_MAX_POLICY_FIELD_LENGTH
+    )
     jurisdiction = intent.jurisdiction or (profile_jurisdiction if profile_jurisdiction else "US-ALL")
     if not is_supported_jurisdiction(jurisdiction):
         conflicts.append(

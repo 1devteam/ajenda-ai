@@ -200,3 +200,23 @@ def test_mission_create_prefill_filters_constraints_to_mission_create_contract()
     assert all(len(item["description"]) <= 1000 for item in prefill_constraints)
     assert all(len(item["name"]) <= 120 for item in prefill_constraints)
     MissionCreate.model_validate(result.mission_create_prefill)
+
+
+def test_profile_scalar_text_defaults_are_bounded_before_echoing() -> None:
+    huge_value = "z" * 5001
+    profile = BusinessProfile(
+        tenant_id="tenant-a",
+        approved_facts={
+            "business_name": huge_value,
+            "default_compliance_category": huge_value,
+            "default_jurisdiction": huge_value,
+        },
+    )
+    request = MissionBriefRequest(current_intent={"objective": "Plan launch", "success_criteria": ["Plan exists"]})
+
+    result = build_mission_brief(tenant_id="tenant-a", profile=profile, request=request)
+
+    assert "profile_context" not in result.brief
+    assert result.mission_create_prefill["compliance_category"] == "operational"
+    assert result.mission_create_prefill["jurisdiction"] == "US-ALL"
+    assert all(huge_value != conflict.business_profile_default for conflict in result.conflicts)
