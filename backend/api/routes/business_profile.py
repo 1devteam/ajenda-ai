@@ -150,14 +150,14 @@ class BusinessProfileSuggestionCreate(BaseModel):
         return _validate_bounded_json_object(value, field_name=info.field_name)
 
     @model_validator(mode="after")
-    def _validate_mission_id_consistency(self) -> BusinessProfileSuggestionCreate:
+    def _normalize_mission_id_consistency(self) -> BusinessProfileSuggestionCreate:
         source_context_mission_id = _extract_source_context_mission_id(self.source_context)
-        if (
-            self.mission_id is not None
-            and source_context_mission_id is not None
-            and self.mission_id != source_context_mission_id
-        ):
+        if source_context_mission_id is None:
+            return self
+        if self.mission_id is not None and self.mission_id != source_context_mission_id:
             raise ValueError("mission_id must match source_context.mission_id when both are provided")
+        self.mission_id = source_context_mission_id
+        self.source_context = {**self.source_context, "mission_id": str(source_context_mission_id)}
         return self
 
 
@@ -453,7 +453,8 @@ def create_business_profile_suggestion(
     """Create a pending profile update suggestion without promoting durable profile truth."""
     require_route_permission(request=request, db=db, permission=Permission.BUSINESS_PROFILE_MANAGE, tenant_id=tenant_id)
     tenant_scope = str(tenant_id)
-    _validate_mission_link(mission_id=body.mission_id, tenant_id=tenant_scope, db=db)
+    mission_id = body.mission_id
+    _validate_mission_link(mission_id=mission_id, tenant_id=tenant_scope, db=db)
     actor_id = _actor_id(request)
     repo = BusinessProfileRepository(db)
     profile = repo.get_active_profile_for_tenant(tenant_id=tenant_scope)
@@ -461,7 +462,7 @@ def create_business_profile_suggestion(
         BusinessProfileSuggestion(
             tenant_id=tenant_scope,
             profile_id=profile.id if profile else None,
-            mission_id=body.mission_id,
+            mission_id=mission_id,
             suggested_category=body.suggested_category,
             suggested_fact=body.suggested_fact,
             rationale=body.rationale,
@@ -476,7 +477,7 @@ def create_business_profile_suggestion(
         action="business_profile_suggestion_created",
         profile_id=profile.id if profile else None,
         suggestion_id=suggestion.id,
-        mission_id=body.mission_id,
+        mission_id=mission_id,
         category=suggestion.suggested_category,
         decision="pending",
     )

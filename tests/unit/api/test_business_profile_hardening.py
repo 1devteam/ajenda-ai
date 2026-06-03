@@ -184,6 +184,34 @@ def test_suggestion_mission_id_must_be_tenant_owned_and_consistent_with_source_c
     assert inconsistent.status_code == 422
 
 
+def test_suggestion_source_context_mission_id_is_promoted_to_first_class_link() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    mission_id = uuid.uuid4()
+    db = MagicMock()
+
+    with patch.object(
+        business_profile_module.MissionRepository, "get_for_tenant", return_value=object()
+    ) as get_for_tenant:
+        response = _client(tenant_id, repo, db=db).post(
+            "/v1/business-profile/suggestions",
+            json={
+                "suggested_category": "service_area",
+                "suggested_fact": {"value": "Dallas"},
+                "rationale": "Mission context may be reusable.",
+                "source_context": {"mission_id": str(mission_id), "conversation_id": "conv-1"},
+            },
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mission_id"] == str(mission_id)
+    assert body["source_context"]["mission_id"] == str(mission_id)
+    suggestion = next(iter(repo.suggestions.values()))
+    assert suggestion.mission_id == mission_id
+    get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+
+
 def test_profile_mutations_append_business_profile_audit_event() -> None:
     tenant_id = uuid.uuid4()
     repo = _FakeBusinessProfileRepository()
