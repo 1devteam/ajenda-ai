@@ -142,7 +142,7 @@ Future implementation should proceed in focused PRs:
 2. Business Profile domain and storage contract.
 3. Profile update proposal contract.
 4. API routes for reading/updating approved profile context.
-5. Mission Brief generation/readiness contract.
+5. Mission Brief generation/readiness contract. Current proof: `POST /v1/mission-briefs/draft` is a read-only draft/readiness contract and does not create missions or runtime work.
 6. UI onboarding and profile update suggestion flow.
 
 Each implementation PR must preserve the rule that Business Profile is additive context above mission intake, not a replacement for mission intake or runtime governance.

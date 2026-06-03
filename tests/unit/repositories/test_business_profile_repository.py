@@ -407,3 +407,20 @@ def test_upsert_approved_fact_rejects_non_active_profile() -> None:
 
     session.add.assert_not_called()
     session.flush.assert_not_called()
+
+
+def test_get_or_create_active_profile_returns_existing_profile_after_unique_race() -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    existing = _profile()
+    existing.tenant_id = "tenant-race"
+    session = MagicMock()
+    session.flush.side_effect = IntegrityError("insert", {}, Exception("duplicate active profile"))
+    session.scalar.side_effect = [None, existing]
+
+    result = BusinessProfileRepository(session).get_or_create_active_profile(tenant_id="tenant-race", schema_version=1)
+
+    assert result is existing
+    session.rollback.assert_not_called()
+    session.begin_nested.assert_called_once()
+    assert session.scalar.call_count == 2

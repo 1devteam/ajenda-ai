@@ -81,7 +81,7 @@ Ajenda converts outcomes into structured mission execution.
 
 Business Profile context supports this user model without replacing it. A simple onboarding flow may capture reusable business facts once, and later missions may use that context to reduce repeated clarification. Business Profile remains additive context above mission intake: the user still speaks in outcomes, Ajenda still builds the Mission Brief and mission intake structure, and runtime still executes only through governed contracts. Durable profile updates must be user-approved; if a user dismisses or declines a suggested update, Ajenda keeps going with no profile update and the information remains only in the current mission context.
 
-See `docs/product/business-profile-and-mission-context.md` for the Business Profile, Mission Brief, and profile update suggestion contract.
+See `docs/product/business-profile-and-mission-context.md` for the Business Profile, Mission Brief, and profile update suggestion product contract. See `docs/product/mission-brief-read-model-contract.md` for the current read-only Mission Brief API/readiness contract.
 
 ---
 

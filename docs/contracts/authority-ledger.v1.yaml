@@ -468,6 +468,29 @@ authority_entries:
       - tests/unit/repositories/test_business_profile_repository.py
       - tests/unit/db/test_business_profile_migration_contract.py
 
+  - id: mission_brief_read_model
+    area: Mission Brief draft/readiness read model
+    source_of_truth:
+      - backend/api/routes/mission_brief.py
+      - backend/services/mission_brief_read_model.py
+      - backend/repositories/business_profile_repository.py
+    route_scope:
+      - POST /v1/mission-briefs/draft
+    authority_class: read_model
+    side_effect_class: deterministic_tenant_scoped_read_projection
+    allowed_side_effects:
+      - read tenant-approved Business Profile facts
+      - aggregate current mission-specific intent and explicit request context into a bounded Mission Brief draft
+      - report missing mission-critical information and suggested MissionCreate fields
+    forbidden_side_effects:
+      - create Mission records or replace explicit MissionCreate
+      - create MissionPlan, task graph, ExecutionTask, queue messages, or worker leases
+      - mutate runtime execution, evidence, outcome-review, retrieval, or memory-promotion state
+      - silently promote current mission context to durable Business Profile truth
+    required_proofs:
+      - tests/unit/api/test_mission_brief_route.py
+      - tests/unit/architecture/test_authority_ledger_contract.py
+
   - id: evidence_contract
     area: evidence records
     source_of_truth:
