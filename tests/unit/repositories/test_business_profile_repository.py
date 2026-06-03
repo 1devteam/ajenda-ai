@@ -211,3 +211,53 @@ def test_dismiss_suggestion_does_not_write_approved_profile_fact() -> None:
     assert result.status == "dismissed"
     assert result.resolution["decision"] == "dismissed"
     assert profile.approved_facts == {}
+
+
+def test_approve_suggestion_rejects_cross_tenant_profile_mutation() -> None:
+    profile = _profile(tenant_id="tenant-a")
+    suggestion = _suggestion(tenant_id="tenant-b")
+    suggestion.id = uuid.uuid4()
+    resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+    session = MagicMock()
+
+    try:
+        BusinessProfileRepository(session).approve_suggestion_as_is(
+            profile=profile,
+            suggestion=suggestion,
+            resolved_at=resolved_at,
+            actor_id="user-1",
+        )
+    except ValueError as exc:
+        assert str(exc) == "business profile suggestion tenant does not match profile tenant"
+    else:
+        raise AssertionError("expected cross-tenant approval to fail")
+
+    assert profile.approved_facts == {}
+    session.add.assert_not_called()
+    session.flush.assert_not_called()
+
+
+def test_approve_suggestion_rejects_wrong_profile_id() -> None:
+    profile = _profile(tenant_id="tenant-a")
+    profile.id = uuid.uuid4()
+    suggestion = _suggestion(tenant_id="tenant-a")
+    suggestion.id = uuid.uuid4()
+    suggestion.profile_id = uuid.uuid4()
+    resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+    session = MagicMock()
+
+    try:
+        BusinessProfileRepository(session).approve_suggestion_as_is(
+            profile=profile,
+            suggestion=suggestion,
+            resolved_at=resolved_at,
+            actor_id="user-1",
+        )
+    except ValueError as exc:
+        assert str(exc) == "business profile suggestion does not belong to profile"
+    else:
+        raise AssertionError("expected wrong-profile approval to fail")
+
+    assert profile.approved_facts == {}
+    session.add.assert_not_called()
+    session.flush.assert_not_called()

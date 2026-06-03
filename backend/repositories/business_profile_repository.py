@@ -131,6 +131,11 @@ class BusinessProfileRepository:
         resolved_at: datetime,
         actor_id: str,
     ) -> tuple[BusinessProfile, BusinessProfileSuggestion]:
+        if profile.tenant_id != suggestion.tenant_id:
+            raise ValueError("business profile suggestion tenant does not match profile tenant")
+        if suggestion.profile_id is not None and suggestion.profile_id != profile.id:
+            raise ValueError("business profile suggestion does not belong to profile")
+
         approved_facts = dict(profile.approved_facts or {})
         provenance = dict(profile.provenance or {})
         category = suggestion.suggested_category
