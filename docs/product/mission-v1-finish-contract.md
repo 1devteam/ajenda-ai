@@ -31,8 +31,8 @@ Status values in this document are limited to `finished`, `partial`, `missing`, 
 
 | Area | Definition | MVP status | Production status | Canonical files | Required proof |
 | --- | --- | --- | --- | --- | --- |
-| Business Profile / Operating Context | Additive tenant/business context used above mission intake to reduce repeated clarification without becoming the mission itself. | partial | missing | `docs/product/business-profile-and-mission-context.md`; `docs/product/business-profile-implementation-contract.md`; `docs/product/mission-based-ai-core.md` | Proof path absent on current main. Current evidence is product-governance and implementation-contract documentation only. |
-| Profile update suggestions | User-approved flow for turning durable facts discovered during missions into reusable Business Profile truth. | partial | missing | `docs/product/business-profile-and-mission-context.md` | Proof path absent on current main. Current evidence is product-governance documentation only. |
+| Business Profile / Operating Context | Additive tenant/business context used above mission intake to reduce repeated clarification without becoming the mission itself. | finished | partial | `backend/api/routes/business_profile.py`; `backend/domain/business_profile.py`; `backend/repositories/business_profile_repository.py`; `docs/product/business-profile-and-mission-context.md`; `docs/product/business-profile-implementation-contract.md`; `docs/product/mission-based-ai-core.md` | `tests/contract/api/test_business_profile_routes.py`; `tests/unit/repositories/test_business_profile_repository.py`; `tests/unit/db/test_business_profile_migration_contract.py` |
+| Profile update suggestions | User-approved flow for turning durable facts discovered during missions into reusable Business Profile truth. | finished | partial | `backend/api/routes/business_profile.py`; `backend/domain/business_profile.py`; `backend/repositories/business_profile_repository.py`; `docs/product/business-profile-and-mission-context.md` | `tests/contract/api/test_business_profile_routes.py`; `tests/unit/repositories/test_business_profile_repository.py`; `tests/unit/db/test_business_profile_migration_contract.py` |
 | Mission Brief | Structured interpretation of the current mission using approved Business Profile context plus current mission-specific intent. | partial | missing | `docs/product/business-profile-and-mission-context.md`; `docs/product/mission-based-ai-core.md` | Proof path absent on current main. No Mission Brief read model/API test exists on current main. |
 | Mission intake / MissionCreate | Tenant-authenticated creation of a planned mission and persisted `mission_intake` envelope for the specific current mission. | finished | partial | `backend/api/routes/mission.py`; `backend/domain/mission.py`; `docs/product/mission-based-ai-core.md`; `docs/contracts/authority-ledger.v1.yaml` | `tests/unit/api/test_mission_intake_route.py`; `tests/unit/domain/test_mission_intake_metadata.py`; `tests/contract/api/test_mission_queue_envelope_contract.py` |
 | Mission planning | Declarative, tenant-scoped mission plan contract above mission intake and below task graph. | finished | partial | `backend/api/routes/mission.py`; `backend/domain/mission.py`; `backend/repositories/mission_plan_repository.py`; `docs/contracts/authority-ledger.v1.yaml` | `tests/unit/api/test_mission_planning_contract.py`; `tests/unit/repositories/test_mission_plan_repository.py`; `tests/unit/db/test_mission_plan_migration_contract.py` |
@@ -98,7 +98,7 @@ Notes:
 
 | Stage | Existing proof path | What it proves | Missing proof if any |
 | --- | --- | --- | --- |
-| Business Profile context | `docs/product/business-profile-and-mission-context.md`; `docs/product/mission-based-ai-core.md` | Product direction exists and says Business Profile is additive above mission intake. | Backend/API/storage/test proof absent on current main. |
+| Business Profile context | `backend/api/routes/business_profile.py`; `backend/domain/business_profile.py`; `backend/repositories/business_profile_repository.py`; `tests/contract/api/test_business_profile_routes.py`; `tests/unit/repositories/test_business_profile_repository.py`; `tests/unit/db/test_business_profile_migration_contract.py` | Tenant-scoped Business Profile storage/API, approved fact upserts, suggestion lifecycle, mission-id validation, history read surface, audit events, and no-runtime-side-effect boundaries are proven. | Mission Brief read model/API proof remains absent. |
 | user mission | `tests/unit/api/test_mission_intake_route.py`; `tests/unit/domain/test_mission_intake_metadata.py` | A tenant-authenticated user mission request becomes a planned mission intake envelope. | No user-facing UX proof path exists on current main. |
 | Mission Brief | `docs/product/business-profile-and-mission-context.md`; `docs/product/mission-based-ai-core.md` | Product definition exists for the Mission Brief concept. | Proof path absent on current main for Mission Brief read model/API behavior. |
 | MissionCreate / mission intake | `tests/unit/api/test_mission_intake_route.py`; `tests/unit/domain/test_mission_intake_metadata.py`; `tests/contract/api/test_mission_queue_envelope_contract.py` | Mission intake persists tenant-owned planned mission metadata and does not queue runtime work. | End-to-end Mission Brief-to-MissionCreate proof absent. |
@@ -118,8 +118,8 @@ Notes:
 
 | Area | MVP enough means | Production-ready means | Gap |
 | --- | --- | --- | --- |
-| Business Profile / Operating Context | Product contract is explicit and cannot be mistaken for MissionCreate replacement. | Tenant-scoped storage/API/read model, approval semantics, audits, and tests prove durable profile behavior. | Implementation and proof are absent. |
-| Profile update suggestions | Choice semantics are documented, including Save, edit, No / not now, and Ignore / dismiss. | Durable update proposal workflow is tenant-scoped, auditable, test-backed, and cannot silently write profile truth. | Implementation and proof are absent. |
+| Business Profile / Operating Context | Tenant-scoped storage/API/read model exists and cannot be mistaken for MissionCreate replacement. | Tenant-scoped storage/API/read model, approval semantics, audits, JSON/category hardening, and tests prove durable profile behavior. | Mission Brief consumption and UI review flow remain separate production gaps. |
+| Profile update suggestions | Choice semantics are implemented for approve, edit, decline, and dismiss without silent profile writes. | Durable update proposal workflow is tenant-scoped, auditable, test-backed, mission-link validated, and cannot silently write profile truth. | UI-supported review/edit flow remains separate. |
 | Mission Brief | Mission Brief role is defined as current-mission interpretation, not runtime authority. | Read-model/API contract proves Business Profile context plus current mission intent produces a bounded brief without runtime side effects. | Read model/API/proof are absent. |
 | Mission intake / MissionCreate | Tenant-owned planned mission and `mission_intake` metadata are created without queueing. | Intake is connected to Mission Brief and Business Profile context while preserving fail-closed validation and release-gate proof. | Business Profile/Mission Brief integration proof is absent. |
 | Mission planning | Declarative plan persistence and tenant/repository boundaries are proven. | Planner provenance, operator approval semantics, and full plan-to-graph generation proof are robust. | Generation/provenance proof is partial. |
@@ -197,16 +197,16 @@ Do not implement the following before this finish contract stabilizes and the ne
 - **Merge risk:** Medium; test may need careful fixture setup and must not alter runtime behavior.
 - **Why it comes now:** The current proof map is strong by stage but still partial for an end-to-end mission bridge happy path.
 
-### 5. Define Business Profile implementation contract
+### 5. Continue Business Profile production hardening
 
-- **Title:** Define Business Profile Implementation Contract
-- **Branch name:** `docs/business-profile-implementation-contract`
-- **Goal:** Create a docs-only implementation contract for profile storage, approval/update suggestions, audit events, and non-replacement of MissionCreate before any schema/API work begins.
-- **Files likely touched:** `docs/product/business-profile-and-mission-context.md`; possibly a new focused doc under `docs/product/`; `docs/product/mission-v1-finish-contract.md`
-- **Smallest proof set:** `python scripts/validation/contract_drift_check.py`
-- **Broader validation set:** `ruff check docs scripts tests`; `ruff format --check backend/ tests/`
-- **Merge risk:** Low; docs/governance only.
-- **Why it comes now:** Business Profile is product-direction truth but implementation proof is absent, so a contract should precede backend/schema work.
+- **Title:** Harden Business Profile Operational Readiness
+- **Branch name:** `feature/business-profile-operational-readiness`
+- **Goal:** Keep Business Profile inside its declarative/additive authority boundary while adding remaining operational readiness items such as retention/deletion policy, UI review proof, and monitoring dashboards/alerts for profile update failures.
+- **Files likely touched:** `backend/api/routes/business_profile.py`; `backend/repositories/business_profile_repository.py`; `docs/product/business-profile-implementation-contract.md`; `docs/product/mission-v1-finish-contract.md`; Business Profile tests as needed.
+- **Smallest proof set:** `python scripts/validation/contract_drift_check.py`; `pytest tests/unit/api/test_business_profile_hardening.py tests/unit/repositories/test_business_profile_repository.py`
+- **Broader validation set:** `ruff check docs scripts tests`; `ruff format --check backend/ tests/`; `pytest -m "not integration"`
+- **Merge risk:** Medium; wording and implementation must not imply Mission Brief, MissionCreate, queue, worker, retrieval, evidence, outcome-review, or memory-promotion authority.
+- **Why it comes now:** Backend/API proof now exists for profile storage, suggestions, mission-id validation, history reads, audit events, and no-runtime side effects; remaining Business Profile work should focus on operational readiness without crossing authority classes.
 
 ### 6. Define Mission Brief read-model/API contract
 

@@ -448,6 +448,7 @@ authority_entries:
       - backend/repositories/business_profile_repository.py
     route_scope:
       - /v1/business-profile
+      - /v1/business-profile/history
       - /v1/business-profile/facts/{category}
       - /v1/business-profile/suggestions
       - /v1/business-profile/suggestions/{suggestion_id}/approve
@@ -458,7 +459,9 @@ authority_entries:
     side_effect_class: tenant_scoped_business_profile_contract_mutation
     allowed_side_effects:
       - read and persist tenant-approved Business Profile facts
+      - read profile history and suggestion decisions
       - persist tenant-owned profile update suggestions and suggestion decisions
+      - append audit events for explicit Business Profile mutations
     forbidden_side_effects:
       - create missions or replace MissionCreate
       - generate Mission Briefs

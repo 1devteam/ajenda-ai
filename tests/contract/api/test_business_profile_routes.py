@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from backend.api.routes import business_profile as business_profile_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.principal import Principal, PrincipalType
+from backend.domain.audit_event import AuditEvent
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
 from backend.domain.mission import Mission
 from backend.repositories.business_profile_repository import BusinessProfileRepository
@@ -33,6 +34,12 @@ class _FakeBusinessProfileRepository:
         if profile and profile.status == "active":
             return profile
         return None
+
+    def get_or_create_active_profile(self, *, tenant_id: str) -> BusinessProfile:
+        profile = self.get_active_profile_for_tenant(tenant_id=tenant_id)
+        if profile is not None:
+            return profile
+        return self.add_profile(_profile(tenant_id=tenant_id))
 
     def update_profile(self, profile: BusinessProfile) -> BusinessProfile:
         self.profiles[profile.tenant_id] = profile
@@ -64,6 +71,12 @@ class _FakeBusinessProfileRepository:
             if suggestion.tenant_id == tenant_id and (status is None or suggestion.status == status)
         ]
 
+    def list_profile_history_for_tenant(self, *, tenant_id: str) -> dict[str, object]:
+        return {
+            "profile": self.get_active_profile_for_tenant(tenant_id=tenant_id),
+            "suggestions": self.list_suggestions_for_tenant(tenant_id=tenant_id),
+        }
+
     def require_pending_suggestion(self, suggestion: BusinessProfileSuggestion) -> None:
         self.delegate.require_pending_suggestion(suggestion)
 
@@ -78,6 +91,19 @@ class _FakeBusinessProfileRepository:
 
     def dismiss_suggestion(self, **kwargs: object) -> BusinessProfileSuggestion:
         return self.delegate.dismiss_suggestion(**kwargs)  # type: ignore[arg-type]
+
+
+class _FakeAuditEventRepository:
+    events: list[AuditEvent] = []
+
+    def __init__(self, _db: object) -> None:
+        pass
+
+    def append(self, event: AuditEvent) -> AuditEvent:
+        event.id = event.id or uuid.uuid4()
+        event.created_at = event.created_at or datetime(2026, 6, 3, tzinfo=UTC)
+        self.events.append(event)
+        return event
 
 
 class _FakeMissionRepository:
@@ -120,7 +146,9 @@ def _build_app(
 
     app.dependency_overrides[get_request_tenant_id] = _override_tenant_id
     app.dependency_overrides[get_tenant_db_session] = _override_db
+    _FakeAuditEventRepository.events = []
     business_profile_module.BusinessProfileRepository = lambda _db: repo  # type: ignore[assignment]
+    business_profile_module.AuditEventRepository = _FakeAuditEventRepository  # type: ignore[assignment]
     business_profile_module.MissionRepository = lambda _db: _FakeMissionRepository(missions or {})  # type: ignore[assignment]
     return app
 
@@ -401,6 +429,74 @@ def test_terminal_suggestions_cannot_be_resolved_twice() -> None:
     assert second_response.status_code == 409
     assert second_response.json() == {"detail": "only pending business profile suggestions can be resolved"}
     assert repo.profiles == {}
+
+
+def test_history_read_returns_profile_provenance_and_suggestion_decisions() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    profile = repo.add_profile(_profile(tenant_id=str(tenant_id), facts={"business_name": {"value": "Ajenda"}}))
+    profile.provenance = {
+        "business_name": {
+            "actor_id": "user-1",
+            "updated_at": "2026-06-03T00:00:00+00:00",
+            "decision": "direct_update",
+        }
+    }
+    suggestion = repo.add_suggestion(_suggestion(tenant_id=str(tenant_id)))
+    suggestion.status = "declined"
+    suggestion.resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+    suggestion.resolution = {"actor_id": "user-2", "decision": "declined"}
+
+    response = _client(tenant_id, repo).get("/v1/business-profile/history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["profile"]["profile_id"] == str(profile.id)
+    assert {event["event_type"] for event in body["events"]} == {"approved_fact", "suggestion"}
+    assert body["events"][0]["category"] == "business_name"
+
+
+def test_upsert_rejects_oversized_profile_json_payload() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+
+    response = _client(tenant_id, repo).put(
+        "/v1/business-profile/facts/business_name",
+        json={"approved_fact": {"value": "x" * 17_000}},
+    )
+
+    assert response.status_code == 422
+    assert repo.profiles == {}
+
+
+def test_category_is_normalized_to_prevent_case_and_space_collisions() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+
+    response = _client(tenant_id, repo).put(
+        "/v1/business-profile/facts/Service%20Area",
+        json={"approved_fact": {"value": "Dallas"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approved_facts"] == {"service_area": {"value": "Dallas"}}
+
+
+def test_profile_mutations_write_business_profile_audit_events_without_runtime_side_effects() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+
+    response = _client(tenant_id, repo).put(
+        "/v1/business-profile/facts/business_name",
+        json={"approved_fact": {"value": "Ajenda AI"}},
+    )
+
+    assert response.status_code == 200
+    assert len(_FakeAuditEventRepository.events) == 1
+    event = _FakeAuditEventRepository.events[0]
+    assert event.category == "business_profile"
+    assert event.action == "business_profile_fact_upserted"
+    assert event.payload_json["category"] == "business_name"
 
 
 def test_business_profile_routes_do_not_call_runtime_or_adjacent_contract_surfaces() -> None:

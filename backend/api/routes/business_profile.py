@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import uuid as _uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -12,18 +14,25 @@ from sqlalchemy.orm import Session
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
+from backend.domain.audit_event import AuditEvent
 from backend.domain.business_profile import (
     BUSINESS_PROFILE_SCHEMA_VERSION,
     BUSINESS_PROFILE_SUGGESTION_SCHEMA_VERSION,
     BusinessProfile,
     BusinessProfileSuggestion,
 )
+from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.mission_repository import MissionRepository
 
 router = APIRouter(prefix="/business-profile", tags=["business-profile"])
 
 SuggestionStatus = Literal["pending", "approved", "edited", "declined", "dismissed", "superseded"]
+
+MAX_PROFILE_JSON_BYTES = 16_384
+MAX_PROFILE_JSON_DEPTH = 8
+MAX_PROFILE_JSON_KEYS = 128
+_CATEGORY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_:-]{0,95}$")
 
 
 def _utcnow() -> datetime:
@@ -37,10 +46,62 @@ def _actor_id(request: Request) -> str:
 
 
 def _normalize_category(value: str) -> str:
-    value = value.strip()
-    if not value:
+    normalized = "_".join(value.strip().lower().split())
+    if not normalized:
         raise ValueError("category must be non-empty")
+    if not _CATEGORY_PATTERN.fullmatch(normalized):
+        raise ValueError("category must use lowercase letters, numbers, underscores, hyphens, or colons")
+    return normalized
+
+
+def _validate_json_payload(value: dict[str, Any], *, field_name: str) -> dict[str, Any]:
+    def _walk(node: Any, *, depth: int, key_count: list[int]) -> None:
+        if depth > MAX_PROFILE_JSON_DEPTH:
+            raise ValueError(f"{field_name} exceeds maximum JSON depth")
+        if isinstance(node, dict):
+            key_count[0] += len(node)
+            if key_count[0] > MAX_PROFILE_JSON_KEYS:
+                raise ValueError(f"{field_name} exceeds maximum JSON key count")
+            for key, child in node.items():
+                if not isinstance(key, str):
+                    raise ValueError(f"{field_name} JSON object keys must be strings")
+                _walk(child, depth=depth + 1, key_count=key_count)
+            return
+        if isinstance(node, list):
+            for child in node:
+                _walk(child, depth=depth + 1, key_count=key_count)
+            return
+        if node is not None and not isinstance(node, str | int | float | bool):
+            raise ValueError(f"{field_name} contains a non-JSON value")
+
+    _walk(value, depth=1, key_count=[0])
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    if len(encoded.encode("utf-8")) > MAX_PROFILE_JSON_BYTES:
+        raise ValueError(f"{field_name} exceeds maximum JSON size")
     return value
+
+
+def _append_business_profile_audit_event(
+    *,
+    db: Session,
+    tenant_id: str,
+    action: str,
+    actor_id: str,
+    details: str,
+    payload: dict[str, Any],
+    mission_id: UUID | None = None,
+) -> None:
+    AuditEventRepository(db).append(
+        AuditEvent(
+            tenant_id=tenant_id,
+            mission_id=mission_id,
+            category="business_profile",
+            action=action,
+            actor=actor_id,
+            details=details,
+            payload_json=payload,
+        )
+    )
 
 
 def _parse_mission_id(value: Any) -> UUID:
@@ -79,6 +140,11 @@ class BusinessProfileFactUpsert(BaseModel):
     approved_fact: dict[str, Any] = Field(min_length=1)
     provenance_metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("approved_fact", "provenance_metadata")
+    @classmethod
+    def _validate_payloads(cls, value: dict[str, Any], info: Any) -> dict[str, Any]:
+        return _validate_json_payload(value, field_name=info.field_name)
+
 
 class BusinessProfileSuggestionCreate(BaseModel):
     """Create a tenant-owned suggestion without mutating approved Business Profile truth."""
@@ -91,13 +157,23 @@ class BusinessProfileSuggestionCreate(BaseModel):
     rationale: str = Field(min_length=1, max_length=500)
     source_context: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("suggested_category", "rationale")
+    @field_validator("suggested_category")
+    @classmethod
+    def _normalize_suggested_category(cls, value: str) -> str:
+        return _normalize_category(value)
+
+    @field_validator("rationale")
     @classmethod
     def _normalize_required_text(cls, value: str) -> str:
         value = value.strip()
         if not value:
             raise ValueError("text fields must be non-empty")
         return value
+
+    @field_validator("suggested_fact", "source_context")
+    @classmethod
+    def _validate_payloads(cls, value: dict[str, Any], info: Any) -> dict[str, Any]:
+        return _validate_json_payload(value, field_name=info.field_name)
 
     @model_validator(mode="after")
     def _normalize_source_context_mission_id(self) -> BusinessProfileSuggestionCreate:
@@ -118,6 +194,11 @@ class BusinessProfileSuggestionResolveWithEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     approved_fact: dict[str, Any] = Field(min_length=1)
+
+    @field_validator("approved_fact")
+    @classmethod
+    def _validate_approved_fact(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _validate_json_payload(value, field_name="approved_fact")
 
 
 class BusinessProfileSuggestionRead(BaseModel):
@@ -149,6 +230,30 @@ class BusinessProfileSuggestionResolutionRead(BaseModel):
 
     profile: BusinessProfileRead | None = None
     suggestion: BusinessProfileSuggestionRead
+
+
+class BusinessProfileHistoryEventRead(BaseModel):
+    """Bounded profile history/audit event read shape."""
+
+    event_type: str
+    category: str | None = None
+    decision: str | None = None
+    actor_id: str | None = None
+    occurred_at: str | None = None
+    profile_id: UUID | None = None
+    suggestion_id: UUID | None = None
+    mission_id: UUID | None = None
+    current_fact: dict[str, Any] | None = None
+    approved_fact: dict[str, Any] | None = None
+    superseded_fact: dict[str, Any] | None = None
+    source_context: dict[str, Any] | None = None
+
+
+class BusinessProfileHistoryRead(BaseModel):
+    """Read-only Business Profile history/audit response."""
+
+    profile: BusinessProfileRead
+    events: list[BusinessProfileHistoryEventRead]
 
 
 def _profile_to_read(profile: BusinessProfile | None, *, tenant_id: str) -> BusinessProfileRead:
@@ -194,17 +299,51 @@ def _suggestion_to_read(suggestion: BusinessProfileSuggestion) -> BusinessProfil
 
 
 def _get_or_create_active_profile(repo: BusinessProfileRepository, *, tenant_id: str) -> BusinessProfile:
-    profile = repo.get_active_profile_for_tenant(tenant_id=tenant_id)
+    return repo.get_or_create_active_profile(tenant_id=tenant_id)
+
+
+def _history_to_read(
+    *, tenant_id: str, profile: BusinessProfile | None, suggestions: list[BusinessProfileSuggestion]
+) -> BusinessProfileHistoryRead:
+    events: list[BusinessProfileHistoryEventRead] = []
     if profile is not None:
-        return profile
-    return repo.add_profile(
-        BusinessProfile(
-            tenant_id=tenant_id,
-            approved_facts={},
-            provenance={},
-            schema_version=BUSINESS_PROFILE_SCHEMA_VERSION,
+        for category, provenance in sorted((profile.provenance or {}).items()):
+            if not isinstance(provenance, dict):
+                continue
+            events.append(
+                BusinessProfileHistoryEventRead(
+                    event_type="approved_fact",
+                    category=str(category),
+                    decision=str(provenance.get("decision")) if provenance.get("decision") is not None else None,
+                    actor_id=str(provenance.get("actor_id")) if provenance.get("actor_id") is not None else None,
+                    occurred_at=str(provenance.get("updated_at") or provenance.get("resolved_at"))
+                    if (provenance.get("updated_at") or provenance.get("resolved_at")) is not None
+                    else None,
+                    profile_id=profile.id,
+                    suggestion_id=UUID(str(provenance["suggestion_id"])) if provenance.get("suggestion_id") else None,
+                    current_fact=(profile.approved_facts or {}).get(category),
+                    superseded_fact=provenance.get("superseded_fact"),
+                )
+            )
+    for suggestion in suggestions:
+        resolution = suggestion.resolution or {}
+        events.append(
+            BusinessProfileHistoryEventRead(
+                event_type="suggestion",
+                category=suggestion.suggested_category,
+                decision=suggestion.status,
+                actor_id=str(resolution.get("actor_id")) if resolution.get("actor_id") is not None else None,
+                occurred_at=(suggestion.resolved_at or suggestion.created_at).isoformat(),
+                profile_id=suggestion.profile_id,
+                suggestion_id=suggestion.id,
+                mission_id=suggestion.mission_id,
+                approved_fact=resolution.get("approved_fact"),
+                superseded_fact=resolution.get("superseded_fact"),
+                source_context=suggestion.source_context,
+            )
         )
-    )
+    events.sort(key=lambda event: event.occurred_at or "")
+    return BusinessProfileHistoryRead(profile=_profile_to_read(profile, tenant_id=tenant_id), events=events)
 
 
 def _get_pending_suggestion_or_404(
@@ -233,6 +372,23 @@ def read_business_profile(
     return _profile_to_read(profile, tenant_id=tenant_scope)
 
 
+@router.get("/history", response_model=BusinessProfileHistoryRead)
+def read_business_profile_history(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> BusinessProfileHistoryRead:
+    """Read tenant-owned Business Profile history and suggestion audit decisions without mutation."""
+    require_route_permission(request=request, db=db, permission=Permission.BUSINESS_PROFILE_READ, tenant_id=tenant_id)
+    tenant_scope = str(tenant_id)
+    history = BusinessProfileRepository(db).list_profile_history_for_tenant(tenant_id=tenant_scope)
+    return _history_to_read(
+        tenant_id=tenant_scope,
+        profile=history["profile"],  # type: ignore[arg-type]
+        suggestions=history["suggestions"],  # type: ignore[arg-type]
+    )
+
+
 @router.put("/facts/{category}", response_model=BusinessProfileRead)
 def upsert_business_profile_fact(
     category: str,
@@ -257,6 +413,15 @@ def upsert_business_profile_fact(
         )
     except ValueError as exc:
         raise _resolve_value_error(exc) from exc
+    normalized_category = _normalize_category(category)
+    _append_business_profile_audit_event(
+        db=db,
+        tenant_id=tenant_scope,
+        action="business_profile_fact_upserted",
+        actor_id=_actor_id(request),
+        details="Business Profile approved fact was explicitly upserted.",
+        payload={"profile_id": str(updated.id), "category": normalized_category},
+    )
     return _profile_to_read(updated, tenant_id=tenant_scope)
 
 
@@ -287,6 +452,15 @@ def create_business_profile_suggestion(
             source_context=body.source_context,
             schema_version=BUSINESS_PROFILE_SUGGESTION_SCHEMA_VERSION,
         )
+    )
+    _append_business_profile_audit_event(
+        db=db,
+        tenant_id=tenant_scope,
+        action="business_profile_suggestion_created",
+        actor_id=_actor_id(request),
+        details="Business Profile suggestion was created without promoting profile truth.",
+        payload={"suggestion_id": str(suggestion.id), "category": suggestion.suggested_category},
+        mission_id=mission_id,
     )
     return _suggestion_to_read(suggestion)
 
@@ -330,6 +504,15 @@ def approve_business_profile_suggestion(
         )
     except ValueError as exc:
         raise _resolve_value_error(exc) from exc
+    _append_business_profile_audit_event(
+        db=db,
+        tenant_id=tenant_scope,
+        action="business_profile_suggestion_approved",
+        actor_id=_actor_id(request),
+        details="Business Profile suggestion was approved and promoted to profile truth.",
+        payload={"profile_id": str(updated_profile.id), "suggestion_id": str(updated_suggestion.id)},
+        mission_id=updated_suggestion.mission_id,
+    )
     return BusinessProfileSuggestionResolutionRead(
         profile=_profile_to_read(updated_profile, tenant_id=tenant_scope),
         suggestion=_suggestion_to_read(updated_suggestion),
@@ -364,6 +547,15 @@ def approve_business_profile_suggestion_with_edits(
         )
     except ValueError as exc:
         raise _resolve_value_error(exc) from exc
+    _append_business_profile_audit_event(
+        db=db,
+        tenant_id=tenant_scope,
+        action="business_profile_suggestion_edited",
+        actor_id=_actor_id(request),
+        details="Business Profile suggestion was edited and promoted to profile truth.",
+        payload={"profile_id": str(updated_profile.id), "suggestion_id": str(updated_suggestion.id)},
+        mission_id=updated_suggestion.mission_id,
+    )
     return BusinessProfileSuggestionResolutionRead(
         profile=_profile_to_read(updated_profile, tenant_id=tenant_scope),
         suggestion=_suggestion_to_read(updated_suggestion),
@@ -390,6 +582,15 @@ def decline_business_profile_suggestion(
         )
     except ValueError as exc:
         raise _resolve_value_error(exc) from exc
+    _append_business_profile_audit_event(
+        db=db,
+        tenant_id=tenant_scope,
+        action="business_profile_suggestion_declined",
+        actor_id=_actor_id(request),
+        details="Business Profile suggestion was declined without promoting profile truth.",
+        payload={"suggestion_id": str(updated_suggestion.id)},
+        mission_id=updated_suggestion.mission_id,
+    )
     return BusinessProfileSuggestionResolutionRead(profile=None, suggestion=_suggestion_to_read(updated_suggestion))
 
 
@@ -413,4 +614,13 @@ def dismiss_business_profile_suggestion(
         )
     except ValueError as exc:
         raise _resolve_value_error(exc) from exc
+    _append_business_profile_audit_event(
+        db=db,
+        tenant_id=tenant_scope,
+        action="business_profile_suggestion_dismissed",
+        actor_id=_actor_id(request),
+        details="Business Profile suggestion was dismissed without promoting profile truth.",
+        payload={"suggestion_id": str(updated_suggestion.id)},
+        mission_id=updated_suggestion.mission_id,
+    )
     return BusinessProfileSuggestionResolutionRead(profile=None, suggestion=_suggestion_to_read(updated_suggestion))
