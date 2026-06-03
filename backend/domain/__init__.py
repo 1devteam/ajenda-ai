@@ -1,4 +1,5 @@
 from backend.domain.audit_event import AuditEvent
+from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
 from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
 from backend.domain.enums import (
@@ -23,6 +24,8 @@ from backend.domain.workforce_fleet import WorkforceFleet
 
 __all__ = [
     "AuditEvent",
+    "BusinessProfile",
+    "BusinessProfileSuggestion",
     "Capability",
     "CapabilityAdapter",
     "EvidenceRecord",
