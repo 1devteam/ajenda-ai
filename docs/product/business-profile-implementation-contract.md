@@ -160,11 +160,11 @@ Business Profile must not:
 
 Future API work should be narrow and separately proven.
 
-Expected future surfaces may include:
+Implemented API surfaces include:
 
 - read current Business Profile;
-- update approved Business Profile facts;
-- create profile update suggestions;
+- update approved Business Profile facts with bounded JSON payload and normalized category validation;
+- create profile update suggestions with optional tenant-validated `mission_id`;
 - approve suggestion as-is;
 - approve suggestion with edits;
 - decline suggestion;
@@ -178,6 +178,8 @@ API implementation must prove:
 - no silent writes;
 - suggestion lifecycle correctness;
 - audit/version history;
+- bounded JSON depth/size/category validation;
+- tenant validation before first-class mission-linked suggestions are stored;
 - no runtime side effects;
 - stable read shape for Mission Brief consumers.
 
@@ -190,8 +192,9 @@ Future storage work must prove:
 - durable approved facts;
 - auditable suggestion decisions;
 - supersession/history semantics;
-- safe JSON handling for structured profile facts;
+- safe bounded JSON handling for approved facts, provenance metadata, suggested facts, source context, and edited approved facts;
 - migration round-trip safety;
+- race-safe active profile creation under the database unique active-profile invariant;
 - no coupling to runtime queue/worker tables.
 
 Storage implementation must not require all Business Profile categories to be known forever on day one. The model should allow additive, schema-versioned profile fact categories without rewriting mission intake.
@@ -208,7 +211,10 @@ The first backend implementation PR must include tests proving:
 - no / not now leaves the suggestion unresolved or declined without durable fact promotion;
 - ignore / dismiss records no approved profile fact;
 - approved profile facts can be read for Mission Brief use;
-- profile writes do not create missions, execution tasks, queue messages, worker leases, evidence, outcome reviews, retrieval contracts, or memory promotions.
+- profile writes do not create missions, execution tasks, queue messages, worker leases, evidence, outcome reviews, retrieval contracts, or memory promotions;
+- history reads expose supersession and suggestion decisions without mutation;
+- mission-linked suggestions require tenant-owned `mission_id` proof before linking;
+- oversized/deep profile JSON payloads and invalid category names fail closed.
 
 ## 13. Do Not Implement In The Same PR As Initial Storage
 
@@ -245,4 +251,4 @@ Production-ready Business Profile requires:
 - retention/deletion policy;
 - UI-supported review/edit flow;
 - release-gated proof that profile context shapes Mission Brief without replacing `MissionCreate`;
-- monitoring for profile update events and failures.
+- monitoring/audit proof for profile fact updates and suggestion lifecycle events, plus failure logging for rejected profile mutations.

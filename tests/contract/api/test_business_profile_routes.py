@@ -37,6 +37,14 @@ class _FakeBusinessProfileRepository:
         self.profiles[profile.tenant_id] = profile
         return profile
 
+    def get_or_create_active_profile(self, *, tenant_id: str, schema_version: int) -> BusinessProfile:
+        profile = self.get_active_profile_for_tenant(tenant_id=tenant_id)
+        if profile is not None:
+            return profile
+        return self.add_profile(
+            BusinessProfile(tenant_id=tenant_id, approved_facts={}, provenance={}, schema_version=schema_version)
+        )
+
     def upsert_approved_fact(self, **kwargs: object) -> BusinessProfile:
         return self.delegate.upsert_approved_fact(**kwargs)  # type: ignore[arg-type]
 
@@ -135,6 +143,7 @@ def _suggestion(*, tenant_id: str, category: str = "service_area") -> BusinessPr
         suggested_fact={"value": "Dallas"},
         rationale="User stated this service area should be reused.",
         source_context={"conversation_id": "conv-1"},
+        mission_id=None,
     )
     suggestion.id = uuid.uuid4()
     suggestion.created_at = datetime(2026, 6, 3, tzinfo=UTC)

@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
@@ -20,6 +21,34 @@ class BusinessProfileRepository:
         self._session.flush()
         self._session.refresh(profile)
         return profile
+
+    def get_or_create_active_profile(self, *, tenant_id: str, schema_version: int) -> BusinessProfile:
+        """Return the active tenant profile, creating it idempotently under races.
+
+        The database owns the single-active-profile invariant through a unique
+        partial index. If another request creates the row after our initial
+        read, roll back only the nested insert and return the now-existing profile.
+        """
+        profile = self.get_active_profile_for_tenant(tenant_id=tenant_id)
+        if profile is not None:
+            return profile
+        try:
+            with self._session.begin_nested():
+                profile = BusinessProfile(
+                    tenant_id=tenant_id,
+                    approved_facts={},
+                    provenance={},
+                    schema_version=schema_version,
+                )
+                self._session.add(profile)
+                self._session.flush()
+            self._session.refresh(profile)
+            return profile
+        except IntegrityError:
+            profile = self.get_active_profile_for_tenant(tenant_id=tenant_id)
+            if profile is None:
+                raise
+            return profile
 
     def get_profile_for_tenant(self, *, profile_id: uuid.UUID, tenant_id: str) -> BusinessProfile | None:
         stmt = select(BusinessProfile).where(BusinessProfile.id == profile_id, BusinessProfile.tenant_id == tenant_id)
