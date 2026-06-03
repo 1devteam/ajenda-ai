@@ -440,6 +440,31 @@ authority_entries:
       - tests/unit/api/test_capability_adapter_route.py
       - tests/unit/repositories/test_capability_adapter_repository.py
 
+  - id: mission_brief_read_model
+    area: mission brief read model
+    source_of_truth:
+      - backend/api/routes/mission_brief.py
+      - backend/services/mission_brief.py
+    route_scope:
+      - /v1/mission-brief/draft
+    authority_class: read_model
+    side_effect_class: none
+    allowed_side_effects:
+      - read approved tenant Business Profile facts
+      - aggregate current mission intent and explicit request context
+      - return structured Mission Brief, missing information, MissionCreate prefill suggestions, provenance, conflicts, and authority flags
+    forbidden_side_effects:
+      - create missions or replace MissionCreate
+      - create mission plans or task graphs
+      - create execution tasks or queue work
+      - dispatch workers or mutate worker leases
+      - write durable Business Profile truth or promote memory
+      - mutate evidence, outcome-review, retrieval, runtime, or queue state
+    required_proofs:
+      - tests/unit/services/test_mission_brief.py
+      - tests/unit/api/test_mission_brief_route.py
+      - tests/contract/api/test_mission_brief_routes.py
+
   - id: business_profile_contract
     area: business profile durable tenant context
     source_of_truth:

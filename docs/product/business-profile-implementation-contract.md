@@ -135,6 +135,8 @@ Mission Brief may use approved Business Profile context plus current mission int
 
 Business Profile must not write directly into runtime state. Mission Brief must not become runtime authority. Runtime execution still requires explicit mission intake, planning, graph/materialization, runtime task materialization, queue admission, dispatch readiness, and worker admission stages.
 
+Current Mission Brief backend proof is implemented as `POST /v1/mission-brief/draft`. The endpoint is a read-model surface that reads the active approved Business Profile, accepts current mission intent and request context, returns structured brief/readiness output, reports missing information, suggests `MissionCreate` prefill/defaults, records field provenance and conflicts, and exposes authority flags proving that no mission/runtime/profile-truth mutation occurred.
+
 ## 9. MissionCreate Relationship
 
 `MissionCreate` remains the mission intake contract for the current mission.
@@ -243,5 +245,5 @@ Remaining production-ready Business Profile work requires:
 
 - retention/deletion policy;
 - UI-supported review/edit flow;
-- release-gated proof that profile context shapes Mission Brief without replacing `MissionCreate`;
+- UI/release-gated proof that operators review Mission Brief output before `MissionCreate`;
 - monitoring dashboards/alerts for profile update events and failures beyond append-only audit event proof.

@@ -26,6 +26,24 @@ Existing mission intake remains responsible for the specific mission request and
 
 Business Profile may help prefill, suggest, or clarify mission fields, but every mission still needs its own explicit Mission Brief and runtime contract path before execution.
 
+
+## Mission Brief Read-Model API Contract
+
+`POST /v1/mission-brief/draft` is the backend read surface for Bundle 2 Mission Brief readiness. It deterministically combines approved active Business Profile facts, current mission-specific intent, and explicit request context into a bounded draft response.
+
+The response includes:
+
+- a structured Mission Brief summary;
+- a missing-information checklist for required or recommended mission intake data;
+- suggested `MissionCreate` prefill/default values;
+- field-level provenance showing whether values came from current intent, Business Profile, request context, or system defaults;
+- conflict records where current intent differs from reusable profile defaults;
+- authority flags proving the result is a read model only.
+
+Current mission intent wins over Business Profile defaults. Conflicts are surfaced for review; they are not resolved by mutating profile truth or creating runtime work. Missing required `MissionCreate` fields are reported instead of fabricated.
+
+Mission Brief draft generation must not create `Mission`, `MissionPlan`, task graph metadata, `ExecutionTask`, queue messages, worker leases, evidence, outcome-review, retrieval, durable Business Profile truth, or memory-promotion records. Runtime execution still starts only after explicit mission intake and the governed mission/runtime bridge stages.
+
 ## Business Profile Scope
 
 A Business Profile should capture stable tenant/business facts, such as:
