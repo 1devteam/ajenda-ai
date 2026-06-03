@@ -1,0 +1,213 @@
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
+
+from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
+from backend.repositories.business_profile_repository import BusinessProfileRepository
+
+
+def _profile(*, tenant_id: str = "tenant-a") -> BusinessProfile:
+    return BusinessProfile(
+        tenant_id=tenant_id,
+        approved_facts={},
+        provenance={},
+    )
+
+
+def _suggestion(*, tenant_id: str = "tenant-a", category: str = "service_area") -> BusinessProfileSuggestion:
+    return BusinessProfileSuggestion(
+        tenant_id=tenant_id,
+        suggested_category=category,
+        suggested_fact={"value": "Dallas"},
+        rationale="User stated this service area should be reused.",
+        source_context={"mission_id": str(uuid.uuid4())},
+    )
+
+
+def test_add_profile_flushes_and_refreshes() -> None:
+    profile = _profile()
+    session = MagicMock()
+
+    result = BusinessProfileRepository(session).add_profile(profile)
+
+    assert result is profile
+    session.add.assert_called_once_with(profile)
+    session.flush.assert_called_once_with()
+    session.refresh.assert_called_once_with(profile)
+
+
+def test_get_profile_for_tenant_uses_tenant_scope() -> None:
+    tenant_id = str(uuid.uuid4())
+    profile_id = uuid.uuid4()
+    profile = _profile(tenant_id=tenant_id)
+    session = MagicMock()
+    session.scalar.return_value = profile
+
+    result = BusinessProfileRepository(session).get_profile_for_tenant(profile_id=profile_id, tenant_id=tenant_id)
+
+    assert result is profile
+    statement = session.scalar.call_args.args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "business_profiles.id" in compiled
+    assert "business_profiles.tenant_id" in compiled
+    assert tenant_id in compiled
+
+
+def test_get_active_profile_for_tenant_filters_active_status() -> None:
+    tenant_id = str(uuid.uuid4())
+    profile = _profile(tenant_id=tenant_id)
+    session = MagicMock()
+    session.scalar.return_value = profile
+
+    result = BusinessProfileRepository(session).get_active_profile_for_tenant(tenant_id=tenant_id)
+
+    assert result is profile
+    statement = session.scalar.call_args.args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "business_profiles.tenant_id" in compiled
+    assert "business_profiles.status" in compiled
+    assert "active" in compiled
+    assert tenant_id in compiled
+
+
+def test_add_suggestion_flushes_and_refreshes() -> None:
+    suggestion = _suggestion()
+    session = MagicMock()
+
+    result = BusinessProfileRepository(session).add_suggestion(suggestion)
+
+    assert result is suggestion
+    session.add.assert_called_once_with(suggestion)
+    session.flush.assert_called_once_with()
+    session.refresh.assert_called_once_with(suggestion)
+
+
+def test_get_suggestion_for_tenant_uses_tenant_scope() -> None:
+    tenant_id = str(uuid.uuid4())
+    suggestion_id = uuid.uuid4()
+    suggestion = _suggestion(tenant_id=tenant_id)
+    session = MagicMock()
+    session.scalar.return_value = suggestion
+
+    result = BusinessProfileRepository(session).get_suggestion_for_tenant(
+        suggestion_id=suggestion_id,
+        tenant_id=tenant_id,
+    )
+
+    assert result is suggestion
+    statement = session.scalar.call_args.args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "business_profile_suggestions.id" in compiled
+    assert "business_profile_suggestions.tenant_id" in compiled
+    assert tenant_id in compiled
+
+
+def test_list_suggestions_for_tenant_filters_tenant_and_optional_status() -> None:
+    tenant_id = str(uuid.uuid4())
+    session = MagicMock()
+    session.scalars.return_value = [MagicMock()]
+
+    result = BusinessProfileRepository(session).list_suggestions_for_tenant(
+        tenant_id=tenant_id,
+        status="pending",
+    )
+
+    assert result == [session.scalars.return_value[0]]
+    statement = session.scalars.call_args.args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "business_profile_suggestions.tenant_id" in compiled
+    assert "business_profile_suggestions.status" in compiled
+    assert "pending" in compiled
+    assert tenant_id in compiled
+
+
+def test_pending_suggestion_does_not_mutate_profile_truth_when_added() -> None:
+    profile = _profile()
+    suggestion = _suggestion()
+    session = MagicMock()
+    repo = BusinessProfileRepository(session)
+
+    repo.add_suggestion(suggestion)
+
+    assert profile.approved_facts == {}
+    assert profile.provenance == {}
+
+
+def test_approve_suggestion_as_is_writes_approved_fact_and_resolution() -> None:
+    profile = _profile()
+    suggestion = _suggestion(category="service_area")
+    suggestion.id = uuid.uuid4()
+    resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+    session = MagicMock()
+
+    updated_profile, updated_suggestion = BusinessProfileRepository(session).approve_suggestion_as_is(
+        profile=profile,
+        suggestion=suggestion,
+        resolved_at=resolved_at,
+        actor_id="user-1",
+    )
+
+    assert updated_profile.approved_facts["service_area"] == {"value": "Dallas"}
+    assert updated_profile.provenance["service_area"]["actor_id"] == "user-1"
+    assert updated_profile.provenance["service_area"]["decision"] == "approved"
+    assert updated_suggestion.status == "approved"
+    assert updated_suggestion.resolution["approved_fact"] == {"value": "Dallas"}
+    session.flush.assert_called_once()
+
+
+def test_approve_suggestion_with_edit_writes_edited_fact_not_original() -> None:
+    profile = _profile()
+    suggestion = _suggestion(category="service_area")
+    suggestion.id = uuid.uuid4()
+    resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+    session = MagicMock()
+
+    updated_profile, updated_suggestion = BusinessProfileRepository(session).approve_suggestion_with_edit(
+        profile=profile,
+        suggestion=suggestion,
+        approved_fact={"value": "Fort Worth"},
+        resolved_at=resolved_at,
+        actor_id="user-1",
+    )
+
+    assert updated_profile.approved_facts["service_area"] == {"value": "Fort Worth"}
+    assert updated_profile.approved_facts["service_area"] != suggestion.suggested_fact
+    assert updated_profile.provenance["service_area"]["decision"] == "edited"
+    assert updated_suggestion.status == "edited"
+    assert updated_suggestion.resolution["approved_fact"] == {"value": "Fort Worth"}
+
+
+def test_decline_suggestion_does_not_write_approved_profile_fact() -> None:
+    profile = _profile()
+    suggestion = _suggestion()
+    resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+    session = MagicMock()
+
+    result = BusinessProfileRepository(session).decline_suggestion(
+        suggestion=suggestion,
+        resolved_at=resolved_at,
+        actor_id="user-1",
+    )
+
+    assert result.status == "declined"
+    assert result.resolution["decision"] == "declined"
+    assert profile.approved_facts == {}
+
+
+def test_dismiss_suggestion_does_not_write_approved_profile_fact() -> None:
+    profile = _profile()
+    suggestion = _suggestion()
+    resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+    session = MagicMock()
+
+    result = BusinessProfileRepository(session).dismiss_suggestion(
+        suggestion=suggestion,
+        resolved_at=resolved_at,
+        actor_id="user-1",
+    )
+
+    assert result.status == "dismissed"
+    assert result.resolution["decision"] == "dismissed"
+    assert profile.approved_facts == {}
