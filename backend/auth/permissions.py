@@ -20,3 +20,5 @@ class Permission(StrEnum):
     EVIDENCE_MANAGE = "evidence:manage"
     OUTCOME_REVIEW_MANAGE = "outcome_review:manage"
     RETRIEVAL_MANAGE = "retrieval:manage"
+    BUSINESS_PROFILE_READ = "business_profile:read"
+    BUSINESS_PROFILE_MANAGE = "business_profile:manage"

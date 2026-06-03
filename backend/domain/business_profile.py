@@ -28,6 +28,14 @@ class BusinessProfile(Base):
     """
 
     __tablename__ = "business_profiles"
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("status", "active")
+        kwargs.setdefault("approved_facts", {})
+        kwargs.setdefault("provenance", {})
+        kwargs.setdefault("schema_version", BUSINESS_PROFILE_SCHEMA_VERSION)
+        super().__init__(**kwargs)
+
     __table_args__ = (
         sa.CheckConstraint(
             "status IN ('active', 'archived', 'superseded')",
@@ -79,6 +87,7 @@ class BusinessProfileSuggestion(Base):
         kwargs.setdefault("resolution", {})
         kwargs.setdefault("source_context", {})
         kwargs.setdefault("suggested_fact", {})
+        kwargs.setdefault("schema_version", BUSINESS_PROFILE_SUGGESTION_SCHEMA_VERSION)
         super().__init__(**kwargs)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

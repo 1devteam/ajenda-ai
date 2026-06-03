@@ -130,6 +130,7 @@ Current implementation note:
   - `/v1/missions/*`
   - `/v1/capabilities/*`
   - `/v1/capability-adapters/*`
+  - `/v1/business-profile/*`
   - `/v1/evidence/*`
   - `/v1/outcome-reviews/*`
   - `/v1/retrieval-contracts/*`
@@ -169,6 +170,7 @@ That ledger is normative for authority-class intent and required proof surfaces 
 | Durable mission plans | `MissionPlan`, repository, mission routes, migrations | durable mission plans are canonical over legacy mission metadata fallback | unit/API/repository/migration contract tests |
 | Capability registry | capability routes, models, repositories, migrations | capabilities declare task types, schemas, required permissions/tools, risk, approval, evidence, constraints, enabled state, scope, version, and schema version; registry declarations do not execute work or bind handlers by themselves | unit/API/repository/migration contract tests |
 | Capability execution adapters | adapter routes, models, repositories, migrations | adapters declare capability bindings, execution mode, input/output contracts, side-effect class, timeout/retry/idempotency expectations, and evidence expectations; adapter records do not execute work or register runtime handlers by themselves; an adapter contract is not a worker-callable runtime binding unless a separate binding/execution contract explicitly makes it so | unit/API/repository/migration contract tests |
+| Business Profile | business-profile routes, models, repositories, migrations | Business Profile stores durable tenant-approved reusable context and profile update suggestions; it is not a mission, does not replace `MissionCreate`, does not generate Mission Briefs, and has no runtime authority | contract/API/repository/migration tests |
 | Task graph contracts | mission metadata normalizer and task-graph routes | task graphs are normalized metadata contracts and do not dispatch runtime work | unit/API/domain tests |
 | Mission-to-runtime bridge contracts | mission materialization/admission/readiness/preview/worker admission endpoints and mission metadata keys | mission graphs move toward runtime through explicit, tenant-scoped bridge stages; those stages must not be collapsed into one implicit execution path; each stage records metadata or performs one bounded mutation and does not skip queue, lease, dispatcher, or recovery authority | unit/API/domain tests |
 | Evidence records | evidence routes, models, repositories, migrations | evidence records store tenant-owned proof/provenance for missions, graph nodes, materializations, tasks, capabilities, adapters, artifacts, trust, and collection state without executing work or scoring outcomes | unit/API/repository/migration contract tests |

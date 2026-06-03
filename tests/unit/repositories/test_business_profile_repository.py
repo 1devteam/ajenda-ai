@@ -343,3 +343,67 @@ def test_approve_suggestion_rejects_wrong_profile_id() -> None:
     assert profile.approved_facts == {}
     session.add.assert_not_called()
     session.flush.assert_not_called()
+
+
+def test_upsert_approved_fact_writes_explicit_fact_and_provenance_metadata() -> None:
+    profile = _profile()
+    updated_at = datetime(2026, 6, 3, tzinfo=UTC)
+    session = MagicMock()
+
+    result = BusinessProfileRepository(session).upsert_approved_fact(
+        profile=profile,
+        category="business_name",
+        approved_fact={"value": "Ajenda AI"},
+        actor_id="user-1",
+        updated_at=updated_at,
+        provenance_metadata={"source": "onboarding"},
+    )
+
+    assert result.approved_facts["business_name"] == {"value": "Ajenda AI"}
+    assert result.provenance["business_name"]["actor_id"] == "user-1"
+    assert result.provenance["business_name"]["decision"] == "direct_update"
+    assert result.provenance["business_name"]["metadata"] == {"source": "onboarding"}
+    session.flush.assert_called_once()
+
+
+def test_upsert_approved_fact_preserves_superseded_fact_and_provenance() -> None:
+    previous_provenance = {"actor_id": "user-old", "decision": "direct_update"}
+    profile = _profile()
+    profile.approved_facts = {"business_name": {"value": "Old Name"}}
+    profile.provenance = {"business_name": previous_provenance}
+    updated_at = datetime(2026, 6, 3, tzinfo=UTC)
+    session = MagicMock()
+
+    result = BusinessProfileRepository(session).upsert_approved_fact(
+        profile=profile,
+        category="business_name",
+        approved_fact={"value": "New Name"},
+        actor_id="user-1",
+        updated_at=updated_at,
+    )
+
+    assert result.approved_facts["business_name"] == {"value": "New Name"}
+    assert result.provenance["business_name"]["superseded_fact"] == {"value": "Old Name"}
+    assert result.provenance["business_name"]["superseded_provenance"] == previous_provenance
+
+
+def test_upsert_approved_fact_rejects_non_active_profile() -> None:
+    profile = _profile()
+    profile.status = "archived"
+    session = MagicMock()
+
+    try:
+        BusinessProfileRepository(session).upsert_approved_fact(
+            profile=profile,
+            category="business_name",
+            approved_fact={"value": "Ajenda"},
+            actor_id="user-1",
+            updated_at=datetime(2026, 6, 3, tzinfo=UTC),
+        )
+    except ValueError as exc:
+        assert str(exc) == "only active business profiles can be updated"
+    else:
+        raise AssertionError("expected archived profile update to fail")
+
+    session.add.assert_not_called()
+    session.flush.assert_not_called()
