@@ -74,6 +74,13 @@ class BusinessProfileSuggestion(Base):
         ),
     )
 
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("status", "pending")
+        kwargs.setdefault("resolution", {})
+        kwargs.setdefault("source_context", {})
+        kwargs.setdefault("suggested_fact", {})
+        super().__init__(**kwargs)
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     profile_id: Mapped[uuid.UUID | None] = mapped_column(
