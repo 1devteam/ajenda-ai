@@ -6,7 +6,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from backend.api.routes._authorization import require_route_permission
@@ -19,6 +19,7 @@ from backend.domain.business_profile import (
     BusinessProfileSuggestion,
 )
 from backend.repositories.business_profile_repository import BusinessProfileRepository
+from backend.repositories.mission_repository import MissionRepository
 
 router = APIRouter(prefix="/business-profile", tags=["business-profile"])
 
@@ -40,6 +41,21 @@ def _normalize_category(value: str) -> str:
     if not value:
         raise ValueError("category must be non-empty")
     return value
+
+
+def _parse_mission_id(value: Any) -> UUID:
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("source_context.mission_id must be a valid UUID") from exc
+
+
+def _validate_suggestion_mission_id(*, db: Session, tenant_id: str, mission_id: UUID | None) -> UUID | None:
+    if mission_id is None:
+        return None
+    if MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id) is None:
+        raise ValueError("business profile suggestion mission_id not found for tenant")
+    return mission_id
 
 
 class BusinessProfileRead(BaseModel):
@@ -69,6 +85,7 @@ class BusinessProfileSuggestionCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    mission_id: UUID | None = None
     suggested_category: str = Field(min_length=1, max_length=96)
     suggested_fact: dict[str, Any] = Field(min_length=1)
     rationale: str = Field(min_length=1, max_length=500)
@@ -81,6 +98,18 @@ class BusinessProfileSuggestionCreate(BaseModel):
         if not value:
             raise ValueError("text fields must be non-empty")
         return value
+
+    @model_validator(mode="after")
+    def _normalize_source_context_mission_id(self) -> BusinessProfileSuggestionCreate:
+        raw_source_context_mission_id = self.source_context.get("mission_id")
+        if raw_source_context_mission_id is None:
+            return self
+        source_context_mission_id = _parse_mission_id(raw_source_context_mission_id)
+        if self.mission_id is not None and self.mission_id != source_context_mission_id:
+            raise ValueError("mission_id must match source_context.mission_id when both are provided")
+        self.mission_id = source_context_mission_id
+        self.source_context = {**self.source_context, "mission_id": str(source_context_mission_id)}
+        return self
 
 
 class BusinessProfileSuggestionResolveWithEdit(BaseModel):
@@ -97,6 +126,7 @@ class BusinessProfileSuggestionRead(BaseModel):
     suggestion_id: UUID
     tenant_id: str
     profile_id: UUID | None
+    mission_id: UUID | None
     suggested_category: str
     suggested_fact: dict[str, Any]
     rationale: str
@@ -150,6 +180,7 @@ def _suggestion_to_read(suggestion: BusinessProfileSuggestion) -> BusinessProfil
         suggestion_id=suggestion.id,
         tenant_id=suggestion.tenant_id,
         profile_id=suggestion.profile_id,
+        mission_id=suggestion.mission_id,
         suggested_category=suggestion.suggested_category,
         suggested_fact=suggestion.suggested_fact,
         rationale=suggestion.rationale,
@@ -240,11 +271,16 @@ def create_business_profile_suggestion(
     require_route_permission(request=request, db=db, permission=Permission.BUSINESS_PROFILE_MANAGE, tenant_id=tenant_id)
     tenant_scope = str(tenant_id)
     repo = BusinessProfileRepository(db)
+    try:
+        mission_id = _validate_suggestion_mission_id(db=db, tenant_id=tenant_scope, mission_id=body.mission_id)
+    except ValueError as exc:
+        raise _resolve_value_error(exc) from exc
     profile = repo.get_active_profile_for_tenant(tenant_id=tenant_scope)
     suggestion = repo.add_suggestion(
         BusinessProfileSuggestion(
             tenant_id=tenant_scope,
             profile_id=profile.id if profile else None,
+            mission_id=mission_id,
             suggested_category=body.suggested_category,
             suggested_fact=body.suggested_fact,
             rationale=body.rationale,
