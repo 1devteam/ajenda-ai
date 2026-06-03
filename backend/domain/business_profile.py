@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,6 +28,18 @@ class BusinessProfile(Base):
     """
 
     __tablename__ = "business_profiles"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('active', 'archived', 'superseded')",
+            name="ck_business_profiles_status",
+        ),
+        sa.Index(
+            "uq_business_profiles_active_tenant",
+            "tenant_id",
+            unique=True,
+            postgresql_where=sa.text("status = 'active'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
@@ -49,6 +62,17 @@ class BusinessProfileSuggestion(Base):
     """
 
     __tablename__ = "business_profile_suggestions"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('pending', 'approved', 'edited', 'declined', 'dismissed', 'superseded')",
+            name="ck_business_profile_suggestions_status",
+        ),
+        sa.Index(
+            "ix_business_profile_suggestions_tenant_status",
+            "tenant_id",
+            "status",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
