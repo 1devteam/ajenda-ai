@@ -138,10 +138,11 @@ This document defines product behavior and future contract direction only. It do
 
 Future implementation should proceed in focused PRs:
 
-1. Business Profile domain and storage contract.
-2. Profile update proposal contract.
-3. API routes for reading/updating approved profile context.
-4. Mission Brief generation/readiness contract.
-5. UI onboarding and profile update suggestion flow.
+1. Business Profile implementation contract. See `docs/product/business-profile-implementation-contract.md`.
+2. Business Profile domain and storage contract.
+3. Profile update proposal contract.
+4. API routes for reading/updating approved profile context.
+5. Mission Brief generation/readiness contract.
+6. UI onboarding and profile update suggestion flow.
 
 Each implementation PR must preserve the rule that Business Profile is additive context above mission intake, not a replacement for mission intake or runtime governance.
