@@ -440,6 +440,34 @@ authority_entries:
       - tests/unit/api/test_capability_adapter_route.py
       - tests/unit/repositories/test_capability_adapter_repository.py
 
+  - id: business_profile_contract
+    area: business profile durable tenant context
+    source_of_truth:
+      - backend/api/routes/business_profile.py
+      - backend/domain/business_profile.py
+      - backend/repositories/business_profile_repository.py
+    route_scope:
+      - /v1/business-profile
+      - /v1/business-profile/facts/{category}
+      - /v1/business-profile/suggestions
+      - /v1/business-profile/suggestions/{suggestion_id}/approve
+      - /v1/business-profile/suggestions/{suggestion_id}/approve-with-edits
+      - /v1/business-profile/suggestions/{suggestion_id}/decline
+      - /v1/business-profile/suggestions/{suggestion_id}/dismiss
+    authority_class: declarative
+    side_effect_class: tenant_scoped_business_profile_contract_mutation
+    allowed_side_effects:
+      - read and persist tenant-approved Business Profile facts
+      - persist tenant-owned profile update suggestions and suggestion decisions
+    forbidden_side_effects:
+      - create missions or replace MissionCreate
+      - generate Mission Briefs
+      - mutate runtime execution, queue, lease, evidence, outcome-review, retrieval, or memory-promotion state
+    required_proofs:
+      - tests/contract/api/test_business_profile_routes.py
+      - tests/unit/repositories/test_business_profile_repository.py
+      - tests/unit/db/test_business_profile_migration_contract.py
+
   - id: evidence_contract
     area: evidence records
     source_of_truth:

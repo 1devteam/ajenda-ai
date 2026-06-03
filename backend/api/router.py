@@ -14,6 +14,7 @@ Route inventory under /v1/:
   /v1/api-keys/*      — API key lifecycle management
   /v1/capabilities/*  — Capability registry contracts
   /v1/capability-adapters/* — Capability execution adapter contracts
+  /v1/business-profile/* — Business Profile durable tenant context
   /v1/evidence/*     — Evidence proof/provenance contracts
   /v1/outcome-reviews/* — Outcome review contracts
   /v1/retrieval-contracts/* — Retrieval and recall contracts
@@ -44,6 +45,7 @@ from backend.api.routes.admin import router as admin_router
 from backend.api.routes.api_keys import router as api_keys_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.branch import router as branch_router
+from backend.api.routes.business_profile import router as business_profile_router
 from backend.api.routes.capability import router as capability_router
 from backend.api.routes.capability_adapter import router as capability_adapter_router
 from backend.api.routes.evidence import router as evidence_router
@@ -78,6 +80,7 @@ def build_api_router() -> APIRouter:
     v1.include_router(api_keys_router)  # /v1/api-keys/*
     v1.include_router(capability_router)  # /v1/capabilities/*
     v1.include_router(capability_adapter_router)  # /v1/capability-adapters/*
+    v1.include_router(business_profile_router)  # /v1/business-profile/*
     v1.include_router(evidence_router)  # /v1/evidence/*
     v1.include_router(outcome_review_router)  # /v1/outcome-reviews/*
     v1.include_router(retrieval_contract_router)  # /v1/retrieval-contracts/*

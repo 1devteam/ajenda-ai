@@ -39,6 +39,8 @@ class RbacAuthorizer:
                     Permission.EVIDENCE_MANAGE,
                     Permission.OUTCOME_REVIEW_MANAGE,
                     Permission.RETRIEVAL_MANAGE,
+                    Permission.BUSINESS_PROFILE_READ,
+                    Permission.BUSINESS_PROFILE_MANAGE,
                 }
             ),
             "tenant_admin": frozenset(
@@ -59,6 +61,8 @@ class RbacAuthorizer:
                     Permission.EVIDENCE_MANAGE,
                     Permission.OUTCOME_REVIEW_MANAGE,
                     Permission.RETRIEVAL_MANAGE,
+                    Permission.BUSINESS_PROFILE_READ,
+                    Permission.BUSINESS_PROFILE_MANAGE,
                 }
             ),
             "operator": frozenset(
@@ -68,6 +72,7 @@ class RbacAuthorizer:
                     Permission.MISSION_MANAGE,
                     Permission.RUNTIME_OPERATE,
                     Permission.RUNTIME_VIEW,
+                    Permission.BUSINESS_PROFILE_READ,
                 }
             ),
             "viewer": frozenset(
@@ -75,6 +80,7 @@ class RbacAuthorizer:
                     Permission.AUTH_READ,
                     Permission.EXECUTION_VIEW,
                     Permission.RUNTIME_VIEW,
+                    Permission.BUSINESS_PROFILE_READ,
                 }
             ),
             "machine_executor": frozenset(

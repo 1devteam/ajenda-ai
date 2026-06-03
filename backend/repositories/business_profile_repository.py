@@ -32,6 +32,45 @@ class BusinessProfileRepository:
         )
         return self._session.scalar(stmt)
 
+    def upsert_approved_fact(
+        self,
+        *,
+        profile: BusinessProfile,
+        category: str,
+        approved_fact: dict[str, object],
+        actor_id: str,
+        updated_at: datetime,
+        provenance_metadata: dict[str, object] | None = None,
+    ) -> BusinessProfile:
+        if profile.status != "active":
+            raise ValueError("only active business profiles can be updated")
+        if not category.strip():
+            raise ValueError("business profile fact category must be non-empty")
+
+        approved_facts = dict(profile.approved_facts or {})
+        provenance = dict(profile.provenance or {})
+        previous_fact = approved_facts.get(category)
+        previous_provenance = provenance.get(category)
+
+        approved_facts[category] = approved_fact
+        provenance_entry: dict[str, object] = {
+            "actor_id": actor_id,
+            "updated_at": updated_at.isoformat(),
+            "decision": "direct_update",
+        }
+        if provenance_metadata:
+            provenance_entry["metadata"] = provenance_metadata
+        if previous_fact is not None:
+            provenance_entry["superseded_fact"] = previous_fact
+        if previous_provenance is not None:
+            provenance_entry["superseded_provenance"] = previous_provenance
+        provenance[category] = provenance_entry
+
+        profile.approved_facts = approved_facts
+        profile.provenance = provenance
+        profile.updated_at = updated_at
+        return self.update_profile(profile)
+
     def update_profile(self, profile: BusinessProfile) -> BusinessProfile:
         self._session.add(profile)
         self._session.flush()
@@ -175,6 +214,9 @@ class BusinessProfileRepository:
         self._session.refresh(profile)
         self._session.refresh(suggestion)
         return profile, suggestion
+
+    def require_pending_suggestion(self, suggestion: BusinessProfileSuggestion) -> None:
+        self._require_pending_suggestion(suggestion)
 
     def _require_pending_suggestion(self, suggestion: BusinessProfileSuggestion) -> None:
         if suggestion.status != "pending":
