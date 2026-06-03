@@ -4,6 +4,8 @@ import uuid
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+from sqlalchemy.exc import IntegrityError
+
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 
@@ -39,6 +41,44 @@ def test_add_profile_flushes_and_refreshes() -> None:
     session.add.assert_called_once_with(profile)
     session.flush.assert_called_once_with()
     session.refresh.assert_called_once_with(profile)
+
+
+def test_get_or_create_active_profile_returns_existing_profile() -> None:
+    profile = _profile()
+    session = MagicMock()
+    session.scalar.return_value = profile
+
+    result = BusinessProfileRepository(session).get_or_create_active_profile(tenant_id=profile.tenant_id)
+
+    assert result is profile
+    session.add.assert_not_called()
+
+
+def test_get_or_create_active_profile_recovers_from_concurrent_active_profile_create_race() -> None:
+    tenant_id = str(uuid.uuid4())
+    existing = _profile(tenant_id=tenant_id)
+    session = MagicMock()
+    session.scalar.side_effect = [None, existing]
+    session.flush.side_effect = IntegrityError("insert", {}, Exception("unique active tenant"))
+
+    result = BusinessProfileRepository(session).get_or_create_active_profile(tenant_id=tenant_id)
+
+    assert result is existing
+    session.rollback.assert_called_once_with()
+
+
+def test_list_profile_history_for_tenant_returns_profile_and_suggestions_without_mutation() -> None:
+    profile = _profile()
+    suggestion = _suggestion()
+    session = MagicMock()
+    session.scalar.return_value = profile
+    session.scalars.return_value = [suggestion]
+
+    result = BusinessProfileRepository(session).list_profile_history_for_tenant(tenant_id=profile.tenant_id)
+
+    assert result == {"profile": profile, "suggestions": [suggestion]}
+    session.add.assert_not_called()
+    session.flush.assert_not_called()
 
 
 def test_get_profile_for_tenant_uses_tenant_scope() -> None:

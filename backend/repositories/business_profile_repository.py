@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
@@ -20,6 +21,22 @@ class BusinessProfileRepository:
         self._session.flush()
         self._session.refresh(profile)
         return profile
+
+    def get_or_create_active_profile(self, *, tenant_id: str) -> BusinessProfile:
+        """Return the tenant active profile, creating it idempotently under races."""
+        profile = self.get_active_profile_for_tenant(tenant_id=tenant_id)
+        if profile is not None:
+            return profile
+
+        profile = BusinessProfile(tenant_id=tenant_id, approved_facts={}, provenance={})
+        try:
+            return self.add_profile(profile)
+        except IntegrityError:
+            self._session.rollback()
+            existing = self.get_active_profile_for_tenant(tenant_id=tenant_id)
+            if existing is None:
+                raise
+            return existing
 
     def get_profile_for_tenant(self, *, profile_id: uuid.UUID, tenant_id: str) -> BusinessProfile | None:
         stmt = select(BusinessProfile).where(BusinessProfile.id == profile_id, BusinessProfile.tenant_id == tenant_id)
@@ -100,6 +117,15 @@ class BusinessProfileRepository:
             stmt = stmt.where(BusinessProfileSuggestion.status == status)
         stmt = stmt.order_by(BusinessProfileSuggestion.created_at.asc())
         return list(self._session.scalars(stmt))
+
+    def list_profile_history_for_tenant(self, *, tenant_id: str) -> dict[str, object]:
+        """Build a tenant-scoped audit/history read model without mutating profile truth."""
+        profile = self.get_active_profile_for_tenant(tenant_id=tenant_id)
+        suggestions = self.list_suggestions_for_tenant(tenant_id=tenant_id)
+        return {
+            "profile": profile,
+            "suggestions": suggestions,
+        }
 
     def approve_suggestion_as_is(
         self,

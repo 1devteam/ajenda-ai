@@ -237,12 +237,11 @@ Business Profile implementation reaches MVP when:
 - API tests prove tenant isolation and no silent writes;
 - Mission Brief consumers can read approved profile facts without mutating profile truth.
 
-Production-ready Business Profile requires:
+Current backend/API proof covers the storage and suggestion authority class: active-profile creation is idempotent under concurrent creation races, approved fact and suggestion JSON payloads are bounded, categories are canonicalized to avoid case/space collisions, mission-linked suggestions validate tenant ownership, profile history/supersession reads are exposed, and Business Profile mutations append audit events without creating missions, queue work, worker leases, evidence, outcome-review, retrieval, or memory-promotion state.
 
-- complete audit visibility;
-- profile history/supersession reads;
-- robust permission model;
+Remaining production-ready Business Profile work requires:
+
 - retention/deletion policy;
 - UI-supported review/edit flow;
 - release-gated proof that profile context shapes Mission Brief without replacing `MissionCreate`;
-- monitoring for profile update events and failures.
+- monitoring dashboards/alerts for profile update events and failures beyond append-only audit event proof.
