@@ -91,6 +91,19 @@ def _extract_source_context_mission_id(source_context: dict[str, Any]) -> UUID |
         return UUID(str(raw))
     except ValueError as exc:
         raise ValueError("source_context.mission_id must be a valid UUID when present") from exc
+def _parse_mission_id(value: Any) -> UUID:
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("source_context.mission_id must be a valid UUID") from exc
+
+
+def _validate_suggestion_mission_id(*, db: Session, tenant_id: str, mission_id: UUID | None) -> UUID | None:
+    if mission_id is None:
+        return None
+    if MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id) is None:
+        raise ValueError("business profile suggestion mission_id not found for tenant")
+    return mission_id
 
 
 class BusinessProfileRead(BaseModel):
@@ -126,6 +139,8 @@ class BusinessProfileSuggestionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     suggested_category: str = Field(min_length=1, max_length=MAX_PROFILE_CATEGORY_LENGTH)
+    mission_id: UUID | None = None
+    suggested_category: str = Field(min_length=1, max_length=96)
     suggested_fact: dict[str, Any] = Field(min_length=1)
     rationale: str = Field(min_length=1, max_length=500)
     source_context: dict[str, Any] = Field(default_factory=dict)
@@ -158,6 +173,16 @@ class BusinessProfileSuggestionCreate(BaseModel):
             and self.mission_id != source_context_mission_id
         ):
             raise ValueError("mission_id must match source_context.mission_id when both are provided")
+    @model_validator(mode="after")
+    def _normalize_source_context_mission_id(self) -> BusinessProfileSuggestionCreate:
+        raw_source_context_mission_id = self.source_context.get("mission_id")
+        if raw_source_context_mission_id is None:
+            return self
+        source_context_mission_id = _parse_mission_id(raw_source_context_mission_id)
+        if self.mission_id is not None and self.mission_id != source_context_mission_id:
+            raise ValueError("mission_id must match source_context.mission_id when both are provided")
+        self.mission_id = source_context_mission_id
+        self.source_context = {**self.source_context, "mission_id": str(source_context_mission_id)}
         return self
 
 
@@ -456,12 +481,17 @@ def create_business_profile_suggestion(
     _validate_mission_link(mission_id=body.mission_id, tenant_id=tenant_scope, db=db)
     actor_id = _actor_id(request)
     repo = BusinessProfileRepository(db)
+    try:
+        mission_id = _validate_suggestion_mission_id(db=db, tenant_id=tenant_scope, mission_id=body.mission_id)
+    except ValueError as exc:
+        raise _resolve_value_error(exc) from exc
     profile = repo.get_active_profile_for_tenant(tenant_id=tenant_scope)
     suggestion = repo.add_suggestion(
         BusinessProfileSuggestion(
             tenant_id=tenant_scope,
             profile_id=profile.id if profile else None,
             mission_id=body.mission_id,
+            mission_id=mission_id,
             suggested_category=body.suggested_category,
             suggested_fact=body.suggested_fact,
             rationale=body.rationale,
