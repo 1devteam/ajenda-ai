@@ -319,7 +319,7 @@ Deferred by design:
 - outcome review;
 - memory promotion.
 
-Mission intake does not queue work. Runtime admission remains explicit through the existing mission/task queue routes, and queue-backed execution, leases, recovery, and compliance review behavior remain governed by the current runtime layer. Tenant ownership is taken from the validated tenant/auth context, not from request body input.
+Mission intake does not queue work. Runtime admission remains explicit and must not be collapsed into mission creation. `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical mission-runtime queue bridge for current materialized runtime tasks. `POST /v1/missions/{mission_id}/queue` remains a general mission queue route for tenant-owned planned tasks and must not be treated as the canonical staged mission-runtime bridge unless a later contract separately governs it. Queue-backed execution, leases, recovery, and compliance review behavior remain governed by the current runtime layer. Tenant ownership is taken from the validated tenant/auth context, not from request body input.
 
 ## Mission Planning V1 Contracts
 
