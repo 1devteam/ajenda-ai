@@ -26,6 +26,9 @@ def _suggestion(*, tenant_id: str = "tenant-a", category: str = "service_area") 
     )
 
 
+RESOLVED_SUGGESTION_STATUSES = ("approved", "edited", "declined", "dismissed")
+
+
 def test_add_profile_flushes_and_refreshes() -> None:
     profile = _profile()
     session = MagicMock()
@@ -157,6 +160,34 @@ def test_approve_suggestion_as_is_writes_approved_fact_and_resolution() -> None:
     session.flush.assert_called_once()
 
 
+def test_approve_suggestion_preserves_superseded_profile_fact_and_provenance() -> None:
+    previous_provenance = {
+        "actor_id": "user-old",
+        "suggestion_id": str(uuid.uuid4()),
+        "resolved_at": "2026-06-02T00:00:00+00:00",
+        "decision": "approved",
+    }
+    profile = _profile()
+    profile.approved_facts = {"service_area": {"value": "Dallas"}}
+    profile.provenance = {"service_area": previous_provenance}
+    suggestion = _suggestion(category="service_area")
+    suggestion.id = uuid.uuid4()
+    suggestion.suggested_fact = {"value": "Fort Worth"}
+    resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+    session = MagicMock()
+
+    updated_profile, updated_suggestion = BusinessProfileRepository(session).approve_suggestion_as_is(
+        profile=profile,
+        suggestion=suggestion,
+        resolved_at=resolved_at,
+        actor_id="user-1",
+    )
+
+    assert updated_profile.approved_facts["service_area"] == {"value": "Fort Worth"}
+    assert updated_suggestion.resolution["superseded_fact"] == {"value": "Dallas"}
+    assert updated_suggestion.resolution["superseded_provenance"] == previous_provenance
+
+
 def test_approve_suggestion_with_edit_writes_edited_fact_not_original() -> None:
     profile = _profile()
     suggestion = _suggestion(category="service_area")
@@ -211,6 +242,57 @@ def test_dismiss_suggestion_does_not_write_approved_profile_fact() -> None:
     assert result.status == "dismissed"
     assert result.resolution["decision"] == "dismissed"
     assert profile.approved_facts == {}
+
+
+def test_resolved_suggestions_cannot_be_approved_again() -> None:
+    resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+
+    for status in RESOLVED_SUGGESTION_STATUSES:
+        profile = _profile()
+        suggestion = _suggestion(category="service_area")
+        suggestion.status = status
+        session = MagicMock()
+
+        try:
+            BusinessProfileRepository(session).approve_suggestion_as_is(
+                profile=profile,
+                suggestion=suggestion,
+                resolved_at=resolved_at,
+                actor_id="user-1",
+            )
+        except ValueError as exc:
+            assert str(exc) == "only pending business profile suggestions can be resolved"
+        else:
+            raise AssertionError(f"expected {status} suggestion approval to fail")
+
+        assert profile.approved_facts == {}
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
+
+
+def test_resolved_suggestions_cannot_be_declined_or_dismissed_again() -> None:
+    resolved_at = datetime(2026, 6, 3, tzinfo=UTC)
+
+    for status in RESOLVED_SUGGESTION_STATUSES:
+        for resolver_name in ("decline_suggestion", "dismiss_suggestion"):
+            suggestion = _suggestion(category="service_area")
+            suggestion.status = status
+            session = MagicMock()
+            resolver = getattr(BusinessProfileRepository(session), resolver_name)
+
+            try:
+                resolver(
+                    suggestion=suggestion,
+                    resolved_at=resolved_at,
+                    actor_id="user-1",
+                )
+            except ValueError as exc:
+                assert str(exc) == "only pending business profile suggestions can be resolved"
+            else:
+                raise AssertionError(f"expected {status} suggestion {resolver_name} to fail")
+
+            session.add.assert_not_called()
+            session.flush.assert_not_called()
 
 
 def test_approve_suggestion_rejects_cross_tenant_profile_mutation() -> None:
