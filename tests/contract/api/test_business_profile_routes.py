@@ -11,6 +11,7 @@ from backend.api.routes import business_profile as business_profile_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.principal import Principal, PrincipalType
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
+from backend.domain.mission import Mission
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 
 
@@ -79,8 +80,23 @@ class _FakeBusinessProfileRepository:
         return self.delegate.dismiss_suggestion(**kwargs)  # type: ignore[arg-type]
 
 
+class _FakeMissionRepository:
+    def __init__(self, missions: dict[uuid.UUID, Mission]) -> None:
+        self._missions = missions
+
+    def get_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
+        mission = self._missions.get(mission_id)
+        if mission and mission.tenant_id == tenant_id:
+            return mission
+        return None
+
+
 def _build_app(
-    tenant_id: uuid.UUID, repo: _FakeBusinessProfileRepository, *, roles: tuple[str, ...] = ("tenant_admin",)
+    tenant_id: uuid.UUID,
+    repo: _FakeBusinessProfileRepository,
+    *,
+    roles: tuple[str, ...] = ("tenant_admin",),
+    missions: dict[uuid.UUID, Mission] | None = None,
 ) -> FastAPI:
     app = FastAPI()
 
@@ -105,13 +121,18 @@ def _build_app(
     app.dependency_overrides[get_request_tenant_id] = _override_tenant_id
     app.dependency_overrides[get_tenant_db_session] = _override_db
     business_profile_module.BusinessProfileRepository = lambda _db: repo  # type: ignore[assignment]
+    business_profile_module.MissionRepository = lambda _db: _FakeMissionRepository(missions or {})  # type: ignore[assignment]
     return app
 
 
 def _client(
-    tenant_id: uuid.UUID, repo: _FakeBusinessProfileRepository, *, roles: tuple[str, ...] = ("tenant_admin",)
+    tenant_id: uuid.UUID,
+    repo: _FakeBusinessProfileRepository,
+    *,
+    roles: tuple[str, ...] = ("tenant_admin",),
+    missions: dict[uuid.UUID, Mission] | None = None,
 ) -> TestClient:
-    app = _build_app(tenant_id, repo, roles=roles)
+    app = _build_app(tenant_id, repo, roles=roles, missions=missions)
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -126,6 +147,22 @@ def _profile(*, tenant_id: str, facts: dict[str, object] | None = None) -> Busin
     profile.created_at = now
     profile.updated_at = now
     return profile
+
+
+def _mission(*, tenant_id: str) -> Mission:
+    now = datetime(2026, 6, 3, tzinfo=UTC)
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Grow qualified pipeline",
+        status="planned",
+        compliance_category="operational",
+        jurisdiction="US-ALL",
+        metadata_json={},
+    )
+    mission.id = uuid.uuid4()
+    mission.created_at = now
+    mission.updated_at = now
+    return mission
 
 
 def _suggestion(*, tenant_id: str, category: str = "service_area") -> BusinessProfileSuggestion:
@@ -210,6 +247,88 @@ def test_pending_suggestion_does_not_alter_approved_facts_and_can_be_listed_by_s
     assert repo.profiles[str(tenant_id)].approved_facts["service_area"] == {"value": "Austin"}
 
 
+def test_suggestion_source_context_mission_id_is_validated_and_normalized() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    mission = _mission(tenant_id=str(tenant_id))
+
+    response = _client(tenant_id, repo, missions={mission.id: mission}).post(
+        "/v1/business-profile/suggestions",
+        json={
+            "suggested_category": "service_area",
+            "suggested_fact": {"value": "Dallas"},
+            "rationale": "User mentioned a reusable mission detail.",
+            "source_context": {"mission_id": str(mission.id), "conversation_id": "conv-1"},
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mission_id"] == str(mission.id)
+    assert body["source_context"]["mission_id"] == str(mission.id)
+    stored = next(iter(repo.suggestions.values()))
+    assert stored.mission_id == mission.id
+
+
+def test_suggestion_rejects_source_context_mission_id_not_visible_to_tenant() -> None:
+    tenant_id = uuid.uuid4()
+    other_tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    mission = _mission(tenant_id=str(other_tenant_id))
+
+    response = _client(tenant_id, repo, missions={mission.id: mission}).post(
+        "/v1/business-profile/suggestions",
+        json={
+            "suggested_category": "service_area",
+            "suggested_fact": {"value": "Dallas"},
+            "rationale": "User mentioned a reusable mission detail.",
+            "source_context": {"mission_id": str(mission.id), "conversation_id": "conv-1"},
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "business profile suggestion mission_id not found for tenant"}
+    assert repo.suggestions == {}
+
+
+def test_suggestion_rejects_invalid_source_context_mission_id() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+
+    response = _client(tenant_id, repo).post(
+        "/v1/business-profile/suggestions",
+        json={
+            "suggested_category": "service_area",
+            "suggested_fact": {"value": "Dallas"},
+            "rationale": "User mentioned a reusable mission detail.",
+            "source_context": {"mission_id": "not-a-uuid", "conversation_id": "conv-1"},
+        },
+    )
+
+    assert response.status_code == 422
+    assert repo.suggestions == {}
+
+
+def test_suggestion_rejects_mismatched_top_level_and_source_context_mission_ids() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    mission = _mission(tenant_id=str(tenant_id))
+
+    response = _client(tenant_id, repo, missions={mission.id: mission}).post(
+        "/v1/business-profile/suggestions",
+        json={
+            "mission_id": str(mission.id),
+            "suggested_category": "service_area",
+            "suggested_fact": {"value": "Dallas"},
+            "rationale": "User mentioned a reusable mission detail.",
+            "source_context": {"mission_id": str(uuid.uuid4()), "conversation_id": "conv-1"},
+        },
+    )
+
+    assert response.status_code == 422
+    assert repo.suggestions == {}
+
+
 def test_approve_suggestion_as_is_promotes_suggested_fact_to_profile_truth() -> None:
     tenant_id = uuid.uuid4()
     repo = _FakeBusinessProfileRepository()
@@ -291,7 +410,6 @@ def test_business_profile_routes_do_not_call_runtime_or_adjacent_contract_surfac
     with (
         patch("backend.services.mission_executor.MissionExecutor") as mission_executor,
         patch("backend.services.execution_coordinator.ExecutionCoordinator") as execution_coordinator,
-        patch("backend.repositories.mission_repository.MissionRepository") as mission_repository,
         patch("backend.repositories.execution_task_repository.ExecutionTaskRepository") as execution_task_repository,
         patch("backend.repositories.worker_lease_repository.WorkerLeaseRepository") as worker_lease_repository,
         patch("backend.repositories.evidence_repository.EvidenceRepository") as evidence_repository,
@@ -306,7 +424,6 @@ def test_business_profile_routes_do_not_call_runtime_or_adjacent_contract_surfac
     assert response.status_code == 200
     mission_executor.assert_not_called()
     execution_coordinator.assert_not_called()
-    mission_repository.assert_not_called()
     execution_task_repository.assert_not_called()
     worker_lease_repository.assert_not_called()
     evidence_repository.assert_not_called()
