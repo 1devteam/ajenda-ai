@@ -13,6 +13,15 @@ MISSION_BRIEF_SCHEMA_VERSION = 1
 MAX_MISSION_BRIEF_JSON_BYTES = 24_576
 MAX_MISSION_BRIEF_JSON_DEPTH = 8
 MAX_MISSION_BRIEF_JSON_KEYS = 192
+MISSION_CREATE_MAX_SUCCESS_CRITERIA = 20
+MISSION_CREATE_MAX_CONSTRAINTS = 20
+MISSION_CREATE_MAX_DESCRIPTION_LENGTH = 1000
+MISSION_CREATE_MAX_CONSTRAINT_NAME_LENGTH = 120
+MISSION_CREATE_MAX_EVIDENCE_ITEMS = 10
+MISSION_CREATE_MAX_APPROVAL_EXPECTATIONS = 20
+MISSION_CREATE_MAX_SCOPE_LIMITS = 20
+MISSION_CREATE_MAX_ALLOWED_ACTIONS = 50
+MISSION_CREATE_MAX_ALLOWED_TOOLS = 50
 MissionBriefSource = Literal["current_intent", "business_profile", "request_context", "system_default"]
 
 
@@ -285,6 +294,105 @@ class MissionBriefAuthorityFlags(BaseModel):
     bypasses_authority_checks: Literal[False] = False
 
 
+def _prefill_missing_information(
+    *,
+    missing: list[MissionBriefMissingInformation],
+    field: str,
+    reason: str,
+    severity: Literal["required", "recommended"] = "recommended",
+) -> None:
+    missing.append(MissionBriefMissingInformation(field=field, reason=reason, severity=severity))
+
+
+def _mission_create_text_values(
+    *,
+    values: list[str],
+    field: str,
+    max_items: int,
+    missing: list[MissionBriefMissingInformation],
+    max_length: int | None = None,
+) -> list[str]:
+    """Return values that are safe to copy into MissionCreate list fields."""
+    accepted: list[str] = []
+    omitted_for_length = 0
+    omitted_for_count = 0
+    for value in values:
+        text = value.strip()
+        if not text:
+            continue
+        if max_length is not None and len(text) > max_length:
+            omitted_for_length += 1
+            continue
+        if text in accepted:
+            continue
+        if len(accepted) >= max_items:
+            omitted_for_count += 1
+            continue
+        accepted.append(text)
+
+    if omitted_for_length:
+        _prefill_missing_information(
+            missing=missing,
+            field=field,
+            reason=(
+                f"{omitted_for_length} value(s) were omitted from MissionCreate prefill because they exceed "
+                f"the {max_length}-character MissionCreate limit."
+            ),
+        )
+    if omitted_for_count:
+        _prefill_missing_information(
+            missing=missing,
+            field=field,
+            reason=(
+                f"{omitted_for_count} value(s) were omitted from MissionCreate prefill because MissionCreate "
+                f"accepts at most {max_items} item(s) for this field."
+            ),
+        )
+    return accepted
+
+
+def _mission_create_success_criteria(
+    *,
+    success_criteria: list[str],
+    evidence_expectations: list[str],
+    missing: list[MissionBriefMissingInformation],
+) -> list[dict[str, Any]]:
+    prefill_success_criteria = _mission_create_text_values(
+        values=success_criteria,
+        field="success_criteria",
+        max_items=MISSION_CREATE_MAX_SUCCESS_CRITERIA,
+        max_length=MISSION_CREATE_MAX_DESCRIPTION_LENGTH,
+        missing=missing,
+    )
+    prefill_evidence = _mission_create_text_values(
+        values=evidence_expectations,
+        field="success_criteria.evidence",
+        max_items=MISSION_CREATE_MAX_EVIDENCE_ITEMS,
+        missing=missing,
+    )
+    return [{"description": criterion, "evidence": prefill_evidence} for criterion in prefill_success_criteria]
+
+
+def _mission_create_constraints(
+    *, constraints: list[str], missing: list[MissionBriefMissingInformation]
+) -> list[dict[str, Any]]:
+    prefill_constraints = _mission_create_text_values(
+        values=constraints,
+        field="constraints",
+        max_items=MISSION_CREATE_MAX_CONSTRAINTS,
+        max_length=MISSION_CREATE_MAX_DESCRIPTION_LENGTH,
+        missing=missing,
+    )
+    return [
+        {
+            "name": item[:MISSION_CREATE_MAX_CONSTRAINT_NAME_LENGTH],
+            "description": item,
+            "hard": True,
+        }
+        for item in prefill_constraints
+    ]
+
+
 class MissionBriefRead(BaseModel):
     schema_version: int
     tenant_id: str
@@ -532,29 +640,56 @@ def build_mission_brief(
         )
 
     missing: list[MissionBriefMissingInformation] = []
+    mission_create_success_criteria = _mission_create_success_criteria(
+        success_criteria=success_criteria,
+        evidence_expectations=evidence_expectations,
+        missing=missing,
+    )
+    mission_create_constraints = _mission_create_constraints(constraints=constraints, missing=missing)
+    mission_create_approval_expectations = _mission_create_text_values(
+        values=approval_expectations,
+        field="approval_expectations",
+        max_items=MISSION_CREATE_MAX_APPROVAL_EXPECTATIONS,
+        missing=missing,
+    )
+    mission_create_scope_limits = _mission_create_text_values(
+        values=scope_limits,
+        field="scope_limits",
+        max_items=MISSION_CREATE_MAX_SCOPE_LIMITS,
+        missing=missing,
+    )
+    mission_create_allowed_actions = _mission_create_text_values(
+        values=allowed_actions,
+        field="allowed_actions",
+        max_items=MISSION_CREATE_MAX_ALLOWED_ACTIONS,
+        missing=missing,
+    )
+    mission_create_allowed_tools = _mission_create_text_values(
+        values=allowed_tools,
+        field="allowed_tools",
+        max_items=MISSION_CREATE_MAX_ALLOWED_TOOLS,
+        missing=missing,
+    )
+
     if not objective:
-        missing.append(
-            MissionBriefMissingInformation(
-                field="objective",
-                reason="Current mission objective is required before MissionCreate.",
-                severity="required",
-            )
+        _prefill_missing_information(
+            missing=missing,
+            field="objective",
+            reason="Current mission objective is required before MissionCreate.",
+            severity="required",
         )
-    if not success_criteria:
-        missing.append(
-            MissionBriefMissingInformation(
-                field="success_criteria",
-                reason="At least one measurable success criterion is required before MissionCreate.",
-                severity="required",
-            )
+    if not mission_create_success_criteria:
+        _prefill_missing_information(
+            missing=missing,
+            field="success_criteria",
+            reason="At least one MissionCreate-valid measurable success criterion is required before MissionCreate.",
+            severity="required",
         )
     if not evidence_expectations:
-        missing.append(
-            MissionBriefMissingInformation(
-                field="evidence_expectations",
-                reason="Evidence expectations are recommended so mission outputs can be reviewed.",
-                severity="recommended",
-            )
+        _prefill_missing_information(
+            missing=missing,
+            field="evidence_expectations",
+            reason="Evidence expectations are recommended so mission outputs can be reviewed.",
         )
 
     context = dict(intent.context)
@@ -566,19 +701,17 @@ def build_mission_brief(
 
     mission_create_prefill: dict[str, Any] = {
         "objective": objective,
-        "success_criteria": [
-            {"description": criterion, "evidence": evidence_expectations[:10]} for criterion in success_criteria
-        ],
-        "constraints": [{"name": item[:120], "description": item, "hard": True} for item in constraints],
+        "success_criteria": mission_create_success_criteria,
+        "constraints": mission_create_constraints,
         "operator_notes": intent.operator_notes,
         "context": context,
         "priority": intent.priority or "normal",
         "approval_required": approval_required,
-        "approval_expectations": approval_expectations,
+        "approval_expectations": mission_create_approval_expectations,
         "budget_limits": budget_limits,
-        "scope_limits": scope_limits,
-        "allowed_actions": allowed_actions,
-        "allowed_tools": allowed_tools,
+        "scope_limits": mission_create_scope_limits,
+        "allowed_actions": mission_create_allowed_actions,
+        "allowed_tools": mission_create_allowed_tools,
         "compliance_category": compliance_category,
         "jurisdiction": jurisdiction,
     }

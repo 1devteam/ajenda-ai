@@ -40,7 +40,7 @@ The response includes:
 - conflict records where current intent differs from reusable profile defaults;
 - authority flags proving the result is a read model only.
 
-Current mission intent wins over Business Profile defaults. Conflicts are surfaced for review; they are not resolved by mutating profile truth or creating runtime work. Missing required `MissionCreate` fields are reported instead of fabricated.
+Current mission intent wins over Business Profile defaults. Conflicts are surfaced for review; they are not resolved by mutating profile truth or creating runtime work. Missing required `MissionCreate` fields are reported instead of fabricated. Generated `MissionCreate` prefill lists must stay inside the mission intake contract limits for item counts and description lengths; overflow or invalid values are omitted from prefill and returned as missing/clarification information for review.
 
 Mission Brief draft generation must not create `Mission`, `MissionPlan`, task graph metadata, `ExecutionTask`, queue messages, worker leases, evidence, outcome-review, retrieval, durable Business Profile truth, or memory-promotion records. Runtime execution still starts only after explicit mission intake and the governed mission/runtime bridge stages.
 

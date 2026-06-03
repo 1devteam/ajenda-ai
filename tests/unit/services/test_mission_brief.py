@@ -5,6 +5,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
+from backend.api.routes.mission import MissionCreate
 from backend.domain.business_profile import BusinessProfile
 from backend.services.mission_brief import MissionBriefRequest, build_mission_brief
 
@@ -132,3 +133,63 @@ def test_invalid_profile_defaults_are_not_emitted_as_mission_create_prefill() ->
     assert result.mission_create_prefill["compliance_category"] == "operational"
     assert result.mission_create_prefill["jurisdiction"] == "US-ALL"
     assert {conflict.field for conflict in result.conflicts} == {"compliance_category", "jurisdiction"}
+
+
+def test_mission_create_prefill_filters_success_criteria_to_mission_create_contract() -> None:
+    long_criterion = "x" * 1001
+    profile = BusinessProfile(
+        tenant_id="tenant-a",
+        approved_facts={
+            "default_success_criteria": [f"profile success {index}" for index in range(25)],
+            "evidence_expectations": [f"evidence {index}" for index in range(12)],
+        },
+    )
+    request = MissionBriefRequest(
+        current_intent={"objective": "Plan launch", "success_criteria": [long_criterion, "valid current success"]}
+    )
+
+    result = build_mission_brief(tenant_id="tenant-a", profile=profile, request=request)
+
+    prefill_success = result.mission_create_prefill["success_criteria"]
+    assert len(prefill_success) == 20
+    assert prefill_success[0]["description"] == "valid current success"
+    assert all(len(item["description"]) <= 1000 for item in prefill_success)
+    assert all(len(item["evidence"]) == 10 for item in prefill_success)
+    assert any(
+        item.field == "success_criteria" and "1000-character" in item.reason for item in result.missing_information
+    )
+    assert any(item.field == "success_criteria" and "at most 20" in item.reason for item in result.missing_information)
+    assert any(
+        item.field == "success_criteria.evidence" and "at most 10" in item.reason for item in result.missing_information
+    )
+    MissionCreate.model_validate(result.mission_create_prefill)
+
+
+def test_mission_create_prefill_filters_constraints_to_mission_create_contract() -> None:
+    long_constraint = "y" * 1001
+    profile = BusinessProfile(
+        tenant_id="tenant-a",
+        approved_facts={"default_constraints": [f"profile constraint {index}" for index in range(25)]},
+    )
+    request = MissionBriefRequest(
+        current_intent={
+            "objective": "Plan launch",
+            "success_criteria": ["Plan exists"],
+            "constraints": [long_constraint, "valid current constraint"],
+        }
+    )
+
+    result = build_mission_brief(tenant_id="tenant-a", profile=profile, request=request)
+
+    prefill_constraints = result.mission_create_prefill["constraints"]
+    assert len(prefill_constraints) == 20
+    assert prefill_constraints[0] == {
+        "name": "valid current constraint",
+        "description": "valid current constraint",
+        "hard": True,
+    }
+    assert all(len(item["description"]) <= 1000 for item in prefill_constraints)
+    assert all(len(item["name"]) <= 120 for item in prefill_constraints)
+    assert any(item.field == "constraints" and "1000-character" in item.reason for item in result.missing_information)
+    assert any(item.field == "constraints" and "at most 20" in item.reason for item in result.missing_information)
+    MissionCreate.model_validate(result.mission_create_prefill)
