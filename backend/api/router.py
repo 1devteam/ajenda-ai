@@ -18,6 +18,7 @@ Route inventory under /v1/:
   /v1/evidence/*     — Evidence proof/provenance contracts
   /v1/outcome-reviews/* — Outcome review contracts
   /v1/retrieval-contracts/* — Retrieval and recall contracts
+  /v1/mission-brief/* — Mission Brief read-model drafts
   /v1/missions/*      — Mission queuing and management
   /v1/tasks/*         — Task queuing and state management
   /v1/workforce/*     — Workforce fleet management
@@ -51,6 +52,7 @@ from backend.api.routes.capability_adapter import router as capability_adapter_r
 from backend.api.routes.evidence import router as evidence_router
 from backend.api.routes.health import router as health_router
 from backend.api.routes.mission import router as mission_router
+from backend.api.routes.mission_brief import router as mission_brief_router
 from backend.api.routes.observability import router as observability_router
 from backend.api.routes.operations import router as operations_router
 from backend.api.routes.outcome_review import router as outcome_review_router
@@ -84,6 +86,7 @@ def build_api_router() -> APIRouter:
     v1.include_router(evidence_router)  # /v1/evidence/*
     v1.include_router(outcome_review_router)  # /v1/outcome-reviews/*
     v1.include_router(retrieval_contract_router)  # /v1/retrieval-contracts/*
+    v1.include_router(mission_brief_router)  # /v1/mission-brief/*
     v1.include_router(mission_router)  # /v1/missions/*
     v1.include_router(task_router)  # /v1/tasks/*
     v1.include_router(workforce_router)  # /v1/workforce/*
