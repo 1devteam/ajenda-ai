@@ -669,3 +669,30 @@ authority_entries:
     required_proofs:
       - tests/contract/metrics/test_metrics_endpoint.py
       - tests/unit/metrics/test_prometheus_exporter.py
+
+  - id: capability_action_runtime_contract
+    area: capability action runtime
+    source_of_truth:
+      - backend/workers/task_dispatcher.py
+      - backend/workers/handlers/tool_invoke.py
+      - backend/services/tools/action_registry.py
+      - backend/services/tools/capability_validation.py
+      - backend/services/tools/http_actions.py
+    route_scope: []
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_tool_action_execution
+    allowed_side_effects:
+      - execute registered in-process actions only after an ExecutionTask has been queued, claimed, and started through worker lease authority
+      - persist evidence-shaped action output through the existing task-output lineage path
+      - execute side-effecting actions only when versioned invocation metadata and capability or adapter authority explicitly authorize the concrete action
+    forbidden_side_effects:
+      - execute capabilities directly from declarative capability or adapter records
+      - create a parallel dispatcher, queue, lease, capability registry, or adapter registry
+      - call WorkerRuntimeService.complete or WorkerRuntimeService.fail from tool actions or providers
+      - allow http.request to reach localhost, .local, obvious internal hostnames, private/link-local/loopback/multicast/reserved IP literals, or private DNS resolutions
+    required_proofs:
+      - tests/unit/tools/test_action_registry.py
+      - tests/unit/tools/test_http_actions.py
+      - tests/unit/workers/test_tool_invoke_handler.py
+      - tests/unit/workers/test_task_dispatcher_runtime_contract.py
+      - tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py

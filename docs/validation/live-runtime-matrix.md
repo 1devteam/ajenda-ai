@@ -423,6 +423,14 @@ Current broader scenario count: **54**
 
 ---
 
+### Capability action runtime plane
+
+| ID | Domain | Scenario | Priority | Safety Class | Matrix Status | Validation Backing | Preconditions | Action | Expected Result | Forbidden Result | Evidence Sources | Implementation Mapping | Execution Policy |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| AR-01 | action_runtime_plane | queued `tool.invoke` task executes through existing dispatcher and persists evidence-shaped output | P1 | TENANT_SCOPED_MUTATION | evidence_backed | contract_and_integration | planned task is queued, claimed, and started through existing runtime authority | run `TaskDispatcher` for `task_type=tool.invoke` | registered action executes through `ActionRegistry`, task completes, lease releases, queue processing cleans up, lineage stores structured evidence-shaped output | direct action execution outside queue/lease/dispatcher path, missing lineage output, stuck lease or processing residue | DB, Redis, LineageRecord, unit tests | `backend/workers/task_dispatcher.py`, `backend/workers/handlers/tool_invoke.py`, `backend/services/tools/action_registry.py`, `tests/unit/workers/test_tool_invoke_handler.py`, `tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py` | local/isolated/shared_dev with care |
+| AR-02 | action_runtime_plane | side-effecting actions fail closed without explicit versioned authority | P0 | TENANT_SCOPED_SIDE_EFFECT_GATE | evidence_backed | contract_test | `tool.invoke` references `record.write`, `sales.log_activity`, `calendar.create_event`, `http.request` write method, or `webhook.dispatch` | invoke action without `execution_constraints.side_effect_authorization` and capability/adapter authority | invocation fails before provider execution and dispatcher failure path remains authoritative | side effect occurs merely because the action is registered | unit tests | `backend/workers/handlers/tool_invoke.py`, `backend/services/tools/capability_validation.py`, `backend/services/tools/schemas.py`, `tests/unit/workers/test_tool_invoke_handler.py` | CI/local |
+| AR-03 | action_runtime_plane | HTTP action rejects internal or non-allowlisted targets before network call | P0 | EXTERNAL_ACCESS_GUARD | evidence_backed | contract_test | `http.request` receives URL input | validate HTTPS/public URL and DNS resolution safety | localhost, `.local`, internal hostnames, private/link-local/loopback/multicast/reserved IP literals, and private DNS resolutions are rejected | SSRF-style access to internal services or metadata endpoints | unit tests | `backend/services/tools/http_actions.py`, `tests/unit/tools/test_http_actions.py` | CI/local |
+
 ## Current runner-supported scenarios
 
 The runner currently provides direct runner-backed proof for:

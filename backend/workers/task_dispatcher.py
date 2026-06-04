@@ -336,3 +336,9 @@ def echo_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, 
         "output": payload,
         "status": "completed",
     }
+
+
+# Import additive handler package after built-in registrations so modular task
+# handlers register through the same dispatcher registry without altering worker
+# loop, queue, lease, or runtime state-machine authority.
+from backend.workers import handlers as _registered_handlers  # noqa: E402,F401

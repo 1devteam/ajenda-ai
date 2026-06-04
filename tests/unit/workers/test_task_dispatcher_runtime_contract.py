@@ -172,3 +172,69 @@ def test_execute_passes_persisted_output_and_reason_to_complete(monkeypatch: pyt
     assert len(completions) == 1
     assert completions[0]["result"] == result
     assert completions[0]["output_reason"] == "persist completed"
+
+
+def test_dispatcher_executes_tool_invoke_and_persists_structured_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    tenant_id = str(uuid.uuid4())
+    task_id = uuid.uuid4()
+    lease_id = uuid.uuid4()
+    task = ExecutionTask(
+        id=task_id,
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        title="tool task",
+        description="tool task",
+        status="running",
+        metadata_json={
+            "task_type": "tool.invoke",
+            "tool_invocation": {"action": "record.search", "input": {"record_type": "account", "query": "Acme"}},
+        },
+        compliance_category="operational",
+        jurisdiction="US-ALL",
+        requires_human_review=False,
+    )
+    completed: dict[str, Any] = {}
+
+    def complete(self: TaskDispatcher, **kwargs: Any) -> None:
+        completed.update(kwargs)
+
+    monkeypatch.setattr(TaskDispatcher, "_heartbeat_loop", lambda self, lease_id, stop: None)
+    monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: task)
+    monkeypatch.setattr(TaskDispatcher, "_complete", complete)
+    monkeypatch.setattr(TaskDispatcher, "_fail", lambda self, **kwargs: pytest.fail(f"unexpected fail: {kwargs}"))
+
+    dispatcher = TaskDispatcher(
+        session_factory=lambda: type("Session", (), {"close": lambda self: None})(),
+        queue=object(),
+        worker_id="worker",
+        tenant_id=tenant_id,
+    )
+    dispatcher.execute(task_id=task_id, lease_id=lease_id)
+
+    assert completed["lease_id"] == lease_id
+    assert completed["output_reason"] == "tool action completed"
+    assert completed["result"]["handler"] == "tool.invoke"
+    assert completed["result"]["output"]["count"] == 1
+
+
+def test_dispatcher_fails_malformed_tool_invoke_through_failure_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    tenant_id = str(uuid.uuid4())
+    lease_id = uuid.uuid4()
+    task = _task(task_type="tool.invoke")
+    task.tenant_id = tenant_id
+    task.metadata_json = {"task_type": "tool.invoke"}
+    failures: list[str] = []
+
+    monkeypatch.setattr(TaskDispatcher, "_heartbeat_loop", lambda self, lease_id, stop: None)
+    monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: task)
+    monkeypatch.setattr(
+        TaskDispatcher, "_complete", lambda self, **kwargs: pytest.fail("malformed task should not complete")
+    )
+    monkeypatch.setattr(TaskDispatcher, "_fail", lambda self, *, lease_id, reason: failures.append(reason))
+
+    dispatcher = TaskDispatcher(
+        session_factory=lambda: object(), queue=object(), worker_id="worker", tenant_id=tenant_id
+    )
+    dispatcher.execute(task_id=uuid.uuid4(), lease_id=lease_id)
+
+    assert failures == ["tool.invoke requires metadata_json.tool_invocation object"]
