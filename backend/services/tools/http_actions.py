@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from ipaddress import IPv4Address, IPv6Address
 from urllib.parse import urlparse
 
 import httpx
@@ -21,8 +22,13 @@ BLOCKED_HOST_FRAGMENTS = {"internal", "intranet", "metadata", "169.254.169.254"}
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
-def _is_blocked_ip(ip: ipaddress._BaseAddress) -> bool:
-    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+IPAddress = IPv4Address | IPv6Address
+
+
+def _is_blocked_ip(ip: IPAddress) -> bool:
+    return bool(
+        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+    )
 
 
 def validate_safe_http_url(url: str, *, allowed_hosts: list[str] | None = None) -> str:

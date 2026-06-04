@@ -33,7 +33,7 @@ class SideEffectClass(StrEnum):
 class ToolInvocation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1] = TOOL_INVOCATION_SCHEMA_VERSION
+    schema_version: Literal[1] = 1
     action: str = Field(min_length=1, max_length=160)
     input: dict[str, Any] = Field(default_factory=dict)
     provider: str | None = Field(default=None, max_length=120)
@@ -83,7 +83,7 @@ class EvidenceItem(BaseModel):
 class ActionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1] = ACTION_RESULT_SCHEMA_VERSION
+    schema_version: Literal[1] = 1
     action: str = Field(min_length=1, max_length=160)
     provider: str = Field(min_length=1, max_length=160)
     side_effect_class: SideEffectClass = SideEffectClass.NONE

@@ -10,7 +10,10 @@ from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
 from backend.repositories.capability_repository import CapabilityRepository
-from backend.services.capability_adapter_compatibility import validate_capability_adapter_compatibility
+from backend.services.capability_adapter_compatibility import (
+    CapabilityAdapterDeclaration,
+    validate_capability_adapter_compatibility,
+)
 from backend.services.tools.action_registry import ActionDefinition
 from backend.services.tools.schemas import SideEffectClass, side_effect_authorized
 
@@ -38,7 +41,19 @@ def validate_capability_action_authority(
     if adapter is not None:
         _validate_adapter(adapter=adapter, action_name=action.name)
     if capability is not None and adapter is not None:
-        validate_capability_adapter_compatibility(capability=capability, adapter=adapter)
+        validate_capability_adapter_compatibility(
+            capability=capability,
+            adapter=CapabilityAdapterDeclaration(
+                capability_id=adapter.capability_id,
+                capability_name=adapter.capability_name,
+                capability_version=adapter.capability_version,
+                supported_task_types=adapter.supported_task_types,
+                risk_level=adapter.risk_level,
+                approval_requirements=adapter.approval_requirements,
+                side_effect_classification=adapter.side_effect_classification,
+                enabled=adapter.enabled,
+            ),
+        )
 
     if effective_side_effect_class.has_side_effect:
         _validate_side_effect_authority(
