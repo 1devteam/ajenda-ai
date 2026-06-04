@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -68,6 +69,7 @@ def test_execute_fails_invalid_task_type_without_starting_handler(monkeypatch: p
 
 def test_execute_fails_when_no_registered_handler_or_default(monkeypatch: pytest.MonkeyPatch) -> None:
     dispatcher = _dispatcher()
+    dispatcher.session_factory = lambda: SimpleNamespace(close=lambda: None)
     reasons: list[str] = []
 
     monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: _task(task_type="unhandled"))
@@ -119,6 +121,7 @@ def test_execute_completes_non_persisted_result_without_serializability_requirem
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dispatcher = _dispatcher()
+    dispatcher.session_factory = lambda: SimpleNamespace(close=lambda: None)
     completions: list[dict[str, Any]] = []
 
     def default_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
@@ -147,6 +150,7 @@ def test_execute_completes_non_persisted_result_without_serializability_requirem
 
 def test_execute_passes_persisted_output_and_reason_to_complete(monkeypatch: pytest.MonkeyPatch) -> None:
     dispatcher = _dispatcher()
+    dispatcher.session_factory = lambda: SimpleNamespace(close=lambda: None)
     completions: list[dict[str, Any]] = []
     result = {"handler": "persist", "status": "completed", "value": "ok"}
 
@@ -172,3 +176,53 @@ def test_execute_passes_persisted_output_and_reason_to_complete(monkeypatch: pyt
     assert len(completions) == 1
     assert completions[0]["result"] == result
     assert completions[0]["output_reason"] == "persist completed"
+
+
+def test_execute_completes_tool_invoke_and_persists_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    dispatcher = _dispatcher()
+    dispatcher.session_factory = lambda: SimpleNamespace(close=lambda: None)
+    completions: list[dict[str, Any]] = []
+    task = _task(task_type="tool.invoke")
+    task.metadata_json["tool_invocation"] = {"action": "record.search", "input": {"record_type": "lead"}}
+    task.tenant_id = dispatcher.tenant_id
+
+    def complete(self: TaskDispatcher, **kwargs: Any) -> None:
+        completions.append(kwargs)
+
+    _disable_heartbeat(monkeypatch)
+    monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: task)
+    monkeypatch.setattr(TaskDispatcher, "_complete", complete)
+    monkeypatch.setattr(
+        TaskDispatcher,
+        "_fail",
+        lambda *args, **kwargs: pytest.fail("valid tool.invoke task must not fail"),
+    )
+
+    dispatcher.execute(task_id=uuid.uuid4(), lease_id=uuid.uuid4())
+
+    assert len(completions) == 1
+    assert completions[0]["output_reason"] == "tool action completed"
+    assert completions[0]["result"]["handler"] == "tool.invoke"
+    assert completions[0]["result"]["action"] == "record.search"
+
+
+def test_execute_fails_malformed_tool_invoke_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    dispatcher = _dispatcher()
+    dispatcher.session_factory = lambda: SimpleNamespace(close=lambda: None)
+    reasons: list[str] = []
+    task = _task(task_type="tool.invoke")
+    task.tenant_id = dispatcher.tenant_id
+    task.metadata_json["tool_invocation"] = {"action": "record.search", "input": {"record_type": "invoice"}}
+
+    _disable_heartbeat(monkeypatch)
+    monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: task)
+    monkeypatch.setattr(TaskDispatcher, "_fail", lambda self, *, lease_id, reason: reasons.append(reason))
+    monkeypatch.setattr(
+        TaskDispatcher,
+        "_complete",
+        lambda *args, **kwargs: pytest.fail("invalid tool.invoke must not complete"),
+    )
+
+    dispatcher.execute(task_id=uuid.uuid4(), lease_id=uuid.uuid4())
+
+    assert reasons == ["unsupported record type: invoice"]

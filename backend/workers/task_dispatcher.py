@@ -336,3 +336,7 @@ def echo_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, 
         "output": payload,
         "status": "completed",
     }
+
+
+# Register modular handlers after built-in validation handlers are declared.
+from backend.workers import handlers as _modular_handlers  # noqa: E402,F401

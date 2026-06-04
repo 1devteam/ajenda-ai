@@ -164,3 +164,8 @@ def test_validate_handler_result_rejects_non_json_serializable_persisted_payload
             {"handler": "echo", "status": "completed", "bad": {object()}},
             require_json_serializable=True,
         )
+
+
+def test_modular_tool_invoke_handler_is_registered() -> None:
+    assert "tool.invoke" in task_dispatcher._HANDLER_REGISTRY
+    assert task_dispatcher._OUTPUT_REASON_BY_TASK_TYPE["tool.invoke"] == "tool action completed"
