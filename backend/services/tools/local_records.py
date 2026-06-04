@@ -105,6 +105,19 @@ class LocalRecordProvider:
             raise ValueError(f"unsupported record_type: {record_type}")
 
 
+_DEFAULT_LOCAL_RECORD_PROVIDER = LocalRecordProvider()
+
+
+def default_local_record_provider() -> LocalRecordProvider:
+    return _DEFAULT_LOCAL_RECORD_PROVIDER
+
+
+def reset_default_local_record_provider(
+    seed_records: dict[str, dict[str, dict[str, dict[str, Any]]]] | None = None,
+) -> None:
+    _DEFAULT_LOCAL_RECORD_PROVIDER.reset(seed_records)
+
+
 def build_local_record_provider(
     seed_records: dict[str, dict[str, dict[str, dict[str, Any]]]] | None = None,
 ) -> LocalRecordProvider:

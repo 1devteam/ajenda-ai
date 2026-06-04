@@ -101,7 +101,7 @@ def test_tool_invoke_handler_fails_side_effecting_action_without_authority() -> 
         tool_invoke_handler(task, _context(tenant_id))
 
 
-def test_tool_invoke_handler_allows_side_effect_when_versioned_authorization_present() -> None:
+def test_tool_invoke_handler_rejects_side_effect_authorization_without_capability_or_adapter() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(
         tenant_id=tenant_id,
@@ -121,10 +121,8 @@ def test_tool_invoke_handler_allows_side_effect_when_versioned_authorization_pre
         },
     )
 
-    result = tool_invoke_handler(task, _context(tenant_id))
-
-    assert result["side_effect_class"] == "internal_write"
-    assert result["records_changed"]
+    with pytest.raises(ValueError, match="side-effecting action requires explicit capability/adapter authority"):
+        tool_invoke_handler(task, _context(tenant_id))
 
 
 def test_tool_invoke_handler_gates_http_write_methods_before_network_call() -> None:

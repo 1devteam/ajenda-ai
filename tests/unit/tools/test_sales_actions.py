@@ -65,3 +65,34 @@ def test_aliases_map_to_sales_actions() -> None:
 
     assert research.action == "sales.research"
     assert "Drafted" in draft.summary
+
+
+def test_record_write_is_observable_by_read() -> None:
+    from backend.services.tools.local_records import reset_default_local_record_provider
+
+    reset_default_local_record_provider()
+    registry = get_default_action_registry(rebuild=True)
+    context = _context()
+
+    write_result = registry.invoke(
+        ToolInvocation(
+            action="record.write",
+            input={
+                "record_type": "contact",
+                "record_id": "contact-new",
+                "data": {"name": "New Contact", "role": "Buyer"},
+            },
+        ),
+        context,
+    )
+    read_result = registry.invoke(
+        ToolInvocation(
+            action="record.read",
+            input={"record_type": "contact", "record_id": "contact-new"},
+        ),
+        context,
+    )
+
+    assert write_result.records_changed == ["contact-new"]
+    assert read_result.output["found"] is True
+    assert read_result.output["record"]["name"] == "New Contact"

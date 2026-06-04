@@ -150,3 +150,40 @@ def test_validation_rejects_disabled_adapter(monkeypatch: pytest.MonkeyPatch) ->
             },
             action=_action(),
         )
+
+
+def test_validation_accepts_registered_alias_in_required_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["crm.research"])
+    monkeypatch.setattr(
+        CapabilityRepository, "get_visible_for_tenant", lambda self, *, capability_id, tenant_id: capability
+    )
+
+    validate_capability_action_authority(
+        session=object(),
+        tenant_id="tenant",
+        metadata={"capability_reference": {"capability_id": str(capability.id)}},
+        action=ActionDefinition(
+            name="sales.research",
+            handler=_handler,
+            aliases=("crm.research",),
+        ),
+    )
+
+
+def test_side_effect_authorization_without_capability_or_adapter_still_fails() -> None:
+    with pytest.raises(CapabilityActionValidationError, match="explicit capability/adapter authority"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={
+                "execution_constraints": {
+                    "side_effect_authorization": {
+                        "schema_version": 1,
+                        "allowed_actions": ["record.write"],
+                        "reason": "test",
+                        "approved_by": "test",
+                    }
+                }
+            },
+            action=_action("record.write", SideEffectClass.INTERNAL_WRITE),
+        )

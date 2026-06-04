@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
-from backend.services.tools.local_records import LocalRecordProvider, build_local_record_provider
+from backend.services.tools.local_records import LocalRecordProvider, default_local_record_provider
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -19,7 +19,7 @@ from backend.services.tools.schemas import (
 
 
 def _provider(context: ActionRuntimeContext) -> LocalRecordProvider:
-    return build_local_record_provider()
+    return default_local_record_provider()
 
 
 def _evidence(

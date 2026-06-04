@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
-from backend.services.tools.local_calendar import LocalCalendarProvider
+from backend.services.tools.local_calendar import LocalCalendarProvider, default_local_calendar_provider
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -14,7 +14,7 @@ from backend.services.tools.schemas import (
 
 
 def _provider() -> LocalCalendarProvider:
-    return LocalCalendarProvider()
+    return default_local_calendar_provider()
 
 
 def calendar_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:

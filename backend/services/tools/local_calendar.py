@@ -29,3 +29,16 @@ class LocalCalendarProvider:
         stored = {"id": event_id, **deepcopy(event)}
         events.append(stored)
         return deepcopy(stored)
+
+
+_DEFAULT_LOCAL_CALENDAR_PROVIDER = LocalCalendarProvider()
+
+
+def default_local_calendar_provider() -> LocalCalendarProvider:
+    return _DEFAULT_LOCAL_CALENDAR_PROVIDER
+
+
+def reset_default_local_calendar_provider(
+    seed_events: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
+) -> None:
+    _DEFAULT_LOCAL_CALENDAR_PROVIDER.reset(seed_events)
