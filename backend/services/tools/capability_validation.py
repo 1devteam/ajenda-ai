@@ -37,9 +37,17 @@ def validate_capability_action_authority(
     adapter = _resolve_adapter(session=session, tenant_id=tenant_id, reference=metadata.get("adapter_reference"))
 
     if capability is not None:
-        _validate_capability(capability=capability, action_names=_action_authority_names(action))
+        _validate_capability(
+            capability=capability,
+            action_names=_action_authority_names(action),
+            side_effecting=effective_side_effect_class.has_side_effect,
+        )
     if adapter is not None:
-        _validate_adapter(adapter=adapter, action_names=_action_authority_names(action))
+        _validate_adapter(
+            adapter=adapter,
+            action_names=_action_authority_names(action),
+            side_effecting=effective_side_effect_class.has_side_effect,
+        )
     if capability is not None and adapter is not None:
         validate_capability_adapter_compatibility(
             capability=capability,
@@ -109,27 +117,27 @@ def _action_authority_names(action: ActionDefinition) -> set[str]:
     return {action.name, *action.aliases}
 
 
-def _validate_capability(*, capability: Capability, action_names: set[str]) -> None:
-    if "tool.invoke" not in capability.supported_task_types and not (
-        set(capability.supported_task_types) & action_names
-    ):
+def _validate_capability(*, capability: Capability, action_names: set[str], side_effecting: bool) -> None:
+    supported_actions = set(capability.supported_task_types) & action_names
+    required_tools = set(capability.required_tools)
+    required_tool_actions = required_tools & action_names
+    if "tool.invoke" not in capability.supported_task_types and not supported_actions:
         raise CapabilityActionValidationError("capability does not support tool.invoke or exact action")
-    if (
-        capability.required_tools
-        and "*" not in capability.required_tools
-        and not (set(capability.required_tools) & action_names)
-    ):
+    if side_effecting and not supported_actions and "*" not in required_tools and not required_tool_actions:
+        raise CapabilityActionValidationError("capability required_tools does not include exact side-effect action")
+    if capability.required_tools and "*" not in required_tools and not required_tool_actions:
         raise CapabilityActionValidationError("capability required_tools does not include exact action")
 
 
-def _validate_adapter(*, adapter: CapabilityAdapter, action_names: set[str]) -> None:
-    if "tool.invoke" not in adapter.supported_task_types and not (set(adapter.supported_task_types) & action_names):
+def _validate_adapter(*, adapter: CapabilityAdapter, action_names: set[str], side_effecting: bool) -> None:
+    supported_actions = set(adapter.supported_task_types) & action_names
+    required_tools = set(adapter.required_tools)
+    required_tool_actions = required_tools & action_names
+    if "tool.invoke" not in adapter.supported_task_types and not supported_actions:
         raise CapabilityActionValidationError("adapter does not support tool.invoke or exact action")
-    if (
-        adapter.required_tools
-        and "*" not in adapter.required_tools
-        and not (set(adapter.required_tools) & action_names)
-    ):
+    if side_effecting and not supported_actions and "*" not in required_tools and not required_tool_actions:
+        raise CapabilityActionValidationError("adapter required_tools does not include exact side-effect action")
+    if adapter.required_tools and "*" not in required_tools and not required_tool_actions:
         raise CapabilityActionValidationError("adapter required_tools does not include exact action")
 
 

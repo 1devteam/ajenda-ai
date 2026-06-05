@@ -199,7 +199,7 @@ def side_effect_authorized(metadata: Mapping[str, Any], action: str) -> bool:
     raw_constraints = metadata.get("execution_constraints")
     if not isinstance(raw_constraints, Mapping):
         raw_constraints = {}
-    raw_auth = raw_constraints.get("side_effect_authorization") or metadata.get("side_effect_authorization")
+    raw_auth = raw_constraints.get("side_effect_authorization")
     if not isinstance(raw_auth, Mapping):
         return False
     authorization = SideEffectAuthorization.model_validate(dict(raw_auth))

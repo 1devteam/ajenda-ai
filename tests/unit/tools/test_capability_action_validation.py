@@ -257,3 +257,92 @@ def test_adapter_internal_side_effect_rejects_webhook_external_send(
             },
             action=_action("webhook.dispatch", SideEffectClass.EXTERNAL_SEND),
         )
+
+
+def test_side_effecting_action_rejects_broad_tool_invoke_without_concrete_tool_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=[])
+    monkeypatch.setattr(
+        CapabilityRepository,
+        "get_visible_for_tenant",
+        lambda self, *, capability_id, tenant_id: capability,
+    )
+
+    with pytest.raises(CapabilityActionValidationError, match="exact side-effect action"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={
+                "capability_reference": {"capability_id": str(capability.id)},
+                "execution_constraints": {
+                    "side_effect_authorization": {
+                        "schema_version": 1,
+                        "allowed_actions": ["record.write"],
+                        "reason": "test",
+                        "approved_by": "test",
+                    }
+                },
+            },
+            action=_action("record.write", SideEffectClass.INTERNAL_WRITE),
+        )
+
+
+def test_side_effecting_action_accepts_exact_supported_task_type_without_required_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = _capability(supported=["record.write"], tools=[])
+    monkeypatch.setattr(
+        CapabilityRepository,
+        "get_visible_for_tenant",
+        lambda self, *, capability_id, tenant_id: capability,
+    )
+
+    validate_capability_action_authority(
+        session=object(),
+        tenant_id="tenant",
+        metadata={
+            "capability_reference": {"capability_id": str(capability.id)},
+            "execution_constraints": {
+                "side_effect_authorization": {
+                    "schema_version": 1,
+                    "allowed_actions": ["record.write"],
+                    "reason": "test",
+                    "approved_by": "test",
+                }
+            },
+        },
+        action=_action("record.write", SideEffectClass.INTERNAL_WRITE),
+    )
+
+
+def test_side_effecting_action_rejects_broad_adapter_without_concrete_tool_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["*"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=[])
+    adapter.side_effect_classification = "internal_side_effect"
+
+    monkeypatch.setattr(
+        CapabilityAdapterRepository,
+        "get_visible_for_tenant",
+        lambda self, *, adapter_id, tenant_id: adapter,
+    )
+
+    with pytest.raises(CapabilityActionValidationError, match="exact side-effect action"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={
+                "adapter_reference": {"adapter_id": str(adapter.id)},
+                "execution_constraints": {
+                    "side_effect_authorization": {
+                        "schema_version": 1,
+                        "allowed_actions": ["record.write"],
+                        "reason": "test",
+                        "approved_by": "test",
+                    }
+                },
+            },
+            action=_action("record.write", SideEffectClass.INTERNAL_WRITE),
+        )
