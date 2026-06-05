@@ -90,7 +90,7 @@ class LocalRecordProvider:
         tenant_records = self._tenant_records(tenant_id)
         record_bucket = tenant_records.setdefault(record_type, {})
         final_id = record_id or f"{record_type}-{len(record_bucket) + 1}"
-        record = {"id": final_id, **deepcopy(data)}
+        record = {**deepcopy(data), "id": final_id}
         record_bucket[final_id] = record
         return deepcopy(record)
 

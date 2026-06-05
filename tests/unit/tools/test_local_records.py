@@ -42,3 +42,25 @@ def test_local_calendar_provider_is_tenant_scoped() -> None:
 
     assert provider.read_events(tenant_id="tenant-a", calendar_id="primary") == [event_a]
     assert provider.read_events(tenant_id="tenant-b", calendar_id="primary") == [event_b]
+
+
+def test_local_record_provider_preserves_authoritative_record_id_over_payload_id() -> None:
+    provider = LocalRecordProvider(seed_records={})
+
+    written = provider.write_record(
+        tenant_id="tenant",
+        record_type="contact",
+        record_id="contact-authoritative",
+        data={"id": "payload-id", "name": "Avery"},
+    )
+
+    assert written == {"id": "contact-authoritative", "name": "Avery"}
+    assert (
+        provider.read_record(
+            tenant_id="tenant",
+            record_type="contact",
+            record_id="contact-authoritative",
+        )
+        == written
+    )
+    assert provider.read_record(tenant_id="tenant", record_type="contact", record_id="payload-id") is None
