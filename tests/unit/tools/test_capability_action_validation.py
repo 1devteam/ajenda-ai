@@ -346,3 +346,22 @@ def test_side_effecting_action_rejects_broad_adapter_without_concrete_tool_scope
             },
             action=_action("record.write", SideEffectClass.INTERNAL_WRITE),
         )
+
+
+def test_side_effect_authorization_rejects_top_level_envelope() -> None:
+    from backend.services.tools.schemas import side_effect_authorized
+
+    assert (
+        side_effect_authorized(
+            {
+                "side_effect_authorization": {
+                    "schema_version": 1,
+                    "allowed_actions": ["record.write"],
+                    "reason": "test",
+                    "approved_by": "test",
+                }
+            },
+            "record.write",
+        )
+        is False
+    )

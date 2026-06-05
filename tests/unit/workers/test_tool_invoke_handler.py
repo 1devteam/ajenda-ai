@@ -139,27 +139,3 @@ def test_tool_invoke_handler_gates_http_write_methods_before_network_call() -> N
 
     with pytest.raises(ValueError, match="side-effecting action requires"):
         tool_invoke_handler(task, _context(tenant_id))
-
-
-def test_tool_invoke_handler_rejects_top_level_side_effect_authorization() -> None:
-    tenant_id = str(uuid.uuid4())
-    capability_id = str(uuid.uuid4())
-    task = _task(
-        tenant_id=tenant_id,
-        metadata={
-            "capability_reference": {"capability_id": capability_id},
-            "tool_invocation": {
-                "action": "record.write",
-                "input": {"record_type": "contact", "data": {"name": "Avery"}},
-            },
-            "side_effect_authorization": {
-                "schema_version": 1,
-                "allowed_actions": ["record.write"],
-                "reason": "unit test authorization",
-                "approved_by": "qa",
-            },
-        },
-    )
-
-    with pytest.raises(ValueError, match="execution_constraints.side_effect_authorization"):
-        tool_invoke_handler(task, _context(tenant_id))
