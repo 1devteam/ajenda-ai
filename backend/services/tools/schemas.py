@@ -203,4 +203,4 @@ def side_effect_authorized(metadata: Mapping[str, Any], action: str) -> bool:
     if not isinstance(raw_auth, Mapping):
         return False
     authorization = SideEffectAuthorization.model_validate(dict(raw_auth))
-    return action in authorization.allowed_actions or "*" in authorization.allowed_actions
+    return action in authorization.allowed_actions
