@@ -143,14 +143,23 @@ def _validate_side_effect_authority(
 ) -> None:
     if adapter is None and capability is None:
         raise CapabilityActionValidationError("side-effecting action requires explicit capability/adapter authority")
-    if adapter is not None and adapter.side_effect_classification not in {
-        side_effect_class.value,
-        "external_side_effect",
-        "internal_side_effect",
-    }:
+    if adapter is not None and not _adapter_authorizes_side_effect_class(
+        classification=adapter.side_effect_classification,
+        side_effect_class=side_effect_class,
+    ):
         raise CapabilityActionValidationError("adapter side_effect_classification does not authorize action")
     if side_effect_authorized(metadata, action.name):
         return
     raise CapabilityActionValidationError(
         "side-effecting action requires execution_constraints.side_effect_authorization"
     )
+
+
+def _adapter_authorizes_side_effect_class(*, classification: str, side_effect_class: SideEffectClass) -> bool:
+    if classification == side_effect_class.value:
+        return True
+    if classification == "internal_side_effect":
+        return side_effect_class.value.startswith("internal_")
+    if classification == "external_side_effect":
+        return side_effect_class.value.startswith("external_")
+    return False
