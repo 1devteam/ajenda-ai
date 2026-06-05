@@ -96,3 +96,71 @@ def test_record_write_is_observable_by_read() -> None:
     assert write_result.records_changed == ["contact-new"]
     assert read_result.output["found"] is True
     assert read_result.output["record"]["name"] == "New Contact"
+
+
+def test_sales_log_activity_preserves_record_write_payload_shape() -> None:
+    from backend.services.tools.local_records import reset_default_local_record_provider
+
+    reset_default_local_record_provider()
+    registry = get_default_action_registry(rebuild=True)
+    context = _context()
+
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.log_activity",
+            input={
+                "record_type": "activity",
+                "record_id": "activity-1",
+                "data": {"note": "called buyer", "channel": "phone"},
+            },
+        ),
+        context,
+    )
+    read_result = registry.invoke(
+        ToolInvocation(
+            action="record.read",
+            input={"record_type": "activity", "record_id": "activity-1"},
+        ),
+        context,
+    )
+
+    assert result.records_changed == ["activity-1"]
+    assert read_result.output["record"] == {
+        "id": "activity-1",
+        "note": "called buyer",
+        "channel": "phone",
+    }
+
+
+def test_sales_create_followup_task_preserves_record_write_payload_shape() -> None:
+    from backend.services.tools.local_records import reset_default_local_record_provider
+
+    reset_default_local_record_provider()
+    registry = get_default_action_registry(rebuild=True)
+    context = _context()
+
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.create_followup_task",
+            input={
+                "record_type": "task",
+                "record_id": "task-1",
+                "data": {"title": "Follow up", "due": "2026-06-06"},
+            },
+        ),
+        context,
+    )
+    read_result = registry.invoke(
+        ToolInvocation(
+            action="record.read",
+            input={"record_type": "task", "record_id": "task-1"},
+        ),
+        context,
+    )
+
+    assert result.records_changed == ["task-1"]
+    assert read_result.output["record"] == {
+        "id": "task-1",
+        "title": "Follow up",
+        "due": "2026-06-06",
+    }

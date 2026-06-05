@@ -19,7 +19,13 @@ def _provider() -> LocalCalendarProvider:
 
 def calendar_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = CalendarReadInput.model_validate(invocation.input)
-    events = _provider().read_events(tenant_id=context.tenant_id, calendar_id=payload.calendar_id, limit=payload.limit)
+    events = _provider().read_events(
+        tenant_id=context.tenant_id,
+        calendar_id=payload.calendar_id,
+        limit=payload.limit,
+        start=payload.start,
+        end=payload.end,
+    )
     output = {"calendar_id": payload.calendar_id, "events": events, "count": len(events)}
     summary = f"Read {len(events)} event(s) from local calendar {payload.calendar_id}."
     evidence = EvidenceItem(

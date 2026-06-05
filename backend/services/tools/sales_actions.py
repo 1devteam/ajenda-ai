@@ -309,8 +309,14 @@ def sales_draft_followup(invocation: ToolInvocation, context: ActionRuntimeConte
 
 
 def sales_log_activity(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = RecordWriteInput.model_validate(invocation.input)
     write_invocation = ToolInvocation(
-        action="record.write", input={"record_type": "activity", "data": invocation.input}
+        action="record.write",
+        input={
+            "record_type": "activity",
+            "record_id": payload.record_id,
+            "data": payload.data,
+        },
     )
     result = record_write(write_invocation, context)
     return ActionResult(
@@ -336,7 +342,15 @@ def sales_log_activity(invocation: ToolInvocation, context: ActionRuntimeContext
 
 
 def sales_create_followup_task(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
-    write_invocation = ToolInvocation(action="record.write", input={"record_type": "task", "data": invocation.input})
+    payload = RecordWriteInput.model_validate(invocation.input)
+    write_invocation = ToolInvocation(
+        action="record.write",
+        input={
+            "record_type": "task",
+            "record_id": payload.record_id,
+            "data": payload.data,
+        },
+    )
     result = record_write(write_invocation, context)
     return ActionResult(
         action="sales.create_followup_task",

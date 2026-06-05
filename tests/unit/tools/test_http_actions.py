@@ -76,3 +76,65 @@ def test_calendar_create_event_is_observable_by_read() -> None:
     assert create_result.records_changed == ["evt-1"]
     assert read_result.output["count"] == 1
     assert read_result.output["events"][0]["title"] == "Discovery Call"
+
+
+def test_calendar_read_honors_start_and_end_windows() -> None:
+    import uuid
+
+    from backend.services.tools.action_registry import get_default_action_registry
+    from backend.services.tools.local_calendar import reset_default_local_calendar_provider
+    from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
+
+    tenant_id = str(uuid.uuid4())
+    reset_default_local_calendar_provider(
+        {
+            tenant_id: {
+                "primary": [
+                    {
+                        "id": "evt-before",
+                        "calendar_id": "primary",
+                        "title": "Before",
+                        "start": "2026-06-05T08:00:00Z",
+                        "end": "2026-06-05T08:30:00Z",
+                    },
+                    {
+                        "id": "evt-window",
+                        "calendar_id": "primary",
+                        "title": "In Window",
+                        "start": "2026-06-05T10:00:00Z",
+                        "end": "2026-06-05T10:30:00Z",
+                    },
+                    {
+                        "id": "evt-after",
+                        "calendar_id": "primary",
+                        "title": "After",
+                        "start": "2026-06-05T12:00:00Z",
+                        "end": "2026-06-05T12:30:00Z",
+                    },
+                ]
+            }
+        }
+    )
+    registry = get_default_action_registry(rebuild=True)
+    context = ActionRuntimeContext(
+        tenant_id=tenant_id,
+        task_id=uuid.uuid4(),
+        mission_id=uuid.uuid4(),
+        worker_id="worker",
+        lease_id=str(uuid.uuid4()),
+    )
+
+    result = registry.invoke(
+        ToolInvocation(
+            action="calendar.read",
+            input={
+                "calendar_id": "primary",
+                "start": "2026-06-05T09:00:00Z",
+                "end": "2026-06-05T11:00:00Z",
+            },
+        ),
+        context,
+    )
+
+    assert result.output["count"] == 1
+    assert result.output["events"][0]["id"] == "evt-window"
