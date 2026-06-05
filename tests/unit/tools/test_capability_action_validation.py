@@ -187,3 +187,41 @@ def test_side_effect_authorization_without_capability_or_adapter_still_fails() -
             },
             action=_action("record.write", SideEffectClass.INTERNAL_WRITE),
         )
+
+
+def test_side_effect_authorization_does_not_bypass_adapter_classification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["record.write"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=["record.write"])
+    adapter.side_effect_classification = "none"
+
+    monkeypatch.setattr(
+        CapabilityRepository,
+        "get_visible_for_tenant",
+        lambda self, *, capability_id, tenant_id: capability,
+    )
+    monkeypatch.setattr(
+        CapabilityAdapterRepository,
+        "get_visible_for_tenant",
+        lambda self, *, adapter_id, tenant_id: adapter,
+    )
+
+    with pytest.raises(CapabilityActionValidationError, match="side_effect_classification"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={
+                "capability_reference": {"capability_id": str(capability.id)},
+                "adapter_reference": {"adapter_id": str(adapter.id)},
+                "execution_constraints": {
+                    "side_effect_authorization": {
+                        "schema_version": 1,
+                        "allowed_actions": ["record.write"],
+                        "reason": "test",
+                        "approved_by": "test",
+                    }
+                },
+            },
+            action=_action("record.write", SideEffectClass.INTERNAL_WRITE),
+        )

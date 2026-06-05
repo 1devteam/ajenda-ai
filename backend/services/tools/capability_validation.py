@@ -143,14 +143,14 @@ def _validate_side_effect_authority(
 ) -> None:
     if adapter is None and capability is None:
         raise CapabilityActionValidationError("side-effecting action requires explicit capability/adapter authority")
-    if side_effect_authorized(metadata, action.name):
-        return
     if adapter is not None and adapter.side_effect_classification not in {
         side_effect_class.value,
         "external_side_effect",
         "internal_side_effect",
     }:
         raise CapabilityActionValidationError("adapter side_effect_classification does not authorize action")
+    if side_effect_authorized(metadata, action.name):
+        return
     raise CapabilityActionValidationError(
         "side-effecting action requires execution_constraints.side_effect_authorization"
     )
