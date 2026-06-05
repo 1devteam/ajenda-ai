@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.capability_validation import validate_capability_action_authority
@@ -26,6 +27,8 @@ def tool_invoke_handler(task: ExecutionTask, context: TaskHandlerContext) -> dic
     registry = get_default_action_registry()
     action = registry.get(invocation.action)
     effective_side_effect_class = action.side_effect_for(invocation)
+    if effective_side_effect_class.has_side_effect and task.status != ExecutionTaskState.RUNNING.value:
+        raise ValueError("side-effecting tool.invoke action requires running task state")
     if effective_side_effect_class.has_side_effect and not side_effect_authorized(task.metadata_json, action.name):
         # Keep this fast gate before provider/action invocation. Deeper validation
         # below still checks capability/adapter metadata when references exist.
