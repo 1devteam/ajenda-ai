@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
+from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
@@ -85,6 +86,13 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
                 LineageRecord.relationship_type == "task_output",
             )
         ).all()
+        evidence_records = verify_session.scalars(
+            select(EvidenceRecord).where(
+                EvidenceRecord.tenant_id == tenant_id,
+                EvidenceRecord.execution_task_id == task_id,
+                EvidenceRecord.evidence_source == "tool.invoke.record.search",
+            )
+        ).all()
 
         assert final_task is not None
         assert final_task.status == ExecutionTaskState.COMPLETED.value
@@ -98,6 +106,14 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
         assert payload["output"]["count"] == 1
         assert payload["evidence"][0]["action_name"] == "record.search"
         assert payload["evidence"][0]["tenant_id"] == tenant_id
+        assert len(evidence_records) == 1
+        evidence = evidence_records[0]
+        assert evidence.mission_id == final_task.mission_id
+        assert evidence.evidence_type == "execution_trace"
+        assert evidence.provenance_metadata["tool_evidence_type"] == "action_result"
+        assert evidence.structured_payload["count"] == 1
+        assert evidence.materialization_reference["lineage_record_id"] == str(lineage[0].id)
+        assert evidence.artifact_references[0]["lineage_record_id"] == str(lineage[0].id)
         assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:

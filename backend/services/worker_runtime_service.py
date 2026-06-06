@@ -15,10 +15,12 @@ from backend.domain.lineage_record import LineageRecord
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
 from backend.repositories.audit_event_repository import AuditEventRepository
+from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.transitions import transition_lease, transition_task
+from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 
 logger = logging.getLogger("ajenda.worker_runtime_service")
 
@@ -140,7 +142,7 @@ class WorkerRuntimeService:
         self._transition_lease_to_released(lease)
         lease.heartbeat_at = datetime.now(UTC)
         if task_output is not None:
-            LineageRecordRepository(self._session).append(
+            lineage_record = LineageRecordRepository(self._session).append(
                 LineageRecord(
                     tenant_id=task.tenant_id,
                     mission_id=task.mission_id,
@@ -153,6 +155,14 @@ class WorkerRuntimeService:
                     metadata_json=task_output,
                 )
             )
+            evidence_repo = EvidenceRepository(self._session)
+            for evidence_record in build_tool_action_evidence_records(
+                task=task,
+                lease=lease,
+                task_output=task_output,
+                lineage_record=lineage_record,
+            ):
+                evidence_repo.add(evidence_record)
 
         self._audit.append(
             AuditEvent(
