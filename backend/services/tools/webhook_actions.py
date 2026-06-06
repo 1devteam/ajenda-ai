@@ -16,6 +16,7 @@ from backend.services.webhook_dispatch import WebhookDispatchService
 
 def webhook_dispatch(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebhookDispatchInput.model_validate(invocation.input)
+    event_id = payload.event_id or _derive_stable_event_id(invocation=invocation, context=context)
     if context.session_factory is None:
         raise ValueError("webhook.dispatch requires a session_factory")
     session = context.session_factory()
@@ -25,7 +26,7 @@ def webhook_dispatch(invocation: ToolInvocation, context: ActionRuntimeContext) 
             tenant_id=uuid.UUID(context.tenant_id),
             event_type=payload.event_type,
             payload=payload.payload,
-            event_id=payload.event_id,
+            event_id=event_id,
             attempt_number=payload.attempt_number,
         )
         session.commit()
@@ -43,7 +44,12 @@ def webhook_dispatch(invocation: ToolInvocation, context: ActionRuntimeContext) 
         }
         for result in results
     ]
-    output = {"event_type": payload.event_type, "delivery_count": len(deliveries), "deliveries": deliveries}
+    output = {
+        "event_type": payload.event_type,
+        "event_id": str(event_id),
+        "delivery_count": len(deliveries),
+        "deliveries": deliveries,
+    }
     summary = f"Dispatched webhook event {payload.event_type} to {len(deliveries)} endpoint(s)."
     evidence = EvidenceItem(
         evidence_type="action_result",

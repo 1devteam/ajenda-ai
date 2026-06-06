@@ -138,3 +138,62 @@ def test_calendar_read_honors_start_and_end_windows() -> None:
 
     assert result.output["count"] == 1
     assert result.output["events"][0]["id"] == "evt-window"
+
+
+def test_webhook_dispatch_derives_stable_event_id_from_idempotency_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    import uuid
+
+    from backend.services.tools.action_registry import get_default_action_registry
+    from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
+    from backend.services.webhook_dispatch import WebhookDispatchResult
+
+    captured_event_ids: list[uuid.UUID] = []
+
+    class Session:
+        def commit(self) -> None:
+            return None
+
+        def rollback(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    class Service:
+        def __init__(self, session: Session) -> None:
+            self.session = session
+
+        def dispatch_event(self, **kwargs):
+            captured_event_ids.append(kwargs["event_id"])
+            return [
+                WebhookDispatchResult(
+                    delivery_id=uuid.uuid4(),
+                    succeeded=True,
+                    http_status=200,
+                )
+            ]
+
+    monkeypatch.setattr("backend.services.tools.webhook_actions.WebhookDispatchService", Service)
+
+    tenant_id = str(uuid.uuid4())
+    task_id = uuid.uuid4()
+    context = ActionRuntimeContext(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=uuid.uuid4(),
+        worker_id="worker",
+        lease_id=str(uuid.uuid4()),
+        session_factory=Session,
+    )
+    registry = get_default_action_registry(rebuild=True)
+    invocation = ToolInvocation(
+        action="webhook.dispatch",
+        idempotency_key="stable-key",
+        input={"event_type": "task.completed", "payload": {"ok": True}},
+    )
+
+    first = registry.invoke(invocation, context)
+    second = registry.invoke(invocation, context)
+
+    assert captured_event_ids[0] == captured_event_ids[1]
+    assert first.output["event_id"] == second.output["event_id"] == str(captured_event_ids[0])
