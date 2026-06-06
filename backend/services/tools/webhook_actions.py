@@ -77,6 +77,18 @@ def webhook_dispatch(invocation: ToolInvocation, context: ActionRuntimeContext) 
     )
 
 
+def _derive_stable_event_id(*, invocation: ToolInvocation, context: ActionRuntimeContext) -> uuid.UUID:
+    if invocation.idempotency_key:
+        return uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"ajenda:webhook:{context.tenant_id}:{invocation.idempotency_key}",
+        )
+    return uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"ajenda:webhook:{context.tenant_id}:{context.task_id}",
+    )
+
+
 def register_webhook_actions(registry: ActionRegistry) -> None:
     registry.register(
         ActionDefinition(
