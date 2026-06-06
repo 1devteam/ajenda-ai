@@ -109,6 +109,8 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
         assert len(evidence_records) == 1
         evidence = evidence_records[0]
         assert evidence.mission_id == final_task.mission_id
+        assert evidence.evidence_type == "execution_trace"
+        assert evidence.provenance_metadata["tool_evidence_type"] == "action_result"
         assert evidence.structured_payload["count"] == 1
         assert evidence.materialization_reference["lineage_record_id"] == str(lineage[0].id)
         assert evidence.artifact_references[0]["lineage_record_id"] == str(lineage[0].id)

@@ -106,7 +106,7 @@ def test_build_tool_action_evidence_records_maps_evidence_to_durable_contract() 
     assert record.mission_id == task.mission_id
     assert record.execution_task_id == task.id
     assert record.task_graph_node_key == "node-1"
-    assert record.evidence_type == "action_result"
+    assert record.evidence_type == "execution_trace"
     assert record.evidence_source == "tool.invoke.record.search"
     assert record.structured_payload == {"count": 1}
     assert record.artifact_references == [
@@ -121,6 +121,7 @@ def test_build_tool_action_evidence_records_maps_evidence_to_durable_contract() 
         record.provenance_metadata["runtime_path"]
         == "TaskDispatcher -> WorkerRuntimeService.complete -> EvidenceRecord"
     )
+    assert record.provenance_metadata["tool_evidence_type"] == "action_result"
     assert record.provenance_metadata["records_inspected"] == ["acct-1"]
     assert record.trust_signal == {
         "confidence": 1.0,

@@ -12,6 +12,8 @@ from backend.services.tools.schemas import EvidenceItem
 
 _TOOL_INVOKE_HANDLER = "tool.invoke"
 _TASK_OUTPUT_RELATIONSHIP = "task_output"
+_TOOL_ACTION_EVIDENCE_TYPE = "action_result"
+_DURABLE_TOOL_ACTION_EVIDENCE_TYPE = "execution_trace"
 
 
 def build_tool_action_evidence_records(
@@ -64,7 +66,7 @@ def build_tool_action_evidence_records(
                 execution_task_id=task.id,
                 capability_id=_reference_uuid(task.metadata_json.get("capability_reference"), "capability_id"),
                 capability_adapter_id=_reference_uuid(task.metadata_json.get("adapter_reference"), "adapter_id"),
-                evidence_type=evidence_item.evidence_type,
+                evidence_type=_durable_evidence_type(evidence_item.evidence_type),
                 evidence_source=evidence_item.evidence_source,
                 summary=evidence_item.summary,
                 structured_payload=evidence_item.structured_payload,
@@ -81,6 +83,7 @@ def build_tool_action_evidence_records(
                     "runtime_path": "TaskDispatcher -> WorkerRuntimeService.complete -> EvidenceRecord",
                     "action_name": evidence_item.action_name,
                     "tool_provider": evidence_item.tool_provider,
+                    "tool_evidence_type": evidence_item.evidence_type,
                     "worker_lease_id": str(lease.id),
                     "records_inspected": evidence_item.records_inspected,
                     "records_changed": evidence_item.records_changed,
@@ -97,6 +100,12 @@ def build_tool_action_evidence_records(
             )
         )
     return records
+
+
+def _durable_evidence_type(evidence_type: str) -> str:
+    if evidence_type == _TOOL_ACTION_EVIDENCE_TYPE:
+        return _DURABLE_TOOL_ACTION_EVIDENCE_TYPE
+    return evidence_type
 
 
 def _validate_evidence_scope(*, task: ExecutionTask, evidence_item: EvidenceItem) -> None:
