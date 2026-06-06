@@ -123,7 +123,7 @@ def _validate_capability(*, capability: Capability, action_names: set[str], side
     required_tool_actions = required_tools & action_names
     if "tool.invoke" not in capability.supported_task_types and not supported_actions:
         raise CapabilityActionValidationError("capability does not support tool.invoke or exact action")
-    if side_effecting and not supported_actions and "*" not in required_tools and not required_tool_actions:
+    if side_effecting and not supported_actions and not required_tool_actions:
         raise CapabilityActionValidationError("capability required_tools does not include exact side-effect action")
     if capability.required_tools and "*" not in required_tools and not required_tool_actions:
         raise CapabilityActionValidationError("capability required_tools does not include exact action")
@@ -135,7 +135,7 @@ def _validate_adapter(*, adapter: CapabilityAdapter, action_names: set[str], sid
     required_tool_actions = required_tools & action_names
     if "tool.invoke" not in adapter.supported_task_types and not supported_actions:
         raise CapabilityActionValidationError("adapter does not support tool.invoke or exact action")
-    if side_effecting and not supported_actions and "*" not in required_tools and not required_tool_actions:
+    if side_effecting and not supported_actions and not required_tool_actions:
         raise CapabilityActionValidationError("adapter required_tools does not include exact side-effect action")
     if adapter.required_tools and "*" not in required_tools and not required_tool_actions:
         raise CapabilityActionValidationError("adapter required_tools does not include exact action")
