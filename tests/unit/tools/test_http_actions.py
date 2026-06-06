@@ -197,3 +197,57 @@ def test_webhook_dispatch_derives_stable_event_id_from_idempotency_key(monkeypat
 
     assert captured_event_ids[0] == captured_event_ids[1]
     assert first.output["event_id"] == second.output["event_id"] == str(captured_event_ids[0])
+
+
+def test_calendar_read_normalizes_offset_times_before_window_filtering() -> None:
+    import uuid
+
+    from backend.services.tools.action_registry import get_default_action_registry
+    from backend.services.tools.local_calendar import reset_default_local_calendar_provider
+    from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
+
+    tenant_id = str(uuid.uuid4())
+    reset_default_local_calendar_provider(
+        {
+            tenant_id: {
+                "primary": [
+                    {
+                        "id": "evt-before-window",
+                        "calendar_id": "primary",
+                        "title": "Before window",
+                        "start": "2026-06-05T10:00:00-05:00",
+                        "end": "2026-06-05T10:30:00-05:00",
+                    },
+                    {
+                        "id": "evt-in-window",
+                        "calendar_id": "primary",
+                        "title": "In window",
+                        "start": "2026-06-05T07:30:00-05:00",
+                        "end": "2026-06-05T08:30:00-05:00",
+                    },
+                ]
+            }
+        }
+    )
+    context = ActionRuntimeContext(
+        tenant_id=tenant_id,
+        task_id=uuid.uuid4(),
+        mission_id=None,
+        worker_id="worker",
+        lease_id=str(uuid.uuid4()),
+    )
+    registry = get_default_action_registry(rebuild=True)
+
+    result = registry.invoke(
+        ToolInvocation(
+            action="calendar.read",
+            input={
+                "calendar_id": "primary",
+                "start": "2026-06-05T12:00:00Z",
+                "end": "2026-06-05T14:00:00Z",
+            },
+        ),
+        context,
+    )
+
+    assert [event["id"] for event in result.output["events"]] == ["evt-in-window"]

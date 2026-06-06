@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -30,11 +31,16 @@ class LocalCalendarProvider:
         if limit < 1 or limit > 50:
             raise ValueError("limit must be between 1 and 50")
         events = self._events.setdefault(tenant_id, {}).setdefault(calendar_id, [])
+        window_start = _parse_calendar_timestamp(start) if start is not None else None
+        window_end = _parse_calendar_timestamp(end) if end is not None else None
         filtered = [
             event
             for event in events
-            if (start is None or str(event.get("end", "")) >= start)
-            and (end is None or str(event.get("start", "")) <= end)
+            if _event_overlaps_window(
+                event=event,
+                window_start=window_start,
+                window_end=window_end,
+            )
         ]
         return deepcopy(filtered[:limit])
 
@@ -44,6 +50,38 @@ class LocalCalendarProvider:
         stored = {"id": event_id, **deepcopy(event)}
         events.append(stored)
         return deepcopy(stored)
+
+
+def _parse_calendar_timestamp(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _event_overlaps_window(
+    *,
+    event: dict[str, Any],
+    window_start: datetime | None,
+    window_end: datetime | None,
+) -> bool:
+    if window_start is None and window_end is None:
+        return True
+
+    event_start_raw = event.get("start")
+    event_end_raw = event.get("end")
+    if not isinstance(event_start_raw, str) or not isinstance(event_end_raw, str):
+        return False
+
+    event_start = _parse_calendar_timestamp(event_start_raw)
+    event_end = _parse_calendar_timestamp(event_end_raw)
+
+    if window_start is not None and event_end < window_start:
+        return False
+    if window_end is not None and event_start > window_end:
+        return False
+    return True
 
 
 _DEFAULT_LOCAL_CALENDAR_PROVIDER = LocalCalendarProvider()
