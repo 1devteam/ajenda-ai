@@ -166,7 +166,7 @@ def _validate_side_effect_authority(
 def _adapter_authorizes_side_effect_class(*, classification: str, side_effect_class: SideEffectClass) -> bool:
     if classification == side_effect_class.value:
         return True
-    if classification == "internal_side_effect":
+    if classification in {"internal_side_effect", "idempotent_write", "non_idempotent_write"}:
         return side_effect_class.value.startswith("internal_")
     if classification == "external_side_effect":
         return side_effect_class.value.startswith("external_")

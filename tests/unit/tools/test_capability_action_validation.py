@@ -365,3 +365,70 @@ def test_side_effect_authorization_rejects_top_level_envelope() -> None:
         )
         is False
     )
+
+
+@pytest.mark.parametrize("classification", ["idempotent_write", "non_idempotent_write"])
+def test_adapter_write_classifications_authorize_internal_side_effects(
+    monkeypatch: pytest.MonkeyPatch,
+    classification: str,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["record.write"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=["record.write"])
+    adapter.side_effect_classification = classification
+
+    monkeypatch.setattr(
+        CapabilityAdapterRepository,
+        "get_visible_for_tenant",
+        lambda self, *, adapter_id, tenant_id: adapter,
+    )
+
+    validate_capability_action_authority(
+        session=object(),
+        tenant_id="tenant",
+        metadata={
+            "adapter_reference": {"adapter_id": str(adapter.id)},
+            "execution_constraints": {
+                "side_effect_authorization": {
+                    "schema_version": 1,
+                    "allowed_actions": ["record.write"],
+                    "reason": "unit test authorization",
+                    "approved_by": "qa",
+                }
+            },
+        },
+        action=_action("record.write", SideEffectClass.INTERNAL_WRITE),
+    )
+
+
+@pytest.mark.parametrize("classification", ["idempotent_write", "non_idempotent_write"])
+def test_adapter_write_classifications_reject_external_side_effects(
+    monkeypatch: pytest.MonkeyPatch,
+    classification: str,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["webhook.dispatch"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=["webhook.dispatch"])
+    adapter.side_effect_classification = classification
+
+    monkeypatch.setattr(
+        CapabilityAdapterRepository,
+        "get_visible_for_tenant",
+        lambda self, *, adapter_id, tenant_id: adapter,
+    )
+
+    with pytest.raises(CapabilityActionValidationError, match="side_effect_classification"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={
+                "adapter_reference": {"adapter_id": str(adapter.id)},
+                "execution_constraints": {
+                    "side_effect_authorization": {
+                        "schema_version": 1,
+                        "allowed_actions": ["webhook.dispatch"],
+                        "reason": "unit test authorization",
+                        "approved_by": "qa",
+                    }
+                },
+            },
+            action=_action("webhook.dispatch", SideEffectClass.EXTERNAL_SEND),
+        )
