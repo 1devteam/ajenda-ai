@@ -677,13 +677,16 @@ authority_entries:
       - backend/workers/handlers/tool_invoke.py
       - backend/services/tools/action_registry.py
       - backend/services/tools/capability_validation.py
+      - backend/services/tools/evidence_bridge.py
       - backend/services/tools/http_actions.py
+      - backend/domain/evidence.py
     route_scope: []
     authority_class: runtime_authoritative
     side_effect_class: tenant_scoped_tool_action_execution
     allowed_side_effects:
       - execute registered in-process actions only after an ExecutionTask has been queued, claimed, and started through worker lease authority
       - persist evidence-shaped action output through the existing task-output lineage path
+      - persist completed tool action evidence into tenant-owned EvidenceRecord rows after task-output lineage is appended
       - execute side-effecting actions only when versioned invocation metadata and capability or adapter authority explicitly authorize the concrete action
     forbidden_side_effects:
       - execute capabilities directly from declarative capability or adapter records
@@ -693,6 +696,7 @@ authority_entries:
     required_proofs:
       - tests/unit/tools/test_action_registry.py
       - tests/unit/tools/test_http_actions.py
+      - tests/unit/tools/test_evidence_bridge.py
       - tests/unit/workers/test_tool_invoke_handler.py
       - tests/unit/workers/test_task_dispatcher_runtime_contract.py
       - tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py

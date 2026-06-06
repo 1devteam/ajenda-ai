@@ -1,12 +1,13 @@
 # Capability Action Runtime Layer
 
-Status: implemented first additive slice with local proof providers.
+Status: implemented first additive slice with local proof providers and a narrow durable evidence bridge for completed `tool.invoke` outputs.
 
 ## Implemented runtime truth
 
 - `tool.invoke` is a registered `TaskDispatcher` handler, not a new dispatcher or worker loop.
 - Actions execute only after an `ExecutionTask` has moved through the existing queue, worker claim/start, lease, and dispatcher path.
 - Handler results are returned to the dispatcher and persisted through the existing task-output lineage path when completion succeeds.
+- Evidence-shaped `tool.invoke` output is also bridged into tenant-owned `EvidenceRecord` rows from `WorkerRuntimeService.complete` after task-output lineage is appended, keeping evidence persistence behind the existing queue/lease/dispatcher completion authority.
 - Capability and adapter records remain declarative metadata; they are resolved through existing repositories for validation and do not register executable actions.
 
 ## Implemented actions
@@ -26,6 +27,5 @@ Status: implemented first additive slice with local proof providers.
 
 ## Remaining gaps
 
-- No direct `EvidenceRecord` persistence bridge is implemented; evidence-shaped output is currently stored as task-output lineage.
 - No outcome review bridge, retrieval bridge, live CRM provider, live calendar provider, or external credential integration is implemented.
 - The action registry is in-process and deterministic; it is intentionally separate from the declarative capability and adapter registries.
