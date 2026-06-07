@@ -1,0 +1,165 @@
+name: Weekly Coherence Audit
+
+on:
+  schedule:
+    # Weekly Sunday audit run. Cron uses UTC; local America/Chicago time shifts with DST.
+    - cron: "0 14 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: coherence-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_test@localhost:5432/ajenda_test"
+  AJENDA_QUEUE_URL: "redis://localhost:6379/0"
+  AJENDA_ENV: "test"
+  AJENDA_LOG_LEVEL: "WARNING"
+  AJENDA_LOG_JSON: "false"
+  AJENDA_APP_NAME: "Ajenda AI Test"
+  AJENDA_OIDC_ISSUER: ""
+  AJENDA_OIDC_AUDIENCE: "ajenda-api"
+  AJENDA_QUEUE_ADAPTER: "redis"
+  AJENDA_RATE_LIMIT_REQUESTS: "10000"
+  AJENDA_RATE_LIMIT_WINDOW_SECONDS: "60"
+  AJENDA_REDACT_KEYS: "password,secret,token,api_key,authorization,cookie,set-cookie"
+
+jobs:
+  code-contract-coherence:
+    name: Code Contract Coherence
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Ruff — lint
+        run: ruff check backend/ tests/ scripts/validation/
+
+      - name: Ruff — format check
+        run: ruff format --check backend/ tests/ scripts/validation/
+
+      - name: Mypy — type check
+        run: mypy backend/
+
+      - name: Authority drift sentinel
+        run: python scripts/validation/contract_drift_check.py
+
+      - name: Migration seed contract sentinel
+        run: python scripts/validation/migration_seed_contract_check.py
+
+      - name: Unit, contract, and deployment tests
+        run: |
+          python -m pytest tests/unit/ tests/contract/ tests/deployment/ \
+            -v \
+            --tb=short \
+            --cov=backend \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -m "not integration"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coherence-audit-coverage
+          path: coverage.xml
+          retention-days: 14
+
+  runtime-integration-coherence:
+    name: Runtime Integration Coherence
+    runs-on: ubuntu-latest
+    needs: code-contract-coherence
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Verify Docker daemon for Testcontainers
+        run: docker info
+
+      - name: Integration tests
+        run: |
+          python -m pytest tests/integration/ \
+            -v \
+            --tb=short \
+            -m "integration" \
+            --timeout=60
+
+  migration-coherence:
+    name: Migration Coherence
+    runs-on: ubuntu-latest
+    needs: code-contract-coherence
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ajenda_test
+          POSTGRES_USER: ajenda_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ajenda_test -d ajenda_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Upgrade to head
+        run: alembic upgrade head
+
+      - name: Downgrade to base
+        run: alembic downgrade base
+
+      - name: Upgrade again
+        run: alembic upgrade head
