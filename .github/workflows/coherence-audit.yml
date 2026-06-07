@@ -1,0 +1,16 @@
+name: Weekly Coherence Audit
+
+on:
+  schedule:
+    - cron: "0 14 * * 0"
+  workflow_dispatch:
+
+jobs:
+  code-contract-coherence:
+    name: Code Contract Coherence
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Verify workflow
+        run: echo "weekly coherence audit"
