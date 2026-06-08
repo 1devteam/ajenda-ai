@@ -11,6 +11,33 @@ These instructions apply to AI agents, Codex sessions, connector-assisted edits,
 - Prefer complete, coherent fixes over narrow patches that only satisfy one failing test.
 - Preserve tenant isolation, queue authority, lease ownership, fail-closed policy behavior, and evidence-backed runtime outcomes.
 
+## UPG Layer — Universal Prompting Gate
+
+Before any non-trivial layer, runtime, tool, networking, persistence, security, or workflow change, complete the UPG gate before implementation.
+
+UPG prevents assumption-driven implementation by requiring the agent to identify the change responsibility, source of truth, dependencies, possible pitfalls, invariants, proof, and system-wide impact before editing.
+
+UPG rules:
+
+- Pride Protocol is strictly enforced: read relevant files completely, understand full context, search affected instances, plan before editing, test before claiming completion, document decisions, and review honestly.
+- No assumption may be used as implementation authority. Assumptions belong only in Possible Pitfalls. Every decision must be backed by verified evidence from source files, tests, migrations, runtime output, repository history, or direct user clarification.
+- Every change must identify its source of truth before implementation. If ownership or source of truth is unclear, implementation is blocked until clarified.
+- Any unclear authority, ownership, state, persistence, retry behavior, tenant scope, or external effect must fail closed or be explicitly deferred.
+- Before coding, consider edge cases and the system-wide impact of each addition. Identify what can fail, what can be affected, what must remain true, and how each claim will be proven.
+- No synthetic completion: work is not complete because it is described. Work is complete only when the artifact, diff, test, citation, runtime proof, or explicitly documented non-goal exists.
+
+### LAP — Layer Acceptance Protocol
+
+For layer-level changes, tool stacks, provider changes, networking/security changes, runtime paths, or evidence/persistence changes, complete LAP before coding:
+
+1. Responsibility — what this layer/change accepts, transforms/decides, and outputs/changes.
+2. Dependencies — upstream/downstream files, routes, repositories, migrations, queues, services, configs, external systems, and tests.
+3. Possible Pitfalls — wrong input, missing input, stale state, duplicate action, wrong tenant/user, wrong permissions, failed dependency, partial success, retry behavior, race/concurrency, bad output, and data not observable afterward.
+4. Invariants — what must always remain true after the change.
+5. Proof — tests, validation scripts, migration checks, integration proof, runtime evidence, or documented non-goals proving each invariant.
+
+Do not implement a layer-level change until UPG/LAP is complete. If the review finds insufficient evidence, ask for clarification or narrow the scope.
+
 ## Hard boundaries
 
 Do not:
@@ -81,6 +108,7 @@ Each PR summary should include:
 
 - Implementation files changed.
 - Code path traced.
+- UPG/LAP review completed for non-trivial layer/runtime/tool/networking/security/persistence changes.
 - Authority, tenant, side-effect, evidence, and migration impact.
 - Tests and validation commands run.
 - Any skipped checks and the exact reason.
