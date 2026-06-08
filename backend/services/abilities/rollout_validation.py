@@ -29,6 +29,9 @@ def validate_action_manifest_alignment(
     expected_input_schema_ref = _input_schema_ref(action_definition)
     if manifest.input_schema_ref != expected_input_schema_ref:
         raise ValueError("ability manifest input_schema_ref must match registered action input model")
+    expected_output_schema_ref = _action_result_schema_ref()
+    if manifest.output_schema_ref != expected_output_schema_ref:
+        raise ValueError("ability manifest output_schema_ref must match ActionResult")
     if action_definition.side_effect_resolver is None:
         if manifest.side_effect_class != action_definition.side_effect_class:
             raise ValueError("ability manifest side_effect_class must match registered action side_effect_class")
@@ -101,3 +104,7 @@ def _input_schema_ref(action_definition: ActionDefinition) -> str:
     if action_definition.input_model is None:
         return "none"
     return f"{action_definition.input_model.__module__}.{action_definition.input_model.__qualname__}"
+
+
+def _action_result_schema_ref() -> str:
+    return "backend.services.tools.schemas.ActionResult"

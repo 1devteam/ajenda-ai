@@ -299,3 +299,11 @@ def test_resolver_backed_action_requires_declared_resolver_side_effect_classes()
 
     with pytest.raises(ValueError, match="resolver_side_effect_classes"):
         validate_action_manifest_alignment(action_definition=action, manifest=manifest)
+
+
+def test_alignment_rejects_output_schema_ref_mismatch() -> None:
+    with pytest.raises(ValueError, match="output_schema_ref"):
+        validate_action_manifest_alignment(
+            action_definition=_action(),
+            manifest=_manifest(output_schema_ref="backend.services.tools.schemas.EvidenceItem"),
+        )
