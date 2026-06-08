@@ -111,7 +111,10 @@ def test_alignment_allows_dynamic_side_effect_resolver_with_conservative_max_cla
             side_effect_class=SideEffectClass.INTERNAL_READ,
             side_effect_resolver=lambda invocation: SideEffectClass.INTERNAL_READ,
         ),
-        manifest=_manifest(max_side_effect_class=SideEffectClass.INTERNAL_READ),
+        manifest=_manifest(
+            max_side_effect_class=SideEffectClass.INTERNAL_READ,
+            resolver_side_effect_classes=(SideEffectClass.INTERNAL_READ,),
+        ),
     )
 
 
@@ -187,6 +190,7 @@ def test_resolver_backed_action_accepts_conservative_max_side_effect_class() -> 
         provider="http",
         side_effect_class=SideEffectClass.EXTERNAL_READ,
         max_side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+        resolver_side_effect_classes=(SideEffectClass.EXTERNAL_READ, SideEffectClass.EXTERNAL_WRITE),
         required_permissions=[],
         required_tools=[],
         approval_required=True,
@@ -207,6 +211,7 @@ def test_resolver_backed_action_rejects_understated_default_side_effect() -> Non
         action_name="record.write",
         side_effect_class=SideEffectClass.INTERNAL_READ,
         max_side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        resolver_side_effect_classes=(SideEffectClass.INTERNAL_WRITE,),
         approval_required=True,
         readback_required=True,
     )
@@ -228,3 +233,69 @@ def test_alignment_accepts_no_input_action_with_none_schema_ref() -> None:
         action_definition=_action(input_model=None),
         manifest=_manifest(input_schema_ref="none"),
     )
+
+
+def test_resolver_backed_action_rejects_internal_max_when_external_write_possible() -> None:
+    action = _action(
+        name="http.request",
+        provider="http",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        side_effect_resolver=lambda invocation: SideEffectClass.EXTERNAL_WRITE,
+        required_permissions=(),
+        required_tools=(),
+    )
+
+    with pytest.raises(ValueError, match="maximum"):
+        _manifest(
+            action_name="http.request",
+            provider="http",
+            side_effect_class=SideEffectClass.EXTERNAL_READ,
+            max_side_effect_class=SideEffectClass.INTERNAL_WRITE,
+            resolver_side_effect_classes=(SideEffectClass.EXTERNAL_READ, SideEffectClass.EXTERNAL_WRITE),
+            required_permissions=[],
+            required_tools=[],
+            approval_required=True,
+            idempotency_required=True,
+            readback_required=True,
+        )
+
+    manifest = _manifest(
+        action_name="http.request",
+        provider="http",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        max_side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+        resolver_side_effect_classes=(SideEffectClass.EXTERNAL_READ, SideEffectClass.EXTERNAL_WRITE),
+        required_permissions=[],
+        required_tools=[],
+        approval_required=True,
+        idempotency_required=True,
+        readback_required=True,
+    )
+
+    validate_action_manifest_alignment(action_definition=action, manifest=manifest)
+
+
+def test_resolver_backed_action_requires_declared_resolver_side_effect_classes() -> None:
+    action = _action(
+        name="http.request",
+        provider="http",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        side_effect_resolver=lambda invocation: SideEffectClass.EXTERNAL_WRITE,
+        required_permissions=(),
+        required_tools=(),
+    )
+    manifest = _manifest(
+        action_name="http.request",
+        provider="http",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        max_side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+        resolver_side_effect_classes=(),
+        required_permissions=[],
+        required_tools=[],
+        approval_required=True,
+        idempotency_required=True,
+        readback_required=True,
+    )
+
+    with pytest.raises(ValueError, match="resolver_side_effect_classes"):
+        validate_action_manifest_alignment(action_definition=action, manifest=manifest)

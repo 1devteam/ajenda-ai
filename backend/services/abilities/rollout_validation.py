@@ -35,12 +35,17 @@ def validate_action_manifest_alignment(
     else:
         if manifest.max_side_effect_class is None:
             raise ValueError("resolver-backed actions require max_side_effect_class")
+        if not manifest.resolver_side_effect_classes:
+            raise ValueError("resolver-backed actions require resolver_side_effect_classes")
         if manifest.side_effect_class != action_definition.side_effect_class:
             raise ValueError(
                 "ability manifest side_effect_class must match registered action default side_effect_class"
             )
-        if _side_effect_rank(manifest.max_side_effect_class) < _side_effect_rank(action_definition.side_effect_class):
-            raise ValueError("ability manifest max_side_effect_class cannot be lower than registered default")
+        if action_definition.side_effect_class not in manifest.resolver_side_effect_classes:
+            raise ValueError("resolver_side_effect_classes must include registered default side_effect_class")
+        resolver_max = max(manifest.resolver_side_effect_classes, key=_side_effect_rank)
+        if manifest.max_side_effect_class != resolver_max:
+            raise ValueError("ability manifest max_side_effect_class must match resolver_side_effect_classes maximum")
     if tuple(manifest.required_permissions) != tuple(action_definition.required_permissions):
         raise ValueError("ability manifest required_permissions must match registered action permissions")
     if tuple(manifest.required_tools) != tuple(action_definition.required_tools):

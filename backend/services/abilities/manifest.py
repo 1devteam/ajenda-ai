@@ -65,6 +65,7 @@ class AbilityManifest(BaseModel):
     output_schema_ref: str = Field(min_length=1, max_length=240)
     side_effect_class: SideEffectClass = SideEffectClass.NONE
     max_side_effect_class: SideEffectClass | None = None
+    resolver_side_effect_classes: tuple[SideEffectClass, ...] = ()
     risk_level: AbilityRiskLevel = AbilityRiskLevel.LOW
     required_permissions: list[str] = Field(default_factory=list)
     required_tools: list[str] = Field(default_factory=list)
@@ -126,6 +127,12 @@ class AbilityManifest(BaseModel):
         effective_side_effect_class = self.max_side_effect_class or self.side_effect_class
         if _side_effect_rank(effective_side_effect_class) < _side_effect_rank(self.side_effect_class):
             raise ValueError("max_side_effect_class cannot be lower than side_effect_class")
+        if self.resolver_side_effect_classes:
+            resolver_max = max(self.resolver_side_effect_classes, key=_side_effect_rank)
+            if self.max_side_effect_class is None:
+                raise ValueError("resolver side-effect manifests require max_side_effect_class")
+            if self.max_side_effect_class != resolver_max:
+                raise ValueError("max_side_effect_class must match resolver_side_effect_classes maximum")
         if effective_side_effect_class.has_side_effect and not self.approval_required:
             raise ValueError("side-effecting abilities require approval_required=true")
         if (
