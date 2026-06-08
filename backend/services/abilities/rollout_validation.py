@@ -26,6 +26,9 @@ def validate_action_manifest_alignment(
         raise ValueError("ability manifest action_name must match registered action name")
     if manifest.provider != action_definition.provider:
         raise ValueError("ability manifest provider must match registered action provider")
+    expected_input_schema_ref = _input_schema_ref(action_definition)
+    if manifest.input_schema_ref != expected_input_schema_ref:
+        raise ValueError("ability manifest input_schema_ref must match registered action input model")
     if action_definition.side_effect_resolver is None:
         if manifest.side_effect_class != action_definition.side_effect_class:
             raise ValueError("ability manifest side_effect_class must match registered action side_effect_class")
@@ -87,3 +90,9 @@ _SIDE_EFFECT_RANK = {
 
 def _side_effect_rank(side_effect_class: SideEffectClass) -> int:
     return _SIDE_EFFECT_RANK[side_effect_class]
+
+
+def _input_schema_ref(action_definition: ActionDefinition) -> str:
+    if action_definition.input_model is None:
+        return "none"
+    return f"{action_definition.input_model.__module__}.{action_definition.input_model.__qualname__}"

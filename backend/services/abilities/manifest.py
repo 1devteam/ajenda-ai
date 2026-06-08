@@ -96,6 +96,16 @@ class AbilityManifest(BaseModel):
             raise ValueError("field must be non-empty")
         return stripped
 
+    @field_validator("readback_deferred_reason")
+    @classmethod
+    def normalize_optional_reason(cls, value: str | None) -> str | None:
+        """Normalize optional deferral reasons and reject blank strings."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
     @field_validator("required_permissions", "required_tools")
     @classmethod
     def normalize_string_list(cls, values: list[str]) -> list[str]:

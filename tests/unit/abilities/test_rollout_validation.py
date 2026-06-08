@@ -9,7 +9,13 @@ from backend.services.abilities.rollout_validation import (
     validate_manifest_collection,
 )
 from backend.services.tools.action_registry import ActionDefinition
-from backend.services.tools.schemas import ActionResult, ActionRuntimeContext, SideEffectClass, ToolInvocation
+from backend.services.tools.schemas import (
+    ActionResult,
+    ActionRuntimeContext,
+    RecordSearchInput,
+    SideEffectClass,
+    ToolInvocation,
+)
 
 
 def _handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
@@ -31,6 +37,7 @@ def _action(**overrides: object) -> ActionDefinition:
         "provider": "local_records",
         "required_permissions": ("records:read",),
         "required_tools": ("record.search",),
+        "input_model": RecordSearchInput,
     }
     payload.update(overrides)
     return ActionDefinition(**payload)
@@ -206,3 +213,18 @@ def test_resolver_backed_action_rejects_understated_default_side_effect() -> Non
 
     with pytest.raises(ValueError, match="default side_effect_class"):
         validate_action_manifest_alignment(action_definition=action, manifest=manifest)
+
+
+def test_alignment_rejects_input_schema_ref_mismatch() -> None:
+    with pytest.raises(ValueError, match="input_schema_ref"):
+        validate_action_manifest_alignment(
+            action_definition=_action(),
+            manifest=_manifest(input_schema_ref="backend.services.tools.schemas.HttpRequestInput"),
+        )
+
+
+def test_alignment_accepts_no_input_action_with_none_schema_ref() -> None:
+    validate_action_manifest_alignment(
+        action_definition=_action(input_model=None),
+        manifest=_manifest(input_schema_ref="none"),
+    )

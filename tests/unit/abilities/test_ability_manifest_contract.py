@@ -137,3 +137,14 @@ def test_max_side_effect_class_cannot_understate_default_side_effect() -> None:
             approval_required=True,
             readback_required=True,
         )
+
+
+def test_blank_readback_deferred_reason_is_rejected_for_write_manifest() -> None:
+    with pytest.raises(ValueError, match="readback_required"):
+        _manifest(
+            action_name="record.write",
+            side_effect_class=SideEffectClass.INTERNAL_WRITE,
+            approval_required=True,
+            readback_required=False,
+            readback_deferred_reason="   ",
+        )
