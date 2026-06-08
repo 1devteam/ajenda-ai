@@ -32,6 +32,21 @@ _WRITE_OR_SEND_EFFECTS = {
 }
 
 
+_SIDE_EFFECT_RANK = {
+    SideEffectClass.NONE: 0,
+    SideEffectClass.INTERNAL_READ: 1,
+    SideEffectClass.EXTERNAL_READ: 2,
+    SideEffectClass.INTERNAL_WRITE: 3,
+    SideEffectClass.EXTERNAL_WRITE: 4,
+    SideEffectClass.EXTERNAL_SEND: 5,
+    SideEffectClass.EXTERNAL_PUBLISH: 6,
+}
+
+
+def _side_effect_rank(side_effect_class: SideEffectClass) -> int:
+    return _SIDE_EFFECT_RANK[side_effect_class]
+
+
 class AbilityManifest(BaseModel):
     """Static contract describing one rollout-ready ability."""
 
@@ -49,6 +64,7 @@ class AbilityManifest(BaseModel):
     input_schema_ref: str = Field(min_length=1, max_length=240)
     output_schema_ref: str = Field(min_length=1, max_length=240)
     side_effect_class: SideEffectClass = SideEffectClass.NONE
+    max_side_effect_class: SideEffectClass | None = None
     risk_level: AbilityRiskLevel = AbilityRiskLevel.LOW
     required_permissions: list[str] = Field(default_factory=list)
     required_tools: list[str] = Field(default_factory=list)
@@ -97,10 +113,13 @@ class AbilityManifest(BaseModel):
     def validate_rollout_policy(self) -> AbilityManifest:
         """Enforce rollout rules that make abilities safe to promote."""
 
-        if self.side_effect_class.has_side_effect and not self.approval_required:
+        effective_side_effect_class = self.max_side_effect_class or self.side_effect_class
+        if _side_effect_rank(effective_side_effect_class) < _side_effect_rank(self.side_effect_class):
+            raise ValueError("max_side_effect_class cannot be lower than side_effect_class")
+        if effective_side_effect_class.has_side_effect and not self.approval_required:
             raise ValueError("side-effecting abilities require approval_required=true")
         if (
-            self.side_effect_class
+            effective_side_effect_class
             in {
                 SideEffectClass.EXTERNAL_WRITE,
                 SideEffectClass.EXTERNAL_SEND,
@@ -111,7 +130,7 @@ class AbilityManifest(BaseModel):
             raise ValueError("external write/send/publish abilities require idempotency_required=true")
         if not self.evidence_required:
             raise ValueError("runtime ability manifests require evidence_required=true")
-        if self.side_effect_class in _WRITE_OR_SEND_EFFECTS and not self.readback_required:
+        if effective_side_effect_class in _WRITE_OR_SEND_EFFECTS and not self.readback_required:
             if not self.readback_deferred_reason:
                 raise ValueError("write/send/publish abilities require readback_required=true or a deferred reason")
         if self.enabled_by_default and self.risk_level in {AbilityRiskLevel.HIGH, AbilityRiskLevel.CRITICAL}:

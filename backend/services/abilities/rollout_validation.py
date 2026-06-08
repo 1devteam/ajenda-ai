@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 
 from backend.services.abilities.manifest import AbilityManifest
 from backend.services.tools.action_registry import ActionDefinition
+from backend.services.tools.schemas import SideEffectClass
 
 
 def validate_manifest(manifest: AbilityManifest) -> AbilityManifest:
@@ -25,11 +26,18 @@ def validate_action_manifest_alignment(
         raise ValueError("ability manifest action_name must match registered action name")
     if manifest.provider != action_definition.provider:
         raise ValueError("ability manifest provider must match registered action provider")
-    if (
-        manifest.side_effect_class != action_definition.side_effect_class
-        and action_definition.side_effect_resolver is None
-    ):
-        raise ValueError("ability manifest side_effect_class must match registered action side_effect_class")
+    if action_definition.side_effect_resolver is None:
+        if manifest.side_effect_class != action_definition.side_effect_class:
+            raise ValueError("ability manifest side_effect_class must match registered action side_effect_class")
+    else:
+        if manifest.max_side_effect_class is None:
+            raise ValueError("resolver-backed actions require max_side_effect_class")
+        if manifest.side_effect_class != action_definition.side_effect_class:
+            raise ValueError(
+                "ability manifest side_effect_class must match registered action default side_effect_class"
+            )
+        if _side_effect_rank(manifest.max_side_effect_class) < _side_effect_rank(action_definition.side_effect_class):
+            raise ValueError("ability manifest max_side_effect_class cannot be lower than registered default")
     if tuple(manifest.required_permissions) != tuple(action_definition.required_permissions):
         raise ValueError("ability manifest required_permissions must match registered action permissions")
     if tuple(manifest.required_tools) != tuple(action_definition.required_tools):
@@ -64,3 +72,18 @@ def validate_manifest_collection(
         missing = sorted(canonical_actions - set(manifest_by_action))
         if missing:
             raise ValueError(f"missing ability manifests for registered actions: {missing}")
+
+
+_SIDE_EFFECT_RANK = {
+    SideEffectClass.NONE: 0,
+    SideEffectClass.INTERNAL_READ: 1,
+    SideEffectClass.EXTERNAL_READ: 2,
+    SideEffectClass.INTERNAL_WRITE: 3,
+    SideEffectClass.EXTERNAL_WRITE: 4,
+    SideEffectClass.EXTERNAL_SEND: 5,
+    SideEffectClass.EXTERNAL_PUBLISH: 6,
+}
+
+
+def _side_effect_rank(side_effect_class: SideEffectClass) -> int:
+    return _SIDE_EFFECT_RANK[side_effect_class]

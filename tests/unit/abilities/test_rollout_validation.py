@@ -98,13 +98,13 @@ def test_alignment_rejects_side_effect_mismatch_without_resolver() -> None:
         )
 
 
-def test_alignment_allows_dynamic_side_effect_resolver() -> None:
+def test_alignment_allows_dynamic_side_effect_resolver_with_conservative_max_class() -> None:
     validate_action_manifest_alignment(
         action_definition=_action(
-            side_effect_class=SideEffectClass.NONE,
+            side_effect_class=SideEffectClass.INTERNAL_READ,
             side_effect_resolver=lambda invocation: SideEffectClass.INTERNAL_READ,
         ),
-        manifest=_manifest(),
+        manifest=_manifest(max_side_effect_class=SideEffectClass.INTERNAL_READ),
     )
 
 
@@ -143,3 +143,66 @@ def test_manifest_collection_can_require_all_registered_actions() -> None:
             registered_actions=registered,
             require_all_registered=True,
         )
+
+
+def test_resolver_backed_action_requires_max_side_effect_class() -> None:
+    action = _action(
+        name="http.request",
+        provider="http",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        side_effect_resolver=lambda invocation: SideEffectClass.EXTERNAL_WRITE,
+        required_permissions=(),
+        required_tools=(),
+    )
+    manifest = _manifest(
+        action_name="http.request",
+        provider="http",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        required_permissions=[],
+        required_tools=[],
+    )
+
+    with pytest.raises(ValueError, match="max_side_effect_class"):
+        validate_action_manifest_alignment(action_definition=action, manifest=manifest)
+
+
+def test_resolver_backed_action_accepts_conservative_max_side_effect_class() -> None:
+    action = _action(
+        name="http.request",
+        provider="http",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        side_effect_resolver=lambda invocation: SideEffectClass.EXTERNAL_WRITE,
+        required_permissions=(),
+        required_tools=(),
+    )
+    manifest = _manifest(
+        action_name="http.request",
+        provider="http",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        max_side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+        required_permissions=[],
+        required_tools=[],
+        approval_required=True,
+        idempotency_required=True,
+        readback_required=True,
+    )
+
+    validate_action_manifest_alignment(action_definition=action, manifest=manifest)
+
+
+def test_resolver_backed_action_rejects_understated_default_side_effect() -> None:
+    action = _action(
+        name="record.write",
+        side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        side_effect_resolver=lambda invocation: SideEffectClass.INTERNAL_WRITE,
+    )
+    manifest = _manifest(
+        action_name="record.write",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+        max_side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        approval_required=True,
+        readback_required=True,
+    )
+
+    with pytest.raises(ValueError, match="default side_effect_class"):
+        validate_action_manifest_alignment(action_definition=action, manifest=manifest)

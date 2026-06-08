@@ -102,3 +102,38 @@ def test_high_risk_manifest_cannot_be_enabled_by_default() -> None:
             risk_level=AbilityRiskLevel.HIGH,
             enabled_by_default=True,
         )
+
+
+def test_max_side_effect_class_drives_policy_for_dynamic_actions() -> None:
+    with pytest.raises(ValueError, match="approval_required"):
+        _manifest(
+            action_name="http.request",
+            provider="http",
+            side_effect_class=SideEffectClass.EXTERNAL_READ,
+            max_side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+            approval_required=False,
+            idempotency_required=True,
+            readback_required=True,
+        )
+
+    with pytest.raises(ValueError, match="idempotency_required"):
+        _manifest(
+            action_name="http.request",
+            provider="http",
+            side_effect_class=SideEffectClass.EXTERNAL_READ,
+            max_side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+            approval_required=True,
+            idempotency_required=False,
+            readback_required=True,
+        )
+
+
+def test_max_side_effect_class_cannot_understate_default_side_effect() -> None:
+    with pytest.raises(ValueError, match="cannot be lower"):
+        _manifest(
+            action_name="record.write",
+            side_effect_class=SideEffectClass.INTERNAL_WRITE,
+            max_side_effect_class=SideEffectClass.INTERNAL_READ,
+            approval_required=True,
+            readback_required=True,
+        )
