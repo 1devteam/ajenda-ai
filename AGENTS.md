@@ -97,6 +97,7 @@ ruff format --check backend/ tests/ scripts/validation/
 mypy backend/
 python scripts/validation/contract_drift_check.py
 python scripts/validation/migration_seed_contract_check.py
+python scripts/validation/ability_rollout_contract_check.py
 python -m pytest tests/unit/ tests/contract/ tests/deployment/ -m "not integration"
 ```
 

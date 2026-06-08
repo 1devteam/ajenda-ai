@@ -43,6 +43,9 @@ jobs:
       - name: Migration seed contract sentinel
         run: python scripts/validation/migration_seed_contract_check.py
 
+      - name: Ability rollout contract sentinel
+        run: python scripts/validation/ability_rollout_contract_check.py
+
       - name: Unit contract and deployment tests
         run: |
           python -m pytest tests/unit/ tests/contract/ tests/deployment/ \
