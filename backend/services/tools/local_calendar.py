@@ -5,9 +5,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from backend.services.tools.calendar_provider import CalendarProvider
+
 
 @dataclass(slots=True)
-class LocalCalendarProvider:
+class LocalCalendarProvider(CalendarProvider):
     """Tenant-scoped deterministic proof provider, not durable calendar storage."""
 
     seed_events: dict[str, dict[str, list[dict[str, Any]]]] | None = None
