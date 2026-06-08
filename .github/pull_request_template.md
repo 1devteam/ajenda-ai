@@ -15,6 +15,7 @@
 
 - [ ] Read all relevant files completely before making changes
 - [ ] Understood the full problem and context — no assumptions made
+- [ ] Completed UPG/LAP review for non-trivial layer/runtime/tool/networking/security/persistence changes
 - [ ] Planned a complete solution, not a patch
 - [ ] All new code has type hints and docstrings
 - [ ] Tests added or updated for all changed behaviour
