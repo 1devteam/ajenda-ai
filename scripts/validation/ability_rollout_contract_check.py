@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from backend.services.abilities.catalog import INTERNAL_ABILITY_MANIFESTS
 from backend.services.abilities.rollout_validation import validate_manifest_collection
 from backend.services.tools.action_registry import get_default_action_registry
