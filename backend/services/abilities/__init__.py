@@ -1,5 +1,6 @@
 """Ability rollout contract package."""
 
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION, INTERNAL_ABILITY_MANIFESTS
 from backend.services.abilities.manifest import AbilityManifest, AbilityRiskLevel
 from backend.services.abilities.role_contracts import (
     ARCHIVIST_ROLE_CONTRACT,
@@ -17,9 +18,11 @@ from backend.services.abilities.rollout_validation import (
 )
 
 __all__ = [
+    "ABILITY_MANIFESTS_BY_ACTION",
     "ARCHIVIST_ROLE_CONTRACT",
     "COMMANDER_ROLE_CONTRACT",
     "GUARDIAN_ROLE_CONTRACT",
+    "INTERNAL_ABILITY_MANIFESTS",
     "ROLE_CONTRACTS",
     "AbilityManifest",
     "AbilityRiskLevel",
