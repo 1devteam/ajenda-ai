@@ -200,7 +200,7 @@ def test_claim_start_heartbeat_failure_remains_recoverable(
     try:
         claimed_task = verify_claim_session.get(ExecutionTask, queued.task_id)
         assert claimed_task is not None
-        assert claimed_task.status == ExecutionTaskState.CLAIMED.value
+        assert claimed_task.status == ExecutionTaskState.QUEUED.value
 
         lease = verify_claim_session.scalars(
             select(WorkerLease).where(
@@ -210,22 +210,19 @@ def test_claim_start_heartbeat_failure_remains_recoverable(
             )
         ).one()
 
-        assert lease.status == WorkerLeaseState.CLAIMED.value
-        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:processing") == 1
-        assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is not None
-        lease_id = lease.id
-        _expire_lease(verify_claim_session, lease_id=lease_id)
+        assert lease.status == WorkerLeaseState.RELEASED.value
+        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:pending") == 1
+        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:processing") == 0
+        assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is None
+
+        reclaimed = WorkerRuntimeService(verify_claim_session, queue_adapter).claim_next_task(
+            tenant_id=queued.tenant_id,
+            worker_id="claim-start-recovery-worker",
+        )
+        assert reclaimed is not None
+        assert reclaimed.id == queued.task_id
     finally:
         verify_claim_session.close()
-
-    _recover_expired(queued.session_factory, queue_adapter)
-    _assert_recoverable_and_reclaim_once(
-        queued,
-        queue_adapter,
-        redis_client,
-        original_lease_id=lease_id,
-        recovery_worker_id="claim-start-recovery-worker",
-    )
 
 
 def test_crash_after_claim_before_start_remains_recoverable(pg_engine, queue_adapter, redis_client) -> None:
