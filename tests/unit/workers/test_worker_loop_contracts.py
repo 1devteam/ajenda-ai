@@ -196,3 +196,96 @@ def test_fail_once_rolls_back_when_runtime_fail_raises(monkeypatch: pytest.Monke
 
     assert session.rolled_back is True
     assert session.closed is True
+
+
+def test_claim_and_start_releases_unstarted_claim_when_heartbeat_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = SessionStub()
+    loop = _loop(session=session)
+    task_id = uuid.uuid4()
+    lease_id = uuid.uuid4()
+    releases: list[tuple[uuid.UUID, str]] = []
+
+    class RuntimeStub:
+        def __init__(self, session_arg: object, queue_arg: object) -> None:
+            pass
+
+        def claim_next_task(self, *, tenant_id: str, worker_id: str) -> object:
+            return SimpleNamespace(id=task_id, metadata_json={"worker_lease_id": str(lease_id)})
+
+        def heartbeat(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> None:
+            raise RuntimeError("queue heartbeat rejected")
+
+    monkeypatch.setattr(worker_loop, "WorkerRuntimeService", RuntimeStub)
+    monkeypatch.setattr(
+        WorkerLoop,
+        "_release_unstarted_claim_once",
+        lambda self, *, lease_id, reason: releases.append((lease_id, reason)),
+    )
+
+    assert loop._claim_and_start_task() is None
+
+    assert session.rolled_back is True
+    assert releases == [(lease_id, "queue heartbeat rejected")]
+
+
+def test_claim_and_start_does_not_release_after_successful_start_if_late_commit_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CommitRaisingSession(SessionStub):
+        def commit(self) -> None:
+            self.committed = True
+            raise RuntimeError("late commit failed")
+
+    session = CommitRaisingSession()
+    loop = _loop(session=session)
+    task_id = uuid.uuid4()
+    lease_id = uuid.uuid4()
+
+    class RuntimeStub:
+        def __init__(self, session_arg: object, queue_arg: object) -> None:
+            pass
+
+        def claim_next_task(self, *, tenant_id: str, worker_id: str) -> object:
+            return SimpleNamespace(id=task_id, metadata_json={"worker_lease_id": str(lease_id)})
+
+        def heartbeat(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> None:
+            return None
+
+        def start_execution(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> None:
+            return None
+
+    monkeypatch.setattr(worker_loop, "WorkerRuntimeService", RuntimeStub)
+    monkeypatch.setattr(
+        WorkerLoop,
+        "_release_unstarted_claim_once",
+        lambda *args, **kwargs: pytest.fail("started tasks must not be requeued by claim/start compensation"),
+    )
+
+    assert loop._claim_and_start_task() is None
+
+    assert session.committed is True
+    assert session.rolled_back is True
+
+
+def test_release_unstarted_claim_once_calls_runtime_release_and_keeps_loop_alive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = SessionStub()
+    loop = _loop(session=session)
+    lease_id = uuid.uuid4()
+    calls: list[tuple[str, uuid.UUID, str]] = []
+
+    class RuntimeStub:
+        def __init__(self, session_arg: object, queue_arg: object) -> None:
+            pass
+
+        def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> None:
+            calls.append((tenant_id, lease_id, worker_id))
+
+    monkeypatch.setattr(worker_loop, "WorkerRuntimeService", RuntimeStub)
+
+    loop._release_unstarted_claim_once(lease_id=lease_id, reason="heartbeat failed")
+
+    assert calls == [("tenant-loop-contract", lease_id, "worker-loop-contract")]
+    assert session.committed is True
+    assert session.closed is True

@@ -10,9 +10,14 @@ from __future__ import annotations
 import ast
 import inspect
 import textwrap
+import uuid
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
+from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
+from backend.queue.base import QueueOperationResult
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 RuntimeMethod = Callable[..., Any]
@@ -166,3 +171,74 @@ def test_worker_runtime_public_mutators_keep_return_contracts() -> None:
     assert inspect.signature(WorkerRuntimeService.fail).return_annotation == "ExecutionTask"
     assert inspect.signature(WorkerRuntimeService.heartbeat).return_annotation == "WorkerLease"
     assert inspect.signature(WorkerRuntimeService.release).return_annotation == "WorkerLease"
+
+
+def test_worker_runtime_release_requeues_claimed_task_state_with_queue_payload() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    queue.release_lease.return_value = QueueOperationResult(ok=True)
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-release-contract"
+    worker_id = "worker-release-contract"
+    lease = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        task_id=uuid.uuid4(),
+        holder_identity=worker_id,
+        status=WorkerLeaseState.ACTIVE.value,
+        heartbeat_at=None,
+    )
+    task = SimpleNamespace(
+        id=lease.task_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.CLAIMED.value,
+    )
+    service._leases = MagicMock()
+    service._leases.get.return_value = lease
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = task
+
+    released = service.release(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
+
+    assert released is lease
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    assert task.status == ExecutionTaskState.QUEUED.value
+    queue.release_lease.assert_called_once_with(
+        tenant_id=tenant_id,
+        task_id=lease.task_id,
+        worker_id=worker_id,
+    )
+    session.flush.assert_called_once()
+    session.commit.assert_called_once()
+    session.rollback.assert_not_called()
+
+
+def test_worker_runtime_release_preserves_running_task_state_when_releasing_active_lease() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    queue.release_lease.return_value = QueueOperationResult(ok=True)
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-release-running"
+    worker_id = "worker-release-running"
+    lease = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        task_id=uuid.uuid4(),
+        holder_identity=worker_id,
+        status=WorkerLeaseState.ACTIVE.value,
+        heartbeat_at=None,
+    )
+    task = SimpleNamespace(
+        id=lease.task_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.RUNNING.value,
+    )
+    service._leases = MagicMock()
+    service._leases.get.return_value = lease
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = task
+
+    service.release(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
+
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    assert task.status == ExecutionTaskState.RUNNING.value

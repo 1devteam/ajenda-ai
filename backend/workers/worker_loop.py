@@ -64,6 +64,8 @@ class WorkerLoop:
 
     def _claim_and_start_task(self) -> tuple[uuid.UUID, uuid.UUID] | None:
         session = self.session_factory()
+        lease_id: uuid.UUID | None = None
+        started = False
         try:
             runtime = WorkerRuntimeService(session, self.queue)
             task = runtime.claim_next_task(tenant_id=self.tenant_id, worker_id=self.worker_id)
@@ -86,6 +88,7 @@ class WorkerLoop:
                 lease_id=lease_id,
                 worker_id=self.worker_id,
             )
+            started = True
             session.commit()
             logger.info(
                 "task_claimed",
@@ -99,7 +102,32 @@ class WorkerLoop:
                 "worker_claim_start_failed",
                 extra={"worker_id": self.worker_id, "error": str(exc)},
             )
+            if lease_id is not None and not started:
+                self._release_unstarted_claim_once(lease_id=lease_id, reason=str(exc))
             return None
+        finally:
+            session.close()
+
+    def _release_unstarted_claim_once(self, *, lease_id: uuid.UUID, reason: str) -> None:
+        session = self.session_factory()
+        try:
+            runtime = WorkerRuntimeService(session, self.queue)
+            runtime.release(
+                tenant_id=self.tenant_id,
+                lease_id=lease_id,
+                worker_id=self.worker_id,
+            )
+            session.commit()
+            logger.warning(
+                "worker_claim_start_released_queue_claim",
+                extra={"lease_id": str(lease_id), "reason": reason},
+            )
+        except Exception as exc:
+            session.rollback()
+            logger.critical(
+                "worker_claim_start_release_failed",
+                extra={"lease_id": str(lease_id), "error": str(exc)},
+            )
         finally:
             session.close()
 

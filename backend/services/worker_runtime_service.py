@@ -237,7 +237,13 @@ class WorkerRuntimeService:
 
     def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        task = self._get_task_for_lease(lease)
+        if task.tenant_id != tenant_id:
+            raise ValueError("task not found for tenant lease")
+
         self._transition_lease_to_released(lease)
+        if task.status == ExecutionTaskState.CLAIMED.value:
+            transition_task(task, ExecutionTaskState.QUEUED)
         result = self._queue.release_lease(
             tenant_id=tenant_id,
             task_id=lease.task_id,
