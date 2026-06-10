@@ -237,7 +237,11 @@ class WorkerRuntimeService:
 
     def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        task = self._get_task_for_lease(lease)
+        self._assert_current_releasable_claim(tenant_id=tenant_id, lease=lease, task=task)
+
         self._transition_lease_to_released(lease)
+        transition_task(task, ExecutionTaskState.QUEUED)
         result = self._queue.release_lease(
             tenant_id=tenant_id,
             task_id=lease.task_id,
@@ -250,6 +254,22 @@ class WorkerRuntimeService:
         self._session.flush()
         self._session.commit()
         return lease
+
+    def _assert_current_releasable_claim(
+        self,
+        *,
+        tenant_id: str,
+        lease: WorkerLease,
+        task: ExecutionTask,
+    ) -> None:
+        if lease.status not in {WorkerLeaseState.CLAIMED.value, WorkerLeaseState.ACTIVE.value}:
+            raise ValueError("lease is not release-eligible")
+        if task.tenant_id != tenant_id or lease.tenant_id != tenant_id:
+            raise ValueError("task not found for tenant lease")
+        if task.status != ExecutionTaskState.CLAIMED.value:
+            raise ValueError("task is not claimed")
+        if not isinstance(task.metadata_json, dict) or task.metadata_json.get("worker_lease_id") != str(lease.id):
+            raise ValueError("lease is not current task claim")
 
     def _get_owned_lease(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
         lease = self._leases.get(lease_id)

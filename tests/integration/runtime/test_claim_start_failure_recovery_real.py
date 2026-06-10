@@ -200,7 +200,7 @@ def test_claim_start_heartbeat_failure_remains_recoverable(
     try:
         claimed_task = verify_claim_session.get(ExecutionTask, queued.task_id)
         assert claimed_task is not None
-        assert claimed_task.status == ExecutionTaskState.CLAIMED.value
+        assert claimed_task.status == ExecutionTaskState.QUEUED.value
 
         lease = verify_claim_session.scalars(
             select(WorkerLease).where(
@@ -210,22 +210,19 @@ def test_claim_start_heartbeat_failure_remains_recoverable(
             )
         ).one()
 
-        assert lease.status == WorkerLeaseState.CLAIMED.value
-        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:processing") == 1
-        assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is not None
-        lease_id = lease.id
-        _expire_lease(verify_claim_session, lease_id=lease_id)
+        assert lease.status == WorkerLeaseState.RELEASED.value
+        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:pending") == 1
+        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:processing") == 0
+        assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is None
+
+        reclaimed = WorkerRuntimeService(verify_claim_session, queue_adapter).claim_next_task(
+            tenant_id=queued.tenant_id,
+            worker_id="claim-start-recovery-worker",
+        )
+        assert reclaimed is not None
+        assert reclaimed.id == queued.task_id
     finally:
         verify_claim_session.close()
-
-    _recover_expired(queued.session_factory, queue_adapter)
-    _assert_recoverable_and_reclaim_once(
-        queued,
-        queue_adapter,
-        redis_client,
-        original_lease_id=lease_id,
-        recovery_worker_id="claim-start-recovery-worker",
-    )
 
 
 def test_crash_after_claim_before_start_remains_recoverable(pg_engine, queue_adapter, redis_client) -> None:
@@ -346,3 +343,59 @@ def test_crash_after_start_execution_before_dispatch_does_not_duplicate_active_e
         original_lease_id=lease_id,
         recovery_worker_id="start-crash-recovery-worker",
     )
+
+
+def test_worker_loop_releases_claim_when_heartbeat_fails_before_start(
+    pg_engine,
+    queue_adapter,
+    redis_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queued = _queue_runtime_task(pg_engine, queue_adapter, title="claim start immediate heartbeat compensation")
+    worker_id = "claim-start-immediate-release-worker"
+    original_heartbeat = WorkerRuntimeService.heartbeat
+
+    def reject_heartbeat_once(
+        self: WorkerRuntimeService,
+        *,
+        tenant_id: str,
+        lease_id: uuid.UUID,
+        worker_id: str,
+    ):
+        raise RuntimeError("heartbeat rejected before start")
+
+    monkeypatch.setattr(WorkerRuntimeService, "heartbeat", reject_heartbeat_once)
+
+    loop = WorkerLoop(
+        session_factory=queued.session_factory,
+        queue=queue_adapter,
+        worker_id=worker_id,
+        tenant_id=queued.tenant_id,
+        poll_interval_seconds=0.01,
+    )
+
+    assert loop._claim_and_start_task() is None
+
+    monkeypatch.setattr(WorkerRuntimeService, "heartbeat", original_heartbeat)
+
+    verify_session = queued.session_factory()
+    try:
+        task = verify_session.get(ExecutionTask, queued.task_id)
+        assert task is not None
+        assert task.status == ExecutionTaskState.QUEUED.value
+        lease_id = uuid.UUID(str(task.metadata_json["worker_lease_id"]))
+        lease = verify_session.get(WorkerLease, lease_id)
+        assert lease is not None
+        assert lease.status == WorkerLeaseState.RELEASED.value
+        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:pending") == 1
+        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:processing") == 0
+        assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is None
+
+        reclaimed = WorkerRuntimeService(verify_session, queue_adapter).claim_next_task(
+            tenant_id=queued.tenant_id,
+            worker_id="claim-start-immediate-reclaim-worker",
+        )
+        assert reclaimed is not None
+        assert reclaimed.id == queued.task_id
+    finally:
+        verify_session.close()
