@@ -310,3 +310,197 @@ Before calling something a bug, answer:
 4. Does a test or authority ledger entry prove the intended behavior?
 5. Is the concern a runtime bug, design decision, stale doc, or future-facing contract?
 
+
+## Live file verification addendum — 2026-06-10
+
+This addendum records a repo-visible verification pass against implementation, tests,
+authority ledger entries, and validation scripts. The architecture map remains a
+trustworthy build reference when the classifications and correction notes below are
+kept with it.
+
+### A. Files read
+
+- Architecture document: `docs/product/mission-runtime-architecture-map.md`.
+- Runtime: `backend/services/execution_coordinator.py`, `backend/queue/base.py`,
+  `backend/queue/local_adapter.py`, `backend/queue/adapters/redis_adapter.py`,
+  `backend/services/worker_runtime_service.py`, `backend/workers/worker_loop.py`,
+  `backend/workers/task_dispatcher.py`.
+- Mission bridge: `backend/api/routes/mission.py`,
+  `backend/services/mission_executor.py`, `backend/runtime/transitions.py`,
+  `backend/repositories/execution_task_repository.py`,
+  `backend/repositories/worker_lease_repository.py`.
+- Declarative lanes: `backend/api/routes/business_profile.py`,
+  `backend/api/routes/mission_brief.py`, `backend/services/mission_brief.py`,
+  `backend/api/routes/capability.py`, `backend/api/routes/capability_adapter.py`,
+  `backend/api/routes/evidence.py`, `backend/api/routes/outcome_review.py`,
+  `backend/api/routes/retrieval_contract.py`, and their matching domain and
+  repository files where route code delegates persistence.
+- Evidence: `backend/services/tools/evidence_bridge.py`,
+  `backend/domain/evidence.py`, `backend/domain/lineage_record.py`,
+  `backend/repositories/evidence_repository.py`,
+  `backend/repositories/lineage_record_repository.py`.
+- Providers/credentials: `backend/services/tools/calendar_actions.py`,
+  `backend/services/tools/local_calendar.py`, `backend/services/tools/local_records.py`,
+  `backend/services/tools/google_calendar_provider.py`,
+  `backend/services/tools/external_credentials.py`,
+  `backend/services/tools/credential_resolver.py`.
+- Action/ability: `backend/workers/handlers/tool_invoke.py`,
+  `backend/services/tools/action_registry.py`,
+  `backend/services/tools/schemas.py`,
+  `backend/services/tools/capability_validation.py`,
+  `backend/services/abilities/catalog.py`, `backend/services/abilities/manifest.py`,
+  `backend/services/abilities/role_contracts.py`.
+- Tests: runtime integration tests under `tests/integration/runtime/`, queue
+  contracts under `tests/contract/queue/`, mission queue/bridge tests under
+  `tests/contract/api/test_mission_queue_contract.py` and
+  `tests/integration/runtime/test_task_graph_runtime_admission_real.py`, worker
+  admission tests under `tests/unit/api/test_worker_*_admission_contract.py`,
+  tool/action/evidence/provider tests under `tests/unit/tools/` and
+  `tests/unit/workers/`, and declarative lane tests under `tests/unit/api/` and
+  `tests/contract/api/`.
+- Authority ledger: `docs/contracts/authority-ledger.v1.yaml`.
+- Schemas/migrations/validation: `backend/services/tools/schemas.py`, domain
+  schema-version constants, `scripts/validation/contract_drift_check.py`,
+  `scripts/validation/migration_seed_contract_check.py`, and
+  `scripts/validation/ability_rollout_contract_check.py`.
+
+### B. Architecture map verification table
+
+| Document claim | Status | File evidence | Test evidence | Correction needed | Notes |
+|---|---|---|---|---|---|
+| True runtime lane exists: route/service admission -> `ExecutionCoordinator` -> queue -> worker runtime -> worker loop -> dispatcher -> handler -> completion/failure -> lineage/evidence/audit -> queue ack. | verified | `ExecutionCoordinator.queue_task()` tenant-loads tasks, gates governor/policy, transitions to queued, calls `QueueAdapter.enqueue_task()`, and appends audit/governance (`backend/services/execution_coordinator.py:55-188`). `WorkerLoop._claim_and_start_task()` uses `WorkerRuntimeService.claim_next_task()`, heartbeat, start, then `_run_claimed_task()` delegates to `TaskDispatcher.execute()` (`backend/workers/worker_loop.py:35-115`). `TaskDispatcher.execute()` selects handlers and always calls runtime complete/fail (`backend/workers/task_dispatcher.py:136-210`). `WorkerRuntimeService.complete()` appends lineage/evidence/audit and calls queue complete; `fail()` appends audit and calls queue fail (`backend/services/worker_runtime_service.py:127-236`). | `tests/integration/runtime/test_release_gating_runtime_real.py`, `tests/integration/runtime/test_worker_executes_echo_task_real.py`, `tests/contract/queue/test_queue_flow.py`. | none | What this proves: the lane exists and is queue/lease/dispatcher backed. What it does not prove: every mission route uses the lane; each route still needs authority classification. |
+| `tool.invoke` is a real dispatcher/runtime path. | verified | `@register_handler("tool.invoke", output_reason="tool action completed")` registers the handler (`backend/workers/handlers/tool_invoke.py:15-16`). It validates tenant, invocation shape, side-effect state/authorization, capability/adapter authority, invokes `ActionRegistry`, and returns structured output/evidence/readback fields (`backend/workers/handlers/tool_invoke.py:17-86`). `ActionRegistry.invoke()` validates input, executes handler, validates `ActionResult`, and JSON-serializes output (`backend/services/tools/action_registry.py:34-84`). | `tests/unit/workers/test_tool_invoke_handler.py`, `tests/unit/workers/test_task_dispatcher_registry.py`, `tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py`. | none | What this proves: `tool.invoke` executes in dispatcher runtime. What it does not prove: declarative capability/adapter declarations execute anything by themselves. |
+| Mission task graph is declarative and must not create execution tasks, queue, dispatch, or execute. | verified | Mission task graph routes persist normalized graph metadata under mission metadata; runtime task creation is only in `materialize_mission_runtime_tasks()` (`backend/api/routes/mission.py:1246-1322`, `backend/api/routes/mission.py:3169-3260`). | `tests/unit/api/test_mission_intake_route.py::test_mission_task_graph_post_creates_graph_without_queueing`, `::test_graph_materialization_persists_metadata_without_queueing_or_runtime_calls`. | none | What this proves: graph persistence is separated from runtime task rows. What it does not prove: future graph endpoints cannot drift without tests. |
+| Runtime task materialization creates `PLANNED` `ExecutionTask` rows only and does not queue or dispatch. | verified | `materialize_mission_runtime_tasks()` requires `RUNTIME_OPERATE`, builds preview payloads, inserts `ExecutionTask(status=PLANNED)`, writes materialization metadata, and has no queue/dispatcher calls (`backend/api/routes/mission.py:3169-3260`). | `tests/unit/api/test_mission_intake_route.py::test_graph_materialization_persists_metadata_without_queueing_or_runtime_calls`; authority ledger `runtime_task_materialization_mutation_contract` (`docs/contracts/authority-ledger.v1.yaml:235-254`). | none | What this proves: creation state is planned-only. What it does not prove: all possible materialized metadata is schema-hardened. |
+| Runtime queue admission queues current materialized planned tasks through `ExecutionCoordinator` and writes admission metadata. | verified | `runtime_queue_admission()` checks permission, validates mission/materialization scope, queues planned materialized tasks via `ExecutionCoordinator.queue_task()`, and writes `runtime_queue_admission` metadata (`backend/api/routes/mission.py:5762-5886`). | `tests/integration/runtime/test_task_graph_runtime_admission_real.py::test_runtime_queue_admission_route_admits_current_materialized_tasks_real`; authority ledger `runtime_queue_admission_contract` (`docs/contracts/authority-ledger.v1.yaml:255-276`). | none | What this proves: canonical staged queue admission goes through coordinator. What it does not prove: `/queue` has equivalent staged metadata semantics. |
+| Worker claim admission creates leases and moves queued -> claimed only. | verified | `_build_worker_claim_admission()` validates preview/task/tenant/lease state, transitions queued tasks to claimed, adds `WorkerLease(status=CLAIMED)`, writes `worker_lease_id`, and stores claim receipts (`backend/api/routes/mission.py:4156-4415`). | `tests/unit/api/test_worker_claim_admission_contract.py`; authority ledger `worker_claim_admission_mutation_contract` (`docs/contracts/authority-ledger.v1.yaml:298-318`). | none | What this proves: claim admission mutates task/lease state but does not dispatch. What it does not prove: queue payload is claimed here; staged run admission claims queue payload later. |
+| Worker start admission activates leases and moves claimed -> running only. | verified | `_build_worker_start_admission()` validates claim metadata, task/tenant/lease/holder state, activates claimed leases, transitions task to running, and writes start receipts (`backend/api/routes/mission.py:4645-5017`). The POST route documents no dispatcher execution (`backend/api/routes/mission.py:5020-5028`). | `tests/unit/api/test_worker_start_admission_contract.py`; authority ledger `worker_start_admission_mutation_contract` (`docs/contracts/authority-ledger.v1.yaml:340-359`). | none | What this proves: start admission is governed mutation. What it does not prove: handler execution; that belongs to run admission. |
+| Worker run admission is true runtime execution through dispatcher and is idempotent after terminal state. | verified | `_build_worker_run_admission()` validates start/current lease state, calls `queue.claim_existing_task()` before `TaskDispatcher.execute()`, records queue claims/run receipts, and returns already-completed/already-failed receipts instead of re-executing terminal tasks (`backend/api/routes/mission.py:5320-5725`). POST route requires runtime permission (`backend/api/routes/mission.py:5728-5738`). | `tests/unit/api/test_worker_run_admission_contract.py`; authority ledger `worker_run_admission_mutation_contract` (`docs/contracts/authority-ledger.v1.yaml:383-403`). | none | What this proves: POST run admission can execute handlers. What it does not prove: the GET readback executes anything; it does not. |
+| Readiness, previews, GET admission/readiness routes, worker readbacks, and Mission Brief are read-model or preview surfaces. | verified | Runtime readiness/preview GET routes return built projections without queue/dispatcher calls (`backend/api/routes/mission.py:3025-3081`). GET materialization/readback routes read metadata only (`backend/api/routes/mission.py:3152-3166`, `backend/api/routes/mission.py:5741-5759`, `backend/api/routes/mission.py:5889-5902`). Mission Brief authority ledger forbids missions, task graphs, execution tasks, queues, leases, evidence, outcome review, retrieval, runtime, and profile truth mutations (`docs/contracts/authority-ledger.v1.yaml:443-467`). | `tests/unit/api/test_runtime_dispatch_readiness_contract.py`, `tests/unit/api/test_worker_dispatch_eligibility_contract.py`, `tests/unit/api/test_mission_brief_route.py`, `tests/contract/api/test_mission_brief_routes.py`. | none | What this proves: these named runtime surfaces are not runtime authority. What it does not prove: all future GET routes stay read-only without ledger/tests. |
+| Declarative lanes persist contracts/state rather than execute runtime: Business Profile, Mission Brief, Capability, Adapter, Evidence API, Outcome Review, Retrieval Contract. | verified | Authority ledger classifies these lanes as declarative/read-model and forbids runtime execution: capability (`docs/contracts/authority-ledger.v1.yaml:405-423`), adapter (`docs/contracts/authority-ledger.v1.yaml:424-442`), mission brief (`docs/contracts/authority-ledger.v1.yaml:443-467`), business profile (`docs/contracts/authority-ledger.v1.yaml:468-498`), evidence (`docs/contracts/authority-ledger.v1.yaml:499-517`), outcome review (`docs/contracts/authority-ledger.v1.yaml:518-535`), retrieval (`docs/contracts/authority-ledger.v1.yaml:537-555`). | Matching tests listed in those ledger entries. | none | What this proves: current route/service contracts are non-runtime. What it does not prove: each mutation's audit policy is uniform; that remains a policy decision. |
+| Evidence lanes are distinct: runtime evidence bridge vs Evidence API. | verified | Runtime bridge builds durable `EvidenceRecord` rows only from completed `tool.invoke` outputs and validates evidence tenant/task/mission scope (`backend/services/tools/evidence_bridge.py:25-158`). `WorkerRuntimeService.complete()` appends lineage then bridges evidence (`backend/services/worker_runtime_service.py:127-188`). Evidence API is ledgered as declarative persistence and forbids outcome scoring/runtime dispatch (`docs/contracts/authority-ledger.v1.yaml:499-517`). | `tests/unit/tools/test_evidence_bridge.py`, `tests/unit/api/test_evidence_route.py`, `tests/unit/repositories/test_evidence_repository.py`, `tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py`. | none | What this proves: runtime evidence is bridged from action output; Evidence API is direct evidence/provenance persistence. What it does not prove: Evidence API mutations append audit events. |
+| Local providers are active proof providers; Google Calendar and credential resolution are future-facing/fail-closed. | verified | Calendar actions call `LocalCalendarProvider` and register `provider="local_calendar"` (`backend/services/tools/calendar_actions.py:16-104`). Local providers are tenant-scoped deterministic proof providers (`backend/services/tools/local_calendar.py:11-54`, `backend/services/tools/local_records.py:29-112`). `GoogleCalendarProvider` imports no SDK and raises `NotImplementedError` for read/create after tenant validation (`backend/services/tools/google_calendar_provider.py:1-69`). `ExternalCredentialReference` forbids plaintext secrets (`backend/services/tools/external_credentials.py:1-76`). `UnresolvedCredentialResolver.resolve()` always raises `NotImplementedError` (`backend/services/tools/credential_resolver.py:1-45`). | `tests/unit/tools/test_calendar_provider_contract.py`, `tests/unit/tools/test_google_calendar_provider_contract.py`, `tests/unit/tools/test_external_credentials.py`, `tests/unit/tools/test_credential_resolver_contract.py`, `tests/unit/tools/test_local_records.py`. | none | What this proves: no live Google Calendar provider is wired in these files. What it does not prove: absence of all external calls globally; separate network-surface audits are still needed. |
+| Two mission queue/admission paths overlap but both reach `ExecutionCoordinator.queue_task()`. | verified drift risk | `/queue` counts tenant-owned planned tasks, enforces quota, then calls `MissionExecutor.queue_all_planned_tasks()` which calls `ExecutionCoordinator.queue_task()` (`backend/api/routes/mission.py:5905-5963`, `backend/services/mission_executor.py:27-62`). `/runtime-queue-admission` calls `ExecutionCoordinator.queue_task()` and writes rich staged metadata (`backend/api/routes/mission.py:5762-5886`). | `/queue` contract tests prove quota/filtering/simple summary (`tests/contract/api/test_mission_queue_contract.py:58-210`). Runtime admission integration test proves staged metadata/authority flags (`tests/integration/runtime/test_task_graph_runtime_admission_real.py:223-262`). | none in current map; keep drift risk explicit | What this proves: not a queue-authority bypass. What it does not prove: these endpoints cannot semantically diverge; they already have different metadata contracts. |
+| Known drift: mission route concentration. | verified drift risk | `backend/api/routes/mission.py` contains many schemas/helpers/routes for graph, readiness, materialization, queue admission, claim/start/run admission, and `/queue`; endpoint lines alone span at least `3025-5963`. | Tests are broad but route-centric across many files. | no immediate refactor required | The drift is ownership/concentration risk, not a proven runtime bypass. |
+| Known drift: declarative mutation audit policy inconsistency. | design decision required | Business Profile ledger explicitly allows audit events (`docs/contracts/authority-ledger.v1.yaml:468-498`). Capability, adapter, evidence, outcome, and retrieval ledger entries do not require audit events (`docs/contracts/authority-ledger.v1.yaml:405-555`). | Declarative tests focus on persistence/tenant boundaries. | policy decision needed before broad changes | Current map should keep this as a decision, not a bug. |
+| Known drift: provider activation gap. | verified drift risk | Runtime registry registers local calendar actions only (`backend/services/tools/action_registry.py:101-120`, `backend/services/tools/calendar_actions.py:91-104`); Google provider and credential resolver are contract-only/fail-closed (`backend/services/tools/google_calendar_provider.py:1-69`, `backend/services/tools/credential_resolver.py:39-45`). | Provider contract tests listed above. | none | This matters before any live external provider wiring. |
+| Disproved assumptions table. | verified | Runtime core, planned-only materialization, true run admission, non-live Google provider, Business Profile declarative/audit, and unreliable static auth counts are all backed by the file evidence above and direct route permission calls such as `require_route_permission()` on mutation routes (`backend/api/routes/mission.py:3177`, `backend/api/routes/mission.py:5737`, `backend/api/routes/mission.py:5923`). | Tests listed above. | none | The table is trustworthy, with the caveat that "mutation without audit" remains policy-specific rather than globally allowed. |
+
+### C. Corrected architecture map
+
+Only repo-proven statements should be used as build reference:
+
+1. The runtime core is real and queue/lease/dispatcher backed. Work enters queue
+   authority through `ExecutionCoordinator.queue_task()`, worker ownership is
+   represented by queue claims plus `WorkerLease` rows, handler execution is
+   performed by `TaskDispatcher`, and terminal state is handled through
+   `WorkerRuntimeService.complete()` or `WorkerRuntimeService.fail()`.
+2. `tool.invoke` is a registered runtime handler. It validates tenant scope,
+   invocation schema, side-effect state, side-effect authorization, and
+   capability/adapter authority before invoking the default `ActionRegistry`.
+3. Mission bridge stages are separate contracts: task graph is declarative;
+   task materialization creates only planned `ExecutionTask` rows; runtime queue
+   admission queues current planned materialized tasks and writes staged metadata;
+   worker claim/start admissions are governed task/lease mutations; worker run
+   admission claims the queue payload and executes the dispatcher.
+4. Runtime readiness, previews, GET readbacks, and Mission Brief are read models
+   or previews, not runtime execution authority.
+5. Business Profile, Capability registry, Capability Adapter registry, Evidence
+   API, Outcome Review, and Retrieval Contract are declarative contract lanes in
+   current code and ledger entries. Business Profile explicitly requires audit;
+   extending audit to the other declarative lanes is a design decision.
+6. Runtime evidence bridge and Evidence API are distinct. The bridge persists
+   evidence from completed `tool.invoke` output through lineage context; the API
+   persists evidence/provenance records directly and must not dispatch runtime.
+7. Calendar actions are live runtime actions backed by local/proof providers.
+   Google Calendar and credential resolution are future-facing, fail-closed
+   contracts until a real credential resolver and external client are wired.
+8. `/queue` and `/runtime-queue-admission` both reach `ExecutionCoordinator`, so
+   the overlap is not a queue-authority bypass. It is a verified drift risk
+   because `/queue` returns simple summary and does not write staged runtime queue
+   admission metadata, while `/runtime-queue-admission` writes staged receipts,
+   blockers, authority flags, and admission metadata.
+
+### D. Omitted truths found during verification
+
+| Omitted truth | File evidence | Why it matters | Suggested doc addition |
+|---|---|---|---|
+| `ExecutionCoordinator.queue_task()` is also a policy/compliance gate, not merely an enqueue wrapper. | Governor and policy checks can deny, move to pending review, append governance/audit, or enqueue (`backend/services/execution_coordinator.py:65-188`). | Queue admission semantics include compliance review and denial states. | Add: "Queue admission includes runtime governor and PolicyGuardian checks; admitted, denied, and pending-review outcomes are all first-class." |
+| Queue adapters are fail-closed around ownership and recovery. | `QueueAdapter` contract requires explicit claim/complete/fail/release/recovery/dead-letter operations (`backend/queue/base.py:45-113`); local adapter rejects wrong owners and avoids synthesizing missing retry work (`backend/queue/local_adapter.py:51-145`). | Reinforces lease/queue authority invariants and recovery safety. | Add: "Queue payload recovery must not synthesize work from DB state; adapters must fail closed when queue evidence is missing." |
+| Runtime completion currently commits DB state before queue ack. | `WorkerRuntimeService.complete()` flushes/commits task/lineage/evidence/audit before `queue.complete_task()` and raises on failed queue cleanup (`backend/services/worker_runtime_service.py:127-188`). | This is an important operational split-brain visibility point. | Add as a known runtime compensation/observability invariant, not as a bug. |
+| Staged worker claim admission creates DB leases but does not claim queue payload; staged worker run admission claims the queue payload immediately before dispatcher execution. | Claim admission writes `WorkerLease` and task state (`backend/api/routes/mission.py:4302-4351`); run admission calls `queue.claim_existing_task()` before dispatcher execution (`backend/api/routes/mission.py:5582-5614`). | Prevents future agents from assuming claim admission alone owns queue processing payload. | Add: "In the staged bridge, DB claim and queue processing claim are deliberately separated until run admission." |
+| Local calendar writes are runtime side effects but local/proof-scoped, not external Google writes. | `calendar.create_event` returns `INTERNAL_WRITE` and provider `local_calendar` (`backend/services/tools/calendar_actions.py:56-104`). | Avoids both overstating Google activation and understating local write side effects. | Add: "Calendar create is side-effecting runtime, but current side effect is local proof-provider state." |
+
+### E. Hardening candidates
+
+| Candidate | Classification | Evidence | Suggested smallest hardening |
+|---|---|---|---|
+| `/queue` authority-ledger coverage. | verified drift risk | Ledger covers `/runtime-queue-admission` but no distinct `/v1/missions/{mission_id}/queue` entry was found by direct search; `/queue` is runtime queue authority through `MissionExecutor` and `ExecutionCoordinator` (`backend/api/routes/mission.py:5905-5963`, `backend/services/mission_executor.py:35-62`). | Add a dedicated authority-ledger entry for legacy mission queue or explicitly include it as compatibility route under runtime queue admission. |
+| `/queue` vs `/runtime-queue-admission` non-divergence tests. | verified drift risk | Existing tests prove each endpoint separately (`tests/contract/api/test_mission_queue_contract.py:58-210`, `tests/integration/runtime/test_task_graph_runtime_admission_real.py:223-262`). | Add a contract test that documents intentional differences and fails if `/queue` starts writing staged metadata or `/runtime-queue-admission` stops writing it. |
+| Mission runtime bridge response schemas. | partially verified | Routes return Pydantic response models, but metadata is still JSON dict-heavy in route helpers. | Add schema tests for queue admission metadata, claim/start/run receipts, and runtime authority flags. |
+| Declarative lane runtime-surface negative tests. | partially verified | Ledger forbids runtime mutation for declarative lanes; tests exist by lane, but not all assert absence of `ExecutionCoordinator`, `TaskDispatcher`, or `WorkerRuntimeService` calls. | Add focused negative tests for capability/adapter/evidence/outcome/retrieval routes patching runtime surfaces as not-called. |
+| Provider/credential contract validation. | verified drift risk | Google and resolver fail closed; local provider is active. | Add a validation script or test sentinel that default action registry calendar provider remains `local_calendar` until a feature-flagged credential resolver exists. |
+| Evidence/provenance schema parity. | partially verified | Runtime bridge validates `EvidenceItem` and writes `EvidenceRecord`; Evidence API persists evidence records separately. | Add contract tests that compare runtime bridge persisted evidence shape with Evidence API accepted schema for shared fields and provenance expectations. |
+
+### F. Missing or weak invariant tests
+
+- Task graph no-runtime invariant is mostly covered, but should explicitly patch
+  `ExecutionCoordinator`, `QueueAdapter`, `TaskDispatcher`, and
+  `WorkerRuntimeService` together for the task graph POST route.
+- Runtime task materialization planned-only behavior is covered; strengthen by
+  asserting no queue adapter calls and no dispatcher calls for every materialized
+  task count path, including idempotent existing-materialization return.
+- Queue admission current-materialization-only behavior is covered for the happy
+  integration path; add stale-materialization and mixed planned/queued/completed
+  comparisons against `/queue`.
+- `/queue` and `/runtime-queue-admission` need an explicit semantic divergence
+  regression test: both must call `ExecutionCoordinator.queue_task()`, but only
+  runtime queue admission should write `runtime_queue_admission` metadata.
+- Claim admission should keep asserting queued -> claimed only and lease creation;
+  add a negative assertion that it does not call `queue.claim_existing_task()`.
+- Start admission should keep asserting claimed -> running only; add a negative
+  assertion that it does not construct or call `TaskDispatcher`.
+- Run admission should keep asserting queue payload claim before dispatcher; add a
+  test that a missing queue payload blocks without dispatcher execution even when
+  DB task/lease state looks valid.
+- Repeated run admission terminal idempotency is covered in route tests; keep it
+  as a release gate because it protects against duplicated external mutations.
+- Declarative lanes should gain one shared helper test that confirms no direct
+  runtime-surface calls for capability, adapter, evidence, outcome, and retrieval
+  mutations.
+- Provider contracts should add a default-registry sentinel proving no
+  `GoogleCalendarProvider` is used by active calendar actions until credential
+  resolution is implemented and feature-gated.
+
+### G. Smallest safe next PR recommendation
+
+The smallest safe next PR is authority-ledger hardening for the legacy mission
+queue route:
+
+1. Add a dedicated `mission_queue_legacy_contract` ledger entry for
+   `POST /v1/missions/{mission_id}/queue`, classified as
+   `runtime_authoritative` / `tenant_scoped_queue_admission_mutation`.
+2. State that it is a compatibility/simple-summary path that queues tenant-owned
+   planned tasks through `MissionExecutor.queue_all_planned_tasks()` and
+   `ExecutionCoordinator.queue_task()`.
+3. Forbid staged queue admission metadata writes, task creation, dispatcher
+   calls, worker lease mutation, and queue-authority bypass.
+4. Add or update a narrow ledger validation/contract test proving `/queue` is
+   ledger-covered and remains distinct from `/runtime-queue-admission`.
+
+This is smaller and safer than extracting mission services or changing endpoint
+semantics. It turns the main verified drift risk into an explicit contract before
+future refactors.
+
+### Final honesty note
+
+- This pass verified repo-visible implementation, tests, authority ledger, and
+  validation scripts only. It did not inspect external audit zip artifacts or
+  production runtime telemetry.
+- The map is trustworthy as a build reference for current architecture boundaries,
+  provided future work treats the queue overlap, route concentration, declarative
+  audit policy, and provider activation as explicit design/hardening items rather
+  than assumptions.
+- The statement "no hidden live external provider call exists" was verified only
+  for the provider/action files inspected here and the default action registry;
+  a full repository network-egress audit would be needed to prove it globally.
