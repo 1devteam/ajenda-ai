@@ -164,6 +164,17 @@ Google Calendar provider and external credential resolution are not live runtime
 
 Calendar actions are real runtime actions, but currently backed by local/proof providers unless explicitly wired otherwise.
 
+### Live external egress action surfaces
+
+Future-facing provider boundaries are not the same as live external egress actions.
+
+The default `ActionRegistry` also registers actions such as `http.request` and `webhook.dispatch`. Those are live tool-action egress surfaces with explicit side-effect classes and runtime authority gates:
+
+- `http.request` uses `httpx` and can perform `EXTERNAL_READ` or `EXTERNAL_WRITE` depending on method.
+- `webhook.dispatch` uses `WebhookDispatchService` and is classified as `EXTERNAL_SEND`.
+
+Therefore, “Google Calendar is not live” must not be read as “no live external egress exists.” Live HTTP/webhook egress belongs to the action/tool lane and must be audited through `ActionRegistry`, side-effect classes, capability/adapter authority, idempotency, evidence, and runtime execution tests.
+
 ## Mission queue authority
 
 There are two active mission queue/admission paths.
@@ -415,7 +426,11 @@ Only repo-proven statements should be used as build reference:
 7. Calendar actions are live runtime actions backed by local/proof providers.
    Google Calendar and credential resolution are future-facing, fail-closed
    contracts until a real credential resolver and external client are wired.
-8. `/queue` and `/runtime-queue-admission` both reach `ExecutionCoordinator`, so
+8. Live HTTP and webhook egress actions exist independently of the Google
+   Calendar provider boundary. They are registered in the default `ActionRegistry`
+   and must be governed as `http.request` (`EXTERNAL_READ`/`EXTERNAL_WRITE`) and
+   `webhook.dispatch` (`EXTERNAL_SEND`) runtime tool actions.
+9. `/queue` and `/runtime-queue-admission` both reach `ExecutionCoordinator`, so
    the overlap is not a queue-authority bypass. It is a verified drift risk
    because `/queue` returns simple summary and does not write staged runtime queue
    admission metadata, while `/runtime-queue-admission` writes staged receipts,
@@ -499,8 +514,9 @@ future refactors.
   production runtime telemetry.
 - The map is trustworthy as a build reference for current architecture boundaries,
   provided future work treats the queue overlap, route concentration, declarative
-  audit policy, and provider activation as explicit design/hardening items rather
-  than assumptions.
-- The statement "no hidden live external provider call exists" was verified only
-  for the provider/action files inspected here and the default action registry;
-  a full repository network-egress audit would be needed to prove it globally.
+  audit policy, provider activation, and live HTTP/webhook egress as explicit
+  design/hardening items rather than assumptions.
+- The statement "no hidden live external provider call exists" should not be used
+  globally. The verified claim is narrower: Google Calendar and credential-resolved
+  external providers are not live, while `http.request` and `webhook.dispatch` are
+  live external egress action surfaces that require their own audits.
