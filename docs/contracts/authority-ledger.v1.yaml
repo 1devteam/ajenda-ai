@@ -236,6 +236,7 @@ authority_entries:
     area: runtime task materialization bridge
     source_of_truth:
       - backend/api/routes/mission.py
+      - backend/services/mission_runtime_task_materialization_service.py
       - backend/repositories/execution_task_repository.py
     route_scope:
       - POST /v1/missions/{mission_id}/runtime-task-materialization
@@ -284,6 +285,7 @@ authority_entries:
     area: runtime queue admission bridge
     source_of_truth:
       - backend/api/routes/mission.py
+      - backend/services/mission_runtime_queue_admission_service.py
       - backend/services/execution_coordinator.py
       - backend/repositories/execution_task_repository.py
     route_scope:
@@ -327,6 +329,7 @@ authority_entries:
     area: worker claim admission
     source_of_truth:
       - backend/api/routes/mission.py
+      - backend/services/worker_claim_admission_service.py
       - backend/services/worker_runtime_service.py
     route_scope:
       - POST /v1/missions/{mission_id}/worker-claim-admission
@@ -369,6 +372,7 @@ authority_entries:
     area: worker start admission
     source_of_truth:
       - backend/api/routes/mission.py
+      - backend/services/worker_start_admission_service.py
       - backend/services/worker_runtime_service.py
     route_scope:
       - POST /v1/missions/{mission_id}/worker-start-admission
@@ -412,6 +416,7 @@ authority_entries:
     area: worker run admission
     source_of_truth:
       - backend/api/routes/mission.py
+      - backend/services/worker_run_admission_service.py
       - backend/workers/task_dispatcher.py
       - backend/workers/worker_loop.py
     route_scope:
