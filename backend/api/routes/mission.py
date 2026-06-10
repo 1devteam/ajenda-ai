@@ -4406,7 +4406,7 @@ def worker_claim_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerClaimAdmissionRead:
     """Persist controlled worker claim admission metadata for queued runtime tasks."""
-    require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
+    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     admitted_by = (
         request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_claim_admission"
     )
