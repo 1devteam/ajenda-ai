@@ -252,6 +252,34 @@ authority_entries:
       - tests/contract/api/test_task_queue_contract.py
       - tests/unit/services/test_mission_runtime_projection.py
 
+  - id: mission_queue_legacy_contract
+    area: legacy mission queue admission
+    source_of_truth:
+      - backend/api/routes/mission.py
+      - backend/services/mission_executor.py
+      - backend/services/execution_coordinator.py
+    route_scope:
+      - POST /v1/missions/{mission_id}/queue
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_mission_queue_admission_mutation
+    allowed_side_effects:
+      - queue tenant-owned planned mission tasks at the mission level after route permission checks
+      - delegate queue authority through MissionExecutor.queue_all_planned_tasks()
+      - delegate task queue admission to ExecutionCoordinator.queue_task()
+      - return a simple queue summary of queued, pending-review, and denied task outcomes
+      - remain distinct from staged runtime queue admission metadata ownership
+    forbidden_side_effects:
+      - create execution task rows
+      - write runtime_queue_admission staged metadata, receipts, blockers, or runtime authority information
+      - bypass ExecutionCoordinator with a direct QueueAdapter enqueue
+      - dispatch workers or invoke TaskDispatcher handlers/adapters
+      - mutate worker leases
+      - execute providers, tool actions, or action registry handlers as part of queue admission
+      - treat declarative action registry or tool execution authority as part of mission queue admission
+    required_proofs:
+      - tests/contract/api/test_mission_queue_contract.py
+      - tests/unit/architecture/test_authority_ledger_contract.py
+
   - id: runtime_queue_admission_contract
     area: runtime queue admission bridge
     source_of_truth:

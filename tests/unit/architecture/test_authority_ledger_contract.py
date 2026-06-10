@@ -16,6 +16,7 @@ EXPECTED_AUTHORITY_CLASSES = {
 }
 
 RUNTIME_QUEUE_ADMISSION_ROUTE = "POST /v1/missions/{mission_id}/runtime-queue-admission"
+MISSION_QUEUE_LEGACY_ROUTE = "POST /v1/missions/{mission_id}/queue"
 
 MIXED_METHOD_ADMISSION_PATHS = {
     "/v1/missions/{mission_id}/runtime-task-materialization": {
@@ -99,6 +100,26 @@ def test_runtime_queue_admission_route_is_first_class_runtime_authority() -> Non
     assert "authority_class: runtime_authoritative" in block
     assert "side_effect_class: tenant_scoped_queue_admission_mutation" in block
     assert "tests/contract/api/test_mission_queue_contract.py" in block
+
+
+def test_legacy_mission_queue_route_has_dedicated_authority_coverage() -> None:
+    block = _block_for_route_scope(MISSION_QUEUE_LEGACY_ROUTE)
+    runtime_block = _block_for_route_scope(RUNTIME_QUEUE_ADMISSION_ROUTE)
+
+    assert "id: mission_queue_legacy_contract" in block
+    assert "side_effect_class: tenant_scoped_mission_queue_admission_mutation" in block
+    assert "MissionExecutor.queue_all_planned_tasks()" in block
+    assert "ExecutionCoordinator.queue_task()" in block
+    assert "runtime_queue_admission staged metadata" in block
+    assert "direct QueueAdapter enqueue" in block
+    assert "TaskDispatcher" in block
+    assert "worker leases" in block
+    assert "tests/contract/api/test_mission_queue_contract.py" in block
+
+    assert block != runtime_block
+    assert "tenant_scoped_queue_admission_mutation" in runtime_block
+    assert "persist runtime queue admission receipts and blockers" in runtime_block
+    assert "MissionExecutor.queue_all_planned_tasks()" not in runtime_block
 
 
 def test_mixed_method_admission_routes_are_method_specific() -> None:
