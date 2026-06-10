@@ -3015,6 +3015,79 @@ def test_task_graph_replacement_invalidates_downstream_graph_state_and_cancels_s
     assert task_materialization["cancelled_execution_task_ids"] == [str(task_id)]
 
 
+def test_mission_task_graph_replacement_cleanup_does_not_queue_or_dispatch() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    old_graph = {
+        **_valid_task_graph_payload(),
+        "mission_id": str(mission_id),
+        "graph_version": 7,
+        "graph_fingerprint": "sha256:old-graph",
+    }
+    incoming_graph = _valid_task_graph_payload()
+    incoming_graph["nodes"][0]["title"] = "Collect updated approved signals"
+    mission = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={
+            MISSION_TASK_GRAPH_METADATA_KEY: old_graph,
+            MISSION_GRAPH_MATERIALIZATION_METADATA_KEY: {
+                "materialization_status": "materialized",
+                "graph_reference": {
+                    "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+                    "graph_version": old_graph["graph_version"],
+                    "graph_fingerprint": old_graph["graph_fingerprint"],
+                },
+            },
+            MISSION_RUNTIME_ADMISSION_METADATA_KEY: {"admission_status": "admitted"},
+            "runtime_task_materialization": {
+                "schema_version": 1,
+                "materialization_status": "materialized",
+                "materialization_version": 1,
+                "created_execution_task_ids": [str(task_id)],
+            },
+        },
+    )
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    repo.update_metadata.side_effect = _update_metadata
+    task_repo = MagicMock()
+    task_repo.cancel_planned_by_ids_for_mission.return_value = [SimpleNamespace(id=task_id)]
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission.TaskDispatcher") as dispatcher_cls,
+        patch("backend.api.routes.mission.WorkerLease") as worker_lease_cls,
+        patch("backend.api.routes.mission.get_queue_adapter") as queue_adapter_dep,
+    ):
+        response = client.put(f"/v1/missions/{mission_id}/task-graph", json=incoming_graph)
+
+    assert response.status_code == 200
+    task_repo.cancel_planned_by_ids_for_mission.assert_called_once_with(
+        tenant_id=str(tenant_id), mission_id=mission_id, task_ids=[task_id]
+    )
+    executor_cls.assert_not_called()
+    coordinator_cls.assert_not_called()
+    dispatcher_cls.assert_not_called()
+    worker_lease_cls.assert_not_called()
+    queue_adapter_dep.assert_not_called()
+    task_materialization = repo.update_metadata.call_args.kwargs["metadata_json"]["runtime_task_materialization"]
+    assert task_materialization["materialization_status"] == "superseded"
+    assert task_materialization["superseded_reason"] == "task_graph_replaced"
+    assert task_materialization["cancelled_execution_task_ids"] == [str(task_id)]
+
+
 def test_graph_materialization_replacement_supersedes_runtime_task_materialization_metadata() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
