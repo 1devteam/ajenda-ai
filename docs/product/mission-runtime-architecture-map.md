@@ -120,7 +120,7 @@ The mission runtime bridge is staged. Do not collapse these stages into a single
 
 | Stage | Classification | Meaning |
 |---|---|---|
-| Mission task graph | Declarative contract | Persists task graph contract. It must not enqueue, dispatch, or execute handlers. Replacement may supersede graph metadata and cancel superseded planned materialized tasks, so this stage is not merely passive text storage. |
+| Mission task graph | Declarative contract with governed cleanup mutation | Persists task graph contract and must not enqueue, dispatch, or execute handlers. When replacing a graph tied to an existing materialization, cleanup may cancel superseded planned materialized `ExecutionTask` rows, so runtime-state invariants and UPG gates still apply to that cleanup path. |
 | Runtime task materialization | Governed runtime mutation | Creates `ExecutionTask` rows in `PLANNED` state only. It must not enqueue or dispatch. |
 | Runtime queue admission | True queue runtime | Queues current materialized planned tasks through `ExecutionCoordinator`. It must not create execution task rows or dispatch workers. |
 | Worker claim admission | Governed runtime mutation | Creates worker leases and moves queued tasks to claimed. It must not start execution or dispatch handlers. |
@@ -281,6 +281,7 @@ It should delegate to the canonical staged runtime queue admission service once 
 |---|---|---|
 | Two mission queue paths | Verified overlap. Both call `ExecutionCoordinator.queue_task()`, but only runtime queue admission writes staged metadata. | Decide whether `/queue` is deprecated, retained with documented difference, or rewritten as wrapper. |
 | Legacy `/queue` authority ledger | `/queue` is live and tested, and it reaches `ExecutionCoordinator.queue_task()` through `MissionExecutor.queue_all_planned_tasks()`. It does not currently have the same dedicated authority-ledger coverage as `/runtime-queue-admission`. | Add explicit authority-ledger coverage for legacy `/queue`, or formally wrap/deprecate it. |
+| Mission task graph cleanup | Graph persistence is declarative, but replacement cleanup may cancel superseded planned materialized `ExecutionTask` rows. | Keep graph persistence tests separate from cleanup mutation tests and ensure UPG/runtime-state invariants cover cleanup. |
 | Mission route concentration | `backend/api/routes/mission.py` owns many bridge responsibilities. | Extract mission runtime bridge logic into explicit services after queue authority is settled. |
 | Declarative mutation audit policy | Business Profile explicitly appends audit events; other declarative contract lanes generally do not. | Decide whether this is intentional or whether all declarative mutations require audit events. |
 | Provider activation | Google Calendar and credential resolver are contract-only. | Build real credential resolver before live external provider activation. |
@@ -296,6 +297,7 @@ Do not repeat these assumptions in future audits or PRs.
 | Every route using repositories directly is drift. | Many repository-using routes are declarative contract lanes by design. |
 | Mutation without audit is automatically a bug. | Audit requirement depends on the authority contract. Business Profile explicitly requires audit; other lanes require a policy decision. |
 | Runtime task materialization queues work. | It creates planned execution task rows only. |
+| Mission task graph is always pure declarative metadata. | Graph persistence is declarative, but graph replacement cleanup can cancel superseded planned materialized `ExecutionTask` rows and should be covered as a governed cleanup mutation. |
 | Worker run admission is read-only. | `POST /worker-run-admission` is true runtime execution through dispatcher. |
 | Google Calendar is live runtime. | Google provider is a future-facing boundary and not live. |
 | Google Calendar not live means no live external egress exists. | False. HTTP and webhook egress actions are live action/tool surfaces. |
@@ -327,7 +329,8 @@ Address the issues this audit exposed before broad refactors:
 5. `tool.invoke` side-effect authority regression tests,
 6. runtime evidence bridge narrowness tests,
 7. HTTP/webhook egress audit lane,
-8. declarative audit policy decision.
+8. declarative audit policy decision,
+9. mission task graph replacement cleanup invariants.
 
 ### Phase 3 — Extract mission runtime bridge services
 
@@ -349,7 +352,7 @@ Required invariants:
 
 | Stage | Invariant |
 |---|---|
-| task graph | no queue, no dispatch, no handler execution |
+| task graph | graph persistence must not queue, dispatch, or execute handlers; replacement cleanup may cancel superseded planned materialized tasks and needs its own governed mutation invariant |
 | task materialization | creates only planned tasks |
 | queue admission | queues only current materialized planned tasks through `ExecutionCoordinator` |
 | claim admission | creates leases and moves queued to claimed only |
