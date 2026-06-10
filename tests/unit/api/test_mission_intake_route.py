@@ -529,6 +529,7 @@ def test_mission_task_graph_post_creates_graph_without_queueing() -> None:
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
         patch("backend.api.routes.mission.TaskDispatcher") as dispatcher_cls,
+        patch("backend.api.routes.mission.WorkerLeaseRepository") as worker_lease_repo_cls,
         patch("backend.api.routes.mission.WorkerLease") as worker_lease_cls,
         patch("backend.api.routes.mission.get_queue_adapter") as queue_adapter_dep,
     ):
@@ -554,6 +555,7 @@ def test_mission_task_graph_post_creates_graph_without_queueing() -> None:
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
     dispatcher_cls.assert_not_called()
+    worker_lease_repo_cls.assert_not_called()
     worker_lease_cls.assert_not_called()
     queue_adapter_dep.assert_not_called()
 
