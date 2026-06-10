@@ -16,6 +16,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.queue.base import QueueOperationResult
 from backend.services.worker_runtime_service import WorkerRuntimeService
@@ -192,6 +194,7 @@ def test_worker_runtime_release_requeues_claimed_task_state_with_queue_payload()
         id=lease.task_id,
         tenant_id=tenant_id,
         status=ExecutionTaskState.CLAIMED.value,
+        metadata_json={"worker_lease_id": str(lease.id)},
     )
     service._leases = MagicMock()
     service._leases.get.return_value = lease
@@ -213,7 +216,7 @@ def test_worker_runtime_release_requeues_claimed_task_state_with_queue_payload()
     session.rollback.assert_not_called()
 
 
-def test_worker_runtime_release_preserves_running_task_state_when_releasing_active_lease() -> None:
+def test_worker_runtime_release_fails_closed_when_task_is_not_claimed() -> None:
     session = MagicMock()
     queue = MagicMock()
     queue.release_lease.return_value = QueueOperationResult(ok=True)
@@ -232,13 +235,107 @@ def test_worker_runtime_release_preserves_running_task_state_when_releasing_acti
         id=lease.task_id,
         tenant_id=tenant_id,
         status=ExecutionTaskState.RUNNING.value,
+        metadata_json={"worker_lease_id": str(lease.id)},
     )
     service._leases = MagicMock()
     service._leases.get.return_value = lease
     service._tasks = MagicMock()
     service._tasks.get.return_value = task
 
-    service.release(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
+    try:
+        service.release(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
+    except ValueError as exc:
+        assert str(exc) == "task is not claimed"
+    else:
+        raise AssertionError("running task release must fail closed")
 
-    assert lease.status == WorkerLeaseState.RELEASED.value
+    assert lease.status == WorkerLeaseState.ACTIVE.value
     assert task.status == ExecutionTaskState.RUNNING.value
+    queue.release_lease.assert_not_called()
+    session.flush.assert_not_called()
+    session.commit.assert_not_called()
+
+
+@pytest.mark.parametrize("stale_status", [WorkerLeaseState.EXPIRED.value, WorkerLeaseState.RELEASED.value])
+def test_worker_runtime_release_fails_closed_for_non_releasable_stale_lease(stale_status: str) -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    queue.release_lease.return_value = QueueOperationResult(ok=True)
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-release-stale"
+    old_worker_id = "worker-release-stale-old"
+    old_lease = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        task_id=uuid.uuid4(),
+        holder_identity=old_worker_id,
+        status=stale_status,
+        heartbeat_at=None,
+    )
+    newer_lease_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=old_lease.task_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.CLAIMED.value,
+        metadata_json={"worker_lease_id": str(newer_lease_id)},
+    )
+    service._leases = MagicMock()
+    service._leases.get.return_value = old_lease
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = task
+
+    try:
+        service.release(tenant_id=tenant_id, lease_id=old_lease.id, worker_id=old_worker_id)
+    except ValueError as exc:
+        assert str(exc) == "lease is not release-eligible"
+    else:
+        raise AssertionError("stale expired lease release must fail closed")
+
+    assert old_lease.status == stale_status
+    assert task.status == ExecutionTaskState.CLAIMED.value
+    assert task.metadata_json["worker_lease_id"] == str(newer_lease_id)
+    queue.release_lease.assert_not_called()
+    session.flush.assert_not_called()
+    session.commit.assert_not_called()
+
+
+def test_worker_runtime_release_fails_closed_when_claim_metadata_points_to_newer_lease() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    queue.release_lease.return_value = QueueOperationResult(ok=True)
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-release-superseded"
+    old_worker_id = "worker-release-superseded-old"
+    old_lease = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        task_id=uuid.uuid4(),
+        holder_identity=old_worker_id,
+        status=WorkerLeaseState.ACTIVE.value,
+        heartbeat_at=None,
+    )
+    newer_lease_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=old_lease.task_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.CLAIMED.value,
+        metadata_json={"worker_lease_id": str(newer_lease_id)},
+    )
+    service._leases = MagicMock()
+    service._leases.get.return_value = old_lease
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = task
+
+    try:
+        service.release(tenant_id=tenant_id, lease_id=old_lease.id, worker_id=old_worker_id)
+    except ValueError as exc:
+        assert str(exc) == "lease is not current task claim"
+    else:
+        raise AssertionError("superseded lease release must fail closed")
+
+    assert old_lease.status == WorkerLeaseState.ACTIVE.value
+    assert task.status == ExecutionTaskState.CLAIMED.value
+    assert task.metadata_json["worker_lease_id"] == str(newer_lease_id)
+    queue.release_lease.assert_not_called()
+    session.flush.assert_not_called()
+    session.commit.assert_not_called()

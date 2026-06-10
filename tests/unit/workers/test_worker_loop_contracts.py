@@ -289,3 +289,29 @@ def test_release_unstarted_claim_once_calls_runtime_release_and_keeps_loop_alive
     assert calls == [("tenant-loop-contract", lease_id, "worker-loop-contract")]
     assert session.committed is True
     assert session.closed is True
+
+
+def test_release_unstarted_claim_once_fails_closed_when_runtime_rejects_stale_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = SessionStub()
+    loop = _loop(session=session)
+    lease_id = uuid.uuid4()
+    attempted: list[uuid.UUID] = []
+
+    class RuntimeStub:
+        def __init__(self, session_arg: object, queue_arg: object) -> None:
+            pass
+
+        def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> None:
+            attempted.append(lease_id)
+            raise ValueError("lease is not current task claim")
+
+    monkeypatch.setattr(worker_loop, "WorkerRuntimeService", RuntimeStub)
+
+    loop._release_unstarted_claim_once(lease_id=lease_id, reason="late heartbeat failure")
+
+    assert attempted == [lease_id]
+    assert session.rolled_back is True
+    assert session.committed is False
+    assert session.closed is True
