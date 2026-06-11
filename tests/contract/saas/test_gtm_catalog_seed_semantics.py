@@ -4,6 +4,7 @@ import os
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import NamedTuple
 
 import pytest
 from alembic.config import Config as AlembicConfig
@@ -24,8 +25,20 @@ GTM_ADAPTER_NAME = "gtm_outbound_email_adapter"
 GTM_VERSION = "1.0.0"
 
 
+class _DatabaseSideEffects(NamedTuple):
+    ajenda_admin_role_exists: bool
+    ajenda_admin_has_public_usage: bool | None
+    database_comment: str | None
+
+
 def _quote_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _quote_comment_literal(comment: str | None) -> str:
+    if comment is None:
+        return "NULL"
+    return "'" + comment.replace("'", "''") + "'"
 
 
 def _schema_database_url(base_url: str, schema: str) -> str:
@@ -60,6 +73,64 @@ def _drop_temp_schema(base_url: str, schema: str) -> None:
     try:
         with engine.begin() as conn:
             conn.execute(text(f"DROP SCHEMA IF EXISTS {quoted_schema} CASCADE"))
+    finally:
+        engine.dispose()
+
+
+def _capture_database_side_effects(base_url: str) -> _DatabaseSideEffects:
+    engine = create_engine(base_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as conn:
+            role_exists = conn.scalar(text("SELECT to_regrole('ajenda_admin') IS NOT NULL"))
+            public_usage_granted = conn.scalar(
+                text(
+                    """
+                    SELECT CASE
+                        WHEN to_regrole('ajenda_admin') IS NULL THEN NULL
+                        ELSE has_schema_privilege('ajenda_admin', 'public', 'USAGE')
+                    END
+                    """
+                )
+            )
+            database_comment = conn.scalar(
+                text(
+                    """
+                    SELECT shobj_description(
+                        (SELECT oid FROM pg_database WHERE datname = current_database()),
+                        'pg_database'
+                    )
+                    """
+                )
+            )
+    finally:
+        engine.dispose()
+
+    assert role_exists is not None
+    return _DatabaseSideEffects(
+        ajenda_admin_role_exists=role_exists,
+        ajenda_admin_has_public_usage=public_usage_granted,
+        database_comment=database_comment,
+    )
+
+
+def _restore_database_side_effects(base_url: str, snapshot: _DatabaseSideEffects) -> None:
+    engine = create_engine(base_url, pool_pre_ping=True)
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(f"COMMENT ON DATABASE CURRENT IS {_quote_comment_literal(snapshot.database_comment)}"))
+
+            role_exists = conn.scalar(text("SELECT to_regrole('ajenda_admin') IS NOT NULL"))
+            if not role_exists:
+                return
+
+            if snapshot.ajenda_admin_role_exists:
+                if snapshot.ajenda_admin_has_public_usage:
+                    conn.execute(text("GRANT USAGE ON SCHEMA public TO ajenda_admin"))
+                else:
+                    conn.execute(text("REVOKE USAGE ON SCHEMA public FROM ajenda_admin"))
+            else:
+                conn.execute(text("REVOKE USAGE ON SCHEMA public FROM ajenda_admin"))
+                conn.execute(text("DROP ROLE ajenda_admin"))
     finally:
         engine.dispose()
 
@@ -178,6 +249,7 @@ def _assert_seed_rows_absent(session: Session) -> None:
 def test_gtm_catalog_seed_round_trip_preserves_api_shapes_and_cleans_up_policies(pg_url: str) -> None:
     schema = f"gtm_seed_semantics_{uuid.uuid4().hex}"
     database_url = _schema_database_url(pg_url, schema)
+    database_side_effects = _capture_database_side_effects(pg_url)
     _create_temp_schema(pg_url, schema)
     try:
         cfg = _alembic_config(database_url)
@@ -197,4 +269,7 @@ def test_gtm_catalog_seed_round_trip_preserves_api_shapes_and_cleans_up_policies
                 _assert_seed_rows_have_runtime_contract_shapes(session)
                 assert _seed_policy_names(session) == set()
     finally:
-        _drop_temp_schema(pg_url, schema)
+        try:
+            _drop_temp_schema(pg_url, schema)
+        finally:
+            _restore_database_side_effects(pg_url, database_side_effects)
