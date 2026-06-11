@@ -274,3 +274,54 @@ def test_running_task_missing_queue_payload_fails_closed_without_state_mutation(
         session.commit()
     finally:
         session.close()
+
+
+def test_recovery_cleans_terminal_processing_payload_without_requeue(
+    pg_engine,
+    queue_adapter,
+    redis_client,
+) -> None:
+    session_factory = _session_factory(pg_engine)
+    tenant_id = _tenant_id()
+
+    session = session_factory()
+    try:
+        _create_tenant(session, tenant_id)
+        mission = _create_mission(session, tenant_id)
+        task = _create_task(
+            session,
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            status=ExecutionTaskState.COMPLETED.value,
+        )
+        lease = _create_lease(
+            session,
+            tenant_id=tenant_id,
+            task_id=task.id,
+            status=WorkerLeaseState.RELEASED.value,
+            worker_id="terminal-cleanup-worker",
+        )
+        _prime_processing_payload(queue_adapter, tenant_id=tenant_id, task=task, worker_id=lease.holder_identity)
+        session.commit()
+
+        summary = RuntimeMaintainer(
+            session=session,
+            queue=queue_adapter,
+            expiry_seconds=30,
+            max_retries=3,
+        ).recover_expired_leases()
+
+        session.refresh(task)
+        session.refresh(lease)
+        pending_key = f"ajenda:queue:{tenant_id}:pending"
+        processing_key = f"ajenda:queue:{tenant_id}:processing"
+
+        assert summary.requeued_task_count == 0
+        assert summary.dead_lettered_count == 0
+        assert summary.mismatched_state_count == 0
+        assert task.status == ExecutionTaskState.COMPLETED.value
+        assert lease.status == WorkerLeaseState.RELEASED.value
+        assert redis_client.llen(pending_key) == 0
+        assert redis_client.llen(processing_key) == 0
+    finally:
+        session.close()

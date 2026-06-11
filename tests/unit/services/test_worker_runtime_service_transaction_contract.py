@@ -175,6 +175,103 @@ def test_worker_runtime_public_mutators_keep_return_contracts() -> None:
     assert inspect.signature(WorkerRuntimeService.release).return_annotation == "WorkerLease"
 
 
+def _terminal_runtime_subject(
+    *, status: str
+) -> tuple[WorkerRuntimeService, MagicMock, MagicMock, SimpleNamespace, SimpleNamespace, str, str]:
+    session = MagicMock()
+    queue = MagicMock()
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-terminal-ack"
+    worker_id = "worker-terminal-ack"
+    lease = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        task_id=uuid.uuid4(),
+        holder_identity=worker_id,
+        status=WorkerLeaseState.ACTIVE.value,
+        heartbeat_at=None,
+    )
+    task = SimpleNamespace(
+        id=lease.task_id,
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        fleet_id=None,
+        branch_id=None,
+        status=status,
+        metadata_json={"worker_lease_id": str(lease.id)},
+    )
+    service._leases = MagicMock()
+    service._leases.get.return_value = lease
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = task
+    service._audit = MagicMock()
+    return service, session, queue, lease, task, tenant_id, worker_id
+
+
+def test_complete_commits_db_when_queue_complete_ack_fails() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=False, reason="redis timeout")
+
+    completed = service.complete(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
+
+    assert completed is task
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    queue.complete_task.assert_called_once_with(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+    queue.fail_task.assert_not_called()
+    assert session.commit.call_count == 2
+    session.rollback.assert_not_called()
+    assert service._audit.append.call_args_list[-1].args[0].action == "terminal_queue_complete_cleanup_failed"
+
+
+def test_fail_commits_db_when_queue_fail_ack_fails() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.fail_task.return_value = QueueOperationResult(ok=False, reason="redis timeout")
+
+    failed = service.fail(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id, reason="handler failed")
+
+    assert failed is task
+    assert task.status == ExecutionTaskState.FAILED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    queue.fail_task.assert_called_once_with(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        worker_id=worker_id,
+        reason="handler failed",
+    )
+    queue.complete_task.assert_not_called()
+    assert session.commit.call_count == 2
+    session.rollback.assert_not_called()
+    assert service._audit.append.call_args_list[-1].args[0].action == "terminal_queue_fail_cleanup_failed"
+
+
+def test_complete_queue_ack_failure_does_not_rerun_or_fail_completed_work() -> None:
+    service, _session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=False, reason="ack failed after DB commit")
+
+    service.complete(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
+
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    queue.fail_task.assert_not_called()
+
+
+def test_terminal_queue_ack_failure_keeps_lease_released() -> None:
+    service, _session, queue, lease, _task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=False, reason="ack failed after DB commit")
+
+    service.complete(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
+
+    assert lease.status == WorkerLeaseState.RELEASED.value
+
+
 def test_worker_runtime_release_requeues_claimed_task_state_with_queue_payload() -> None:
     session = MagicMock()
     queue = MagicMock()
