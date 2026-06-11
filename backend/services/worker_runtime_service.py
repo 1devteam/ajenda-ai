@@ -180,11 +180,15 @@ class WorkerRuntimeService:
 
         result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
         if not result.ok:
-            logger.critical(
-                "queue_complete_after_db_commit_failed",
-                extra={"task_id": str(task.id), "lease_id": str(lease.id), "reason": result.reason},
+            self._record_terminal_queue_cleanup_failure(
+                tenant_id=tenant_id,
+                task=task,
+                lease=lease,
+                worker_id=worker_id,
+                queue_operation="complete_task",
+                audit_action="terminal_queue_complete_cleanup_failed",
+                reason=result.reason or "complete rejected",
             )
-            raise ValueError(result.reason or "complete rejected")
         return task
 
     def fail(
@@ -228,11 +232,15 @@ class WorkerRuntimeService:
             reason=reason,
         )
         if not result.ok:
-            logger.critical(
-                "queue_fail_after_db_commit_failed",
-                extra={"task_id": str(task.id), "lease_id": str(lease.id), "reason": result.reason},
+            self._record_terminal_queue_cleanup_failure(
+                tenant_id=tenant_id,
+                task=task,
+                lease=lease,
+                worker_id=worker_id,
+                queue_operation="fail_task",
+                audit_action="terminal_queue_fail_cleanup_failed",
+                reason=result.reason or "fail rejected",
             )
-            raise ValueError(result.reason or "fail rejected")
         return task
 
     def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
@@ -254,6 +262,67 @@ class WorkerRuntimeService:
         self._session.flush()
         self._session.commit()
         return lease
+
+    def _record_terminal_queue_cleanup_failure(
+        self,
+        *,
+        tenant_id: str,
+        task: ExecutionTask,
+        lease: WorkerLease,
+        worker_id: str,
+        queue_operation: str,
+        audit_action: str,
+        reason: str,
+    ) -> None:
+        logger.critical(
+            f"queue_{queue_operation}_after_db_commit_failed",
+            extra={
+                "tenant_id": tenant_id,
+                "task_id": str(task.id),
+                "task_status": task.status,
+                "lease_id": str(lease.id),
+                "lease_status": lease.status,
+                "worker_id": worker_id,
+                "reason": reason,
+            },
+        )
+        try:
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    category="worker_queue_cleanup",
+                    action=audit_action,
+                    actor=worker_id,
+                    details=(
+                        f"Queue {queue_operation} cleanup failed after DB terminal commit for task {task.id}: {reason}"
+                    ),
+                    payload_json={
+                        "task_id": str(task.id),
+                        "task_status": task.status,
+                        "lease_id": str(lease.id),
+                        "lease_status": lease.status,
+                        "queue_operation": queue_operation,
+                        "reason": reason,
+                        "requeue_allowed": False,
+                    },
+                )
+            )
+            self._session.flush()
+            self._session.commit()
+        except Exception as exc:
+            self._session.rollback()
+            logger.critical(
+                "terminal_queue_cleanup_failure_audit_persist_failed",
+                extra={
+                    "tenant_id": tenant_id,
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "queue_operation": queue_operation,
+                    "queue_reason": reason,
+                    "audit_error": str(exc),
+                },
+            )
 
     def _assert_current_releasable_claim(
         self,

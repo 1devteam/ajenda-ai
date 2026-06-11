@@ -34,6 +34,8 @@ def build_tool_action_evidence_records(
 
     if task_output.get("handler") != _TOOL_INVOKE_HANDLER:
         return []
+    if task_output.get("status") != "completed":
+        return []
     if lineage_record.relationship_type != _TASK_OUTPUT_RELATIONSHIP:
         raise ValueError("tool action evidence bridge requires task_output lineage")
 
@@ -141,10 +143,8 @@ def _build_materialization_reference(
 
 
 def _optional_string(value: object) -> str | None:
-    if value is None:
+    if value is None or not isinstance(value, str):
         return None
-    if not isinstance(value, str):
-        raise ValueError("task_graph_node_key metadata must be a string when present")
     stripped = value.strip()
     return stripped or None
 
