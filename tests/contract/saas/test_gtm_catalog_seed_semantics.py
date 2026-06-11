@@ -23,57 +23,36 @@ GTM_ADAPTER_NAME = "gtm_outbound_email_adapter"
 GTM_VERSION = "1.0.0"
 
 
-def _database_url(base_url: str, database: str) -> str:
-    return str(make_url(base_url).set(database=database))
+def _schema_database_url(base_url: str, schema: str) -> str:
+    return str(make_url(base_url).update_query_dict({"options": f"-csearch_path={schema},public"}))
 
 
-def _admin_database_url(base_url: str) -> str:
-    url = make_url(base_url)
-    return str(url.set(database="postgres"))
-
-
-def _create_database(base_url: str, database: str) -> None:
-    admin_engine = create_engine(_admin_database_url(base_url), isolation_level="AUTOCOMMIT")
+def _create_schema(base_url: str, schema: str) -> None:
+    engine = create_engine(base_url, isolation_level="AUTOCOMMIT")
     try:
-        with admin_engine.connect() as conn:
+        with engine.connect() as conn:
+            conn.execute(text(f'CREATE SCHEMA "{schema}"'))
             conn.execute(
                 text(
-                    """
-                    DO $$
-                    BEGIN
-                        IF NOT EXISTS (
-                            SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_admin'
-                        ) THEN
-                            CREATE ROLE ajenda_admin;
-                        END IF;
-                    END
-                    $$;
-                    """
+                    f'''
+                    CREATE TABLE "{schema}".alembic_version (
+                        version_num VARCHAR(32) NOT NULL,
+                        CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+                    )
+                    '''
                 )
             )
-            conn.execute(text(f'CREATE DATABASE "{database}"'))
     finally:
-        admin_engine.dispose()
+        engine.dispose()
 
 
-def _drop_database(base_url: str, database: str) -> None:
-    admin_engine = create_engine(_admin_database_url(base_url), isolation_level="AUTOCOMMIT")
+def _drop_schema(base_url: str, schema: str) -> None:
+    engine = create_engine(base_url, isolation_level="AUTOCOMMIT")
     try:
-        with admin_engine.connect() as conn:
-            conn.execute(
-                text(
-                    """
-                    SELECT pg_terminate_backend(pid)
-                    FROM pg_stat_activity
-                    WHERE datname = :database
-                      AND pid <> pg_backend_pid()
-                    """
-                ),
-                {"database": database},
-            )
-            conn.execute(text(f'DROP DATABASE IF EXISTS "{database}"'))
+        with engine.connect() as conn:
+            conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
     finally:
-        admin_engine.dispose()
+        engine.dispose()
 
 
 def _alembic_config(database_url: str) -> AlembicConfig:
@@ -102,7 +81,8 @@ def _seed_policy_names(session: Session) -> set[str]:
                 """
                 SELECT policyname
                 FROM pg_policies
-                WHERE tablename IN ('capabilities', 'capability_adapters')
+                WHERE schemaname = current_schema()
+                  AND tablename IN ('capabilities', 'capability_adapters')
                   AND policyname IN (
                       'seed_global_gtm_capabilities_policy',
                       'seed_global_gtm_capability_adapters_policy'
@@ -174,9 +154,9 @@ def _assert_seed_rows_absent(session: Session) -> None:
 
 @pytest.mark.integration
 def test_gtm_catalog_seed_round_trip_preserves_api_shapes_and_cleans_up_policies(pg_url: str) -> None:
-    database = f"ajenda_seed_semantics_{uuid.uuid4().hex}"
-    database_url = _database_url(pg_url, database)
-    _create_database(pg_url, database)
+    schema = f"gtm_seed_semantics_{uuid.uuid4().hex}"
+    database_url = _schema_database_url(pg_url, schema)
+    _create_schema(pg_url, schema)
     try:
         cfg = _alembic_config(database_url)
         alembic_command.upgrade(cfg, "head")
@@ -184,6 +164,9 @@ def test_gtm_catalog_seed_round_trip_preserves_api_shapes_and_cleans_up_policies
             _assert_seed_rows_have_runtime_contract_shapes(session)
             assert _seed_policy_names(session) == set()
 
+        # This test uses the session-scoped pg_url fixture. Keep Alembic's version
+        # table and all migrated objects in the temporary schema so the downgrade
+        # round trip cannot reverse or drop objects from the shared public schema.
         alembic_command.downgrade(cfg, "0020_expand_lifecycle_checks")
         with _session(database_url) as session:
             _assert_seed_rows_absent(session)
@@ -194,4 +177,4 @@ def test_gtm_catalog_seed_round_trip_preserves_api_shapes_and_cleans_up_policies
             _assert_seed_rows_have_runtime_contract_shapes(session)
             assert _seed_policy_names(session) == set()
     finally:
-        _drop_database(pg_url, database)
+        _drop_schema(pg_url, schema)

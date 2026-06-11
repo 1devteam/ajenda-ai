@@ -61,17 +61,19 @@ from backend.runtime.transitions import transition_lease, transition_task
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.mission_executor import MissionExecutor
 from backend.services.mission_runtime_projection import (
-    build_execution_task_payload,
-    build_runtime_task_materialization_metadata,
-    materialization_reference_current,
+    build_runtime_task_preview_items as project_runtime_task_preview_items,
+)
+from backend.services.mission_runtime_projection import (
     runtime_materialization_authority_flags,
     runtime_preview_authority_flags,
     supersede_runtime_task_materialization,
 )
-from backend.services.mission_runtime_projection import (
-    build_runtime_task_preview_items as project_runtime_task_preview_items,
-)
+from backend.services.mission_runtime_queue_admission_service import MissionRuntimeQueueAdmissionService
+from backend.services.mission_runtime_task_materialization_service import MissionRuntimeTaskMaterializationService
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaEnforcementService, QuotaExceededError
+from backend.services.worker_claim_admission_service import WorkerClaimAdmissionService
+from backend.services.worker_run_admission_service import WorkerRunAdmissionService
+from backend.services.worker_start_admission_service import WorkerStartAdmissionService
 from backend.workers.task_dispatcher import TaskDispatcher
 
 router = APIRouter(prefix="/missions", tags=["missions"])
@@ -3175,88 +3177,11 @@ def materialize_mission_runtime_tasks(
 ) -> RuntimeTaskMaterializationRead:
     """Create planned ExecutionTask rows from a ready admitted mission graph without queueing work."""
     require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    tenant_id_str = str(tenant_id)
-    mission_repo = MissionRepository(db)
-    mission = mission_repo.lock_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
-    if mission is None:
-        raise HTTPException(status_code=404, detail="mission not found for tenant")
-
-    readiness = _build_mission_runtime_readiness(mission_id=mission_id, tenant_id=tenant_id, db=db)
-    if not readiness.ready:
-        if any(blocker.code == "runtime_admission_not_admitted" for blocker in readiness.blockers):
-            raise HTTPException(status_code=400, detail="runtime admission must be admitted before materialization")
-        if any(blocker.code == "graph_reference_mismatch" for blocker in readiness.blockers):
-            raise HTTPException(
-                status_code=400, detail="runtime admission graph reference does not match current task graph"
-            )
-        return _build_blocked_runtime_task_materialization_read(readiness=readiness)
-
-    tasks = _build_runtime_task_preview_items(mission_id=mission_id, readiness=readiness)
-    if len(tasks) != readiness.selected_node_count:
-        incomplete_readiness_payload = readiness.model_dump()
-        incomplete_readiness_payload["ready"] = False
-        incomplete_readiness_payload["readiness_status"] = "incomplete"
-        incomplete_readiness_payload["blockers"] = [
-            *readiness.blockers,
-            _readiness_item(
-                code="runtime_task_preview_incomplete",
-                status="failed",
-                message="Runtime task preview did not produce one task for each selected node.",
-                details={"task_count": len(tasks), "selected_node_count": readiness.selected_node_count},
-            ),
-        ]
-        return _build_blocked_runtime_task_materialization_read(
-            readiness=RuntimeReadinessRead.model_validate(incomplete_readiness_payload)
-        )
-
-    metadata = dict(mission.metadata_json or {})
-    existing = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
-    if isinstance(existing, dict) and materialization_reference_current(
-        task_materialization=existing,
-        graph_reference=readiness.graph_reference,
-        materialization_reference=readiness.materialization_reference,
-        admission_reference=readiness.admission_reference,
-    ):
-        return _runtime_task_materialization_to_read(
-            mission=mission, metadata=existing, blockers=readiness.blockers, warnings=readiness.warnings
-        )
-
-    previous_version = existing.get("materialization_version", 0) if isinstance(existing, dict) else 0
-    task_repo = ExecutionTaskRepository(db)
-    created_task_ids: list[str] = []
-    for task_preview in tasks:
-        payload = build_execution_task_payload(task_preview)
-        task = ExecutionTask(
-            tenant_id=tenant_id_str,
-            mission_id=mission_id,
-            title=task_preview.graph_node_name or task_preview.graph_node_key,
-            description=(
-                task_preview.operator_notes
-                or f"Planned runtime task for mission graph node {task_preview.graph_node_key}."
-            ),
-            status=ExecutionTaskState.PLANNED.value,
-            metadata_json=payload,
-            compliance_category=mission.compliance_category,
-            jurisdiction=mission.jurisdiction,
-        )
-        created = task_repo.add(task)
-        created_task_ids.append(str(created.id))
-
-    now = datetime.now(UTC).isoformat()
-    task_materialization = build_runtime_task_materialization_metadata(
-        mission_id=mission_id,
-        materialization_version=previous_version + 1,
-        created_execution_task_ids=created_task_ids,
-        graph_reference=readiness.graph_reference,
-        materialization_reference=readiness.materialization_reference,
-        admission_reference=readiness.admission_reference,
-        materialized_by="runtime-task-materialization-api",
-        now=now,
-    )
-    metadata[MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY] = task_materialization
-    mission = mission_repo.update_metadata(mission=mission, metadata_json=metadata)
-    return _runtime_task_materialization_to_read(
-        mission=mission, metadata=task_materialization, blockers=readiness.blockers, warnings=readiness.warnings
+    return cast(
+        RuntimeTaskMaterializationRead,
+        MissionRuntimeTaskMaterializationService(
+            db, mission_repository_cls=MissionRepository, execution_task_repository_cls=ExecutionTaskRepository
+        ).materialize(mission_id=mission_id, tenant_id=tenant_id),
     )
 
 
@@ -4480,9 +4405,20 @@ def worker_claim_admission(
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerClaimAdmissionRead:
-    """Claim preview-eligible queued tasks without starting execution or dispatching workers."""
+    """Persist controlled worker claim admission metadata for queued runtime tasks."""
     require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    return _build_worker_claim_admission(mission_id=mission_id, tenant_id=tenant_id, db=db, request=request)
+    admitted_by = (
+        request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_claim_admission"
+    )
+    return cast(
+        WorkerClaimAdmissionRead,
+        WorkerClaimAdmissionService(
+            db,
+            mission_repository_cls=MissionRepository,
+            execution_task_repository_cls=ExecutionTaskRepository,
+            worker_lease_repository_cls=WorkerLeaseRepository,
+        ).admit(mission_id=mission_id, tenant_id=tenant_id, admitted_by=admitted_by),
+    )
 
 
 @router.get("/{mission_id}/worker-claim-admission", response_model=WorkerClaimAdmissionRead)
@@ -5024,9 +4960,20 @@ def worker_start_admission(
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerStartAdmissionRead:
-    """Start claim-admitted tasks without dispatching workers or executing handlers."""
+    """Persist controlled worker execution start admission metadata for claimed runtime tasks."""
     require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    return _build_worker_start_admission(mission_id=mission_id, tenant_id=tenant_id, db=db, request=request)
+    admitted_by = (
+        request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_start_admission"
+    )
+    return cast(
+        WorkerStartAdmissionRead,
+        WorkerStartAdmissionService(
+            db,
+            mission_repository_cls=MissionRepository,
+            execution_task_repository_cls=ExecutionTaskRepository,
+            worker_lease_repository_cls=WorkerLeaseRepository,
+        ).admit(mission_id=mission_id, tenant_id=tenant_id, admitted_by=admitted_by),
+    )
 
 
 @router.get("/{mission_id}/worker-start-admission", response_model=WorkerStartAdmissionRead)
@@ -5733,9 +5680,22 @@ def worker_run_admission(
     db: Session = Depends(get_tenant_db_session),
     queue: QueueAdapter = Depends(get_queue_adapter),
 ) -> WorkerRunAdmissionRead:
-    """Execute running start-admitted tasks through the governed dispatcher bridge."""
+    """Persist governed worker run admission metadata after dispatching admitted running tasks."""
     require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    return _build_worker_run_admission(mission_id=mission_id, tenant_id=tenant_id, db=db, request=request, queue=queue)
+    admitted_by = (
+        request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_run_admission"
+    )
+    return cast(
+        WorkerRunAdmissionRead,
+        WorkerRunAdmissionService(
+            db,
+            queue,
+            mission_repository_cls=MissionRepository,
+            execution_task_repository_cls=ExecutionTaskRepository,
+            worker_lease_repository_cls=WorkerLeaseRepository,
+            task_dispatcher_cls=TaskDispatcher,
+        ).admit(mission_id=mission_id, tenant_id=tenant_id, admitted_by=admitted_by, request=request),
+    )
 
 
 @router.get("/{mission_id}/worker-run-admission", response_model=WorkerRunAdmissionRead)
@@ -5769,121 +5729,14 @@ def runtime_queue_admission(
 ) -> dict[str, object]:
     """Queue eligible planned tasks from the current runtime task materialization."""
     require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
-    tenant_id_str = str(tenant_id)
-    mission_repo = MissionRepository(db)
-    mission = mission_repo.lock_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
-    if mission is None:
-        raise HTTPException(status_code=404, detail="mission not found for tenant")
-
-    metadata = dict(mission.metadata_json or {})
-    materialized_task_ids = _current_materialized_execution_task_ids(metadata)
-    task_repo = ExecutionTaskRepository(db)
-    tasks_by_id = {task.id: task for task in task_repo.list_for_mission(mission_id=mission_id)}
-
-    tasks_to_queue: list[Any] = []
-    already_queued_task_ids: list[str] = []
-    blockers: list[dict[str, Any]] = []
-    if not materialized_task_ids:
-        blockers.append(
-            _runtime_queue_admission_blocker(
-                task_id=None,
-                code="no_current_materialized_tasks",
-                message="Mission has no current materialized execution tasks for queue admission.",
-            )
-        )
-    for task_id in materialized_task_ids:
-        task = tasks_by_id.get(task_id)
-        if task is None:
-            blockers.append(
-                _runtime_queue_admission_blocker(
-                    task_id=task_id,
-                    code="materialized_task_missing",
-                    message="Materialized execution task row was not found for this mission.",
-                )
-            )
-            continue
-        if task.tenant_id != tenant_id_str or task.mission_id != mission_id:
-            blockers.append(
-                _runtime_queue_admission_blocker(
-                    task_id=task_id,
-                    code="materialized_task_scope_mismatch",
-                    message="Materialized execution task is not owned by this tenant and mission.",
-                    state=task.status,
-                )
-            )
-            continue
-        if task.status == ExecutionTaskState.PLANNED.value:
-            tasks_to_queue.append(task)
-            continue
-        if task.status == ExecutionTaskState.QUEUED.value:
-            already_queued_task_ids.append(str(task.id))
-            continue
-        blockers.append(
-            _runtime_queue_admission_blocker(
-                task_id=task.id,
-                code="materialized_task_not_queueable",
-                message="Materialized execution task is not planned or already queued.",
-                state=task.status,
-            )
-        )
-
-    if tasks_to_queue:
-        try:
-            QuotaEnforcementService(db).check_and_record_task_creation(tenant_id, count=len(tasks_to_queue))
-        except QuotaExceededError as exc:
-            raise _quota_exceeded_response(exc) from exc
-
-    coordinator = ExecutionCoordinator(db, queue)
-    queued_task_ids: list[str] = []
-    pending_review_task_ids: list[str] = []
-    denied_tasks: list[dict[str, str | None]] = []
-    for task in tasks_to_queue:
-        try:
-            result = coordinator.queue_task(tenant_id=tenant_id_str, task_id=task.id)
-        except Exception as exc:
-            blockers.append(
-                _runtime_queue_admission_blocker(
-                    task_id=task.id,
-                    code="queue_task_failed",
-                    message="Execution coordinator failed to queue the materialized task.",
-                    state=task.status,
-                    reason=str(exc),
-                )
-            )
-            continue
-        if result.ok:
-            queued_task_ids.append(str(task.id))
-            continue
-        denied_task = {"task_id": str(task.id), "state": result.state, "reason": result.reason}
-        denied_tasks.append(denied_task)
-        if result.state == ExecutionTaskState.PENDING_REVIEW.value:
-            pending_review_task_ids.append(str(task.id))
-        blockers.append(
-            _runtime_queue_admission_blocker(
-                task_id=task.id,
-                code="queue_task_blocked",
-                message="Execution coordinator did not admit the materialized task to the queue.",
-                state=result.state,
-                reason=result.reason,
-            )
-        )
-
-    now = datetime.now(UTC).isoformat()
-    queue_admission_metadata = _build_runtime_queue_admission_metadata(
-        mission_id=mission_id,
-        tenant_id=tenant_id_str,
-        materialized_task_ids=materialized_task_ids,
-        planned_task_ids=[str(task.id) for task in tasks_to_queue],
-        queued_task_ids=queued_task_ids,
-        already_queued_task_ids=already_queued_task_ids,
-        pending_review_task_ids=pending_review_task_ids,
-        denied_tasks=denied_tasks,
-        blockers=blockers,
-        now=now,
-    )
-    metadata[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY] = queue_admission_metadata
-    mission_repo.update_metadata(mission=mission, metadata_json=metadata)
-    return _runtime_queue_admission_response(queue_admission_metadata)
+    return MissionRuntimeQueueAdmissionService(
+        db,
+        queue,
+        mission_repository_cls=MissionRepository,
+        execution_task_repository_cls=ExecutionTaskRepository,
+        quota_enforcement_service_cls=QuotaEnforcementService,
+        execution_coordinator_cls=ExecutionCoordinator,
+    ).admit(mission_id=mission_id, tenant_id=tenant_id)
 
 
 @router.get("/{mission_id}/runtime-admission", response_model=RuntimeAdmissionRead)

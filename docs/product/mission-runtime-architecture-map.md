@@ -282,7 +282,7 @@ It should delegate to the canonical staged runtime queue admission service once 
 | Two mission queue paths | Verified overlap. Both call `ExecutionCoordinator.queue_task()`, but only runtime queue admission writes staged metadata. | Decide whether `/queue` is deprecated, retained with documented difference, or rewritten as wrapper. |
 | Legacy `/queue` authority ledger | `/queue` is live and tested, and it reaches `ExecutionCoordinator.queue_task()` through `MissionExecutor.queue_all_planned_tasks()`. It does not currently have the same dedicated authority-ledger coverage as `/runtime-queue-admission`. | Add explicit authority-ledger coverage for legacy `/queue`, or formally wrap/deprecate it. |
 | Mission task graph cleanup | Graph persistence is declarative, but replacement cleanup may cancel superseded planned materialized `ExecutionTask` rows. | Keep graph persistence tests separate from cleanup mutation tests and ensure UPG/runtime-state invariants cover cleanup. |
-| Mission route concentration | `backend/api/routes/mission.py` owns many bridge responsibilities. | Extract mission runtime bridge logic into explicit services after queue authority is settled. |
+| Mission route concentration | Runtime bridge mutation lanes now delegate to explicit services: `MissionRuntimeTaskMaterializationService`, `MissionRuntimeQueueAdmissionService`, `WorkerClaimAdmissionService`, `WorkerStartAdmissionService`, and `WorkerRunAdmissionService`; `backend/api/routes/mission.py` remains the route/auth/request/response wrapper. | Continue moving remaining response/read-model helpers out of the route when their contracts are separated. |
 | Declarative mutation audit policy | Business Profile explicitly appends audit events; other declarative contract lanes generally do not. | Decide whether this is intentional or whether all declarative mutations require audit events. |
 | Provider activation | Google Calendar and credential resolver are contract-only. | Build real credential resolver before live external provider activation. |
 | Live HTTP/webhook egress | HTTP/webhook action egress is live, but HTTP read egress is weaker-gated than write/send egress. | Track and harden in the dedicated HTTP/network issue lane. |
@@ -336,7 +336,7 @@ Address the issues this audit exposed before broad refactors:
 
 Goal: reduce route-layer concentration.
 
-Candidate services:
+Implemented bridge mutation services:
 
 - `MissionRuntimeTaskMaterializationService`
 - `MissionRuntimeQueueAdmissionService`
@@ -344,7 +344,7 @@ Candidate services:
 - `WorkerStartAdmissionService`
 - `WorkerRunAdmissionService`
 
-Routes should become permission/tenant/request wrappers around these services.
+Routes are permission/tenant/request/response wrappers around these services for the extracted mutation lanes.
 
 ### Phase 4 — Lock bridge invariant tests
 
