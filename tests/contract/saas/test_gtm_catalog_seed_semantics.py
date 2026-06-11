@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 import pytest
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, func, select, text
-from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command as alembic_command
@@ -21,59 +19,6 @@ from backend.repositories.capability_repository import CapabilityRepository
 GTM_CAPABILITY_NAME = "gtm_outbound_email"
 GTM_ADAPTER_NAME = "gtm_outbound_email_adapter"
 GTM_VERSION = "1.0.0"
-
-
-def _database_url(base_url: str, database: str) -> str:
-    return str(make_url(base_url).set(database=database))
-
-
-def _admin_database_url(base_url: str) -> str:
-    url = make_url(base_url)
-    return str(url.set(database="postgres"))
-
-
-def _create_database(base_url: str, database: str) -> None:
-    admin_engine = create_engine(_admin_database_url(base_url), isolation_level="AUTOCOMMIT")
-    try:
-        with admin_engine.connect() as conn:
-            conn.execute(
-                text(
-                    """
-                    DO $$
-                    BEGIN
-                        IF NOT EXISTS (
-                            SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_admin'
-                        ) THEN
-                            CREATE ROLE ajenda_admin;
-                        END IF;
-                    END
-                    $$;
-                    """
-                )
-            )
-            conn.execute(text(f'CREATE DATABASE "{database}"'))
-    finally:
-        admin_engine.dispose()
-
-
-def _drop_database(base_url: str, database: str) -> None:
-    admin_engine = create_engine(_admin_database_url(base_url), isolation_level="AUTOCOMMIT")
-    try:
-        with admin_engine.connect() as conn:
-            conn.execute(
-                text(
-                    """
-                    SELECT pg_terminate_backend(pid)
-                    FROM pg_stat_activity
-                    WHERE datname = :database
-                      AND pid <> pg_backend_pid()
-                    """
-                ),
-                {"database": database},
-            )
-            conn.execute(text(f'DROP DATABASE IF EXISTS "{database}"'))
-    finally:
-        admin_engine.dispose()
 
 
 def _alembic_config(database_url: str) -> AlembicConfig:
@@ -174,24 +119,19 @@ def _assert_seed_rows_absent(session: Session) -> None:
 
 @pytest.mark.integration
 def test_gtm_catalog_seed_round_trip_preserves_api_shapes_and_cleans_up_policies(pg_url: str) -> None:
-    database = f"ajenda_seed_semantics_{uuid.uuid4().hex}"
-    database_url = _database_url(pg_url, database)
-    _create_database(pg_url, database)
-    try:
-        cfg = _alembic_config(database_url)
-        alembic_command.upgrade(cfg, "head")
-        with _session(database_url) as session:
-            _assert_seed_rows_have_runtime_contract_shapes(session)
-            assert _seed_policy_names(session) == set()
+    cfg = _alembic_config(pg_url)
 
-        alembic_command.downgrade(cfg, "0020_expand_lifecycle_checks")
-        with _session(database_url) as session:
-            _assert_seed_rows_absent(session)
-            assert _seed_policy_names(session) == set()
+    alembic_command.upgrade(cfg, "head")
+    with _session(pg_url) as session:
+        _assert_seed_rows_have_runtime_contract_shapes(session)
+        assert _seed_policy_names(session) == set()
 
-        alembic_command.upgrade(cfg, "head")
-        with _session(database_url) as session:
-            _assert_seed_rows_have_runtime_contract_shapes(session)
-            assert _seed_policy_names(session) == set()
-    finally:
-        _drop_database(pg_url, database)
+    alembic_command.downgrade(cfg, "0020_expand_lifecycle_checks")
+    with _session(pg_url) as session:
+        _assert_seed_rows_absent(session)
+        assert _seed_policy_names(session) == set()
+
+    alembic_command.upgrade(cfg, "head")
+    with _session(pg_url) as session:
+        _assert_seed_rows_have_runtime_contract_shapes(session)
+        assert _seed_policy_names(session) == set()
