@@ -105,7 +105,7 @@ def test_mission_queue_contract_returns_truthful_mixed_outcome_summary() -> None
         denied_tasks=[
             MissionTaskDenial(
                 task_id=denied_task.id,
-                state="blocked",
+                state="planned",
                 reason="runtime governor denied execution",
             )
         ],
@@ -126,7 +126,7 @@ def test_mission_queue_contract_returns_truthful_mixed_outcome_summary() -> None
         "denied_tasks": [
             {
                 "task_id": str(denied_task.id),
-                "state": "blocked",
+                "state": "planned",
                 "reason": "runtime governor denied execution",
             }
         ],
@@ -528,6 +528,83 @@ def test_runtime_queue_admission_contract_charges_quota_for_eligible_planned_mat
     assert persisted["admission_status"] == "partially_admitted"
     quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=eligible_task.id)
+
+
+def test_runtime_queue_admission_contract_reports_enqueued_denied_pending_review_and_queue_fail_distinctly() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    enqueued_task = _make_task(tenant_id=str(tenant_id), mission_id=mission_id, status="planned")
+    denied_task = _make_task(tenant_id=str(tenant_id), mission_id=mission_id, status="planned")
+    pending_review_task = _make_task(tenant_id=str(tenant_id), mission_id=mission_id, status="planned")
+    queue_fail_task = _make_task(tenant_id=str(tenant_id), mission_id=mission_id, status="planned")
+    mission = _make_runtime_materialized_mission(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        task_ids=[enqueued_task.id, denied_task.id, pending_review_task.id, queue_fail_task.id],
+    )
+    mission_repo = MagicMock()
+    mission_repo.lock_for_tenant.return_value = mission
+    task_repo = MagicMock()
+    task_repo.list_for_mission.return_value = [enqueued_task, denied_task, pending_review_task, queue_fail_task]
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+    coordinator.queue_task.side_effect = [
+        CoordinationResult(ok=True, task_id=enqueued_task.id, state="queued", reason=None),
+        CoordinationResult(
+            ok=False,
+            task_id=denied_task.id,
+            state="planned",
+            reason="runtime governor denied execution",
+        ),
+        CoordinationResult(
+            ok=False,
+            task_id=pending_review_task.id,
+            state="pending_review",
+            reason="human review required",
+        ),
+        ValueError("redis unavailable"),
+    ]
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+    ):
+        response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["admission_status"] == "partially_admitted"
+    assert body["queued_task_ids"] == [str(enqueued_task.id)]
+    assert body["admitted_task_ids"] == [str(enqueued_task.id)]
+    assert body["pending_review_task_ids"] == [str(pending_review_task.id)]
+    assert body["denied_tasks"] == [
+        {
+            "task_id": str(denied_task.id),
+            "state": "planned",
+            "reason": "runtime governor denied execution",
+        }
+    ]
+    assert set(body["blocked_task_ids"]) == {
+        str(denied_task.id),
+        str(pending_review_task.id),
+        str(queue_fail_task.id),
+    }
+    blockers_by_task = {blocker["task_id"]: blocker for blocker in body["blockers"]}
+    assert blockers_by_task[str(denied_task.id)]["code"] == "runtime_governor_denied"
+    assert blockers_by_task[str(pending_review_task.id)]["code"] == "policy_review_required"
+    assert blockers_by_task[str(queue_fail_task.id)]["code"] == "queue_task_failed"
+    assert blockers_by_task[str(queue_fail_task.id)]["reason"] == "redis unavailable"
+    persisted = mission_repo.update_metadata.call_args.kwargs["metadata_json"]["runtime_queue_admission"]
+    assert persisted["queued_execution_task_ids"] == [str(enqueued_task.id)]
+    assert persisted["pending_review_execution_task_ids"] == [str(pending_review_task.id)]
+    assert persisted["denied_tasks"] == body["denied_tasks"]
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=4)
+    assert coordinator.queue_task.call_count == 4
 
 
 def test_runtime_queue_admission_contract_quota_denial_prevents_queue_calls() -> None:

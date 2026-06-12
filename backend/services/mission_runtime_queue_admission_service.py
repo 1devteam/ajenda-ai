@@ -126,15 +126,25 @@ class MissionRuntimeQueueAdmissionService:
             if result.ok:
                 queued_task_ids.append(str(task.id))
                 continue
-            denied_task = {"task_id": str(task.id), "state": result.state, "reason": result.reason}
-            denied_tasks.append(denied_task)
             if result.state == ExecutionTaskState.PENDING_REVIEW.value:
                 pending_review_task_ids.append(str(task.id))
+                blockers.append(
+                    mission_route._runtime_queue_admission_blocker(
+                        task_id=task.id,
+                        code="policy_review_required",
+                        message="Execution coordinator routed the materialized task to policy review.",
+                        state=result.state,
+                        reason=result.reason,
+                    )
+                )
+                continue
+            denied_task = {"task_id": str(task.id), "state": result.state, "reason": result.reason}
+            denied_tasks.append(denied_task)
             blockers.append(
                 mission_route._runtime_queue_admission_blocker(
                     task_id=task.id,
-                    code="queue_task_blocked",
-                    message="Execution coordinator did not admit the materialized task to the queue.",
+                    code="runtime_governor_denied",
+                    message="Runtime governor denied queue admission for the materialized task.",
                     state=result.state,
                     reason=result.reason,
                 )
