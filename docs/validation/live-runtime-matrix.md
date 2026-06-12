@@ -39,6 +39,12 @@ Mission runtime task materialization validation currently proves explicit creati
 
 ---
 
+## Subsystem-lane proof alignment
+
+The fourteen subsystem lanes are defined in `docs/product/mission-runtime-architecture-map.md` and remain governed by `docs/contracts/authority-ledger.v1.yaml`. Matrix rows should identify which lane or lane boundary they prove whenever a scenario changes runtime, queue, lease, tool/action, evidence, validation, tenant/auth, or declarative-governance behavior.
+
+Release proof must not collapse lane boundaries. For example, mission intake proof does not prove queue admission; task graph proof does not prove materialization; materialization proof does not prove queue enqueue; queue admission proof does not prove lease ownership; lease/start proof does not prove dispatcher execution; and dispatcher/tool proof does not prove unrelated declarative API behavior. Where a lane is partial, future-facing, read-model only, or compatibility-only, the matrix must say so instead of promoting the scenario as complete runtime proof.
+
 ## Matrix model
 
 ### Static matrix truth
