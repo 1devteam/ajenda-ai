@@ -15,8 +15,8 @@ EXPECTED_AUTHORITY_CLASSES = {
     "runtime_authoritative",
 }
 
-RUNTIME_QUEUE_ADMISSION_ROUTE = "POST /v1/missions/{mission_id}/runtime-queue-admission"
-MISSION_QUEUE_LEGACY_ROUTE = "POST /v1/missions/{mission_id}/queue"
+POST_V1_MISSIONS_MISSION_ID_RUNTIME_QUEUE_ADMISSION_ROUTE = "POST /v1/missions/{mission_id}/runtime-queue-admission"
+POST_V1_MISSIONS_MISSION_ID_QUEUE_ROUTE = "POST /v1/missions/{mission_id}/queue"
 
 MIXED_METHOD_ADMISSION_PATHS = {
     "/v1/missions/{mission_id}/runtime-task-materialization": {
@@ -52,7 +52,7 @@ def _ledger_blocks() -> list[str]:
 
 
 def _block_for_route_scope(route_scope: str) -> str:
-    matching_blocks = [block for block in _ledger_blocks() if f"- {route_scope}" in block]
+    matching_blocks = [block for block in _ledger_blocks() if f"\n    route_scope:\n      - {route_scope}\n" in block]
     assert len(matching_blocks) == 1, f"Expected exactly one ledger entry for route scope: {route_scope}"
     return matching_blocks[0]
 
@@ -94,19 +94,19 @@ def test_authority_ledger_only_uses_supported_authority_classes() -> None:
     assert classes_in_ledger.issubset(EXPECTED_AUTHORITY_CLASSES)
 
 
-def test_runtime_queue_admission_route_is_first_class_runtime_authority() -> None:
-    block = _block_for_route_scope(RUNTIME_QUEUE_ADMISSION_ROUTE)
+def test_post_v1_missions_mission_id_runtime_queue_admission_route_is_first_class_runtime_authority() -> None:
+    block = _block_for_route_scope(POST_V1_MISSIONS_MISSION_ID_RUNTIME_QUEUE_ADMISSION_ROUTE)
 
     assert "authority_class: runtime_authoritative" in block
     assert "side_effect_class: tenant_scoped_queue_admission_mutation" in block
     assert "tests/contract/api/test_mission_queue_contract.py" in block
 
 
-def test_legacy_mission_queue_route_has_dedicated_authority_coverage() -> None:
-    block = _block_for_route_scope(MISSION_QUEUE_LEGACY_ROUTE)
-    runtime_block = _block_for_route_scope(RUNTIME_QUEUE_ADMISSION_ROUTE)
+def test_post_v1_missions_mission_id_queue_route_has_dedicated_authority_coverage() -> None:
+    block = _block_for_route_scope(POST_V1_MISSIONS_MISSION_ID_QUEUE_ROUTE)
+    runtime_block = _block_for_route_scope(POST_V1_MISSIONS_MISSION_ID_RUNTIME_QUEUE_ADMISSION_ROUTE)
 
-    assert "id: mission_queue_legacy_contract" in block
+    assert "id: post_v1_missions_mission_id_queue_compatibility_convenience_contract" in block
     assert "side_effect_class: tenant_scoped_mission_queue_admission_mutation" in block
     assert "MissionExecutor.queue_all_planned_tasks()" in block
     assert "ExecutionCoordinator.queue_task()" in block
@@ -118,7 +118,7 @@ def test_legacy_mission_queue_route_has_dedicated_authority_coverage() -> None:
 
     assert block != runtime_block
     assert "tenant_scoped_queue_admission_mutation" in runtime_block
-    assert "persist runtime queue admission receipts and blockers" in runtime_block
+    assert "persists runtime_queue_admission metadata, receipts, blockers" in runtime_block
     assert "MissionExecutor.queue_all_planned_tasks()" not in runtime_block
 
 

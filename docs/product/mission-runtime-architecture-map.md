@@ -26,10 +26,10 @@ The system also has intentional non-runtime lanes. These include declarative con
 
 The main verified drift risk is mission queue authority overlap:
 
-- `POST /v1/missions/{mission_id}/queue`
-- `POST /v1/missions/{mission_id}/runtime-queue-admission`
+- `POST /v1/missions/{mission_id}/queue`, owned by `backend/api/routes/mission.py::queue_mission` and `backend/services/mission_executor.py::MissionExecutor.queue_all_planned_tasks`
+- `POST /v1/missions/{mission_id}/runtime-queue-admission`, owned by `backend/services/mission_runtime_queue_admission_service.py::MissionRuntimeQueueAdmissionService.admit`
 
-Both reach `ExecutionCoordinator.queue_task()`, so this is not a queue-authority bypass. The risk is semantic divergence because the legacy `/queue` route queues planned mission tasks without writing staged runtime admission metadata, while `/runtime-queue-admission` is part of the staged runtime bridge and writes receipts, blockers, admitted task IDs, and runtime authority metadata.
+Both reach `ExecutionCoordinator.queue_task()`, so this is not a queue-authority bypass. The risk is semantic drift: `POST /v1/missions/{mission_id}/queue` is a compatibility/convenience mission launch shortcut that queues tenant-owned planned mission tasks without writing staged runtime admission metadata, while `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical staged runtime queue admission path and writes runtime_queue_admission receipts, blockers, admitted task IDs, already queued task IDs, and runtime authority metadata.
 
 ## Classification vocabulary
 
@@ -228,59 +228,50 @@ HTTP/network egress hardening is a separate future work lane and should be handl
 
 ## Mission queue authority
 
-There are two active mission queue/admission paths.
+There are two active mission queue/admission paths with intentionally different ownership and outputs.
 
-### Legacy mission queue route
-
-`POST /v1/missions/{mission_id}/queue`
+### `POST /v1/missions/{mission_id}/queue` owned by `backend/api/routes/mission.py::queue_mission` and `backend/services/mission_executor.py::MissionExecutor.queue_all_planned_tasks`
 
 Current meaning:
 
-- queues all tenant-owned planned tasks for a mission,
-- calls `MissionExecutor.queue_all_planned_tasks()`,
-- reaches `ExecutionCoordinator.queue_task()`,
-- returns a simple queue summary,
-- does not write staged runtime queue admission metadata.
+- `POST /v1/missions/{mission_id}/queue` is a compatibility/convenience mission launch shortcut for old or simple clients that need to say “queue this mission’s planned work.”
+- `POST /v1/missions/{mission_id}/queue` requires `EXECUTION_QUEUE` before task repository, quota, or executor side effects.
+- `POST /v1/missions/{mission_id}/queue` counts and queues tenant-owned `PLANNED` mission tasks.
+- `POST /v1/missions/{mission_id}/queue` calls `MissionExecutor.queue_all_planned_tasks()`, which delegates each task queue attempt to `ExecutionCoordinator.queue_task()`.
+- `POST /v1/missions/{mission_id}/queue` returns only `queued_task_ids`, `pending_review_task_ids`, and `denied_tasks`.
+- `POST /v1/missions/{mission_id}/queue` remains coordinator-governed by RuntimeGovernor denial, PolicyGuardian pending-review routing, and queue/DB consistency in `ExecutionCoordinator.queue_task()`.
+- `POST /v1/missions/{mission_id}/queue` does not write `runtime_queue_admission` metadata or staged runtime admission receipts.
+- `POST /v1/missions/{mission_id}/queue` does not create worker leases, dispatch workers, invoke `TaskDispatcher`, or execute handlers/adapters.
+- `POST /v1/missions/{mission_id}/queue` must not be expanded into a competing runtime engine, CRM/GTM execution system, or replacement for `POST /v1/missions/{mission_id}/runtime-queue-admission`.
 
-### Staged runtime queue admission route
-
-`POST /v1/missions/{mission_id}/runtime-queue-admission`
+### `POST /v1/missions/{mission_id}/runtime-queue-admission` owned by `backend/services/mission_runtime_queue_admission_service.py::MissionRuntimeQueueAdmissionService.admit`
 
 Current meaning:
 
-- queues current materialized planned tasks,
-- validates mission/tenant/materialization scope,
-- tracks already queued tasks and blockers,
-- calls `ExecutionCoordinator.queue_task()`,
-- writes runtime queue admission metadata and receipts,
-- returns rich staged admission information.
+- `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical staged runtime queue admission path.
+- `POST /v1/missions/{mission_id}/runtime-queue-admission` queues current materialized planned execution tasks.
+- `POST /v1/missions/{mission_id}/runtime-queue-admission` validates mission, tenant, and current materialization scope before admission.
+- `POST /v1/missions/{mission_id}/runtime-queue-admission` tracks blockers, already queued task IDs, admitted task IDs, pending-review outcomes, runtime-governor denials, and queue-task failures.
+- `POST /v1/missions/{mission_id}/runtime-queue-admission` calls `ExecutionCoordinator.queue_task()` for queue attempts.
+- `POST /v1/missions/{mission_id}/runtime-queue-admission` writes `runtime_queue_admission` metadata, receipts, blockers, admitted IDs, already queued IDs, and runtime authority details.
+- `POST /v1/missions/{mission_id}/runtime-queue-admission` returns rich staged runtime admission information and remains the correct path for staged runtime correctness.
+
+### Shared queue authority gate
+
+This is not a queue-authority bypass because both paths go through `ExecutionCoordinator.queue_task()`.
+
+`ExecutionCoordinator.queue_task()` remains the shared queue authority gate. It owns RuntimeGovernor denial, PolicyGuardian pending-review routing, and DB-to-queue consistency for enqueue success or enqueue failure. Queue success is the only true queued result; governed non-queue outcomes are not broken runtime.
 
 ### Correct interpretation
 
-This is not a queue-authority bypass because both routes go through `ExecutionCoordinator.queue_task()`.
-
-This is a semantic overlap / drift risk because the two paths have different meanings, metadata behavior, receipt behavior, blocker behavior, and downstream readiness implications.
-
-### Canonical direction
-
-`/runtime-queue-admission` should be treated as the canonical mission runtime queue admission path.
-
-The legacy `/queue` route should not remain an independent queue implementation long term.
-
-Preferred future role:
-
-- compatibility wrapper,
-- mission launch shortcut,
-- or deprecated endpoint.
-
-It should delegate to the canonical staged runtime queue admission service once that service exists.
+This is a semantic overlap / drift risk because the two paths have different meanings, metadata behavior, receipt behavior, blocker behavior, and downstream readiness implications. The product decision is to retain `POST /v1/missions/{mission_id}/queue` as a compatibility/convenience mission launch shortcut while preserving `POST /v1/missions/{mission_id}/runtime-queue-admission` as the canonical staged runtime queue admission path.
 
 ## Known drift candidates and decisions needed
 
 | Area | Current status | Needed decision |
 |---|---|---|
-| Two mission queue paths | Verified overlap. Both call `ExecutionCoordinator.queue_task()`, but only runtime queue admission writes staged metadata. | Decide whether `/queue` is deprecated, retained with documented difference, or rewritten as wrapper. |
-| Legacy `/queue` authority ledger | `/queue` is live and tested, and it reaches `ExecutionCoordinator.queue_task()` through `MissionExecutor.queue_all_planned_tasks()`. It does not currently have the same dedicated authority-ledger coverage as `/runtime-queue-admission`. | Add explicit authority-ledger coverage for legacy `/queue`, or formally wrap/deprecate it. |
+| `POST /v1/missions/{mission_id}/queue` and `POST /v1/missions/{mission_id}/runtime-queue-admission` | Verified overlap. Both call `ExecutionCoordinator.queue_task()`, but only `POST /v1/missions/{mission_id}/runtime-queue-admission` writes staged runtime_queue_admission metadata. | Product decision recorded: `POST /v1/missions/{mission_id}/queue` is retained as a compatibility/convenience mission launch shortcut, and `POST /v1/missions/{mission_id}/runtime-queue-admission` remains canonical staged runtime queue admission. |
+| `POST /v1/missions/{mission_id}/queue` authority ledger | `POST /v1/missions/{mission_id}/queue` is live and tested, and it reaches `ExecutionCoordinator.queue_task()` through `MissionExecutor.queue_all_planned_tasks()`. Dedicated authority-ledger coverage now records that it does not write runtime_queue_admission metadata, create worker leases, or dispatch handlers. | Preserve the distinction in tests and docs whenever either endpoint changes. |
 | Mission task graph cleanup | Graph persistence is declarative, but replacement cleanup may cancel superseded planned materialized `ExecutionTask` rows. | Keep graph persistence tests separate from cleanup mutation tests and ensure UPG/runtime-state invariants cover cleanup. |
 | Mission route concentration | Runtime bridge mutation lanes now delegate to explicit services: `MissionRuntimeTaskMaterializationService`, `MissionRuntimeQueueAdmissionService`, `WorkerClaimAdmissionService`, `WorkerStartAdmissionService`, and `WorkerRunAdmissionService`; `backend/api/routes/mission.py` remains the route/auth/request/response wrapper. | Continue moving remaining response/read-model helpers out of the route when their contracts are separated. |
 | Declarative mutation audit policy | Business Profile explicitly appends audit events; other declarative contract lanes generally do not. | Decide whether this is intentional or whether all declarative mutations require audit events. |
@@ -312,18 +303,18 @@ Goal: remove queue authority ambiguity.
 
 Actions:
 
-1. Compare `/queue` and `/runtime-queue-admission`.
-2. Declare `/runtime-queue-admission` canonical for mission runtime queue admission.
-3. Decide whether `/queue` is deprecated, retained with documented semantics, or rewritten as wrapper.
-4. Add authority-ledger coverage for `/queue` if retained.
-5. Add regression tests proving legacy and canonical behavior do not diverge.
+1. Compare `POST /v1/missions/{mission_id}/queue` and `POST /v1/missions/{mission_id}/runtime-queue-admission`.
+2. Declare `POST /v1/missions/{mission_id}/runtime-queue-admission` canonical for staged runtime queue admission.
+3. Record that `POST /v1/missions/{mission_id}/queue` is retained with compatibility/convenience mission launch shortcut semantics.
+4. Preserve authority-ledger coverage for `POST /v1/missions/{mission_id}/queue`.
+5. Preserve regression tests proving the compatibility/convenience mission launch shortcut and canonical staged runtime queue admission path stay distinct.
 
 ### Phase 2 — Lock current hardening gaps
 
 Address the issues this audit exposed before broad refactors:
 
-1. legacy `/queue` authority-ledger coverage,
-2. `/queue` vs `/runtime-queue-admission` invariant tests,
+1. `POST /v1/missions/{mission_id}/queue` authority-ledger coverage,
+2. `POST /v1/missions/{mission_id}/queue` vs `POST /v1/missions/{mission_id}/runtime-queue-admission` invariant tests,
 3. queue admission policy/governance outcome tests,
 4. queue/DB compensation failure-path tests,
 5. `tool.invoke` side-effect authority regression tests,
@@ -378,11 +369,11 @@ Use this checklist to open or reconcile repo issues before implementation.
 
 ### Mission queue authority
 
-- Add dedicated authority-ledger coverage for `POST /v1/missions/{mission_id}/queue`.
-- Add tests proving `/queue` reaches `ExecutionCoordinator.queue_task()`.
-- Add tests proving `/queue` does not write staged runtime queue admission metadata unless intentionally wrapped.
-- Add tests proving `/runtime-queue-admission` owns staged metadata/receipts/blockers.
-- Decide whether `/queue` is retained, deprecated, or rewritten as a wrapper.
+- Preserve dedicated authority-ledger coverage for `POST /v1/missions/{mission_id}/queue`.
+- Preserve tests proving `POST /v1/missions/{mission_id}/queue` reaches `ExecutionCoordinator.queue_task()`.
+- Preserve tests proving `POST /v1/missions/{mission_id}/queue` does not write staged runtime queue admission metadata.
+- Preserve tests proving `POST /v1/missions/{mission_id}/runtime-queue-admission` owns staged metadata, receipts, blockers, admitted IDs, already queued IDs, and runtime authority details.
+- Preserve the product decision that `POST /v1/missions/{mission_id}/queue` is retained as a compatibility/convenience mission launch shortcut and is not a competing runtime engine.
 
 ### Runtime bridge invariants
 
