@@ -216,7 +216,7 @@ This section defines the fourteen subsystem lanes used for future Ajenda impleme
 - **Tenant/auth/policy requirements:** lease/task tenant scope must match the claimed queue payload and runtime context.
 - **Evidence/audit requirements:** claim/start/heartbeat/release/expire/complete/fail must preserve runtime evidence/audit required by worker runtime tests and ledger.
 - **Failure/recovery semantics:** stale claims/starts are recoverable only through explicit release/expire/retry paths; no dispatcher re-entry after completion.
-- **Existing tests/proofs:** `tests/unit/workers/test_worker_loop_contracts.py`, `tests/integration/runtime/test_claim_start_failure_recovery_real.py`, `tests/unit/services/test_worker_runtime_service.py` and related `test_worker_runtime_service*` files.
+- **Existing tests/proofs:** `tests/unit/workers/test_worker_loop_contracts.py`, `tests/integration/runtime/test_claim_start_failure_recovery_real.py`, `tests/unit/services/test_worker_runtime_service_transaction_contract.py`.
 - **Missing proof, if any:** preserve integration proof for each new adapter/recovery path.
 - **Pitfalls to avoid:** treating queue claim alone as execution authority, worker loop bypass of `WorkerRuntimeService`, reclaim without processing cleanup, or expired/released semantic drift.
 - **Must-read before modification:** source-of-truth files and listed tests.
@@ -235,7 +235,7 @@ This section defines the fourteen subsystem lanes used for future Ajenda impleme
 - **Tenant/auth/policy requirements:** runtime context must match task, lease, worker actor, and tenant before terminal mutation.
 - **Evidence/audit requirements:** completion/failure must preserve lineage, evidence bridge behavior, audit, and queue cleanup outcome visibility.
 - **Failure/recovery semantics:** handler success followed by terminal queue failure must not overwrite committed DB terminal truth; ack failure handling must be explicit and retry-safe.
-- **Existing tests/proofs:** `tests/unit/workers/test_worker_loop_contracts.py`, `tests/unit/workers/test_task_dispatcher_runtime_contract.py`, `tests/unit/workers/test_task_dispatcher_registry.py`, `tests/unit/services/test_worker_runtime_service.py` and related files.
+- **Existing tests/proofs:** `tests/unit/workers/test_worker_loop_contracts.py`, `tests/unit/workers/test_task_dispatcher_runtime_contract.py`, `tests/unit/workers/test_task_dispatcher_registry.py`, `tests/unit/services/test_worker_runtime_service_transaction_contract.py`.
 - **Missing proof, if any:** strengthen queue terminal operation failure coverage whenever queue adapters change.
 - **Pitfalls to avoid:** unsafe retry after completion failure, queue ack failure overwriting DB truth, route/service direct handler invocation, or runtime context drift.
 - **Must-read before modification:** source-of-truth files and listed tests.
