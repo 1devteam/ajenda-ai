@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LEDGER = REPO_ROOT / "docs" / "contracts" / "authority-ledger.v1.yaml"
@@ -51,8 +52,22 @@ def _ledger_blocks() -> list[str]:
     return [f"id: {block}" for block in parts[1:] if block.strip()]
 
 
+def _route_scope_items(block: str) -> list[str]:
+    items: list[str] = []
+    in_route_scope = False
+    for line in block.splitlines():
+        if line.startswith("    route_scope:"):
+            in_route_scope = True
+            continue
+        if in_route_scope and line.startswith("    ") and not line.startswith("      "):
+            break
+        if in_route_scope and line.startswith("      - "):
+            items.append(line.removeprefix("      - ").strip())
+    return items
+
+
 def _block_for_route_scope(route_scope: str) -> str:
-    matching_blocks = [block for block in _ledger_blocks() if f"\n    route_scope:\n      - {route_scope}\n" in block]
+    matching_blocks = [block for block in _ledger_blocks() if route_scope in _route_scope_items(block)]
     assert len(matching_blocks) == 1, f"Expected exactly one ledger entry for route scope: {route_scope}"
     return matching_blocks[0]
 
@@ -81,6 +96,42 @@ def test_authority_ledger_entries_include_required_contract_fields() -> None:
     for block in blocks:
         for key in required_keys:
             assert key in block
+
+
+def test_route_scope_item_parser_finds_second_or_later_route_scope_items() -> None:
+    block = """id: example_contract
+    area: example
+    route_scope:
+      - GET /v1/example
+      - POST /v1/example
+    authority_class: read_model
+"""
+
+    assert _route_scope_items(block) == ["GET /v1/example", "POST /v1/example"]
+
+
+def test_block_for_route_scope_rejects_duplicate_second_or_later_route_scope_items() -> None:
+    first_block = """id: first_contract
+    area: first
+    route_scope:
+      - POST /v1/example
+    authority_class: read_model
+"""
+    second_block = """id: second_contract
+    area: second
+    route_scope:
+      - GET /v1/other
+      - POST /v1/example
+    authority_class: read_model
+"""
+
+    with patch(__name__ + "._ledger_blocks", return_value=[first_block, second_block]):
+        try:
+            _block_for_route_scope("POST /v1/example")
+        except AssertionError as exc:
+            assert "Expected exactly one ledger entry" in str(exc)
+        else:
+            raise AssertionError("Expected duplicate route_scope detection to fail")
 
 
 def test_authority_ledger_only_uses_supported_authority_classes() -> None:
