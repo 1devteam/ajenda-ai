@@ -1,42 +1,223 @@
 from __future__ import annotations
 
+import socket
+import uuid
+from typing import Any
+
 import pytest
 
-from backend.services.tools.http_actions import validate_safe_http_url
+from backend.services.tools.http_actions import (
+    http_request,
+    validate_safe_http_url,
+    vet_safe_http_destination,
+)
+from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
+
+PUBLIC_ADDR = "93.184.216.34"
+PRIVATE_ADDR = "10.0.0.4"
+
+
+def _context() -> ActionRuntimeContext:
+    return ActionRuntimeContext(
+        tenant_id=str(uuid.uuid4()),
+        task_id=uuid.uuid4(),
+        mission_id=uuid.uuid4(),
+        worker_id="worker",
+        lease_id=str(uuid.uuid4()),
+    )
+
+
+class _FakeResponse:
+    def __init__(self, *, text: str = "ok", status_code: int = 200) -> None:
+        self.text = text
+        self.status_code = status_code
+        self.headers = {"content-type": "text/plain"}
+
+
+class _FakeClient:
+    instances: list[_FakeClient] = []
+    response_text = "ok"
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+        self.requests: list[dict[str, Any]] = []
+        _FakeClient.instances.append(self)
+
+    def __enter__(self) -> _FakeClient:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    def request(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
+        self.requests.append({"method": method, "url": url, **kwargs})
+        return _FakeResponse(text=self.response_text)
+
+
+@pytest.fixture(autouse=True)
+def reset_fake_client() -> None:
+    _FakeClient.instances = []
+    _FakeClient.response_text = "ok"
+
+
+def _public_dns(host: str, port: int | None = None, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PUBLIC_ADDR, port or 443))]
 
 
 def test_http_url_validation_allows_public_https_with_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "socket.getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 443))]
-    )
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
 
     assert (
         validate_safe_http_url("https://example.com/path", allowed_hosts=["example.com"]) == "https://example.com/path"
     )
 
 
+def test_http_url_validation_rejects_http_scheme() -> None:
+    with pytest.raises(ValueError, match="only allows https"):
+        validate_safe_http_url("http://example.com")
+
+
+def test_http_url_validation_rejects_missing_hostname() -> None:
+    with pytest.raises(ValueError, match="hostname"):
+        validate_safe_http_url("https:///status")
+
+
 @pytest.mark.parametrize(
     "url",
     [
-        "http://example.com",
         "https://localhost/status",
+        "https://localhost.localdomain/status",
         "https://service.local/status",
         "https://internal-api.example.com/status",
-        "https://127.0.0.1/status",
-        "https://10.1.2.3/status",
-        "https://169.254.169.254/latest/meta-data",
+        "https://169.254.169.254.example.com/status",
     ],
 )
-def test_http_url_validation_blocks_internal_targets(url: str) -> None:
+def test_http_url_validation_blocks_localhost_and_internal_hostnames(url: str) -> None:
     with pytest.raises(ValueError, match=r"http\.request"):
         validate_safe_http_url(url)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://127.0.0.1/status",
+        "https://10.1.2.3/status",
+        "https://172.16.0.1/status",
+        "https://192.168.1.10/status",
+        "https://169.254.169.254/latest/meta-data",
+        "https://[::1]/status",
+        "https://[fc00::1]/status",
+    ],
+)
+def test_http_url_validation_blocks_private_ip_literals(url: str) -> None:
+    with pytest.raises(ValueError, match="private IP literal"):
+        validate_safe_http_url(url)
+
+
 def test_http_url_validation_blocks_private_dns_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("socket.getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("10.0.0.4", 443))])
+    monkeypatch.setattr(
+        "socket.getaddrinfo", lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PRIVATE_ADDR, 443))]
+    )
 
     with pytest.raises(ValueError, match="private DNS"):
         validate_safe_http_url("https://example.com")
+
+
+def test_http_url_validation_fails_closed_on_dns_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_dns(*args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+        raise socket.gaierror("not found")
+
+    monkeypatch.setattr("socket.getaddrinfo", fail_dns)
+
+    with pytest.raises(ValueError, match="DNS resolution failed"):
+        validate_safe_http_url("https://example.com")
+
+
+def test_http_url_validation_requires_public_routable_dns_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("socket.getaddrinfo", lambda *args, **kwargs: [])
+
+    with pytest.raises(ValueError, match="public routable"):
+        validate_safe_http_url("https://example.com")
+
+
+def test_http_url_validation_keeps_allowed_hosts_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
+
+    with pytest.raises(ValueError, match="allowed_hosts"):
+        validate_safe_http_url("https://example.com/path", allowed_hosts=["api.example.com"])
+
+    destination = vet_safe_http_destination("https://example.com/path", allowed_hosts=["EXAMPLE.COM."])
+    assert destination.original_url == "https://example.com/path"
+    assert str(destination.pinned_ip) == PUBLIC_ADDR
+
+
+def test_http_request_uses_pinned_vetted_address_for_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    resolutions = [PUBLIC_ADDR, PRIVATE_ADDR]
+
+    def rebinding_dns(host: str, port: int | None = None, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+        address = resolutions.pop(0) if resolutions else PRIVATE_ADDR
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port or 443))]
+
+    monkeypatch.setattr("socket.getaddrinfo", rebinding_dns)
+    monkeypatch.setattr("backend.services.tools.http_actions.httpx.Client", _FakeClient)
+
+    result = http_request(
+        ToolInvocation(action="http.request", input={"method": "GET", "url": "https://example.com/path?q=1"}),
+        _context(),
+    )
+
+    request = _FakeClient.instances[0].requests[0]
+    assert request["url"] == f"https://{PUBLIC_ADDR}/path?q=1"
+    assert request["headers"]["Host"] == "example.com"
+    assert request["extensions"] == {"sni_hostname": "example.com"}
+    assert result.output["url"] == "https://example.com/path?q=1"
+    assert resolutions == [PRIVATE_ADDR]
+
+
+def test_http_request_overrides_payload_host_header_with_original_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr("backend.services.tools.http_actions.httpx.Client", _FakeClient)
+
+    http_request(
+        ToolInvocation(
+            action="http.request",
+            input={
+                "method": "GET",
+                "url": "https://example.com:8443/path",
+                "headers": {"host": "attacker.example", "x-test": "ok"},
+            },
+        ),
+        _context(),
+    )
+
+    request = _FakeClient.instances[0].requests[0]
+    assert request["headers"] == {"x-test": "ok", "Host": "example.com:8443"}
+
+
+def test_http_request_keeps_redirects_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr("backend.services.tools.http_actions.httpx.Client", _FakeClient)
+
+    http_request(
+        ToolInvocation(action="http.request", input={"method": "HEAD", "url": "https://example.com/status"}),
+        _context(),
+    )
+
+    assert _FakeClient.instances[0].kwargs["follow_redirects"] is False
+
+
+def test_http_request_truncates_response_body_to_4096_chars(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr("backend.services.tools.http_actions.httpx.Client", _FakeClient)
+    _FakeClient.response_text = "x" * 4097
+
+    result = http_request(
+        ToolInvocation(action="http.request", input={"method": "GET", "url": "https://example.com/large"}),
+        _context(),
+    )
+
+    assert result.output["body_text"] == "x" * 4096
+    assert result.output["body_truncated"] is True
 
 
 def test_calendar_create_event_is_observable_by_read() -> None:

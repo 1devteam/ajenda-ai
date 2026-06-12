@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv6Address
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -25,13 +26,43 @@ WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 IPAddress = IPv4Address | IPv6Address
 
 
+@dataclass(frozen=True)
+class VettedHTTPDestination:
+    original_url: str
+    connect_url: str
+    pinned_ip: IPAddress
+    sni_hostname: str
+    host_header: str
+
+
 def _is_blocked_ip(ip: IPAddress) -> bool:
     return bool(
         ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
     )
 
 
-def validate_safe_http_url(url: str, *, allowed_hosts: list[str] | None = None) -> str:
+def _host_header_value(host: str, port: int | None) -> str:
+    host_value = f"[{host}]" if ":" in host else host
+    if port is not None and port != 443:
+        return f"{host_value}:{port}"
+    return host_value
+
+
+def _connect_url_for_pinned_ip(url: str, *, pinned_ip: IPAddress) -> str:
+    parsed = urlparse(url)
+    ip_host = str(pinned_ip)
+    pinned_netloc = f"[{ip_host}]" if pinned_ip.version == 6 else ip_host
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo = f"{userinfo}:{parsed.password}"
+        pinned_netloc = f"{userinfo}@{pinned_netloc}"
+    if parsed.port is not None:
+        pinned_netloc = f"{pinned_netloc}:{parsed.port}"
+    return urlunparse((parsed.scheme, pinned_netloc, parsed.path, parsed.params, parsed.query, ""))
+
+
+def vet_safe_http_destination(url: str, *, allowed_hosts: list[str] | None = None) -> VettedHTTPDestination:
     parsed = urlparse(url)
     if parsed.scheme != "https":
         raise ValueError("http.request only allows https URLs")
@@ -43,33 +74,63 @@ def validate_safe_http_url(url: str, *, allowed_hosts: list[str] | None = None) 
         raise ValueError("http.request host is not in allowed_hosts")
     if host in BLOCKED_HOSTNAMES or host.endswith(".local") or ".local." in host:
         raise ValueError("http.request blocked local hostname")
-    if any(fragment in host for fragment in BLOCKED_HOST_FRAGMENTS):
-        raise ValueError("http.request blocked internal hostname")
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
+        if any(fragment in host for fragment in BLOCKED_HOST_FRAGMENTS):
+            raise ValueError("http.request blocked internal hostname") from None
         try:
-            infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        except socket.gaierror:
-            infos = []
+            infos = socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            raise ValueError("http.request DNS resolution failed") from exc
+        resolved_addresses: list[IPAddress] = []
+        seen: set[IPAddress] = set()
         for info in infos:
             resolved = ipaddress.ip_address(info[4][0])
-            if _is_blocked_ip(resolved):
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            resolved_addresses.append(resolved)
+            if _is_blocked_ip(resolved) or not resolved.is_global:
                 raise ValueError("http.request blocked private DNS resolution") from None
+        public_addresses = resolved_addresses
+        if not public_addresses:
+            raise ValueError("http.request DNS resolution did not return a public routable address") from None
+        pinned_ip = public_addresses[0]
     else:
-        if _is_blocked_ip(ip):
+        if _is_blocked_ip(ip) or not ip.is_global:
             raise ValueError("http.request blocked private IP literal")
-    return url
+        pinned_ip = ip
+    return VettedHTTPDestination(
+        original_url=url,
+        connect_url=_connect_url_for_pinned_ip(url, pinned_ip=pinned_ip),
+        pinned_ip=pinned_ip,
+        sni_hostname=host,
+        host_header=_host_header_value(host, parsed.port),
+    )
+
+
+def validate_safe_http_url(url: str, *, allowed_hosts: list[str] | None = None) -> str:
+    return vet_safe_http_destination(url, allowed_hosts=allowed_hosts).original_url
 
 
 def http_request(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = HttpRequestInput.model_validate(invocation.input)
-    url = validate_safe_http_url(str(payload.url), allowed_hosts=payload.allowed_hosts)
+    destination = vet_safe_http_destination(str(payload.url), allowed_hosts=payload.allowed_hosts)
+    url = destination.original_url
     side_effect_class = (
         SideEffectClass.EXTERNAL_WRITE if payload.method in WRITE_METHODS else SideEffectClass.EXTERNAL_READ
     )
+    request_headers = {key: value for key, value in payload.headers.items() if key.lower() != "host"}
+    request_headers["Host"] = destination.host_header
     with httpx.Client(timeout=payload.timeout_seconds, follow_redirects=False) as client:
-        response = client.request(payload.method, url, headers=payload.headers, json=payload.json_body)
+        response = client.request(
+            payload.method,
+            destination.connect_url,
+            headers=request_headers,
+            json=payload.json_body,
+            extensions={"sni_hostname": destination.sni_hostname},
+        )
     text = response.text[:4096]
     output = {
         "method": payload.method,
