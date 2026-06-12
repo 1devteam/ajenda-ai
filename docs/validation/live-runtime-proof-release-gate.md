@@ -46,6 +46,12 @@ Manual GitHub Actions workflow:
 
 ---
 
+## Subsystem-lane release-gate alignment
+
+The release gate is a proof surface for the subsystem lanes defined in `docs/product/mission-runtime-architecture-map.md`; it is not an alternate authority registry. A successful live proof may satisfy only the specific lane contracts it exercises, such as dependency readiness, real queue-backed worker execution, lineage/audit evidence, and observability metrics. It must not be cited as proof that unrelated lanes are complete unless the script, tests, and artifacts exercise those lanes directly.
+
+When future work changes tenant/auth, mission intake/planning, task graph, materialization, queue admission, queue adapter state, lease lifecycle, worker dispatcher execution, tool/action runtime, evidence/audit, declarative governance, or validation behavior, the release gate must either add matching proof or explicitly defer that proof to named targeted tests and validation artifacts.
+
 ## Required environment
 
 The script expects the prod-like Compose configuration and required production-style secrets to be available before execution.

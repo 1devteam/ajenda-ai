@@ -6,6 +6,8 @@ notes:
   - "Authority classes: declarative, read_model, governed_mutation, runtime_authoritative."
   - "This ledger is normative for contract intent and must be reconciled against implementation/tests in drift checks."
   - "When a contract changes authority class, update ADRs/tests/validation artifacts in the same workstream."
+  - "Subsystem lane definitions live in docs/product/mission-runtime-architecture-map.md and explain how existing authority entries compose from input to proof; they do not add authority classes or create a competing registry."
+  - "Future lane work must map back to these authority_entries, source_of_truth files, and required_proofs before claiming runtime behavior."
 
 authority_entries:
   - id: runtime_startup_contract

@@ -45,6 +45,277 @@ Use these terms in future audits and PRs.
 | Live egress action surface | A runtime tool/action path that can make outbound network or delivery calls, such as HTTP or webhook actions. |
 | Drift candidate | A path with overlapping meaning or unclear ownership that needs reconciliation before extension. |
 
+
+## Subsystem lane contract chains
+
+This section defines the fourteen subsystem lanes used for future Ajenda implementation passes. It is subordinate to the authority ledger: these lane definitions explain how to read and extend existing `authority_entries`; they do not create a fifth authority class, a parallel registry, or execution permission outside the four canonical authority classes (`declarative`, `read_model`, `governed_mutation`, `runtime_authoritative`). When implementation, tests, and this map disagree, trace implementation and proofs first, then correct the stale contract surface.
+
+### 1. Tenant/Auth/Security boundary
+
+- **Purpose:** Fail-closed tenant, principal, permission, policy, API-key, and cross-tenant protection layer that every other lane depends on.
+- **Current status:** live, with route/service proof for auth and API-key surfaces; policy outcomes are additionally proven through runtime coordinator tests where applicable.
+- **Authority layer(s):** `read_model` for identity reads; `governed_mutation` for API-key lifecycle and tenant-scoped security mutations; policy checks gate `runtime_authoritative` admission paths but do not by themselves grant runtime authority.
+- **Source-of-truth files:** `backend/middleware/auth_context.py`, `backend/api/routes/auth.py`, `backend/api/routes/api_keys.py`, `backend/services/api_key_service.py`, `backend/services/execution_coordinator.py`, `docs/contracts/authority-ledger.v1.yaml`.
+- **Entry points:** `/v1/auth/*`, `/v1/api-keys/*`, `get_request_tenant_id`, tenant DB/session dependencies, `require_route_permission()`, API-key service methods, and coordinator policy/governor checks.
+- **Allowed effects:** authenticate/identify principals, enforce tenant context, read identity claims, create/revoke tenant-scoped API keys under authorization/quota rules, and deny or hold runtime admission before side effects.
+- **Forbidden effects:** cross-tenant mutation, tenant-context bypass, treating API-key or principal identity as runtime authority by itself, weakening fail-closed auth/policy behavior, or allowing read-model routes to mutate.
+- **Contract chain:** request tenant context -> authentication/principal resolution -> route permission/scope check -> service/repository tenant filter -> policy/governor admission where runtime work is requested -> audit/governance outcome where the owning lane requires it.
+- **Runtime boundary:** security gates runtime; it does not enqueue, claim, start, dispatch, or execute by itself.
+- **Tenant/auth/policy requirements:** every route and downstream service must validate tenant scope before reads/writes; permission denial must occur before side effects; policy denial/pending-review must be preserved as first-class outcomes.
+- **Evidence/audit requirements:** API-key lifecycle and policy/governance paths must emit the evidence/audit required by their ledger entries; identity reads remain read-only.
+- **Failure/recovery semantics:** fail closed on missing tenant, mismatched tenant, missing/invalid principal, missing permission, invalid API-key scope, or policy denial.
+- **Existing tests/proofs:** `tests/contract/test_auth_contract.py`, `tests/contract/api/test_auth_routes.py`, `tests/contract/api/test_api_key_routes.py`, `tests/unit/services/test_execution_coordinator_policy_denial_contract.py`, `tests/unit/services/test_execution_coordinator_policy_review_contract.py`.
+- **Missing proof, if any:** keep expanding repository/service tenant-filter tests and side-effect pre-denial tests for each new mutation lane.
+- **Pitfalls to avoid:** treating auth as route middleware only, allowing downstream services to assume tenant correctness without proof, allowing read-model routes to mutate, or letting declarative records imply execution authority.
+- **Must-read before modification:** all source-of-truth files above plus the listed tests.
+
+### 2. Mission intake layer
+
+- **Purpose:** Tenant-scoped entry point that captures business/user mission intent and creates mission records plus intake metadata.
+- **Current status:** live governed mutation.
+- **Authority layer(s):** `governed_mutation`.
+- **Source-of-truth files:** `backend/api/routes/mission.py`, `backend/services/mission_executor.py`, `docs/contracts/authority-ledger.v1.yaml`, `docs/product/mission-runtime-architecture-map.md`.
+- **Entry points:** `POST /v1/missions` and mission-intake schema/model helpers in `backend/api/routes/mission.py`.
+- **Allowed effects:** create tenant-owned mission rows and persist versioned intake envelope metadata.
+- **Forbidden effects:** direct enqueue, execution-task materialization, worker dispatch, tool invocation, queue adapter calls, or tenant/auth envelope bypass.
+- **Contract chain:** tenant/auth permission -> mission create request validation -> mission repository persistence -> intake metadata readback; runtime starts only in later bridge lanes.
+- **Runtime boundary:** intake stops at mission/intake persistence and must not enter queue, worker, dispatcher, or tool runtime.
+- **Tenant/auth/policy requirements:** tenant-owned mission creation with fail-closed permission and tenant mismatch behavior.
+- **Evidence/audit requirements:** persist intake metadata; do not synthesize runtime evidence.
+- **Failure/recovery semantics:** invalid intake or unauthorized/mismatched tenant fails before persistence or side effects.
+- **Existing tests/proofs:** `tests/unit/api/test_mission_intake_route.py`, `tests/unit/domain/test_mission_intake_metadata.py`, authority-ledger coverage.
+- **Missing proof, if any:** preserve no-runtime-call sentinels when future GTM mission creation is added.
+- **Pitfalls to avoid:** collapsing create mission into run mission, secretly executing future GTM flows from creation, or treating intake as runtime authority.
+- **Must-read before modification:** source-of-truth files and existing tests above.
+
+### 3. Mission planning layer
+
+- **Purpose:** Convert mission intent into durable plan meaning without runtime execution.
+- **Current status:** live declarative contract with durable repository proof; still partial for broader autonomous planner/provider behaviors.
+- **Authority layer(s):** `declarative`.
+- **Source-of-truth files:** `backend/api/routes/mission.py`, `backend/repositories/mission_plan_repository.py`, `docs/contracts/authority-ledger.v1.yaml`, this architecture map.
+- **Entry points:** `/v1/missions/{mission_id}/plan` route handlers and mission-plan repository operations.
+- **Allowed effects:** create/update/read tenant-scoped plan contracts, phases, steps, metadata, and versioned plan details.
+- **Forbidden effects:** queueing tasks, creating worker leases, calling `TaskDispatcher`, invoking tools/providers, or treating plan existence as execution approval.
+- **Contract chain:** mission intent -> plan contract validation -> durable mission plan repository -> task graph may reference plan meaning in a later lane -> runtime bridge remains separate.
+- **Runtime boundary:** planning is non-runtime and cannot grant provider/tool/queue authority.
+- **Tenant/auth/policy requirements:** mission and plan reads/writes must stay tenant-scoped and permission-gated.
+- **Evidence/audit requirements:** plan metadata is contract evidence only; no runtime evidence is emitted.
+- **Failure/recovery semantics:** malformed/version-incompatible plan metadata fails closed instead of being guessed into runtime meaning.
+- **Existing tests/proofs:** `tests/unit/api/test_mission_planning_contract.py`, `tests/unit/repositories/test_mission_plan_repository.py`, `tests/unit/db/test_mission_plan_migration_contract.py`.
+- **Missing proof, if any:** stronger explicit plan-to-task-graph relationship tests should accompany future planner expansion.
+- **Pitfalls to avoid:** mixing planner output with queue admission, using unversioned metadata, or allowing plans to imply provider/tool authorization.
+- **Must-read before modification:** mission route plan sections, mission-plan repository, ledger entry, and listed tests.
+
+### 4. Task graph / declarative contract layer
+
+- **Purpose:** Normalized declarative graph of intended work; defines work shape, dependencies, node metadata, provenance, validation, and materialization references without executing.
+- **Current status:** live declarative contract with a bounded governed cleanup path for superseded planned materialized tasks.
+- **Authority layer(s):** `declarative`; bounded cleanup uses `governed_mutation` semantics and UPG/runtime-state review.
+- **Source-of-truth files:** `backend/api/routes/mission.py`, `docs/contracts/authority-ledger.v1.yaml`, this architecture map, task-graph contract/migration tests.
+- **Entry points:** `/v1/missions/{mission_id}/task-graph`, graph metadata helpers, materialization-reference helpers, and superseded planned-task cleanup helpers in `backend/api/routes/mission.py`.
+- **Allowed effects:** persist graph contract and metadata; supersede graph metadata; cancel only superseded planned materialized tasks where the implemented cleanup path explicitly allows it.
+- **Forbidden effects:** enqueueing, dispatching, creating leases, invoking tools, silently mutating queued/claimed/running/completed runtime tasks, or treating graph nodes as execution tasks.
+- **Contract chain:** mission plan/intent -> task graph contract -> graph materialization metadata -> runtime task materialization later creates `PLANNED` execution tasks -> queue admission later enqueues.
+- **Runtime boundary:** graph creation is not execution; cleanup is bounded to planned materialized tasks and must not cross into active runtime.
+- **Tenant/auth/policy requirements:** graph operations must remain tenant-scoped and permission-gated through mission ownership.
+- **Evidence/audit requirements:** graph metadata/provenance proves declared shape; no runtime evidence is emitted.
+- **Failure/recovery semantics:** version/metadata drift fails closed; cleanup must not make stale graph materializations executable.
+- **Existing tests/proofs:** `tests/unit/domain/test_mission_task_graph_contract_metadata.py`, `tests/contract/api/test_task_graph_runtime_boundary_contract.py`, `tests/integration/runtime/test_task_graph_runtime_admission_real.py`.
+- **Missing proof, if any:** keep strengthening replacement cleanup invariants when graph cleanup behavior changes.
+- **Pitfalls to avoid:** treating graph nodes as executable tasks, letting replacement become runtime execution, or allowing unversioned metadata drift.
+- **Must-read before modification:** mission task-graph sections in `backend/api/routes/mission.py`, ledger entry, architecture map, and listed tests.
+
+### 5. Mission-to-runtime bridge
+
+- **Purpose:** Staged bridge that moves mission meaning toward runtime without collapsing materialization, queue admission, claim, start, and run authority.
+- **Current status:** live/partial staged bridge; compatibility `/queue` remains live convenience behavior but is not canonical staged admission.
+- **Authority layer(s):** `read_model`, `governed_mutation`, and `runtime_authoritative` depending on method/stage.
+- **Source-of-truth files:** `backend/api/routes/mission.py`, `backend/services/mission_runtime_queue_admission_service.py`, `backend/services/mission_executor.py`, `backend/services/execution_coordinator.py`, `docs/contracts/authority-ledger.v1.yaml`, this architecture map.
+- **Entry points:** readiness/preview/readback GET routes; POST runtime-task-materialization; POST runtime-queue-admission; POST worker-claim/start/run admission; compatibility `POST /v1/missions/{mission_id}/queue`.
+- **Allowed effects:** each POST performs only its bounded stage; GET/readiness routes aggregate/read only; compatibility queue shortcut queues planned tenant tasks through `ExecutionCoordinator` without staged admission metadata.
+- **Forbidden effects:** all-in-one runtime collapse, queue authority bypass, lease authority bypass, dispatch from preview/readback routes, or turning compatibility `/queue` into a second runtime engine.
+- **Contract chain:** graph -> materialization -> runtime queue admission -> worker claim -> worker start -> worker run/dispatcher; every stage has separate ledger and route/service ownership.
+- **Runtime boundary:** only queue admission and run admission enter true runtime; materialization/claim/start are governed mutations; readbacks are read-only.
+- **Tenant/auth/policy requirements:** permission and tenant scope must be enforced at each stage; queue admission must preserve governor/policy outcomes.
+- **Evidence/audit requirements:** staged metadata/receipts/blockers must be persisted by owning stages; runtime evidence appears only after true runtime execution.
+- **Failure/recovery semantics:** blockers, warnings, denied, pending-review, already-admitted, and idempotent readback outcomes are valid contract results, not generic errors.
+- **Existing tests/proofs:** `tests/contract/api/test_mission_queue_contract.py`, `tests/contract/api/test_task_queue_contract.py`, `tests/integration/runtime/test_task_graph_runtime_admission_real.py`.
+- **Missing proof, if any:** continue adding per-stage no-side-effect and repeated-run tests as stage behavior grows.
+- **Pitfalls to avoid:** calling everything runtime, treating preview/readback as authority, or confusing `/queue` compatibility with canonical staged admission.
+- **Must-read before modification:** source-of-truth files and listed tests.
+
+### 6. Runtime task materialization
+
+- **Purpose:** Governed mutation that converts approved/current graph meaning into tenant-owned `PLANNED` `ExecutionTask` rows.
+- **Current status:** live governed mutation.
+- **Authority layer(s):** `governed_mutation`; GET readback is `read_model`.
+- **Source-of-truth files:** `backend/api/routes/mission.py`, `backend/services/mission_runtime_task_materialization_service.py`, execution task repository/domain files, `docs/contracts/authority-ledger.v1.yaml`, this architecture map.
+- **Entry points:** `POST /v1/missions/{mission_id}/runtime-task-materialization` and `GET /v1/missions/{mission_id}/runtime-task-materialization`.
+- **Allowed effects:** create only current tenant-scoped `PLANNED` execution tasks with graph/materialization references; persist materialization receipts and blockers.
+- **Forbidden effects:** enqueueing, dispatching, creating/activating leases, completing/failing work, materializing stale graph nodes, or creating queued/running tasks directly.
+- **Contract chain:** current task graph/materialization metadata -> `PLANNED` execution tasks -> runtime queue admission later decides queue state.
+- **Runtime boundary:** materialization writes execution-task rows but does not enter queue or handler runtime.
+- **Tenant/auth/policy requirements:** materialized tasks must match mission tenant and current graph/materialization scope.
+- **Evidence/audit requirements:** materialization metadata and task metadata preserve graph node mappings; no runtime evidence is emitted.
+- **Failure/recovery semantics:** idempotency/duplicate prevention, stale-scope blockers, and bounded cleanup/cancel behavior must remain explicit.
+- **Existing tests/proofs:** `tests/integration/runtime/test_task_graph_runtime_admission_real.py`, `tests/contract/api/test_task_graph_runtime_boundary_contract.py`, authority-ledger materialization entries.
+- **Missing proof, if any:** add or preserve narrow tests for idempotency, duplicate prevention, and stale graph non-materialization when changed.
+- **Pitfalls to avoid:** creating queued/running tasks directly, losing graph node mapping, non-idempotent materialization, or leaving old graph materializations executable.
+- **Must-read before modification:** route materialization helpers, materialization service, execution task repository/domain, architecture map, and listed tests.
+
+### 7. Queue admission / coordinator authority
+
+- **Purpose:** Shared authority gate that decides whether planned work may enter queue state, be denied, enter pending review, or fail admission safely.
+- **Current status:** live runtime-authoritative admission.
+- **Authority layer(s):** `runtime_authoritative`.
+- **Source-of-truth files:** `backend/services/execution_coordinator.py`, `backend/queue/base.py`, `backend/queue/local_adapter.py`, `docs/contracts/authority-ledger.v1.yaml`.
+- **Entry points:** `ExecutionCoordinator.queue_task()`, `MissionExecutor.queue_all_planned_tasks()`, `MissionRuntimeQueueAdmissionService.admit()`, `/v1/tasks/*` queue routes, and mission queue/admission routes.
+- **Allowed effects:** evaluate runtime governor/policy, move eligible planned tasks to queued, call `QueueAdapter.enqueue_task()`, persist denial/pending-review/queue outcomes and audit/governance events.
+- **Forbidden effects:** bypassing `ExecutionCoordinator`, treating denial/pending-review as broken runtime, leaving false queued DB state after enqueue failure, direct route/service `QueueAdapter` calls outside explicit authority, or collapsing success/denial/review/failure into one result.
+- **Contract chain:** planned task -> coordinator policy/governor -> DB queued transition and queue enqueue -> compensation on enqueue failure -> queued work becomes claimable.
+- **Runtime boundary:** queue admission admits work but does not claim leases, start execution, or dispatch handlers.
+- **Tenant/auth/policy requirements:** tenant-scoped task lookup and permission checks before queue admission; policy/governor outcomes fail closed.
+- **Evidence/audit requirements:** denial, pending-review, queue success, and queue failure compensation must remain observable through state/audit/governance paths.
+- **Failure/recovery semantics:** enqueue failure must compensate DB state; retries must avoid duplicate queue entries and preserve DB/queue consistency.
+- **Existing tests/proofs:** `tests/unit/services/test_execution_coordinator.py`, `tests/unit/services/test_execution_coordinator_policy_denial_contract.py`, `tests/unit/services/test_execution_coordinator_policy_review_contract.py`, `tests/contract/api/test_task_queue_contract.py`.
+- **Missing proof, if any:** keep adding queue-adapter failure compensation tests as adapters evolve.
+- **Pitfalls to avoid:** equating “not queued” with error, hiding governed non-queue outcomes, duplicate entries on retry, or moving queue authority into route code.
+- **Must-read before modification:** source-of-truth files and listed tests.
+
+### 8. Queue adapter / queue state system
+
+- **Purpose:** Durable/adapter-backed queue system that owns enqueue, claim, heartbeat, release, complete, fail, retry, and dead-letter mechanics.
+- **Current status:** live local adapter plus abstract adapter contract; external/durable adapter expansion remains future work.
+- **Authority layer(s):** `runtime_authoritative`.
+- **Source-of-truth files:** `backend/queue/base.py`, `backend/queue/local_adapter.py`, `backend/services/runtime_maintainer.py`, `backend/services/worker_runtime_service.py`.
+- **Entry points:** `QueueAdapter` methods, `LocalQueueAdapter`, `WorkerRuntimeService` queue calls, operations dead-letter/retry routes, runtime maintainer recovery paths.
+- **Allowed effects:** enqueue/claim/heartbeat/release/complete/fail queue messages, maintain processing keys, move tasks to dead-letter, retry dead-letter payloads, and expose queue inspection under proper boundaries.
+- **Forbidden effects:** DB state pretending enqueue success after queue failure, terminal queue acknowledgement before DB terminal truth commits, hidden retry/dead-letter loss, lease release/expiry contrary to runtime truth, or changing queue semantics to satisfy incorrect test assumptions.
+- **Contract chain:** coordinator enqueue -> adapter queued state -> worker claim/processing lease key -> heartbeat -> DB terminal commit -> queue complete/fail/release -> retry/dead-letter/recovery as needed.
+- **Runtime boundary:** adapter owns queue state, not DB mission/task truth; DB and queue state must be reconciled by owning services.
+- **Tenant/auth/policy requirements:** queue payloads carry tenant/task scope and must be consumed only through tenant/runtime-authoritative services.
+- **Evidence/audit requirements:** retry/dead-letter and terminal cleanup failures must remain visible to operations/recovery surfaces.
+- **Failure/recovery semantics:** stale claim/start recovery, processing cleanup, retry/dead-letter, and terminal ack failure behavior must be explicit; `EXPIRED` vs `RELEASED` semantics must follow runtime truth.
+- **Existing tests/proofs:** `tests/unit/workers/test_worker_loop_contracts.py`, `tests/integration/runtime/test_claim_start_failure_recovery_real.py`, queue/coordinator tests.
+- **Missing proof, if any:** stronger adapter-specific terminal ack failure tests are required before claiming complete durable queue coverage.
+- **Pitfalls to avoid:** forcing tests to match assumptions, using `RELEASED` where runtime truth is `EXPIRED`, queue/DB split-brain, or hidden duplicate execution after ack failure.
+- **Must-read before modification:** source-of-truth files and listed tests.
+
+### 9. Worker lease lifecycle
+
+- **Purpose:** Authority system for claim/start/run ownership; runtime execution requires valid lease ownership.
+- **Current status:** live runtime-authoritative lifecycle with governed claim/start bridge stages.
+- **Authority layer(s):** `governed_mutation` for claim/start admission stages; `runtime_authoritative` for worker runtime execution and recovery.
+- **Source-of-truth files:** `backend/services/worker_runtime_service.py`, `backend/workers/worker_loop.py`, `backend/domain/worker_lease.py`, `backend/services/runtime_maintainer.py`.
+- **Entry points:** `WorkerRuntimeService.claim_next_task()`, `start_execution()`, `heartbeat()`, `release()`, runtime maintainer stale-lease paths, worker claim/start admission routes/services.
+- **Allowed effects:** create leases on claim, activate leases on start, heartbeat active leases, release recoverable unstarted claims, expire stale leases, and bind task execution to worker/lease identity.
+- **Forbidden effects:** running without claimed/active lease, starting without valid claim authority, dispatch after completion, stale lease execution, or conflating expired/released/active/terminal meanings.
+- **Contract chain:** queue claim -> worker lease created/owned -> start activates lease and task running -> dispatcher run requires active lease -> complete/fail releases or terminalizes lease/task.
+- **Runtime boundary:** lease lifecycle grants execution ownership but handler dispatch still goes through worker runtime/dispatcher lane.
+- **Tenant/auth/policy requirements:** lease/task tenant scope must match the claimed queue payload and runtime context.
+- **Evidence/audit requirements:** claim/start/heartbeat/release/expire/complete/fail must preserve runtime evidence/audit required by worker runtime tests and ledger.
+- **Failure/recovery semantics:** stale claims/starts are recoverable only through explicit release/expire/retry paths; no dispatcher re-entry after completion.
+- **Existing tests/proofs:** `tests/unit/workers/test_worker_loop_contracts.py`, `tests/integration/runtime/test_claim_start_failure_recovery_real.py`, `tests/unit/services/test_worker_runtime_service_transaction_contract.py`.
+- **Missing proof, if any:** preserve integration proof for each new adapter/recovery path.
+- **Pitfalls to avoid:** treating queue claim alone as execution authority, worker loop bypass of `WorkerRuntimeService`, reclaim without processing cleanup, or expired/released semantic drift.
+- **Must-read before modification:** source-of-truth files and listed tests.
+
+### 10. Worker runtime / dispatcher execution
+
+- **Purpose:** True runtime execution path from claimed/started work into handler execution, then complete/fail handling.
+- **Current status:** live runtime-authoritative path.
+- **Authority layer(s):** `runtime_authoritative`.
+- **Source-of-truth files:** `backend/workers/worker_loop.py`, `backend/workers/task_dispatcher.py`, `backend/services/worker_runtime_service.py`, `backend/workers/handlers/tool_invoke.py`.
+- **Entry points:** `WorkerLoop.run_forever()`, `WorkerLoop._claim_and_start_task()`, `TaskDispatcher.execute()`, registered task handlers, `WorkerRuntimeService.complete()` and `fail()`.
+- **Allowed effects:** dispatch only lease-started tasks, heartbeat during handler execution, call registered handlers, persist task-output lineage, complete/fail DB terminal truth, and then perform queue terminal cleanup.
+- **Forbidden effects:** dispatch without lease/start authority, complete/fail without matching runtime context, re-dispatch completed tasks, bypass worker runtime complete/fail, direct handler invocation from routes/services, or mixing handler failure with queue adapter failure semantics.
+- **Contract chain:** worker loop claim/start -> dispatcher handler -> handler result validation -> worker runtime complete/fail -> lineage/evidence/audit -> queue complete/fail/release.
+- **Runtime boundary:** all true handler execution must be inside this path; routes and declarative services must not invoke handlers directly.
+- **Tenant/auth/policy requirements:** runtime context must match task, lease, worker actor, and tenant before terminal mutation.
+- **Evidence/audit requirements:** completion/failure must preserve lineage, evidence bridge behavior, audit, and queue cleanup outcome visibility.
+- **Failure/recovery semantics:** handler success followed by terminal queue failure must not overwrite committed DB terminal truth; ack failure handling must be explicit and retry-safe.
+- **Existing tests/proofs:** `tests/unit/workers/test_worker_loop_contracts.py`, `tests/unit/workers/test_task_dispatcher_runtime_contract.py`, `tests/unit/workers/test_task_dispatcher_registry.py`, `tests/unit/services/test_worker_runtime_service_transaction_contract.py`.
+- **Missing proof, if any:** strengthen queue terminal operation failure coverage whenever queue adapters change.
+- **Pitfalls to avoid:** unsafe retry after completion failure, queue ack failure overwriting DB truth, route/service direct handler invocation, or runtime context drift.
+- **Must-read before modification:** source-of-truth files and listed tests.
+
+### 11. Tool/action runtime
+
+- **Purpose:** Governed action execution layer under `tool.invoke`; registration is not execution authority and side effects require explicit runtime permission.
+- **Current status:** live for in-process actions, local/proof providers, HTTP egress, and webhook dispatch; external provider activation remains gated/future-facing.
+- **Authority layer(s):** `runtime_authoritative` for `tool.invoke`; related capability/adapter records remain `declarative`.
+- **Source-of-truth files:** `backend/workers/handlers/tool_invoke.py`, `backend/services/tools/action_registry.py`, `backend/services/tools/capability_validation.py`, `backend/services/tools/schemas.py`, `backend/services/tools/http_actions.py`, `backend/services/tools/webhook_actions.py`, `backend/services/tools/evidence_bridge.py`.
+- **Entry points:** `tool_invoke_handler()`, `ActionRegistry.invoke()`, default action registry builder in `action_registry.py`, capability authority validation helpers, HTTP/webhook action registrations.
+- **Allowed effects:** execute known actions only from a queued/claimed/started `ExecutionTask`; enforce invocation schema, side-effect class, runtime side-effect authorization, capability/adapter authority, tenant context, and action evidence output.
+- **Forbidden effects:** treating registry presence as permission, weakening side-effect authorization, declarative capability/adapter records becoming runtime bindings automatically, `EXTERNAL_READ` silently becoming write/send authority, or tenant/context bypass.
+- **Contract chain:** execution task -> dispatcher `tool.invoke` -> action registry lookup -> invocation/schema validation -> capability/adapter/side-effect authority -> action handler -> `ActionResult` evidence -> worker runtime evidence bridge.
+- **Runtime boundary:** actions/providers must not call worker runtime complete/fail or create parallel dispatcher/queue/lease systems.
+- **Tenant/auth/policy requirements:** task tenant and invocation authority must match; side-effecting writes/sends require explicit `execution_constraints.side_effect_authorization` and concrete capability/adapter authority where applicable.
+- **Evidence/audit requirements:** successful actions return `ActionResult` with evidence; live egress must preserve side-effect classification and audit/evidence expectations.
+- **Failure/recovery semantics:** unknown actions and malformed invocations fail closed before side effects; HTTP destination safety fails closed; action failure returns controlled runtime failure through dispatcher.
+- **Existing tests/proofs:** `tests/unit/tools/test_action_registry.py`, `tests/unit/tools/test_capability_action_validation.py`, `tests/unit/tools/test_http_actions.py`, `tests/unit/workers/test_tool_invoke_handler.py`, `tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py`.
+- **Missing proof, if any:** provider-specific readback/idempotency tests are required before new live providers are claimed complete.
+- **Pitfalls to avoid:** binding declarative records directly to runtime, treating future providers as live, mixing local/proof providers with external activation, or broadening side effects for convenience.
+- **Must-read before modification:** source-of-truth files and listed tests.
+
+### 12. Evidence / lineage / audit system
+
+- **Purpose:** Proof system that records what happened, links runtime output to lineage/evidence/audit, and preserves tenant/task/mission scope integrity.
+- **Current status:** live runtime evidence bridge and declarative Evidence API; audit policy differs by lane and must stay explicit.
+- **Authority layer(s):** `runtime_authoritative` for runtime lineage/evidence/audit emitted by worker execution; `declarative` for Evidence API records.
+- **Source-of-truth files:** `backend/services/tools/evidence_bridge.py`, `backend/api/routes/evidence.py`, `backend/domain/evidence.py`, `backend/domain/lineage_record.py`, `backend/services/worker_runtime_service.py`.
+- **Entry points:** `WorkerRuntimeService.complete()`, `build_tool_action_evidence_records()`, Evidence API routes, lineage/audit repositories invoked by worker runtime.
+- **Allowed effects:** persist task-output lineage, task completion/failure audit events, narrow completed `tool.invoke` evidence into tenant-owned `EvidenceRecord` rows, and declaratively create/update evidence/provenance records through Evidence API.
+- **Forbidden effects:** making optional annotation metadata fatal after completed side-effecting work, weakening tenant/task/mission scope validation, turning Evidence API into runtime bridge, universal ingestion of arbitrary handler output, or inferring evidence from arbitrary outputs.
+- **Contract chain:** dispatcher handler output -> worker runtime lineage record -> evidence bridge for completed `tool.invoke` output -> durable EvidenceRecord -> audit/governance release proof surfaces.
+- **Runtime boundary:** runtime evidence bridge is narrow and post-handler; Evidence API is declarative and must not dispatch runtime work.
+- **Tenant/auth/policy requirements:** evidence scope must match task tenant, task id, and mission when present; Evidence API must remain tenant-scoped.
+- **Evidence/audit requirements:** runtime path metadata, materialization references, lease id, lineage id, and side-effect class must be preserved where emitted.
+- **Failure/recovery semantics:** malformed required runtime evidence fails the runtime completion path; malformed optional annotations are dropped safely where implemented and must not cause duplicate external side effects.
+- **Existing tests/proofs:** `tests/unit/tools/test_evidence_bridge.py`, Evidence API contract tests, worker runtime service tests, live-runtime proof audit/lineage checks.
+- **Missing proof, if any:** add tests before broadening evidence ingestion beyond completed `tool.invoke` outputs.
+- **Pitfalls to avoid:** retrying external side effects because optional evidence annotation failed, confusing Evidence API with runtime bridge, accepting cross-tenant evidence, or over-broad evidence ingestion.
+- **Must-read before modification:** source-of-truth files and listed tests.
+
+### 13. Declarative product/governance contract lanes
+
+- **Purpose:** Non-runtime contract system for business profile, capability registry, capability adapters, outcome review, retrieval governance, evidence/provenance APIs, and related product/governance records.
+- **Current status:** live declarative/read-model lanes with some future-facing provider/governance expansions.
+- **Authority layer(s):** primarily `declarative`; `read_model` for Mission Brief and projections.
+- **Source-of-truth files:** `backend/api/routes/business_profile.py` and related business-profile route modules, `backend/api/routes/capability.py`, `backend/api/routes/capability_adapter.py`, `backend/api/routes/evidence.py`, `backend/api/routes/outcome_review.py`, `backend/api/routes/retrieval_contract.py`, `docs/contracts/authority-ledger.v1.yaml`, this architecture map.
+- **Entry points:** `/v1/business-profile*`, `/v1/capabilities*`, `/v1/capability-adapters*`, `/v1/evidence*`, `/v1/outcome-reviews*`, `/v1/retrieval-contracts*`, `/v1/mission-brief/draft`.
+- **Allowed effects:** persist/validate declarative records, profile facts/suggestions/decisions, capability and adapter metadata, evidence/provenance records, outcome review decisions, and retrieval governance requests; Mission Brief may read/generate draft projections only.
+- **Forbidden effects:** executing runtime work, dispatching handlers, implicit runtime binding from capability/adapter records, profile truth mutation without audit where policy requires it, or silently mixing audit policies across declarative lanes.
+- **Contract chain:** tenant/auth -> declarative schema validation -> repository persistence/read model -> optional compatibility validation -> later runtime authority must separately validate capability/adapter authority before execution.
+- **Runtime boundary:** declarative records may inform runtime validation but cannot queue, claim, start, run, or invoke tools.
+- **Tenant/auth/policy requirements:** each route remains tenant-scoped and permission-gated; audit policy must be explicit per lane.
+- **Evidence/audit requirements:** Business Profile mutations append audit events; other declarative lanes keep their current explicit audit policy until changed with tests.
+- **Failure/recovery semantics:** malformed declarative records fail validation; compatibility failures do not execute runtime work.
+- **Existing tests/proofs:** related business profile, capability, adapter, evidence, outcome review, retrieval, Mission Brief, and authority-ledger contract tests.
+- **Missing proof, if any:** no-runtime-call sentinels should be added for any declarative lane before it gains runtime-adjacent fields.
+- **Pitfalls to avoid:** contract exists becoming runtime authorized, provider declarations treated as live credentials, silent audit inconsistency, or declarative APIs calling runtime bridge.
+- **Must-read before modification:** listed source-of-truth files, ledger entries, architecture map, and related contract tests.
+
+### 14. Observability / validation / release-gate system
+
+- **Purpose:** Proof and release-control system that keeps runtime truth, docs, contracts, tests, validation artifacts, and mounted routes aligned.
+- **Current status:** live validation scripts and contract tests; live-runtime proof gate is manual/operator-triggered for prod-like Compose proof.
+- **Authority layer(s):** `read_model` for metrics/status reads; validation/release governance is contract proof, not runtime execution authority.
+- **Source-of-truth files:** `scripts/validation/contract_drift_check.py`, `scripts/validation/ability_rollout_contract_check.py`, `scripts/validation/migration_seed_contract_check.py`, `docs/validation/live-runtime-matrix.md`, `docs/validation/live-runtime-proof-release-gate.md`, `docs/policies/DOCS_FRESHNESS_POLICY.md`, `docs/contracts/authority-ledger.v1.yaml`.
+- **Entry points:** validation scripts, authority-ledger tests, contract drift tests, runtime matrix, release gate workflow/script, metrics/readiness routes.
+- **Allowed effects:** validate docs/router/ledger/test drift, expose metrics/readiness safely, run release-gate proof, and record dynamic validation artifacts outside static contract truth.
+- **Forbidden effects:** docs claiming unproven behavior, runtime behavior changes without targeted proof, authority-ledger drift from mounted routes, optionalizing validation scripts for semantic changes, fake proof paths, or promotion when proof surfaces conflict.
+- **Contract chain:** implementation change -> ledger/architecture/docs update -> targeted tests -> validation scripts -> runtime matrix/release gate proof where applicable -> PR handoff.
+- **Runtime boundary:** validation observes/proves runtime; it must not become a runtime bypass or synthetic proof of unimplemented behavior.
+- **Tenant/auth/policy requirements:** metrics/status surfaces must not expose sensitive tenant payloads; validation must preserve tenant-isolation proof requirements.
+- **Evidence/audit requirements:** release decisions require cited tests, scripts, runner artifacts, runtime evidence, or documented non-goals; unsupported proof cannot satisfy release gates.
+- **Failure/recovery semantics:** stale docs, missing proof, ledger/router drift, or conflicting evidence block or warn explicitly; hidden assumptions are not acceptable release proof.
+- **Existing tests/proofs:** `tests/unit/architecture/test_authority_ledger_contract.py`, `tests/unit/validation/test_contract_drift_check.py`, validation scripts, live-runtime matrix, live-runtime proof gate.
+- **Missing proof, if any:** stronger lane-shape validation could be added later, but broad ledger schema churn is intentionally deferred unless necessary.
+- **Pitfalls to avoid:** green unit tests as full release proof, docs without tests, fake proof paths, README/ledger/router drift, or hiding behavior changes in docs-only PRs.
+- **Must-read before modification:** source-of-truth files and listed tests.
+
 ## True runtime lane
 
 The active worker runtime is real.
