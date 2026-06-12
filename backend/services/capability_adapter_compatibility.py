@@ -90,12 +90,20 @@ def _validate_risk_compatibility(*, capability: CapabilityDeclaration, adapter: 
         raise CapabilityAdapterCompatibilityError("adapter risk_level cannot understate capability risk_level")
 
 
+_APPROVAL_REQUIRED_SIDE_EFFECT_CLASSIFICATIONS = {
+    "external_side_effect",
+    "external_write",
+    "external_send",
+    "external_publish",
+}
+
+
 def _validate_side_effect_approval(*, adapter: CapabilityAdapterDeclaration) -> None:
-    if adapter.side_effect_classification != "external_side_effect":
+    if adapter.side_effect_classification not in _APPROVAL_REQUIRED_SIDE_EFFECT_CLASSIFICATIONS:
         return
     if adapter.approval_requirements.get("required") is not True:
         raise CapabilityAdapterCompatibilityError(
-            "external_side_effect adapters require approval_requirements.required"
+            f"{adapter.side_effect_classification} adapters require approval_requirements.required"
         )
 
 

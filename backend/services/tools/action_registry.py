@@ -76,12 +76,48 @@ class ActionRegistry:
             except ValidationError as exc:
                 raise ValueError(f"invalid input for action {definition.name}: {exc}") from exc
         result = definition.handler(invocation, context)
-        validated = ActionResult.model_validate(result.model_dump(mode="json"))
+        try:
+            validated = ActionResult.model_validate(result)
+        except ValidationError as exc:
+            raise ValueError(f"action {definition.name} must return valid ActionResult: {exc}") from exc
+        self._validate_result_contract(definition=definition, invocation=invocation, context=context, result=validated)
         try:
             json.dumps(validated.model_dump(mode="json"))
         except (TypeError, ValueError) as exc:
             raise ValueError("action result must be JSON serializable") from exc
         return validated
+
+    def _validate_result_contract(
+        self,
+        *,
+        definition: ActionDefinition,
+        invocation: ToolInvocation,
+        context: ActionRuntimeContext,
+        result: ActionResult,
+    ) -> None:
+        expected_side_effect_class = definition.side_effect_for(invocation)
+        if result.action != definition.name:
+            raise ValueError("action result action must match registered canonical action")
+        if result.provider != definition.provider:
+            raise ValueError("action result provider must match registered action provider")
+        if result.side_effect_class != expected_side_effect_class:
+            raise ValueError("action result side_effect_class must match effective action side_effect_class")
+        if not result.evidence:
+            raise ValueError("action result must include at least one EvidenceItem")
+        for evidence_item in result.evidence:
+            if evidence_item.action_name != definition.name:
+                raise ValueError("action evidence action_name must match registered canonical action")
+            if evidence_item.tool_provider != result.provider:
+                raise ValueError("action evidence tool_provider must match action result provider")
+            if evidence_item.side_effect_class != result.side_effect_class:
+                raise ValueError("action evidence side_effect_class must match action result side_effect_class")
+            if evidence_item.tenant_id != context.tenant_id:
+                raise ValueError("action evidence tenant_id must match runtime context tenant_id")
+            if evidence_item.task_id != str(context.task_id):
+                raise ValueError("action evidence task_id must match runtime context task_id")
+            expected_mission_id = str(context.mission_id) if context.mission_id is not None else None
+            if evidence_item.mission_id != expected_mission_id:
+                raise ValueError("action evidence mission_id must match runtime context mission_id")
 
     @property
     def actions(self) -> Mapping[str, ActionDefinition]:

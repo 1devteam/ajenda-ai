@@ -144,7 +144,7 @@ def upgrade() -> None:
                     '["approval_decision", "delivery_outcome"]'::jsonb,
                     '{"timeout_seconds": 120, "max_retries": 1}'::jsonb,
                     '{"idempotency_key_required": true}'::jsonb,
-                    'external_side_effect',
+                    'external_send',
                     true, 1, now(), now()
                 FROM capabilities c
                 WHERE c.tenant_id IS NULL

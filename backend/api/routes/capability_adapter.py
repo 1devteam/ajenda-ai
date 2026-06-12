@@ -32,6 +32,10 @@ AdapterSideEffectClassification = Literal[
     "read_only",
     "idempotent_write",
     "non_idempotent_write",
+    "external_read",
+    "external_write",
+    "external_send",
+    "external_publish",
     "external_side_effect",
 ]
 

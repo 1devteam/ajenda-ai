@@ -54,7 +54,8 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "side_effect_classification IN "
-            "('none', 'read_only', 'idempotent_write', 'non_idempotent_write', 'external_side_effect')",
+            "('none', 'read_only', 'idempotent_write', 'non_idempotent_write', "
+            "'external_read', 'external_write', 'external_send', 'external_publish', 'external_side_effect')",
             name="ck_capability_adapters_side_effect_classification",
         ),
         sa.CheckConstraint(

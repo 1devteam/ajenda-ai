@@ -5,7 +5,13 @@ import uuid
 import pytest
 
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry, get_default_action_registry
-from backend.services.tools.schemas import ActionResult, ActionRuntimeContext, ToolInvocation
+from backend.services.tools.schemas import (
+    ActionResult,
+    ActionRuntimeContext,
+    EvidenceItem,
+    SideEffectClass,
+    ToolInvocation,
+)
 
 
 def _context() -> ActionRuntimeContext:
@@ -18,15 +24,39 @@ def _context() -> ActionRuntimeContext:
     )
 
 
+def _evidence(
+    *,
+    context: ActionRuntimeContext,
+    action: str = "custom.action",
+    provider: str = "test",
+    side_effect_class: SideEffectClass = SideEffectClass.NONE,
+) -> EvidenceItem:
+    return EvidenceItem(
+        evidence_type="action_result",
+        evidence_source=f"tool.invoke.{action}",
+        action_name=action,
+        tool_provider=provider,
+        tenant_id=context.tenant_id,
+        task_id=str(context.task_id),
+        mission_id=str(context.mission_id) if context.mission_id else None,
+        summary="custom action done",
+        side_effect_class=side_effect_class,
+    )
+
+
 def test_action_registry_registers_and_invokes_action() -> None:
     registry = ActionRegistry()
 
     def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
         return ActionResult(
-            action="custom.action", provider="test", output={"echo": invocation.input}, summary="custom action done"
+            action="custom.action",
+            provider="test",
+            output={"echo": invocation.input},
+            evidence=[_evidence(context=context)],
+            summary="custom action done",
         )
 
-    registry.register(ActionDefinition(name="custom.action", handler=handler))
+    registry.register(ActionDefinition(name="custom.action", handler=handler, provider="test"))
 
     result = registry.invoke(ToolInvocation(action="custom.action", input={"value": 7}), _context())
 
@@ -38,7 +68,13 @@ def test_action_registry_rejects_duplicate_action_names() -> None:
     registry = ActionRegistry()
 
     def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
-        return ActionResult(action="dup.action", provider="test", output={}, summary="done")
+        return ActionResult(
+            action="dup.action",
+            provider="test",
+            output={},
+            evidence=[_evidence(context=context, action="dup.action")],
+            summary="done",
+        )
 
     registry.register(ActionDefinition(name="dup.action", handler=handler))
 
@@ -62,7 +98,11 @@ def test_default_registry_is_frozen_and_stable() -> None:
             ActionDefinition(
                 name="late.action",
                 handler=lambda invocation, context: ActionResult(
-                    action="late.action", provider="test", output={}, summary="late"
+                    action="late.action",
+                    provider="test",
+                    output={},
+                    evidence=[_evidence(context=context, action="late.action")],
+                    summary="late",
                 ),
             )
         )
@@ -77,3 +117,64 @@ def test_default_registry_is_frozen_and_stable() -> None:
         "crm.research",
         "gtm.message_draft",
     }.issubset(first_names)
+
+
+def test_action_registry_rejects_non_action_result_handler_output() -> None:
+    registry = ActionRegistry()
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> object:
+        return object()
+
+    registry.register(ActionDefinition(name="bad.action", handler=handler, provider="test"))  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="valid ActionResult"):
+        registry.invoke(ToolInvocation(action="bad.action", input={}), _context())
+
+
+def test_action_registry_requires_evidence_item_scope_to_match_runtime_context() -> None:
+    registry = ActionRegistry()
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        evidence = _evidence(context=context)
+        evidence.tenant_id = str(uuid.uuid4())
+        return ActionResult(
+            action="custom.action",
+            provider="test",
+            output={},
+            evidence=[evidence],
+            summary="bad evidence scope",
+        )
+
+    registry.register(ActionDefinition(name="custom.action", handler=handler, provider="test"))
+
+    with pytest.raises(ValueError, match="tenant_id"):
+        registry.invoke(ToolInvocation(action="custom.action", input={}), _context())
+
+
+def test_action_registry_requires_result_side_effect_class_to_match_resolver() -> None:
+    registry = ActionRegistry()
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        return ActionResult(
+            action="resolver.action",
+            provider="test",
+            side_effect_class=SideEffectClass.EXTERNAL_READ,
+            output={},
+            evidence=[
+                _evidence(context=context, action="resolver.action", side_effect_class=SideEffectClass.EXTERNAL_READ)
+            ],
+            summary="wrong side effect",
+        )
+
+    registry.register(
+        ActionDefinition(
+            name="resolver.action",
+            handler=handler,
+            provider="test",
+            side_effect_class=SideEffectClass.EXTERNAL_READ,
+            side_effect_resolver=lambda invocation: SideEffectClass.EXTERNAL_WRITE,
+        )
+    )
+
+    with pytest.raises(ValueError, match="side_effect_class"):
+        registry.invoke(ToolInvocation(action="resolver.action", input={}), _context())
