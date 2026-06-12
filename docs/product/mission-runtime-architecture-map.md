@@ -222,9 +222,9 @@ Important distinction:
 - `EXTERNAL_READ` is not currently treated as side-effecting in the same way as write/send egress.
 - Therefore HTTP read egress has weaker authority gating than write/send egress unless a capability/adapter reference or future policy requires more.
 
-This document records the architecture truth only. It does not attempt to harden HTTP/network behavior.
+`http.request` enforces destination safety before live egress: HTTPS-only URLs, blocked localhost/.local/internal hostnames, blocked private/link-local/loopback/multicast/reserved/unspecified IP literals, blocked private DNS answers, DNS lookup failure as fail-closed, redirects disabled, and response body truncation to 4096 characters. For hostname destinations, the runtime pins one vetted public routable address from the validated DNS result and connects to that pinned address while preserving TLS SNI and HTTP Host semantics for the original hostname, so validation cannot approve one DNS answer and then connect through a later hostname re-resolution.
 
-HTTP/network egress hardening is a separate future work lane and should be handled in the dedicated HTTP/network PR/issues rather than hidden inside this architecture-map PR.
+Payload-provided `allowed_hosts` remains an explicit request constraint, but it is not sufficient as sole destination authority: final destination safety is still enforced by runtime SSRF and DNS-rebinding hardening.
 
 ## Mission queue authority
 
@@ -276,7 +276,7 @@ This is a semantic overlap / drift risk because the two paths have different mea
 | Mission route concentration | Runtime bridge mutation lanes now delegate to explicit services: `MissionRuntimeTaskMaterializationService`, `MissionRuntimeQueueAdmissionService`, `WorkerClaimAdmissionService`, `WorkerStartAdmissionService`, and `WorkerRunAdmissionService`; `backend/api/routes/mission.py` remains the route/auth/request/response wrapper. | Continue moving remaining response/read-model helpers out of the route when their contracts are separated. |
 | Declarative mutation audit policy | Business Profile explicitly appends audit events; other declarative contract lanes generally do not. | Decide whether this is intentional or whether all declarative mutations require audit events. |
 | Provider activation | Google Calendar and credential resolver are contract-only. | Build real credential resolver before live external provider activation. |
-| Live HTTP/webhook egress | HTTP/webhook action egress is live, but HTTP read egress is weaker-gated than write/send egress. | Track and harden in the dedicated HTTP/network issue lane. |
+| Live HTTP/webhook egress | HTTP/webhook action egress is live. HTTP read egress remains weaker-gated than write/send egress, but `http.request` now enforces SSRF protections, fail-closed DNS validation, and pinned vetted-address connection for hostname targets. | Preserve HTTP destination-safety and side-effect authority tests when extending egress behavior. |
 
 ## Disproved assumptions
 
@@ -396,7 +396,7 @@ Use this checklist to open or reconcile repo issues before implementation.
 - Preserve tests proving registered actions are not automatically executable.
 - Preserve tests proving side-effecting actions require proper runtime state.
 - Preserve tests proving side-effect authorization is required for write/send/publish actions.
-- Clarify or harden HTTP read-egress authority if existing HTTP/network issues are not sufficient.
+- Preserve HTTP read-egress authority semantics (`GET`/`HEAD` as `EXTERNAL_READ`) while keeping destination-safety hardening fail-closed.
 
 ### Evidence
 
@@ -408,7 +408,7 @@ Use this checklist to open or reconcile repo issues before implementation.
 
 - Keep Google Calendar provider future-facing until credential resolver is implemented.
 - Keep `UnresolvedCredentialResolver` fail-closed.
-- Track HTTP/webhook egress hardening in the dedicated HTTP/network issue lane.
+- Preserve `http.request` SSRF and DNS-rebinding hardening: fail-closed DNS validation, private/internal target rejection, pinned vetted-address connection, TLS SNI/Host preservation, redirects disabled, and 4096-character response truncation.
 - Treat HTTP read egress separately from HTTP write/send egress because `EXTERNAL_READ` is weaker-gated.
 
 ### Declarative lanes
