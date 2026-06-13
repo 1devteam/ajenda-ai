@@ -77,7 +77,11 @@ class ActionRegistry:
                 raise ValueError(f"invalid input for action {definition.name}: {exc}") from exc
         result = definition.handler(invocation, context)
         try:
-            validated = ActionResult.model_validate(result)
+            parsed = ActionResult.model_validate(result)
+            # Force a fresh validation pass even when the handler returned an
+            # ActionResult instance. Pydantic's default instance revalidation can
+            # otherwise return a mutated/model_construct instance as-is.
+            validated = ActionResult.model_validate(parsed.model_dump(mode="json"))
         except ValidationError as exc:
             raise ValueError(f"action {definition.name} must return valid ActionResult: {exc}") from exc
         self._validate_result_contract(definition=definition, invocation=invocation, context=context, result=validated)

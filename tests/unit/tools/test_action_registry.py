@@ -178,3 +178,42 @@ def test_action_registry_requires_result_side_effect_class_to_match_resolver() -
 
     with pytest.raises(ValueError, match="side_effect_class"):
         registry.invoke(ToolInvocation(action="resolver.action", input={}), _context())
+
+
+def test_action_registry_revalidates_mutated_action_result_instances() -> None:
+    registry = ActionRegistry()
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        result = ActionResult(
+            action="custom.action",
+            provider="test",
+            output={},
+            evidence=[_evidence(context=context)],
+            summary="valid before mutation",
+            confidence=1.0,
+        )
+        result.confidence = 2.0
+        return result
+
+    registry.register(ActionDefinition(name="custom.action", handler=handler, provider="test"))
+
+    with pytest.raises(ValueError, match="valid ActionResult"):
+        registry.invoke(ToolInvocation(action="custom.action", input={}), _context())
+
+
+def test_action_registry_revalidates_model_constructed_action_results() -> None:
+    registry = ActionRegistry()
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        return ActionResult.model_construct(
+            action="custom.action",
+            provider="test",
+            output={},
+            evidence=[_evidence(context=context)],
+            summary="",
+        )
+
+    registry.register(ActionDefinition(name="custom.action", handler=handler, provider="test"))
+
+    with pytest.raises(ValueError, match="valid ActionResult"):
+        registry.invoke(ToolInvocation(action="custom.action", input={}), _context())
