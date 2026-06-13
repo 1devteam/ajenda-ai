@@ -1,7 +1,7 @@
 """Seed global GTM capability catalog and adapters.
 
 Revision ID: 0021_seed_gtm_capability_catalog
-Revises: 0020a_adapter_side_effects
+Revises: 0020_expand_lifecycle_checks
 Create Date: 2026-05-27
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "0021_seed_gtm_capability_catalog"
-down_revision = "0020a_adapter_side_effects"
+down_revision = "0020_expand_lifecycle_checks"
 branch_labels = None
 depends_on = None
 
@@ -144,7 +144,7 @@ def upgrade() -> None:
                     '["approval_decision", "delivery_outcome"]'::jsonb,
                     '{"timeout_seconds": 120, "max_retries": 1}'::jsonb,
                     '{"idempotency_key_required": true}'::jsonb,
-                    'external_send',
+                    'external_side_effect',
                     true, 1, now(), now()
                 FROM capabilities c
                 WHERE c.tenant_id IS NULL

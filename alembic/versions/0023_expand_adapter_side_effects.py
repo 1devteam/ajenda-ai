@@ -1,8 +1,8 @@
 """Expand capability adapter side-effect classifications.
 
-Revision ID: 0020a_adapter_side_effects
-Revises: 0020_expand_lifecycle_checks
-Create Date: 2026-06-12
+Revision ID: 0023_adapter_side_effects
+Revises: 0022_add_business_profiles
+Create Date: 2026-06-13
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0020a_adapter_side_effects"
-down_revision = "0020_expand_lifecycle_checks"
+revision = "0023_adapter_side_effects"
+down_revision = "0022_add_business_profiles"
 branch_labels = None
 depends_on = None
 
@@ -49,6 +49,18 @@ def upgrade() -> None:
         CONSTRAINT_NAME,
         TABLE_NAME,
         _classification_check(NEW_SIDE_EFFECT_CLASSIFICATIONS),
+    )
+    op.execute(
+        sa.text(
+            """
+            UPDATE capability_adapters
+            SET side_effect_classification = 'external_send'
+            WHERE tenant_id IS NULL
+              AND name = 'gtm_outbound_email_adapter'
+              AND version = '1.0.0'
+              AND side_effect_classification = 'external_side_effect'
+            """
+        )
     )
 
 
