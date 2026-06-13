@@ -40,27 +40,74 @@ def is_sensitive_key(key: object, *, additional_sensitive_keys: Collection[str] 
     return _is_sensitive_key(key, additional_sensitive_keys=_normalized_additional_keys(additional_sensitive_keys))
 
 
-def redact_sensitive_data(value: Any, *, additional_sensitive_keys: Collection[str] | None = None) -> Any:
+def redact_sensitive_data(
+    value: Any,
+    *,
+    additional_sensitive_keys: Collection[str] | None = None,
+    additional_sensitive_values: Collection[str] | None = None,
+) -> Any:
     return _redact_sensitive_data(
-        value, additional_sensitive_keys=_normalized_additional_keys(additional_sensitive_keys)
+        value,
+        additional_sensitive_keys=_normalized_additional_keys(additional_sensitive_keys),
+        additional_sensitive_values=_normalized_sensitive_values(additional_sensitive_values),
     )
 
 
-def _redact_sensitive_data(value: Any, *, additional_sensitive_keys: set[str]) -> Any:
+def _normalized_sensitive_values(additional_sensitive_values: Collection[str] | None) -> tuple[str, ...]:
+    return tuple(sorted((value for value in additional_sensitive_values or () if value), key=len, reverse=True))
+
+
+def _redact_sensitive_data(
+    value: Any, *, additional_sensitive_keys: set[str], additional_sensitive_values: tuple[str, ...]
+) -> Any:
     if isinstance(value, Mapping):
         return {
             key: REDACTED_VALUE
             if _is_sensitive_key(key, additional_sensitive_keys=additional_sensitive_keys)
-            else _redact_sensitive_data(item, additional_sensitive_keys=additional_sensitive_keys)
+            else _redact_sensitive_data(
+                item,
+                additional_sensitive_keys=additional_sensitive_keys,
+                additional_sensitive_values=additional_sensitive_values,
+            )
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [_redact_sensitive_data(item, additional_sensitive_keys=additional_sensitive_keys) for item in value]
+        return [
+            _redact_sensitive_data(
+                item,
+                additional_sensitive_keys=additional_sensitive_keys,
+                additional_sensitive_values=additional_sensitive_values,
+            )
+            for item in value
+        ]
     if isinstance(value, tuple):
         return tuple(
-            _redact_sensitive_data(item, additional_sensitive_keys=additional_sensitive_keys) for item in value
+            _redact_sensitive_data(
+                item,
+                additional_sensitive_keys=additional_sensitive_keys,
+                additional_sensitive_values=additional_sensitive_values,
+            )
+            for item in value
         )
+    if isinstance(value, str):
+        redacted = value
+        for sensitive_value in additional_sensitive_values:
+            redacted = redacted.replace(sensitive_value, REDACTED_VALUE)
+        return redacted
     return value
+
+
+def contains_sensitive_value(value: Any, sensitive_values: Collection[str]) -> bool:
+    normalized_sensitive_values = _normalized_sensitive_values(sensitive_values)
+    if not normalized_sensitive_values:
+        return False
+    if isinstance(value, Mapping):
+        return any(contains_sensitive_value(item, normalized_sensitive_values) for item in value.values())
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return any(contains_sensitive_value(item, normalized_sensitive_values) for item in value)
+    if isinstance(value, str):
+        return any(sensitive_value in value for sensitive_value in normalized_sensitive_values)
+    return False
 
 
 def _is_sensitive_key(key: object, *, additional_sensitive_keys: set[str]) -> bool:

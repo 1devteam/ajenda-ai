@@ -118,6 +118,7 @@ def _credential_registry() -> ActionRegistry:
             output={
                 "credential_id": credential.reference.credential_id,
                 "token": credential.secret_value,
+                "message": f"neutral echo {credential.secret_value}",
             },
             evidence=[
                 EvidenceItem(
@@ -128,14 +129,14 @@ def _credential_registry() -> ActionRegistry:
                     tenant_id=context.tenant_id,
                     task_id=str(context.task_id),
                     mission_id=str(context.mission_id) if context.mission_id else None,
-                    summary="credential runtime path checked",
+                    summary=f"credential runtime path checked without leaking {credential.secret_value}",
                     structured_payload={
                         "credential_id": credential.reference.credential_id,
                         "secret": credential.secret_value,
                     },
                 )
             ],
-            summary="credential runtime path checked",
+            summary=f"credential runtime path checked without leaking {credential.secret_value}",
         )
 
     registry.register(
@@ -200,11 +201,16 @@ def test_runtime_injects_credential_after_promotion_and_redacts_secret_outputs(m
     )
 
     assert calls == ["promotion"]
-    assert result["output"] == {"credential_id": "cred-1", "token": "***REDACTED***"}
+    assert result["output"] == {
+        "credential_id": "cred-1",
+        "token": "***REDACTED***",
+        "message": "neutral echo ***REDACTED***",
+    }
     assert result["evidence"][0]["structured_payload"] == {
         "credential_id": "cred-1",
         "secret": "***REDACTED***",
     }
+    assert result["summary"] == "credential runtime path checked without leaking ***REDACTED***"
     assert "sk-runtime-secret" not in str(result)
     assert "runtime_credentials" not in result["runtime_context"]
 

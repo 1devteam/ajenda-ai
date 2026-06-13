@@ -56,3 +56,19 @@ def test_redaction_accepts_configured_exact_keys_recursively() -> None:
         "Set-Cookie": REDACTED_VALUE,
         "nested": [{"session_id": REDACTED_VALUE}, {"value": "visible"}],
     }
+
+
+def test_redaction_accepts_configured_sensitive_values_recursively() -> None:
+    payload = {
+        "summary": "neutral field leaked sk-runtime-secret",
+        "nested": [{"message": "prefix sk-runtime-secret suffix"}, "sk-runtime-secret"],
+        "safe": "visible",
+    }
+
+    redacted = redact_sensitive_data(payload, additional_sensitive_values={"sk-runtime-secret"})
+
+    assert redacted == {
+        "summary": "neutral field leaked ***REDACTED***",
+        "nested": [{"message": "prefix ***REDACTED*** suffix"}, "***REDACTED***"],
+        "safe": "visible",
+    }

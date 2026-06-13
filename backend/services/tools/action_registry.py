@@ -8,7 +8,7 @@ from types import MappingProxyType
 from pydantic import BaseModel, ValidationError
 
 from backend.services.credentials.runtime_authority import CredentialRequirement
-from backend.services.security.redaction import redact_sensitive_data
+from backend.services.security.redaction import contains_sensitive_value, redact_sensitive_data
 from backend.services.tools.schemas import ActionResult, ActionRuntimeContext, SideEffectClass, ToolInvocation
 
 ActionHandler = Callable[[ToolInvocation, ActionRuntimeContext], ActionResult]
@@ -85,8 +85,13 @@ class ActionRegistry:
             # Force a fresh validation pass even when the handler returned an
             # ActionResult instance. Pydantic's default instance revalidation can
             # otherwise return a mutated/model_construct instance as-is.
-            redacted_payload = redact_sensitive_data(parsed.model_dump(mode="json"))
+            sensitive_values = _runtime_credential_values(context)
+            redacted_payload = redact_sensitive_data(
+                parsed.model_dump(mode="json"), additional_sensitive_values=sensitive_values
+            )
             validated = ActionResult.model_validate(redacted_payload)
+            if contains_sensitive_value(validated.model_dump(mode="json"), sensitive_values):
+                raise ValueError("action result contains runtime credential material")
         except ValidationError as exc:
             raise ValueError(f"action {definition.name} must return valid ActionResult: {exc}") from exc
         self._validate_result_contract(definition=definition, invocation=invocation, context=context, result=validated)
@@ -131,6 +136,14 @@ class ActionRegistry:
     @property
     def actions(self) -> Mapping[str, ActionDefinition]:
         return MappingProxyType(dict(self._actions))
+
+
+def _runtime_credential_values(context: ActionRuntimeContext) -> tuple[str, ...]:
+    values: list[str] = []
+    for credential in context.runtime_credentials.values():
+        values.append(credential.secret_value)
+        values.extend(credential.injected_headers.values())
+    return tuple(value for value in values if value)
 
 
 def _normalize_action_name(name: str) -> str:
