@@ -17,7 +17,6 @@ from backend.services.tools.schemas import (
 # Ability manifest imports for runtime promotion validation
 # Internal ability manifests describe rollout requirements for each canonical tool action.
 from backend.services.abilities.catalog import INTERNAL_ABILITY_MANIFESTS
-from backend.services.abilities.rollout_validation import validate_manifest_collection
 
 ActionHandler = Callable[[ToolInvocation, ActionRuntimeContext], ActionResult]
 SideEffectResolver = Callable[[ToolInvocation], SideEffectClass]
@@ -168,6 +167,9 @@ def build_default_action_registry() -> ActionRegistry:
     # ensures that manifests remain the canonical rollout contract for tool actions
     # and cannot be omitted by accident. The validation only reads from the
     # registry and does not modify its state.
+    # Import here to avoid circular dependency: rollout_validation imports ActionDefinition
+    from backend.services.abilities.rollout_validation import validate_manifest_collection
+
     validate_manifest_collection(
         manifests=INTERNAL_ABILITY_MANIFESTS,
         registered_actions=registry.actions,
