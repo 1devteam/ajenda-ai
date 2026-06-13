@@ -70,16 +70,21 @@ def _redact_sensitive_data(
     additional_sensitive_values: tuple[str, ...],
 ) -> Any:
     if isinstance(value, Mapping):
-        return {
-            key: REDACTED_VALUE
-            if _is_sensitive_key(key, additional_sensitive_keys=additional_sensitive_keys)
-            else _redact_sensitive_data(
-                item,
-                additional_sensitive_keys=additional_sensitive_keys,
+        redacted: dict[Any, Any] = {}
+        for key, item in value.items():
+            redacted_key = _redact_sensitive_mapping_key(
+                key,
                 additional_sensitive_values=additional_sensitive_values,
             )
-            for key, item in value.items()
-        }
+            if _is_sensitive_key(redacted_key, additional_sensitive_keys=additional_sensitive_keys):
+                redacted[redacted_key] = REDACTED_VALUE
+            else:
+                redacted[redacted_key] = _redact_sensitive_data(
+                    item,
+                    additional_sensitive_keys=additional_sensitive_keys,
+                    additional_sensitive_values=additional_sensitive_values,
+                )
+        return redacted
     if isinstance(value, list):
         return [
             _redact_sensitive_data(
@@ -108,6 +113,12 @@ def _redact_sensitive_text(value: str, *, additional_sensitive_values: tuple[str
     for sensitive_value in additional_sensitive_values:
         redacted = redacted.replace(sensitive_value, REDACTED_VALUE)
     return redacted
+
+
+def _redact_sensitive_mapping_key(key: object, *, additional_sensitive_values: tuple[str, ...]) -> object:
+    if isinstance(key, str):
+        return _redact_sensitive_text(key, additional_sensitive_values=additional_sensitive_values)
+    return key
 
 
 def _is_sensitive_key(key: object, *, additional_sensitive_keys: set[str]) -> bool:

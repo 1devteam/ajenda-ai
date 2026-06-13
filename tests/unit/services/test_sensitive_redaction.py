@@ -82,3 +82,23 @@ def test_redaction_accepts_known_sensitive_values_recursively() -> None:
         "safe": "visible",
     }
     assert runtime_secret not in str(redacted)
+
+
+def test_redaction_accepts_known_sensitive_values_in_mapping_keys() -> None:
+    runtime_secret = "runtime-secret-value-123"
+    payload = {
+        runtime_secret: "seen",
+        f"prefix-{runtime_secret}-suffix": {"safe": "visible"},
+        "nested": [{runtime_secret: "nested seen"}],
+        "safe": "visible",
+    }
+
+    redacted = redact_sensitive_data(payload, additional_sensitive_values={runtime_secret})
+
+    assert runtime_secret not in str(redacted)
+    assert redacted == {
+        REDACTED_VALUE: "seen",
+        f"prefix-{REDACTED_VALUE}-suffix": {"safe": "visible"},
+        "nested": [{REDACTED_VALUE: "nested seen"}],
+        "safe": "visible",
+    }

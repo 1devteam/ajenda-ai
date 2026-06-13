@@ -377,3 +377,50 @@ def test_action_registry_validation_error_message_does_not_include_runtime_crede
         )
 
     assert runtime_secret not in str(exc_info.value)
+
+
+def test_action_registry_redacts_runtime_credential_values_from_mapping_keys() -> None:
+    registry = ActionRegistry()
+    action_name = "key.redact"
+    runtime_secret = "runtime-secret-value-123"
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        return ActionResult(
+            action=action_name,
+            provider="test",
+            output={
+                runtime_secret: "output-key",
+                f"wrapped-{runtime_secret}": "wrapped-output-key",
+            },
+            evidence=[
+                EvidenceItem(
+                    evidence_type="action_result",
+                    evidence_source=f"tool.invoke.{action_name}",
+                    action_name=action_name,
+                    tool_provider="test",
+                    tenant_id=context.tenant_id,
+                    task_id=str(context.task_id),
+                    mission_id=str(context.mission_id) if context.mission_id else None,
+                    summary="mapping key redaction checked",
+                    structured_payload={runtime_secret: "payload-key"},
+                    provenance={f"provenance-{runtime_secret}": "provenance-key"},
+                    side_effect_class=SideEffectClass.NONE,
+                )
+            ],
+            summary="mapping key redaction checked",
+        )
+
+    registry.register(ActionDefinition(name=action_name, handler=handler, provider="test"))
+    result = registry.invoke(
+        ToolInvocation(action=action_name, input={}),
+        _context_with_runtime_secret(action=action_name, secret=runtime_secret),
+    )
+
+    dumped = result.model_dump(mode="json")
+    assert runtime_secret not in str(dumped)
+    assert result.output == {
+        REDACTED_VALUE: "output-key",
+        f"wrapped-{REDACTED_VALUE}": "wrapped-output-key",
+    }
+    assert result.evidence[0].structured_payload == {REDACTED_VALUE: "payload-key"}
+    assert result.evidence[0].provenance == {f"provenance-{REDACTED_VALUE}": "provenance-key"}
