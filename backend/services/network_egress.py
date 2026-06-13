@@ -146,7 +146,6 @@ class NetworkEgressAuthority:
         allowed_hosts: list[str] | None = None,
         action_name: str = "network egress",
         response_text_limit: int = DEFAULT_RESPONSE_TEXT_LIMIT,
-        client: Any | None = None,
     ) -> tuple[VettedNetworkDestination, NetworkEgressResponse]:
         destination = self.vet_https_url(url, allowed_hosts=allowed_hosts, action_name=action_name)
         request_headers = {
@@ -154,9 +153,8 @@ class NetworkEgressAuthority:
         }
         request_headers["Host"] = destination.host_header
         # The connection origin is the pinned IP address, not the original hostname.
-        # Force per-request connection close so a supplied long-lived client cannot
-        # reuse a TLS connection opened with another hostname's SNI/certificate
-        # simply because two vetted hosts resolve to the same public IP.
+        # Force connection close and use a fresh no-keepalive client below so TLS
+        # cannot be pooled across different original hostnames that share an IP.
         request_headers["Connection"] = "close"
         request_kwargs: dict[str, Any] = {
             "headers": request_headers,
@@ -169,11 +167,12 @@ class NetworkEgressAuthority:
         else:
             request_kwargs["json"] = json_body
         try:
-            if client is not None:
-                response = client.request(method, destination.connect_url, **request_kwargs)
-            else:
-                with httpx.Client(timeout=timeout_seconds, follow_redirects=False) as http_client:
-                    response = http_client.request(method, destination.connect_url, **request_kwargs)
+            with httpx.Client(
+                timeout=timeout_seconds,
+                follow_redirects=False,
+                limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
+            ) as http_client:
+                response = http_client.request(method, destination.connect_url, **request_kwargs)
         except httpx.TimeoutException as exc:
             raise _safe_error(action_name, f"network request timed out after {timeout_seconds}s") from exc
         except httpx.HTTPError as exc:

@@ -148,10 +148,11 @@ class WebhookDispatchService:
 
     Args:
         session: SQLAlchemy Session for all DB operations.
-        http_client: Optional httpx.Client for HTTP delivery.
-            Injected for testing; defaults to a new client with a 10s timeout.
-        http_session: Deprecated alias for http_client. Kept for backwards
-            compatibility with existing call sites and unit tests.
+        http_client: Deprecated. Outbound delivery is now performed by
+            NetworkEgressAuthority with a fresh no-keepalive client per vetted
+            request; inject network_egress_authority in tests instead.
+        http_session: Deprecated alias retained for backwards-compatible
+            constructor calls. It is not used for outbound egress.
     """
 
     def __init__(
@@ -169,15 +170,11 @@ class WebhookDispatchService:
         self._quota = QuotaEnforcementService(session)
         self._protector = secret_protector or WebhookSecretProtector()
         self._network_egress = network_egress_authority or get_default_network_egress_authority()
-        if http_client is not None:
-            self._http: Any = http_client
-        elif http_session is not None:
-            # Backwards-compat shim: accept a requests.Session-like mock so
-            # existing unit tests continue to work without modification.
-            # In production this path is never taken.
-            self._http = http_session
-        else:
-            self._http = httpx.Client(timeout=DELIVERY_TIMEOUT_SECONDS, follow_redirects=False)
+        # http_client/http_session are intentionally not stored or passed into
+        # NetworkEgressAuthority: pooled clients are unsafe with pinned-IP
+        # connect URLs because their TLS pools are keyed by pinned IP rather
+        # than the original vetted hostname.
+        _ = (http_client, http_session)
 
     # ------------------------------------------------------------------
     # Registration
@@ -541,7 +538,6 @@ class WebhookDispatchService:
                 timeout_seconds=DELIVERY_TIMEOUT_SECONDS,
                 action_name="webhook.dispatch",
                 response_text_limit=RESPONSE_BODY_MAX_CHARS,
-                client=self._http,
             )
             http_status = response.status_code
             response_body = response.body_text
