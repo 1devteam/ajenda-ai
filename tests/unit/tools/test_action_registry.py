@@ -271,7 +271,7 @@ def test_action_registry_redacts_runtime_credential_values_in_neutral_result_fie
             evidence=[
                 EvidenceItem(
                     evidence_type="action_result",
-                    evidence_source="tool.invoke.credential.action",
+                    evidence_source="tool.invoke.sk-neutral-runtime-12345",
                     action_name="credential.action",
                     tool_provider="test",
                     tenant_id=context.tenant_id,
@@ -303,6 +303,7 @@ def test_action_registry_redacts_runtime_credential_values_in_neutral_result_fie
         "key-***REDACTED***": "credential appears in key",
     }
     assert result.evidence[0].summary == "evidence includes ***REDACTED*** in neutral text"
+    assert result.evidence[0].evidence_source == "tool.invoke.***REDACTED***"
     assert result.evidence[0].structured_payload == {"message": "payload ***REDACTED***", "key-***REDACTED***": "value"}
 
 
@@ -377,7 +378,7 @@ def test_action_registry_does_not_redact_schema_keys_for_short_runtime_credentia
     assert result.evidence[0].task_id == str(context.task_id)
 
 
-def test_action_registry_does_not_redact_schema_values_for_common_runtime_credentials() -> None:
+def test_action_registry_preserves_action_contract_fields_for_common_runtime_credentials() -> None:
     registry = ActionRegistry()
     context = _context()
     context.runtime_credentials["record.search"] = RuntimeCredentialMaterial(
@@ -403,7 +404,7 @@ def test_action_registry_does_not_redact_schema_values_for_common_runtime_creden
     assert result.output == {"safe": "clean"}
     assert result.records_inspected == ["account-1"]
     assert result.evidence[0].action_name == "record.search"
-    assert result.evidence[0].evidence_source == "tool.invoke.record.search"
+    assert result.evidence[0].evidence_source == "tool.invoke.***REDACTED***.search"
 
 
 def test_action_registry_redacts_secret_material_from_results_and_evidence() -> None:

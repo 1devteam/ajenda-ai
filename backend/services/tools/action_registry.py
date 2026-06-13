@@ -141,6 +141,13 @@ class ActionRegistry:
 
 USER_CONTROLLED_ACTION_RESULT_MAPS = ("output",)
 USER_CONTROLLED_EVIDENCE_MAPS = ("structured_payload", "provenance")
+USER_CONTROLLED_EVIDENCE_TEXT_FIELDS = (
+    "evidence_source",
+    "summary",
+    "records_inspected",
+    "records_changed",
+    "limitations",
+)
 
 
 def _redact_action_result_payload(payload: dict[str, Any], *, sensitive_values: tuple[str, ...]) -> dict[str, Any]:
@@ -174,7 +181,7 @@ def _redact_evidence_payload(evidence_item: Any, *, sensitive_values: tuple[str,
             additional_sensitive_values=sensitive_values,
             redact_mapping_keys=True,
         )
-    for field_name in ("summary", "records_inspected", "records_changed", "limitations"):
+    for field_name in USER_CONTROLLED_EVIDENCE_TEXT_FIELDS:
         redacted[field_name] = redact_sensitive_data(
             redacted.get(field_name), additional_sensitive_values=sensitive_values
         )
@@ -199,10 +206,7 @@ def _user_controlled_payload_values(payload: dict[str, Any]) -> tuple[Any, ...]:
             if not isinstance(evidence_item, dict):
                 continue
             values.extend(evidence_item.get(field_name, {}) for field_name in USER_CONTROLLED_EVIDENCE_MAPS)
-            values.extend(
-                evidence_item.get(field_name)
-                for field_name in ("summary", "records_inspected", "records_changed", "limitations")
-            )
+            values.extend(evidence_item.get(field_name) for field_name in USER_CONTROLLED_EVIDENCE_TEXT_FIELDS)
     return tuple(values)
 
 
