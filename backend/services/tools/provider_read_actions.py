@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
@@ -29,7 +29,7 @@ SAFE_PROVIDER_EXTERNAL_READ_HEADERS = frozenset(
         "user-agent",
     }
 )
-CREDENTIAL_LIKE_HEADER_VALUE_FRAGMENTS = (
+CREDENTIAL_LIKE_VALUE_FRAGMENTS = (
     "bearer ",
     "api_key",
     "apikey",
@@ -42,15 +42,48 @@ CREDENTIAL_LIKE_HEADER_VALUE_FRAGMENTS = (
     "private_key",
     "client_secret",
 )
+SENSITIVE_URL_QUERY_KEY_FRAGMENTS = (
+    "api_key",
+    "apikey",
+    "access_token",
+    "refresh_token",
+    "authorization",
+    "bearer",
+    "token",
+    "session",
+    "cookie",
+    "credential",
+    "password",
+    "secret",
+    "private_key",
+    "client_secret",
+)
 
 
 def _normalize_safe_provider_header_name(name: str) -> str:
     return name.strip().lower()
 
 
-def _header_value_contains_credential_material(value: str) -> bool:
+def _value_contains_credential_material(value: str) -> bool:
     normalized = value.lower()
-    return any(fragment in normalized for fragment in CREDENTIAL_LIKE_HEADER_VALUE_FRAGMENTS)
+    return any(fragment in normalized for fragment in CREDENTIAL_LIKE_VALUE_FRAGMENTS)
+
+
+def _url_query_key_is_sensitive(key: str) -> bool:
+    normalized = key.strip().lower().replace("-", "_")
+    return any(fragment in normalized for fragment in SENSITIVE_URL_QUERY_KEY_FRAGMENTS)
+
+
+def _validate_provider_read_url(value: HttpUrl) -> HttpUrl:
+    parsed = urlparse(str(value))
+    if parsed.username or parsed.password:
+        raise ValueError("provider.external_read URL must not include userinfo credentials")
+    for key, item in parse_qsl(parsed.query, keep_blank_values=True):
+        if _url_query_key_is_sensitive(key):
+            raise ValueError("provider.external_read URL query must not include credential parameters")
+        if _value_contains_credential_material(item):
+            raise ValueError("provider.external_read URL query must not include credential-like values")
+    return value
 
 
 class ProviderExternalReadInput(BaseModel):
@@ -72,6 +105,11 @@ class ProviderExternalReadInput(BaseModel):
             raise ValueError("provider.external_read only supports GET or HEAD")
         return normalized
 
+    @field_validator("url")
+    @classmethod
+    def reject_credential_bearing_url_components(cls, value: HttpUrl) -> HttpUrl:
+        return _validate_provider_read_url(value)
+
     @field_validator("headers")
     @classmethod
     def validate_safe_headers(cls, value: dict[str, str]) -> dict[str, str]:
@@ -84,7 +122,7 @@ class ProviderExternalReadInput(BaseModel):
             if normalized_name not in SAFE_PROVIDER_EXTERNAL_READ_HEADERS:
                 raise ValueError("provider.external_read headers must use the safe read-only header allowlist")
             header_value = str(raw_value)
-            if _header_value_contains_credential_material(header_value):
+            if _value_contains_credential_material(header_value):
                 raise ValueError("provider.external_read headers must not include credential-like values")
             if normalized_name in normalized_headers:
                 raise ValueError("provider.external_read headers must not contain duplicate header names")

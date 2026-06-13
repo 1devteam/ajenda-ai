@@ -112,6 +112,50 @@ def test_provider_external_read_normalizes_safe_read_only_headers() -> None:
     assert payload.headers == {"accept": "application/json"}
 
 
+@pytest.mark.parametrize(
+    ("url", "message"),
+    [
+        ("https://user:raw@example.com/resource", "userinfo credentials"),
+        ("https://example.com/resource?api_key=raw", "credential parameters"),
+        ("https://example.com/resource?access-token=raw", "credential parameters"),
+        ("https://example.com/resource?session_id=raw", "credential parameters"),
+        ("https://example.com/resource?filter=Bearer%20raw-token", "credential-like values"),
+    ],
+)
+def test_provider_external_read_rejects_credential_bearing_url_components(
+    url: str,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        ProviderExternalReadInput.model_validate({"method": "GET", "url": url})
+
+
+def test_provider_external_read_rejects_credential_bearing_urls_before_egress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services.tools import provider_read_actions, runtime_authority
+
+    monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **kwargs: None)
+    spy = _EgressSpy()
+    monkeypatch.setattr(provider_read_actions, "get_default_network_egress_authority", lambda: spy)
+    authority = ToolRuntimeAuthority(
+        registry=get_default_action_registry(rebuild=True),
+        credential_authority=_credential_authority(_record()),
+    )
+
+    with pytest.raises(ValueError, match=r"invalid input for action provider\.external_read"):
+        authority.execute(
+            task=_task(
+                action="provider.external_read",
+                input_payload={"method": "GET", "url": "https://example.com/resource?api_key=raw"},
+                metadata={"credential_reference": _reference()},
+            ),
+            context=_context(),
+        )
+
+    assert spy.calls == []
+
+
 def test_provider_external_read_uses_egress_and_redacts_runtime_outputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
