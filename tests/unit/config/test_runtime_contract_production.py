@@ -21,6 +21,8 @@ from backend.app.config import Settings
 
 _VALID_WEBHOOK_KEY = Fernet.generate_key().decode()
 _VALID_WEBHOOK_KEY_PREV = Fernet.generate_key().decode()
+_VALID_RUNTIME_KEY = Fernet.generate_key().decode()
+_VALID_RUNTIME_KEY_PREV = Fernet.generate_key().decode()
 
 
 def test_budget_policy_defaults_are_inert() -> None:
@@ -60,6 +62,8 @@ def _settings(**overrides) -> Settings:
         "authz_opa_timeout_seconds": 2.0,
         "webhook_secret_encryption_key": _VALID_WEBHOOK_KEY,
         "webhook_secret_encryption_key_prev": None,
+        "runtime_secret_encryption_key": _VALID_RUNTIME_KEY,
+        "runtime_secret_encryption_key_prev": None,
         "budget_policy_enabled": False,
         "budget_policy_observe_only": True,
         "budget_policy_enforce": False,
@@ -303,6 +307,41 @@ class TestWebhookSecretEncryptionGuards:
             queue_adapter="local",
             queue_url=None,
             webhook_secret_encryption_key=None,
+        )
+        settings.validate_runtime_contract()
+
+
+class TestRuntimeSecretEncryptionGuards:
+    def test_missing_runtime_secret_encryption_key_in_production_raises(self) -> None:
+        settings = _settings(runtime_secret_encryption_key=None)
+        with pytest.raises(ValueError, match="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY is required in production"):
+            settings.validate_runtime_contract()
+
+    def test_invalid_runtime_secret_encryption_key_in_production_raises(self) -> None:
+        settings = _settings(runtime_secret_encryption_key="not-a-valid-fernet-key")
+        with pytest.raises(ValueError, match="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY must be a valid Fernet key"):
+            settings.validate_runtime_contract()
+
+    def test_deterministic_test_runtime_secret_encryption_key_in_production_raises(self) -> None:
+        settings = _settings(runtime_secret_encryption_key="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+        with pytest.raises(ValueError, match="must not use the deterministic development/test key"):
+            settings.validate_runtime_contract()
+
+    def test_valid_previous_runtime_secret_encryption_key_passes(self) -> None:
+        settings = _settings(runtime_secret_encryption_key_prev=_VALID_RUNTIME_KEY_PREV)
+        settings.validate_runtime_contract()
+
+    def test_invalid_previous_runtime_secret_encryption_key_raises(self) -> None:
+        settings = _settings(runtime_secret_encryption_key_prev="invalid-prev-key")
+        with pytest.raises(ValueError, match="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV must be a valid Fernet key"):
+            settings.validate_runtime_contract()
+
+    def test_development_allows_missing_runtime_secret_encryption_key(self) -> None:
+        settings = _settings(
+            env="development",
+            queue_adapter="local",
+            queue_url=None,
+            runtime_secret_encryption_key=None,
         )
         settings.validate_runtime_contract()
 

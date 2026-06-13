@@ -27,6 +27,7 @@ REQUIRED_PRODUCTION_ENV_VARS = frozenset(
         "AJENDA_OIDC_JWKS_URI",
         "AJENDA_OIDC_AUDIENCE",
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
+        "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
         "AJENDA_AUTHZ_POLICY_MODE",
         "AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS",
         "AJENDA_BUDGET_POLICY_ENABLED",
@@ -38,6 +39,7 @@ REQUIRED_PRODUCTION_ENV_VARS = frozenset(
 OPTIONAL_BUT_DOCUMENTED_PRODUCTION_ENV_VARS = frozenset(
     {
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
+        "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
         "AJENDA_AUTHZ_OPA_URL",
     }
 )
@@ -46,8 +48,8 @@ PRODUCTION_ENV_GUARDRAILS = (
     "local queue adapter",
     "Redis adapter without AJENDA_QUEUE_URL",
     "localhost OIDC issuer/JWKS",
-    "missing or invalid webhook secret encryption key",
-    "deterministic development/test webhook key",
+    "missing or invalid webhook/runtime secret encryption key",
+    "deterministic development/test webhook/runtime key",
     "default or blank worker tenant id",
     "invalid rate-limit settings",
     "OPA modes without OPA URL",

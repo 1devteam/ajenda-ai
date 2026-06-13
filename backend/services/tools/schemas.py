@@ -55,6 +55,7 @@ class RuntimeCredentialMaterial(BaseModel):
     reference: CredentialReference
     secret_value: str = Field(min_length=1, repr=False, exclude=True)
     injected_headers: dict[str, str] = Field(default_factory=dict, repr=False, exclude=True)
+    trusted_destination_hosts: tuple[str, ...] = Field(default_factory=tuple, repr=False, exclude=True)
 
 
 class ToolInvocation(BaseModel):

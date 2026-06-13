@@ -16,7 +16,9 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_OIDC_JWKS_URI` | yes | no | OIDC JWKS endpoint. Must not be localhost in production. |
 | `AJENDA_OIDC_AUDIENCE` | yes | no | Expected JWT audience. |
 | `AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY` | yes | yes | Fernet key for webhook signing-secret encryption. |
-| `AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV` | no | yes | Previous Fernet key during key-rotation migration windows. |
+| `AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV` | no | yes | Previous Fernet key during webhook key-rotation migration windows. |
+| `AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY` | yes | yes | Fernet key for provider runtime credential encryption. |
+| `AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV` | no | yes | Previous Fernet key during provider credential key-rotation migration windows. |
 | `AJENDA_AUTHZ_POLICY_MODE` | yes | no | rbac, shadow_opa, or enforce_opa. |
 | `AJENDA_AUTHZ_OPA_URL` | conditional | no | Required when policy mode is shadow_opa or enforce_opa. |
 | `AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS` | yes | no | OPA request timeout. |
@@ -24,17 +26,18 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_BUDGET_POLICY_OBSERVE_ONLY` | yes | no | Observe-only mode for budget policy (Bundle 5.2 default). |
 | `AJENDA_BUDGET_POLICY_ENFORCE` | yes | no | Must remain false for Bundle 5.2. |
 
-## Generate webhook encryption key
+## Generate encryption keys
 
-Run:
+Run once for each required Fernet key:
 
 python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 
-Store this value in a secrets manager and expose it as:
+Store these values in a secrets manager and expose them as:
 
 AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY
+AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY
 
-Do not use the deterministic development/test key in production.
+Do not use deterministic development/test keys in production.
 
 ## Worker tenant assignment
 
@@ -55,8 +58,8 @@ Settings.validate_runtime_contract() rejects production deployments that use:
 - local queue adapter,
 - Redis adapter without AJENDA_QUEUE_URL,
 - localhost OIDC issuer/JWKS,
-- missing or invalid webhook secret encryption key,
-- deterministic development/test webhook key,
+- missing or invalid webhook/runtime secret encryption key,
+- deterministic development/test webhook/runtime key,
 - default or blank worker tenant id,
 - invalid rate-limit settings,
 - OPA modes without OPA URL,

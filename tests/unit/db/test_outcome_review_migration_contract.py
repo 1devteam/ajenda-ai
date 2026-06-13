@@ -11,7 +11,7 @@ def test_outcome_review_migration_has_single_head_and_short_revision_id() -> Non
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0023_adapter_side_effects"]
+    assert heads == ["0024_provider_creds"]
     assert len(heads[0]) <= 32
 
 

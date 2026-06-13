@@ -619,3 +619,43 @@ def test_external_side_effect_does_not_authorize_external_read(monkeypatch: pyte
             metadata={"adapter_reference": {"adapter_id": str(adapter.id)}},
             action=_action("http.request", SideEffectClass.EXTERNAL_READ),
         )
+
+
+def test_external_read_requires_exact_adapter_classification_and_not_legacy_external_side_effect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["provider.external_read"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=["provider.external_read"])
+    action = _action("provider.external_read", SideEffectClass.EXTERNAL_READ)
+
+    monkeypatch.setattr(
+        CapabilityRepository, "get_visible_for_tenant", lambda self, *, capability_id, tenant_id: capability
+    )
+    monkeypatch.setattr(
+        CapabilityAdapterRepository, "get_visible_for_tenant", lambda self, *, adapter_id, tenant_id: adapter
+    )
+
+    with pytest.raises(CapabilityActionValidationError, match="adapter_reference"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={"capability_reference": {"capability_id": str(capability.id)}},
+            action=action,
+        )
+
+    adapter.side_effect_classification = "external_side_effect"
+    with pytest.raises(CapabilityActionValidationError, match="side_effect_classification"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={"adapter_reference": {"adapter_id": str(adapter.id)}},
+            action=action,
+        )
+
+    adapter.side_effect_classification = "external_read"
+    validate_capability_action_authority(
+        session=object(),
+        tenant_id="tenant",
+        metadata={"adapter_reference": {"adapter_id": str(adapter.id)}},
+        action=action,
+    )

@@ -32,6 +32,7 @@ PRODUCTION_REQUIRED_APP_ENV = frozenset(
         "AJENDA_OIDC_JWKS_URI",
         "AJENDA_OIDC_AUDIENCE",
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
+        "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
         "AJENDA_AUTHZ_POLICY_MODE",
         "AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS",
     }
@@ -68,6 +69,7 @@ PRODUCTION_OPTIONAL_APP_ENV = frozenset(
         "AJENDA_RATE_LIMIT_WINDOW_SECONDS",
         "AJENDA_AUTHZ_OPA_URL",
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
+        "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
     }
 )
 
@@ -109,6 +111,8 @@ SECRET_ENV = frozenset(
         "AJENDA_DATABASE_URL",
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
+        "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
+        "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
         "POSTGRES_PASSWORD",
     }
 )
@@ -194,6 +198,7 @@ def test_production_env_template_uses_supported_settings_env_names() -> None:
     assert not missing_required, f"Missing required production env names: {sorted(missing_required)}"
     assert "POSTGRES_PASSWORD=CHANGE_ME_USE_STRONG_RANDOM_PASSWORD" in env_template
     assert "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY=CHANGE_ME_GENERATE_WITH_FERNET" in env_template
+    assert "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY=CHANGE_ME_GENERATE_WITH_FERNET" in env_template
 
 
 def test_k8s_config_and_secret_partition_canonical_env_names() -> None:
