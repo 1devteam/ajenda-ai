@@ -150,6 +150,23 @@ def build_default_action_registry() -> ActionRegistry:
     register_webhook_actions(registry)
     register_calendar_actions(registry)
     registry.freeze()
+
+    # Validate that every registered action has a corresponding AbilityManifest.
+    # This check ensures manifest coverage before runtime and prevents drift
+    # between registered actions and ability rollout contracts. The import is
+    # local to avoid circular import at module load time.
+    from backend.services.abilities.catalog import INTERNAL_ABILITY_MANIFESTS  # type: ignore
+    from backend.services.abilities.rollout_validation import validate_manifest_collection  # type: ignore
+
+    try:
+        validate_manifest_collection(
+            manifests=INTERNAL_ABILITY_MANIFESTS,
+            registered_actions=registry.actions,
+            require_all_registered=True,
+        )
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(f"ability manifest coverage error: {exc}") from exc
+
     return registry
 
 
