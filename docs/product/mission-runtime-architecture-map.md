@@ -470,9 +470,21 @@ Local providers are active runtime providers for current tool actions.
 
 Examples include local calendar and local record providers.
 
+### Credential / Secret Runtime Boundary
+
+Credential authority is now an active runtime boundary, but provider activation remains separate. `ExecutionTask.metadata_json` may carry only a structured `credential_reference`; raw API keys, OAuth tokens, bearer tokens, webhook signing secrets, passwords, private keys, provider credentials, and similar secret fields are rejected before tool invocation proceeds.
+
+The enforced path is:
+
+`ExecutionTask.metadata_json.credential_reference` → `ToolRuntimeAuthority` → capability/ability promotion → `CredentialRuntimeAuthority` → runtime-only credential material on `ActionRuntimeContext.runtime_credentials` → `ActionRegistry` handler invocation → recursively redacted `ActionResult` / `EvidenceItem` output.
+
+Runtime credential lookup fails closed when the reference is missing for an action that declares a `CredentialRequirement`, unknown, cross-tenant, disabled, revoked, deleted, provider/type incompatible, action-incompatible, or side-effect-class incompatible. Credential existence is never permission to execute: capability/adapter/ability promotion and side-effect authorization still run first, and `ActionRegistry` remains the only execution registry. Runtime secret material is excluded from model serialization and is not copied into task metadata, task runtime context output, evidence payloads, action output, logs, or public denial strings. Evidence may record non-secret reference metadata such as `credential_id`, provider, and credential type.
+
+This boundary uses an interface plus deterministic in-memory/empty implementations for runtime proof. It does not claim production Vault/KMS integration, OAuth refresh, long-lived rotation, external CRM/GTM provider activation, Google SDK activation, Kubernetes mTLS, cert-manager, or service mesh.
+
 ### Future-facing provider boundaries
 
-Google Calendar provider and external credential resolution are not live runtime providers yet.
+Google Calendar provider and legacy external credential resolver contracts are not live third-party provider clients yet.
 
 - `GoogleCalendarProvider` is a future-facing provider boundary.
 - It must not be described as live Google Calendar runtime.
@@ -547,7 +559,7 @@ This is a semantic overlap / drift risk because the two paths have different mea
 | Mission task graph cleanup | Graph persistence is declarative, but replacement cleanup may cancel superseded planned materialized `ExecutionTask` rows. | Keep graph persistence tests separate from cleanup mutation tests and ensure UPG/runtime-state invariants cover cleanup. |
 | Mission route concentration | Runtime bridge mutation lanes now delegate to explicit services: `MissionRuntimeTaskMaterializationService`, `MissionRuntimeQueueAdmissionService`, `WorkerClaimAdmissionService`, `WorkerStartAdmissionService`, and `WorkerRunAdmissionService`; `backend/api/routes/mission.py` remains the route/auth/request/response wrapper. | Continue moving remaining response/read-model helpers out of the route when their contracts are separated. |
 | Declarative mutation audit policy | Business Profile explicitly appends audit events; other declarative contract lanes generally do not. | Decide whether this is intentional or whether all declarative mutations require audit events. |
-| Provider activation | Google Calendar and credential resolver are contract-only. | Build real credential resolver before live external provider activation. |
+| Provider activation | Credential runtime authority is active for references/redaction/fail-closed lookup; Google Calendar and third-party SaaS providers remain inactive. | Build production secret backend/OAuth refresh/provider clients before claiming live external provider activation. |
 | Live HTTP/webhook egress | HTTP/webhook action egress is live under shared `NetworkEgressAuthority`. HTTP read egress is promotion-gated by tenant-visible capability/adapter authority and exact `external_read` adapter classification; HTTP write/send egress additionally requires side-effect authorization. HTTP and webhook network calls enforce SSRF protections, fail-closed DNS validation, and pinned vetted-address connection for hostname targets. | Preserve HTTP destination-safety, ability manifest, capability/adapter promotion, and side-effect authority tests when extending egress behavior. |
 
 ## Disproved assumptions
@@ -629,8 +641,8 @@ Do not wire Google Calendar directly into runtime yet.
 
 Order:
 
-1. implement concrete credential resolver,
-2. add encrypted credential storage contract,
+1. add production credential storage/secret backend behind the existing runtime authority interface,
+2. add OAuth refresh/rotation only with explicit tests and docs,
 3. implement Google provider fail-closed,
 4. add readback/idempotency tests,
 5. swap calendar provider behind feature flag.

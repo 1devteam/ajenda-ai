@@ -110,3 +110,33 @@ def test_method_prefixed_scopes_parse_to_v1_route_family() -> None:
     }
 
     assert drift_check._route_families_from_scopes(scopes) == {"auth", "missions", "tasks"}
+
+
+def test_credential_runtime_boundary_requires_ledger_source_and_proof_paths(tmp_path: Path, monkeypatch) -> None:
+    _minimal_repo(tmp_path)
+    _write(
+        tmp_path / "docs/contracts/authority-ledger.v1.yaml",
+        """
+version: 1
+authority_entries:
+  - id: capability_action_runtime_contract
+    area: runtime
+    source_of_truth: [backend/services/tools/runtime_authority.py]
+    route_scope: []
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_tool_action_execution
+    allowed_side_effects: [credential references are checked]
+    forbidden_side_effects: [secret leaks]
+    required_proofs: [tests/unit/tools/test_tool_runtime_authority.py]
+""",
+    )
+    _write(tmp_path / "backend/services/tools/runtime_authority.py", "")
+    _write(tmp_path / "tests/unit/tools/test_tool_runtime_authority.py", "")
+    _patch_repo(monkeypatch, tmp_path)
+
+    issues = drift_check._check()
+
+    assert any(
+        issue.severity == "fail" and "Credential runtime boundary missing authority ledger" in issue.message
+        for issue in issues
+    )

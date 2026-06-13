@@ -721,12 +721,15 @@ authority_entries:
       - backend/services/tools/runtime_authority.py
       - backend/services/tools/action_registry.py
       - backend/services/tools/capability_validation.py
+      - backend/services/credentials/runtime_authority.py
+      - backend/services/security/redaction.py
       - backend/services/abilities/manifest.py
       - backend/services/abilities/catalog.py
       - backend/services/abilities/rollout_validation.py
       - backend/services/tools/evidence_bridge.py
       - backend/services/tools/http_actions.py
       - backend/services/tools/webhook_actions.py
+      - backend/services/tools/schemas.py
       - backend/services/network_egress.py
       - backend/services/webhook_dispatch.py
       - backend/domain/evidence.py
@@ -738,9 +741,13 @@ authority_entries:
       - persist evidence-shaped action output through the existing task-output lineage path
       - persist completed tool action evidence into tenant-owned EvidenceRecord rows after task-output lineage is appended
       - execute registered actions only when the canonical action has a valid AbilityManifest rollout/proof contract
+      - accept credential_reference metadata as non-secret runtime authority input while rejecting raw api_key, token, authorization, bearer, password, secret, private_key, client_secret, and webhook_secret keys in task metadata or tool invocation input
+      - resolve credential material only after ToolRuntimeAuthority and capability/ability promotion pass, only through CredentialRuntimeAuthority, and only when tenant visibility, enabled/non-revoked/non-deleted state, provider/type compatibility, action compatibility, and side-effect compatibility pass
+      - redact recursively before ActionResult and EvidenceItem payloads leave ActionRegistry so runtime outputs, durable evidence bridge inputs, and operator-visible task results do not contain secret material
       - execute external read/write/send/publish actions only when tenant-visible enabled capability/adapter authority and exact adapter side-effect classification explicitly authorize the concrete canonical action
       - execute side-effecting actions only when versioned invocation metadata and capability or adapter authority explicitly authorize the concrete canonical action
       - validate handler output through ActionResult and EvidenceItem scope checks before dispatcher completion
+      - record credential reference metadata such as credential_id/provider/type when needed without persisting runtime secret material
       - execute http.request as live external egress with GET/HEAD classified as EXTERNAL_READ and HTTP write methods classified as side-effecting EXTERNAL_WRITE without collapsing external read/write/send/publish authority classes
       - constrain runtime HTTP and webhook outbound destinations through shared NetworkEgressAuthority HTTPS-only validation, SSRF protections, fail-closed DNS lookup, and pinned vetted-address connection that preserves TLS SNI and HTTP Host semantics for the original hostname and uses a fresh no-keepalive client with per-request connection close to avoid pooling pinned-IP TLS sessions across hosts
     forbidden_side_effects:
@@ -749,11 +756,15 @@ authority_entries:
       - call WorkerRuntimeService.complete or WorkerRuntimeService.fail from tool actions or providers
       - allow runtime HTTP or webhook egress to reach localhost, .local, obvious internal hostnames, private/link-local/loopback/multicast/reserved/unspecified IP literals, private DNS resolutions, DNS failures, or hostname targets whose validated public DNS answer is not the pinned connection address
       - treat payload-provided http.request allowed_hosts as sufficient sole destination authority without runtime destination-safety enforcement
-      - treat ability manifests, capability records, adapter records, action registration, broad tool.invoke support, or legacy external_side_effect declarations as runtime permission for concrete external or side-effecting actions
+      - treat ability manifests, capability records, adapter records, action registration, credential existence, broad tool.invoke support, or legacy external_side_effect declarations as runtime permission for concrete external or side-effecting actions
+      - persist raw API keys, OAuth tokens, bearer tokens, passwords, webhook signing secrets, private keys, or provider credentials in ExecutionTask metadata, ActionResult output, EvidenceItem payloads, task runtime context, logs, operator errors, or docs examples
+      - claim OAuth refresh, provider SDK activation, CRM/GTM live writes/sends/publishes, Kubernetes mTLS, cert-manager, service mesh, or production Vault/KMS support from this credential boundary
     required_proofs:
       - tests/unit/tools/test_action_registry.py
       - tests/unit/tools/test_capability_action_validation.py
       - tests/unit/tools/test_tool_runtime_authority.py
+      - tests/unit/services/test_credential_runtime_authority.py
+      - tests/unit/services/test_sensitive_redaction.py
       - tests/unit/abilities/test_ability_catalog.py
       - tests/unit/abilities/test_ability_manifest_contract.py
       - tests/unit/abilities/test_ability_rollout_validation.py

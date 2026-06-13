@@ -246,3 +246,38 @@ def test_default_registry_keeps_http_read_write_and_webhook_send_authority_separ
         )
         == SideEffectClass.EXTERNAL_SEND
     )
+
+
+def test_action_registry_redacts_secret_material_from_results_and_evidence() -> None:
+    registry = ActionRegistry()
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        return ActionResult(
+            action="redact.action",
+            provider="test",
+            output={"token": "raw-token", "nested": [{"client_secret": "raw-client-secret"}]},
+            evidence=[
+                EvidenceItem(
+                    evidence_type="action_result",
+                    evidence_source="tool.invoke.redact.action",
+                    action_name="redact.action",
+                    tool_provider="test",
+                    tenant_id=context.tenant_id,
+                    task_id=str(context.task_id),
+                    mission_id=str(context.mission_id) if context.mission_id else None,
+                    summary="redaction checked",
+                    structured_payload={"api_key": "raw-api-key"},
+                )
+            ],
+            summary="redaction checked",
+        )
+
+    registry.register(ActionDefinition(name="redact.action", handler=handler, provider="test"))
+    result = registry.invoke(ToolInvocation(action="redact.action", input={}), _context())
+
+    dumped = result.model_dump(mode="json")
+    assert "raw-token" not in str(dumped)
+    assert "raw-client-secret" not in str(dumped)
+    assert "raw-api-key" not in str(dumped)
+    assert result.output["token"] == "***REDACTED***"
+    assert result.evidence[0].structured_payload["api_key"] == "***REDACTED***"

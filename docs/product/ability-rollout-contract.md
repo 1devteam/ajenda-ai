@@ -44,7 +44,7 @@ ExecutionTask
 → lineage/evidence/audit/queue result
 ```
 
-Ability manifests are rollout/proof contracts only. A manifest matching a registered action proves catalog alignment, not tenant runtime permission, capability enablement, adapter authority, side-effect authorization, or queue/lease ownership. Every canonical registered action must have exactly one matching manifest, and manifest drift is checked by `scripts/validation/ability_rollout_contract_check.py`. `ToolRuntimeAuthority` fails closed when a registered action has no valid manifest, then separately validates tenant-visible capability/adapter eligibility before it delegates to `ActionRegistry`. Future network-backed providers must reuse the shared egress authority extension point instead of defining parallel SSRF, DNS, redirect, Host/SNI, response-bounding, or side-effect rules; this contract does not activate OAuth, credential refresh, CRM/GTM provider SDKs, or durable third-party SaaS clients.
+Ability manifests are rollout/proof contracts only. A manifest matching a registered action proves catalog alignment, not tenant runtime permission, capability enablement, adapter authority, side-effect authorization, or queue/lease ownership. Every canonical registered action must have exactly one matching manifest, and manifest drift is checked by `scripts/validation/ability_rollout_contract_check.py`. `ToolRuntimeAuthority` fails closed when a registered action has no valid manifest, then separately validates tenant-visible capability/adapter eligibility before it delegates to `ActionRegistry`. Future network-backed providers must reuse the shared egress authority extension point instead of defining parallel SSRF, DNS, redirect, Host/SNI, response-bounding, or side-effect rules. Credential-aware actions must declare a credential requirement and receive only runtime-injected credential material after ToolRuntimeAuthority and tenant-visible capability/adapter promotion pass; a credential record or reference does not grant runtime permission. This contract does not activate OAuth, credential refresh, CRM/GTM provider SDKs, or durable third-party SaaS clients.
 
 ## Promotion requirements
 
@@ -55,6 +55,10 @@ A runtime-promotable ability manifest must declare approval, idempotency, eviden
 - `evidence_required=true` abilities must declare non-empty `evidence_expectations`; action handlers still must return validated `ActionResult.evidence`.
 - Internal/external write, send, and publish abilities must set `readback_required=true` or provide a concrete `readback_deferred_reason`.
 - High/critical-risk and external abilities cannot be enabled by default. Tenant-visible capability/adapter records remain declarative until `ToolRuntimeAuthority` validates enabled state, tenant scope, concrete action support, exact adapter side-effect classification, and side-effect authorization where required.
+
+### Credential references
+
+Ability rollout may require a non-secret `credential_reference`, but the reference is proof input only. Raw secret fields such as `api_key`, `token`, `authorization`, `bearer`, `password`, `secret`, `private_key`, `client_secret`, and `webhook_secret` are rejected from runtime task metadata/tool input. `CredentialRuntimeAuthority` validates tenant visibility, enabled/non-revoked/non-deleted state, provider/type compatibility, action compatibility, and side-effect-class compatibility after promotion passes and before a handler receives runtime-only credential material. `ActionRegistry` redacts handler output and evidence recursively so secret material cannot become ability proof.
 
 ### HTTP request idempotency
 
