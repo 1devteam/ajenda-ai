@@ -20,6 +20,7 @@ from backend.domain import (  # noqa: F401
     LineageRecord,
     Mission,
     OutcomeReview,
+    ProviderRuntimeCredential,
     RetrievalContract,
     UserWorkforceAgent,
     WorkerLease,

@@ -722,6 +722,8 @@ authority_entries:
       - backend/services/tools/action_registry.py
       - backend/services/tools/capability_validation.py
       - backend/services/credentials/runtime_authority.py
+      - backend/services/credentials/sqlalchemy_repository.py
+      - backend/domain/provider_runtime_credential.py
       - backend/services/security/redaction.py
       - backend/services/abilities/manifest.py
       - backend/services/abilities/catalog.py
@@ -743,7 +745,7 @@ authority_entries:
       - persist completed tool action evidence into tenant-owned EvidenceRecord rows after task-output lineage is appended
       - execute registered actions only when the canonical action has a valid AbilityManifest rollout/proof contract
       - accept credential_reference metadata as non-secret runtime authority input while rejecting raw api_key, token, authorization, bearer, password, secret, private_key, client_secret, and webhook_secret keys in task metadata or tool invocation input
-      - resolve credential material only after ToolRuntimeAuthority and capability/ability promotion pass, only through CredentialRuntimeAuthority, and only when tenant visibility, enabled/non-revoked/non-deleted state, provider/type compatibility, action compatibility, side-effect compatibility, and credential-bound trusted destination metadata pass for credentialed provider egress
+      - resolve credential material only after ToolRuntimeAuthority and capability/ability promotion pass, only through CredentialRuntimeAuthority backed by a live SQLAlchemy credential runtime repository in the worker path, and only when tenant visibility, enabled/non-revoked/non-deleted state, provider/type compatibility, action compatibility, side-effect compatibility, and credential-bound trusted destination metadata pass for credentialed provider egress
       - redact recursively before ActionResult and EvidenceItem payloads leave ActionRegistry so runtime outputs, durable evidence bridge inputs, and operator-visible task results do not contain secret material
       - execute external read/write/send/publish actions only when tenant-visible enabled capability/adapter authority and exact adapter side-effect classification explicitly authorize the concrete canonical action
       - execute side-effecting actions only when versioned invocation metadata and capability or adapter authority explicitly authorize the concrete canonical action

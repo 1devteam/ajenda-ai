@@ -17,6 +17,7 @@ from backend.domain.governance_event import GovernanceEvent
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.domain.outcome_review import OutcomeReview
+from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
 from backend.domain.retrieval_contract import RetrievalContract
 from backend.domain.user_workforce_agent import UserWorkforceAgent
 from backend.domain.worker_lease import WorkerLease
@@ -38,6 +39,7 @@ __all__ = [
     "Mission",
     "MissionState",
     "OutcomeReview",
+    "ProviderRuntimeCredential",
     "RetrievalContract",
     "UserWorkforceAgent",
     "UserWorkforceAgentState",
