@@ -73,7 +73,9 @@ def test_redaction_accepts_configured_sensitive_values_recursively() -> None:
 
     assert contains_sensitive_value(payload, {"sk-runtime-12345"}) is True
 
-    redacted = redact_sensitive_data(payload, additional_sensitive_values={"sk-runtime-12345"})
+    redacted = redact_sensitive_data(
+        payload, additional_sensitive_values={"sk-runtime-12345"}, redact_mapping_keys=True
+    )
 
     assert redacted == {
         "summary": "neutral field leaked ***REDACTED***",

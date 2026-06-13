@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
@@ -79,18 +80,18 @@ class ActionRegistry:
                 definition.input_model.model_validate(invocation.input)
             except ValidationError as exc:
                 raise ValueError(f"invalid input for action {definition.name}") from exc
+        sensitive_values = _runtime_credential_values(context)
         result = definition.handler(invocation, context)
         try:
             parsed = ActionResult.model_validate(result)
             # Force a fresh validation pass even when the handler returned an
             # ActionResult instance. Pydantic's default instance revalidation can
             # otherwise return a mutated/model_construct instance as-is.
-            sensitive_values = _runtime_credential_values(context)
-            redacted_payload = redact_sensitive_data(
-                parsed.model_dump(mode="json"), additional_sensitive_values=sensitive_values
+            redacted_payload = _redact_action_result_payload(
+                parsed.model_dump(mode="json"), sensitive_values=sensitive_values
             )
             validated = ActionResult.model_validate(redacted_payload)
-            if contains_sensitive_value(validated.model_dump(mode="json"), sensitive_values):
+            if _contains_action_result_sensitive_value(validated.model_dump(mode="json"), sensitive_values):
                 raise ValueError("action result contains runtime credential material")
         except ValidationError as exc:
             raise ValueError(f"action {definition.name} must return valid ActionResult: {exc}") from exc
@@ -136,6 +137,73 @@ class ActionRegistry:
     @property
     def actions(self) -> Mapping[str, ActionDefinition]:
         return MappingProxyType(dict(self._actions))
+
+
+USER_CONTROLLED_ACTION_RESULT_MAPS = ("output",)
+USER_CONTROLLED_EVIDENCE_MAPS = ("structured_payload", "provenance")
+
+
+def _redact_action_result_payload(payload: dict[str, Any], *, sensitive_values: tuple[str, ...]) -> dict[str, Any]:
+    redacted = dict(payload)
+    for field_name in USER_CONTROLLED_ACTION_RESULT_MAPS:
+        redacted[field_name] = redact_sensitive_data(
+            redacted.get(field_name, {}),
+            additional_sensitive_values=sensitive_values,
+            redact_mapping_keys=True,
+        )
+    for field_name in ("records_inspected", "records_changed", "summary", "limitations"):
+        redacted[field_name] = redact_sensitive_data(
+            redacted.get(field_name), additional_sensitive_values=sensitive_values
+        )
+    evidence_items = redacted.get("evidence", [])
+    if isinstance(evidence_items, list):
+        redacted["evidence"] = [
+            _redact_evidence_payload(evidence_item, sensitive_values=sensitive_values)
+            for evidence_item in evidence_items
+        ]
+    return redacted
+
+
+def _redact_evidence_payload(evidence_item: Any, *, sensitive_values: tuple[str, ...]) -> Any:
+    if not isinstance(evidence_item, dict):
+        return evidence_item
+    redacted = dict(evidence_item)
+    for field_name in USER_CONTROLLED_EVIDENCE_MAPS:
+        redacted[field_name] = redact_sensitive_data(
+            redacted.get(field_name, {}),
+            additional_sensitive_values=sensitive_values,
+            redact_mapping_keys=True,
+        )
+    for field_name in ("summary", "records_inspected", "records_changed", "limitations"):
+        redacted[field_name] = redact_sensitive_data(
+            redacted.get(field_name), additional_sensitive_values=sensitive_values
+        )
+    return redacted
+
+
+def _contains_action_result_sensitive_value(payload: dict[str, Any], sensitive_values: tuple[str, ...]) -> bool:
+    return any(
+        contains_sensitive_value(value, sensitive_values, inspect_mapping_keys=True)
+        for value in _user_controlled_payload_values(payload)
+    )
+
+
+def _user_controlled_payload_values(payload: dict[str, Any]) -> tuple[Any, ...]:
+    values: list[Any] = [payload.get(field_name, {}) for field_name in USER_CONTROLLED_ACTION_RESULT_MAPS]
+    values.extend(
+        payload.get(field_name) for field_name in ("records_inspected", "records_changed", "summary", "limitations")
+    )
+    evidence_items = payload.get("evidence", [])
+    if isinstance(evidence_items, list):
+        for evidence_item in evidence_items:
+            if not isinstance(evidence_item, dict):
+                continue
+            values.extend(evidence_item.get(field_name, {}) for field_name in USER_CONTROLLED_EVIDENCE_MAPS)
+            values.extend(
+                evidence_item.get(field_name)
+                for field_name in ("summary", "records_inspected", "records_changed", "limitations")
+            )
+    return tuple(values)
 
 
 def _runtime_credential_values(context: ActionRuntimeContext) -> tuple[str, ...]:
