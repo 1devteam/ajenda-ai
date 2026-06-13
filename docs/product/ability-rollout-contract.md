@@ -34,8 +34,13 @@ ExecutionTask
 → queue-backed worker claim/start/run
 → TaskDispatcher
 → tool.invoke handler
+→ ToolRuntimeAuthority
 → ActionRegistry
+→ concrete action authority validation
 → action handler/provider
-→ ActionResult
+→ validated ActionResult and EvidenceItem
 → WorkerRuntimeService.complete/fail
 → lineage/evidence/audit/queue result
+```
+
+Ability manifests are rollout/proof contracts only. A manifest matching a registered action proves catalog alignment, not tenant runtime permission, capability enablement, adapter authority, side-effect authorization, or queue/lease ownership. Every canonical registered action must have a matching manifest, and manifest drift is checked by `scripts/validation/ability_rollout_contract_check.py`.

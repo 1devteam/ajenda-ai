@@ -718,6 +718,7 @@ authority_entries:
     source_of_truth:
       - backend/workers/task_dispatcher.py
       - backend/workers/handlers/tool_invoke.py
+      - backend/services/tools/runtime_authority.py
       - backend/services/tools/action_registry.py
       - backend/services/tools/capability_validation.py
       - backend/services/tools/evidence_bridge.py
@@ -730,8 +731,9 @@ authority_entries:
       - execute registered in-process actions only after an ExecutionTask has been queued, claimed, and started through worker lease authority
       - persist evidence-shaped action output through the existing task-output lineage path
       - persist completed tool action evidence into tenant-owned EvidenceRecord rows after task-output lineage is appended
-      - execute side-effecting actions only when versioned invocation metadata and capability or adapter authority explicitly authorize the concrete action
-      - execute http.request as live external egress with GET/HEAD classified as EXTERNAL_READ and HTTP write methods classified as side-effecting EXTERNAL_WRITE
+      - execute side-effecting actions only when versioned invocation metadata and capability or adapter authority explicitly authorize the concrete canonical action
+      - validate handler output through ActionResult and EvidenceItem scope checks before dispatcher completion
+      - execute http.request as live external egress with GET/HEAD classified as EXTERNAL_READ and HTTP write methods classified as side-effecting EXTERNAL_WRITE without collapsing external read/write/send/publish authority classes
       - constrain http.request destinations with HTTPS-only validation, SSRF protections, fail-closed DNS lookup, and pinned vetted-address connection that preserves TLS SNI and HTTP Host semantics for the original hostname
     forbidden_side_effects:
       - execute capabilities directly from declarative capability or adapter records
@@ -739,10 +741,14 @@ authority_entries:
       - call WorkerRuntimeService.complete or WorkerRuntimeService.fail from tool actions or providers
       - allow http.request to reach localhost, .local, obvious internal hostnames, private/link-local/loopback/multicast/reserved/unspecified IP literals, private DNS resolutions, DNS failures, or hostname targets whose validated public DNS answer is not the pinned connection address
       - treat payload-provided http.request allowed_hosts as sufficient sole destination authority without runtime destination-safety enforcement
+      - treat ability manifests, capability records, adapter records, action registration, or broad tool.invoke support as runtime permission for concrete side-effecting actions
     required_proofs:
       - tests/unit/tools/test_action_registry.py
+      - tests/unit/tools/test_capability_action_validation.py
       - tests/unit/tools/test_http_actions.py
       - tests/unit/tools/test_evidence_bridge.py
       - tests/unit/workers/test_tool_invoke_handler.py
       - tests/unit/workers/test_task_dispatcher_runtime_contract.py
+      - tests/unit/architecture/test_authority_ledger_contract.py
+      - scripts/validation/ability_rollout_contract_check.py
       - tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py

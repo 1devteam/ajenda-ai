@@ -187,3 +187,21 @@ def test_mixed_method_admission_routes_use_expected_authority_classes() -> None:
         for method, expected_authority_class in methods.items():
             block = _block_for_route_scope(f"{method} {path}")
             assert f"authority_class: {expected_authority_class}" in block
+
+
+def test_tool_action_providers_do_not_import_worker_runtime_completion_authority() -> None:
+    import ast
+
+    provider_paths = [
+        path
+        for path in (REPO_ROOT / "backend" / "services" / "tools").glob("*_actions.py")
+        if path.name not in {"runtime_authority.py"}
+    ]
+    assert provider_paths
+    for path in provider_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                assert node.module != "backend.services.worker_runtime_service", path
+            elif isinstance(node, ast.Import):
+                assert all(alias.name != "backend.services.worker_runtime_service" for alias in node.names), path

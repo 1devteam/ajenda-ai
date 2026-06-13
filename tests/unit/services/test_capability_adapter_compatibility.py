@@ -67,12 +67,12 @@ def test_adapter_risk_cannot_understate_capability_risk() -> None:
         validate_capability_adapter_compatibility(capability=capability, adapter=adapter)
 
 
-def test_external_side_effect_requires_approval() -> None:
+def test_external_send_requires_approval() -> None:
     capability_id = uuid.uuid4()
     capability = _capability(id=capability_id)
-    adapter = _adapter(capability_id=capability_id, side_effect_classification="external_side_effect")
+    adapter = _adapter(capability_id=capability_id, side_effect_classification="external_send")
 
-    with pytest.raises(CapabilityAdapterCompatibilityError, match="external_side_effect"):
+    with pytest.raises(CapabilityAdapterCompatibilityError, match="external_send"):
         validate_capability_adapter_compatibility(capability=capability, adapter=adapter)
 
 
@@ -83,3 +83,11 @@ def test_enabled_adapter_cannot_bind_to_disabled_capability() -> None:
 
     with pytest.raises(CapabilityAdapterCompatibilityError, match="disabled capability"):
         validate_capability_adapter_compatibility(capability=capability, adapter=adapter)
+
+
+def test_external_read_does_not_require_approval_by_adapter_compatibility() -> None:
+    capability_id = uuid.uuid4()
+    capability = _capability(id=capability_id)
+    adapter = _adapter(capability_id=capability_id, side_effect_classification="external_read")
+
+    validate_capability_adapter_compatibility(capability=capability, adapter=adapter)

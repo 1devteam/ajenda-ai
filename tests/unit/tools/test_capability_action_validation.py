@@ -432,3 +432,108 @@ def test_adapter_write_classifications_reject_external_side_effects(
             },
             action=_action("webhook.dispatch", SideEffectClass.EXTERNAL_SEND),
         )
+
+
+def test_adapter_external_read_classification_does_not_authorize_external_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["http.request"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=["http.request"])
+    adapter.side_effect_classification = SideEffectClass.EXTERNAL_READ.value
+
+    monkeypatch.setattr(
+        CapabilityAdapterRepository,
+        "get_visible_for_tenant",
+        lambda self, *, adapter_id, tenant_id: adapter,
+    )
+
+    with pytest.raises(CapabilityActionValidationError, match="side_effect_classification"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={
+                "adapter_reference": {"adapter_id": str(adapter.id)},
+                "execution_constraints": {
+                    "side_effect_authorization": {
+                        "schema_version": 1,
+                        "allowed_actions": ["http.request"],
+                        "reason": "unit test authorization",
+                        "approved_by": "qa",
+                    }
+                },
+            },
+            action=_action("http.request", SideEffectClass.EXTERNAL_WRITE),
+        )
+
+
+@pytest.mark.parametrize(
+    ("classification", "side_effect_class"),
+    [
+        (SideEffectClass.EXTERNAL_WRITE.value, SideEffectClass.EXTERNAL_SEND),
+        (SideEffectClass.EXTERNAL_SEND.value, SideEffectClass.EXTERNAL_PUBLISH),
+        ("external_side_effect", SideEffectClass.EXTERNAL_WRITE),
+    ],
+)
+def test_external_adapter_classifications_must_match_effective_side_effect_exactly(
+    monkeypatch: pytest.MonkeyPatch,
+    classification: str,
+    side_effect_class: SideEffectClass,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["external.action"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=["external.action"])
+    adapter.side_effect_classification = classification
+
+    monkeypatch.setattr(
+        CapabilityAdapterRepository,
+        "get_visible_for_tenant",
+        lambda self, *, adapter_id, tenant_id: adapter,
+    )
+
+    with pytest.raises(CapabilityActionValidationError, match="side_effect_classification"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={
+                "adapter_reference": {"adapter_id": str(adapter.id)},
+                "execution_constraints": {
+                    "side_effect_authorization": {
+                        "schema_version": 1,
+                        "allowed_actions": ["external.action"],
+                        "reason": "unit test authorization",
+                        "approved_by": "qa",
+                    }
+                },
+            },
+            action=_action("external.action", side_effect_class),
+        )
+
+
+def test_external_adapter_classification_accepts_exact_effective_side_effect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["webhook.dispatch"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=["webhook.dispatch"])
+    adapter.side_effect_classification = SideEffectClass.EXTERNAL_SEND.value
+
+    monkeypatch.setattr(
+        CapabilityAdapterRepository,
+        "get_visible_for_tenant",
+        lambda self, *, adapter_id, tenant_id: adapter,
+    )
+
+    validate_capability_action_authority(
+        session=object(),
+        tenant_id="tenant",
+        metadata={
+            "adapter_reference": {"adapter_id": str(adapter.id)},
+            "execution_constraints": {
+                "side_effect_authorization": {
+                    "schema_version": 1,
+                    "allowed_actions": ["webhook.dispatch"],
+                    "reason": "unit test authorization",
+                    "approved_by": "qa",
+                }
+            },
+        },
+        action=_action("webhook.dispatch", SideEffectClass.EXTERNAL_SEND),
+    )

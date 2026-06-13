@@ -482,13 +482,13 @@ def test_adapter_create_rejects_understated_risk() -> None:
     adapter_repo.add.assert_not_called()
 
 
-def test_adapter_create_rejects_external_side_effect_without_approval() -> None:
+def test_adapter_create_rejects_external_send_without_approval() -> None:
     tenant_id = uuid.uuid4()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
     payload = _valid_payload()
     payload["approval_requirements"] = {"required": False, "approver_roles": [], "conditions": []}
-    payload["side_effect_classification"] = "external_side_effect"
+    payload["side_effect_classification"] = "external_send"
     adapter_repo = MagicMock()
     adapter_repo.get_conflict_for_scope.return_value = None
     capability_repo = MagicMock()
@@ -501,7 +501,7 @@ def test_adapter_create_rejects_external_side_effect_without_approval() -> None:
         response = client.post("/v1/capability-adapters", json=payload)
 
     assert response.status_code == 422
-    assert "external_side_effect" in response.text
+    assert "external_send" in response.text
     adapter_repo.add.assert_not_called()
 
 

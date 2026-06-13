@@ -169,5 +169,8 @@ def _adapter_authorizes_side_effect_class(*, classification: str, side_effect_cl
     if classification in {"internal_side_effect", "idempotent_write", "non_idempotent_write"}:
         return side_effect_class.value.startswith("internal_")
     if classification == "external_side_effect":
-        return side_effect_class.value.startswith("external_")
+        # Historical broad external declarations are not concrete enough for the
+        # completed tool authority lane: external read/write/send/publish classes
+        # must remain distinct and require exact adapter classification.
+        return False
     return False

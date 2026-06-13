@@ -11,7 +11,7 @@ def test_evidence_migration_has_single_head_and_short_revision_id() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0022_add_business_profiles"]
+    assert heads == ["0023_adapter_side_effects"]
     assert len(heads[0]) <= 32
 
 
