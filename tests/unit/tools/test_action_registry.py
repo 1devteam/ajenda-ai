@@ -442,3 +442,16 @@ def test_action_registry_redacts_secret_material_from_results_and_evidence() -> 
     assert "raw-api-key" not in str(dumped)
     assert result.output["token"] == "***REDACTED***"
     assert result.evidence[0].structured_payload["api_key"] == "***REDACTED***"
+
+
+def test_default_registry_includes_provider_external_read_action() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    definition = registry.get("provider.external_read")
+
+    assert definition.name == "provider.external_read"
+    assert definition.provider == "external_read_provider"
+    assert definition.side_effect_class == SideEffectClass.EXTERNAL_READ
+    assert definition.credential_requirement is not None
+    assert definition.credential_requirement.provider == "external_read_provider"
+    assert definition.credential_requirement.credential_type == "api_key"
+    assert definition.credential_requirement.allowed_side_effect_classes == (SideEffectClass.EXTERNAL_READ,)

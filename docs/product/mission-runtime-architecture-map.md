@@ -243,9 +243,9 @@ This section defines the fourteen subsystem lanes used for future Ajenda impleme
 ### 11. Tool/action runtime
 
 - **Purpose:** Governed action execution layer under `tool.invoke`; registration is not execution authority and side effects require explicit runtime permission.
-- **Current status:** lane complete for runtime authority over registered in-process/local proof actions and shared network egress authority for runtime HTTP/webhook tool actions; third-party provider activation, OAuth, credential refresh, and durable SaaS clients remain separate future lanes.
+- **Current status:** lane complete for runtime authority over registered in-process/local proof actions and shared network egress authority for runtime HTTP/webhook tool actions; the canonical read-only external provider action (`provider.external_read`) is active for HTTPS GET/HEAD only through credential authority and network egress; OAuth, credential refresh, writes/sends/publishes, CRM/GTM mutations, and durable SaaS client fleets remain separate future lanes.
 - **Authority layer(s):** `runtime_authoritative` for `tool.invoke`; related capability/adapter records remain `declarative`.
-- **Source-of-truth files:** `backend/workers/handlers/tool_invoke.py`, `backend/services/tools/runtime_authority.py`, `backend/services/tools/action_registry.py`, `backend/services/tools/capability_validation.py`, `backend/services/tools/schemas.py`, `backend/services/network_egress.py`, `backend/services/tools/http_actions.py`, `backend/services/tools/webhook_actions.py`, `backend/services/webhook_dispatch.py`, `backend/services/tools/evidence_bridge.py`.
+- **Source-of-truth files:** `backend/workers/handlers/tool_invoke.py`, `backend/services/tools/runtime_authority.py`, `backend/services/tools/action_registry.py`, `backend/services/tools/capability_validation.py`, `backend/services/tools/schemas.py`, `backend/services/network_egress.py`, `backend/services/tools/http_actions.py`, `backend/services/tools/provider_read_actions.py`, `backend/services/tools/webhook_actions.py`, `backend/services/webhook_dispatch.py`, `backend/services/tools/evidence_bridge.py`.
 - **Entry points:** `tool_invoke_handler()` delegates to `ToolRuntimeAuthority`; `ActionRegistry.invoke()` validates registered handler input/output; default action registry builder in `action_registry.py`; capability authority validation helpers; HTTP/webhook action registrations.
 - **Allowed effects:** execute known actions only from a queued/claimed/started `ExecutionTask`; enforce invocation schema, effective side-effect class, runtime side-effect authorization, concrete capability/adapter authority for side-effecting actions, tenant context, handler `ActionResult`, and scoped `EvidenceItem` output.
 - **Forbidden effects:** treating registry presence or broad `tool.invoke` support as concrete action permission, weakening side-effect authorization, declarative capability/adapter/ability records becoming runtime bindings automatically, collapsing `EXTERNAL_READ`, `EXTERNAL_WRITE`, `EXTERNAL_SEND`, or `EXTERNAL_PUBLISH` into each other, provider direct calls to `WorkerRuntimeService.complete()`/`fail()`, or tenant/context bypass.
@@ -255,7 +255,7 @@ This section defines the fourteen subsystem lanes used for future Ajenda impleme
 - **Evidence/audit requirements:** successful actions return validated `ActionResult` with at least one scoped `EvidenceItem`; live egress must preserve effective side-effect classification and audit/evidence expectations.
 - **Failure/recovery semantics:** unknown actions and malformed invocations fail closed before side effects; shared network egress destination safety fails closed; action failure returns controlled runtime failure through dispatcher without evidence/output secret leakage.
 - **Existing tests/proofs:** `tests/unit/tools/test_action_registry.py`, `tests/unit/tools/test_capability_action_validation.py`, `tests/unit/tools/test_http_actions.py`, `tests/unit/tools/test_evidence_bridge.py`, `tests/unit/workers/test_tool_invoke_handler.py`, `tests/unit/architecture/test_authority_ledger_contract.py`, `tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py`.
-- **Missing proof, if any:** external credential/OAuth, durable third-party provider clients, and provider-specific readback/idempotency tests are required before new live third-party providers are claimed complete.
+- **Missing proof, if any:** OAuth, durable third-party provider clients, provider-specific readback/idempotency tests, writes, sends, publishes, and CRM/GTM mutations are required before broader live third-party providers are claimed complete.
 - **Pitfalls to avoid:** binding declarative records directly to runtime, treating future providers as live, mixing local/proof providers with external activation, or broadening side effects for convenience.
 - **Must-read before modification:** source-of-truth files and listed tests.
 
@@ -472,7 +472,7 @@ Examples include local calendar and local record providers.
 
 ### Credential / Secret Runtime Boundary
 
-Credential authority is now an active runtime boundary, but provider activation remains separate. `ExecutionTask.metadata_json` may carry only a structured `credential_reference`; raw API keys, OAuth tokens, bearer tokens, webhook signing secrets, passwords, private keys, provider credentials, and similar secret fields are rejected before tool invocation proceeds.
+Credential authority is now an active runtime boundary, and one narrow read-only provider action is active. `ExecutionTask.metadata_json` may carry only a structured `credential_reference`; raw API keys, OAuth tokens, bearer tokens, webhook signing secrets, passwords, private keys, provider credentials, and similar secret fields are rejected before tool invocation proceeds.
 
 The enforced path is:
 
@@ -480,11 +480,11 @@ The enforced path is:
 
 Runtime credential lookup fails closed when the reference is missing for an action that declares a `CredentialRequirement`, unknown, cross-tenant, disabled, revoked, deleted, provider/type incompatible, action-incompatible, or side-effect-class incompatible. Credential existence is never permission to execute: capability/adapter/ability promotion and side-effect authorization still run first, and `ActionRegistry` remains the only execution registry. Runtime secret material is excluded from model serialization and is not copied into task metadata, task runtime context output, evidence payloads, action output, logs, or public denial strings. Evidence may record non-secret reference metadata such as `credential_id`, provider, and credential type.
 
-This boundary uses an interface plus deterministic in-memory/empty implementations for runtime proof. It does not claim production Vault/KMS integration, OAuth refresh, long-lived rotation, external CRM/GTM provider activation, Google SDK activation, Kubernetes mTLS, cert-manager, or service mesh.
+This boundary uses an interface plus deterministic in-memory/empty implementations for runtime proof. The only activated external provider path is `provider.external_read` for credentialed HTTPS GET/HEAD through `NetworkEgressAuthority`; it does not claim production Vault/KMS integration, OAuth refresh, long-lived rotation, external CRM/GTM mutations, Google SDK activation, Kubernetes mTLS, cert-manager, or service mesh.
 
 ### Future-facing provider boundaries
 
-Google Calendar provider and legacy external credential resolver contracts are not live third-party provider clients yet.
+`provider.external_read` is live as a generic read-only HTTPS GET/HEAD provider path. Google Calendar provider and legacy external credential resolver contracts are not live third-party provider clients yet.
 
 - `GoogleCalendarProvider` is a future-facing provider boundary.
 - It must not be described as live Google Calendar runtime.
@@ -497,7 +497,7 @@ Calendar actions are real runtime actions, but currently backed by local/proof p
 
 Future-facing provider boundaries are not the same as live external egress actions.
 
-`http.request` and `webhook.dispatch` are live external egress action surfaces registered through the tool/action runtime.
+`provider.external_read`, `http.request`, and `webhook.dispatch` are live external egress action surfaces registered through the tool/action runtime. Only `provider.external_read` is the canonical read-only provider activation path; webhook remains send-only and HTTP remains a generic HTTP tool surface.
 
 Important distinction:
 
@@ -559,7 +559,7 @@ This is a semantic overlap / drift risk because the two paths have different mea
 | Mission task graph cleanup | Graph persistence is declarative, but replacement cleanup may cancel superseded planned materialized `ExecutionTask` rows. | Keep graph persistence tests separate from cleanup mutation tests and ensure UPG/runtime-state invariants cover cleanup. |
 | Mission route concentration | Runtime bridge mutation lanes now delegate to explicit services: `MissionRuntimeTaskMaterializationService`, `MissionRuntimeQueueAdmissionService`, `WorkerClaimAdmissionService`, `WorkerStartAdmissionService`, and `WorkerRunAdmissionService`; `backend/api/routes/mission.py` remains the route/auth/request/response wrapper. | Continue moving remaining response/read-model helpers out of the route when their contracts are separated. |
 | Declarative mutation audit policy | Business Profile explicitly appends audit events; other declarative contract lanes generally do not. | Decide whether this is intentional or whether all declarative mutations require audit events. |
-| Provider activation | Credential runtime authority is active for references/redaction/fail-closed lookup; Google Calendar and third-party SaaS providers remain inactive. | Build production secret backend/OAuth refresh/provider clients before claiming live external provider activation. |
+| Provider activation | One canonical read-only external provider path is active: `provider.external_read` performs credentialed HTTPS GET/HEAD only through ToolRuntimeAuthority, exact `external_read` adapter promotion, CredentialRuntimeAuthority, ActionRegistry, NetworkEgressAuthority, and redacted ActionResult/EvidenceItem output. Google Calendar, CRM/GTM mutations, OAuth refresh, writes/sends/publishes, and third-party SaaS SDK fleets remain inactive. | Build production secret backend/OAuth refresh/provider clients and mutation-specific safety proof before claiming broader live external provider activation. |
 | Live HTTP/webhook egress | HTTP/webhook action egress is live under shared `NetworkEgressAuthority`. HTTP read egress is promotion-gated by tenant-visible capability/adapter authority and exact `external_read` adapter classification; HTTP write/send egress additionally requires side-effect authorization. HTTP and webhook network calls enforce SSRF protections, fail-closed DNS validation, and pinned vetted-address connection for hostname targets. | Preserve HTTP destination-safety, ability manifest, capability/adapter promotion, and side-effect authority tests when extending egress behavior. |
 
 ## Disproved assumptions
