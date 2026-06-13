@@ -84,6 +84,34 @@ def test_provider_external_read_rejects_write_methods_and_raw_secret_input() -> 
         )
 
 
+@pytest.mark.parametrize(
+    ("headers", "message"),
+    [
+        ({"Cookie": "session=raw"}, "safe read-only header allowlist"),
+        ({"X-Api-Key": "raw"}, "raw credential"),
+        ({"X-Provider-Session": "session=raw"}, "safe read-only header allowlist"),
+        ({"Accept": "Bearer raw-token"}, "credential-like values"),
+        ({"User-Agent": "client session=raw"}, "credential-like values"),
+    ],
+)
+def test_provider_external_read_rejects_cookie_custom_and_credential_like_headers(
+    headers: dict[str, str],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        ProviderExternalReadInput.model_validate(
+            {"method": "GET", "url": "https://example.com/resource", "headers": headers}
+        )
+
+
+def test_provider_external_read_normalizes_safe_read_only_headers() -> None:
+    payload = ProviderExternalReadInput.model_validate(
+        {"method": "GET", "url": "https://example.com/resource", "headers": {"Accept": "application/json"}}
+    )
+
+    assert payload.headers == {"accept": "application/json"}
+
+
 def test_provider_external_read_uses_egress_and_redacts_runtime_outputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -19,6 +19,38 @@ from backend.services.tools.schemas import (
 PROVIDER_EXTERNAL_READ_ACTION = "provider.external_read"
 PROVIDER_EXTERNAL_READ_PROVIDER = "external_read_provider"
 PROVIDER_EXTERNAL_READ_CREDENTIAL_TYPE = "api_key"
+SAFE_PROVIDER_EXTERNAL_READ_HEADERS = frozenset(
+    {
+        "accept",
+        "accept-language",
+        "cache-control",
+        "if-modified-since",
+        "if-none-match",
+        "user-agent",
+    }
+)
+CREDENTIAL_LIKE_HEADER_VALUE_FRAGMENTS = (
+    "bearer ",
+    "api_key",
+    "apikey",
+    "access_token",
+    "refresh_token",
+    "token=",
+    "session=",
+    "secret",
+    "password",
+    "private_key",
+    "client_secret",
+)
+
+
+def _normalize_safe_provider_header_name(name: str) -> str:
+    return name.strip().lower()
+
+
+def _header_value_contains_credential_material(value: str) -> bool:
+    normalized = value.lower()
+    return any(fragment in normalized for fragment in CREDENTIAL_LIKE_HEADER_VALUE_FRAGMENTS)
 
 
 class ProviderExternalReadInput(BaseModel):
@@ -42,10 +74,22 @@ class ProviderExternalReadInput(BaseModel):
 
     @field_validator("headers")
     @classmethod
-    def reject_raw_auth_headers(cls, value: dict[str, str]) -> dict[str, str]:
+    def validate_safe_headers(cls, value: dict[str, str]) -> dict[str, str]:
         if contains_sensitive_key(value):
             raise ValueError("provider.external_read headers must not include raw credential material")
-        return value
+        normalized_headers: dict[str, str] = {}
+        for raw_name, raw_value in value.items():
+            header_name = raw_name.strip()
+            normalized_name = _normalize_safe_provider_header_name(header_name)
+            if normalized_name not in SAFE_PROVIDER_EXTERNAL_READ_HEADERS:
+                raise ValueError("provider.external_read headers must use the safe read-only header allowlist")
+            header_value = str(raw_value)
+            if _header_value_contains_credential_material(header_value):
+                raise ValueError("provider.external_read headers must not include credential-like values")
+            if normalized_name in normalized_headers:
+                raise ValueError("provider.external_read headers must not contain duplicate header names")
+            normalized_headers[normalized_name] = header_value
+        return normalized_headers
 
 
 def _normalized_url_host(url: str) -> str:
