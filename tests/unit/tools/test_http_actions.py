@@ -206,6 +206,7 @@ def test_http_request_keeps_redirects_disabled(monkeypatch: pytest.MonkeyPatch) 
 
     request = _FakeClient.instances[0].requests[0]
     assert _FakeClient.instances[0].kwargs["follow_redirects"] is False
+    assert request["follow_redirects"] is False
     assert request["headers"]["Connection"] == "close"
 
 

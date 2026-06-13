@@ -606,6 +606,7 @@ def test_webhook_dispatch_uses_shared_network_egress_pinning() -> None:
     assert url == "https://93.184.216.34/hook"
     assert request_kwargs["headers"]["Host"] == "example.com"
     assert request_kwargs["headers"]["Connection"] == "close"
+    assert request_kwargs["follow_redirects"] is False
     assert request_kwargs["extensions"] == {"sni_hostname": "example.com"}
 
 
@@ -640,6 +641,8 @@ def test_webhook_dispatch_forces_connection_close_for_hosts_sharing_pinned_ip() 
     assert first_call.args[1] == "https://93.184.216.34/hook"
     assert first_call.kwargs["headers"]["Host"] == "example.com"
     assert first_call.kwargs["headers"]["Connection"] == "close"
+    assert first_call.kwargs["follow_redirects"] is False
     assert second_call.args[1] == "https://93.184.216.34/hook"
     assert second_call.kwargs["headers"]["Host"] == "other.example.com"
     assert second_call.kwargs["headers"]["Connection"] == "close"
+    assert second_call.kwargs["follow_redirects"] is False

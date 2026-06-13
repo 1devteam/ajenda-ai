@@ -161,6 +161,7 @@ class NetworkEgressAuthority:
         request_kwargs: dict[str, Any] = {
             "headers": request_headers,
             "timeout": timeout_seconds,
+            "follow_redirects": False,
             "extensions": {"sni_hostname": destination.sni_hostname},
         }
         if content is not None:
