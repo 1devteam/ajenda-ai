@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 from backend.services.credentials.runtime_authority import CredentialRequirement
@@ -46,12 +48,34 @@ class ProviderExternalReadInput(BaseModel):
         return value
 
 
+def _normalized_url_host(url: str) -> str:
+    return (urlparse(url).hostname or "").strip().lower().rstrip(".")
+
+
+def _trusted_destination_hosts(credential_hosts: tuple[str, ...]) -> list[str]:
+    return [host.strip().lower().rstrip(".") for host in credential_hosts if host.strip()]
+
+
+def _validate_trusted_credential_destination(*, url: str, trusted_hosts: tuple[str, ...]) -> list[str]:
+    normalized_trusted_hosts = _trusted_destination_hosts(trusted_hosts)
+    if not normalized_trusted_hosts:
+        raise ValueError("provider.external_read credential has no trusted destination hosts")
+    host = _normalized_url_host(url)
+    if host not in normalized_trusted_hosts:
+        raise ValueError("provider.external_read URL host is not trusted for credential")
+    return normalized_trusted_hosts
+
+
 def provider_external_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = ProviderExternalReadInput.model_validate(invocation.input)
     credential = context.runtime_credentials.get(PROVIDER_EXTERNAL_READ_ACTION)
     if credential is None:
         raise ValueError("provider.external_read requires runtime credential material")
 
+    trusted_hosts = _validate_trusted_credential_destination(
+        url=str(payload.url),
+        trusted_hosts=credential.trusted_destination_hosts,
+    )
     headers = dict(payload.headers)
     headers["Authorization"] = f"Bearer {credential.secret_value}"
     _destination, response = get_default_network_egress_authority().request(
@@ -60,7 +84,7 @@ def provider_external_read(invocation: ToolInvocation, context: ActionRuntimeCon
         headers=headers,
         json_body=None,
         timeout_seconds=payload.timeout_seconds,
-        allowed_hosts=payload.allowed_hosts,
+        allowed_hosts=trusted_hosts,
         action_name=PROVIDER_EXTERNAL_READ_ACTION,
     )
     url = str(payload.url)

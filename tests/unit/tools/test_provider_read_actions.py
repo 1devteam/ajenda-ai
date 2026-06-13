@@ -24,6 +24,7 @@ class _EgressSpy:
         assert kwargs["method"] in {"GET", "HEAD"}
         assert kwargs["action_name"] == "provider.external_read"
         assert kwargs["json_body"] is None
+        assert kwargs["allowed_hosts"] == ["example.com"]
         headers = kwargs["headers"]
         assert isinstance(headers, dict)
         assert headers["Authorization"] == "Bearer sk-provider-secret"
@@ -56,6 +57,7 @@ def _record(**overrides: object) -> CredentialRecord:
         "credential_type": "api_key",
         "allowed_actions": ("provider.external_read",),
         "allowed_side_effect_classes": (SideEffectClass.EXTERNAL_READ,),
+        "trusted_destination_hosts": ("example.com",),
         "secret_value": "sk-provider-secret",
     }
     values.update(overrides)
@@ -113,6 +115,88 @@ def test_provider_external_read_uses_egress_and_redacts_runtime_outputs(
     assert result["evidence"][0]["provenance"]["network_egress_authority"].endswith("NetworkEgressAuthority")
     assert "sk-provider-secret" not in str(result)
     assert "runtime_credentials" not in result["runtime_context"]
+
+
+def test_provider_external_read_rejects_untrusted_host_before_egress_and_auth_injection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services.tools import provider_read_actions, runtime_authority
+
+    monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **kwargs: None)
+    spy = _EgressSpy()
+    monkeypatch.setattr(provider_read_actions, "get_default_network_egress_authority", lambda: spy)
+    authority = ToolRuntimeAuthority(
+        registry=get_default_action_registry(rebuild=True),
+        credential_authority=_credential_authority(_record()),
+    )
+
+    with pytest.raises(ValueError, match="not trusted for credential"):
+        authority.execute(
+            task=_task(
+                action="provider.external_read",
+                input_payload={
+                    "method": "GET",
+                    "url": "https://attacker.example.net/resource",
+                    "allowed_hosts": ["attacker.example.net"],
+                },
+                metadata={"credential_reference": _reference()},
+            ),
+            context=_context(),
+        )
+
+    assert spy.calls == []
+
+
+def test_provider_external_read_invocation_allowed_hosts_cannot_expand_trusted_destinations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services.tools import provider_read_actions, runtime_authority
+
+    monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **kwargs: None)
+    spy = _EgressSpy()
+    monkeypatch.setattr(provider_read_actions, "get_default_network_egress_authority", lambda: spy)
+    authority = ToolRuntimeAuthority(
+        registry=get_default_action_registry(rebuild=True),
+        credential_authority=_credential_authority(_record()),
+    )
+
+    result = authority.execute(
+        task=_task(
+            action="provider.external_read",
+            input_payload={
+                "method": "GET",
+                "url": "https://example.com/resource",
+                "allowed_hosts": ["attacker.example.net"],
+            },
+            metadata={"credential_reference": _reference()},
+        ),
+        context=_context(),
+    )
+
+    assert result["output"]["status_code"] == 200
+    assert spy.calls[0]["allowed_hosts"] == ["example.com"]
+
+
+def test_provider_external_read_private_destination_remains_blocked_by_network_egress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services.tools import runtime_authority
+
+    monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **kwargs: None)
+    authority = ToolRuntimeAuthority(
+        registry=get_default_action_registry(rebuild=True),
+        credential_authority=_credential_authority(_record(trusted_destination_hosts=("localhost",))),
+    )
+
+    with pytest.raises(ValueError, match="blocked local hostname"):
+        authority.execute(
+            task=_task(
+                action="provider.external_read",
+                input_payload={"method": "GET", "url": "https://localhost/resource"},
+                metadata={"credential_reference": _reference()},
+            ),
+            context=_context(),
+        )
 
 
 def test_provider_external_read_credential_denials(monkeypatch: pytest.MonkeyPatch) -> None:

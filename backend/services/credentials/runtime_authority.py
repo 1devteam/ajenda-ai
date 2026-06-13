@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.services.security.redaction import contains_sensitive_key
 from backend.services.tools.schemas import (
@@ -37,7 +37,21 @@ class CredentialRecord(BaseModel):
     deleted: bool = False
     allowed_actions: tuple[str, ...] = ()
     allowed_side_effect_classes: tuple[SideEffectClass, ...] = ()
+    trusted_destination_hosts: tuple[str, ...] = ()
     secret_value: str = Field(min_length=1, repr=False, exclude=True)
+
+    @field_validator("trusted_destination_hosts")
+    @classmethod
+    def normalize_trusted_destination_hosts(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        for host in value:
+            normalized_host = host.strip().lower().rstrip(".")
+            if not normalized_host:
+                raise ValueError("trusted_destination_hosts must contain non-empty hostnames")
+            if "://" in normalized_host or "/" in normalized_host or "@" in normalized_host:
+                raise ValueError("trusted_destination_hosts must contain hostnames only")
+            normalized.append(normalized_host)
+        return tuple(dict.fromkeys(normalized))
 
 
 class CredentialRuntimeRepository(Protocol):
@@ -114,7 +128,11 @@ class CredentialRuntimeAuthority:
             action_name=action_name,
             side_effect_class=side_effect_class,
         )
-        return RuntimeCredentialMaterial(reference=reference, secret_value=record.secret_value)
+        return RuntimeCredentialMaterial(
+            reference=reference,
+            secret_value=record.secret_value,
+            trusted_destination_hosts=record.trusted_destination_hosts,
+        )
 
     def _validate_record(
         self,
