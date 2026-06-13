@@ -41,6 +41,13 @@ INCLUDE_ROUTER_CALL_RE = re.compile(r"v1\.include_router\(([a-z_]+)_router\)")
 ROUTER_PREFIX_RE = re.compile(r"APIRouter\([^\n)]*prefix\s*=\s*[\"'](/[^\"']*)[\"']")
 ROUTE_DECORATOR_RE = re.compile(r"@router\.(?:get|post|put|patch|delete|options|head)\(\s*[\"'](/[^\"']*)[\"']")
 
+CREDENTIAL_BOUNDARY_REQUIRED_PATHS = {
+    "backend/services/credentials/runtime_authority.py",
+    "backend/services/security/redaction.py",
+    "tests/unit/services/test_credential_runtime_authority.py",
+    "tests/unit/services/test_sensitive_redaction.py",
+}
+
 REQUIRED_ENTRY_FIELDS = (
     "id",
     "area",
@@ -224,6 +231,29 @@ def _check(strict_baseline: bool = False) -> list[DriftIssue]:
     for proof in proof_paths:
         if not (REPO_ROOT / proof).exists():
             issues.append(DriftIssue("warn", f"Required proof path does not exist: {proof}"))
+
+    credential_entries = [
+        entry
+        for entry in entries
+        if entry.get("id") == "capability_action_runtime_contract"
+        or "credential" in " ".join(str(item) for item in entry.get("allowed_side_effects", [])).lower()
+    ]
+    credential_paths = {
+        path
+        for entry in credential_entries
+        for field in ("source_of_truth", "required_proofs")
+        for path in entry.get(field, [])
+        if isinstance(path, str)
+    }
+    missing_credential_paths = sorted(CREDENTIAL_BOUNDARY_REQUIRED_PATHS - credential_paths)
+    if missing_credential_paths:
+        issues.append(
+            DriftIssue(
+                "fail",
+                "Credential runtime boundary missing authority ledger source/proof paths: "
+                + ", ".join(missing_credential_paths),
+            )
+        )
 
     for family in sorted(readme_families - ledger_families):
         issues.append(DriftIssue("warn", f"README route family missing from ledger: {family}"))

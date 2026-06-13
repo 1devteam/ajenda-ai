@@ -12,7 +12,7 @@ from backend.services.tools.http_actions import (
     validate_safe_http_url,
     vet_safe_http_destination,
 )
-from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
+from backend.services.tools.schemas import ActionRuntimeContext, HttpRequestInput, ToolInvocation
 
 PUBLIC_ADDR = "93.184.216.34"
 PRIVATE_ADDR = "10.0.0.4"
@@ -483,3 +483,10 @@ def test_http_request_registry_result_and_evidence_contract(monkeypatch: pytest.
     assert result.evidence[0].tenant_id == context.tenant_id
     assert result.evidence[0].side_effect_class == result.side_effect_class
     assert result.evidence[0].provenance["network_egress_authority"].endswith("NetworkEgressAuthority")
+
+
+def test_http_request_rejects_raw_authorization_headers() -> None:
+    with pytest.raises(ValueError, match="raw credential material"):
+        HttpRequestInput.model_validate(
+            {"method": "GET", "url": "https://example.com/status", "headers": {"Authorization": "Bearer raw"}}
+        )

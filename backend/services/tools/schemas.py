@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
+from backend.services.security.redaction import contains_sensitive_key
+
 TOOL_INVOCATION_SCHEMA_VERSION = 1
 ACTION_RESULT_SCHEMA_VERSION = 1
 
@@ -30,6 +32,31 @@ class SideEffectClass(StrEnum):
         }
 
 
+class CredentialReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = 1
+    credential_id: str = Field(min_length=1, max_length=160)
+    provider: str = Field(min_length=1, max_length=120)
+    credential_type: str = Field(min_length=1, max_length=80)
+
+    @field_validator("credential_id", "provider", "credential_type")
+    @classmethod
+    def normalize_required_string(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("credential reference fields must be non-empty")
+        return normalized
+
+
+class RuntimeCredentialMaterial(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reference: CredentialReference
+    secret_value: str = Field(min_length=1, repr=False, exclude=True)
+    injected_headers: dict[str, str] = Field(default_factory=dict, repr=False, exclude=True)
+
+
 class ToolInvocation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -38,6 +65,7 @@ class ToolInvocation(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
     provider: str | None = Field(default=None, max_length=120)
     idempotency_key: str | None = Field(default=None, max_length=200)
+    credential_reference: CredentialReference | None = None
 
     @field_validator("action")
     @classmethod
@@ -57,6 +85,7 @@ class ActionRuntimeContext(BaseModel):
     worker_id: str = Field(min_length=1)
     lease_id: str = Field(min_length=1)
     session_factory: Any | None = None
+    runtime_credentials: dict[str, RuntimeCredentialMaterial] = Field(default_factory=dict, repr=False)
 
 
 class EvidenceItem(BaseModel):
@@ -155,6 +184,13 @@ class HttpRequestInput(BaseModel):
         if normalized not in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"}:
             raise ValueError("unsupported HTTP method")
         return normalized
+
+    @field_validator("headers")
+    @classmethod
+    def reject_raw_auth_headers(cls, value: dict[str, str]) -> dict[str, str]:
+        if contains_sensitive_key(value):
+            raise ValueError("http.request headers must not include raw credential material")
+        return value
 
 
 class WebhookDispatchInput(BaseModel):

@@ -7,6 +7,8 @@ from types import MappingProxyType
 
 from pydantic import BaseModel, ValidationError
 
+from backend.services.credentials.runtime_authority import CredentialRequirement
+from backend.services.security.redaction import redact_sensitive_data
 from backend.services.tools.schemas import ActionResult, ActionRuntimeContext, SideEffectClass, ToolInvocation
 
 ActionHandler = Callable[[ToolInvocation, ActionRuntimeContext], ActionResult]
@@ -24,6 +26,7 @@ class ActionDefinition:
     input_model: type[BaseModel] | None = None
     aliases: tuple[str, ...] = field(default_factory=tuple)
     side_effect_resolver: SideEffectResolver | None = None
+    credential_requirement: CredentialRequirement | None = None
 
     def side_effect_for(self, invocation: ToolInvocation) -> SideEffectClass:
         if self.side_effect_resolver is None:
@@ -54,6 +57,7 @@ class ActionRegistry:
             input_model=definition.input_model,
             aliases=tuple(_normalize_action_name(alias) for alias in definition.aliases),
             side_effect_resolver=definition.side_effect_resolver,
+            credential_requirement=definition.credential_requirement,
         )
         for name in names:
             self._actions[name] = normalized_definition
@@ -74,14 +78,15 @@ class ActionRegistry:
             try:
                 definition.input_model.model_validate(invocation.input)
             except ValidationError as exc:
-                raise ValueError(f"invalid input for action {definition.name}: {exc}") from exc
+                raise ValueError(f"invalid input for action {definition.name}") from exc
         result = definition.handler(invocation, context)
         try:
             parsed = ActionResult.model_validate(result)
             # Force a fresh validation pass even when the handler returned an
             # ActionResult instance. Pydantic's default instance revalidation can
             # otherwise return a mutated/model_construct instance as-is.
-            validated = ActionResult.model_validate(parsed.model_dump(mode="json"))
+            redacted_payload = redact_sensitive_data(parsed.model_dump(mode="json"))
+            validated = ActionResult.model_validate(redacted_payload)
         except ValidationError as exc:
             raise ValueError(f"action {definition.name} must return valid ActionResult: {exc}") from exc
         self._validate_result_contract(definition=definition, invocation=invocation, context=context, result=validated)

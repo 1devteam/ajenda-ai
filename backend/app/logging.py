@@ -7,6 +7,7 @@ from typing import Any
 from pythonjsonlogger.json import JsonFormatter
 
 from backend.app.config import Settings
+from backend.services.security.redaction import redact_sensitive_data
 
 
 class RedactionFilter(logging.Filter):
@@ -24,19 +25,13 @@ class RedactionFilter(logging.Filter):
         return True
 
     def _redact_mapping(self, value: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
-        for key, item in list(value.items()):
-            if key.lower() in self._keys_to_redact:
-                value[key] = "***REDACTED***"
-            elif isinstance(item, MutableMapping):
-                value[key] = self._redact_mapping(item)
-            elif isinstance(item, list):
-                value[key] = [self._redact_item(v) for v in item]
+        redacted = redact_sensitive_data(value)
+        value.clear()
+        value.update(redacted)
         return value
 
     def _redact_item(self, item: Any) -> Any:
-        if isinstance(item, MutableMapping):
-            return self._redact_mapping(item)
-        return item
+        return redact_sensitive_data(item)
 
 
 class PlainFormatter(logging.Formatter):
