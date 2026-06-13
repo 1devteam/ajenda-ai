@@ -85,10 +85,13 @@ class ActionRegistry:
             # Force a fresh validation pass even when the handler returned an
             # ActionResult instance. Pydantic's default instance revalidation can
             # otherwise return a mutated/model_construct instance as-is.
-            redacted_payload = redact_sensitive_data(parsed.model_dump(mode="json"))
+            redacted_payload = redact_sensitive_data(
+                parsed.model_dump(mode="json"),
+                additional_sensitive_values=_runtime_credential_secret_values(context),
+            )
             validated = ActionResult.model_validate(redacted_payload)
         except ValidationError as exc:
-            raise ValueError(f"action {definition.name} must return valid ActionResult: {exc}") from exc
+            raise ValueError(f"action {definition.name} must return valid ActionResult") from exc
         self._validate_result_contract(definition=definition, invocation=invocation, context=context, result=validated)
         try:
             json.dumps(validated.model_dump(mode="json"))
@@ -138,6 +141,12 @@ def _normalize_action_name(name: str) -> str:
     if not normalized:
         raise ValueError("action name must be non-empty")
     return normalized
+
+
+def _runtime_credential_secret_values(context: ActionRuntimeContext) -> tuple[str, ...]:
+    return tuple(
+        credential.secret_value for credential in context.runtime_credentials.values() if credential.secret_value
+    )
 
 
 _DEFAULT_REGISTRY: ActionRegistry | None = None

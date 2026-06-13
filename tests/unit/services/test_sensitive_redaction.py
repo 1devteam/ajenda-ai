@@ -56,3 +56,29 @@ def test_redaction_accepts_configured_exact_keys_recursively() -> None:
         "Set-Cookie": REDACTED_VALUE,
         "nested": [{"session_id": REDACTED_VALUE}, {"value": "visible"}],
     }
+
+
+def test_redaction_accepts_known_sensitive_values_recursively() -> None:
+    runtime_secret = "runtime-secret-value-123"
+    payload = {
+        "message": f"provider echoed {runtime_secret}",
+        "items": [
+            runtime_secret,
+            {"neutral": f"wrapped:{runtime_secret}:wrapped"},
+            ("tuple", runtime_secret),
+        ],
+        "safe": "visible",
+    }
+
+    redacted = redact_sensitive_data(payload, additional_sensitive_values={runtime_secret})
+
+    assert redacted == {
+        "message": f"provider echoed {REDACTED_VALUE}",
+        "items": [
+            REDACTED_VALUE,
+            {"neutral": f"wrapped:{REDACTED_VALUE}:wrapped"},
+            ("tuple", REDACTED_VALUE),
+        ],
+        "safe": "visible",
+    }
+    assert runtime_secret not in str(redacted)

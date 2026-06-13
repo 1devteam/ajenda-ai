@@ -4,11 +4,14 @@ import uuid
 
 import pytest
 
+from backend.services.security.redaction import REDACTED_VALUE
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry, get_default_action_registry
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
+    CredentialReference,
     EvidenceItem,
+    RuntimeCredentialMaterial,
     SideEffectClass,
     ToolInvocation,
 )
@@ -22,6 +25,19 @@ def _context() -> ActionRuntimeContext:
         worker_id="worker-test",
         lease_id=str(uuid.uuid4()),
     )
+
+
+def _context_with_runtime_secret(*, action: str, secret: str) -> ActionRuntimeContext:
+    context = _context()
+    context.runtime_credentials[action] = RuntimeCredentialMaterial(
+        reference=CredentialReference(
+            credential_id="credential-test",
+            provider="test",
+            credential_type="api_key",
+        ),
+        secret_value=secret,
+    )
+    return context
 
 
 def _evidence(
@@ -281,3 +297,83 @@ def test_action_registry_redacts_secret_material_from_results_and_evidence() -> 
     assert "raw-api-key" not in str(dumped)
     assert result.output["token"] == "***REDACTED***"
     assert result.evidence[0].structured_payload["api_key"] == "***REDACTED***"
+
+
+def test_action_registry_redacts_runtime_credential_values_from_neutral_result_fields() -> None:
+    registry = ActionRegistry()
+    action_name = "neutral.redact"
+    runtime_secret = "runtime-secret-value-123"
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        return ActionResult(
+            action=action_name,
+            provider="test",
+            output={
+                "message": f"provider returned {runtime_secret}",
+                "nested": [{"value": runtime_secret}],
+            },
+            evidence=[
+                EvidenceItem(
+                    evidence_type="action_result",
+                    evidence_source=f"tool.invoke.{action_name}",
+                    action_name=action_name,
+                    tool_provider="test",
+                    tenant_id=context.tenant_id,
+                    task_id=str(context.task_id),
+                    mission_id=str(context.mission_id) if context.mission_id else None,
+                    summary=f"evidence saw {runtime_secret}",
+                    structured_payload={
+                        "message": f"payload {runtime_secret}",
+                        "nested": [{"value": runtime_secret}],
+                    },
+                    provenance={"details": [f"provenance {runtime_secret}"]},
+                    side_effect_class=SideEffectClass.NONE,
+                )
+            ],
+            summary=f"summary {runtime_secret}",
+            limitations=[f"limitation {runtime_secret}"],
+        )
+
+    registry.register(ActionDefinition(name=action_name, handler=handler, provider="test"))
+    result = registry.invoke(
+        ToolInvocation(action=action_name, input={}),
+        _context_with_runtime_secret(action=action_name, secret=runtime_secret),
+    )
+
+    dumped = result.model_dump(mode="json")
+    assert runtime_secret not in str(dumped)
+    assert result.summary == f"summary {REDACTED_VALUE}"
+    assert result.limitations == [f"limitation {REDACTED_VALUE}"]
+    assert result.output["message"] == f"provider returned {REDACTED_VALUE}"
+    assert result.output["nested"] == [{"value": REDACTED_VALUE}]
+    assert result.evidence[0].summary == f"evidence saw {REDACTED_VALUE}"
+    assert result.evidence[0].structured_payload == {
+        "message": f"payload {REDACTED_VALUE}",
+        "nested": [{"value": REDACTED_VALUE}],
+    }
+    assert result.evidence[0].provenance == {"details": [f"provenance {REDACTED_VALUE}"]}
+
+
+def test_action_registry_validation_error_message_does_not_include_runtime_credential_value() -> None:
+    registry = ActionRegistry()
+    action_name = "invalid.redact"
+    runtime_secret = "runtime-secret-value-123"
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> object:
+        return {
+            "action": action_name,
+            "provider": "test",
+            "output": {"message": runtime_secret},
+            "evidence": [],
+            "summary": "",
+        }
+
+    registry.register(ActionDefinition(name=action_name, handler=handler, provider="test"))  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="valid ActionResult") as exc_info:
+        registry.invoke(
+            ToolInvocation(action=action_name, input={}),
+            _context_with_runtime_secret(action=action_name, secret=runtime_secret),
+        )
+
+    assert runtime_secret not in str(exc_info.value)
