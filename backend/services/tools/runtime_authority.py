@@ -79,6 +79,16 @@ class ToolRuntimeAuthority:
 
         action = self._registry.get(invocation.action)
         effective_side_effect_class = action.side_effect_for(invocation)
+        # Enforce idempotency key when required by the ability manifest.
+        try:
+            from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION  # type: ignore
+            manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
+        except Exception:
+            manifest = None
+        if manifest is not None and getattr(manifest, 'idempotency_required', False):
+            if not invocation.idempotency_key:
+                raise ToolRuntimeAuthorityError(f'idempotency key required for action {action.name}')
+
         if effective_side_effect_class.has_side_effect and task.status != ExecutionTaskState.RUNNING.value:
             raise ToolRuntimeAuthorityError("side-effecting tool.invoke action requires running task state")
 
