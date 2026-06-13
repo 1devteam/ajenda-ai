@@ -1,7 +1,7 @@
 """Seed global GTM capability catalog and adapters.
 
 Revision ID: 0021_seed_gtm_capability_catalog
-Revises: 0020_expand_lifecycle_checks
+Revises: 0020a_adapter_side_effects
 Create Date: 2026-05-27
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "0021_seed_gtm_capability_catalog"
-down_revision = "0020_expand_lifecycle_checks"
+down_revision = "0020a_adapter_side_effects"
 branch_labels = None
 depends_on = None
 

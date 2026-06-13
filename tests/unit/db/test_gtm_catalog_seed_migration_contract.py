@@ -30,3 +30,26 @@ def test_gtm_catalog_seed_migration_evidence_expectations_match_api_list_contrac
 
     assert '\'["approval_decision", "send_outcome"]\'::jsonb' in migration
     assert '\'["approval_decision", "delivery_outcome"]\'::jsonb' in migration
+
+
+def test_adapter_side_effect_classification_expansion_runs_before_gtm_seed() -> None:
+    expansion = Path("alembic/versions/0020a_expand_adapter_side_effects.py").read_text(encoding="utf-8")
+    seed = Path("alembic/versions/0021_seed_gtm_capability_catalog.py").read_text(encoding="utf-8")
+
+    assert 'revision = "0020a_adapter_side_effects"' in expansion
+    assert 'down_revision = "0020_expand_lifecycle_checks"' in expansion
+    assert 'down_revision = "0020a_adapter_side_effects"' in seed
+    assert "ck_capability_adapters_side_effect_classification" in expansion
+    assert "external_read" in expansion
+    assert "external_write" in expansion
+    assert "external_send" in expansion
+    assert "external_publish" in expansion
+    assert "op.drop_constraint" in expansion
+    assert "op.create_check_constraint" in expansion
+
+
+def test_historical_adapter_constraint_remains_pre_expansion_for_upgrade_compatibility() -> None:
+    initial = Path("alembic/versions/0012_capability_adapters.py").read_text(encoding="utf-8")
+
+    assert "'external_side_effect')" in initial
+    assert "external_send" not in initial
