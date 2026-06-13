@@ -25,13 +25,13 @@ class RedactionFilter(logging.Filter):
         return True
 
     def _redact_mapping(self, value: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
-        redacted = redact_sensitive_data(value)
+        redacted = redact_sensitive_data(value, additional_sensitive_keys=self._keys_to_redact)
         value.clear()
         value.update(redacted)
         return value
 
     def _redact_item(self, item: Any) -> Any:
-        return redact_sensitive_data(item)
+        return redact_sensitive_data(item, additional_sensitive_keys=self._keys_to_redact)
 
 
 class PlainFormatter(logging.Formatter):

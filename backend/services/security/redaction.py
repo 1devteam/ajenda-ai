@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 REDACTED_VALUE = "***REDACTED***"
@@ -24,23 +24,53 @@ SENSITIVE_KEY_FRAGMENTS = frozenset(
 )
 
 
-def is_sensitive_key(key: object) -> bool:
-    normalized = str(key).strip().lower().replace("-", "_")
+def _normalize_exact_key(key: object) -> str:
+    return str(key).strip().lower()
+
+
+def _normalize_fragment_key(key: object) -> str:
+    return _normalize_exact_key(key).replace("-", "_")
+
+
+def _normalized_additional_keys(additional_sensitive_keys: Collection[str] | None) -> set[str]:
+    return {_normalize_exact_key(key) for key in additional_sensitive_keys or () if str(key).strip()}
+
+
+def is_sensitive_key(key: object, *, additional_sensitive_keys: Collection[str] | None = None) -> bool:
+    return _is_sensitive_key(key, additional_sensitive_keys=_normalized_additional_keys(additional_sensitive_keys))
+
+
+def redact_sensitive_data(value: Any, *, additional_sensitive_keys: Collection[str] | None = None) -> Any:
+    return _redact_sensitive_data(
+        value, additional_sensitive_keys=_normalized_additional_keys(additional_sensitive_keys)
+    )
+
+
+def _redact_sensitive_data(value: Any, *, additional_sensitive_keys: set[str]) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            key: REDACTED_VALUE
+            if _is_sensitive_key(key, additional_sensitive_keys=additional_sensitive_keys)
+            else _redact_sensitive_data(item, additional_sensitive_keys=additional_sensitive_keys)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_sensitive_data(item, additional_sensitive_keys=additional_sensitive_keys) for item in value]
+    if isinstance(value, tuple):
+        return tuple(
+            _redact_sensitive_data(item, additional_sensitive_keys=additional_sensitive_keys) for item in value
+        )
+    return value
+
+
+def _is_sensitive_key(key: object, *, additional_sensitive_keys: set[str]) -> bool:
+    exact_key = _normalize_exact_key(key)
+    if exact_key in additional_sensitive_keys:
+        return True
+    normalized = _normalize_fragment_key(key)
     if normalized == "side_effect_authorization":
         return False
     return any(fragment in normalized for fragment in SENSITIVE_KEY_FRAGMENTS)
-
-
-def redact_sensitive_data(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {
-            key: REDACTED_VALUE if is_sensitive_key(key) else redact_sensitive_data(item) for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [redact_sensitive_data(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(redact_sensitive_data(item) for item in value)
-    return value
 
 
 def contains_sensitive_key(value: Any) -> bool:

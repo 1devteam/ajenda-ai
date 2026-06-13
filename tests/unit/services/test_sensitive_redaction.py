@@ -40,3 +40,19 @@ def test_redaction_is_recursive_and_covers_common_sensitive_keys() -> None:
     assert (
         contains_sensitive_key({"execution_constraints": {"side_effect_authorization": {"approved_by": "qa"}}}) is False
     )
+
+
+def test_redaction_accepts_configured_exact_keys_recursively() -> None:
+    payload = {
+        "cookie": "cookie-value",
+        "Set-Cookie": "set-cookie-value",
+        "nested": [{"session_id": "session-value"}, {"value": "visible"}],
+    }
+
+    redacted = redact_sensitive_data(payload, additional_sensitive_keys={"cookie", "set-cookie", "session_id"})
+
+    assert redacted == {
+        "cookie": REDACTED_VALUE,
+        "Set-Cookie": REDACTED_VALUE,
+        "nested": [{"session_id": REDACTED_VALUE}, {"value": "visible"}],
+    }
