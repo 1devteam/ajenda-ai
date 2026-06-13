@@ -151,6 +151,10 @@ def _validate_runtime_promotion_authority(
 ) -> None:
     if adapter is None and capability is None:
         raise CapabilityActionValidationError("runtime promotion requires explicit capability/adapter authority")
+    if _requires_exact_external_adapter_classification(side_effect_class) and adapter is None:
+        raise CapabilityActionValidationError(
+            "external runtime promotion requires adapter_reference with exact side_effect_classification"
+        )
     if adapter is not None and not _adapter_authorizes_side_effect_class(
         classification=adapter.side_effect_classification,
         side_effect_class=side_effect_class,
@@ -176,6 +180,10 @@ def _adapter_authorizes_side_effect_class(*, classification: str, side_effect_cl
         # must remain distinct and require exact adapter classification.
         return False
     return False
+
+
+def _requires_exact_external_adapter_classification(side_effect_class: SideEffectClass) -> bool:
+    return side_effect_class.value.startswith("external_")
 
 
 def _requires_runtime_promotion_authority(side_effect_class: SideEffectClass) -> bool:
