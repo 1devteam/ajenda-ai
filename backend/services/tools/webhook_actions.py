@@ -63,7 +63,10 @@ def webhook_dispatch(invocation: ToolInvocation, context: ActionRuntimeContext) 
         structured_payload=output,
         confidence=1.0,
         limitations=["single dispatch attempt; retry scheduling remains caller/runtime responsibility"],
-        provenance={"service": "backend.services.webhook_dispatch.WebhookDispatchService"},
+        provenance={
+            "service": "backend.services.webhook_dispatch.WebhookDispatchService",
+            "network_egress_authority": "backend.services.network_egress.NetworkEgressAuthority",
+        },
         side_effect_class=SideEffectClass.EXTERNAL_SEND,
     )
     return ActionResult(

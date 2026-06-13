@@ -32,6 +32,7 @@ Test coverage:
 
 from __future__ import annotations
 
+import socket
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
@@ -55,6 +56,14 @@ from backend.services.webhook_dispatch import (
 
 TENANT_ID = uuid.uuid4()
 ENDPOINT_ID = uuid.uuid4()
+
+
+@pytest.fixture(autouse=True)
+def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    def resolve(host: str, port: int | None = None, *args: object, **kwargs: object) -> list[tuple[object, ...]]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port or 443))]
+
+    monkeypatch.setattr("socket.getaddrinfo", resolve)
 
 
 def _make_endpoint(
@@ -95,14 +104,14 @@ def _make_service(
     mock_http = MagicMock(spec=httpx.Client)
 
     if http_raise is not None:
-        mock_http.post.side_effect = http_raise
+        mock_http.request.side_effect = http_raise
     elif http_response is not None:
-        mock_http.post.return_value = http_response
+        mock_http.request.return_value = http_response
     else:
         resp = MagicMock()
         resp.status_code = 200
         resp.text = "ok"
-        mock_http.post.return_value = resp
+        mock_http.request.return_value = resp
 
     service = WebhookDispatchService(mock_db, http_client=mock_http)
 
@@ -262,7 +271,7 @@ class TestDispatchEvent:
             payload={},
         )
         assert results[0].succeeded is False
-        assert "Connection error" in results[0].error
+        assert "network request failed" in results[0].error
 
     def test_no_matching_endpoints_returns_empty_list(self):
         service, _, _ = _make_service(endpoints=[])
@@ -399,7 +408,7 @@ class TestHmacSigning:
             event_type="task.completed",
             payload={"x": 1},
         )
-        call_kwargs = mock_http.post.call_args[1]
+        call_kwargs = mock_http.request.call_args[1]
         headers = call_kwargs["headers"]
         assert "X-Ajenda-Signature-256" in headers
         assert headers["X-Ajenda-Signature-256"].startswith("sha256=")
@@ -582,3 +591,35 @@ class TestReliabilitySummary:
         assert summary.hourly_series[-2].delivered_attempts == 3
         assert summary.hourly_series[-1].window_start == "2026-04-08T11:00:00+00:00"
         assert summary.hourly_series[-1].failed_attempts == 1
+
+
+def test_webhook_dispatch_uses_shared_network_egress_pinning() -> None:
+    ep = _make_endpoint()
+    service, _, mock_http = _make_service(endpoints=[ep], http_response=_make_http_response(200, "ok"))
+
+    results = service.dispatch_event(tenant_id=TENANT_ID, event_type="task.completed", payload={})
+
+    assert results[0].succeeded is True
+    method, url = mock_http.request.call_args[0]
+    request_kwargs = mock_http.request.call_args[1]
+    assert method == "POST"
+    assert url == "https://93.184.216.34/hook"
+    assert request_kwargs["headers"]["Host"] == "example.com"
+    assert request_kwargs["extensions"] == {"sni_hostname": "example.com"}
+
+
+def test_webhook_dispatch_fails_closed_before_http_call_for_private_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    def private_dns(host: str, port: int | None = None, *args: object, **kwargs: object) -> list[tuple[object, ...]]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.4", port or 443))]
+
+    monkeypatch.setattr("socket.getaddrinfo", private_dns)
+    ep = _make_endpoint()
+    service, mock_repo, mock_http = _make_service(endpoints=[ep], http_response=_make_http_response(200, "ok"))
+
+    results = service.dispatch_event(tenant_id=TENANT_ID, event_type="task.completed", payload={})
+
+    assert results[0].succeeded is False
+    assert "private DNS" in results[0].error
+    mock_http.request.assert_not_called()
+    delivery = mock_repo.record_delivery.call_args[0][0]
+    assert delivery.status == "failed"

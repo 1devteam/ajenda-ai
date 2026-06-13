@@ -217,3 +217,32 @@ def test_action_registry_revalidates_model_constructed_action_results() -> None:
 
     with pytest.raises(ValueError, match="valid ActionResult"):
         registry.invoke(ToolInvocation(action="custom.action", input={}), _context())
+
+
+def test_default_registry_keeps_http_read_write_and_webhook_send_authority_separate() -> None:
+    registry = get_default_action_registry(rebuild=True)
+
+    assert (
+        registry.get("http.request").side_effect_for(
+            ToolInvocation(action="http.request", input={"method": "GET", "url": "https://example.com/status"})
+        )
+        == SideEffectClass.EXTERNAL_READ
+    )
+    assert (
+        registry.get("http.request").side_effect_for(
+            ToolInvocation(action="http.request", input={"method": "HEAD", "url": "https://example.com/status"})
+        )
+        == SideEffectClass.EXTERNAL_READ
+    )
+    assert (
+        registry.get("http.request").side_effect_for(
+            ToolInvocation(action="http.request", input={"method": "POST", "url": "https://example.com/hook"})
+        )
+        == SideEffectClass.EXTERNAL_WRITE
+    )
+    assert (
+        registry.get("webhook.dispatch").side_effect_for(
+            ToolInvocation(action="webhook.dispatch", input={"event_type": "task.completed"})
+        )
+        == SideEffectClass.EXTERNAL_SEND
+    )

@@ -4,6 +4,7 @@ import socket
 import uuid
 from typing import Any
 
+import httpx
 import pytest
 
 from backend.services.tools.http_actions import (
@@ -159,7 +160,7 @@ def test_http_request_uses_pinned_vetted_address_for_connection(monkeypatch: pyt
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port or 443))]
 
     monkeypatch.setattr("socket.getaddrinfo", rebinding_dns)
-    monkeypatch.setattr("backend.services.tools.http_actions.httpx.Client", _FakeClient)
+    monkeypatch.setattr("backend.services.network_egress.httpx.Client", _FakeClient)
 
     result = http_request(
         ToolInvocation(action="http.request", input={"method": "GET", "url": "https://example.com/path?q=1"}),
@@ -176,7 +177,7 @@ def test_http_request_uses_pinned_vetted_address_for_connection(monkeypatch: pyt
 
 def test_http_request_overrides_payload_host_header_with_original_host(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("socket.getaddrinfo", _public_dns)
-    monkeypatch.setattr("backend.services.tools.http_actions.httpx.Client", _FakeClient)
+    monkeypatch.setattr("backend.services.network_egress.httpx.Client", _FakeClient)
 
     http_request(
         ToolInvocation(
@@ -196,7 +197,7 @@ def test_http_request_overrides_payload_host_header_with_original_host(monkeypat
 
 def test_http_request_keeps_redirects_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("socket.getaddrinfo", _public_dns)
-    monkeypatch.setattr("backend.services.tools.http_actions.httpx.Client", _FakeClient)
+    monkeypatch.setattr("backend.services.network_egress.httpx.Client", _FakeClient)
 
     http_request(
         ToolInvocation(action="http.request", input={"method": "HEAD", "url": "https://example.com/status"}),
@@ -208,7 +209,7 @@ def test_http_request_keeps_redirects_disabled(monkeypatch: pytest.MonkeyPatch) 
 
 def test_http_request_truncates_response_body_to_4096_chars(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("socket.getaddrinfo", _public_dns)
-    monkeypatch.setattr("backend.services.tools.http_actions.httpx.Client", _FakeClient)
+    monkeypatch.setattr("backend.services.network_egress.httpx.Client", _FakeClient)
     _FakeClient.response_text = "x" * 4097
 
     result = http_request(
@@ -432,3 +433,50 @@ def test_calendar_read_normalizes_offset_times_before_window_filtering() -> None
     )
 
     assert [event["id"] for event in result.output["events"]] == ["evt-in-window"]
+
+
+def test_http_request_allowed_hosts_cannot_bypass_destination_safety(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PRIVATE_ADDR, 443))],
+    )
+
+    with pytest.raises(ValueError, match="private DNS"):
+        vet_safe_http_destination("https://example.com/path", allowed_hosts=["example.com"])
+
+
+def test_http_request_network_failure_error_is_evidence_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FailingClient(_FakeClient):
+        def request(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
+            raise httpx.ConnectError("token=super-secret")
+
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr("backend.services.network_egress.httpx.Client", FailingClient)
+
+    with pytest.raises(ValueError) as exc_info:
+        http_request(
+            ToolInvocation(action="http.request", input={"method": "GET", "url": "https://example.com/secret"}),
+            _context(),
+        )
+
+    assert "network request failed" in str(exc_info.value)
+    assert "super-secret" not in str(exc_info.value)
+
+
+def test_http_request_registry_result_and_evidence_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.services.tools.action_registry import get_default_action_registry
+
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr("backend.services.network_egress.httpx.Client", _FakeClient)
+    registry = get_default_action_registry(rebuild=True)
+    context = _context()
+
+    result = registry.invoke(
+        ToolInvocation(action="http.request", input={"method": "HEAD", "url": "https://example.com/status"}),
+        context,
+    )
+
+    assert result.side_effect_class.value == "external_read"
+    assert result.evidence[0].tenant_id == context.tenant_id
+    assert result.evidence[0].side_effect_class == result.side_effect_class
+    assert result.evidence[0].provenance["network_egress_authority"].endswith("NetworkEgressAuthority")
