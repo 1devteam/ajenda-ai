@@ -32,6 +32,7 @@ Test coverage:
 
 from __future__ import annotations
 
+import socket
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
@@ -40,6 +41,7 @@ import httpx
 import pytest
 
 from backend.domain.webhook_endpoint import WebhookEndpoint
+from backend.services.network_egress import NetworkEgressError, NetworkEgressResponse
 from backend.services.quota_enforcement import FeatureNotAvailableError
 from backend.services.webhook_dispatch import (
     MAX_CONSECUTIVE_FAILURES,
@@ -55,6 +57,56 @@ from backend.services.webhook_dispatch import (
 
 TENANT_ID = uuid.uuid4()
 ENDPOINT_ID = uuid.uuid4()
+
+
+class _MockNetworkEgressAuthority:
+    def __init__(self, mock_http: MagicMock) -> None:
+        self.mock_http = mock_http
+
+    def request(
+        self, *, method: str, url: str, response_text_limit: int, **kwargs: object
+    ) -> tuple[object, NetworkEgressResponse]:
+        try:
+            response = self.mock_http.request(method, url, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise NetworkEgressError("webhook.dispatch network request timed out after 10.0s") from exc
+        except httpx.HTTPError as exc:
+            raise NetworkEgressError("webhook.dispatch network request failed") from exc
+        response_text = response.text
+        return object(), NetworkEgressResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers) if hasattr(response, "headers") else {},
+            body_text=response_text[:response_text_limit],
+            body_truncated=len(response_text) > response_text_limit,
+        )
+
+
+class _FakeHTTPXClient:
+    instances: list[_FakeHTTPXClient] = []
+    response = None
+
+    def __init__(self, **kwargs: object) -> None:
+        self.kwargs = kwargs
+        self.requests: list[tuple[tuple[object, ...], dict[str, object]]] = []
+        _FakeHTTPXClient.instances.append(self)
+
+    def __enter__(self) -> _FakeHTTPXClient:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    def request(self, *args: object, **kwargs: object):
+        self.requests.append((args, kwargs))
+        return self.response or _make_http_response(200, "ok")
+
+
+@pytest.fixture(autouse=True)
+def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    def resolve(host: str, port: int | None = None, *args: object, **kwargs: object) -> list[tuple[object, ...]]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port or 443))]
+
+    monkeypatch.setattr("socket.getaddrinfo", resolve)
 
 
 def _make_endpoint(
@@ -86,6 +138,7 @@ def _make_service(
     http_response: MagicMock | None = None,
     http_raise: Exception | None = None,
     feature_allowed: bool = True,
+    use_real_network_egress: bool = False,
 ) -> tuple[WebhookDispatchService, MagicMock, MagicMock]:
     """Build a WebhookDispatchService with all dependencies mocked.
 
@@ -95,16 +148,21 @@ def _make_service(
     mock_http = MagicMock(spec=httpx.Client)
 
     if http_raise is not None:
-        mock_http.post.side_effect = http_raise
+        mock_http.request.side_effect = http_raise
     elif http_response is not None:
-        mock_http.post.return_value = http_response
+        mock_http.request.return_value = http_response
     else:
         resp = MagicMock()
         resp.status_code = 200
         resp.text = "ok"
-        mock_http.post.return_value = resp
+        mock_http.request.return_value = resp
 
-    service = WebhookDispatchService(mock_db, http_client=mock_http)
+    network_egress_authority = None if use_real_network_egress else _MockNetworkEgressAuthority(mock_http)
+    service = WebhookDispatchService(
+        mock_db,
+        http_client=mock_http,
+        network_egress_authority=network_egress_authority,
+    )
 
     # Patch the repo
     mock_repo = MagicMock()
@@ -262,7 +320,7 @@ class TestDispatchEvent:
             payload={},
         )
         assert results[0].succeeded is False
-        assert "Connection error" in results[0].error
+        assert "network request failed" in results[0].error
 
     def test_no_matching_endpoints_returns_empty_list(self):
         service, _, _ = _make_service(endpoints=[])
@@ -399,7 +457,7 @@ class TestHmacSigning:
             event_type="task.completed",
             payload={"x": 1},
         )
-        call_kwargs = mock_http.post.call_args[1]
+        call_kwargs = mock_http.request.call_args[1]
         headers = call_kwargs["headers"]
         assert "X-Ajenda-Signature-256" in headers
         assert headers["X-Ajenda-Signature-256"].startswith("sha256=")
@@ -582,3 +640,71 @@ class TestReliabilitySummary:
         assert summary.hourly_series[-2].delivered_attempts == 3
         assert summary.hourly_series[-1].window_start == "2026-04-08T11:00:00+00:00"
         assert summary.hourly_series[-1].failed_attempts == 1
+
+
+def test_webhook_dispatch_uses_shared_network_egress_pinning(monkeypatch: pytest.MonkeyPatch) -> None:
+    _FakeHTTPXClient.instances = []
+    _FakeHTTPXClient.response = _make_http_response(200, "ok")
+    monkeypatch.setattr("backend.services.network_egress.httpx.Client", _FakeHTTPXClient)
+    ep = _make_endpoint()
+    service, _, _mock_http = _make_service(
+        endpoints=[ep], http_response=_make_http_response(200, "ok"), use_real_network_egress=True
+    )
+
+    results = service.dispatch_event(tenant_id=TENANT_ID, event_type="task.completed", payload={})
+
+    assert results[0].succeeded is True
+    method, url = _FakeHTTPXClient.instances[0].requests[0][0]
+    request_kwargs = _FakeHTTPXClient.instances[0].requests[0][1]
+    assert method == "POST"
+    assert url == "https://93.184.216.34/hook"
+    assert request_kwargs["headers"]["Host"] == "example.com"
+    assert request_kwargs["headers"]["Connection"] == "close"
+    assert request_kwargs["follow_redirects"] is False
+    assert request_kwargs["extensions"] == {"sni_hostname": "example.com"}
+
+
+def test_webhook_dispatch_fails_closed_before_http_call_for_private_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    def private_dns(host: str, port: int | None = None, *args: object, **kwargs: object) -> list[tuple[object, ...]]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.4", port or 443))]
+
+    monkeypatch.setattr("socket.getaddrinfo", private_dns)
+    ep = _make_endpoint()
+    service, mock_repo, mock_http = _make_service(
+        endpoints=[ep], http_response=_make_http_response(200, "ok"), use_real_network_egress=True
+    )
+
+    results = service.dispatch_event(tenant_id=TENANT_ID, event_type="task.completed", payload={})
+
+    assert results[0].succeeded is False
+    assert "private DNS" in results[0].error
+    mock_http.request.assert_not_called()
+    delivery = mock_repo.record_delivery.call_args[0][0]
+    assert delivery.status == "failed"
+
+
+def test_webhook_dispatch_forces_connection_close_for_hosts_sharing_pinned_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+    _FakeHTTPXClient.instances = []
+    _FakeHTTPXClient.response = _make_http_response(200, "ok")
+    monkeypatch.setattr("backend.services.network_egress.httpx.Client", _FakeHTTPXClient)
+    ep1 = _make_endpoint()
+    ep2 = _make_endpoint()
+    ep2.id = uuid.uuid4()
+    ep2.url = "https://other.example.com/hook"
+    service, _, _mock_http = _make_service(
+        endpoints=[ep1, ep2], http_response=_make_http_response(200, "ok"), use_real_network_egress=True
+    )
+
+    results = service.dispatch_event(tenant_id=TENANT_ID, event_type="task.completed", payload={})
+
+    assert [result.succeeded for result in results] == [True, True]
+    first_call = _FakeHTTPXClient.instances[0].requests[0]
+    second_call = _FakeHTTPXClient.instances[1].requests[0]
+    assert first_call[0][1] == "https://93.184.216.34/hook"
+    assert first_call[1]["headers"]["Host"] == "example.com"
+    assert first_call[1]["headers"]["Connection"] == "close"
+    assert first_call[1]["follow_redirects"] is False
+    assert second_call[0][1] == "https://93.184.216.34/hook"
+    assert second_call[1]["headers"]["Host"] == "other.example.com"
+    assert second_call[1]["headers"]["Connection"] == "close"
+    assert second_call[1]["follow_redirects"] is False

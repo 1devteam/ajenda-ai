@@ -19,7 +19,7 @@ Security:
   - A one-way Argon2id hash is retained for backward-compatible metadata storage
   - Signature format: sha256=<hex_digest> (GitHub-compatible)
   - Delivery timeout: 10 seconds to prevent slow-endpoint DoS
-  - URL validation: must use HTTPS scheme (enforced at registration)
+  - URL validation: outbound deliveries use shared NetworkEgressAuthority for HTTPS, SSRF, DNS, and pinning checks
 
 HTTP client:
   Uses httpx.Client (declared dependency in pyproject.toml) instead of the
@@ -46,6 +46,11 @@ from backend.domain.webhook_delivery import RESPONSE_BODY_MAX_CHARS, WebhookDeli
 from backend.domain.webhook_endpoint import WebhookEndpoint
 from backend.repositories.tenant_repository import TenantRepository
 from backend.repositories.webhook_repository import WebhookRepository
+from backend.services.network_egress import (
+    NetworkEgressAuthority,
+    NetworkEgressError,
+    get_default_network_egress_authority,
+)
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.webhook_secret_protector import WebhookSecretProtector
 
@@ -143,10 +148,11 @@ class WebhookDispatchService:
 
     Args:
         session: SQLAlchemy Session for all DB operations.
-        http_client: Optional httpx.Client for HTTP delivery.
-            Injected for testing; defaults to a new client with a 10s timeout.
-        http_session: Deprecated alias for http_client. Kept for backwards
-            compatibility with existing call sites and unit tests.
+        http_client: Deprecated. Outbound delivery is now performed by
+            NetworkEgressAuthority with a fresh no-keepalive client per vetted
+            request; inject network_egress_authority in tests instead.
+        http_session: Deprecated alias retained for backwards-compatible
+            constructor calls. It is not used for outbound egress.
     """
 
     def __init__(
@@ -156,21 +162,19 @@ class WebhookDispatchService:
         http_client: httpx.Client | None = None,
         http_session: Any | None = None,
         secret_protector: WebhookSecretProtector | None = None,
+        network_egress_authority: NetworkEgressAuthority | None = None,
     ) -> None:
         self._db = session
         self._repo = WebhookRepository(session)
         self._tenants = TenantRepository(session)
         self._quota = QuotaEnforcementService(session)
         self._protector = secret_protector or WebhookSecretProtector()
-        if http_client is not None:
-            self._http: Any = http_client
-        elif http_session is not None:
-            # Backwards-compat shim: accept a requests.Session-like mock so
-            # existing unit tests continue to work without modification.
-            # In production this path is never taken.
-            self._http = http_session
-        else:
-            self._http = httpx.Client(timeout=DELIVERY_TIMEOUT_SECONDS)
+        self._network_egress = network_egress_authority or get_default_network_egress_authority()
+        # http_client/http_session are intentionally not stored or passed into
+        # NetworkEgressAuthority: pooled clients are unsafe with pinned-IP
+        # connect URLs because their TLS pools are keyed by pinned IP rather
+        # than the original vetted hostname.
+        _ = (http_client, http_session)
 
     # ------------------------------------------------------------------
     # Registration
@@ -520,8 +524,9 @@ class WebhookDispatchService:
         succeeded = False
 
         try:
-            response = self._http.post(
-                endpoint.url,
+            _destination, response = self._network_egress.request(
+                method="POST",
+                url=endpoint.url,
                 content=body,
                 headers={
                     "Content-Type": "application/json",
@@ -530,18 +535,18 @@ class WebhookDispatchService:
                     "X-Ajenda-Signature-256": signature,
                     "User-Agent": "Ajenda-Webhooks/1.0",
                 },
-                timeout=DELIVERY_TIMEOUT_SECONDS,
+                timeout_seconds=DELIVERY_TIMEOUT_SECONDS,
+                action_name="webhook.dispatch",
+                response_text_limit=RESPONSE_BODY_MAX_CHARS,
             )
             http_status = response.status_code
-            response_body = response.text[:RESPONSE_BODY_MAX_CHARS]
+            response_body = response.body_text
             succeeded = 200 <= http_status < 300
 
-        except httpx.TimeoutException:
-            error_message = f"Delivery timed out after {DELIVERY_TIMEOUT_SECONDS}s"
-        except httpx.ConnectError as exc:
-            error_message = f"Connection error: {exc}"
-        except Exception as exc:
-            error_message = f"Unexpected error: {exc}"
+        except NetworkEgressError as exc:
+            error_message = str(exc)
+        except Exception:
+            error_message = "webhook.dispatch network request failed"
 
         # Update delivery record with outcome
         delivery.status = "delivered" if succeeded else "failed"

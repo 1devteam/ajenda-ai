@@ -243,9 +243,9 @@ This section defines the fourteen subsystem lanes used for future Ajenda impleme
 ### 11. Tool/action runtime
 
 - **Purpose:** Governed action execution layer under `tool.invoke`; registration is not execution authority and side effects require explicit runtime permission.
-- **Current status:** lane complete for runtime authority over registered in-process/local proof actions, HTTP egress classification, and webhook dispatch authority boundaries; network egress hardening is bounded to existing `http.request`, while broader Network Egress and third-party provider activation remain separate future lanes.
+- **Current status:** lane complete for runtime authority over registered in-process/local proof actions and shared network egress authority for runtime HTTP/webhook tool actions; third-party provider activation, OAuth, credential refresh, and durable SaaS clients remain separate future lanes.
 - **Authority layer(s):** `runtime_authoritative` for `tool.invoke`; related capability/adapter records remain `declarative`.
-- **Source-of-truth files:** `backend/workers/handlers/tool_invoke.py`, `backend/services/tools/runtime_authority.py`, `backend/services/tools/action_registry.py`, `backend/services/tools/capability_validation.py`, `backend/services/tools/schemas.py`, `backend/services/tools/http_actions.py`, `backend/services/tools/webhook_actions.py`, `backend/services/tools/evidence_bridge.py`.
+- **Source-of-truth files:** `backend/workers/handlers/tool_invoke.py`, `backend/services/tools/runtime_authority.py`, `backend/services/tools/action_registry.py`, `backend/services/tools/capability_validation.py`, `backend/services/tools/schemas.py`, `backend/services/network_egress.py`, `backend/services/tools/http_actions.py`, `backend/services/tools/webhook_actions.py`, `backend/services/webhook_dispatch.py`, `backend/services/tools/evidence_bridge.py`.
 - **Entry points:** `tool_invoke_handler()` delegates to `ToolRuntimeAuthority`; `ActionRegistry.invoke()` validates registered handler input/output; default action registry builder in `action_registry.py`; capability authority validation helpers; HTTP/webhook action registrations.
 - **Allowed effects:** execute known actions only from a queued/claimed/started `ExecutionTask`; enforce invocation schema, effective side-effect class, runtime side-effect authorization, concrete capability/adapter authority for side-effecting actions, tenant context, handler `ActionResult`, and scoped `EvidenceItem` output.
 - **Forbidden effects:** treating registry presence or broad `tool.invoke` support as concrete action permission, weakening side-effect authorization, declarative capability/adapter/ability records becoming runtime bindings automatically, collapsing `EXTERNAL_READ`, `EXTERNAL_WRITE`, `EXTERNAL_SEND`, or `EXTERNAL_PUBLISH` into each other, provider direct calls to `WorkerRuntimeService.complete()`/`fail()`, or tenant/context bypass.
@@ -253,9 +253,9 @@ This section defines the fourteen subsystem lanes used for future Ajenda impleme
 - **Runtime boundary:** actions/providers must not call worker runtime complete/fail or create parallel dispatcher/queue/lease systems.
 - **Tenant/auth/policy requirements:** task tenant and invocation authority must match; side-effecting writes/sends/publishes require explicit versioned `execution_constraints.side_effect_authorization` and concrete capability/adapter authority for the canonical action.
 - **Evidence/audit requirements:** successful actions return validated `ActionResult` with at least one scoped `EvidenceItem`; live egress must preserve effective side-effect classification and audit/evidence expectations.
-- **Failure/recovery semantics:** unknown actions and malformed invocations fail closed before side effects; HTTP destination safety fails closed; action failure returns controlled runtime failure through dispatcher.
+- **Failure/recovery semantics:** unknown actions and malformed invocations fail closed before side effects; shared network egress destination safety fails closed; action failure returns controlled runtime failure through dispatcher without evidence/output secret leakage.
 - **Existing tests/proofs:** `tests/unit/tools/test_action_registry.py`, `tests/unit/tools/test_capability_action_validation.py`, `tests/unit/tools/test_http_actions.py`, `tests/unit/tools/test_evidence_bridge.py`, `tests/unit/workers/test_tool_invoke_handler.py`, `tests/unit/architecture/test_authority_ledger_contract.py`, `tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py`.
-- **Missing proof, if any:** broader Network Egress, external credential/OAuth, and provider-specific readback/idempotency tests are required before new live third-party providers are claimed complete.
+- **Missing proof, if any:** external credential/OAuth, durable third-party provider clients, and provider-specific readback/idempotency tests are required before new live third-party providers are claimed complete.
 - **Pitfalls to avoid:** binding declarative records directly to runtime, treating future providers as live, mixing local/proof providers with external activation, or broadening side effects for convenience.
 - **Must-read before modification:** source-of-truth files and listed tests.
 
@@ -493,9 +493,9 @@ Important distinction:
 - `EXTERNAL_READ` is not currently treated as side-effecting in the same way as write/send egress.
 - Therefore HTTP read egress has weaker authority gating than write/send egress unless a capability/adapter reference or future policy requires more.
 
-`http.request` enforces destination safety before live egress: HTTPS-only URLs, blocked localhost/.local/internal hostnames, blocked private/link-local/loopback/multicast/reserved/unspecified IP literals, blocked private DNS answers, DNS lookup failure as fail-closed, redirects disabled, and response body truncation to 4096 characters. For hostname destinations, the runtime pins one vetted public routable address from the validated DNS result and connects to that pinned address while preserving TLS SNI and HTTP Host semantics for the original hostname, so validation cannot approve one DNS answer and then connect through a later hostname re-resolution.
+`http.request` and webhook deliveries delegate outbound HTTP I/O to `NetworkEgressAuthority`; `http.request` enforces destination safety before live egress: HTTPS-only URLs, blocked localhost/.local/internal hostnames, blocked private/link-local/loopback/multicast/reserved/unspecified IP literals, blocked private DNS answers, DNS lookup failure as fail-closed, redirects disabled, and response body truncation to 4096 characters. For hostname destinations, the runtime pins one vetted public routable address from the validated DNS result and connects to that pinned address while preserving TLS SNI and HTTP Host semantics for the original hostname, so validation cannot approve one DNS answer and then connect through a later hostname re-resolution.
 
-Payload-provided `allowed_hosts` remains an explicit request constraint, but it is not sufficient as sole destination authority: final destination safety is still enforced by runtime SSRF and DNS-rebinding hardening.
+Payload-provided `allowed_hosts` remains an explicit request constraint, but it is not sufficient as sole destination authority: final destination safety is still enforced by runtime SSRF and DNS-rebinding hardening. Webhook dispatch keeps `EXTERNAL_SEND` authority and uses the same shared destination vetting, DNS pinning, original Host header, TLS SNI, fresh no-keepalive clients, forced per-request connection close, disabled redirects, and bounded response-body capture rather than inventing a webhook-specific egress policy.
 
 ## Mission queue authority
 
@@ -547,7 +547,7 @@ This is a semantic overlap / drift risk because the two paths have different mea
 | Mission route concentration | Runtime bridge mutation lanes now delegate to explicit services: `MissionRuntimeTaskMaterializationService`, `MissionRuntimeQueueAdmissionService`, `WorkerClaimAdmissionService`, `WorkerStartAdmissionService`, and `WorkerRunAdmissionService`; `backend/api/routes/mission.py` remains the route/auth/request/response wrapper. | Continue moving remaining response/read-model helpers out of the route when their contracts are separated. |
 | Declarative mutation audit policy | Business Profile explicitly appends audit events; other declarative contract lanes generally do not. | Decide whether this is intentional or whether all declarative mutations require audit events. |
 | Provider activation | Google Calendar and credential resolver are contract-only. | Build real credential resolver before live external provider activation. |
-| Live HTTP/webhook egress | HTTP/webhook action egress is live. HTTP read egress remains weaker-gated than write/send egress, but `http.request` now enforces SSRF protections, fail-closed DNS validation, and pinned vetted-address connection for hostname targets. | Preserve HTTP destination-safety and side-effect authority tests when extending egress behavior. |
+| Live HTTP/webhook egress | HTTP/webhook action egress is live under shared `NetworkEgressAuthority`. HTTP read egress remains weaker-gated than write/send egress, but HTTP and webhook network calls now enforce SSRF protections, fail-closed DNS validation, and pinned vetted-address connection for hostname targets. | Preserve HTTP destination-safety and side-effect authority tests when extending egress behavior. |
 
 ## Disproved assumptions
 
@@ -679,7 +679,7 @@ Use this checklist to open or reconcile repo issues before implementation.
 
 - Keep Google Calendar provider future-facing until credential resolver is implemented.
 - Keep `UnresolvedCredentialResolver` fail-closed.
-- Preserve `http.request` SSRF and DNS-rebinding hardening: fail-closed DNS validation, private/internal target rejection, pinned vetted-address connection, TLS SNI/Host preservation, redirects disabled, and 4096-character response truncation.
+- Preserve shared network egress SSRF and DNS-rebinding hardening: fail-closed DNS validation, private/internal target rejection, pinned vetted-address connection, TLS SNI/Host preservation, redirects disabled, and bounded response truncation for HTTP/webhook surfaces.
 - Treat HTTP read egress separately from HTTP write/send egress because `EXTERNAL_READ` is weaker-gated.
 
 ### Declarative lanes

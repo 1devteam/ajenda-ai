@@ -723,6 +723,9 @@ authority_entries:
       - backend/services/tools/capability_validation.py
       - backend/services/tools/evidence_bridge.py
       - backend/services/tools/http_actions.py
+      - backend/services/tools/webhook_actions.py
+      - backend/services/network_egress.py
+      - backend/services/webhook_dispatch.py
       - backend/domain/evidence.py
     route_scope: []
     authority_class: runtime_authoritative
@@ -734,18 +737,19 @@ authority_entries:
       - execute side-effecting actions only when versioned invocation metadata and capability or adapter authority explicitly authorize the concrete canonical action
       - validate handler output through ActionResult and EvidenceItem scope checks before dispatcher completion
       - execute http.request as live external egress with GET/HEAD classified as EXTERNAL_READ and HTTP write methods classified as side-effecting EXTERNAL_WRITE without collapsing external read/write/send/publish authority classes
-      - constrain http.request destinations with HTTPS-only validation, SSRF protections, fail-closed DNS lookup, and pinned vetted-address connection that preserves TLS SNI and HTTP Host semantics for the original hostname
+      - constrain runtime HTTP and webhook outbound destinations through shared NetworkEgressAuthority HTTPS-only validation, SSRF protections, fail-closed DNS lookup, and pinned vetted-address connection that preserves TLS SNI and HTTP Host semantics for the original hostname and uses a fresh no-keepalive client with per-request connection close to avoid pooling pinned-IP TLS sessions across hosts
     forbidden_side_effects:
       - execute capabilities directly from declarative capability or adapter records
       - create a parallel dispatcher, queue, lease, capability registry, or adapter registry
       - call WorkerRuntimeService.complete or WorkerRuntimeService.fail from tool actions or providers
-      - allow http.request to reach localhost, .local, obvious internal hostnames, private/link-local/loopback/multicast/reserved/unspecified IP literals, private DNS resolutions, DNS failures, or hostname targets whose validated public DNS answer is not the pinned connection address
+      - allow runtime HTTP or webhook egress to reach localhost, .local, obvious internal hostnames, private/link-local/loopback/multicast/reserved/unspecified IP literals, private DNS resolutions, DNS failures, or hostname targets whose validated public DNS answer is not the pinned connection address
       - treat payload-provided http.request allowed_hosts as sufficient sole destination authority without runtime destination-safety enforcement
       - treat ability manifests, capability records, adapter records, action registration, or broad tool.invoke support as runtime permission for concrete side-effecting actions
     required_proofs:
       - tests/unit/tools/test_action_registry.py
       - tests/unit/tools/test_capability_action_validation.py
       - tests/unit/tools/test_http_actions.py
+      - tests/unit/webhooks/test_webhook_dispatch.py
       - tests/unit/tools/test_evidence_bridge.py
       - tests/unit/workers/test_tool_invoke_handler.py
       - tests/unit/workers/test_task_dispatcher_runtime_contract.py
