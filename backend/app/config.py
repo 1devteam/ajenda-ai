@@ -86,6 +86,14 @@ class Settings(BaseSettings):
         default=None,
         alias="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
     )
+    runtime_secret_encryption_key: str | None = Field(
+        default=None,
+        alias="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
+    )
+    runtime_secret_encryption_key_prev: str | None = Field(
+        default=None,
+        alias="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
+    )
 
     budget_policy_enabled: bool = Field(default=False, alias="AJENDA_BUDGET_POLICY_ENABLED")
     budget_policy_observe_only: bool = Field(default=True, alias="AJENDA_BUDGET_POLICY_OBSERVE_ONLY")
@@ -198,11 +206,22 @@ class Settings(BaseSettings):
                 env_name="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
                 required=True,
             )
+            _validate_fernet_key(
+                value=self.runtime_secret_encryption_key,
+                env_name="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
+                required=True,
+            )
 
         if self.webhook_secret_encryption_key_prev is not None and str(self.webhook_secret_encryption_key_prev).strip():
             _validate_fernet_key(
                 value=self.webhook_secret_encryption_key_prev,
                 env_name="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
+                required=False,
+            )
+        if self.runtime_secret_encryption_key_prev is not None and str(self.runtime_secret_encryption_key_prev).strip():
+            _validate_fernet_key(
+                value=self.runtime_secret_encryption_key_prev,
+                env_name="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
                 required=False,
             )
 

@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
 from backend.services.credentials.runtime_authority import CredentialRecord, CredentialRuntimeRepository
+from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
 from backend.services.tools.schemas import SideEffectClass
-from backend.services.webhook_secret_protector import WebhookSecretProtector
 
 
 class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
@@ -25,10 +25,10 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
         self,
         *,
         session_factory: Callable[[], Session],
-        secret_protector: WebhookSecretProtector | None = None,
+        secret_protector: RuntimeCredentialSecretProtector | None = None,
     ) -> None:
         self._session_factory = session_factory
-        self._secret_protector = secret_protector or WebhookSecretProtector()
+        self._secret_protector = secret_protector or RuntimeCredentialSecretProtector()
 
     def get_visible_for_tenant(self, *, tenant_id: str, credential_id: str) -> CredentialRecord | None:
         session = self._session_factory()

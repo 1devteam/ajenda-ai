@@ -9,8 +9,8 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
+from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
-from backend.services.webhook_secret_protector import WebhookSecretProtector
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
 
 
@@ -180,7 +180,8 @@ def test_tool_invoke_handler_uses_live_sqlalchemy_credential_repository(
     from backend.services.tools import provider_read_actions, runtime_authority
 
     monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **kwargs: None)
-    plaintext_secret, ciphertext_secret = WebhookSecretProtector().generate_secret()
+    plaintext_secret = "sk-live-sqlalchemy-secret"
+    ciphertext_secret = RuntimeCredentialSecretProtector().encrypt_secret(plaintext_secret)
     spy = _ProviderEgressSpy(expected_secret=plaintext_secret)
     monkeypatch.setattr(provider_read_actions, "get_default_network_egress_authority", lambda: spy)
 

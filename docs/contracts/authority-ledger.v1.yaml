@@ -723,6 +723,7 @@ authority_entries:
       - backend/services/tools/capability_validation.py
       - backend/services/credentials/runtime_authority.py
       - backend/services/credentials/sqlalchemy_repository.py
+      - backend/services/credentials/secret_protector.py
       - backend/domain/provider_runtime_credential.py
       - backend/services/security/redaction.py
       - backend/services/abilities/manifest.py

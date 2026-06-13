@@ -430,6 +430,8 @@ def _settings_with_confidence_floor(value: float) -> Settings:
         authz_opa_timeout_seconds=2.0,
         webhook_secret_encryption_key=Fernet.generate_key().decode(),
         webhook_secret_encryption_key_prev=None,
+        runtime_secret_encryption_key=Fernet.generate_key().decode(),
+        runtime_secret_encryption_key_prev=None,
         lifecycle_policy_enforce_retention_class=False,
         lifecycle_policy_enforce_escalation_transitions=False,
         lifecycle_policy_enforce_provenance_confidence_floor=False,
