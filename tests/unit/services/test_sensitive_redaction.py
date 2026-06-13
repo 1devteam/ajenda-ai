@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from backend.services.security.redaction import REDACTED_VALUE, contains_sensitive_key, redact_sensitive_data
+from backend.services.security.redaction import (
+    REDACTED_VALUE,
+    contains_sensitive_key,
+    contains_sensitive_value,
+    redact_sensitive_data,
+)
 
 
 def test_redaction_is_recursive_and_covers_common_sensitive_keys() -> None:
@@ -56,3 +61,26 @@ def test_redaction_accepts_configured_exact_keys_recursively() -> None:
         "Set-Cookie": REDACTED_VALUE,
         "nested": [{"session_id": REDACTED_VALUE}, {"value": "visible"}],
     }
+
+
+def test_redaction_accepts_configured_sensitive_values_recursively() -> None:
+    payload = {
+        "summary": "neutral field leaked sk-runtime-12345",
+        "nested": [{"message": "prefix sk-runtime-12345 suffix"}, "sk-runtime-12345"],
+        "key-sk-runtime-12345": "value under credential-bearing key",
+        "safe": "visible",
+    }
+
+    assert contains_sensitive_value(payload, {"sk-runtime-12345"}) is True
+
+    redacted = redact_sensitive_data(
+        payload, additional_sensitive_values={"sk-runtime-12345"}, redact_mapping_keys=True
+    )
+
+    assert redacted == {
+        "summary": "neutral field leaked ***REDACTED***",
+        "nested": [{"message": "prefix ***REDACTED*** suffix"}, "***REDACTED***"],
+        "key-***REDACTED***": "value under credential-bearing key",
+        "safe": "visible",
+    }
+    assert contains_sensitive_value(redacted, {"sk-runtime-12345"}) is False

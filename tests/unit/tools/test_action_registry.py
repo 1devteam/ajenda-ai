@@ -8,7 +8,9 @@ from backend.services.tools.action_registry import ActionDefinition, ActionRegis
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
+    CredentialReference,
     EvidenceItem,
+    RuntimeCredentialMaterial,
     SideEffectClass,
     ToolInvocation,
 )
@@ -246,6 +248,165 @@ def test_default_registry_keeps_http_read_write_and_webhook_send_authority_separ
         )
         == SideEffectClass.EXTERNAL_SEND
     )
+
+
+def test_action_registry_redacts_runtime_credential_values_in_neutral_result_fields() -> None:
+    registry = ActionRegistry()
+    context = _context()
+    context.runtime_credentials["credential.action"] = RuntimeCredentialMaterial(
+        reference=CredentialReference(credential_id="cred-1", provider="test", credential_type="api_key"),
+        secret_value="sk-neutral-runtime-12345",
+        injected_headers={"Authorization": "Bearer sk-neutral-runtime-12345"},
+    )
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        return ActionResult(
+            action="credential.action",
+            provider="test",
+            output={
+                "message": "handler returned sk-neutral-runtime-12345 in a neutral message",
+                "header_echo": "Bearer sk-neutral-runtime-12345",
+                "key-sk-neutral-runtime-12345": "credential appears in key",
+            },
+            evidence=[
+                EvidenceItem(
+                    evidence_type="action_result",
+                    evidence_source="tool.invoke.sk-neutral-runtime-12345",
+                    action_name="credential.action",
+                    tool_provider="test",
+                    tenant_id=context.tenant_id,
+                    task_id=str(context.task_id),
+                    mission_id=str(context.mission_id) if context.mission_id else None,
+                    summary="evidence includes sk-neutral-runtime-12345 in neutral text",
+                    structured_payload={
+                        "message": "payload sk-neutral-runtime-12345",
+                        "key-sk-neutral-runtime-12345": "value",
+                    },
+                    collection_status="provider status sk-neutral-runtime-12345",
+                )
+            ],
+            summary="summary includes sk-neutral-runtime-12345 in neutral text",
+            limitations=["limitation includes sk-neutral-runtime-12345 in neutral text"],
+        )
+
+    registry.register(ActionDefinition(name="credential.action", handler=handler, provider="test"))
+
+    result = registry.invoke(ToolInvocation(action="credential.action", input={}), context)
+    dumped = result.model_dump(mode="json")
+
+    assert "sk-neutral-runtime-12345" not in str(dumped)
+    assert "Bearer sk-neutral-runtime-12345" not in str(dumped)
+    assert result.summary == "summary includes ***REDACTED*** in neutral text"
+    assert result.limitations == ["limitation includes ***REDACTED*** in neutral text"]
+    assert result.output == {
+        "message": "handler returned ***REDACTED*** in a neutral message",
+        "header_echo": "***REDACTED***",
+        "key-***REDACTED***": "credential appears in key",
+    }
+    assert result.evidence[0].summary == "evidence includes ***REDACTED*** in neutral text"
+    assert result.evidence[0].evidence_source == "tool.invoke.***REDACTED***"
+    assert result.evidence[0].collection_status == "provider status ***REDACTED***"
+    assert result.evidence[0].structured_payload == {"message": "payload ***REDACTED***", "key-***REDACTED***": "value"}
+
+
+def test_action_registry_captures_runtime_credentials_before_handler_mutation() -> None:
+    registry = ActionRegistry()
+    context = _context()
+    context.runtime_credentials["credential.action"] = RuntimeCredentialMaterial(
+        reference=CredentialReference(credential_id="cred-1", provider="test", credential_type="api_key"),
+        secret_value="sk-cleared-runtime-12345",
+    )
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        credential = context.runtime_credentials["credential.action"]
+        context.runtime_credentials.clear()
+        return ActionResult(
+            action="credential.action",
+            provider="test",
+            output={"message": f"handler echoed {credential.secret_value}"},
+            evidence=[
+                EvidenceItem(
+                    evidence_type="action_result",
+                    evidence_source="tool.invoke.credential.action",
+                    action_name="credential.action",
+                    tool_provider="test",
+                    tenant_id=context.tenant_id,
+                    task_id=str(context.task_id),
+                    mission_id=str(context.mission_id) if context.mission_id else None,
+                    summary=f"evidence echoed {credential.secret_value}",
+                )
+            ],
+            summary=f"summary echoed {credential.secret_value}",
+        )
+
+    registry.register(ActionDefinition(name="credential.action", handler=handler, provider="test"))
+
+    result = registry.invoke(ToolInvocation(action="credential.action", input={}), context)
+    dumped = result.model_dump(mode="json")
+
+    assert context.runtime_credentials == {}
+    assert "sk-cleared-runtime-12345" not in str(dumped)
+    assert result.output == {"message": "handler echoed ***REDACTED***"}
+    assert result.evidence[0].summary == "evidence echoed ***REDACTED***"
+    assert result.summary == "summary echoed ***REDACTED***"
+
+
+def test_action_registry_does_not_redact_schema_keys_for_short_runtime_credentials() -> None:
+    registry = ActionRegistry()
+    context = _context()
+    context.runtime_credentials["credential.action"] = RuntimeCredentialMaterial(
+        reference=CredentialReference(credential_id="cred-1", provider="test", credential_type="api_key"),
+        secret_value="id",
+    )
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        return ActionResult(
+            action="credential.action",
+            provider="test",
+            output={"safe": "clean"},
+            evidence=[_evidence(context=context, action="credential.action")],
+            records_inspected=["account-1"],
+            summary="clean summary",
+        )
+
+    registry.register(ActionDefinition(name="credential.action", handler=handler, provider="test"))
+
+    result = registry.invoke(ToolInvocation(action="credential.action", input={}), context)
+
+    assert result.action == "credential.action"
+    assert result.output == {"safe": "clean"}
+    assert result.records_inspected == ["account-1"]
+    assert result.evidence[0].action_name == "credential.action"
+    assert result.evidence[0].task_id == str(context.task_id)
+
+
+def test_action_registry_preserves_action_contract_fields_for_common_runtime_credentials() -> None:
+    registry = ActionRegistry()
+    context = _context()
+    context.runtime_credentials["record.search"] = RuntimeCredentialMaterial(
+        reference=CredentialReference(credential_id="cred-1", provider="test", credential_type="api_key"),
+        secret_value="record",
+    )
+
+    def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+        return ActionResult(
+            action="record.search",
+            provider="test",
+            output={"safe": "clean"},
+            evidence=[_evidence(context=context, action="record.search")],
+            records_inspected=["account-1"],
+            summary="clean summary",
+        )
+
+    registry.register(ActionDefinition(name="record.search", handler=handler, provider="test"))
+
+    result = registry.invoke(ToolInvocation(action="record.search", input={}), context)
+
+    assert result.action == "record.search"
+    assert result.output == {"safe": "clean"}
+    assert result.records_inspected == ["account-1"]
+    assert result.evidence[0].action_name == "record.search"
+    assert result.evidence[0].evidence_source == "tool.invoke.***REDACTED***.search"
 
 
 def test_action_registry_redacts_secret_material_from_results_and_evidence() -> None:
