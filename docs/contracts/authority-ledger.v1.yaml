@@ -737,7 +737,7 @@ authority_entries:
       - execute side-effecting actions only when versioned invocation metadata and capability or adapter authority explicitly authorize the concrete canonical action
       - validate handler output through ActionResult and EvidenceItem scope checks before dispatcher completion
       - execute http.request as live external egress with GET/HEAD classified as EXTERNAL_READ and HTTP write methods classified as side-effecting EXTERNAL_WRITE without collapsing external read/write/send/publish authority classes
-      - constrain runtime HTTP and webhook outbound destinations through shared NetworkEgressAuthority HTTPS-only validation, SSRF protections, fail-closed DNS lookup, and pinned vetted-address connection that preserves TLS SNI and HTTP Host semantics for the original hostname
+      - constrain runtime HTTP and webhook outbound destinations through shared NetworkEgressAuthority HTTPS-only validation, SSRF protections, fail-closed DNS lookup, and pinned vetted-address connection that preserves TLS SNI and HTTP Host semantics for the original hostname and forces per-request connection close to avoid pooling pinned-IP TLS sessions across hosts
     forbidden_side_effects:
       - execute capabilities directly from declarative capability or adapter records
       - create a parallel dispatcher, queue, lease, capability registry, or adapter registry

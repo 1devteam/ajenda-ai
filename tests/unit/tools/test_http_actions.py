@@ -185,14 +185,14 @@ def test_http_request_overrides_payload_host_header_with_original_host(monkeypat
             input={
                 "method": "GET",
                 "url": "https://example.com:8443/path",
-                "headers": {"host": "attacker.example", "x-test": "ok"},
+                "headers": {"host": "attacker.example", "connection": "keep-alive", "x-test": "ok"},
             },
         ),
         _context(),
     )
 
     request = _FakeClient.instances[0].requests[0]
-    assert request["headers"] == {"x-test": "ok", "Host": "example.com:8443"}
+    assert request["headers"] == {"x-test": "ok", "Host": "example.com:8443", "Connection": "close"}
 
 
 def test_http_request_keeps_redirects_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -204,7 +204,9 @@ def test_http_request_keeps_redirects_disabled(monkeypatch: pytest.MonkeyPatch) 
         _context(),
     )
 
+    request = _FakeClient.instances[0].requests[0]
     assert _FakeClient.instances[0].kwargs["follow_redirects"] is False
+    assert request["headers"]["Connection"] == "close"
 
 
 def test_http_request_truncates_response_body_to_4096_chars(monkeypatch: pytest.MonkeyPatch) -> None:

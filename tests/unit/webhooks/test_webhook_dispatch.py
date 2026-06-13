@@ -605,6 +605,7 @@ def test_webhook_dispatch_uses_shared_network_egress_pinning() -> None:
     assert method == "POST"
     assert url == "https://93.184.216.34/hook"
     assert request_kwargs["headers"]["Host"] == "example.com"
+    assert request_kwargs["headers"]["Connection"] == "close"
     assert request_kwargs["extensions"] == {"sni_hostname": "example.com"}
 
 
@@ -623,3 +624,22 @@ def test_webhook_dispatch_fails_closed_before_http_call_for_private_dns(monkeypa
     mock_http.request.assert_not_called()
     delivery = mock_repo.record_delivery.call_args[0][0]
     assert delivery.status == "failed"
+
+
+def test_webhook_dispatch_forces_connection_close_for_hosts_sharing_pinned_ip() -> None:
+    ep1 = _make_endpoint()
+    ep2 = _make_endpoint()
+    ep2.id = uuid.uuid4()
+    ep2.url = "https://other.example.com/hook"
+    service, _, mock_http = _make_service(endpoints=[ep1, ep2], http_response=_make_http_response(200, "ok"))
+
+    results = service.dispatch_event(tenant_id=TENANT_ID, event_type="task.completed", payload={})
+
+    assert [result.succeeded for result in results] == [True, True]
+    first_call, second_call = mock_http.request.call_args_list
+    assert first_call.args[1] == "https://93.184.216.34/hook"
+    assert first_call.kwargs["headers"]["Host"] == "example.com"
+    assert first_call.kwargs["headers"]["Connection"] == "close"
+    assert second_call.args[1] == "https://93.184.216.34/hook"
+    assert second_call.kwargs["headers"]["Host"] == "other.example.com"
+    assert second_call.kwargs["headers"]["Connection"] == "close"
