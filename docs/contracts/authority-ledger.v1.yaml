@@ -721,6 +721,9 @@ authority_entries:
       - backend/services/tools/runtime_authority.py
       - backend/services/tools/action_registry.py
       - backend/services/tools/capability_validation.py
+      - backend/services/abilities/manifest.py
+      - backend/services/abilities/catalog.py
+      - backend/services/abilities/rollout_validation.py
       - backend/services/tools/evidence_bridge.py
       - backend/services/tools/http_actions.py
       - backend/services/tools/webhook_actions.py
@@ -734,6 +737,8 @@ authority_entries:
       - execute registered in-process actions only after an ExecutionTask has been queued, claimed, and started through worker lease authority
       - persist evidence-shaped action output through the existing task-output lineage path
       - persist completed tool action evidence into tenant-owned EvidenceRecord rows after task-output lineage is appended
+      - execute registered actions only when the canonical action has a valid AbilityManifest rollout/proof contract
+      - execute external read/write/send/publish actions only when tenant-visible enabled capability/adapter authority and exact adapter side-effect classification explicitly authorize the concrete canonical action
       - execute side-effecting actions only when versioned invocation metadata and capability or adapter authority explicitly authorize the concrete canonical action
       - validate handler output through ActionResult and EvidenceItem scope checks before dispatcher completion
       - execute http.request as live external egress with GET/HEAD classified as EXTERNAL_READ and HTTP write methods classified as side-effecting EXTERNAL_WRITE without collapsing external read/write/send/publish authority classes
@@ -744,10 +749,14 @@ authority_entries:
       - call WorkerRuntimeService.complete or WorkerRuntimeService.fail from tool actions or providers
       - allow runtime HTTP or webhook egress to reach localhost, .local, obvious internal hostnames, private/link-local/loopback/multicast/reserved/unspecified IP literals, private DNS resolutions, DNS failures, or hostname targets whose validated public DNS answer is not the pinned connection address
       - treat payload-provided http.request allowed_hosts as sufficient sole destination authority without runtime destination-safety enforcement
-      - treat ability manifests, capability records, adapter records, action registration, or broad tool.invoke support as runtime permission for concrete side-effecting actions
+      - treat ability manifests, capability records, adapter records, action registration, broad tool.invoke support, or legacy external_side_effect declarations as runtime permission for concrete external or side-effecting actions
     required_proofs:
       - tests/unit/tools/test_action_registry.py
       - tests/unit/tools/test_capability_action_validation.py
+      - tests/unit/tools/test_tool_runtime_authority.py
+      - tests/unit/abilities/test_ability_catalog.py
+      - tests/unit/abilities/test_ability_manifest_contract.py
+      - tests/unit/abilities/test_ability_rollout_validation.py
       - tests/unit/tools/test_http_actions.py
       - tests/unit/webhooks/test_webhook_dispatch.py
       - tests/unit/tools/test_evidence_bridge.py

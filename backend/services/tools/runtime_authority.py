@@ -7,8 +7,13 @@ from pydantic import ValidationError
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.rollout_validation import validate_action_manifest_alignment
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry, get_default_action_registry
-from backend.services.tools.capability_validation import validate_capability_action_authority
+from backend.services.tools.capability_validation import (
+    CapabilityActionValidationError,
+    validate_capability_action_authority,
+)
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
 
 
@@ -78,6 +83,7 @@ class ToolRuntimeAuthority:
             raise ToolRuntimeAuthorityError(f"invalid tool_invocation: {exc}") from exc
 
         action = self._registry.get(invocation.action)
+        self._validate_ability_manifest(action)
         effective_side_effect_class = action.side_effect_for(invocation)
         if effective_side_effect_class.has_side_effect and task.status != ExecutionTaskState.RUNNING.value:
             raise ToolRuntimeAuthorityError("side-effecting tool.invoke action requires running task state")
@@ -85,13 +91,28 @@ class ToolRuntimeAuthority:
         session_factory = context["session_factory"]
         session = session_factory()
         try:
-            validate_capability_action_authority(
-                session=session,
-                tenant_id=task.tenant_id,
-                metadata=task.metadata_json,
-                action=action,
-                side_effect_class=effective_side_effect_class,
-            )
+            try:
+                validate_capability_action_authority(
+                    session=session,
+                    tenant_id=task.tenant_id,
+                    metadata=task.metadata_json,
+                    action=action,
+                    side_effect_class=effective_side_effect_class,
+                )
+            except CapabilityActionValidationError as exc:
+                raise ToolRuntimeAuthorityError(f"tool.invoke promotion denied: {exc}") from exc
         finally:
             session.close()
         return invocation, action, effective_side_effect_class
+
+    @staticmethod
+    def _validate_ability_manifest(action: ActionDefinition) -> None:
+        manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
+        if manifest is None:
+            raise ToolRuntimeAuthorityError(f"tool.invoke action {action.name!r} has no ability manifest")
+        try:
+            validate_action_manifest_alignment(action_definition=action, manifest=manifest)
+        except ValueError as exc:
+            raise ToolRuntimeAuthorityError(
+                f"tool.invoke action {action.name!r} ability manifest is invalid: {exc}"
+            ) from exc

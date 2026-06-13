@@ -379,11 +379,12 @@ It validates:
 - side-effect class,
 - side-effect runtime state,
 - side-effect authorization where required,
-- capability / adapter authority where applicable.
+- valid ability manifest rollout/proof contract,
+- tenant-visible capability / adapter authority where applicable.
 
 A registered `ActionDefinition` does not mean an action is freely executable. Registry presence is not execution authority.
 
-For side-effecting actions, `tool.invoke` must preserve the rule that side effects require the proper runtime state and explicit authority.
+For side-effecting actions, `tool.invoke` must preserve the rule that side effects require the proper runtime state and explicit authorization. External read/write/send/publish actions also require explicit promotion authority and exact adapter side-effect classification before runtime execution; `external_side_effect` is a legacy broad declaration and is not concrete authority for any external runtime class.
 
 ## Mission runtime bridge
 
@@ -490,8 +491,8 @@ Important distinction:
 
 - HTTP write methods and webhook dispatch are side-effecting egress surfaces.
 - HTTP read methods such as `GET` and `HEAD` are `EXTERNAL_READ`.
-- `EXTERNAL_READ` is not currently treated as side-effecting in the same way as write/send egress.
-- Therefore HTTP read egress has weaker authority gating than write/send egress unless a capability/adapter reference or future policy requires more.
+- `EXTERNAL_READ` is not a mutating side effect, but it is an external runtime class and now requires tenant-visible capability/adapter promotion authority plus exact adapter classification before execution.
+- HTTP read egress is therefore promotion-gated through `ToolRuntimeAuthority` while HTTP write/send egress additionally requires side-effect authorization and running task state.
 
 `http.request` and webhook deliveries delegate outbound HTTP I/O to `NetworkEgressAuthority`; `http.request` enforces destination safety before live egress: HTTPS-only URLs, blocked localhost/.local/internal hostnames, blocked private/link-local/loopback/multicast/reserved/unspecified IP literals, blocked private DNS answers, DNS lookup failure as fail-closed, redirects disabled, and response body truncation to 4096 characters. For hostname destinations, the runtime pins one vetted public routable address from the validated DNS result and connects to that pinned address while preserving TLS SNI and HTTP Host semantics for the original hostname, so validation cannot approve one DNS answer and then connect through a later hostname re-resolution.
 
@@ -547,7 +548,7 @@ This is a semantic overlap / drift risk because the two paths have different mea
 | Mission route concentration | Runtime bridge mutation lanes now delegate to explicit services: `MissionRuntimeTaskMaterializationService`, `MissionRuntimeQueueAdmissionService`, `WorkerClaimAdmissionService`, `WorkerStartAdmissionService`, and `WorkerRunAdmissionService`; `backend/api/routes/mission.py` remains the route/auth/request/response wrapper. | Continue moving remaining response/read-model helpers out of the route when their contracts are separated. |
 | Declarative mutation audit policy | Business Profile explicitly appends audit events; other declarative contract lanes generally do not. | Decide whether this is intentional or whether all declarative mutations require audit events. |
 | Provider activation | Google Calendar and credential resolver are contract-only. | Build real credential resolver before live external provider activation. |
-| Live HTTP/webhook egress | HTTP/webhook action egress is live under shared `NetworkEgressAuthority`. HTTP read egress remains weaker-gated than write/send egress, but HTTP and webhook network calls now enforce SSRF protections, fail-closed DNS validation, and pinned vetted-address connection for hostname targets. | Preserve HTTP destination-safety and side-effect authority tests when extending egress behavior. |
+| Live HTTP/webhook egress | HTTP/webhook action egress is live under shared `NetworkEgressAuthority`. HTTP read egress is promotion-gated by tenant-visible capability/adapter authority and exact `external_read` adapter classification; HTTP write/send egress additionally requires side-effect authorization. HTTP and webhook network calls enforce SSRF protections, fail-closed DNS validation, and pinned vetted-address connection for hostname targets. | Preserve HTTP destination-safety, ability manifest, capability/adapter promotion, and side-effect authority tests when extending egress behavior. |
 
 ## Disproved assumptions
 

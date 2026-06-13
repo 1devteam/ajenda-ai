@@ -71,7 +71,9 @@ class AbilityManifest(BaseModel):
     required_tools: list[str] = Field(default_factory=list)
     approval_required: bool = False
     idempotency_required: bool = False
+    idempotency_contract_ref: str | None = Field(default=None, max_length=240)
     evidence_required: bool = True
+    evidence_expectations: tuple[str, ...] = ()
     readback_required: bool = False
     readback_deferred_reason: str | None = Field(default=None, max_length=500)
     enabled_by_default: bool = False
@@ -97,7 +99,7 @@ class AbilityManifest(BaseModel):
             raise ValueError("field must be non-empty")
         return stripped
 
-    @field_validator("readback_deferred_reason")
+    @field_validator("idempotency_contract_ref", "readback_deferred_reason")
     @classmethod
     def normalize_optional_reason(cls, value: str | None) -> str | None:
         """Normalize optional deferral reasons and reject blank strings."""
@@ -120,6 +122,21 @@ class AbilityManifest(BaseModel):
             normalized.append(stripped)
         return normalized
 
+    @field_validator("evidence_expectations")
+    @classmethod
+    def normalize_evidence_expectations(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Normalize evidence expectation entries and reject blank/duplicate values."""
+
+        normalized: list[str] = []
+        for value in values:
+            stripped = value.strip()
+            if not stripped:
+                raise ValueError("evidence_expectations entries must be non-empty")
+            if stripped in normalized:
+                raise ValueError("evidence_expectations entries must be unique")
+            normalized.append(stripped)
+        return tuple(normalized)
+
     @model_validator(mode="after")
     def validate_rollout_policy(self) -> AbilityManifest:
         """Enforce rollout rules that make abilities safe to promote."""
@@ -135,6 +152,8 @@ class AbilityManifest(BaseModel):
                 raise ValueError("max_side_effect_class must match resolver_side_effect_classes maximum")
         if effective_side_effect_class.has_side_effect and not self.approval_required:
             raise ValueError("side-effecting abilities require approval_required=true")
+        if effective_side_effect_class.value.startswith("external_") and not self.approval_required:
+            raise ValueError("external abilities require approval_required=true")
         if (
             effective_side_effect_class
             in {
@@ -145,11 +164,19 @@ class AbilityManifest(BaseModel):
             and not self.idempotency_required
         ):
             raise ValueError("external write/send/publish abilities require idempotency_required=true")
+        if self.idempotency_required and not self.idempotency_contract_ref:
+            raise ValueError("idempotency-required abilities require idempotency_contract_ref")
         if not self.evidence_required:
             raise ValueError("runtime ability manifests require evidence_required=true")
+        if self.evidence_required and not self.evidence_expectations:
+            raise ValueError("evidence-required abilities require evidence_expectations")
         if effective_side_effect_class in _WRITE_OR_SEND_EFFECTS and not self.readback_required:
             if not self.readback_deferred_reason:
                 raise ValueError("write/send/publish abilities require readback_required=true or a deferred reason")
         if self.enabled_by_default and self.risk_level in {AbilityRiskLevel.HIGH, AbilityRiskLevel.CRITICAL}:
             raise ValueError("high or critical risk abilities cannot be enabled by default")
+        if self.enabled_by_default and effective_side_effect_class.value.startswith("external_"):
+            raise ValueError("external abilities cannot be enabled by default")
+        if self.enabled_by_default and self.approval_required:
+            raise ValueError("approval-required abilities cannot be enabled by default")
         return self

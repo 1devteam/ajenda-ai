@@ -26,6 +26,7 @@ def _manifest(**overrides: object) -> AbilityManifest:
         "approval_required": False,
         "idempotency_required": False,
         "evidence_required": True,
+        "evidence_expectations": ("action_result_evidence",),
         "readback_required": False,
         "enabled_by_default": False,
     }
@@ -113,6 +114,7 @@ def test_max_side_effect_class_drives_policy_for_dynamic_actions() -> None:
             max_side_effect_class=SideEffectClass.EXTERNAL_WRITE,
             approval_required=False,
             idempotency_required=True,
+            idempotency_contract_ref="docs/product/ability-rollout-contract.md#unit",
             readback_required=True,
         )
 

@@ -40,13 +40,13 @@ def validate_capability_action_authority(
         _validate_capability(
             capability=capability,
             action_names=_action_authority_names(action),
-            side_effecting=effective_side_effect_class.has_side_effect,
+            side_effecting=_requires_concrete_action_scope(effective_side_effect_class),
         )
     if adapter is not None:
         _validate_adapter(
             adapter=adapter,
             action_names=_action_authority_names(action),
-            side_effecting=effective_side_effect_class.has_side_effect,
+            side_effecting=_requires_concrete_action_scope(effective_side_effect_class),
         )
     if capability is not None and adapter is not None:
         validate_capability_adapter_compatibility(
@@ -63,8 +63,8 @@ def validate_capability_action_authority(
             ),
         )
 
-    if effective_side_effect_class.has_side_effect:
-        _validate_side_effect_authority(
+    if _requires_runtime_promotion_authority(effective_side_effect_class):
+        _validate_runtime_promotion_authority(
             metadata=metadata,
             action=action,
             side_effect_class=effective_side_effect_class,
@@ -141,7 +141,7 @@ def _validate_adapter(*, adapter: CapabilityAdapter, action_names: set[str], sid
         raise CapabilityActionValidationError("adapter required_tools does not include exact action")
 
 
-def _validate_side_effect_authority(
+def _validate_runtime_promotion_authority(
     *,
     metadata: Mapping[str, Any],
     action: ActionDefinition,
@@ -150,12 +150,14 @@ def _validate_side_effect_authority(
     adapter: CapabilityAdapter | None,
 ) -> None:
     if adapter is None and capability is None:
-        raise CapabilityActionValidationError("side-effecting action requires explicit capability/adapter authority")
+        raise CapabilityActionValidationError("runtime promotion requires explicit capability/adapter authority")
     if adapter is not None and not _adapter_authorizes_side_effect_class(
         classification=adapter.side_effect_classification,
         side_effect_class=side_effect_class,
     ):
         raise CapabilityActionValidationError("adapter side_effect_classification does not authorize action")
+    if not side_effect_class.has_side_effect:
+        return
     if side_effect_authorized(metadata, action.name):
         return
     raise CapabilityActionValidationError(
@@ -174,3 +176,11 @@ def _adapter_authorizes_side_effect_class(*, classification: str, side_effect_cl
         # must remain distinct and require exact adapter classification.
         return False
     return False
+
+
+def _requires_runtime_promotion_authority(side_effect_class: SideEffectClass) -> bool:
+    return side_effect_class.has_side_effect or side_effect_class.value.startswith("external_")
+
+
+def _requires_concrete_action_scope(side_effect_class: SideEffectClass) -> bool:
+    return _requires_runtime_promotion_authority(side_effect_class)
