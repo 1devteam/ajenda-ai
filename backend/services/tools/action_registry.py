@@ -150,6 +150,25 @@ def build_default_action_registry() -> ActionRegistry:
     register_webhook_actions(registry)
     register_calendar_actions(registry)
     registry.freeze()
+    # After freezing the registry, verify that each registered canonical action has a
+    # corresponding ability manifest. This enforcement ensures that ability manifests
+    # remain the canonical rollout contracts and do not silently grant runtime
+    # permission. By validating manifest coverage at runtime, we prevent
+    # undocumented actions from being invoked.
+    from backend.services.abilities.catalog import INTERNAL_ABILITY_MANIFESTS  # type: ignore
+    from backend.services.abilities.rollout_validation import validate_manifest_collection  # type: ignore
+
+    try:
+        validate_manifest_collection(
+            manifests=INTERNAL_ABILITY_MANIFESTS,
+            registered_actions=registry.actions,
+            require_all_registered=True,
+        )
+    except Exception as exc:
+        # Wrap any manifest validation failure in a runtime error. This will
+        # surface misconfigurations early and prevent the registry from being used.
+        raise RuntimeError(f"ability manifest validation failed: {exc}") from exc
+
     return registry
 
 
