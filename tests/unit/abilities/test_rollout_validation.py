@@ -62,6 +62,7 @@ def _manifest(**overrides: object) -> AbilityManifest:
         "approval_required": False,
         "idempotency_required": False,
         "evidence_required": True,
+        "evidence_expectations": ("action_result_evidence",),
         "readback_required": False,
         "enabled_by_default": False,
     }
@@ -168,6 +169,7 @@ def test_resolver_backed_action_requires_max_side_effect_class() -> None:
         action_name="http.request",
         provider="http",
         side_effect_class=SideEffectClass.EXTERNAL_READ,
+        approval_required=True,
         required_permissions=[],
         required_tools=[],
     )
@@ -195,6 +197,7 @@ def test_resolver_backed_action_accepts_conservative_max_side_effect_class() -> 
         required_tools=[],
         approval_required=True,
         idempotency_required=True,
+        idempotency_contract_ref="docs/product/ability-rollout-contract.md#unit",
         readback_required=True,
     )
 
@@ -256,6 +259,7 @@ def test_resolver_backed_action_rejects_internal_max_when_external_write_possibl
             required_tools=[],
             approval_required=True,
             idempotency_required=True,
+            idempotency_contract_ref="docs/product/ability-rollout-contract.md#unit",
             readback_required=True,
         )
 
@@ -269,6 +273,7 @@ def test_resolver_backed_action_rejects_internal_max_when_external_write_possibl
         required_tools=[],
         approval_required=True,
         idempotency_required=True,
+        idempotency_contract_ref="docs/product/ability-rollout-contract.md#unit",
         readback_required=True,
     )
 
@@ -294,6 +299,7 @@ def test_resolver_backed_action_requires_declared_resolver_side_effect_classes()
         required_tools=[],
         approval_required=True,
         idempotency_required=True,
+        idempotency_contract_ref="docs/product/ability-rollout-contract.md#unit",
         readback_required=True,
     )
 

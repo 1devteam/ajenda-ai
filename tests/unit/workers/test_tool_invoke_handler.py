@@ -97,7 +97,7 @@ def test_tool_invoke_handler_fails_side_effecting_action_without_authority() -> 
         },
     )
 
-    with pytest.raises(ValueError, match="side-effecting action requires"):
+    with pytest.raises(ValueError, match="runtime promotion requires explicit capability/adapter authority"):
         tool_invoke_handler(task, _context(tenant_id))
 
 
@@ -121,7 +121,7 @@ def test_tool_invoke_handler_rejects_side_effect_authorization_without_capabilit
         },
     )
 
-    with pytest.raises(ValueError, match="side-effecting action requires explicit capability/adapter authority"):
+    with pytest.raises(ValueError, match="runtime promotion requires explicit capability/adapter authority"):
         tool_invoke_handler(task, _context(tenant_id))
 
 
@@ -137,5 +137,5 @@ def test_tool_invoke_handler_gates_http_write_methods_before_network_call() -> N
         },
     )
 
-    with pytest.raises(ValueError, match="side-effecting action requires"):
+    with pytest.raises(ValueError, match="runtime promotion requires explicit capability/adapter authority"):
         tool_invoke_handler(task, _context(tenant_id))

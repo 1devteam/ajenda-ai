@@ -537,3 +537,85 @@ def test_external_adapter_classification_accepts_exact_effective_side_effect(
         },
         action=_action("webhook.dispatch", SideEffectClass.EXTERNAL_SEND),
     )
+
+
+@pytest.mark.parametrize(
+    ("action_name", "side_effect_class"),
+    [
+        ("http.request", SideEffectClass.EXTERNAL_READ),
+        ("http.request", SideEffectClass.EXTERNAL_WRITE),
+        ("webhook.dispatch", SideEffectClass.EXTERNAL_SEND),
+        ("external.publish", SideEffectClass.EXTERNAL_PUBLISH),
+    ],
+)
+def test_external_actions_reject_capability_only_promotion_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    action_name: str,
+    side_effect_class: SideEffectClass,
+) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=[action_name])
+
+    monkeypatch.setattr(
+        CapabilityRepository,
+        "get_visible_for_tenant",
+        lambda self, *, capability_id, tenant_id: capability,
+    )
+
+    metadata = {
+        "capability_reference": {"capability_id": str(capability.id)},
+        "execution_constraints": {
+            "side_effect_authorization": {
+                "schema_version": 1,
+                "allowed_actions": [action_name],
+                "reason": "unit test authorization",
+                "approved_by": "qa",
+            }
+        },
+    }
+
+    with pytest.raises(CapabilityActionValidationError, match="requires adapter_reference"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata=metadata,
+            action=_action(action_name, side_effect_class),
+        )
+
+
+def test_external_read_requires_runtime_promotion_authority(monkeypatch: pytest.MonkeyPatch) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["http.request"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=["http.request"])
+    adapter.side_effect_classification = SideEffectClass.EXTERNAL_READ.value
+
+    monkeypatch.setattr(
+        CapabilityAdapterRepository,
+        "get_visible_for_tenant",
+        lambda self, *, adapter_id, tenant_id: adapter,
+    )
+
+    validate_capability_action_authority(
+        session=object(),
+        tenant_id="tenant",
+        metadata={"adapter_reference": {"adapter_id": str(adapter.id)}},
+        action=_action("http.request", SideEffectClass.EXTERNAL_READ),
+    )
+
+
+def test_external_side_effect_does_not_authorize_external_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    capability = _capability(supported=["tool.invoke"], tools=["http.request"])
+    adapter = _adapter(capability, supported=["tool.invoke"], tools=["http.request"])
+    adapter.side_effect_classification = "external_side_effect"
+
+    monkeypatch.setattr(
+        CapabilityAdapterRepository,
+        "get_visible_for_tenant",
+        lambda self, *, adapter_id, tenant_id: adapter,
+    )
+
+    with pytest.raises(CapabilityActionValidationError, match="side_effect_classification"):
+        validate_capability_action_authority(
+            session=object(),
+            tenant_id="tenant",
+            metadata={"adapter_reference": {"adapter_id": str(adapter.id)}},
+            action=_action("http.request", SideEffectClass.EXTERNAL_READ),
+        )
