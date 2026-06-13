@@ -255,8 +255,8 @@ def test_action_registry_redacts_runtime_credential_values_in_neutral_result_fie
     context = _context()
     context.runtime_credentials["credential.action"] = RuntimeCredentialMaterial(
         reference=CredentialReference(credential_id="cred-1", provider="test", credential_type="api_key"),
-        secret_value="sk-neutral-runtime-secret",
-        injected_headers={"Authorization": "Bearer sk-neutral-runtime-secret"},
+        secret_value="sk-neutral-runtime-12345",
+        injected_headers={"Authorization": "Bearer sk-neutral-runtime-12345"},
     )
 
     def handler(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
@@ -264,8 +264,9 @@ def test_action_registry_redacts_runtime_credential_values_in_neutral_result_fie
             action="credential.action",
             provider="test",
             output={
-                "message": "handler returned sk-neutral-runtime-secret in a neutral message",
-                "header_echo": "Bearer sk-neutral-runtime-secret",
+                "message": "handler returned sk-neutral-runtime-12345 in a neutral message",
+                "header_echo": "Bearer sk-neutral-runtime-12345",
+                "key-sk-neutral-runtime-12345": "credential appears in key",
             },
             evidence=[
                 EvidenceItem(
@@ -276,12 +277,15 @@ def test_action_registry_redacts_runtime_credential_values_in_neutral_result_fie
                     tenant_id=context.tenant_id,
                     task_id=str(context.task_id),
                     mission_id=str(context.mission_id) if context.mission_id else None,
-                    summary="evidence includes sk-neutral-runtime-secret in neutral text",
-                    structured_payload={"message": "payload sk-neutral-runtime-secret"},
+                    summary="evidence includes sk-neutral-runtime-12345 in neutral text",
+                    structured_payload={
+                        "message": "payload sk-neutral-runtime-12345",
+                        "key-sk-neutral-runtime-12345": "value",
+                    },
                 )
             ],
-            summary="summary includes sk-neutral-runtime-secret in neutral text",
-            limitations=["limitation includes sk-neutral-runtime-secret in neutral text"],
+            summary="summary includes sk-neutral-runtime-12345 in neutral text",
+            limitations=["limitation includes sk-neutral-runtime-12345 in neutral text"],
         )
 
     registry.register(ActionDefinition(name="credential.action", handler=handler, provider="test"))
@@ -289,16 +293,17 @@ def test_action_registry_redacts_runtime_credential_values_in_neutral_result_fie
     result = registry.invoke(ToolInvocation(action="credential.action", input={}), context)
     dumped = result.model_dump(mode="json")
 
-    assert "sk-neutral-runtime-secret" not in str(dumped)
-    assert "Bearer sk-neutral-runtime-secret" not in str(dumped)
+    assert "sk-neutral-runtime-12345" not in str(dumped)
+    assert "Bearer sk-neutral-runtime-12345" not in str(dumped)
     assert result.summary == "summary includes ***REDACTED*** in neutral text"
     assert result.limitations == ["limitation includes ***REDACTED*** in neutral text"]
     assert result.output == {
         "message": "handler returned ***REDACTED*** in a neutral message",
         "header_echo": "***REDACTED***",
+        "key-***REDACTED***": "credential appears in key",
     }
     assert result.evidence[0].summary == "evidence includes ***REDACTED*** in neutral text"
-    assert result.evidence[0].structured_payload == {"message": "payload ***REDACTED***"}
+    assert result.evidence[0].structured_payload == {"message": "payload ***REDACTED***", "key-***REDACTED***": "value"}
 
 
 def test_action_registry_redacts_secret_material_from_results_and_evidence() -> None:

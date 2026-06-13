@@ -61,16 +61,18 @@ def _redact_sensitive_data(
     value: Any, *, additional_sensitive_keys: set[str], additional_sensitive_values: tuple[str, ...]
 ) -> Any:
     if isinstance(value, Mapping):
-        return {
-            key: REDACTED_VALUE
-            if _is_sensitive_key(key, additional_sensitive_keys=additional_sensitive_keys)
-            else _redact_sensitive_data(
-                item,
-                additional_sensitive_keys=additional_sensitive_keys,
-                additional_sensitive_values=additional_sensitive_values,
-            )
-            for key, item in value.items()
-        }
+        redacted_mapping: dict[Any, Any] = {}
+        for key, item in value.items():
+            redacted_key = _redact_sensitive_string(key, sensitive_values=additional_sensitive_values)
+            if _is_sensitive_key(key, additional_sensitive_keys=additional_sensitive_keys):
+                redacted_mapping[redacted_key] = REDACTED_VALUE
+            else:
+                redacted_mapping[redacted_key] = _redact_sensitive_data(
+                    item,
+                    additional_sensitive_keys=additional_sensitive_keys,
+                    additional_sensitive_values=additional_sensitive_values,
+                )
+        return redacted_mapping
     if isinstance(value, list):
         return [
             _redact_sensitive_data(
@@ -89,12 +91,16 @@ def _redact_sensitive_data(
             )
             for item in value
         )
-    if isinstance(value, str):
-        redacted = value
-        for sensitive_value in additional_sensitive_values:
-            redacted = redacted.replace(sensitive_value, REDACTED_VALUE)
-        return redacted
-    return value
+    return _redact_sensitive_string(value, sensitive_values=additional_sensitive_values)
+
+
+def _redact_sensitive_string(value: Any, *, sensitive_values: tuple[str, ...]) -> Any:
+    if not isinstance(value, str):
+        return value
+    redacted = value
+    for sensitive_value in sensitive_values:
+        redacted = redacted.replace(sensitive_value, REDACTED_VALUE)
+    return redacted
 
 
 def contains_sensitive_value(value: Any, sensitive_values: Collection[str]) -> bool:
@@ -102,7 +108,11 @@ def contains_sensitive_value(value: Any, sensitive_values: Collection[str]) -> b
     if not normalized_sensitive_values:
         return False
     if isinstance(value, Mapping):
-        return any(contains_sensitive_value(item, normalized_sensitive_values) for item in value.values())
+        return any(
+            contains_sensitive_value(key, normalized_sensitive_values)
+            or contains_sensitive_value(item, normalized_sensitive_values)
+            for key, item in value.items()
+        )
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return any(contains_sensitive_value(item, normalized_sensitive_values) for item in value)
     if isinstance(value, str):
