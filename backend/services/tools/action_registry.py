@@ -147,6 +147,7 @@ USER_CONTROLLED_EVIDENCE_TEXT_FIELDS = (
     "records_inspected",
     "records_changed",
     "limitations",
+    "collection_status",
 )
 
 

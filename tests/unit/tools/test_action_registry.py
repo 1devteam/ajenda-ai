@@ -282,6 +282,7 @@ def test_action_registry_redacts_runtime_credential_values_in_neutral_result_fie
                         "message": "payload sk-neutral-runtime-12345",
                         "key-sk-neutral-runtime-12345": "value",
                     },
+                    collection_status="provider status sk-neutral-runtime-12345",
                 )
             ],
             summary="summary includes sk-neutral-runtime-12345 in neutral text",
@@ -304,6 +305,7 @@ def test_action_registry_redacts_runtime_credential_values_in_neutral_result_fie
     }
     assert result.evidence[0].summary == "evidence includes ***REDACTED*** in neutral text"
     assert result.evidence[0].evidence_source == "tool.invoke.***REDACTED***"
+    assert result.evidence[0].collection_status == "provider status ***REDACTED***"
     assert result.evidence[0].structured_payload == {"message": "payload ***REDACTED***", "key-***REDACTED***": "value"}
 
 
