@@ -287,6 +287,20 @@ class WorkerRuntimeService:
             },
         )
         try:
+            task.metadata_json = {
+                **task.metadata_json,
+                "terminal_queue_cleanup": {
+                    "schema_version": 1,
+                    "status": "failed_after_db_terminal_commit",
+                    "queue_operation": queue_operation,
+                    "reason": reason,
+                    "worker_id": worker_id,
+                    "lease_id": str(lease.id),
+                    "lease_status": lease.status,
+                    "task_status": task.status,
+                    "requeue_allowed": False,
+                },
+            }
             self._audit.append(
                 AuditEvent(
                     tenant_id=tenant_id,

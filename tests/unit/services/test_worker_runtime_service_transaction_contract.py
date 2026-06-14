@@ -224,6 +224,17 @@ def test_complete_commits_db_when_queue_complete_ack_fails() -> None:
     assert session.commit.call_count == 2
     session.rollback.assert_not_called()
     assert service._audit.append.call_args_list[-1].args[0].action == "terminal_queue_complete_cleanup_failed"
+    assert task.metadata_json["terminal_queue_cleanup"] == {
+        "schema_version": 1,
+        "status": "failed_after_db_terminal_commit",
+        "queue_operation": "complete_task",
+        "reason": "redis timeout",
+        "worker_id": worker_id,
+        "lease_id": str(lease.id),
+        "lease_status": WorkerLeaseState.RELEASED.value,
+        "task_status": ExecutionTaskState.COMPLETED.value,
+        "requeue_allowed": False,
+    }
 
 
 def test_fail_commits_db_when_queue_fail_ack_fails() -> None:
@@ -247,6 +258,17 @@ def test_fail_commits_db_when_queue_fail_ack_fails() -> None:
     assert session.commit.call_count == 2
     session.rollback.assert_not_called()
     assert service._audit.append.call_args_list[-1].args[0].action == "terminal_queue_fail_cleanup_failed"
+    assert task.metadata_json["terminal_queue_cleanup"] == {
+        "schema_version": 1,
+        "status": "failed_after_db_terminal_commit",
+        "queue_operation": "fail_task",
+        "reason": "redis timeout",
+        "worker_id": worker_id,
+        "lease_id": str(lease.id),
+        "lease_status": WorkerLeaseState.RELEASED.value,
+        "task_status": ExecutionTaskState.FAILED.value,
+        "requeue_allowed": False,
+    }
 
 
 def test_complete_queue_ack_failure_does_not_rerun_or_fail_completed_work() -> None:
