@@ -65,6 +65,52 @@ assert_body_contains() {
   fi
 }
 
+require_env_value() {
+  local key="$1"
+  local value
+  value="$(
+    python - <<'PY' "$COMPOSE_ENV_FILE" "$key"
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+for raw_line in path.read_text(encoding="utf-8").splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    name, raw_value = line.split("=", 1)
+    if name == key:
+        print(raw_value.strip().strip('"').strip("'"))
+        raise SystemExit(0)
+raise SystemExit(2)
+PY
+  )" || fail "required production env value is missing from $COMPOSE_ENV_FILE: $key"
+
+  if [[ -z "$value" ]]; then
+    fail "required production env value is blank in $COMPOSE_ENV_FILE: $key"
+  fi
+  if [[ "$value" == CHANGE_ME* || "$value" == *CHANGE_ME* ]]; then
+    fail "required production env value still contains a placeholder in $COMPOSE_ENV_FILE: $key"
+  fi
+}
+
+validate_production_env_file() {
+  require_env_value POSTGRES_PASSWORD
+  require_env_value AJENDA_DATABASE_URL
+  require_env_value AJENDA_ENV
+  require_env_value AJENDA_QUEUE_ADAPTER
+  require_env_value AJENDA_QUEUE_URL
+  require_env_value AJENDA_WORKER_TENANT_ID
+  require_env_value AJENDA_OIDC_ISSUER
+  require_env_value AJENDA_OIDC_JWKS_URI
+  require_env_value AJENDA_OIDC_AUDIENCE
+  require_env_value AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY
+  require_env_value AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY
+}
+
 wait_for_prometheus_target_up() {
   local job_name="$1"
   local deadline=$((SECONDS + TIMEOUT_SECONDS))
@@ -112,6 +158,9 @@ fi
 if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then
   fail "compose env file not found: $COMPOSE_ENV_FILE"
 fi
+
+log "validating production environment file"
+validate_production_env_file
 
 log "validating compose configuration"
 compose config --quiet

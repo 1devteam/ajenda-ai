@@ -41,7 +41,7 @@ def _settings(**overrides) -> Settings:
         "log_json": True,
         "host": "0.0.0.0",
         "port": 8000,
-        "database_url": "postgresql+psycopg://ajenda:ajenda@db:5432/ajenda",
+        "database_url": "postgresql+psycopg://ajenda:strong-production-password@db:5432/ajenda",
         "db_pool_size": 10,
         "db_max_overflow": 20,
         "db_pool_timeout": 30,
@@ -99,6 +99,13 @@ class TestValidProductionConfig:
         settings.validate_runtime_contract()  # Must not raise
 
 
+class TestDatabaseProductionGuards:
+    def test_default_database_password_in_production_raises(self) -> None:
+        settings = _settings(database_url="postgresql+psycopg://ajenda:ajenda@db:5432/ajenda")
+        with pytest.raises(ValueError, match="default development database password"):
+            settings.validate_runtime_contract()
+
+
 # ---------------------------------------------------------------------------
 # Queue adapter guards (existing — regression coverage)
 # ---------------------------------------------------------------------------
@@ -145,6 +152,16 @@ class TestOidcLocalhostGuards:
     def test_127_0_0_1_issuer_in_production_raises(self) -> None:
         settings = _settings(oidc_issuer="http://127.0.0.1:8080/realms/ajenda")
         with pytest.raises(ValueError, match="AJENDA_OIDC_ISSUER must not point to localhost"):
+            settings.validate_runtime_contract()
+
+    def test_http_jwks_uri_in_production_raises(self) -> None:
+        settings = _settings(oidc_jwks_uri="http://auth.example.com/realms/ajenda/protocol/openid-connect/certs")
+        with pytest.raises(ValueError, match="AJENDA_OIDC_JWKS_URI must use https"):
+            settings.validate_runtime_contract()
+
+    def test_http_issuer_in_production_raises(self) -> None:
+        settings = _settings(oidc_issuer="http://auth.example.com/realms/ajenda")
+        with pytest.raises(ValueError, match="AJENDA_OIDC_ISSUER must use https"):
             settings.validate_runtime_contract()
 
     def test_real_idp_jwks_uri_passes(self) -> None:

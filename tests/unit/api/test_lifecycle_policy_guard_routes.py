@@ -409,7 +409,7 @@ def _settings_with_confidence_floor(value: float) -> Settings:
         log_json=True,
         host="0.0.0.0",
         port=8000,
-        database_url="postgresql+psycopg://ajenda:ajenda@db:5432/ajenda",
+        database_url="postgresql+psycopg://ajenda:strong-production-password@db:5432/ajenda",
         db_pool_size=10,
         db_max_overflow=20,
         db_pool_timeout=30,

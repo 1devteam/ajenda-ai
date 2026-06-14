@@ -150,6 +150,9 @@ class Settings(BaseSettings):
                 or "://[::1]" in lowered
             )
 
+        def _is_https_url(value: str) -> bool:
+            return value.lower().startswith("https://")
+
         def _validate_fernet_key(*, value: str | None, env_name: str, required: bool) -> None:
             if _blank(value):
                 if required:
@@ -188,15 +191,28 @@ class Settings(BaseSettings):
                 "AJENDA_QUEUE_ADAPTER=local is forbidden in production; use redis or another durable adapter"
             )
 
+        if env == "production" and "ajenda:ajenda@" in str(self.database_url):
+            raise ValueError("AJENDA_DATABASE_URL must not use the default development database password in production")
+
         if env == "production":
             if _is_localhost_url(str(self.oidc_jwks_uri)):
                 raise ValueError(
                     "AJENDA_OIDC_JWKS_URI must not point to localhost in production. "
                     f"Current value: {self.oidc_jwks_uri!r}. Use the production IdP JWKS URL."
                 )
+            if not _is_https_url(str(self.oidc_jwks_uri)):
+                raise ValueError(
+                    "AJENDA_OIDC_JWKS_URI must use https in production. "
+                    f"Current value: {self.oidc_jwks_uri!r}. Use the production IdP JWKS URL."
+                )
             if _is_localhost_url(str(self.oidc_issuer)):
                 raise ValueError(
                     "AJENDA_OIDC_ISSUER must not point to localhost in production. "
+                    f"Current value: {self.oidc_issuer!r}. Use the production IdP issuer URL."
+                )
+            if not _is_https_url(str(self.oidc_issuer)):
+                raise ValueError(
+                    "AJENDA_OIDC_ISSUER must use https in production. "
                     f"Current value: {self.oidc_issuer!r}. Use the production IdP issuer URL."
                 )
             if self.worker_tenant_id == "default" or not str(self.worker_tenant_id).strip():

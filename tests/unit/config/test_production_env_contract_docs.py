@@ -47,7 +47,9 @@ OPTIONAL_BUT_DOCUMENTED_PRODUCTION_ENV_VARS = frozenset(
 PRODUCTION_ENV_GUARDRAILS = (
     "local queue adapter",
     "Redis adapter without AJENDA_QUEUE_URL",
+    "default development database password",
     "localhost OIDC issuer/JWKS",
+    "non-HTTPS OIDC issuer/JWKS",
     "missing or invalid webhook/runtime secret encryption key",
     "deterministic development/test webhook/runtime key",
     "default or blank worker tenant id",

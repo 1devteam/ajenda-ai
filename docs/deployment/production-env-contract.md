@@ -7,13 +7,13 @@ Ajenda AI production deployments must not rely on development defaults.
 | Variable | Required | Secret | Purpose |
 |---|---:|---:|---|
 | `POSTGRES_PASSWORD` | yes | yes | Database password. |
-| `AJENDA_DATABASE_URL` | yes | yes | SQLAlchemy database URL. |
+| `AJENDA_DATABASE_URL` | yes | yes | SQLAlchemy database URL. Must not use the default development password in production. |
 | `AJENDA_ENV=production` | yes | no | Enables production runtime validation. |
 | `AJENDA_QUEUE_ADAPTER=redis` | yes | no | Production queue backend. |
 | `AJENDA_QUEUE_URL` | yes | maybe | Redis URL. Secret if it includes a password. |
 | `AJENDA_WORKER_TENANT_ID` | yes | no | Tenant queue processed by this worker group. |
-| `AJENDA_OIDC_ISSUER` | yes | no | OIDC issuer. Must not be localhost in production. |
-| `AJENDA_OIDC_JWKS_URI` | yes | no | OIDC JWKS endpoint. Must not be localhost in production. |
+| `AJENDA_OIDC_ISSUER` | yes | no | OIDC issuer. Must be HTTPS and must not be localhost in production. |
+| `AJENDA_OIDC_JWKS_URI` | yes | no | OIDC JWKS endpoint. Must be HTTPS and must not be localhost in production. |
 | `AJENDA_OIDC_AUDIENCE` | yes | no | Expected JWT audience. |
 | `AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY` | yes | yes | Fernet key for webhook signing-secret encryption. |
 | `AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV` | no | yes | Previous Fernet key during webhook key-rotation migration windows. |
@@ -57,7 +57,9 @@ Settings.validate_runtime_contract() rejects production deployments that use:
 
 - local queue adapter,
 - Redis adapter without AJENDA_QUEUE_URL,
+- default development database password,
 - localhost OIDC issuer/JWKS,
+- non-HTTPS OIDC issuer/JWKS,
 - missing or invalid webhook/runtime secret encryption key,
 - deterministic development/test webhook/runtime key,
 - default or blank worker tenant id,
