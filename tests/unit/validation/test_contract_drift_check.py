@@ -10,6 +10,24 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _valid_architecture_map() -> str:
+    sections: list[str] = ["# Mission Runtime Architecture Map\n\n## Subsystem lane contract chains\n"]
+    for lane_number, title in enumerate(drift_check.REQUIRED_SUBSYSTEM_LANES, start=1):
+        authority = {
+            1: "`read_model`; `governed_mutation`; `runtime_authoritative`",
+            2: "`governed_mutation`",
+            3: "`declarative`",
+            4: "`declarative`; `governed_mutation`",
+            5: "`read_model`; `governed_mutation`; `runtime_authoritative`",
+        }.get(lane_number, "`runtime_authoritative`" if lane_number in {7, 8, 9, 10, 11, 12} else "`read_model`")
+        sections.append(f"### {lane_number}. {title}\n\n")
+        for field in drift_check.REQUIRED_LANE_FIELDS:
+            value = authority if field == "Authority layer(s)" else f"{field.lower()} proof"
+            sections.append(f"- **{field}:** {value}\n")
+        sections.append("\n")
+    return "".join(sections)
+
+
 def _minimal_repo(tmp_path: Path) -> None:
     _write(tmp_path / "README.md", "- `/v1/missions/*`\n")
     _write(
@@ -29,6 +47,7 @@ authority_entries:
 """,
     )
     _write(tmp_path / "docs/policies/DOCS_FRESHNESS_POLICY.md", "**Last reviewed:** May 23, 2026\n")
+    _write(tmp_path / "docs/product/mission-runtime-architecture-map.md", _valid_architecture_map())
     _write(
         tmp_path / "backend/api/router.py",
         """
@@ -50,6 +69,11 @@ def _patch_repo(monkeypatch, tmp_path: Path) -> None:
         tmp_path / "docs/policies/DOCS_FRESHNESS_POLICY.md",
     )
     monkeypatch.setattr(drift_check, "API_ROUTER", tmp_path / "backend/api/router.py")
+    monkeypatch.setattr(
+        drift_check,
+        "ARCHITECTURE_MAP",
+        tmp_path / "docs/product/mission-runtime-architecture-map.md",
+    )
 
 
 def test_empty_freshness_policy_warns(tmp_path: Path, monkeypatch) -> None:
@@ -140,3 +164,39 @@ authority_entries:
         issue.severity == "fail" and "Credential runtime boundary missing authority ledger" in issue.message
         for issue in issues
     )
+
+
+def test_subsystem_lane_map_requires_fourteen_numbered_lanes_and_fields(tmp_path: Path, monkeypatch) -> None:
+    _minimal_repo(tmp_path)
+    _write(
+        tmp_path / "docs/product/mission-runtime-architecture-map.md",
+        """
+# Mission Runtime Architecture Map
+
+## Subsystem lane contract chains
+
+### 1. Tenant/Auth/Security boundary
+
+- **Purpose:** exists
+- **Current status:** exists
+- **Authority layer(s):** `read_model`
+""",
+    )
+    _patch_repo(monkeypatch, tmp_path)
+
+    issues = drift_check._check()
+
+    assert any(
+        issue.severity == "fail" and "Subsystem lane map missing lane numbers" in issue.message for issue in issues
+    )
+    assert any(
+        issue.severity == "fail" and "missing required production-grade fields" in issue.message for issue in issues
+    )
+
+
+def test_subsystem_lane_map_rejects_unsupported_authority_layer() -> None:
+    architecture_text = _valid_architecture_map().replace("`governed_mutation`", "`superuser_runtime`", 1)
+
+    issues = drift_check._check_subsystem_lane_contracts(architecture_text)
+
+    assert any("unsupported authority layer" in issue.message for issue in issues)

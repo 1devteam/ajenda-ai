@@ -17,6 +17,7 @@ README = REPO_ROOT / "README.md"
 LEDGER = REPO_ROOT / "docs" / "contracts" / "authority-ledger.v1.yaml"
 DOCS_FRESHNESS_POLICY = REPO_ROOT / "docs" / "policies" / "DOCS_FRESHNESS_POLICY.md"
 API_ROUTER = REPO_ROOT / "backend" / "api" / "router.py"
+ARCHITECTURE_MAP = REPO_ROOT / "docs" / "product" / "mission-runtime-architecture-map.md"
 
 SUPPORTED_AUTHORITY_CLASSES = {
     "declarative",
@@ -59,6 +60,42 @@ REQUIRED_ENTRY_FIELDS = (
     "forbidden_side_effects",
     "required_proofs",
 )
+
+REQUIRED_SUBSYSTEM_LANES = (
+    "Tenant/Auth/Security boundary",
+    "Mission intake layer",
+    "Mission planning layer",
+    "Task graph / declarative contract layer",
+    "Mission-to-runtime bridge",
+    "Runtime task materialization",
+    "Queue admission / coordinator authority",
+    "Queue adapter / queue state system",
+    "Worker lease lifecycle",
+    "Worker runtime / dispatcher execution",
+    "Tool/action runtime",
+    "Evidence / lineage / audit system",
+    "Declarative product/governance contract lanes",
+    "Observability / validation / release-gate system",
+)
+REQUIRED_LANE_FIELDS = (
+    "Purpose",
+    "Current status",
+    "Authority layer(s)",
+    "Source-of-truth files",
+    "Entry points",
+    "Allowed effects",
+    "Forbidden effects",
+    "Contract chain",
+    "Runtime boundary",
+    "Tenant/auth/policy requirements",
+    "Evidence/audit requirements",
+    "Failure/recovery semantics",
+    "Existing tests/proofs",
+    "Pitfalls to avoid",
+    "Must-read before modification",
+)
+SUBSYSTEM_LANE_HEADING_RE = re.compile(r"^###\s+(\d+)\.\s+(.+?)\s*$", re.MULTILINE)
+LANE_FIELD_RE = re.compile(r"^-\s+\*\*(.+?):\*\*\s*(.*)$", re.MULTILINE)
 
 
 @dataclass
@@ -170,6 +207,79 @@ def _load_ledger_entries(ledger_text: str) -> tuple[list[dict], list[DriftIssue]
     return normalized, issues
 
 
+def _parse_subsystem_lanes(architecture_text: str) -> dict[int, tuple[str, str]]:
+    matches = list(SUBSYSTEM_LANE_HEADING_RE.finditer(architecture_text))
+    lanes: dict[int, tuple[str, str]] = {}
+    for index, match in enumerate(matches):
+        lane_number = int(match.group(1))
+        lane_title = match.group(2).strip()
+        section_end = matches[index + 1].start() if index + 1 < len(matches) else len(architecture_text)
+        lanes[lane_number] = (lane_title, architecture_text[match.end() : section_end])
+    return lanes
+
+
+def _check_subsystem_lane_contracts(architecture_text: str) -> list[DriftIssue]:
+    issues: list[DriftIssue] = []
+    lanes = _parse_subsystem_lanes(architecture_text)
+    expected_numbers = set(range(1, len(REQUIRED_SUBSYSTEM_LANES) + 1))
+    actual_numbers = set(lanes)
+    if actual_numbers != expected_numbers:
+        missing = sorted(expected_numbers - actual_numbers)
+        extra = sorted(actual_numbers - expected_numbers)
+        if missing:
+            issues.append(DriftIssue("fail", f"Subsystem lane map missing lane numbers: {missing}"))
+        if extra:
+            issues.append(DriftIssue("fail", f"Subsystem lane map has unexpected lane numbers: {extra}"))
+
+    seen_authority_classes: set[str] = set()
+    for lane_number, expected_title in enumerate(REQUIRED_SUBSYSTEM_LANES, start=1):
+        lane = lanes.get(lane_number)
+        if lane is None:
+            continue
+        title, body = lane
+        if title != expected_title:
+            issues.append(
+                DriftIssue(
+                    "fail",
+                    f"Subsystem lane {lane_number} title drift: expected '{expected_title}', found '{title}'",
+                )
+            )
+        field_values = {field.strip(): value.strip() for field, value in LANE_FIELD_RE.findall(body)}
+        missing_fields = [field for field in REQUIRED_LANE_FIELDS if field not in field_values]
+        if missing_fields:
+            issues.append(
+                DriftIssue(
+                    "fail",
+                    f"Subsystem lane {lane_number} missing required production-grade fields: "
+                    + ", ".join(missing_fields),
+                )
+            )
+        authority_value = field_values.get("Authority layer(s)", "")
+        for authority_class in SUPPORTED_AUTHORITY_CLASSES:
+            if f"`{authority_class}`" in authority_value or authority_class in authority_value:
+                seen_authority_classes.add(authority_class)
+        backticked_authorities = set(re.findall(r"`([a-z_]+)`", authority_value))
+        unsupported = sorted(backticked_authorities - SUPPORTED_AUTHORITY_CLASSES)
+        if unsupported:
+            issues.append(
+                DriftIssue(
+                    "fail",
+                    f"Subsystem lane {lane_number} has unsupported authority layer(s): " + ", ".join(unsupported),
+                )
+            )
+
+    missing_authority_classes = sorted(SUPPORTED_AUTHORITY_CLASSES - seen_authority_classes)
+    if missing_authority_classes:
+        issues.append(
+            DriftIssue(
+                "fail",
+                "Subsystem lane map does not cover all canonical authority classes: "
+                + ", ".join(missing_authority_classes),
+            )
+        )
+    return issues
+
+
 def _implemented_v1_route_families() -> tuple[set[str], list[DriftIssue]]:
     issues: list[DriftIssue] = []
     router_text, router_issues = _safe_read(API_ROUTER, missing_is_fail=True, label="router file")
@@ -212,10 +322,15 @@ def _check(strict_baseline: bool = False) -> list[DriftIssue]:
     readme_text, readme_issues = _safe_read(README, missing_is_fail=True, label="canonical file")
     ledger_text, ledger_issues = _safe_read(LEDGER, missing_is_fail=True, label="canonical file")
     policy_text, policy_issues = _safe_read(DOCS_FRESHNESS_POLICY, missing_is_fail=False, label="policy file")
-    issues.extend(readme_issues + ledger_issues + policy_issues)
+    architecture_text, architecture_issues = _safe_read(
+        ARCHITECTURE_MAP, missing_is_fail=True, label="architecture map"
+    )
+    issues.extend(readme_issues + ledger_issues + policy_issues + architecture_issues)
 
     if not readme_text or not ledger_text:
         return issues
+    if architecture_text:
+        issues.extend(_check_subsystem_lane_contracts(architecture_text))
 
     readme_families = _parse_readme_route_families(readme_text)
     entries, entry_issues = _load_ledger_entries(ledger_text)
