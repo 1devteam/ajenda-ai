@@ -436,6 +436,11 @@ def _settings_with_confidence_floor(value: float) -> Settings:
         lifecycle_policy_enforce_escalation_transitions=False,
         lifecycle_policy_enforce_provenance_confidence_floor=False,
         lifecycle_policy_provenance_confidence_floor=value,
+        STRIPE_SECRET_KEY="sk_test_placeholder_for_tests",
+        STRIPE_PUBLISHABLE_KEY="pk_test_placeholder_for_tests",
+        STRIPE_WEBHOOK_SECRET="whsec_placeholder_for_tests",
+        STRIPE_PRICE_STARTER="price_starter_test",
+        STRIPE_PRICE_PRO="price_pro_test",
     )
 
 

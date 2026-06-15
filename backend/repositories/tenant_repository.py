@@ -126,6 +126,21 @@ class TenantRepository:
         tenant.plan = new_plan
         return tenant
 
+    def upgrade_plan(
+        self,
+        tenant_id: uuid.UUID,
+        new_plan: str,
+        *,
+        actor: str = "system",
+    ) -> Tenant:
+        """Billing-aware plan change. Accepts an *actor* label for future audit integration.
+
+        Delegates to ``update_plan`` so all callers share a single mutation path.
+        The *actor* parameter is reserved for audit-event integration in a future phase.
+        Caller must flush/commit.
+        """
+        return self.update_plan(tenant_id, new_plan=new_plan)
+
     # ------------------------------------------------------------------
     # TenantPlan
     # ------------------------------------------------------------------

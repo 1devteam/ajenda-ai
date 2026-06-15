@@ -28,6 +28,7 @@ Route inventory under /v1/:
   /v1/system/*        — System status and diagnostics
   /v1/observability/* — Observability endpoints (lineage, governance events)
   /v1/webhooks/*      — Tenant webhook endpoint management
+  /v1/billing/*       — Stripe checkout, portal, and webhook
   /v1/admin/*         — Platform admin control plane
 
 Routes at root (/):
@@ -43,6 +44,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from backend.api.routes.admin import router as admin_router
+from backend.api.routes.billing import router as billing_router
 from backend.api.routes.api_keys import router as api_keys_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.branch import router as branch_router
@@ -96,6 +98,7 @@ def build_api_router() -> APIRouter:
     v1.include_router(system_router)  # /v1/system/*
     v1.include_router(observability_router)  # /v1/observability/*
     v1.include_router(webhooks_router)  # /v1/webhooks/*
+    v1.include_router(billing_router)  # /v1/billing/*
     v1.include_router(admin_router)  # /v1/admin/* (platform control plane)
 
     root.include_router(v1)
