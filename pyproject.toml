@@ -9,7 +9,11 @@ description = "Ajenda AI — Production-grade governed-runtime backend"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "fastapi>=0.115,!=0.136.3,<1.0",
+  # FastAPI 0.136+ changed router include internals in a way that exposes
+  # _IncludedRouter placeholders to route-inventory contract tests. Keep the
+  # application on the proven route-flattening contract until bootstrap code is
+  # explicitly adapted and contract-tested for the newer behavior.
+  "fastapi>=0.115,<0.136",
   "uvicorn[standard]>=0.30,<1.0",
   "sqlalchemy>=2.0,<3.0",
   "alembic>=1.13,<2.0",
