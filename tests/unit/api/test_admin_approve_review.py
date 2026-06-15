@@ -138,10 +138,7 @@ class TestApproveTaskReview:
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         task_id = uuid.uuid4()
-        with patch(
-            "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
-            return_value=None,
-        ):
+        with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=None):
             resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
         assert resp.status_code == 404
 
@@ -156,10 +153,7 @@ class TestApproveTaskReview:
             tenant_id=str(other_tid),
             status="pending_review",
         )
-        with patch(
-            "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
-            return_value=fake_task,
-        ):
+        with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
             resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
         assert resp.status_code == 404
 
@@ -173,10 +167,7 @@ class TestApproveTaskReview:
             tenant_id=str(tid),
             status="queued",
         )
-        with patch(
-            "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
-            return_value=fake_task,
-        ):
+        with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
             resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
         assert resp.status_code == 409
         assert "pending_review" in resp.json()["detail"]
@@ -193,10 +184,7 @@ class TestApproveTaskReview:
         )
         result = SimpleNamespace(ok=True, task_id=task_id, state="queued")
 
-        with patch(
-            "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
-            return_value=fake_task,
-        ):
+        with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
             with patch("backend.api.routes.admin.ExecutionCoordinator") as coordinator_cls:
                 coordinator = coordinator_cls.return_value
                 coordinator.approve_review_and_queue.return_value = result
@@ -226,10 +214,7 @@ class TestApproveTaskReview:
             status="pending_review",
         )
 
-        with patch(
-            "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
-            return_value=fake_task,
-        ):
+        with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
             with patch("backend.api.routes.admin.ExecutionCoordinator") as coordinator_cls:
                 coordinator_cls.return_value.approve_review_and_queue.side_effect = ValueError("queue enqueue failed")
                 resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
@@ -248,10 +233,7 @@ class TestApproveTaskReview:
             tenant_id=str(tid),
             status="cancelled",
         )
-        with patch(
-            "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
-            return_value=fake_task,
-        ):
+        with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
             resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
         assert resp.status_code == 409
 
@@ -265,10 +247,7 @@ class TestApproveTaskReview:
             tenant_id=str(tid),
             status="completed",
         )
-        with patch(
-            "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
-            return_value=fake_task,
-        ):
+        with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
             resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
         assert resp.status_code == 409
 
@@ -284,10 +263,7 @@ class TestApproveTaskReview:
         )
         result = SimpleNamespace(ok=True, task_id=task_id, state="queued")
 
-        with patch(
-            "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
-            return_value=fake_task,
-        ):
+        with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
             with patch("backend.api.routes.admin.ExecutionCoordinator") as coordinator_cls:
                 coordinator_cls.return_value.approve_review_and_queue.return_value = result
                 resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
