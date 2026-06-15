@@ -305,10 +305,7 @@ def approve_task_review(
     if task.status != ExecutionTaskState.PENDING_REVIEW.value:
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"Task {task_id} cannot be approved: expected status 'pending_review', "
-                f"got '{task.status}'"
-            ),
+            detail=(f"Task {task_id} cannot be approved: expected status 'pending_review', got '{task.status}'"),
         )
 
     previous_status = task.status

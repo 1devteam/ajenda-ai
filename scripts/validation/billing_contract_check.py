@@ -16,6 +16,7 @@ Exit codes:
   0 — all checks passed
   1 — one or more checks failed (details printed to stderr)
 """
+
 from __future__ import annotations
 
 import importlib
@@ -61,7 +62,7 @@ print(f"[billing_contract_check] Importing {BILLING_MODULE} …")
 try:
     billing_mod = importlib.import_module(BILLING_MODULE)
     _ok(f"{BILLING_MODULE} imported successfully")
-except Exception as exc:  # noqa: BLE001
+except Exception as exc:
     _fail(f"Cannot import {BILLING_MODULE}: {exc}")
     billing_mod = None
 
@@ -81,10 +82,7 @@ if billing_mod is not None:
             sig = inspect.signature(method)
             params = list(sig.parameters)
             if "tenant_id" not in params:
-                _fail(
-                    f"{BILLING_CLASS}.{REQUIRED_METHOD} must accept a 'tenant_id' parameter; "
-                    f"found: {params}"
-                )
+                _fail(f"{BILLING_CLASS}.{REQUIRED_METHOD} must accept a 'tenant_id' parameter; found: {params}")
             else:
                 _ok(f"{BILLING_CLASS}.{REQUIRED_METHOD}(tenant_id=…) signature is correct")
 

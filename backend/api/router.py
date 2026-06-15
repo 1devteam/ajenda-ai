@@ -44,9 +44,9 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from backend.api.routes.admin import router as admin_router
-from backend.api.routes.billing import router as billing_router
 from backend.api.routes.api_keys import router as api_keys_router
 from backend.api.routes.auth import router as auth_router
+from backend.api.routes.billing import router as billing_router
 from backend.api.routes.branch import router as branch_router
 from backend.api.routes.business_profile import router as business_profile_router
 from backend.api.routes.capability import router as capability_router

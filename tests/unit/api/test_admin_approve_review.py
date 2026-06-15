@@ -7,19 +7,18 @@ Tests the two new endpoints added to backend/api/routes/admin.py:
 Uses FastAPI dependency_overrides to avoid any real DB or infrastructure,
 following the pattern established in tests/unit/api/test_capability_adapter_route.py.
 """
+
 from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes import admin as admin_module
 from backend.app.dependencies.db import get_db_session
-
 
 # ---------------------------------------------------------------------------
 # App factory — injects admin principal and overrides DB dependency
@@ -125,9 +124,7 @@ class TestApproveTaskReview:
     def test_returns_403_without_admin_role(self) -> None:
         app, _ = _build_admin_app(is_admin=False)
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.post(
-            f"/v1/admin/tenants/{uuid.uuid4()}/tasks/{uuid.uuid4()}/approve-review"
-        )
+        resp = client.post(f"/v1/admin/tenants/{uuid.uuid4()}/tasks/{uuid.uuid4()}/approve-review")
         assert resp.status_code == 403
 
     def test_returns_404_when_task_not_found(self) -> None:
@@ -198,9 +195,7 @@ class TestApproveTaskReview:
             return_value=fake_task,
         ):
             with patch("backend.api.routes.admin.transition_task", side_effect=_fake_transition):
-                resp = client.post(
-                    f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review"
-                )
+                resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
         assert resp.status_code == 200
         body = resp.json()
         assert body["task_id"] == str(task_id)
@@ -261,9 +256,7 @@ class TestApproveTaskReview:
             return_value=fake_task,
         ):
             with patch("backend.api.routes.admin.transition_task", side_effect=_fake_transition):
-                resp = client.post(
-                    f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review"
-                )
+                resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
         assert resp.status_code == 200
         body = resp.json()
         assert set(body.keys()) == {"task_id", "previous_status", "status"}
