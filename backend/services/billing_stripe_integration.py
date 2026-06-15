@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.domain.tenant import Tenant
 from backend.repositories.tenant_repository import TenantRepository
-from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
+from backend.services.quota_enforcement import QuotaEnforcementService
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,8 @@ def _build_plan_price_map() -> dict[str, str]:
     """
     s = get_settings()
     return {
-        "starter": s.STRIPE_PRICE_STARTER,  # type: ignore[attr-defined]
-        "pro": s.STRIPE_PRICE_PRO,  # type: ignore[attr-defined]
+        "starter": s.STRIPE_PRICE_STARTER,
+        "pro": s.STRIPE_PRICE_PRO,
     }
 
 
@@ -60,10 +60,7 @@ def _get_price_id(plan: str) -> str:
     plan_map = _build_plan_price_map()
     price_id = plan_map.get(plan.lower())
     if not price_id:
-        raise ValueError(
-            f"No Stripe price configured for plan {plan!r}. "
-            "Valid upgradeable plans: starter, pro."
-        )
+        raise ValueError(f"No Stripe price configured for plan {plan!r}. Valid upgradeable plans: starter, pro.")
     return price_id
 
 
@@ -80,10 +77,11 @@ def _ensure_stripe_customer(tenant: Tenant, session: Session) -> str:
         name=tenant.name,
         metadata={"tenant_id": str(tenant.id), "slug": tenant.slug},
     )
-    tenant.stripe_customer_id = customer["id"]
+    customer_id: str = str(customer["id"])
+    tenant.stripe_customer_id = customer_id
     session.flush()
-    logger.info("Created Stripe customer %s for tenant %s", customer["id"], tenant.id)
-    return customer["id"]
+    logger.info("Created Stripe customer %s for tenant %s", customer_id, tenant.id)
+    return customer_id
 
 
 def _price_id_to_plan(price_id: str) -> str | None:
@@ -106,8 +104,8 @@ class StripeBillingService:
         self._tenant_repo = TenantRepository(session)
         # Configure Stripe SDK lazily so tests can patch settings before init.
         settings = get_settings()
-        stripe.api_key = settings.STRIPE_SECRET_KEY  # type: ignore[attr-defined]
-        self._webhook_secret: str = settings.STRIPE_WEBHOOK_SECRET  # type: ignore[attr-defined]
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        self._webhook_secret: str = settings.STRIPE_WEBHOOK_SECRET
 
     # ------------------------------------------------------------------
     # Checkout
@@ -165,9 +163,9 @@ class StripeBillingService:
         types are silently ignored (forward-compatible).
 
         Raises:
-            stripe.error.SignatureVerificationError: if the signature is invalid.
+            stripe.SignatureVerificationError: if the signature is invalid.
         """
-        event = stripe.Webhook.construct_event(
+        event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
             payload,
             sig_header,
             self._webhook_secret,
@@ -231,7 +229,7 @@ class StripeBillingService:
 
     def _handle_subscription_deleted(self, obj: dict) -> None:  # type: ignore[type-arg]
         """Downgrade tenant to free plan when subscription is cancelled."""
-        metadata = (obj.get("metadata") or {})
+        metadata = obj.get("metadata") or {}
         tenant_id_str = metadata.get("tenant_id")
         if not tenant_id_str:
             return

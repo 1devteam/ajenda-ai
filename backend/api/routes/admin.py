@@ -8,13 +8,15 @@ All routes require:
   - The X-Tenant-Id header is NOT required (admin operates cross-tenant).
 
 Endpoints:
-  POST   /v1/admin/tenants                  — Provision a new tenant
-  GET    /v1/admin/tenants/{tenant_id}      — Get tenant details
-  POST   /v1/admin/tenants/{tenant_id}/suspend    — Suspend a tenant
-  POST   /v1/admin/tenants/{tenant_id}/reactivate — Reactivate a tenant
-  DELETE /v1/admin/tenants/{tenant_id}      — Soft-delete a tenant
-  POST   /v1/admin/tenants/{tenant_id}/plan — Change subscription plan
-  GET    /v1/admin/tenants/{tenant_id}/quota — Get quota status
+  POST   /v1/admin/tenants                                        — Provision a new tenant
+  GET    /v1/admin/tenants/{tenant_id}                            — Get tenant details
+  POST   /v1/admin/tenants/{tenant_id}/suspend                    — Suspend a tenant
+  POST   /v1/admin/tenants/{tenant_id}/reactivate                 — Reactivate a tenant
+  DELETE /v1/admin/tenants/{tenant_id}                            — Soft-delete a tenant
+  POST   /v1/admin/tenants/{tenant_id}/plan                       — Change subscription plan
+  GET    /v1/admin/tenants/{tenant_id}/quota                      — Get quota status
+  POST   /v1/admin/tenants/{tenant_id}/tasks/{task_id}/approve-review
+                                                                  — Approve a pending_review task
 """
 
 from __future__ import annotations
@@ -26,11 +28,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.services import get_queue_adapter
+from backend.domain.enums import ExecutionTaskState
+from backend.queue.base import QueueAdapter
+from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.tenant_repository import (
     TenantDeletedError,
     TenantNotFoundError,
     TenantSuspendedError,
 )
+from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.tenant_lifecycle import TenantLifecycleService
 
@@ -55,12 +62,27 @@ class ProvisionTenantResponse(BaseModel):
     status: str
 
 
+class TenantDetailResponse(BaseModel):
+    tenant_id: str
+    name: str
+    slug: str
+    plan: str
+    status: str
+    stripe_customer_id: str | None
+
+
 class SuspendTenantRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
 class ChangePlanRequest(BaseModel):
     new_plan: str = Field(pattern=r"^(free|starter|pro|enterprise)$")
+
+
+class ApproveReviewResponse(BaseModel):
+    task_id: str
+    previous_status: str
+    status: str
 
 
 # ------------------------------------------------------------------
@@ -118,6 +140,29 @@ def provision_tenant(
         slug=result.slug,
         plan=result.plan,
         status=result.status,
+    )
+
+
+@router.get("/tenants/{tenant_id}", response_model=TenantDetailResponse, status_code=200)
+def get_tenant(
+    tenant_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db_session),
+) -> TenantDetailResponse:
+    """Return core details for a single tenant."""
+    _require_admin(request)
+    from backend.repositories.tenant_repository import TenantRepository
+
+    tenant = TenantRepository(db).get(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail=f"Tenant {tenant_id} not found")
+    return TenantDetailResponse(
+        tenant_id=str(tenant.id),
+        name=tenant.name,
+        slug=tenant.slug,
+        plan=tenant.plan,
+        status=tenant.status,
+        stripe_customer_id=tenant.stripe_customer_id,
     )
 
 
@@ -224,3 +269,63 @@ def get_quota_status(
             "api_calls_limit": status.api_calls_limit,
         },
     }
+
+
+@router.post(
+    "/tenants/{tenant_id}/tasks/{task_id}/approve-review",
+    response_model=ApproveReviewResponse,
+    status_code=200,
+)
+def approve_task_review(
+    tenant_id: uuid.UUID,
+    task_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
+) -> ApproveReviewResponse:
+    """Approve a task that is blocked in the pending_review state.
+
+    The approval uses ExecutionCoordinator so the database transition, queue
+    payload creation, rollback behavior, and audit evidence remain tied to the
+    runtime authority path.
+
+    Raises:
+        403 — caller does not have the admin role.
+        404 — task not found, or task does not belong to the specified tenant.
+        409 — task is not in the pending_review state.
+    """
+    _require_admin(request)
+
+    task_repo = ExecutionTaskRepository(db)
+    task = task_repo.get(task_id)
+
+    if task is None or str(task.tenant_id) != str(tenant_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Task {task_id} not found for tenant {tenant_id}",
+        )
+
+    if task.status != ExecutionTaskState.PENDING_REVIEW.value:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Task {task_id} cannot be approved: expected status 'pending_review', got '{task.status}'"),
+        )
+
+    previous_status = task.status
+    actor = _get_actor(request)
+    try:
+        result = ExecutionCoordinator(db, queue).approve_review_and_queue(
+            tenant_id=str(tenant_id),
+            task_id=task_id,
+            actor=actor,
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ApproveReviewResponse(
+        task_id=str(task_id),
+        previous_status=previous_status,
+        status=result.state,
+    )

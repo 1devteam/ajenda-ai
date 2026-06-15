@@ -1,25 +1,3 @@
-"""Execution Coordinator — governs task queuing and dead-letter management.
-
-Previous defect: queue_task() checked decision.mode against a set that
-included RECOVERY but never checked decision.execution_allowed. Since
-RuntimeGovernor always returned execution_allowed=False, every task was
-silently blocked even in NORMAL mode.
-
-This implementation:
-- Checks decision.execution_allowed (the authoritative boolean)
-- Logs the decision mode for observability
-- Rolls back DB state if queue enqueue fails (prevents split-brain)
-
-PolicyGuardian integration (Section 4 fix):
-- evaluate_task() is called before queuing. If the task's compliance category
-  requires human review, the task is transitioned to PENDING_REVIEW instead of
-  QUEUED. A governance event is emitted so the audit trail is complete.
-- evaluate_task() reads task.compliance_category and task.jurisdiction from the
-  domain model columns (migration 0005), NOT from task.metadata_json. This was
-  the bug: the previous evaluate_task() read from metadata_json which is an
-  unstructured bag — compliance fields belong in typed columns.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -65,7 +43,6 @@ class ExecutionCoordinator:
     def queue_task(self, *, tenant_id: str, task_id: uuid.UUID) -> CoordinationResult:
         task = self._require_task(task_id=task_id, tenant_id=tenant_id)
 
-        # --- Step 1: Runtime governance check (circuit breaker / maintenance mode) ---
         decision = self._governor.evaluate()
         logger.info(
             "governance_decision",
@@ -85,10 +62,6 @@ class ExecutionCoordinator:
                 reason=decision.reason,
             )
 
-        # --- Step 2: Compliance / policy check (PolicyGuardian) ---
-        # evaluate_task() reads from the typed domain model columns
-        # (compliance_category, jurisdiction, requires_human_review, compliance_metadata)
-        # NOT from metadata_json. This is the correct source of truth.
         policy_decision = self._policy.evaluate_task(task)
         logger.info(
             "policy_decision",
@@ -100,8 +73,6 @@ class ExecutionCoordinator:
         )
 
         if not policy_decision.allowed:
-            # Route to PENDING_REVIEW instead of silently blocking.
-            # A human reviewer will approve (→queued) or reject (→cancelled) via admin API.
             transition_task(task, ExecutionTaskState.PENDING_REVIEW)
             task.requires_human_review = True
             self._session.flush()
@@ -128,9 +99,7 @@ class ExecutionCoordinator:
                     category="compliance",
                     action="task_pending_review",
                     actor="policy_guardian",
-                    details=(
-                        f"Task {task.id} requires human review before execution. Reason: {policy_decision.reason}"
-                    ),
+                    details=f"Task {task.id} requires human review before execution. Reason: {policy_decision.reason}",
                     payload_json={
                         "task_id": str(task.id),
                         "reason": policy_decision.reason,
@@ -145,33 +114,10 @@ class ExecutionCoordinator:
                 reason=policy_decision.reason,
             )
 
-        # --- Step 3: Enqueue ---
         previous_state = task.status
         transition_task(task, ExecutionTaskState.QUEUED)
         self._session.flush()
-
-        enqueue_result = self._queue.enqueue_task(
-            QueueMessage(
-                tenant_id=tenant_id,
-                task_id=task.id,
-                mission_id=task.mission_id,
-                fleet_id=task.fleet_id,
-                branch_id=task.branch_id,
-                payload=task.metadata_json,
-                enqueued_at=datetime.now(UTC),
-            )
-        )
-
-        if not enqueue_result.ok:
-            # Roll back DB state to prevent split-brain: task appears QUEUED in DB
-            # but was never placed on the queue.
-            logger.error(
-                "queue_enqueue_failed_rolling_back",
-                extra={"task_id": str(task_id), "reason": enqueue_result.reason},
-            )
-            task.status = previous_state
-            self._session.flush()
-            raise ValueError(enqueue_result.reason or "queue enqueue failed")
+        self._enqueue_or_restore(task=task, tenant_id=tenant_id, previous_state=previous_state)
 
         self._audit.append(
             AuditEvent(
@@ -182,6 +128,52 @@ class ExecutionCoordinator:
                 actor="execution_coordinator",
                 details=f"Task {task.id} queued for execution.",
                 payload_json={"task_id": str(task.id), "mode": decision.mode},
+            )
+        )
+        self._session.flush()
+        return CoordinationResult(ok=True, task_id=task.id, state=task.status)
+
+    def approve_review_and_queue(self, *, tenant_id: str, task_id: uuid.UUID, actor: str) -> CoordinationResult:
+        """Approve a pending-review task and enqueue the runtime payload."""
+        task = self._require_task(task_id=task_id, tenant_id=tenant_id)
+        if task.status != ExecutionTaskState.PENDING_REVIEW.value:
+            raise ValueError(f"expected status 'pending_review', got '{task.status}'")
+
+        previous_state = task.status
+        transition_task(task, ExecutionTaskState.QUEUED)
+        self._session.flush()
+        self._enqueue_or_restore(task=task, tenant_id=tenant_id, previous_state=previous_state)
+
+        self._governance.append(
+            GovernanceEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                event_type="human_review_approved",
+                actor=actor,
+                decision="approved",
+                payload_json={"task_id": str(task.id), "previous_status": previous_state},
+            )
+        )
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="compliance",
+                action="task_review_approved",
+                actor=actor,
+                details=f"Task {task.id} approved by human review and queued for execution.",
+                payload_json={"task_id": str(task.id), "previous_status": previous_state},
+            )
+        )
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="execution_task",
+                action="queued",
+                actor="execution_coordinator",
+                details=f"Task {task.id} queued for execution after human review approval.",
+                payload_json={"task_id": str(task.id), "approved_by": actor},
             )
         )
         self._session.flush()
@@ -199,8 +191,6 @@ class ExecutionCoordinator:
             reason=reason,
         )
         if not move_result.ok:
-            # Roll back DB state to prevent split-brain: task appears dead-lettered
-            # in DB but was never moved to the queue dead-letter structure.
             logger.error(
                 "dead_letter_queue_move_failed_rolling_back",
                 extra={"task_id": str(task_id), "reason": move_result.reason},
@@ -221,6 +211,29 @@ class ExecutionCoordinator:
         )
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status)
+
+    def _enqueue_or_restore(self, *, task: ExecutionTask, tenant_id: str, previous_state: str) -> None:
+        enqueue_result = self._queue.enqueue_task(
+            QueueMessage(
+                tenant_id=tenant_id,
+                task_id=task.id,
+                mission_id=task.mission_id,
+                fleet_id=task.fleet_id,
+                branch_id=task.branch_id,
+                payload=task.metadata_json,
+                enqueued_at=datetime.now(UTC),
+            )
+        )
+        if enqueue_result.ok:
+            return
+
+        logger.error(
+            "queue_enqueue_failed_rolling_back",
+            extra={"task_id": str(task.id), "reason": enqueue_result.reason},
+        )
+        task.status = previous_state
+        self._session.flush()
+        raise ValueError(enqueue_result.reason or "queue enqueue failed")
 
     def _emit_denial(self, *, task: ExecutionTask, tenant_id: str, reason: str) -> None:
         self._governance.append(
