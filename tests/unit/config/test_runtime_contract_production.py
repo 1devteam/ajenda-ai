@@ -69,6 +69,12 @@ def _settings(**overrides) -> Settings:
         "budget_policy_enforce": False,
         "budget_policy_enforce_tenant_ids": "",
         "budget_policy_enforce_plans": "",
+        # Stripe billing — required in production
+        "STRIPE_SECRET_KEY": "sk_test_placeholder_for_tests",
+        "STRIPE_PUBLISHABLE_KEY": "pk_test_placeholder_for_tests",
+        "STRIPE_WEBHOOK_SECRET": "whsec_placeholder_for_tests",
+        "STRIPE_PRICE_STARTER": "price_starter_test",
+        "STRIPE_PRICE_PRO": "price_pro_test",
     }
     defaults.update(overrides)
     return Settings.model_construct(**defaults)

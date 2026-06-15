@@ -11,6 +11,7 @@ EXPECTED_K8S_MANIFESTS = frozenset(
         "configmap.yaml",
         "hpa-worker.yaml",
         "ingress.yaml",
+        "ingress-tls.yaml",
         "migrate-job.yaml",
         "namespace.yaml",
         "otel-collector-config.yaml",

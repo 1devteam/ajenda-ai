@@ -60,6 +60,15 @@ class Tenant(Base):
         comment="free | starter | pro | enterprise",
     )
 
+    # Billing — Stripe
+    stripe_customer_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        unique=True,
+        index=True,
+        comment="Stripe Customer ID (cus_...). Null until first checkout.",
+    )
+
     # Soft-delete
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

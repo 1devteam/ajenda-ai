@@ -95,6 +95,13 @@ class Settings(BaseSettings):
         alias="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
     )
 
+    # --- Billing (Stripe) ---
+    STRIPE_SECRET_KEY: str = Field(default="", alias="STRIPE_SECRET_KEY")
+    STRIPE_PUBLISHABLE_KEY: str = Field(default="", alias="STRIPE_PUBLISHABLE_KEY")
+    STRIPE_WEBHOOK_SECRET: str = Field(default="", alias="STRIPE_WEBHOOK_SECRET")
+    STRIPE_PRICE_STARTER: str = Field(default="", alias="STRIPE_PRICE_STARTER")
+    STRIPE_PRICE_PRO: str = Field(default="", alias="STRIPE_PRICE_PRO")
+
     budget_policy_enabled: bool = Field(default=False, alias="AJENDA_BUDGET_POLICY_ENABLED")
     budget_policy_observe_only: bool = Field(default=True, alias="AJENDA_BUDGET_POLICY_OBSERVE_ONLY")
     budget_policy_enforce: bool = Field(default=False, alias="AJENDA_BUDGET_POLICY_ENFORCE")
@@ -248,6 +255,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS must be a positive number, got {self.authz_opa_timeout_seconds}"
             )
+        if env == "production":
+            if not self.STRIPE_SECRET_KEY or not self.STRIPE_SECRET_KEY.startswith("sk_"):
+                raise ValueError(
+                    "STRIPE_SECRET_KEY is required in production and must begin with 'sk_'. "
+                    f"Current value: {self.STRIPE_SECRET_KEY!r}"
+                )
+            if not self.STRIPE_WEBHOOK_SECRET or not self.STRIPE_WEBHOOK_SECRET.startswith("whsec_"):
+                raise ValueError(
+                    "STRIPE_WEBHOOK_SECRET is required in production and must begin with 'whsec_'. "
+                    f"Current value: {self.STRIPE_WEBHOOK_SECRET!r}"
+                )
+
         if self.budget_policy_enforce and not self.budget_policy_enabled:
             raise ValueError("AJENDA_BUDGET_POLICY_ENFORCE requires AJENDA_BUDGET_POLICY_ENABLED=true")
 
