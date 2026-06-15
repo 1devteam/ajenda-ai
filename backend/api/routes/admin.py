@@ -28,14 +28,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.services import get_queue_adapter
 from backend.domain.enums import ExecutionTaskState
+from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.tenant_repository import (
     TenantDeletedError,
     TenantNotFoundError,
     TenantSuspendedError,
 )
-from backend.runtime.transitions import transition_task
+from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.tenant_lifecycle import TenantLifecycleService
 
@@ -279,12 +281,13 @@ def approve_task_review(
     task_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
 ) -> ApproveReviewResponse:
     """Approve a task that is blocked in the pending_review state.
 
-    Transitions the task from pending_review → queued so the worker pool
-    can pick it up. Only tasks belonging to the specified tenant may be
-    approved via this endpoint (cross-tenant isolation enforced).
+    The approval uses ExecutionCoordinator so the database transition, queue
+    payload creation, rollback behavior, and audit evidence remain tied to the
+    runtime authority path.
 
     Raises:
         403 — caller does not have the admin role.
@@ -309,11 +312,20 @@ def approve_task_review(
         )
 
     previous_status = task.status
-    transition_task(task, ExecutionTaskState.QUEUED)
-    db.commit()
+    actor = _get_actor(request)
+    try:
+        result = ExecutionCoordinator(db, queue).approve_review_and_queue(
+            tenant_id=str(tenant_id),
+            task_id=task_id,
+            actor=actor,
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return ApproveReviewResponse(
         task_id=str(task_id),
         previous_status=previous_status,
-        status=task.status,
+        status=result.state,
     )

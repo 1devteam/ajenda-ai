@@ -19,15 +19,17 @@ from fastapi.testclient import TestClient
 
 from backend.api.routes import admin as admin_module
 from backend.app.dependencies.db import get_db_session
+from backend.app.dependencies.services import get_queue_adapter
 
 # ---------------------------------------------------------------------------
-# App factory — injects admin principal and overrides DB dependency
+# App factory — injects admin principal and overrides DB/queue dependencies
 # ---------------------------------------------------------------------------
 
 
-def _build_admin_app(*, is_admin: bool = True) -> tuple[FastAPI, MagicMock]:
-    """Return (app, mock_db_session) with principal and DB wired."""
+def _build_admin_app(*, is_admin: bool = True) -> tuple[FastAPI, MagicMock, MagicMock]:
+    """Return (app, mock_db_session, mock_queue) with dependencies wired."""
     mock_db = MagicMock()
+    mock_queue = MagicMock()
 
     app = FastAPI()
 
@@ -44,8 +46,12 @@ def _build_admin_app(*, is_admin: bool = True) -> tuple[FastAPI, MagicMock]:
     def _override_db():  # type: ignore[no-untyped-def]
         yield mock_db
 
+    def _override_queue():  # type: ignore[no-untyped-def]
+        return mock_queue
+
     app.dependency_overrides[get_db_session] = _override_db
-    return app, mock_db
+    app.dependency_overrides[get_queue_adapter] = _override_queue
+    return app, mock_db, mock_queue
 
 
 # ---------------------------------------------------------------------------
@@ -55,13 +61,13 @@ def _build_admin_app(*, is_admin: bool = True) -> tuple[FastAPI, MagicMock]:
 
 class TestGetTenant:
     def test_returns_403_without_admin_role(self) -> None:
-        app, _ = _build_admin_app(is_admin=False)
+        app, _, _ = _build_admin_app(is_admin=False)
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get(f"/v1/admin/tenants/{uuid.uuid4()}")
         assert resp.status_code == 403
 
     def test_returns_404_when_tenant_not_found(self) -> None:
-        app, mock_db = _build_admin_app()
+        app, _, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         with patch("backend.repositories.tenant_repository.TenantRepository.get", return_value=None):
@@ -69,7 +75,7 @@ class TestGetTenant:
         assert resp.status_code == 404
 
     def test_returns_tenant_detail_when_found(self) -> None:
-        app, mock_db = _build_admin_app()
+        app, _, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         fake_tenant = SimpleNamespace(
@@ -95,7 +101,7 @@ class TestGetTenant:
         assert body["stripe_customer_id"] == "cus_test123"
 
     def test_stripe_customer_id_may_be_null(self) -> None:
-        app, mock_db = _build_admin_app()
+        app, _, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         fake_tenant = SimpleNamespace(
@@ -122,13 +128,13 @@ class TestGetTenant:
 
 class TestApproveTaskReview:
     def test_returns_403_without_admin_role(self) -> None:
-        app, _ = _build_admin_app(is_admin=False)
+        app, _, _ = _build_admin_app(is_admin=False)
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.post(f"/v1/admin/tenants/{uuid.uuid4()}/tasks/{uuid.uuid4()}/approve-review")
         assert resp.status_code == 403
 
     def test_returns_404_when_task_not_found(self) -> None:
-        app, mock_db = _build_admin_app()
+        app, _, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         task_id = uuid.uuid4()
@@ -140,7 +146,7 @@ class TestApproveTaskReview:
         assert resp.status_code == 404
 
     def test_returns_404_when_task_belongs_to_different_tenant(self) -> None:
-        app, mock_db = _build_admin_app()
+        app, _, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         other_tid = uuid.uuid4()
@@ -158,7 +164,7 @@ class TestApproveTaskReview:
         assert resp.status_code == 404
 
     def test_returns_409_when_task_not_in_pending_review(self) -> None:
-        app, mock_db = _build_admin_app()
+        app, _, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         task_id = uuid.uuid4()
@@ -175,8 +181,42 @@ class TestApproveTaskReview:
         assert resp.status_code == 409
         assert "pending_review" in resp.json()["detail"]
 
-    def test_transitions_task_to_queued_and_returns_200(self) -> None:
-        app, mock_db = _build_admin_app()
+    def test_approval_queues_through_execution_coordinator_and_returns_200(self) -> None:
+        app, mock_db, mock_queue = _build_admin_app()
+        client = TestClient(app, raise_server_exceptions=False)
+        tid = uuid.uuid4()
+        task_id = uuid.uuid4()
+        fake_task = SimpleNamespace(
+            id=task_id,
+            tenant_id=str(tid),
+            status="pending_review",
+        )
+        result = SimpleNamespace(ok=True, task_id=task_id, state="queued")
+
+        with patch(
+            "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
+            return_value=fake_task,
+        ):
+            with patch("backend.api.routes.admin.ExecutionCoordinator") as coordinator_cls:
+                coordinator = coordinator_cls.return_value
+                coordinator.approve_review_and_queue.return_value = result
+                resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["task_id"] == str(task_id)
+        assert body["previous_status"] == "pending_review"
+        assert body["status"] == "queued"
+        coordinator_cls.assert_called_once_with(mock_db, mock_queue)
+        coordinator.approve_review_and_queue.assert_called_once_with(
+            tenant_id=str(tid),
+            task_id=task_id,
+            actor="admin-test",
+        )
+        mock_db.commit.assert_called_once_with()
+
+    def test_queue_failure_rolls_back_and_returns_400(self) -> None:
+        app, mock_db, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         task_id = uuid.uuid4()
@@ -186,24 +226,20 @@ class TestApproveTaskReview:
             status="pending_review",
         )
 
-        def _fake_transition(task, target):  # type: ignore[no-untyped-def]
-            task.status = target.value
-            return task
-
         with patch(
             "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
             return_value=fake_task,
         ):
-            with patch("backend.api.routes.admin.transition_task", side_effect=_fake_transition):
+            with patch("backend.api.routes.admin.ExecutionCoordinator") as coordinator_cls:
+                coordinator_cls.return_value.approve_review_and_queue.side_effect = ValueError("queue enqueue failed")
                 resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["task_id"] == str(task_id)
-        assert body["previous_status"] == "pending_review"
-        assert body["status"] == "queued"
+
+        assert resp.status_code == 400
+        assert "queue enqueue failed" in resp.json()["detail"]
+        mock_db.rollback.assert_called_once_with()
 
     def test_cancelled_task_cannot_be_approved(self) -> None:
-        app, mock_db = _build_admin_app()
+        app, _, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         task_id = uuid.uuid4()
@@ -220,7 +256,7 @@ class TestApproveTaskReview:
         assert resp.status_code == 409
 
     def test_completed_task_cannot_be_approved(self) -> None:
-        app, mock_db = _build_admin_app()
+        app, _, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         task_id = uuid.uuid4()
@@ -237,7 +273,7 @@ class TestApproveTaskReview:
         assert resp.status_code == 409
 
     def test_response_contains_all_required_fields(self) -> None:
-        app, mock_db = _build_admin_app()
+        app, _, _ = _build_admin_app()
         client = TestClient(app, raise_server_exceptions=False)
         tid = uuid.uuid4()
         task_id = uuid.uuid4()
@@ -246,17 +282,16 @@ class TestApproveTaskReview:
             tenant_id=str(tid),
             status="pending_review",
         )
-
-        def _fake_transition(task, target):  # type: ignore[no-untyped-def]
-            task.status = target.value
-            return task
+        result = SimpleNamespace(ok=True, task_id=task_id, state="queued")
 
         with patch(
             "backend.repositories.execution_task_repository.ExecutionTaskRepository.get",
             return_value=fake_task,
         ):
-            with patch("backend.api.routes.admin.transition_task", side_effect=_fake_transition):
+            with patch("backend.api.routes.admin.ExecutionCoordinator") as coordinator_cls:
+                coordinator_cls.return_value.approve_review_and_queue.return_value = result
                 resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+
         assert resp.status_code == 200
         body = resp.json()
         assert set(body.keys()) == {"task_id", "previous_status", "status"}
