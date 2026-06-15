@@ -114,6 +114,12 @@ SECRET_ENV = frozenset(
         "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
         "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
         "POSTGRES_PASSWORD",
+        # Billing — Stripe credentials must live in the Secret, never in ConfigMap
+        "STRIPE_SECRET_KEY",
+        "STRIPE_PUBLISHABLE_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+        "STRIPE_PRICE_STARTER",
+        "STRIPE_PRICE_PRO",
     }
 )
 
@@ -137,7 +143,8 @@ def _read(path: Path) -> str:
 
 def _settings_env_aliases() -> set[str]:
     config_text = _read(Path("backend/app/config.py"))
-    return set(re.findall(r'alias="(AJENDA_[A-Z0-9_]+)"', config_text))
+    # Capture all canonical env aliases regardless of prefix (AJENDA_, STRIPE_, etc.)
+    return set(re.findall(r'alias="([A-Z][A-Z0-9_]+)"', config_text))
 
 
 def _env_names(text: str) -> set[str]:
