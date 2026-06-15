@@ -15,6 +15,7 @@ api/router.py applies the /v1 prefix when this router is included).
 from __future__ import annotations
 
 import logging
+from uuid import UUID
 
 import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.services.billing_stripe_integration import StripeBillingService
-from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
+from backend.services.quota_enforcement import QuotaExceededError
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class PortalResponse(BaseModel):
 )
 def create_checkout(
     body: CheckoutRequest,
-    tenant_id=Depends(get_request_tenant_id),
+    tenant_id: UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> CheckoutResponse:
     """Return a Stripe Checkout URL scoped to the authenticated tenant."""
@@ -89,7 +90,7 @@ def create_checkout(
 )
 def create_portal(
     return_url: str,
-    tenant_id=Depends(get_request_tenant_id),
+    tenant_id: UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> PortalResponse:
     """Return a Stripe Customer Portal URL for the authenticated tenant."""
@@ -106,7 +107,7 @@ def create_portal(
             customer=tenant.stripe_customer_id,
             return_url=return_url,
         )
-    except stripe.error.StripeError as exc:  # type: ignore[attr-defined]
+    except stripe.StripeError as exc:
         logger.error("Stripe portal error for tenant %s: %s", tenant_id, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -130,7 +131,7 @@ async def stripe_webhook(
     request: Request,
     db: Session = Depends(get_tenant_db_session),
     stripe_signature: str = Header(..., alias="stripe-signature"),
-) -> dict:  # type: ignore[type-arg]
+) -> dict[str, str]:
     """Receive and process Stripe webhook events.
 
     Signature is verified by StripeBillingService.handle_webhook() before
@@ -141,7 +142,7 @@ async def stripe_webhook(
     billing = StripeBillingService(db)
     try:
         billing.handle_webhook(payload=payload, sig_header=stripe_signature)
-    except stripe.error.SignatureVerificationError as exc:  # type: ignore[attr-defined]
+    except stripe.SignatureVerificationError as exc:
         logger.warning("Stripe webhook signature verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
