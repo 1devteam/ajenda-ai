@@ -23,6 +23,10 @@ class ExecutionTaskRepository:
     def get(self, task_id: uuid.UUID) -> ExecutionTask | None:
         return self._session.get(ExecutionTask, task_id)
 
+    def get_for_update(self, task_id: uuid.UUID) -> ExecutionTask | None:
+        stmt = select(ExecutionTask).where(ExecutionTask.id == task_id).with_for_update()
+        return self._session.scalar(stmt)
+
     def list_for_mission(self, mission_id: uuid.UUID) -> list[ExecutionTask]:
         stmt = select(ExecutionTask).where(ExecutionTask.mission_id == mission_id)
         return list(self._session.scalars(stmt))
