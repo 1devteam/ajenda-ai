@@ -163,7 +163,7 @@ class StripeBillingService:
         types are silently ignored (forward-compatible).
 
         Raises:
-            stripe.error.SignatureVerificationError: if the signature is invalid.
+            stripe.SignatureVerificationError: if the signature is invalid.
         """
         event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
             payload,
