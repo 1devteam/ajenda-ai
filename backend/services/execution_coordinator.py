@@ -135,7 +135,7 @@ class ExecutionCoordinator:
 
     def approve_review_and_queue(self, *, tenant_id: str, task_id: uuid.UUID, actor: str) -> CoordinationResult:
         """Approve a pending-review task and enqueue the runtime payload."""
-        task = self._require_task(task_id=task_id, tenant_id=tenant_id)
+        task = self._require_task_for_update(task_id=task_id, tenant_id=tenant_id)
         if task.status != ExecutionTaskState.PENDING_REVIEW.value:
             raise ValueError(f"expected status 'pending_review', got '{task.status}'")
 
@@ -250,6 +250,12 @@ class ExecutionCoordinator:
 
     def _require_task(self, *, task_id: uuid.UUID, tenant_id: str) -> ExecutionTask:
         task = self._tasks.get(task_id)
+        if task is None or task.tenant_id != tenant_id:
+            raise ValueError("task not found for tenant")
+        return task
+
+    def _require_task_for_update(self, *, task_id: uuid.UUID, tenant_id: str) -> ExecutionTask:
+        task = self._tasks.get_for_update(task_id)
         if task is None or task.tenant_id != tenant_id:
             raise ValueError("task not found for tenant")
         return task
