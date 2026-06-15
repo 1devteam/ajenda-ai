@@ -37,6 +37,7 @@ def _coordinator_with_task(*, task: SimpleNamespace, queue: MagicMock | None = N
     coordinator = ExecutionCoordinator(session, queue)
     coordinator._tasks = MagicMock()
     coordinator._tasks.get.return_value = task
+    coordinator._tasks.get_for_update.return_value = task
     coordinator._governor = MagicMock()
     coordinator._governor.evaluate.return_value = _allowed_decision()
     coordinator._policy = MagicMock()
@@ -133,6 +134,38 @@ def test_queue_task_preserves_previous_retryable_state_on_enqueue_failure() -> N
         coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
 
     assert task.status == ExecutionTaskState.FAILED.value
+    coordinator._audit.append.assert_not_called()
+
+
+def test_approve_review_queues_pending_review_task() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PENDING_REVIEW.value)
+    queue = MagicMock()
+    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    result = coordinator.approve_review_and_queue(tenant_id=tenant_id, task_id=task.id, actor="admin-test")
+
+    assert result.ok is True
+    assert result.state == ExecutionTaskState.QUEUED.value
+    coordinator._tasks.get_for_update.assert_called_once_with(task.id)
+    queue.enqueue_task.assert_called_once()
+    assert coordinator._governance.append.call_args.args[0].event_type == "human_review_approved"
+    assert coordinator._audit.append.call_count == 2
+
+
+def test_approve_review_rejects_already_queued_task_without_enqueueing() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.QUEUED.value)
+    queue = MagicMock()
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    with pytest.raises(ValueError, match="expected status 'pending_review', got 'queued'"):
+        coordinator.approve_review_and_queue(tenant_id=tenant_id, task_id=task.id, actor="admin-test")
+
+    coordinator._tasks.get_for_update.assert_called_once_with(task.id)
+    queue.enqueue_task.assert_not_called()
+    coordinator._governance.append.assert_not_called()
     coordinator._audit.append.assert_not_called()
 
 
