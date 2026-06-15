@@ -87,11 +87,7 @@ def _make_subscription(tenant_id: str, price_id: str, status: str = "active") ->
         "id": "sub_test_123",
         "status": status,
         "metadata": {"tenant_id": tenant_id},
-        "items": {
-            "data": [
-                {"price": {"id": price_id}}
-            ]
-        },
+        "items": {"data": [{"price": {"id": price_id}}]},
     }
 
 
@@ -254,9 +250,9 @@ class TestHandleWebhook:
         """SignatureVerificationError propagates to the caller."""
         with patch(
             "stripe.Webhook.construct_event",
-            side_effect=stripe.error.SignatureVerificationError("bad sig", "t=1,v1=bad"),  # type: ignore[attr-defined]
+            side_effect=stripe.SignatureVerificationError("bad sig", "t=1,v1=bad"),
         ):
-            with pytest.raises(stripe.error.SignatureVerificationError):  # type: ignore[attr-defined]
+            with pytest.raises(stripe.SignatureVerificationError):
                 billing.handle_webhook(payload=b"bad", sig_header="t=1,v1=bad")
 
     def test_ignores_event_with_invalid_tenant_uuid(self, billing):
@@ -289,9 +285,7 @@ class TestAssertSubscriptionActive:
     def test_propagates_quota_exceeded_error(self):
         """QuotaExceededError from the quota service propagates to the caller."""
         quota = MagicMock()
-        quota.check_tenant_active.side_effect = QuotaExceededError(
-            field="status", limit=1, current=0, plan="free"
-        )
+        quota.check_tenant_active.side_effect = QuotaExceededError(field="status", limit=1, current=0, plan="free")
         with pytest.raises(QuotaExceededError):
             StripeBillingService.assert_subscription_active(quota, uuid4())
 
