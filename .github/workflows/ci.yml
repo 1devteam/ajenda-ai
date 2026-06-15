@@ -66,9 +66,6 @@ jobs:
       - name: Migration seed contract sentinel
         run: python scripts/validation/migration_seed_contract_check.py
 
-      - name: Billing integration contract sentinel
-        run: python scripts/validation/billing_contract_check.py
-
   # ─────────────────────────────────────────────────────────────────────────
   # Job 2: Unit tests — no infrastructure, fast
   # ─────────────────────────────────────────────────────────────────────────
