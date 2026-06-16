@@ -67,7 +67,14 @@ def _patch_common_dispatcher_paths(
         result: dict[str, Any] | None = None,
         output_reason: str | None = None,
     ) -> None:
-        calls["complete"].append({"lease_id": lease_id, "task": task, "result": result, "output_reason": output_reason})
+        calls["complete"].append(
+            {
+                "lease_id": lease_id,
+                "task": task,
+                "result": result,
+                "output_reason": output_reason,
+            }
+        )
         if complete_error is not None:
             raise complete_error
 
@@ -125,7 +132,11 @@ def test_side_effecting_tool_invoke_completion_failure_blocks_instead_of_normal_
         }
 
     monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", {"tool.invoke": handler})
-    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", {"tool.invoke": "tool action completed"})
+    monkeypatch.setattr(
+        task_dispatcher,
+        "_OUTPUT_REASON_BY_TASK_TYPE",
+        {"tool.invoke": "tool action completed"},
+    )
     calls = _patch_common_dispatcher_paths(monkeypatch, task=task)
     lease_id = uuid.uuid4()
 
@@ -138,10 +149,15 @@ def test_side_effecting_tool_invoke_completion_failure_blocks_instead_of_normal_
     assert len(calls["block"]) == 1
     assert calls["block"][0]["side_effect_class"] == "external_send"
     assert calls["block"][0]["reason"] == "completion materialization failed"
-    assert any(record.message == "task_dispatch_completion_failed_after_side_effect" for record in caplog.records)
+    assert any(
+        record.message == "task_dispatch_completion_failed_after_side_effect"
+        for record in caplog.records
+    )
 
 
-def test_handler_exception_still_uses_normal_fail_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_handler_exception_still_uses_normal_fail_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id)
     handler_calls: list[str] = []
@@ -151,7 +167,11 @@ def test_handler_exception_still_uses_normal_fail_path(monkeypatch: pytest.Monke
         raise RuntimeError("handler exploded")
 
     monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", {"tool.invoke": handler})
-    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", {"tool.invoke": "tool action completed"})
+    monkeypatch.setattr(
+        task_dispatcher,
+        "_OUTPUT_REASON_BY_TASK_TYPE",
+        {"tool.invoke": "tool action completed"},
+    )
     calls = _patch_common_dispatcher_paths(monkeypatch, task=task, complete_error=None)
 
     _dispatcher(tenant_id=tenant_id).execute(task_id=task.id, lease_id=uuid.uuid4())
@@ -182,7 +202,11 @@ def test_non_side_effecting_tool_invoke_completion_failure_preserves_normal_fail
         }
 
     monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", {"tool.invoke": handler})
-    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", {"tool.invoke": "tool action completed"})
+    monkeypatch.setattr(
+        task_dispatcher,
+        "_OUTPUT_REASON_BY_TASK_TYPE",
+        {"tool.invoke": "tool action completed"},
+    )
     calls = _patch_common_dispatcher_paths(monkeypatch, task=task)
 
     _dispatcher(tenant_id=tenant_id).execute(task_id=task.id, lease_id=uuid.uuid4())
