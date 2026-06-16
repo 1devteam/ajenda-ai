@@ -67,9 +67,7 @@ def _patch_common_dispatcher_paths(
         result: dict[str, Any] | None = None,
         output_reason: str | None = None,
     ) -> None:
-        calls["complete"].append(
-            {"lease_id": lease_id, "task": task, "result": result, "output_reason": output_reason}
-        )
+        calls["complete"].append({"lease_id": lease_id, "task": task, "result": result, "output_reason": output_reason})
         if complete_error is not None:
             raise complete_error
 
