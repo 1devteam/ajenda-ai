@@ -260,6 +260,62 @@ class WorkerRuntimeService:
             )
         return task
 
+    def block_completion_failure(
+        self,
+        *,
+        tenant_id: str,
+        lease_id: uuid.UUID,
+        worker_id: str,
+        reason: str,
+        task_output: dict[str, Any],
+        output_reason: str | None,
+        side_effect_class: str | None,
+    ) -> ExecutionTask:
+        lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        task = self._get_task_for_lease(lease)
+        if task.status != ExecutionTaskState.RUNNING.value:
+            raise ValueError("task is not running")
+
+        transition_task(task, ExecutionTaskState.BLOCKED)
+        self._transition_lease_to_released(lease)
+        lease.heartbeat_at = datetime.now(UTC)
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="worker_completion",
+                action="tool_invoke_completion_blocked_after_side_effect",
+                actor=worker_id,
+                details=f"Blocked task {task.id} after tool.invoke completion failure: {reason}",
+                payload_json={
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "handler": task_output.get("handler"),
+                    "action": task_output.get("action"),
+                    "requested_action": task_output.get("requested_action"),
+                    "provider": task_output.get("provider"),
+                    "side_effect_class": side_effect_class,
+                    "output_reason": output_reason,
+                    "completion_error": reason,
+                    "requeue_allowed": False,
+                    "requires_operator_review": True,
+                },
+            )
+        )
+        self._session.flush()
+        self._session.commit()
+
+        result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+        if not result.ok:
+            self._record_completion_failure_queue_cleanup_failure(
+                tenant_id=tenant_id,
+                task=task,
+                lease=lease,
+                worker_id=worker_id,
+                reason=result.reason or "complete rejected",
+            )
+        return task
+
     def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         task = self._get_task_for_lease(lease)
@@ -412,6 +468,63 @@ class WorkerRuntimeService:
                     "task_id": str(task.id),
                     "lease_id": str(lease.id),
                     "queue_operation": queue_operation,
+                    "queue_reason": reason,
+                    "audit_error": str(exc),
+                },
+            )
+
+    def _record_completion_failure_queue_cleanup_failure(
+        self,
+        *,
+        tenant_id: str,
+        task: ExecutionTask,
+        lease: WorkerLease,
+        worker_id: str,
+        reason: str,
+    ) -> None:
+        logger.critical(
+            "queue_complete_task_after_completion_failure_block_failed",
+            extra={
+                "tenant_id": tenant_id,
+                "task_id": str(task.id),
+                "task_status": task.status,
+                "lease_id": str(lease.id),
+                "lease_status": lease.status,
+                "worker_id": worker_id,
+                "reason": reason,
+                "requeue_allowed": False,
+            },
+        )
+        try:
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    category="worker_queue_cleanup",
+                    action="tool_invoke_completion_block_queue_cleanup_failed",
+                    actor=worker_id,
+                    details=f"Queue cleanup failed after blocking task {task.id} for completion failure: {reason}",
+                    payload_json={
+                        "task_id": str(task.id),
+                        "task_status": task.status,
+                        "lease_id": str(lease.id),
+                        "lease_status": lease.status,
+                        "queue_operation": "complete_task",
+                        "reason": reason,
+                        "requeue_allowed": False,
+                    },
+                )
+            )
+            self._session.flush()
+            self._session.commit()
+        except Exception as exc:
+            self._session.rollback()
+            logger.critical(
+                "completion_failure_queue_cleanup_audit_persist_failed",
+                extra={
+                    "tenant_id": tenant_id,
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
                     "queue_reason": reason,
                     "audit_error": str(exc),
                 },
