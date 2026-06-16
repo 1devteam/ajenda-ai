@@ -7,7 +7,7 @@ from pathlib import Path
 CI_WORKFLOW = Path(".github/workflows/ci.yml")
 DEPENDABOT = Path(".github/dependabot.yml")
 SECURITY_WORKFLOW = Path(".github/workflows/security.yml")
-COHERENCE_WORKFLOW = Path(".github/workflows/coherence-audit.yml")
+FRONTEND_COHERENCE_WORKFLOW = Path(".github/workflows/frontend-coherence-audit.yml")
 DESIGN_NOTE = Path("docs/validation/frontend-supply-chain-gate.md")
 
 
@@ -51,10 +51,13 @@ def test_security_workflow_audits_frontend_npm_dependencies() -> None:
     assert "npm audit" in content
 
 
-def test_weekly_coherence_audit_runs_frontend_supply_chain_gate() -> None:
-    """Weekly coherence audit must include frontend dependency and build proof."""
-    content = COHERENCE_WORKFLOW.read_text(encoding="utf-8")
+def test_weekly_frontend_coherence_audit_runs_supply_chain_gate() -> None:
+    """Weekly frontend coherence audit must include dependency and build proof."""
+    content = FRONTEND_COHERENCE_WORKFLOW.read_text(encoding="utf-8")
 
+    assert "on:" in content
+    assert "schedule:" in content
+    assert "workflow_dispatch:" in content
     assert "frontend-supply-chain-coherence:" in content
     assert "name: Frontend Supply-Chain Coherence" in content
     assert "uses: actions/setup-node@v4" in content
