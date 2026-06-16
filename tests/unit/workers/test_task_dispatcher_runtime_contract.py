@@ -238,3 +238,155 @@ def test_dispatcher_fails_malformed_tool_invoke_through_failure_path(monkeypatch
     dispatcher.execute(task_id=uuid.uuid4(), lease_id=lease_id)
 
     assert failures == ["tool.invoke requires metadata_json.tool_invocation object"]
+
+
+def test_execute_blocks_side_effecting_tool_invoke_completion_failure_without_normal_fail(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    task_id = uuid.uuid4()
+    lease_id = uuid.uuid4()
+    task = _task(task_type="tool.invoke")
+    task.id = task_id
+    task.tenant_id = tenant_id
+    handler_calls = 0
+    blocked: list[dict[str, Any]] = []
+
+    def side_effecting_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
+        nonlocal handler_calls
+        handler_calls += 1
+        return {
+            "handler": "tool.invoke",
+            "status": "completed",
+            "schema_version": 1,
+            "action": "calendar.create_event",
+            "provider": "google_calendar",
+            "side_effect_class": "external_write",
+            "output": {"event_id": "evt-1"},
+            "evidence": [],
+            "records_inspected": [],
+            "records_changed": ["evt-1"],
+            "summary": "created event",
+        }
+
+    def complete_raises(self: TaskDispatcher, **kwargs: Any) -> None:
+        raise RuntimeError("completion evidence write failed")
+
+    def block_completion_failure(self: TaskDispatcher, **kwargs: Any) -> None:
+        blocked.append(kwargs)
+
+    _disable_heartbeat(monkeypatch)
+    monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: task)
+    monkeypatch.setattr(TaskDispatcher, "_complete", complete_raises)
+    monkeypatch.setattr(TaskDispatcher, "_block_completion_failure", block_completion_failure)
+    monkeypatch.setattr(TaskDispatcher, "_fail", lambda self, **kwargs: pytest.fail(f"unexpected fail: {kwargs}"))
+    monkeypatch.setattr(
+        task_dispatcher, "_HANDLER_REGISTRY", {"tool.invoke": cast(TaskHandler, side_effecting_handler)}
+    )
+    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", {"tool.invoke": "tool action completed"})
+
+    dispatcher = TaskDispatcher(
+        session_factory=lambda: object(),
+        queue=object(),
+        worker_id="worker",
+        tenant_id=tenant_id,
+    )
+
+    with caplog.at_level("CRITICAL", logger="ajenda.task_dispatcher"):
+        dispatcher.execute(task_id=task_id, lease_id=lease_id)
+
+    assert handler_calls == 1
+    assert blocked == [
+        {
+            "lease_id": lease_id,
+            "task_id": task_id,
+            "task_type": "tool.invoke",
+            "side_effect_class": "external_write",
+            "reason": "completion evidence write failed",
+        }
+    ]
+    record = next(
+        record for record in caplog.records if record.message == "task_dispatch_completion_failed_after_side_effect"
+    )
+    assert record.task_id == str(task_id)
+    assert record.lease_id == str(lease_id)
+    assert record.task_type == "tool.invoke"
+    assert record.side_effect_class == "external_write"
+
+
+def test_execute_preserves_normal_failure_for_handler_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    dispatcher = _dispatcher()
+    failures: list[str] = []
+
+    def exploding_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
+        raise RuntimeError("handler exploded")
+
+    _disable_heartbeat(monkeypatch)
+    monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: _task(task_type="explode"))
+    monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", {"explode": cast(TaskHandler, exploding_handler)})
+    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", {})
+    monkeypatch.setattr(TaskDispatcher, "_fail", lambda self, *, lease_id, reason: failures.append(reason))
+    monkeypatch.setattr(
+        TaskDispatcher,
+        "_block_completion_failure",
+        lambda *args, **kwargs: pytest.fail("handler failure must not use completion-failure block path"),
+    )
+    monkeypatch.setattr(
+        TaskDispatcher,
+        "_complete",
+        lambda *args, **kwargs: pytest.fail("handler exception must not complete"),
+    )
+
+    dispatcher.execute(task_id=uuid.uuid4(), lease_id=uuid.uuid4())
+
+    assert failures == ["handler exploded"]
+
+
+def test_execute_preserves_normal_failure_for_non_side_effecting_tool_completion_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(task_type="tool.invoke")
+    task.tenant_id = tenant_id
+    failures: list[str] = []
+
+    def read_only_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
+        return {
+            "handler": "tool.invoke",
+            "status": "completed",
+            "schema_version": 1,
+            "action": "record.search",
+            "provider": "local_records",
+            "side_effect_class": "internal_read",
+            "output": {"count": 1},
+            "evidence": [],
+            "records_inspected": ["acct-1"],
+            "records_changed": [],
+            "summary": "searched records",
+        }
+
+    def complete_raises(self: TaskDispatcher, **kwargs: Any) -> None:
+        raise RuntimeError("completion failed")
+
+    _disable_heartbeat(monkeypatch)
+    monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: task)
+    monkeypatch.setattr(TaskDispatcher, "_complete", complete_raises)
+    monkeypatch.setattr(TaskDispatcher, "_fail", lambda self, *, lease_id, reason: failures.append(reason))
+    monkeypatch.setattr(
+        TaskDispatcher,
+        "_block_completion_failure",
+        lambda *args, **kwargs: pytest.fail("read-only completion failure should follow existing fail path"),
+    )
+    monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", {"tool.invoke": cast(TaskHandler, read_only_handler)})
+    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", {"tool.invoke": "tool action completed"})
+
+    dispatcher = TaskDispatcher(
+        session_factory=lambda: object(),
+        queue=object(),
+        worker_id="worker",
+        tenant_id=tenant_id,
+    )
+    dispatcher.execute(task_id=uuid.uuid4(), lease_id=uuid.uuid4())
+
+    assert failures == ["completion failed"]

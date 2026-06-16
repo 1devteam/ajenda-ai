@@ -96,6 +96,7 @@ def test_worker_runtime_mutating_task_methods_own_commit_boundary() -> None:
         WorkerRuntimeService.claim_next_task,
         WorkerRuntimeService.start_execution,
         WorkerRuntimeService.complete,
+        WorkerRuntimeService.block_completion_failure,
         WorkerRuntimeService.fail,
     )
 
@@ -171,6 +172,7 @@ def test_worker_runtime_public_mutators_keep_return_contracts() -> None:
     assert inspect.signature(WorkerRuntimeService.claim_next_task).return_annotation == "ExecutionTask | None"
     assert inspect.signature(WorkerRuntimeService.start_execution).return_annotation == "ExecutionTask"
     assert inspect.signature(WorkerRuntimeService.complete).return_annotation == "ExecutionTask"
+    assert inspect.signature(WorkerRuntimeService.block_completion_failure).return_annotation == "ExecutionTask"
     assert inspect.signature(WorkerRuntimeService.fail).return_annotation == "ExecutionTask"
     assert inspect.signature(WorkerRuntimeService.heartbeat).return_annotation == "WorkerLease"
     assert inspect.signature(WorkerRuntimeService.release).return_annotation == "WorkerLease"
@@ -530,5 +532,89 @@ def test_worker_runtime_release_fails_closed_when_claim_metadata_points_to_newer
     assert task.status == ExecutionTaskState.CLAIMED.value
     assert task.metadata_json["worker_lease_id"] == str(newer_lease_id)
     queue.release_lease.assert_not_called()
+    session.flush.assert_not_called()
+    session.commit.assert_not_called()
+
+
+def test_block_completion_failure_blocks_task_releases_lease_and_cleans_queue_claim() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+
+    blocked = service.block_completion_failure(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_type="tool.invoke",
+        side_effect_class="external_write",
+        reason="completion evidence write failed",
+    )
+
+    assert blocked is task
+    assert task.status == ExecutionTaskState.BLOCKED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    queue.complete_task.assert_called_once_with(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+    queue.fail_task.assert_not_called()
+    assert session.commit.call_count == 1
+    session.rollback.assert_not_called()
+    audit_event = service._audit.append.call_args.args[0]
+    assert audit_event.action == "task_completion_failed_after_side_effect"
+    assert audit_event.payload_json == {
+        "task_id": str(task.id),
+        "lease_id": str(lease.id),
+        "task_type": "tool.invoke",
+        "side_effect_class": "external_write",
+        "reason": "completion evidence write failed",
+        "handler_completed": True,
+        "requeue_allowed": False,
+    }
+
+
+def test_block_completion_failure_records_queue_cleanup_failure_without_retrying() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=False, reason="redis timeout")
+
+    service.block_completion_failure(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_type="tool.invoke",
+        side_effect_class="external_send",
+        reason="completion evidence write failed",
+    )
+
+    assert task.status == ExecutionTaskState.BLOCKED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    queue.complete_task.assert_called_once_with(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+    queue.fail_task.assert_not_called()
+    assert session.commit.call_count == 2
+    cleanup_audit_event = service._audit.append.call_args_list[-1].args[0]
+    assert cleanup_audit_event.action == "completion_failure_queue_complete_cleanup_failed"
+    assert cleanup_audit_event.payload_json["queue_operation"] == "complete_task"
+    assert cleanup_audit_event.payload_json["requeue_allowed"] is False
+
+
+def test_block_completion_failure_fails_closed_for_non_running_task() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.CLAIMED.value
+    )
+
+    with pytest.raises(ValueError, match="task is not running"):
+        service.block_completion_failure(
+            tenant_id=tenant_id,
+            lease_id=lease.id,
+            worker_id=worker_id,
+            task_type="tool.invoke",
+            side_effect_class="external_write",
+            reason="completion evidence write failed",
+        )
+
+    assert task.status == ExecutionTaskState.CLAIMED.value
+    assert lease.status == WorkerLeaseState.ACTIVE.value
+    queue.complete_task.assert_not_called()
+    queue.fail_task.assert_not_called()
     session.flush.assert_not_called()
     session.commit.assert_not_called()
