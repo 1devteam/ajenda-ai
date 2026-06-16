@@ -22,6 +22,27 @@ updates:
           - minor
           - patch
 
+  # Frontend npm dependencies — weekly check
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+      - frontend
+    commit-message:
+      prefix: "chore(frontend-deps)"
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
   # GitHub Actions — weekly check
   - package-ecosystem: github-actions
     directory: /
