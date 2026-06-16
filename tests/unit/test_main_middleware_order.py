@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from starlette.middleware.cors import CORSMiddleware
+
 from backend.main import create_app
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.idempotency import IdempotencyMiddleware
@@ -14,6 +16,7 @@ def test_middleware_registration_preserves_tenant_auth_and_idempotency_before_ra
 
     assert [entry.cls for entry in app.user_middleware] == [
         SecurityHeadersMiddleware,
+        CORSMiddleware,
         TenantContextMiddleware,
         AuthContextMiddleware,
         IdempotencyMiddleware,
