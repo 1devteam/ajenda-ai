@@ -295,11 +295,7 @@ class WorkerRuntimeService:
             cleanup_ok = False
             reason = f"complete_task raised: {exc}"
 
-        action = (
-            "terminal_task_queue_claim_reconciled"
-            if cleanup_ok
-            else "terminal_task_queue_claim_cleanup_failed"
-        )
+        action = "terminal_task_queue_claim_reconciled" if cleanup_ok else "terminal_task_queue_claim_cleanup_failed"
         if cleanup_ok:
             details = f"Removed stale queue claim for terminal task {task.id}."
             logger.info(
