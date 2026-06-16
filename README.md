@@ -83,11 +83,12 @@ Runtime behavior depends on middleware order.
 Effective runtime order:
 
 1. `SecurityHeadersMiddleware`
-2. `IdempotencyMiddleware`
-3. `RateLimitMiddleware`
-4. `TenantContextMiddleware`
-5. `AuthContextMiddleware`
-6. `RequestContextMiddleware`
+2. `CORSMiddleware`
+3. `TenantContextMiddleware`
+4. `AuthContextMiddleware`
+5. `IdempotencyMiddleware`
+6. `RateLimitMiddleware`
+7. `RequestContextMiddleware`
 
 Important boundary rule:
 
@@ -126,7 +127,9 @@ Current implementation note:
 - business and operational APIs are mounted under `/v1`
 - current route families include:
   - `/v1/auth/*`
+  - `/v1/ability-runtime/*`
   - `/v1/api-keys/*`
+  - `/v1/billing/*`
   - `/v1/mission-brief/*`
   - `/v1/missions/*`
   - `/v1/capabilities/*`

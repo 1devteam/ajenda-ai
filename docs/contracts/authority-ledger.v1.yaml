@@ -783,3 +783,55 @@ authority_entries:
       - tests/unit/architecture/test_authority_ledger_contract.py
       - scripts/validation/ability_rollout_contract_check.py
       - tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py
+
+  - id: ability_runtime_product_console_contract
+    area: product-facing runtime ability console
+    source_of_truth:
+      - backend/api/routes/ability_runtime.py
+      - backend/services/execution_coordinator.py
+      - backend/services/tools/action_registry.py
+      - docs/product/PRODUCT_VERTICAL_SLICE_BUILD_CONTRACT.md
+    route_scope:
+      - /v1/ability-runtime/*
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_runtime_ability_launch_and_readback
+    allowed_side_effects:
+      - list exposed runtime actions under tenant/auth envelope
+      - create tenant-owned runtime task launch records for approved exposed actions
+      - queue task execution through ExecutionCoordinator and queue adapter authority
+      - read task output, lineage, evidence, and audit records for tenant-owned launched tasks
+    forbidden_side_effects:
+      - bypass tenant/auth envelope or route permissions
+      - invoke action handlers directly from HTTP request handling
+      - bypass ExecutionCoordinator.queue_task or worker lease authority
+      - expose runtime credentials, API keys, or provider secret material in responses, docs, logs, or evidence
+    required_proofs:
+      - docs/product/PRODUCT_VERTICAL_SLICE_BUILD_CONTRACT.md
+      - tests/unit/test_main_middleware_order.py
+      - tests/unit/workers/test_tool_invoke_handler.py
+      - tests/integration/runtime/test_worker_executes_tool_invoke_task_real.py
+
+  - id: billing_commercial_route_contract
+    area: tenant billing and Stripe lifecycle
+    source_of_truth:
+      - backend/api/routes/billing.py
+      - backend/services/billing_stripe_integration.py
+      - backend/repositories/tenant_repository.py
+      - docs/remediation/phase1_commercial_complete.md
+    route_scope:
+      - /v1/billing/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_commercial_billing_mutation
+    allowed_side_effects:
+      - create Stripe checkout sessions for authenticated tenant plan changes
+      - create Stripe customer portal sessions for tenants with existing Stripe customer IDs
+      - process Stripe webhook events only after signature verification
+      - update tenant billing plan/customer/subscription state through billing service authority
+    forbidden_side_effects:
+      - bypass tenant isolation for checkout or portal routes
+      - trust unsigned Stripe webhook payloads
+      - mutate runtime queue, worker leases, task execution, or mission state
+      - expose Stripe secrets or webhook signing secrets
+    required_proofs:
+      - tests/unit/services/test_billing_stripe.py
+      - docs/remediation/phase1_commercial_complete.md
