@@ -67,7 +67,36 @@ jobs:
         run: python scripts/validation/migration_seed_contract_check.py
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Job 2: Unit tests — no infrastructure, fast
+  # Job 2: Frontend supply-chain audit + production build
+  # ─────────────────────────────────────────────────────────────────────────
+  frontend-build:
+    name: Frontend Build & Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Audit frontend dependency graph
+        working-directory: frontend
+        run: npm audit
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 3: Unit tests — no infrastructure, fast
   # ─────────────────────────────────────────────────────────────────────────
   unit-tests:
     name: Unit Tests
