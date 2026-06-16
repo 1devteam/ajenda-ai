@@ -155,4 +155,7 @@ def _reference_uuid(reference: object, key: str) -> uuid.UUID | None:
     raw_value = reference.get(key)
     if not raw_value:
         return None
-    return uuid.UUID(str(raw_value))
+    try:
+        return uuid.UUID(str(raw_value))
+    except (TypeError, ValueError, AttributeError):
+        return None
