@@ -24,6 +24,15 @@ from backend.services.tools.evidence_bridge import build_tool_action_evidence_re
 
 logger = logging.getLogger("ajenda.worker_runtime_service")
 
+_TERMINAL_TASK_STATES: frozenset[str] = frozenset(
+    {
+        ExecutionTaskState.COMPLETED.value,
+        ExecutionTaskState.FAILED.value,
+        ExecutionTaskState.CANCELLED.value,
+        ExecutionTaskState.DEAD_LETTERED.value,
+    }
+)
+
 
 class WorkerRuntimeService:
     def __init__(self, session: Session, queue: QueueAdapter) -> None:
@@ -47,6 +56,14 @@ class WorkerRuntimeService:
             self._queue.release_lease(
                 tenant_id=tenant_id,
                 task_id=message.task_id,
+                worker_id=worker_id,
+            )
+            return None
+
+        if task.status in _TERMINAL_TASK_STATES:
+            self._reconcile_claimed_terminal_queue_artifact(
+                tenant_id=tenant_id,
+                task=task,
                 worker_id=worker_id,
             )
             return None
@@ -262,6 +279,86 @@ class WorkerRuntimeService:
         self._session.flush()
         self._session.commit()
         return lease
+
+    def _reconcile_claimed_terminal_queue_artifact(
+        self,
+        *,
+        tenant_id: str,
+        task: ExecutionTask,
+        worker_id: str,
+    ) -> None:
+        try:
+            result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+            cleanup_ok = result.ok
+            reason = result.reason or "complete rejected"
+        except Exception as exc:
+            cleanup_ok = False
+            reason = f"complete_task raised: {exc}"
+
+        action = (
+            "terminal_task_queue_claim_reconciled"
+            if cleanup_ok
+            else "terminal_task_queue_claim_cleanup_failed"
+        )
+        if cleanup_ok:
+            details = f"Removed stale queue claim for terminal task {task.id}."
+            logger.info(
+                "terminal_task_queue_claim_reconciled",
+                extra={
+                    "tenant_id": tenant_id,
+                    "task_id": str(task.id),
+                    "task_status": task.status,
+                    "worker_id": worker_id,
+                },
+            )
+        else:
+            details = f"Queue cleanup failed for terminal task {task.id}: {reason}"
+            logger.critical(
+                "terminal_task_queue_claim_cleanup_failed",
+                extra={
+                    "tenant_id": tenant_id,
+                    "task_id": str(task.id),
+                    "task_status": task.status,
+                    "worker_id": worker_id,
+                    "reason": reason,
+                },
+            )
+
+        try:
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    category="worker_queue_cleanup",
+                    action=action,
+                    actor=worker_id,
+                    details=details,
+                    payload_json={
+                        "task_id": str(task.id),
+                        "task_status": task.status,
+                        "queue_operation": "complete_task",
+                        "cleanup_succeeded": cleanup_ok,
+                        "reason": None if cleanup_ok else reason,
+                        "requeue_allowed": False,
+                    },
+                )
+            )
+            self._session.flush()
+            self._session.commit()
+        except Exception as exc:
+            self._session.rollback()
+            logger.critical(
+                "terminal_task_queue_claim_reconciliation_audit_failed",
+                extra={
+                    "tenant_id": tenant_id,
+                    "task_id": str(task.id),
+                    "task_status": task.status,
+                    "worker_id": worker_id,
+                    "cleanup_succeeded": cleanup_ok,
+                    "cleanup_reason": reason,
+                    "audit_error": str(exc),
+                },
+            )
 
     def _record_terminal_queue_cleanup_failure(
         self,
