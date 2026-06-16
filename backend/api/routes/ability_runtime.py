@@ -23,7 +23,7 @@ from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.queue.base import QueueAdapter
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.action_registry import ActionDefinition, get_default_action_registry
 from backend.services.tools.schemas import SideEffectClass
 
 router = APIRouter(prefix="/ability-runtime", tags=["ability-runtime"])
@@ -154,7 +154,7 @@ def _adapter_side_effect_classification(side_effect_class: SideEffectClass) -> s
     return "external_side_effect"
 
 
-def _action_definition(action_name: str):
+def _action_definition(action_name: str) -> ActionDefinition:
     registry = get_default_action_registry()
     try:
         return registry.get(action_name)
