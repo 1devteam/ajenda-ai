@@ -12,6 +12,7 @@ import inspect
 import textwrap
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -19,7 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
-from backend.queue.base import QueueOperationResult
+from backend.queue.base import QueueMessage, QueueOperationResult
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 RuntimeMethod = Callable[..., Any]
@@ -270,6 +271,101 @@ def test_terminal_queue_ack_failure_keeps_lease_released() -> None:
     service.complete(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
 
     assert lease.status == WorkerLeaseState.RELEASED.value
+
+
+def test_claim_next_task_reconciles_terminal_queue_artifact_without_claiming() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-terminal-claim"
+    worker_id = "worker-terminal-claim"
+    task_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=task_id,
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        fleet_id=None,
+        branch_id=None,
+        status=ExecutionTaskState.COMPLETED.value,
+        metadata_json={},
+    )
+    queue.claim_task.return_value = QueueMessage(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=task.mission_id,
+        fleet_id=None,
+        branch_id=None,
+        payload={},
+        enqueued_at=datetime.now(UTC),
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = task
+    service._leases = MagicMock()
+    service._audit = MagicMock()
+
+    claimed = service.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+
+    assert claimed is None
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    service._leases.add.assert_not_called()
+    queue.complete_task.assert_called_once_with(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
+    queue.release_lease.assert_not_called()
+    session.begin_nested.assert_not_called()
+    session.flush.assert_called_once()
+    session.commit.assert_called_once()
+    session.rollback.assert_not_called()
+    audit_event = service._audit.append.call_args.args[0]
+    assert audit_event.action == "terminal_task_queue_claim_reconciled"
+    assert audit_event.payload_json["requeue_allowed"] is False
+
+
+def test_claim_next_task_records_terminal_queue_artifact_cleanup_failure() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-terminal-claim-failure"
+    worker_id = "worker-terminal-claim-failure"
+    task_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=task_id,
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        fleet_id=None,
+        branch_id=None,
+        status=ExecutionTaskState.FAILED.value,
+        metadata_json={},
+    )
+    queue.claim_task.return_value = QueueMessage(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=task.mission_id,
+        fleet_id=None,
+        branch_id=None,
+        payload={},
+        enqueued_at=datetime.now(UTC),
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=False, reason="cleanup rejected")
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = task
+    service._leases = MagicMock()
+    service._audit = MagicMock()
+
+    claimed = service.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+
+    assert claimed is None
+    assert task.status == ExecutionTaskState.FAILED.value
+    service._leases.add.assert_not_called()
+    queue.complete_task.assert_called_once_with(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
+    queue.fail_task.assert_not_called()
+    session.begin_nested.assert_not_called()
+    session.flush.assert_called_once()
+    session.commit.assert_called_once()
+    session.rollback.assert_not_called()
+    audit_event = service._audit.append.call_args.args[0]
+    assert audit_event.action == "terminal_task_queue_claim_cleanup_failed"
+    assert audit_event.payload_json["cleanup_succeeded"] is False
+    assert audit_event.payload_json["requeue_allowed"] is False
 
 
 def test_worker_runtime_release_requeues_claimed_task_state_with_queue_payload() -> None:
