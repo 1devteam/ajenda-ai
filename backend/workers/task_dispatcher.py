@@ -31,6 +31,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.domain.execution_task import ExecutionTask
 from backend.queue.base import QueueAdapter
+from backend.services.tools.schemas import SideEffectClass
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 logger = logging.getLogger("ajenda.task_dispatcher")
@@ -50,6 +51,7 @@ TaskHandler = Callable[[ExecutionTask, TaskHandlerContext], dict[str, Any]]
 _HANDLER_REGISTRY: dict[str, TaskHandler] = {}
 _OUTPUT_REASON_BY_TASK_TYPE: dict[str, str] = {}
 _HEARTBEAT_INTERVAL = 15.0  # seconds
+_TOOL_INVOKE_HANDLER = "tool.invoke"
 
 
 def register_handler(
@@ -132,6 +134,25 @@ def _validate_handler_result(
     return cast("dict[str, Any]", result)
 
 
+def _completed_tool_invoke_side_effect_class(result: dict[str, Any] | None) -> SideEffectClass | None:
+    if result is None:
+        return None
+    if result.get("handler") != _TOOL_INVOKE_HANDLER or result.get("status") != "completed":
+        return None
+    raw_side_effect_class = result.get("side_effect_class")
+    if not isinstance(raw_side_effect_class, str):
+        return None
+    try:
+        return SideEffectClass(raw_side_effect_class)
+    except ValueError:
+        return None
+
+
+def _requires_completion_failure_block(result: dict[str, Any] | None) -> bool:
+    side_effect_class = _completed_tool_invoke_side_effect_class(result)
+    return side_effect_class is not None and side_effect_class.has_side_effect
+
+
 @dataclass(slots=True)
 class TaskDispatcher:
     """Dispatches claimed tasks to registered handlers with heartbeat maintenance."""
@@ -163,7 +184,6 @@ class TaskDispatcher:
                 reason=f"no handler registered for task_type='{task_type}'",
             )
             return
-
         # Start heartbeat thread
         stop_event = threading.Event()
         heartbeat_thread = threading.Thread(
@@ -195,12 +215,56 @@ class TaskDispatcher:
                 "task_dispatch_complete",
                 extra={"task_id": str(task_id), "result_keys": list(result.keys())},
             )
-            self._complete(
-                lease_id=lease_id,
-                task=task,
-                result=result if output_reason is not None else None,
-                output_reason=output_reason,
-            )
+            try:
+                self._complete(
+                    lease_id=lease_id,
+                    task=task,
+                    result=result if output_reason is not None else None,
+                    output_reason=output_reason,
+                )
+            except Exception as exc:
+                if _requires_completion_failure_block(result):
+                    side_effect_class = _completed_tool_invoke_side_effect_class(result)
+                    side_effect_value = side_effect_class.value if side_effect_class is not None else None
+                    logger.critical(
+                        "task_dispatch_completion_failed_after_side_effect",
+                        extra={
+                            "task_id": str(task_id),
+                            "lease_id": str(lease_id),
+                            "task_type": task_type,
+                            "handler": result.get("handler"),
+                            "action": result.get("action"),
+                            "side_effect_class": side_effect_value,
+                            "error": str(exc),
+                            "requeue_allowed": False,
+                        },
+                    )
+                    try:
+                        self._block_completion_failure(
+                            lease_id=lease_id,
+                            task=task,
+                            result=result,
+                            output_reason=output_reason,
+                            reason=str(exc),
+                            side_effect_class=side_effect_value,
+                        )
+                    except Exception as block_exc:
+                        logger.critical(
+                            "task_dispatch_completion_failure_block_failed",
+                            extra={
+                                "task_id": str(task_id),
+                                "lease_id": str(lease_id),
+                                "task_type": task_type,
+                                "handler": result.get("handler"),
+                                "action": result.get("action"),
+                                "side_effect_class": side_effect_value,
+                                "completion_error": str(exc),
+                                "block_error": str(block_exc),
+                                "requeue_allowed": False,
+                            },
+                        )
+                    return
+                raise
 
         except Exception as exc:
             logger.error(
@@ -257,6 +321,38 @@ class TaskDispatcher:
             logger.error(
                 "dispatcher_complete_failed",
                 extra={"lease_id": str(lease_id), "error": str(exc)},
+            )
+            raise
+        finally:
+            session.close()
+
+    def _block_completion_failure(
+        self,
+        *,
+        lease_id: uuid.UUID,
+        task: ExecutionTask,
+        result: dict[str, Any],
+        output_reason: str | None,
+        reason: str,
+        side_effect_class: str | None,
+    ) -> None:
+        session = self.session_factory()
+        try:
+            runtime = WorkerRuntimeService(session, self.queue)
+            runtime.block_completion_failure(
+                tenant_id=self.tenant_id,
+                lease_id=lease_id,
+                worker_id=self.worker_id,
+                reason=reason,
+                task_output=result,
+                output_reason=output_reason,
+                side_effect_class=side_effect_class,
+            )
+        except Exception as exc:
+            session.rollback()
+            logger.critical(
+                "dispatcher_block_completion_failure_failed",
+                extra={"lease_id": str(lease_id), "task_id": str(task.id), "error": str(exc)},
             )
             raise
         finally:
