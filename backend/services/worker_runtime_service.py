@@ -259,6 +259,61 @@ class WorkerRuntimeService:
         )
         return task
 
+    def block_completion_failure(
+        self,
+        *,
+        tenant_id: str,
+        lease_id: uuid.UUID,
+        worker_id: str,
+        task_type: str,
+        side_effect_class: str,
+        reason: str,
+    ) -> ExecutionTask:
+        """Block a task after a side-effecting handler completed but completion persistence failed."""
+
+        lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        task = self._get_task_for_lease(lease)
+        if task.status != ExecutionTaskState.RUNNING.value:
+            raise ValueError("task is not running")
+
+        transition_task(task, ExecutionTaskState.BLOCKED)
+        self._transition_lease_to_released(lease)
+        lease.heartbeat_at = datetime.now(UTC)
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="worker",
+                action="task_completion_failed_after_side_effect",
+                actor=worker_id,
+                details=(f"Blocked task {task.id} after completed {task_type} side effect failed completion: {reason}"),
+                payload_json={
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "task_type": task_type,
+                    "side_effect_class": side_effect_class,
+                    "reason": reason,
+                    "handler_completed": True,
+                    "requeue_allowed": False,
+                },
+            )
+        )
+        self._session.flush()
+        self._session.commit()
+
+        result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+        if not result.ok:
+            self._record_terminal_queue_cleanup_failure(
+                tenant_id=tenant_id,
+                task=task,
+                lease=lease,
+                worker_id=worker_id,
+                queue_operation="complete_task",
+                audit_action="completion_failure_queue_complete_cleanup_failed",
+                reason=result.reason or "complete rejected",
+            )
+        return task
+
     def fail(
         self,
         *,
