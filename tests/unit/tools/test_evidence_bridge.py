@@ -227,6 +227,40 @@ def test_build_tool_action_evidence_records_handles_malformed_optional_task_grap
     assert records[0].task_graph_node_key is None
 
 
+def test_build_tool_action_evidence_records_handles_malformed_optional_capability_reference_safely() -> None:
+    task = _task()
+    task.metadata_json["capability_reference"] = {"capability_id": "not-a-uuid"}
+    lease = _lease(task=task)
+    lineage = _lineage(task=task, lease=lease)
+
+    records = build_tool_action_evidence_records(
+        task=task,
+        lease=lease,
+        task_output=_tool_output(task=task, lease=lease),
+        lineage_record=lineage,
+    )
+
+    assert len(records) == 1
+    assert records[0].capability_id is None
+
+
+def test_build_tool_action_evidence_records_handles_malformed_optional_adapter_reference_safely() -> None:
+    task = _task()
+    task.metadata_json["adapter_reference"] = {"adapter_id": "not-a-uuid"}
+    lease = _lease(task=task)
+    lineage = _lineage(task=task, lease=lease)
+
+    records = build_tool_action_evidence_records(
+        task=task,
+        lease=lease,
+        task_output=_tool_output(task=task, lease=lease),
+        lineage_record=lineage,
+    )
+
+    assert len(records) == 1
+    assert records[0].capability_adapter_id is None
+
+
 def test_evidence_api_create_does_not_call_runtime_bridge() -> None:
     from pathlib import Path
 
