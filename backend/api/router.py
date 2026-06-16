@@ -11,6 +11,7 @@ Both versions will coexist until v1 is formally deprecated.
 
 Route inventory under /v1/:
   /v1/auth/*          — OIDC token exchange and introspection
+  /v1/ability-runtime/* — Product-facing worker ability runtime launcher
   /v1/api-keys/*      — API key lifecycle management
   /v1/capabilities/*  — Capability registry contracts
   /v1/capability-adapters/* — Capability execution adapter contracts
@@ -43,6 +44,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from backend.api.routes.ability_runtime import router as ability_runtime_router
 from backend.api.routes.admin import router as admin_router
 from backend.api.routes.api_keys import router as api_keys_router
 from backend.api.routes.auth import router as auth_router
@@ -81,6 +83,7 @@ def build_api_router() -> APIRouter:
     # --- v1 versioned business routes ---
     v1 = APIRouter(prefix="/v1")
     v1.include_router(auth_router)  # /v1/auth/*
+    v1.include_router(ability_runtime_router)  # /v1/ability-runtime/*
     v1.include_router(api_keys_router)  # /v1/api-keys/*
     v1.include_router(capability_router)  # /v1/capabilities/*
     v1.include_router(capability_adapter_router)  # /v1/capability-adapters/*

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     log_json: bool = Field(default=False, alias="AJENDA_LOG_JSON")
     host: str = Field(default="0.0.0.0", alias="AJENDA_HOST")
     port: int = Field(default=8000, alias="AJENDA_PORT")
+    cors_allowed_origins: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173",
+        alias="AJENDA_CORS_ALLOWED_ORIGINS",
+    )
     database_url: str = Field(
         default="postgresql+psycopg://ajenda:ajenda@db:5432/ajenda",
         alias="AJENDA_DATABASE_URL",
@@ -120,6 +124,10 @@ class Settings(BaseSettings):
     lifecycle_policy_provenance_confidence_floor: float = Field(
         default=0.75, alias="AJENDA_LIFECYCLE_POLICY_PROVENANCE_CONFIDENCE_FLOOR"
     )
+
+    @property
+    def cors_allowed_origin_list(self) -> list[str]:
+        return [item.strip() for item in self.cors_allowed_origins.split(",") if item.strip()]
 
     @property
     def redact_key_set(self) -> set[str]:

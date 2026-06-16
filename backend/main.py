@@ -31,6 +31,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.router import build_api_router
 from backend.app.config import get_settings
@@ -158,6 +159,20 @@ def create_app() -> FastAPI:
     # Tenant context: extracts X-Tenant-Id, validates tenant active status,
     # enforces cross-tenant rejection. Executes before Auth at runtime.
     app.add_middleware(TenantContextMiddleware)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origin_list,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Api-Key",
+            "X-Tenant-Id",
+        ],
+    )
 
     # Outermost: security headers — applied to ALL responses including errors
     app.add_middleware(SecurityHeadersMiddleware)
