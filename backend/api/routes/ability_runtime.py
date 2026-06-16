@@ -136,6 +136,24 @@ def _requires_runtime_authority(side_effect_class: SideEffectClass) -> bool:
     return side_effect_class.has_side_effect or side_effect_class.value.startswith("external_")
 
 
+def _adapter_side_effect_classification(side_effect_class: SideEffectClass) -> str:
+    """Map runtime tool side-effect classes onto the persisted adapter contract."""
+    if side_effect_class == SideEffectClass.NONE:
+        return "none"
+    if side_effect_class == SideEffectClass.INTERNAL_READ:
+        return "read_only"
+    if side_effect_class == SideEffectClass.INTERNAL_WRITE:
+        return "non_idempotent_write"
+    if side_effect_class in {
+        SideEffectClass.EXTERNAL_READ,
+        SideEffectClass.EXTERNAL_WRITE,
+        SideEffectClass.EXTERNAL_SEND,
+        SideEffectClass.EXTERNAL_PUBLISH,
+    }:
+        return side_effect_class.value
+    return "external_side_effect"
+
+
 def _action_definition(action_name: str):
     registry = get_default_action_registry()
     try:
@@ -206,7 +224,7 @@ def _ensure_runtime_authority(
         output_contract={},
         required_permissions=[],
         required_tools=[action_name],
-        execution_mode="runtime_authoritative",
+        execution_mode="queued",
         risk_level="medium",
         approval_requirements={
             "required": approval_required,
@@ -216,7 +234,7 @@ def _ensure_runtime_authority(
         evidence_expectations=[f"{action_name} evidence"],
         timeout_retry_hints={},
         idempotency_expectations={},
-        side_effect_classification=side_effect_class.value,
+        side_effect_classification=_adapter_side_effect_classification(side_effect_class),
         enabled=True,
         schema_version=1,
     )
