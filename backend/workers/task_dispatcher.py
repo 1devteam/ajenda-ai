@@ -31,6 +31,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.domain.execution_task import ExecutionTask
 from backend.queue.base import QueueAdapter
+from backend.services.tools.schemas import SideEffectClass
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 logger = logging.getLogger("ajenda.task_dispatcher")
@@ -50,6 +51,9 @@ TaskHandler = Callable[[ExecutionTask, TaskHandlerContext], dict[str, Any]]
 _HANDLER_REGISTRY: dict[str, TaskHandler] = {}
 _OUTPUT_REASON_BY_TASK_TYPE: dict[str, str] = {}
 _HEARTBEAT_INTERVAL = 15.0  # seconds
+_TOOL_INVOKE_TASK_TYPE = "tool.invoke"
+_TOOL_INVOKE_HANDLER = "tool.invoke"
+_COMPLETED_STATUS = "completed"
 
 
 def register_handler(
@@ -99,6 +103,32 @@ def _task_type_for_task(task: ExecutionTask) -> str:
     if not isinstance(raw_task_type, str):
         raise ValueError("task metadata task_type must be a string")
     return _normalize_task_type(raw_task_type)
+
+
+def _side_effecting_tool_invoke_class(
+    *,
+    task_type: str,
+    result: dict[str, Any],
+) -> str | None:
+    """Return side-effect class for completed tool.invoke output that cannot be replayed safely."""
+
+    if task_type != _TOOL_INVOKE_TASK_TYPE:
+        return None
+    if result.get("handler") != _TOOL_INVOKE_HANDLER or result.get("status") != _COMPLETED_STATUS:
+        return None
+
+    raw_side_effect_class = result.get("side_effect_class")
+    if not isinstance(raw_side_effect_class, str):
+        return None
+
+    try:
+        side_effect_class = SideEffectClass(raw_side_effect_class.strip())
+    except ValueError:
+        return None
+
+    if not side_effect_class.has_side_effect:
+        return None
+    return side_effect_class.value
 
 
 def _validate_handler_result(
@@ -195,12 +225,35 @@ class TaskDispatcher:
                 "task_dispatch_complete",
                 extra={"task_id": str(task_id), "result_keys": list(result.keys())},
             )
-            self._complete(
-                lease_id=lease_id,
-                task=task,
-                result=result if output_reason is not None else None,
-                output_reason=output_reason,
-            )
+            try:
+                self._complete(
+                    lease_id=lease_id,
+                    task=task,
+                    result=result if output_reason is not None else None,
+                    output_reason=output_reason,
+                )
+            except Exception as exc:
+                side_effect_class = _side_effecting_tool_invoke_class(task_type=task_type, result=result)
+                if side_effect_class is None:
+                    raise
+
+                logger.critical(
+                    "task_dispatch_completion_failed_after_side_effect",
+                    extra={
+                        "task_id": str(task_id),
+                        "lease_id": str(lease_id),
+                        "task_type": task_type,
+                        "side_effect_class": side_effect_class,
+                        "error": str(exc),
+                    },
+                )
+                self._block_completion_failure(
+                    lease_id=lease_id,
+                    task_id=task_id,
+                    task_type=task_type,
+                    side_effect_class=side_effect_class,
+                    reason=str(exc),
+                )
 
         except Exception as exc:
             logger.error(
@@ -259,6 +312,42 @@ class TaskDispatcher:
                 extra={"lease_id": str(lease_id), "error": str(exc)},
             )
             raise
+        finally:
+            session.close()
+
+    def _block_completion_failure(
+        self,
+        *,
+        lease_id: uuid.UUID,
+        task_id: uuid.UUID,
+        task_type: str,
+        side_effect_class: str,
+        reason: str,
+    ) -> None:
+        session = self.session_factory()
+        try:
+            runtime = WorkerRuntimeService(session, self.queue)
+            runtime.block_completion_failure(
+                tenant_id=self.tenant_id,
+                lease_id=lease_id,
+                worker_id=self.worker_id,
+                task_type=task_type,
+                side_effect_class=side_effect_class,
+                reason=reason,
+            )
+        except Exception as exc:
+            session.rollback()
+            logger.critical(
+                "dispatcher_completion_failure_block_failed",
+                extra={
+                    "task_id": str(task_id),
+                    "lease_id": str(lease_id),
+                    "task_type": task_type,
+                    "side_effect_class": side_effect_class,
+                    "block_error": str(exc),
+                    "original_error": reason,
+                },
+            )
         finally:
             session.close()
 
