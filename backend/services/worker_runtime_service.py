@@ -195,17 +195,15 @@ class WorkerRuntimeService:
         self._session.flush()
         self._session.commit()
 
-        result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
-        if not result.ok:
-            self._record_terminal_queue_cleanup_failure(
-                tenant_id=tenant_id,
-                task=task,
-                lease=lease,
-                worker_id=worker_id,
-                queue_operation="complete_task",
-                audit_action="terminal_queue_complete_cleanup_failed",
-                reason=result.reason or "complete rejected",
-            )
+        self._cleanup_terminal_queue_claim_after_commit(
+            tenant_id=tenant_id,
+            task=task,
+            lease=lease,
+            worker_id=worker_id,
+            queue_operation="complete_task",
+            audit_action="terminal_queue_complete_cleanup_failed",
+            rejected_reason="complete rejected",
+        )
         return task
 
     def block_completion_failure(
@@ -250,17 +248,15 @@ class WorkerRuntimeService:
         self._session.flush()
         self._session.commit()
 
-        result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
-        if not result.ok:
-            self._record_terminal_queue_cleanup_failure(
-                tenant_id=tenant_id,
-                task=task,
-                lease=lease,
-                worker_id=worker_id,
-                queue_operation="complete_task",
-                audit_action="completion_failure_queue_complete_cleanup_failed",
-                reason=result.reason or "complete rejected",
-            )
+        self._cleanup_terminal_queue_claim_after_commit(
+            tenant_id=tenant_id,
+            task=task,
+            lease=lease,
+            worker_id=worker_id,
+            queue_operation="complete_task",
+            audit_action="completion_failure_queue_complete_cleanup_failed",
+            rejected_reason="complete rejected",
+        )
         return task
 
     def fail(
@@ -297,22 +293,16 @@ class WorkerRuntimeService:
         self._session.flush()
         self._session.commit()
 
-        result = self._queue.fail_task(
+        self._cleanup_terminal_queue_claim_after_commit(
             tenant_id=tenant_id,
-            task_id=task.id,
+            task=task,
+            lease=lease,
             worker_id=worker_id,
-            reason=reason,
+            queue_operation="fail_task",
+            audit_action="terminal_queue_fail_cleanup_failed",
+            rejected_reason="fail rejected",
+            fail_reason=reason,
         )
-        if not result.ok:
-            self._record_terminal_queue_cleanup_failure(
-                tenant_id=tenant_id,
-                task=task,
-                lease=lease,
-                worker_id=worker_id,
-                queue_operation="fail_task",
-                audit_action="terminal_queue_fail_cleanup_failed",
-                reason=result.reason or "fail rejected",
-            )
         return task
 
     def release(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
@@ -334,6 +324,53 @@ class WorkerRuntimeService:
         self._session.flush()
         self._session.commit()
         return lease
+
+    def _cleanup_terminal_queue_claim_after_commit(
+        self,
+        *,
+        tenant_id: str,
+        task: ExecutionTask,
+        lease: WorkerLease,
+        worker_id: str,
+        queue_operation: str,
+        audit_action: str,
+        rejected_reason: str,
+        fail_reason: str | None = None,
+    ) -> None:
+        try:
+            if queue_operation == "complete_task":
+                result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+            elif queue_operation == "fail_task":
+                result = self._queue.fail_task(
+                    tenant_id=tenant_id,
+                    task_id=task.id,
+                    worker_id=worker_id,
+                    reason=fail_reason or rejected_reason,
+                )
+            else:
+                raise ValueError(f"unsupported terminal queue operation: {queue_operation}")
+        except Exception as exc:
+            self._record_terminal_queue_cleanup_failure(
+                tenant_id=tenant_id,
+                task=task,
+                lease=lease,
+                worker_id=worker_id,
+                queue_operation=queue_operation,
+                audit_action=audit_action,
+                reason=f"{queue_operation} raised: {exc}",
+            )
+            return
+
+        if not result.ok:
+            self._record_terminal_queue_cleanup_failure(
+                tenant_id=tenant_id,
+                task=task,
+                lease=lease,
+                worker_id=worker_id,
+                queue_operation=queue_operation,
+                audit_action=audit_action,
+                reason=result.reason or rejected_reason,
+            )
 
     def _reconcile_claimed_terminal_queue_artifact(
         self,

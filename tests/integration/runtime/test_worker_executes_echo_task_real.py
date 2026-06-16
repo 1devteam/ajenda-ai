@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
+from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
@@ -208,6 +209,113 @@ def test_echo_output_is_persisted_when_db_commit_succeeds_before_queue_cleanup_f
         assert final_task.status == ExecutionTaskState.COMPLETED.value
         assert final_lease is not None
         assert final_lease.status == WorkerLeaseState.RELEASED.value
+        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 1
+    finally:
+        verify_session.close()
+
+
+def test_echo_output_remains_terminal_when_queue_cleanup_raises_after_db_commit(
+    pg_engine,
+    queue_adapter,
+    redis_client,
+    monkeypatch,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    worker_id = "worker-echo-complete-raises"
+    session_factory = sessionmaker(
+        bind=pg_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    setup_session = session_factory()
+    try:
+        tenant = Tenant(
+            id=uuid.UUID(tenant_id),
+            name="Echo Raise Tenant",
+            slug=f"echo-raise-{tenant_id[:8]}",
+            plan="free",
+        )
+        setup_session.add(tenant)
+        mission = Mission(tenant_id=tenant_id, objective="Echo raise mission", status="running")
+        setup_session.add(mission)
+        setup_session.flush()
+
+        task = ExecutionTask(
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            title="Echo raise task",
+            description="Task proves DB terminal truth survives queue cleanup exceptions",
+            status=ExecutionTaskState.PLANNED.value,
+            metadata_json={"task_type": "echo", "input": {"message": "hello"}},
+            compliance_category="operational",
+            jurisdiction="US-ALL",
+            requires_human_review=False,
+        )
+        setup_session.add(task)
+        setup_session.flush()
+        task_id = task.id
+
+        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+        queued = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
+            tenant_id=tenant_id,
+            task_id=task_id,
+        )
+        assert queued.ok is True
+
+        runtime = WorkerRuntimeService(setup_session, queue_adapter)
+        claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+        assert claimed is not None
+        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+        runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        setup_session.commit()
+    finally:
+        setup_session.close()
+
+    def raise_complete_task(*args, **kwargs):
+        raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(queue_adapter, "complete_task", raise_complete_task)
+
+    dispatcher = TaskDispatcher(
+        session_factory=session_factory,
+        queue=queue_adapter,
+        worker_id=worker_id,
+        tenant_id=tenant_id,
+    )
+    dispatcher.execute(task_id=task_id, lease_id=lease_id)
+
+    verify_session = session_factory()
+    try:
+        lineage_count = verify_session.scalar(
+            select(func.count())
+            .select_from(LineageRecord)
+            .where(
+                LineageRecord.tenant_id == tenant_id,
+                LineageRecord.task_id == task_id,
+                LineageRecord.worker_lease_id == lease_id,
+                LineageRecord.relationship_type == "task_output",
+            )
+        )
+        final_task = verify_session.get(ExecutionTask, task_id)
+        final_lease = verify_session.get(WorkerLease, lease_id)
+        cleanup_audit = verify_session.scalars(
+            select(AuditEvent).where(
+                AuditEvent.tenant_id == tenant_id,
+                AuditEvent.action == "terminal_queue_complete_cleanup_failed",
+            )
+        ).one()
+
+        assert lineage_count == 1
+        assert final_task is not None
+        assert final_task.status == ExecutionTaskState.COMPLETED.value
+        assert final_lease is not None
+        assert final_lease.status == WorkerLeaseState.RELEASED.value
+        assert cleanup_audit.payload_json["queue_operation"] == "complete_task"
+        assert cleanup_audit.payload_json["reason"] == "complete_task raised: redis unavailable"
+        assert cleanup_audit.payload_json["requeue_allowed"] is False
         assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 1
     finally:
         verify_session.close()

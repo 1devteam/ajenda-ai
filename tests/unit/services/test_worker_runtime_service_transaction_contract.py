@@ -124,7 +124,7 @@ def test_worker_runtime_release_queue_rejection_rolls_back_before_raise() -> Non
     assert min(rollback_lines) < min(raise_lines), "release must roll back before raising"
 
 
-def test_worker_runtime_terminal_db_commit_precedes_irreversible_queue_cleanup() -> None:
+def test_worker_runtime_terminal_db_commit_precedes_queue_cleanup_delegation() -> None:
     for method in (WorkerRuntimeService.complete, WorkerRuntimeService.fail):
         function = _method_ast(method)
         commit_lines = _session_method_line_numbers(method, "commit")
@@ -133,14 +133,24 @@ def test_worker_runtime_terminal_db_commit_precedes_irreversible_queue_cleanup()
             for node in ast.walk(function)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr in {"complete_task", "fail_task"}
+            and node.func.attr == "_cleanup_terminal_queue_claim_after_commit"
         ]
 
         assert commit_lines, f"{method.__name__} must durably commit DB terminal truth"
-        assert queue_cleanup_lines, f"{method.__name__} must still clean up queue processing payloads"
+        assert queue_cleanup_lines, f"{method.__name__} must delegate queue processing cleanup"
         assert max(commit_lines) < min(queue_cleanup_lines), (
-            f"{method.__name__} must commit DB terminal truth before irreversible queue cleanup"
+            f"{method.__name__} must commit DB terminal truth before queue processing cleanup"
         )
+
+
+def test_terminal_queue_cleanup_helper_catches_adapter_exceptions() -> None:
+    function = _method_ast(WorkerRuntimeService._cleanup_terminal_queue_claim_after_commit)
+    try_nodes = [node for node in ast.walk(function) if isinstance(node, ast.Try)]
+    assert try_nodes, "terminal queue cleanup must catch adapter exceptions after DB commit"
+    handled_exception_names = {
+        ast.unparse(handler.type) for try_node in try_nodes for handler in try_node.handlers if handler.type is not None
+    }
+    assert "Exception" in handled_exception_names
 
 
 def test_worker_runtime_complete_persists_lineage_and_audit_before_commit() -> None:
@@ -250,6 +260,73 @@ def test_fail_commits_db_when_queue_fail_ack_fails() -> None:
     assert session.commit.call_count == 2
     session.rollback.assert_not_called()
     assert service._audit.append.call_args_list[-1].args[0].action == "terminal_queue_fail_cleanup_failed"
+
+
+def test_complete_records_queue_exception_after_db_terminal_commit() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.side_effect = RuntimeError("redis unavailable")
+
+    completed = service.complete(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
+
+    assert completed is task
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    queue.complete_task.assert_called_once_with(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+    queue.fail_task.assert_not_called()
+    assert session.commit.call_count == 2
+    session.rollback.assert_not_called()
+    cleanup_audit_event = service._audit.append.call_args_list[-1].args[0]
+    assert cleanup_audit_event.action == "terminal_queue_complete_cleanup_failed"
+    assert cleanup_audit_event.payload_json["queue_operation"] == "complete_task"
+    assert cleanup_audit_event.payload_json["reason"] == "complete_task raised: redis unavailable"
+    assert cleanup_audit_event.payload_json["requeue_allowed"] is False
+
+
+def test_fail_records_queue_exception_after_db_terminal_commit() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.fail_task.side_effect = RuntimeError("redis unavailable")
+
+    failed = service.fail(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id, reason="handler failed")
+
+    assert failed is task
+    assert task.status == ExecutionTaskState.FAILED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    queue.fail_task.assert_called_once_with(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        worker_id=worker_id,
+        reason="handler failed",
+    )
+    queue.complete_task.assert_not_called()
+    assert session.commit.call_count == 2
+    session.rollback.assert_not_called()
+    cleanup_audit_event = service._audit.append.call_args_list[-1].args[0]
+    assert cleanup_audit_event.action == "terminal_queue_fail_cleanup_failed"
+    assert cleanup_audit_event.payload_json["queue_operation"] == "fail_task"
+    assert cleanup_audit_event.payload_json["reason"] == "fail_task raised: redis unavailable"
+    assert cleanup_audit_event.payload_json["requeue_allowed"] is False
+
+
+def test_terminal_cleanup_audit_failure_does_not_revert_terminal_state() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=False, reason="redis timeout")
+    service._audit.append.side_effect = [None, RuntimeError("audit persistence unavailable")]
+
+    completed = service.complete(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
+
+    assert completed is task
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    queue.complete_task.assert_called_once_with(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+    queue.fail_task.assert_not_called()
+    assert session.commit.call_count == 1
+    session.rollback.assert_called_once()
 
 
 def test_complete_queue_ack_failure_does_not_rerun_or_fail_completed_work() -> None:
@@ -594,6 +671,34 @@ def test_block_completion_failure_records_queue_cleanup_failure_without_retrying
     cleanup_audit_event = service._audit.append.call_args_list[-1].args[0]
     assert cleanup_audit_event.action == "completion_failure_queue_complete_cleanup_failed"
     assert cleanup_audit_event.payload_json["queue_operation"] == "complete_task"
+    assert cleanup_audit_event.payload_json["requeue_allowed"] is False
+
+
+def test_block_completion_failure_records_queue_exception_without_retrying() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.side_effect = RuntimeError("redis unavailable")
+
+    blocked = service.block_completion_failure(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_type="tool.invoke",
+        side_effect_class="external_send",
+        reason="completion evidence write failed",
+    )
+
+    assert blocked is task
+    assert task.status == ExecutionTaskState.BLOCKED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    queue.complete_task.assert_called_once_with(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+    queue.fail_task.assert_not_called()
+    assert session.commit.call_count == 2
+    cleanup_audit_event = service._audit.append.call_args_list[-1].args[0]
+    assert cleanup_audit_event.action == "completion_failure_queue_complete_cleanup_failed"
+    assert cleanup_audit_event.payload_json["queue_operation"] == "complete_task"
+    assert cleanup_audit_event.payload_json["reason"] == "complete_task raised: redis unavailable"
     assert cleanup_audit_event.payload_json["requeue_allowed"] is False
 
 
