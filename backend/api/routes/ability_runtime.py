@@ -415,15 +415,7 @@ def launch_task(
     action = _action_definition(action_name)
     side_effect_class = action.side_effect_class
 
-    # PR1 uniform enforcement pass (per approved SaaS hardening + abilities plan):
-    # Defense-in-depth quota and feature gate for ability-runtime launched tasks,
-    # especially high-risk EXTERNAL or side-effecting actions. Primary admission
-    # quotas remain in mission/task paths; this closes the gap for the direct
-    # ability-runtime surface (which bypasses some mission intake quotas and
-    # generates on-the-fly capability/adapter for tool.invoke).
-    # "ability_runtime" feature will be properly seeded in plans in a follow-up PR;
-    # require_feature currently fails open for unknown plans/features (backward
-    # compat as documented in QuotaEnforcementService).
+    # Defense-in-depth quota and feature gate for ability-runtime launched tasks.
     quota = QuotaEnforcementService(db)
     quota.check_tenant_active(tenant_id)
     if action_name in EXTERNAL_ACTIONS or _requires_runtime_authority(side_effect_class):
@@ -466,6 +458,25 @@ def launch_task(
                     "approved_by must reference 'guardian' (guardian role contract)."
                 ),
             )
+
+    try:
+        quota.check_and_record_mission_creation(tenant_id)
+        quota.check_and_record_task_creation(tenant_id)
+    except QuotaExceededError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "QUOTA_EXCEEDED",
+                "field": exc.field,
+                "limit": exc.limit,
+                "current": exc.current,
+                "plan": exc.plan,
+                "message": (
+                    f"You have reached the {exc.field} limit ({exc.limit}) "
+                    f"for the {exc.plan!r} plan. Upgrade to continue."
+                ),
+            },
+        ) from exc
 
     capability, adapter = _ensure_runtime_authority(
         db=db,

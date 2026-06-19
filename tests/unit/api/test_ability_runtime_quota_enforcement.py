@@ -1,24 +1,46 @@
-"""Basic tests for PR1 uniform quota/feature enforcement in ability-runtime paths.
+"""Tests for quota/feature enforcement in ability-runtime paths."""
 
-These are minimal structural + smoke tests added as part of the "add basic tests"
-item in PR 1 of the approved SaaS hardening + abilities/tools expansion plan.
-They verify the enforcement imports are present and the high-risk action sets
-are wired for the checks added in launch_task and ToolRuntimeAuthority.
-Full route integration and quota behavior is covered by existing mission/task
-quota tests and the ability rollout contract checks.
-"""
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from backend.api.routes.ability_runtime import (
     EXTERNAL_ACTIONS,
     GTM_HIGH_RISK_ACTIONS,
     INTERNAL_WRITE_ACTIONS,
     READ_SAFE_ACTIONS,
+    AbilityTaskCreate,
     _requires_runtime_authority,
+    launch_task,
 )
+from backend.services.execution_coordinator import CoordinationResult
+from backend.services.quota_enforcement import QuotaExceededError
 from backend.services.tools.runtime_authority import ToolRuntimeAuthority
 from backend.services.tools.schemas import SideEffectClass
+
+
+class _AnyTenantId:
+    def __eq__(self, _other: object) -> bool:
+        return True
+
+    def __ne__(self, _other: object) -> bool:
+        return False
+
+
+def _authorized_request() -> MagicMock:
+    request = MagicMock()
+    request.state.principal = SimpleNamespace(
+        subject_id="test-user",
+        tenant_id=_AnyTenantId(),
+        roles=("operator",),
+        permissions=frozenset(),
+    )
+    return request
 
 
 def test_ability_runtime_enforcement_imports_and_sets():
@@ -86,3 +108,65 @@ def test_gtm_high_risk_actions_require_guardian_approval_in_pilot() -> None:
     good = "guardian@ops"
     assert "guardian" not in bad.lower()
     assert "guardian" in good.lower()
+
+
+def test_launch_task_records_mission_and_task_quota_before_queueing() -> None:
+    from backend.domain.execution_task import ExecutionTask
+    from backend.domain.mission import Mission
+
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request()
+    body = AbilityTaskCreate(action="sales.research", input={"lead": {"company": "Acme"}})
+
+    def _assign_ids(obj: object) -> None:
+        if isinstance(obj, Mission):
+            obj.id = mission_id
+        elif isinstance(obj, ExecutionTask):
+            obj.id = task_id
+
+    db.add.side_effect = _assign_ids
+
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+    coordinator.queue_task.return_value = CoordinationResult(ok=True, task_id=task_id, state="queued")
+
+    with (
+        patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.ability_runtime.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.ability_runtime._ensure_runtime_authority", return_value=(None, None)),
+    ):
+        launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    quota_svc.check_tenant_active.assert_called_once_with(tenant_id)
+    quota_svc.check_and_record_mission_creation.assert_called_once_with(tenant_id)
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    coordinator.queue_task.assert_called_once()
+
+
+def test_launch_task_returns_429_when_mission_quota_exceeded() -> None:
+    tenant_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request()
+    body = AbilityTaskCreate(action="sales.research", input={"lead": {"company": "Acme"}})
+
+    quota_svc = MagicMock()
+    quota_svc.check_and_record_mission_creation.side_effect = QuotaExceededError(
+        field="missions_per_month",
+        limit=10,
+        current=10,
+        plan="free",
+    )
+
+    with patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc):
+        with pytest.raises(HTTPException) as exc_info:
+            launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail["code"] == "QUOTA_EXCEEDED"
+    assert exc_info.value.detail["field"] == "missions_per_month"
+    quota_svc.check_and_record_task_creation.assert_not_called()
