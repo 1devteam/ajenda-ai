@@ -4,6 +4,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 IGNORED_PATH_PREFIXES = (
+    ".env",
     ".git/",
     ".mypy_cache/",
     ".pytest_cache/",

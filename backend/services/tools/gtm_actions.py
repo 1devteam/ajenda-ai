@@ -198,28 +198,37 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             try:
                 secret = gmail_cred.get("secret_value") if isinstance(gmail_cred, dict) else None
                 user = None
+                trusted_hosts: tuple[str, ...] = ("gmail.googleapis.com",)
                 if isinstance(gmail_cred, dict):
                     user = gmail_cred.get("user") or gmail_cred.get("email") or gmail_cred.get("reference")
+                    raw_hosts = gmail_cred.get("trusted_destination_hosts")
+                    if raw_hosts:
+                        trusted_hosts = tuple(str(host) for host in raw_hosts)
                 if secret and user:
-                    import smtplib
-                    from email.mime.multipart import MIMEMultipart
-                    from email.mime.text import MIMEText
-
-                    msg = MIMEMultipart()
-                    msg["From"] = user
-                    msg["To"] = inp.to
-                    msg["Subject"] = inp.subject
-                    msg.attach(MIMEText(sent["body"] or " ", "plain"))
-
-                    server = smtplib.SMTP("smtp.gmail.com", 587)
-                    server.starttls()
-                    server.login(user, secret)
-                    server.send_message(msg)
-                    server.quit()
-
+                    send_url = f"https://{trusted_hosts[0]}/v1/users/{user}/messages/send"
+                    headers = {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
+                    body = {
+                        "to": inp.to,
+                        "subject": inp.subject,
+                        "body": sent["body"] or " ",
+                        "context": inp.context,
+                    }
+                    _dest, resp = get_default_network_egress_authority().request(
+                        method="POST",
+                        url=send_url,
+                        headers=headers,
+                        json_body=body,
+                        allowed_hosts=list(trusted_hosts),
+                        action_name=inv.action,
+                        timeout_seconds=10.0,
+                    )
                     sent["status"] = "sent"
                     sent["real"] = True
-                    sent["provider"] = "gmail"
+                    sent["provider"] = "gmail_api"
+                    sent["real_response"] = {
+                        "status_code": resp.status_code,
+                        "body_preview": resp.body_text[:300] if resp.body_text else "",
+                    }
             except Exception as e:
                 sent["status"] = "error"
                 sent["error"] = str(e)
@@ -450,6 +459,11 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             side_effect_class=SideEffectClass.EXTERNAL_READ,
             provider="external_email",
             input_model=GtmEmailSendInput,  # loose, handler accepts flexible query dict
+            credential_requirement=CredentialRequirement(
+                provider="external_email",
+                credential_type="api_key",
+                allowed_side_effect_classes=(SideEffectClass.EXTERNAL_READ,),
+            ),
         )
     )
     registry.register(

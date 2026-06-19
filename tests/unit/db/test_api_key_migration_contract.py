@@ -11,7 +11,7 @@ def test_api_key_migration_has_single_head_and_short_revision_id() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0025_stripe_customer_id"]
+    assert heads == ["0026_seed_ability_runtime"]
     assert len(heads[0]) <= 32
 
 

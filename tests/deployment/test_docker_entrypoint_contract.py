@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+ROOT_DOCKERFILE = Path("Dockerfile")
 API_DOCKERFILE = Path("deploy/docker/api.Dockerfile")
 WORKER_DOCKERFILE = Path("deploy/docker/worker.Dockerfile")
 MIGRATE_DOCKERFILE = Path("deploy/docker/migrate.Dockerfile")
@@ -14,6 +15,16 @@ RUN_MIGRATIONS_SCRIPT = Path("deploy/scripts/run-migrations.sh")
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def test_root_and_deploy_api_dockerfiles_share_production_entrypoint() -> None:
+    root = _read(ROOT_DOCKERFILE)
+    deploy = _read(API_DOCKERFILE)
+
+    assert 'ENTRYPOINT ["/app/deploy/scripts/start-api.sh"]' in root
+    assert 'ENTRYPOINT ["/app/deploy/scripts/start-api.sh"]' in deploy
+    assert "COPY deploy/scripts /app/deploy/scripts" in root
+    assert "COPY deploy/scripts /app/deploy/scripts" in deploy
 
 
 def test_api_image_entrypoint_uses_start_api_script() -> None:
@@ -43,6 +54,12 @@ def test_migrate_image_entrypoint_uses_migration_script() -> None:
 
     assert 'ENTRYPOINT ["/app/deploy/scripts/run-migrations.sh"]' in dockerfile
     assert "alembic upgrade head" in script
+
+
+def test_main_registers_sanitized_global_exception_handler() -> None:
+    main_py = _read(Path("backend/main.py"))
+    assert "unhandled_exception_handler" in main_py
+    assert '"Internal server error"' in main_py
 
 
 def test_runtime_images_copy_deploy_scripts() -> None:

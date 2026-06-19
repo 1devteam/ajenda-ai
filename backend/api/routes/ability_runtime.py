@@ -22,6 +22,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.queue.base import QueueAdapter
+from backend.services.abilities.role_contracts import RoleName
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
@@ -29,7 +30,7 @@ from backend.services.quota_enforcement import (
     QuotaExceededError,
 )
 from backend.services.tools.action_registry import ActionDefinition, get_default_action_registry
-from backend.services.tools.schemas import SideEffectClass
+from backend.services.tools.schemas import CredentialReference, SideEffectClass
 
 router = APIRouter(prefix="/ability-runtime", tags=["ability-runtime"])
 
@@ -105,6 +106,7 @@ class AbilityTaskCreate(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=200)
     approved_by: str = Field(default="ability-runtime-ui", min_length=1, max_length=160)
     approval_reason: str = Field(default="User launched ability from product runtime UI.", min_length=1, max_length=500)
+    credential_reference: CredentialReference | None = None
 
     @field_validator("action")
     @classmethod
@@ -181,6 +183,14 @@ def _action_definition(action_name: str) -> ActionDefinition:
         return registry.get(action_name)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _principal_may_approve_gtm_side_effects(request: Request) -> bool:
+    principal = getattr(request.state, "principal", None)
+    if principal is None:
+        return False
+    allowed_roles = {RoleName.GUARDIAN.value, "admin", "tenant_admin"}
+    return bool(allowed_roles.intersection(set(getattr(principal, "roles", ()) or ())))
 
 
 def _validate_exposed_action(action_name: str) -> None:
@@ -301,6 +311,9 @@ def _build_task_metadata(
                 "approved_by": request_body.approved_by,
             }
         }
+
+    if request_body.credential_reference is not None:
+        metadata["credential_reference"] = request_body.credential_reference.model_dump(mode="json")
 
     return metadata
 
@@ -449,14 +462,15 @@ def launch_task(
     # (for has_side_effect) and the downstream ToolRuntimeAuthority + capability_validation + side_effect_authorized checks.
     # High-risk GTM also set requires_human_review to engage policy paths for pilot.
     if action_name in GTM_HIGH_RISK_ACTIONS:
-        approved = (body.approved_by or "").strip().lower()
-        if "guardian" not in approved:
+        if not _principal_may_approve_gtm_side_effects(request):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"High-risk GTM action {action_name} requires explicit guardian role approval. "
-                    "approved_by must reference 'guardian' (guardian role contract)."
-                ),
+                detail=(f"High-risk GTM action {action_name} requires guardian, admin, or tenant_admin role."),
+            )
+        if body.credential_reference is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"High-risk GTM action {action_name} requires credential_reference in launch payload.",
             )
 
     try:

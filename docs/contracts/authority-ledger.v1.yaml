@@ -889,7 +889,8 @@ authority_entries:
     authority_class: runtime_authoritative
     side_effect_class: tenant_scoped_side_effect_authorization
     allowed_side_effects:
-      - launch high-risk gtm.* actions (gtm.email_send, gtm.crm_upsert, gtm.social_publish) only when approved_by references guardian role
+      - launch high-risk gtm.* actions (gtm.email_send, gtm.crm_upsert, gtm.social_publish) only when caller has guardian/admin/tenant_admin role and supplies credential_reference
+      - gtm.email_send real delivery uses NetworkEgressAuthority HTTPS to gmail.googleapis.com (no raw SMTP)
       - populate versioned execution_constraints.side_effect_authorization envelope from guardian-approved body for EXTERNAL_SEND/WRITE/PUBLISH
       - set requires_human_review for high-risk GTM pilot to engage PolicyGuardian paths
       - list gtm actions in ability-runtime exposed surface when gated by gtm feature

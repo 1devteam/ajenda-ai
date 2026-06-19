@@ -100,14 +100,18 @@ def test_external_and_write_side_effects_require_authority(side_effect):
     assert _requires_runtime_authority(side_effect) is True
 
 
-def test_gtm_high_risk_actions_require_guardian_approval_in_pilot() -> None:
-    """PR9 pilot: high-risk GTM actions are exposed and require guardian in approved_by (checked at launch)."""
+def test_gtm_high_risk_actions_require_guardian_role_at_launch() -> None:
+    from backend.api.routes.ability_runtime import _principal_may_approve_gtm_side_effects
+
     assert "gtm.email_send" in GTM_HIGH_RISK_ACTIONS
-    # Guardian role contract allows approve; approved_by body must contain 'guardian'
-    bad = "ability-runtime-ui"
-    good = "guardian@ops"
-    assert "guardian" not in bad.lower()
-    assert "guardian" in good.lower()
+
+    denied = MagicMock()
+    denied.state.principal = SimpleNamespace(roles=("operator",))
+    assert _principal_may_approve_gtm_side_effects(denied) is False
+
+    allowed = MagicMock()
+    allowed.state.principal = SimpleNamespace(roles=("guardian",))
+    assert _principal_may_approve_gtm_side_effects(allowed) is True
 
 
 def test_launch_task_records_mission_and_task_quota_before_queueing() -> None:

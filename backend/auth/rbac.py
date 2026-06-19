@@ -75,6 +75,14 @@ class RbacAuthorizer:
                     Permission.BUSINESS_PROFILE_READ,
                 }
             ),
+            "guardian": frozenset(
+                {
+                    Permission.EXECUTION_VIEW,
+                    Permission.EXECUTION_QUEUE,
+                    Permission.OUTCOME_REVIEW_MANAGE,
+                    Permission.EVIDENCE_MANAGE,
+                }
+            ),
             "viewer": frozenset(
                 {
                     Permission.AUTH_READ,

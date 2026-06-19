@@ -22,10 +22,11 @@ const DEFAULT_CONFIG: RuntimeConfig = {
   apiKey: import.meta.env.VITE_DEFAULT_API_KEY ?? "",
 };
 
+// Dev console only: session-scoped storage avoids persisting API keys across browser restarts.
 const STORAGE_KEY = "ajenda.runtime.config.v1";
 
 function loadConfig(): RuntimeConfig {
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw = window.sessionStorage.getItem(STORAGE_KEY);
   if (!raw) {
     return DEFAULT_CONFIG;
   }
@@ -111,7 +112,7 @@ export default function App() {
   }, [config]);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   }, [config]);
 
   useEffect(() => {

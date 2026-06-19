@@ -285,12 +285,10 @@ class QuotaEnforcementService:
         Use this to gate premium features (e.g., compliance layer, webhooks,
         custom OIDC providers) behind plan tiers.
         """
+        from backend.services.feature_flag_service import FeatureFlagService
+
         tenant = self._tenants.get_active(tenant_id)
-        plan = self._tenants.get_plan(tenant.plan)
-        if plan is None:
-            # Unknown plan — fail open
-            return
-        if not plan.allows_feature(feature):
+        if not FeatureFlagService(self._session, tenants=self._tenants).is_enabled(tenant_id, feature):
             raise FeatureNotAvailableError(feature=feature, plan=tenant.plan)
 
     # ------------------------------------------------------------------

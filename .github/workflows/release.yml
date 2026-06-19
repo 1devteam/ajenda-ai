@@ -101,18 +101,42 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
 
-      - name: Build and push image
+      - name: Build and push API image
         uses: docker/build-push-action@v7
         with:
           context: .
+          file: Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Build provenance attestation for supply chain security
           provenance: true
           sbom: true
+
+      - name: Build and push worker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/worker.Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ needs.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push migrate image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/migrate.Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-migrate:${{ needs.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-migrate:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 4: Create a GitHub Release with auto-generated changelog

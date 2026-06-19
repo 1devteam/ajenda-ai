@@ -30,8 +30,9 @@ from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.api.router import build_api_router
 from backend.app.config import get_settings
@@ -117,6 +118,14 @@ def create_app() -> FastAPI:
 
     # Mount all API routes
     app.include_router(build_api_router())
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Return sanitized 500 responses — never leak stack traces to clients."""
+        _ = request
+        settings = get_settings()
+        detail = str(exc) if settings.env in {"development", "test"} else "Internal server error"
+        return JSONResponse(status_code=500, content={"detail": detail})
 
     # --- Middleware stack (registered innermost-first) ---
     #

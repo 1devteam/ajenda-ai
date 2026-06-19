@@ -537,6 +537,12 @@ class WorkerRuntimeService:
 
     # --- Outcome Review Bridge helpers (for high-risk GTM pilot coherence) ---
 
+    def _gtm_side_effect_was_real(self, task_output: dict[str, Any]) -> bool:
+        nested = task_output.get("output")
+        if isinstance(nested, dict) and "real" in nested:
+            return bool(nested.get("real"))
+        return bool(task_output.get("real"))
+
     def _is_high_risk_gtm_side_effect(self, task: ExecutionTask, task_output: dict[str, Any] | None) -> bool:
         if not task_output or not isinstance(task_output, dict):
             return False
@@ -544,7 +550,9 @@ class WorkerRuntimeService:
         side_effect_class = str(task_output.get("side_effect_class", "") or "")
         if not action.startswith("gtm."):
             return False
-        return side_effect_class in {"external_send", "external_write", "external_publish"}
+        if side_effect_class not in {"external_send", "external_write", "external_publish"}:
+            return False
+        return self._gtm_side_effect_was_real(task_output)
 
     def _create_draft_outcome_review(
         self,

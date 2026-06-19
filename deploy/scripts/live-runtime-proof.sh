@@ -339,4 +339,104 @@ if [[ -n "$lease_value" ]]; then
   fail "expected Redis lease key to be absent; got $lease_value"
 fi
 
+log "queueing low-risk GTM lead enrich proof task"
+gtm_proof_json="$(
+  compose exec -T \
+    -e AJENDA_PROOF_TIMEOUT_SECONDS="$TIMEOUT_SECONDS" \
+    -e AJENDA_PROOF_POLL_SECONDS="$POLL_SECONDS" \
+    -e AJENDA_PROOF_WORKER_TENANT_ID="$proof_tenant_id" \
+    api python - <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import time
+import uuid
+
+from backend.app.config import get_settings
+from backend.db.session import DatabaseRuntime
+from backend.domain.enums import ExecutionTaskState
+from backend.domain.execution_task import ExecutionTask
+from backend.domain.mission import Mission
+from backend.queue import build_queue_adapter
+from backend.services.execution_coordinator import ExecutionCoordinator
+
+settings = get_settings()
+worker_tenant_id = os.environ["AJENDA_PROOF_WORKER_TENANT_ID"]
+queue_adapter = build_queue_adapter(settings)
+database_runtime = DatabaseRuntime(settings)
+timeout_seconds = float(os.environ["AJENDA_PROOF_TIMEOUT_SECONDS"])
+poll_seconds = float(os.environ["AJENDA_PROOF_POLL_SECONDS"])
+
+try:
+    session = database_runtime.session_factory()
+    try:
+        mission = Mission(
+            tenant_id=worker_tenant_id,
+            objective="Live runtime GTM proof mission",
+            status="running",
+            metadata_json={"source": "live-runtime-proof", "action": "gtm.lead_enrich"},
+        )
+        session.add(mission)
+        session.flush()
+
+        task = ExecutionTask(
+            tenant_id=worker_tenant_id,
+            mission_id=mission.id,
+            title="GTM lead enrich proof",
+            description="Proof task for gtm.lead_enrich via tool.invoke",
+            status=ExecutionTaskState.PLANNED.value,
+            metadata_json={
+                "task_type": "tool.invoke",
+                "tool_invocation": {
+                    "action": "gtm.lead_enrich",
+                    "input": {"company": "Proof Co", "domain": "proof.example.com"},
+                },
+            },
+            compliance_category="operational",
+            jurisdiction="US-ALL",
+            requires_human_review=False,
+        )
+        session.add(task)
+        session.flush()
+        task_id = task.id
+
+        queued = ExecutionCoordinator(session, queue_adapter).queue_task(
+            tenant_id=worker_tenant_id,
+            task_id=task_id,
+        )
+        if not queued.ok:
+            raise RuntimeError(queued.reason or "gtm proof queue_task rejected")
+        session.commit()
+    finally:
+        session.close()
+
+    deadline = time.monotonic() + timeout_seconds
+    final = None
+    while time.monotonic() < deadline:
+        session = database_runtime.session_factory()
+        try:
+            current = session.get(ExecutionTask, task_id)
+            if current is not None and current.status in {
+                ExecutionTaskState.COMPLETED.value,
+                ExecutionTaskState.FAILED.value,
+                ExecutionTaskState.DEAD_LETTERED.value,
+            }:
+                final = current.status
+                break
+        finally:
+            session.close()
+        time.sleep(poll_seconds)
+
+    if final != ExecutionTaskState.COMPLETED.value:
+        raise RuntimeError(f"gtm proof task did not complete; final_status={final!r}; task_id={task_id}")
+
+    print(json.dumps({"task_id": str(task_id), "action": "gtm.lead_enrich", "task_status": final}, sort_keys=True))
+finally:
+    database_runtime.dispose()
+PY
+)"
+
+log "gtm proof result: $gtm_proof_json"
+
 log "live runtime proof passed"
