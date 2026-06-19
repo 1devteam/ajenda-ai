@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, engine_from_config, pool
 
 from alembic import context
 from backend.db.base import Base
@@ -37,7 +37,9 @@ database_url = os.getenv("AJENDA_DATABASE_URL") or config.get_main_option("sqlal
 if not database_url:
     raise RuntimeError("AJENDA_DATABASE_URL or sqlalchemy.url must be set for Alembic migrations")
 
-config.set_main_option("sqlalchemy.url", database_url)
+pg_options = os.getenv("AJENDA_PG_OPTIONS")
+if pg_options is None and "%" not in database_url:
+    config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -59,11 +61,15 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    if pg_options is not None or "%" in database_url:
+        connect_args = {"options": pg_options} if pg_options else {}
+        connectable = create_engine(database_url, poolclass=pool.NullPool, connect_args=connect_args)
+    else:
+        connectable = engine_from_config(
+            config.get_section(config.config_ini_section, {}),
+            prefix="sqlalchemy.",
+            poolclass=pool.NullPool,
+        )
 
     with connectable.connect() as connection:
         context.configure(

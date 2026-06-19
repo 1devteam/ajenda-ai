@@ -9,7 +9,6 @@ from typing import NamedTuple
 import pytest
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, func, select, text
-from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command as alembic_command
@@ -41,10 +40,16 @@ def _quote_comment_literal(comment: str | None) -> str:
     return "'" + comment.replace("'", "''") + "'"
 
 
-def _schema_database_url(base_url: str, schema: str) -> str:
-    url = make_url(base_url)
-    options = f"-csearch_path={schema},public"
-    return str(url.set(query={**url.query, "options": options}))
+def _pg_search_path_options(schema: str) -> str:
+    return f"-csearch_path={schema},public"
+
+
+def _engine_for_schema(database_url: str, schema: str):
+    return create_engine(
+        database_url,
+        pool_pre_ping=True,
+        connect_args={"options": _pg_search_path_options(schema)},
+    )
 
 
 def _create_temp_schema(base_url: str, schema: str) -> None:
@@ -143,21 +148,27 @@ def _alembic_config(database_url: str) -> AlembicConfig:
 
 
 @contextmanager
-def _alembic_database_url(database_url: str) -> Iterator[None]:
-    previous = os.environ.get("AJENDA_DATABASE_URL")
+def _alembic_database_url(database_url: str, *, schema: str) -> Iterator[None]:
+    previous_url = os.environ.get("AJENDA_DATABASE_URL")
+    previous_options = os.environ.get("AJENDA_PG_OPTIONS")
     os.environ["AJENDA_DATABASE_URL"] = database_url
+    os.environ["AJENDA_PG_OPTIONS"] = _pg_search_path_options(schema)
     try:
         yield
     finally:
-        if previous is None:
+        if previous_url is None:
             os.environ.pop("AJENDA_DATABASE_URL", None)
         else:
-            os.environ["AJENDA_DATABASE_URL"] = previous
+            os.environ["AJENDA_DATABASE_URL"] = previous_url
+        if previous_options is None:
+            os.environ.pop("AJENDA_PG_OPTIONS", None)
+        else:
+            os.environ["AJENDA_PG_OPTIONS"] = previous_options
 
 
 @contextmanager
-def _session(database_url: str) -> Iterator[Session]:
-    engine = create_engine(database_url, pool_pre_ping=True)
+def _session(database_url: str, *, schema: str) -> Iterator[Session]:
+    engine = _engine_for_schema(database_url, schema)
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     session = session_factory()
     try:
@@ -248,24 +259,24 @@ def _assert_seed_rows_absent(session: Session) -> None:
 @pytest.mark.integration
 def test_gtm_catalog_seed_round_trip_preserves_api_shapes_and_cleans_up_policies(pg_url: str) -> None:
     schema = f"gtm_seed_semantics_{uuid.uuid4().hex}"
-    database_url = _schema_database_url(pg_url, schema)
+    database_url = pg_url
     database_side_effects = _capture_database_side_effects(pg_url)
     _create_temp_schema(pg_url, schema)
     try:
         cfg = _alembic_config(database_url)
-        with _alembic_database_url(database_url):
+        with _alembic_database_url(database_url, schema=schema):
             alembic_command.upgrade(cfg, "head")
-            with _session(database_url) as session:
+            with _session(database_url, schema=schema) as session:
                 _assert_seed_rows_have_runtime_contract_shapes(session)
                 assert _seed_policy_names(session) == set()
 
             alembic_command.downgrade(cfg, "0020_expand_lifecycle_checks")
-            with _session(database_url) as session:
+            with _session(database_url, schema=schema) as session:
                 _assert_seed_rows_absent(session)
                 assert _seed_policy_names(session) == set()
 
             alembic_command.upgrade(cfg, "head")
-            with _session(database_url) as session:
+            with _session(database_url, schema=schema) as session:
                 _assert_seed_rows_have_runtime_contract_shapes(session)
                 assert _seed_policy_names(session) == set()
     finally:
