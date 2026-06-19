@@ -13,6 +13,7 @@ from backend.services.tools.schemas import EvidenceItem
 _TOOL_INVOKE_HANDLER = "tool.invoke"
 _TASK_OUTPUT_RELATIONSHIP = "task_output"
 _TOOL_ACTION_EVIDENCE_TYPE = "action_result"
+_TOOL_ACTION_EVIDENCE_ALIAS = "action_result_evidence"
 _DURABLE_TOOL_ACTION_EVIDENCE_TYPE = "execution_trace"
 
 
@@ -105,7 +106,7 @@ def build_tool_action_evidence_records(
 
 
 def _durable_evidence_type(evidence_type: str) -> str:
-    if evidence_type == _TOOL_ACTION_EVIDENCE_TYPE:
+    if evidence_type in {_TOOL_ACTION_EVIDENCE_TYPE, _TOOL_ACTION_EVIDENCE_ALIAS}:
         return _DURABLE_TOOL_ACTION_EVIDENCE_TYPE
     return evidence_type
 
