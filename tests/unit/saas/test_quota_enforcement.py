@@ -435,3 +435,59 @@ class TestBudgetPolicyOptInGates:
 
         monkeypatch.setattr("backend.services.quota_enforcement.get_settings", lambda: _Settings())
         svc.enforce_mission_budget_gate(uuid.uuid4(), {"max_tasks": 999})
+
+
+# ---------------------------------------------------------------------------
+# API calls quota (PR5 broader enforcement)
+# ---------------------------------------------------------------------------
+
+
+class TestApiCallQuota:
+    def test_allows_when_under_limit(self):
+        svc = _make_service(
+            _make_tenant("free"),
+            _make_plan(max_api_calls=1000),
+            _make_usage(api_calls=10),
+        )
+        svc.check_and_record_api_call(uuid.uuid4())
+
+    def test_blocks_when_at_limit(self):
+        svc = _make_service(
+            _make_tenant("free"),
+            _make_plan(max_api_calls=1000),
+            _make_usage(api_calls=1000),
+        )
+        with pytest.raises(QuotaExceededError) as exc_info:
+            svc.check_and_record_api_call(uuid.uuid4())
+        assert exc_info.value.field == "api_calls_per_month"
+        assert exc_info.value.limit == 1000
+
+    def test_increments_on_allowed(self):
+        svc = _make_service(
+            _make_tenant("pro"),
+            _make_plan(max_api_calls=25000),
+            _make_usage(api_calls=100),
+        )
+        tenant_id = uuid.uuid4()
+        svc.check_and_record_api_call(tenant_id)
+        call_kwargs = svc._tenants.increment_usage.call_args
+        assert call_kwargs is not None
+        assert call_kwargs.kwargs.get("field") == "api_calls_count"
+        assert call_kwargs.kwargs.get("amount", 1) == 1
+
+    def test_unlimited_allows(self):
+        svc = _make_service(
+            _make_tenant("enterprise"),
+            _make_plan(max_api_calls=-1),
+            _make_usage(api_calls=999999),
+        )
+        svc.check_and_record_api_call(uuid.uuid4())
+
+    def test_unknown_plan_fails_open(self):
+        db = MagicMock()
+        svc = QuotaEnforcementService(db)
+        repo = MagicMock()
+        repo.get_active.return_value = _make_tenant("unknown")
+        repo.get_plan.return_value = None
+        svc._tenants = repo
+        svc.check_and_record_api_call(uuid.uuid4())  # should not raise

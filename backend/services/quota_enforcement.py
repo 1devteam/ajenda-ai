@@ -150,6 +150,7 @@ class QuotaEnforcementService:
             )
 
         self._tenants.increment_usage(tenant_id, field="missions_created")
+        self._report_metered_if_possible(tenant_id, 1, "missions")
 
     def check_and_record_task_creation(
         self,
@@ -194,6 +195,7 @@ class QuotaEnforcementService:
             )
 
         self._tenants.increment_usage(tenant_id, field="tasks_created", amount=count)
+        self._report_metered_if_possible(tenant_id, count, "tasks")
 
     def check_and_record_agent_provisioning(
         self,
@@ -225,6 +227,7 @@ class QuotaEnforcementService:
             field="agents_provisioned",
             amount=agents_requested,
         )
+        self._report_metered_if_possible(tenant_id, agents_requested, "agents")
 
     def check_api_key_limit(self, tenant_id: uuid.UUID, *, current_key_count: int) -> None:
         """Check that the tenant has not exceeded their API key limit.
@@ -245,6 +248,32 @@ class QuotaEnforcementService:
                 current=current_key_count,
                 plan=tenant.plan,
             )
+
+    def check_and_record_api_call(self, tenant_id: uuid.UUID) -> None:
+        """Check monthly API call quota and increment counter atomically.
+
+        Intended to be called for authenticated API requests (e.g. from rate
+        limit middleware after allowing the request). Raises QuotaExceededError
+        if the tenant has reached max_monthly_api_calls for the plan.
+        """
+        tenant = self._tenants.get_active(tenant_id)
+        plan = self._tenants.get_plan(tenant.plan)
+        if plan is None:
+            return
+
+        usage = self._tenants.get_or_create_usage(tenant_id)
+        limit = plan.max_monthly_api_calls
+
+        if limit != -1 and usage.api_calls_count >= limit:
+            raise QuotaExceededError(
+                field="api_calls_per_month",
+                limit=limit,
+                current=usage.api_calls_count,
+                plan=tenant.plan,
+            )
+
+        self._tenants.increment_usage(tenant_id, field="api_calls_count")
+        self._report_metered_if_possible(tenant_id, 1, "api_calls")
 
     # ------------------------------------------------------------------
     # Feature gate
@@ -325,3 +354,17 @@ class QuotaEnforcementService:
                     proposed=max_tasks,
                     plan=tenant.plan,
                 )
+
+    # ------------------------------------------------------------------
+    # Metering bridge to Stripe (PR3) — best effort, never blocks
+    # ------------------------------------------------------------------
+
+    def _report_metered_if_possible(self, tenant_id: uuid.UUID, amount: int, metric: str) -> None:
+        try:
+            from backend.services.billing_stripe_integration import StripeBillingService
+
+            billing = StripeBillingService(self._session)
+            billing.report_metered_usage(tenant_id, amount, metric=metric)
+        except Exception:
+            # Metering is best-effort; log would be noisy in unit tests.
+            pass

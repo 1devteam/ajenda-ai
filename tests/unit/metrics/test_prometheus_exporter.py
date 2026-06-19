@@ -62,3 +62,14 @@ def test_prometheus_exporter_does_not_emit_banned_labels() -> None:
             continue
         for token in banned_tokens:
             assert token not in line
+
+
+def test_prometheus_exporter_renders_tenant_label_when_provided() -> None:
+    snapshot = MetricsSnapshot(1, 2, 3, 4, 5, 6, 7, 0.5, tenant_id="tenant-123")
+    output = PrometheusExporter().render(snapshot)
+    assert 'ajenda_tasks_queued{tenant_id="tenant-123"} 1' in output
+    assert 'ajenda_active_leases{tenant_id="tenant-123"} 6' in output
+    # stage labels merged
+    assert 'ajenda_stage_budget_limit{stage="runtime",budget_kind="cost_usd",tenant_id="tenant-123"}' in output
+    # banned tenant_id is allowed intentionally for per-tenant
+    assert 'tenant_id="tenant-123"' in output

@@ -23,6 +23,11 @@ from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.queue.base import QueueAdapter
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.quota_enforcement import (
+    FeatureNotAvailableError,
+    QuotaEnforcementService,
+    QuotaExceededError,
+)
 from backend.services.tools.action_registry import ActionDefinition, get_default_action_registry
 from backend.services.tools.schemas import SideEffectClass
 
@@ -37,6 +42,10 @@ READ_SAFE_ACTIONS: set[str] = {
     "sales.draft_followup",
     "record.search",
     "record.read",
+    # PR9: expose GTM low-risk (no side effect) for pilot under ability-runtime
+    "gtm.lead_enrich",
+    "gtm.email_draft",
+    "retrieval.hybrid_search",
 }
 
 INTERNAL_WRITE_ACTIONS: set[str] = {
@@ -50,6 +59,18 @@ EXTERNAL_ACTIONS: set[str] = {
     "http.request",
     "provider.external_read",
     "webhook.dispatch",
+    # PR9 pilot: high-risk GTM external side-effect actions (EXTERNAL_SEND/WRITE/PUBLISH)
+    "gtm.email_send",
+    "gtm.crm_upsert",
+    "gtm.social_publish",
+    # Gmail check (read)
+    "gtm.email_check",
+}
+
+GTM_HIGH_RISK_ACTIONS: set[str] = {
+    "gtm.email_send",
+    "gtm.crm_upsert",
+    "gtm.social_publish",
 }
 
 EXPOSED_ACTIONS: set[str] = READ_SAFE_ACTIONS | INTERNAL_WRITE_ACTIONS | EXTERNAL_ACTIONS
@@ -394,6 +415,58 @@ def launch_task(
     action = _action_definition(action_name)
     side_effect_class = action.side_effect_class
 
+    # PR1 uniform enforcement pass (per approved SaaS hardening + abilities plan):
+    # Defense-in-depth quota and feature gate for ability-runtime launched tasks,
+    # especially high-risk EXTERNAL or side-effecting actions. Primary admission
+    # quotas remain in mission/task paths; this closes the gap for the direct
+    # ability-runtime surface (which bypasses some mission intake quotas and
+    # generates on-the-fly capability/adapter for tool.invoke).
+    # "ability_runtime" feature will be properly seeded in plans in a follow-up PR;
+    # require_feature currently fails open for unknown plans/features (backward
+    # compat as documented in QuotaEnforcementService).
+    quota = QuotaEnforcementService(db)
+    quota.check_tenant_active(tenant_id)
+    if action_name in EXTERNAL_ACTIONS or _requires_runtime_authority(side_effect_class):
+        try:
+            quota.require_feature(tenant_id, "ability_runtime")
+        except FeatureNotAvailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=str(exc),
+            ) from exc
+        except QuotaExceededError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=str(exc),
+            ) from exc
+
+    # PR6: gate GTM actions behind feature (will be in pro+ plans)
+    if action_name.startswith("gtm."):
+        try:
+            quota.require_feature(tenant_id, "gtm")
+        except FeatureNotAvailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=str(exc),
+            ) from exc
+
+    # PR9 pilot harness: explicit side_effect_authorization + guardian role enforcement
+    # for high-risk GTM EXTERNAL actions (email_send, crm_upsert, social_publish).
+    # Uses body.approved_by (must reference guardian per GUARDIAN_ROLE_CONTRACT.may_approve_side_effects=True).
+    # This augments the always-written execution_constraints.side_effect_authorization envelope
+    # (for has_side_effect) and the downstream ToolRuntimeAuthority + capability_validation + side_effect_authorized checks.
+    # High-risk GTM also set requires_human_review to engage policy paths for pilot.
+    if action_name in GTM_HIGH_RISK_ACTIONS:
+        approved = (body.approved_by or "").strip().lower()
+        if "guardian" not in approved:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"High-risk GTM action {action_name} requires explicit guardian role approval. "
+                    "approved_by must reference 'guardian' (guardian role contract)."
+                ),
+            )
+
     capability, adapter = _ensure_runtime_authority(
         db=db,
         tenant_id=str(tenant_id),
@@ -432,7 +505,7 @@ def launch_task(
         ),
         compliance_category="operational",
         jurisdiction="US-ALL",
-        requires_human_review=False,
+        requires_human_review=action_name in GTM_HIGH_RISK_ACTIONS,
     )
     db.add(task)
     db.flush()

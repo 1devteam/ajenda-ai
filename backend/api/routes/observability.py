@@ -186,3 +186,19 @@ def tenant_reliability_summary(
             recovery_success_ratio=round(recovery_success_ratio, 4),
         ),
     )
+
+
+@router.get("/observability/compliance/export")
+def compliance_export(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+    limit: int = 100,
+) -> dict[str, object]:
+    """Compliance export foundation: tenant-scoped recent audit and evidence records.
+
+    Read-only, for audit/compliance review. Tenant-scoped.
+    """
+    require_route_permission(request=request, db=session, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
+    service = ObservabilityService(session)
+    return service.compliance_export(tenant_id=str(tenant_id), limit=limit)

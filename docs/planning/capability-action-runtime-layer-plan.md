@@ -27,5 +27,7 @@ Status: implemented first additive slice with local proof providers and a narrow
 
 ## Remaining gaps
 
-- No outcome review bridge, retrieval bridge, live CRM provider, live calendar provider, or external credential integration is implemented.
+- Outcome review bridge implemented for high-risk GTM side-effects (auto-draft on WorkerRuntimeService.complete).
+- Retrieval bridge advanced (contracts used for source evidence/provenance in hybrid); full engine deferred.
+- Live external (CRM with real network_egress in crm.research/crm_upsert/social; email real; calendar/cred) mostly wired; Wasm/TEE sandbox contract layer started for untrusted execution (cutting edge).
 - The action registry is in-process and deterministic; it is intentionally separate from the declarative capability and adapter registries.

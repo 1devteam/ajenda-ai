@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
+from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.observability.metrics import MetricsSnapshot, ObservabilityMetrics
@@ -36,6 +37,7 @@ class ObservabilityService:
             queued_tasks=queued_tasks,
             worker_utilization=worker_utilization,
             released_leases=released_leases,
+            tenant_id=tenant_id,
         )
 
     def _count_tasks_by_state(self, *, tenant_id: str, state: str) -> int:
@@ -70,3 +72,53 @@ class ObservabilityService:
             )
         )
         return int(self._session.scalar(stmt) or 0)
+
+    def compliance_export(self, *, tenant_id: str, limit: int = 100) -> dict[str, object]:
+        """Foundation for compliance export: recent tenant-scoped audit and evidence.
+
+        Returns limited recent records for audit/compliance review. Read-only.
+        """
+        audits = list(
+            self._session.scalars(
+                select(AuditEvent)
+                .where(AuditEvent.tenant_id == tenant_id)
+                .order_by(AuditEvent.created_at.desc())
+                .limit(limit)
+            )
+        )
+        evidences = list(
+            self._session.scalars(
+                select(EvidenceRecord)
+                .where(EvidenceRecord.tenant_id == tenant_id)
+                .order_by(EvidenceRecord.created_at.desc())
+                .limit(limit)
+            )
+        )
+        return {
+            "tenant_id": tenant_id,
+            "limit": limit,
+            "audits": [
+                {
+                    "id": str(a.id),
+                    "mission_id": str(a.mission_id) if a.mission_id else None,
+                    "category": a.category,
+                    "action": a.action,
+                    "actor": a.actor,
+                    "details": a.details,
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                }
+                for a in audits
+            ],
+            "evidences": [
+                {
+                    "id": str(e.id),
+                    "mission_id": str(e.mission_id),
+                    "evidence_type": e.evidence_type,
+                    "evidence_source": e.evidence_source,
+                    "summary": e.summary,
+                    "collection_status": e.collection_status,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                }
+                for e in evidences
+            ],
+        }

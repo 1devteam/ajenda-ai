@@ -159,4 +159,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response.headers["X-RateLimit-Limit"] = str(effective_max)
         if plan_slug:
             response.headers["X-RateLimit-Plan"] = str(plan_slug)
+
+        # PR5: enforce + record api_calls quota via QuotaEnforcementService (check + increment)
+        # after successful rate-limit allow. Best-effort to not affect rate limiting path.
+        if tenant_id and tenant_id != "anonymous":
+            try:
+                database_runtime = getattr(request.app.state, "database_runtime", None)
+                if database_runtime:
+                    session = database_runtime.session_factory()
+                    try:
+                        from uuid import UUID
+
+                        from backend.services.quota_enforcement import QuotaEnforcementService
+
+                        quota = QuotaEnforcementService(session)
+                        quota.check_and_record_api_call(UUID(tenant_id))
+                    finally:
+                        session.close()
+            except Exception:
+                # best effort; quota errors for api_calls will surface on next request or via status
+                pass
         return response

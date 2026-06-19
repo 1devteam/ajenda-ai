@@ -15,6 +15,7 @@ Endpoints:
   DELETE /v1/admin/tenants/{tenant_id}                            — Soft-delete a tenant
   POST   /v1/admin/tenants/{tenant_id}/plan                       — Change subscription plan
   GET    /v1/admin/tenants/{tenant_id}/quota                      — Get quota status
+  GET    /v1/admin/tenants/{tenant_id}/billing                    — Get billing status (PR3)
   POST   /v1/admin/tenants/{tenant_id}/tasks/{task_id}/approve-review
                                                                   — Approve a pending_review task
 """
@@ -35,6 +36,7 @@ from backend.repositories.execution_task_repository import ExecutionTaskReposito
 from backend.repositories.tenant_repository import (
     TenantDeletedError,
     TenantNotFoundError,
+    TenantRepository,
     TenantSuspendedError,
 )
 from backend.services.execution_coordinator import ExecutionCoordinator
@@ -268,6 +270,26 @@ def get_quota_status(
             "api_calls_count": status.api_calls_count,
             "api_calls_limit": status.api_calls_limit,
         },
+    }
+
+
+@router.get("/tenants/{tenant_id}/billing", status_code=200)
+def get_billing_status(
+    tenant_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db_session),
+) -> dict[str, object]:
+    """Return basic billing status for admin (Phase 2/3)."""
+    _require_admin(request)
+    repo = TenantRepository(db)
+    tenant = repo.get(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {
+        "tenant_id": str(tenant_id),
+        "plan": tenant.plan,
+        "stripe_customer_id": tenant.stripe_customer_id,
+        "status": tenant.status,
     }
 
 

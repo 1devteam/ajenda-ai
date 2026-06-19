@@ -706,9 +706,11 @@ authority_entries:
     side_effect_class: read_only_metrics_export
     allowed_side_effects:
       - expose metrics in scrape-compatible format
+      - support per-tenant labels (tenant_id) for SaaS observability (PR4)
     forbidden_side_effects:
       - mutate business/runtime state during metrics read
       - expose sensitive tenant payload data
+      - leak tenant data in global (non-labeled) metrics
     required_proofs:
       - tests/contract/metrics/test_metrics_endpoint.py
       - tests/unit/metrics/test_prometheus_exporter.py
@@ -835,3 +837,151 @@ authority_entries:
     required_proofs:
       - tests/unit/services/test_billing_stripe.py
       - docs/remediation/phase1_commercial_complete.md
+
+  - id: feature_flag_runtime_contract
+    area: tenant feature flag evaluation
+    source_of_truth:
+      - backend/services/feature_flag_service.py
+      - backend/services/quota_enforcement.py
+      - backend/domain/tenant_plan.py
+    route_scope: []
+    authority_class: read_model
+    side_effect_class: tenant_scoped_feature_gate
+    allowed_side_effects:
+      - evaluate whether a feature is enabled for an active tenant via its plan
+    forbidden_side_effects:
+      - mutate tenant plan or feature state directly
+      - bypass tenant isolation or active status checks
+      - return true for suspended/deleted tenants
+    required_proofs:
+      - tests/unit/services/test_feature_flag_service.py
+      - tests/unit/saas/test_quota_enforcement.py  # feature gating coverage
+
+  - id: observability_compliance_export_contract
+    area: tenant compliance observability export
+    source_of_truth:
+      - backend/api/routes/observability.py
+      - backend/services/observability_service.py
+    route_scope:
+      - /v1/observability/compliance/export
+    authority_class: read_model
+    side_effect_class: tenant_scoped_compliance_read
+    allowed_side_effects:
+      - read recent tenant-scoped audit and evidence records for compliance
+    forbidden_side_effects:
+      - mutate state
+      - cross-tenant access
+      - execute runtime work
+    required_proofs:
+      - tests/unit/api/test_observability_reliability_route.py
+      - tests/contract/api/test_observability_routes_contract.py
+
+  - id: gtm_pilot_high_risk_side_effect_authorization_guardian_contract
+    area: gtm external + pilot harness (PR9)
+    source_of_truth:
+      - backend/api/routes/ability_runtime.py
+      - backend/services/abilities/role_contracts.py
+      - backend/services/tools/schemas.py
+      - backend/services/tools/capability_validation.py
+      - backend/services/tools/runtime_authority.py
+    route_scope:
+      - /ability-runtime/tasks
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_side_effect_authorization
+    allowed_side_effects:
+      - launch high-risk gtm.* actions (gtm.email_send, gtm.crm_upsert, gtm.social_publish) only when approved_by references guardian role
+      - populate versioned execution_constraints.side_effect_authorization envelope from guardian-approved body for EXTERNAL_SEND/WRITE/PUBLISH
+      - set requires_human_review for high-risk GTM pilot to engage PolicyGuardian paths
+      - list gtm actions in ability-runtime exposed surface when gated by gtm feature
+    forbidden_side_effects:
+      - launch high-risk GTM external actions without guardian approval reference in approved_by
+      - bypass GUARDIAN_ROLE_CONTRACT.may_approve_side_effects for side-effecting gtm actions
+      - expose high-risk gtm without "gtm" feature flag + ability_runtime + execution permission
+    required_proofs:
+      - tests/unit/api/test_ability_runtime_quota_enforcement.py
+      - scripts/validation/ability_rollout_contract_check.py
+      - docs/contracts/authority-ledger.v1.yaml
+      - backend/services/abilities/catalog.py
+      # note: gtm externals declare HIGH risk + approval_required + idempotency_contract_ref
+
+  - id: outcome_review_bridge_high_risk_gtm
+    area: outcome review bridge for pilot (high-risk side effects)
+    source_of_truth:
+      - backend/services/worker_runtime_service.py
+      - backend/domain/outcome_review.py
+      - backend/repositories/outcome_review_repository.py
+    route_scope: []
+    authority_class: governed_mutation
+    side_effect_class: post_execution_governance_record
+    allowed_side_effects:
+      - on high-risk GTM side-effect task completion, create draft OutcomeReview linked to evidence and side_effect_authorization
+      - populate with evidence_references, approved_by from metadata, task info
+    forbidden_side_effects:
+      - mutate runtime state from review creation
+      - create review for non-high-risk or non-GTM
+    required_proofs:
+      - backend/services/worker_runtime_service.py
+      - docs/planning/capability-action-runtime-layer-plan.md
+
+  - id: api_calls_quota_enforcement_contract
+    area: SaaS quota and api usage metering (PR5)
+    source_of_truth:
+      - backend/services/quota_enforcement.py
+      - backend/middleware/rate_limit.py
+      - backend/repositories/tenant_repository.py
+      - backend/domain/tenant_plan.py
+      - backend/domain/tenant_usage.py
+    route_scope:
+      - all authenticated API routes (via RateLimitMiddleware)
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_usage_mutation
+    allowed_side_effects:
+      - check monthly api_calls quota before allowing request
+      - atomically increment api_calls_count on successful request
+      - report metered usage (best effort)
+      - expose api_calls_count/limit in admin quota status
+    forbidden_side_effects:
+      - allow requests that would exceed plan max_monthly_api_calls
+      - bypass quota check for api usage
+    required_proofs:
+      - tests/unit/saas/test_quota_enforcement.py
+      - backend/middleware/rate_limit.py
+
+  - id: crm_generic_evolved_real_egress
+    area: generic CRM tooling (crm.research/crm.read, gtm.crm_upsert) with real network
+    source_of_truth:
+      - backend/services/tools/sales_actions.py
+      - backend/services/tools/gtm_actions.py
+      - backend/services/network_egress.py
+      - backend/services/abilities/catalog.py
+    route_scope: []
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_external_read_write
+    allowed_side_effects:
+      - use credential secret + network_egress for real CRM research/read (GET) and upsert (POST)
+      - produce evidence with real_response when cred present
+    forbidden_side_effects:
+      - bypass credential or egress for CRM actions
+      - leak raw secrets
+    required_proofs:
+      - backend/services/tools/sales_actions.py
+      - backend/services/tools/gtm_actions.py
+      - scripts/validation/ability_rollout_contract_check.py
+
+  - id: social_publish_real_egress
+    area: gtm.social_publish real network egress
+    source_of_truth:
+      - backend/services/tools/gtm_actions.py
+      - backend/services/network_egress.py
+    route_scope: []
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_external_publish
+    allowed_side_effects:
+      - use cred + egress for real social publish POST when credential present
+      - mark real and capture response
+    forbidden_side_effects:
+      - simulated only when cred available
+      - unsafe egress
+    required_proofs:
+      - backend/services/tools/gtm_actions.py
+      - authority ledger update

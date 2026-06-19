@@ -48,7 +48,6 @@ from backend.api.routes.ability_runtime import router as ability_runtime_router
 from backend.api.routes.admin import router as admin_router
 from backend.api.routes.api_keys import router as api_keys_router
 from backend.api.routes.auth import router as auth_router
-from backend.api.routes.billing import router as billing_router
 from backend.api.routes.branch import router as branch_router
 from backend.api.routes.business_profile import router as business_profile_router
 from backend.api.routes.capability import router as capability_router
@@ -66,6 +65,12 @@ from backend.api.routes.system import router as system_router
 from backend.api.routes.task import router as task_router
 from backend.api.routes.webhooks import router as webhooks_router
 from backend.api.routes.workforce import router as workforce_router
+
+# Billing import is intentionally local to build_api_router() to avoid pulling
+# the stripe dependency (and its import-time side effects) into every module
+# that imports the router (common in unit/contract tests and non-billing paths).
+# The actual app and full integration surfaces still require the billing routes.
+# See PR 1 in the approved SaaS hardening plan.
 
 
 def build_api_router() -> APIRouter:
@@ -101,7 +106,13 @@ def build_api_router() -> APIRouter:
     v1.include_router(system_router)  # /v1/system/*
     v1.include_router(observability_router)  # /v1/observability/*
     v1.include_router(webhooks_router)  # /v1/webhooks/*
+
+    # Lazy import of billing to keep stripe out of import-time for non-billing
+    # test collection and modules. Actual build still wires the real router.
+    from backend.api.routes.billing import router as billing_router
+
     v1.include_router(billing_router)  # /v1/billing/*
+
     v1.include_router(admin_router)  # /v1/admin/* (platform control plane)
 
     root.include_router(v1)

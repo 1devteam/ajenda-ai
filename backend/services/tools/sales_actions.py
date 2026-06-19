@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.local_records import LocalRecordProvider, default_local_record_provider
 from backend.services.tools.schemas import (
@@ -158,9 +159,50 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         )
         if account:
             related.append(account)
-    output = {"lead": payload.lead, "related_records": related, "research_notes": ["local provider lookup completed"]}
+
+    # Evolve for item 1: support real/generic CRM via credential (like Gmail wiring)
+    # crm.research alias will pick up external cred if provided for real CRM read/research.
+    cred = context.runtime_credentials.get("sales.research") or context.runtime_credentials.get("crm.research") or {}
+    is_real = bool(cred and hasattr(cred, "secret_value") and cred.secret_value)
+    research_notes = ["local provider lookup completed"]
+    real_response = None
+    if is_real:
+        try:
+            secret = cred.secret_value
+            trusted = getattr(cred, "trusted_destination_hosts", None) or ("api.crm.example.com",)
+            # Build generic CRM search URL using first trusted host (demo; real CRM would have proper endpoint in cred or input)
+            search_url = f"https://{trusted[0]}/v1/search?company={payload.lead.get('company', '')}&domain={getattr(payload, 'domain', '') or ''}"
+            headers = {"Authorization": f"Bearer {secret}"}
+            _dest, resp = get_default_network_egress_authority().request(
+                method="GET",
+                url=search_url,
+                headers=headers,
+                allowed_hosts=list(trusted),
+                action_name="sales.research",
+                timeout_seconds=5.0,
+            )
+            research_notes = [f"real CRM external call via network_egress to {search_url} (status={resp.status_code})"]
+            real_response = {
+                "status_code": resp.status_code,
+                "body_preview": resp.body_text[:300] if resp.body_text else "",
+            }
+        except Exception as e:
+            research_notes = [f"real CRM external call failed: {e!s} (using cred but fallback to local)"]
+
+    output = {
+        "lead": payload.lead,
+        "related_records": related,
+        "research_notes": research_notes,
+        "real": is_real,
+    }
+    if is_real:
+        output["credential_reference"] = {
+            "provider": getattr(getattr(cred, "reference", None), "provider", None),
+        }
+        if real_response:
+            output["real_response"] = real_response
     inspected = [str(item["id"]) for item in related if "id" in item]
-    summary = f"Researched lead with {len(related)} related local record(s)."
+    summary = f"Researched lead with {len(related)} related local record(s)." + (" (real CRM cred)" if is_real else "")
     return ActionResult(
         action="sales.research",
         provider="local_sales",
@@ -173,12 +215,12 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
                 summary=summary,
                 payload=output,
                 inspected=inspected,
-                confidence=0.78,
+                confidence=0.78 if not is_real else 0.9,
             )
         ],
         records_inspected=inspected,
         summary=summary,
-        confidence=0.78,
+        confidence=0.78 if not is_real else 0.9,
     )
 
 
@@ -398,7 +440,7 @@ def register_sales_actions(registry: ActionRegistry) -> None:
             handler=sales_research,
             provider="local_sales",
             input_model=SalesLeadInput,
-            aliases=("crm.research",),
+            aliases=("crm.research", "crm.read"),
         )
     )
     registry.register(

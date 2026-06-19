@@ -19,7 +19,7 @@ import type {
 const DEFAULT_CONFIG: RuntimeConfig = {
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL ?? "",
   tenantId: import.meta.env.VITE_DEFAULT_TENANT_ID ?? "00000000-0000-0000-0000-000000000001",
-  apiKey: "",
+  apiKey: import.meta.env.VITE_DEFAULT_API_KEY ?? "",
 };
 
 const STORAGE_KEY = "ajenda.runtime.config.v1";
