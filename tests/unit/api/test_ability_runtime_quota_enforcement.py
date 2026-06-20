@@ -21,7 +21,7 @@ from backend.api.routes.ability_runtime import (
 from backend.services.execution_coordinator import CoordinationResult
 from backend.services.quota_enforcement import QuotaExceededError
 from backend.services.tools.runtime_authority import ToolRuntimeAuthority
-from backend.services.tools.schemas import SideEffectClass
+from backend.services.tools.schemas import CredentialReference, SideEffectClass
 
 
 class _AnyTenantId:
@@ -32,15 +32,28 @@ class _AnyTenantId:
         return False
 
 
-def _authorized_request() -> MagicMock:
+def _authorized_request(*, roles: tuple[str, ...] = ("operator",)) -> MagicMock:
     request = MagicMock()
     request.state.principal = SimpleNamespace(
         subject_id="test-user",
         tenant_id=_AnyTenantId(),
-        roles=("operator",),
+        roles=roles,
         permissions=frozenset(),
     )
     return request
+
+
+def _high_risk_gtm_body(*, idempotency_key: str | None = "idem-123") -> AbilityTaskCreate:
+    return AbilityTaskCreate(
+        action="gtm.email_send",
+        input={"to": "user@example.com", "subject": "Hello", "body": "Hi"},
+        idempotency_key=idempotency_key,
+        credential_reference=CredentialReference(
+            credential_id="cred-gmail",
+            provider="external_email",
+            credential_type="api_key",
+        ),
+    )
 
 
 def test_ability_runtime_enforcement_imports_and_sets():
@@ -149,6 +162,41 @@ def test_launch_task_records_mission_and_task_quota_before_queueing() -> None:
     quota_svc.check_and_record_mission_creation.assert_called_once_with(tenant_id)
     quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once()
+
+
+def test_launch_task_high_risk_gtm_requires_idempotency_key() -> None:
+    tenant_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request(roles=("guardian",))
+    body = _high_risk_gtm_body(idempotency_key=None)
+
+    quota_svc = MagicMock()
+
+    with patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc):
+        with pytest.raises(HTTPException) as exc_info:
+            launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    assert exc_info.value.status_code == 400
+    assert "idempotency_key" in str(exc_info.value.detail)
+    quota_svc.check_and_record_mission_creation.assert_not_called()
+
+
+def test_launch_task_high_risk_gtm_rejects_blank_idempotency_key() -> None:
+    tenant_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request(roles=("guardian",))
+    body = _high_risk_gtm_body(idempotency_key="   ")
+
+    quota_svc = MagicMock()
+
+    with patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc):
+        with pytest.raises(HTTPException) as exc_info:
+            launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    assert exc_info.value.status_code == 400
+    assert "idempotency_key" in str(exc_info.value.detail)
 
 
 def test_launch_task_returns_429_when_mission_quota_exceeded() -> None:

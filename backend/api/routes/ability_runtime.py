@@ -472,6 +472,11 @@ def launch_task(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"High-risk GTM action {action_name} requires credential_reference in launch payload.",
             )
+        if not (body.idempotency_key and body.idempotency_key.strip()):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"High-risk GTM action {action_name} requires idempotency_key in launch payload.",
+            )
 
     try:
         quota.check_and_record_mission_creation(tenant_id)

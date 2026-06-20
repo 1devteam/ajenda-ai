@@ -509,11 +509,6 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             side_effect_class=SideEffectClass.EXTERNAL_READ,
             provider="external_email",
             input_model=GtmEmailCheckInput,
-            credential_requirement=CredentialRequirement(
-                provider="external_email",
-                credential_type="api_key",
-                allowed_side_effect_classes=(SideEffectClass.EXTERNAL_READ,),
-            ),
         )
     )
     registry.register(

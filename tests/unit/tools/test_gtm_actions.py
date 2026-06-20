@@ -195,6 +195,20 @@ def test_gtm_email_check_uses_gmail_api_with_runtime_credential_material() -> No
     assert "is%3Aunread" in authority.request.call_args.kwargs["url"]
 
 
+def test_gtm_email_check_simulated_without_credential() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="gtm.email_check",
+            input={"query": "is:unread", "limit": 2},
+        ),
+        _context(),
+    )
+
+    assert result.output["emails"][0]["id"] == "sim-1"
+    assert result.side_effect_class.value == "external_read"
+
+
 def test_gtm_crm_upsert_simulated_without_credential() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(
