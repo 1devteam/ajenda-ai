@@ -10,5 +10,7 @@ def test_saas_plan_seed_includes_ability_runtime_for_pro_and_enterprise() -> Non
 def test_ability_runtime_feature_backfill_migration_targets_pro_and_enterprise() -> None:
     migration = Path("alembic/versions/0026_seed_ability_runtime_plan_feature.py").read_text(encoding="utf-8")
     assert "ability_runtime" in migration
+    assert '"gtm"' in migration
     assert "slug IN ('pro', 'enterprise')" in migration
     assert "features_enabled - 'ability_runtime'" in migration
+    assert "- 'gtm'" in migration

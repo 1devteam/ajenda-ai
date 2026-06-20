@@ -279,6 +279,13 @@ class GtmEmailSendInput(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class GtmEmailCheckInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(default="is:unread", min_length=1, max_length=500)
+    limit: int = Field(default=5, ge=1, le=50)
+
+
 class GtmCrmUpsertInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

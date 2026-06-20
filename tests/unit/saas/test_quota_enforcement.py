@@ -23,6 +23,8 @@ from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
     QuotaEnforcementService,
     QuotaExceededError,
+    _discard_pending_meter_reports,
+    _flush_pending_meter_reports,
 )
 
 # ---------------------------------------------------------------------------
@@ -491,3 +493,38 @@ class TestApiCallQuota:
         repo.get_plan.return_value = None
         svc._tenants = repo
         svc.check_and_record_api_call(uuid.uuid4())  # should not raise
+
+
+class TestStripeMeteringDeferral:
+    def test_meter_report_is_queued_until_flush(self, monkeypatch):
+        session = MagicMock()
+        session.info = {}
+        svc = QuotaEnforcementService(session)
+        tenant_id = uuid.uuid4()
+        stripe_calls: list[tuple[uuid.UUID, int, str]] = []
+
+        class _FakeBilling:
+            def __init__(self, _session) -> None:
+                pass
+
+            def report_metered_usage(self, tid, qty, *, metric="tasks"):
+                stripe_calls.append((tid, qty, metric))
+
+        monkeypatch.setattr(
+            "backend.services.billing_stripe_integration.StripeBillingService",
+            _FakeBilling,
+        )
+        svc._report_metered_if_possible(tenant_id, 2, "tasks")
+
+        assert len(session.info["pending_meter_reports"]) == 1
+        assert stripe_calls == []
+
+        _flush_pending_meter_reports(session)
+        assert stripe_calls == [(tenant_id, 2, "tasks")]
+        assert "pending_meter_reports" not in session.info
+
+    def test_meter_report_discarded_on_rollback(self):
+        session = MagicMock()
+        session.info = {"pending_meter_reports": ["pending"]}
+        _discard_pending_meter_reports(session)
+        assert "pending_meter_reports" not in session.info

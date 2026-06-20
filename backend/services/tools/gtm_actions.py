@@ -6,8 +6,12 @@ Local/simulated providers for proof-of-concept and CI; production uses credentia
 
 from __future__ import annotations
 
+import base64
+import json
 import uuid
+from email.mime.text import MIMEText
 from typing import Any
+from urllib.parse import quote
 
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
 from backend.services.credentials.runtime_authority import CredentialRequirement
@@ -18,14 +22,85 @@ from backend.services.tools.schemas import (
     ActionRuntimeContext,
     EvidenceItem,
     GtmCrmUpsertInput,
+    GtmEmailCheckInput,
     GtmEmailDraftInput,
     GtmEmailSendInput,
     GtmLeadEnrichInput,
+    RuntimeCredentialMaterial,
     GtmSocialPublishInput,
     RetrievalHybridInput,
     SideEffectClass,
     ToolInvocation,
 )
+
+
+def _get_runtime_credential(
+    ctx: ActionRuntimeContext,
+    *,
+    action: str,
+    aliases: tuple[str, ...] = (),
+) -> RuntimeCredentialMaterial | dict[str, Any] | None:
+    credentials = ctx.runtime_credentials
+    for key in (action, *aliases):
+        if key in credentials:
+            return credentials[key]
+    return None
+
+
+def _credential_secret(material: RuntimeCredentialMaterial | dict[str, Any] | None) -> str | None:
+    if material is None:
+        return None
+    if isinstance(material, dict):
+        secret = material.get("secret_value")
+        return str(secret) if isinstance(secret, str) and secret else None
+    return material.secret_value
+
+
+def _gmail_user(material: RuntimeCredentialMaterial | dict[str, Any] | None, *, default: str = "me") -> str:
+    if material is None:
+        return default
+    if isinstance(material, dict):
+        for field in ("user", "email"):
+            value = material.get(field)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        reference = material.get("reference")
+        if isinstance(reference, str) and "@" in reference:
+            return reference.strip()
+        return default
+    for header_name in ("X-Gmail-User", "gmail-user"):
+        injected = material.injected_headers.get(header_name)
+        if isinstance(injected, str) and injected.strip():
+            return injected.strip()
+    credential_id = material.reference.credential_id
+    if "@" in credential_id:
+        return credential_id
+    return default
+
+
+def _trusted_hosts(
+    material: RuntimeCredentialMaterial | dict[str, Any] | None,
+    *,
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    if material is None:
+        return default
+    if isinstance(material, dict):
+        raw_hosts = material.get("trusted_destination_hosts")
+        if raw_hosts:
+            return tuple(str(host) for host in raw_hosts)
+        return default
+    if material.trusted_destination_hosts:
+        return material.trusted_destination_hosts
+    return default
+
+
+def _gmail_api_send_payload(*, to: str, subject: str, body: str) -> dict[str, str]:
+    message = MIMEText(body or " ")
+    message["To"] = to
+    message["Subject"] = subject
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+    return {"raw": raw}
 
 
 def _make_evidence(
@@ -176,59 +251,46 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
     def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         inp = GtmEmailSendInput.model_validate(inv.input)
-
-        # Try real Gmail via credential injected by CredentialRuntimeAuthority
-        gmail_cred = None
-        for k in (inv.action, "gtm.email_send", "external_email"):
-            if k in getattr(ctx, "runtime_credentials", {}):
-                gmail_cred = ctx.runtime_credentials[k]
-                break
+        gmail_cred = _get_runtime_credential(
+            ctx,
+            action=inv.action,
+            aliases=("gtm.email_send", "external_email"),
+        )
+        body_text = inp.body or str(inp.context.get("body", ""))
 
         sent = {
             "to": inp.to,
             "subject": inp.subject,
-            "body": getattr(inp, "body", "") or inp.context.get("body", ""),
+            "body": body_text,
             "status": "sent",
             "message_id": "msg_" + str(ctx.task_id)[:8],
             "context": inp.context,
             "real": False,
         }
 
-        if gmail_cred:
+        secret = _credential_secret(gmail_cred)
+        if secret:
             try:
-                secret = gmail_cred.get("secret_value") if isinstance(gmail_cred, dict) else None
-                user = None
-                trusted_hosts: tuple[str, ...] = ("gmail.googleapis.com",)
-                if isinstance(gmail_cred, dict):
-                    user = gmail_cred.get("user") or gmail_cred.get("email") or gmail_cred.get("reference")
-                    raw_hosts = gmail_cred.get("trusted_destination_hosts")
-                    if raw_hosts:
-                        trusted_hosts = tuple(str(host) for host in raw_hosts)
-                if secret and user:
-                    send_url = f"https://{trusted_hosts[0]}/v1/users/{user}/messages/send"
-                    headers = {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
-                    body = {
-                        "to": inp.to,
-                        "subject": inp.subject,
-                        "body": sent["body"] or " ",
-                        "context": inp.context,
-                    }
-                    _dest, resp = get_default_network_egress_authority().request(
-                        method="POST",
-                        url=send_url,
-                        headers=headers,
-                        json_body=body,
-                        allowed_hosts=list(trusted_hosts),
-                        action_name=inv.action,
-                        timeout_seconds=10.0,
-                    )
-                    sent["status"] = "sent"
-                    sent["real"] = True
-                    sent["provider"] = "gmail_api"
-                    sent["real_response"] = {
-                        "status_code": resp.status_code,
-                        "body_preview": resp.body_text[:300] if resp.body_text else "",
-                    }
+                user = _gmail_user(gmail_cred)
+                trusted_hosts = _trusted_hosts(gmail_cred, default=("gmail.googleapis.com",))
+                send_url = f"https://{trusted_hosts[0]}/gmail/v1/users/{quote(user, safe='')}/messages/send"
+                headers = {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
+                _dest, resp = get_default_network_egress_authority().request(
+                    method="POST",
+                    url=send_url,
+                    headers=headers,
+                    json_body=_gmail_api_send_payload(to=inp.to, subject=inp.subject, body=body_text),
+                    allowed_hosts=list(trusted_hosts),
+                    action_name=inv.action,
+                    timeout_seconds=10.0,
+                )
+                sent["status"] = "sent"
+                sent["real"] = True
+                sent["provider"] = "gmail_api"
+                sent["real_response"] = {
+                    "status_code": resp.status_code,
+                    "body_preview": resp.body_text[:300] if resp.body_text else "",
+                }
             except Exception as e:
                 sent["status"] = "error"
                 sent["error"] = str(e)
@@ -256,60 +318,48 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
     def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         """Check/read recent emails from Gmail (supports real via credential or simulated)."""
-        # Support for input like {"query": "is:unread", "limit": 5} or simple
-        inp = inv.input or {}
-        limit = int(inp.get("limit", 5))
-        query = inp.get("query", "ALL")  # Gmail search syntax e.g. "from:someone" or "is:unread"
+        inp = GtmEmailCheckInput.model_validate(inv.input)
+        gmail_cred = _get_runtime_credential(
+            ctx,
+            action=inv.action,
+            aliases=("gtm.email_check", "external_email", "gmail"),
+        )
 
-        gmail_cred = None
-        for k in (inv.action, "gtm.email_check", "gmail"):
-            if k in getattr(ctx, "runtime_credentials", {}):
-                gmail_cred = ctx.runtime_credentials[k]
-                break
-
-        emails = []
-        if gmail_cred:
+        emails: list[dict[str, Any]] = []
+        secret = _credential_secret(gmail_cred)
+        if secret:
             try:
-                secret = gmail_cred.get("secret_value") if isinstance(gmail_cred, dict) else None
-                user = None
-                if isinstance(gmail_cred, dict):
-                    user = gmail_cred.get("user") or gmail_cred.get("email") or gmail_cred.get("reference")
-                if secret and user:
-                    import email
-                    import imaplib
-                    from email.header import decode_header
-
-                    mail = imaplib.IMAP4_SSL("imap.gmail.com")
-                    mail.login(user, secret)
-                    mail.select("inbox")
-                    _, data = mail.search(None, query)
-                    mail_ids = data[0].split()[-limit:] if data[0] else []
-                    for i in mail_ids:
-                        _, msg_data = mail.fetch(i, "(RFC822)")
-                        raw = msg_data[0][1]
-                        msg = email.message_from_bytes(raw)
-                        subject, encoding = decode_header(msg["Subject"])[0] if msg["Subject"] else ("", None)
-                        if isinstance(subject, bytes):
-                            subject = subject.decode(encoding or "utf-8")
-                        emails.append(
-                            {
-                                "id": i.decode(),
-                                "from": msg.get("From"),
-                                "to": msg.get("To"),
-                                "subject": subject,
-                                "date": msg.get("Date"),
-                                "snippet": (msg.get_payload() or "")[:200]
-                                if isinstance(msg.get_payload(), str)
-                                else "",
-                            }
-                        )
-                    mail.close()
-                    mail.logout()
+                user = _gmail_user(gmail_cred)
+                trusted_hosts = _trusted_hosts(gmail_cred, default=("gmail.googleapis.com",))
+                list_url = (
+                    f"https://{trusted_hosts[0]}/gmail/v1/users/{quote(user, safe='')}/messages"
+                    f"?q={quote(inp.query, safe='')}&maxResults={inp.limit}"
+                )
+                headers = {"Authorization": f"Bearer {secret}"}
+                _dest, resp = get_default_network_egress_authority().request(
+                    method="GET",
+                    url=list_url,
+                    headers=headers,
+                    json_body=None,
+                    allowed_hosts=list(trusted_hosts),
+                    action_name=inv.action,
+                    timeout_seconds=10.0,
+                )
+                payload_json = json.loads(resp.body_text or "{}")
+                for message in payload_json.get("messages", [])[: inp.limit]:
+                    if not isinstance(message, dict):
+                        continue
+                    emails.append(
+                        {
+                            "id": message.get("id"),
+                            "thread_id": message.get("threadId"),
+                            "snippet": message.get("snippet"),
+                        }
+                    )
             except Exception as e:
                 emails = [{"error": str(e)}]
 
         if not emails:
-            # simulated fallback
             emails = [
                 {
                     "id": "sim-1",
@@ -320,7 +370,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 },
             ]
 
-        payload = {"query": query, "limit": limit, "emails": emails}
+        payload = {"query": inp.query, "limit": inp.limit, "emails": emails}
         return ActionResult(
             action=inv.action,
             provider="external_email",
@@ -458,7 +508,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             handler=email_check_handler,
             side_effect_class=SideEffectClass.EXTERNAL_READ,
             provider="external_email",
-            input_model=GtmEmailSendInput,  # loose, handler accepts flexible query dict
+            input_model=GtmEmailCheckInput,
             credential_requirement=CredentialRequirement(
                 provider="external_email",
                 credential_type="api_key",

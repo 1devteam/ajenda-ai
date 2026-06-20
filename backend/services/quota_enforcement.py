@@ -31,6 +31,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
@@ -54,6 +55,45 @@ class QuotaExceededError(ValueError):
             f"Quota exceeded for {field!r}: current={current}, limit={limit} "
             f"(plan={plan!r}). Upgrade your plan to continue."
         )
+
+
+_PENDING_METER_REPORTS_KEY = "pending_meter_reports"
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingMeterReport:
+    tenant_id: uuid.UUID
+    amount: int
+    metric: str
+
+
+def _queue_meter_report(session: Session, *, tenant_id: uuid.UUID, amount: int, metric: str) -> None:
+    pending: list[_PendingMeterReport] = session.info.setdefault(_PENDING_METER_REPORTS_KEY, [])
+    pending.append(_PendingMeterReport(tenant_id=tenant_id, amount=amount, metric=metric))
+
+
+def _flush_pending_meter_reports(session: Session) -> None:
+    pending = session.info.pop(_PENDING_METER_REPORTS_KEY, None)
+    if not pending:
+        return
+    try:
+        from backend.services.billing_stripe_integration import StripeBillingService
+
+        billing = StripeBillingService(session)
+        for report in pending:
+            billing.report_metered_usage(report.tenant_id, report.amount, metric=report.metric)
+    except Exception:
+        pass
+
+
+@event.listens_for(Session, "after_commit")
+def _report_metered_usage_after_commit(session: Session) -> None:
+    _flush_pending_meter_reports(session)
+
+
+@event.listens_for(Session, "after_rollback")
+def _discard_pending_meter_reports(session: Session) -> None:
+    session.info.pop(_PENDING_METER_REPORTS_KEY, None)
 
 
 class FeatureNotAvailableError(ValueError):
@@ -358,11 +398,5 @@ class QuotaEnforcementService:
     # ------------------------------------------------------------------
 
     def _report_metered_if_possible(self, tenant_id: uuid.UUID, amount: int, metric: str) -> None:
-        try:
-            from backend.services.billing_stripe_integration import StripeBillingService
-
-            billing = StripeBillingService(self._session)
-            billing.report_metered_usage(tenant_id, amount, metric=metric)
-        except Exception:
-            # Metering is best-effort; log would be noisy in unit tests.
-            pass
+        """Queue Stripe metering for after the enclosing transaction commits."""
+        _queue_meter_report(self._session, tenant_id=tenant_id, amount=amount, metric=metric)

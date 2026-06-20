@@ -174,6 +174,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
                         quota = QuotaEnforcementService(session)
                         quota.check_and_record_api_call(UUID(tenant_id))
+                        session.commit()
+                    except Exception:
+                        session.rollback()
                     finally:
                         session.close()
             except Exception:
