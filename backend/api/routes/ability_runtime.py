@@ -74,6 +74,12 @@ GTM_HIGH_RISK_ACTIONS: set[str] = {
     "gtm.social_publish",
 }
 
+# Credentialed external reads require guardian approval before launch.
+CREDENTIALED_EXTERNAL_READ_ACTIONS: set[str] = {
+    "gtm.email_check",
+    "sales.research",
+}
+
 EXPOSED_ACTIONS: set[str] = READ_SAFE_ACTIONS | INTERNAL_WRITE_ACTIONS | EXTERNAL_ACTIONS
 
 
@@ -476,6 +482,16 @@ def launch_task(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"High-risk GTM action {action_name} requires idempotency_key in launch payload.",
+            )
+
+    if action_name in CREDENTIALED_EXTERNAL_READ_ACTIONS and body.credential_reference is not None:
+        if not _principal_may_approve_gtm_side_effects(request):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"External read action {action_name} with credential_reference "
+                    "requires guardian, admin, or tenant_admin role."
+                ),
             )
 
     try:

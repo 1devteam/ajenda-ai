@@ -301,12 +301,11 @@ class QuotaEnforcementService:
                 plan=tenant.plan,
             )
 
-    def check_and_record_api_call(self, tenant_id: uuid.UUID) -> None:
-        """Check monthly API call quota and increment counter atomically.
+    def check_api_call_quota(self, tenant_id: uuid.UUID) -> None:
+        """Raise if the tenant has reached their monthly API call limit.
 
-        Intended to be called for authenticated API requests (e.g. from rate
-        limit middleware after allowing the request). Raises QuotaExceededError
-        if the tenant has reached max_monthly_api_calls for the plan.
+        Intended for admission checks before request handlers run. Does not
+        increment usage; pair with :meth:`record_api_call` after success.
         """
         tenant = self._tenants.get_active(tenant_id)
         plan = self._tenants.get_plan(tenant.plan)
@@ -324,8 +323,25 @@ class QuotaEnforcementService:
                 plan=tenant.plan,
             )
 
+    def record_api_call(self, tenant_id: uuid.UUID) -> None:
+        """Increment monthly API call usage after a successful request."""
+        tenant = self._tenants.get_active(tenant_id)
+        plan = self._tenants.get_plan(tenant.plan)
+        if plan is None:
+            return
+
         self._tenants.increment_usage(tenant_id, field="api_calls_count")
         self._report_metered_if_possible(tenant_id, 1, "api_calls")
+
+    def check_and_record_api_call(self, tenant_id: uuid.UUID) -> None:
+        """Check monthly API call quota and increment counter atomically.
+
+        Intended to be called for authenticated API requests (e.g. from rate
+        limit middleware after allowing the request). Raises QuotaExceededError
+        if the tenant has reached max_monthly_api_calls for the plan.
+        """
+        self.check_api_call_quota(tenant_id)
+        self.record_api_call(tenant_id)
 
     # ------------------------------------------------------------------
     # Feature gate

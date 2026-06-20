@@ -494,6 +494,28 @@ class TestApiCallQuota:
         svc._tenants = repo
         svc.check_and_record_api_call(uuid.uuid4())  # should not raise
 
+    def test_check_api_call_quota_blocks_without_increment(self):
+        svc = _make_service(
+            _make_tenant("free"),
+            _make_plan(max_api_calls=1000),
+            _make_usage(api_calls=1000),
+        )
+        with pytest.raises(QuotaExceededError):
+            svc.check_api_call_quota(uuid.uuid4())
+        svc._tenants.increment_usage.assert_not_called()
+
+    def test_record_api_call_increments_without_rechecking_limit(self):
+        svc = _make_service(
+            _make_tenant("free"),
+            _make_plan(max_api_calls=1000),
+            _make_usage(api_calls=1000),
+        )
+        tenant_id = uuid.uuid4()
+        svc.record_api_call(tenant_id)
+        call_kwargs = svc._tenants.increment_usage.call_args
+        assert call_kwargs is not None
+        assert call_kwargs.kwargs.get("field") == "api_calls_count"
+
 
 class TestStripeMeteringDeferral:
     def test_meter_report_is_queued_until_flush(self, monkeypatch):

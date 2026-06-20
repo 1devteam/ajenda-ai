@@ -10,6 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from backend.api.routes.ability_runtime import (
+    CREDENTIALED_EXTERNAL_READ_ACTIONS,
     EXTERNAL_ACTIONS,
     GTM_HIGH_RISK_ACTIONS,
     INTERNAL_WRITE_ACTIONS,
@@ -68,6 +69,7 @@ def test_ability_runtime_enforcement_imports_and_sets():
     assert "gtm.crm_upsert" in EXTERNAL_ACTIONS
     assert "gtm.social_publish" in EXTERNAL_ACTIONS
     assert GTM_HIGH_RISK_ACTIONS == {"gtm.email_send", "gtm.crm_upsert", "gtm.social_publish"}
+    assert CREDENTIALED_EXTERNAL_READ_ACTIONS == {"gtm.email_check", "sales.research"}
 
     # Internal writes also trigger authority (and thus potential future quota/feature)
     assert "record.write" in INTERNAL_WRITE_ACTIONS
@@ -197,6 +199,57 @@ def test_launch_task_high_risk_gtm_rejects_blank_idempotency_key() -> None:
 
     assert exc_info.value.status_code == 400
     assert "idempotency_key" in str(exc_info.value.detail)
+
+
+def test_launch_task_credentialed_gtm_email_check_requires_guardian() -> None:
+    tenant_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request(roles=("operator",))
+    body = AbilityTaskCreate(
+        action="gtm.email_check",
+        input={"query": "is:unread", "limit": 5},
+        credential_reference=CredentialReference(
+            credential_id="cred-gmail",
+            provider="external_email",
+            credential_type="api_key",
+        ),
+    )
+
+    quota_svc = MagicMock()
+
+    with patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc):
+        with pytest.raises(HTTPException) as exc_info:
+            launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    assert exc_info.value.status_code == 403
+    assert "gtm.email_check" in str(exc_info.value.detail)
+    quota_svc.check_and_record_mission_creation.assert_not_called()
+
+
+def test_launch_task_credentialed_sales_research_requires_guardian() -> None:
+    tenant_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request(roles=("operator",))
+    body = AbilityTaskCreate(
+        action="sales.research",
+        input={"lead": {"company": "Acme"}},
+        credential_reference=CredentialReference(
+            credential_id="cred-crm",
+            provider="external_crm",
+            credential_type="api_key",
+        ),
+    )
+
+    quota_svc = MagicMock()
+
+    with patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc):
+        with pytest.raises(HTTPException) as exc_info:
+            launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    assert exc_info.value.status_code == 403
+    assert "sales.research" in str(exc_info.value.detail)
 
 
 def test_launch_task_returns_429_when_mission_quota_exceeded() -> None:
