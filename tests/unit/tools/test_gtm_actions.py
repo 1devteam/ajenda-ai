@@ -209,6 +209,92 @@ def test_gtm_email_check_simulated_without_credential() -> None:
     assert result.side_effect_class.value == "external_read"
 
 
+def test_gtm_email_send_rejects_non_2xx_response() -> None:
+    from backend.services.tools.action_registry import ActionRegistry
+    from backend.services.tools.gtm_actions import register_gtm_actions
+
+    registry = ActionRegistry()
+    register_gtm_actions(registry)
+    handler = registry.get("gtm.email_send").handler
+    context = _context()
+    context.runtime_credentials = {
+        "gtm.email_send": {
+            "secret_value": "token-123",
+            "user": "me",
+            "trusted_destination_hosts": ["gmail.googleapis.com"],
+        }
+    }
+    destination = VettedNetworkDestination(
+        original_url="https://gmail.googleapis.com/v1/users/me/messages/send",
+        connect_url="https://1.2.3.4/v1/users/me/messages/send",
+        pinned_ip=__import__("ipaddress").ip_address("1.2.3.4"),
+        sni_hostname="gmail.googleapis.com",
+        host_header="gmail.googleapis.com",
+    )
+    response = NetworkEgressResponse(status_code=500, headers={}, body_text="error", body_truncated=False)
+    authority = MagicMock()
+    authority.request.return_value = (destination, response)
+
+    with patch(
+        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        result = handler(
+            ToolInvocation(
+                action="gtm.email_send",
+                input={"to": "user@example.com", "subject": "Hello", "body": "Hi"},
+            ),
+            context,
+        )
+
+    assert result.output["real"] is False
+    assert result.output["status"] == "error"
+    assert "500" in result.output["error"]
+
+
+def test_gtm_email_send_propagates_idempotency_key_to_provider() -> None:
+    from backend.services.tools.action_registry import ActionRegistry
+    from backend.services.tools.gtm_actions import register_gtm_actions
+
+    registry = ActionRegistry()
+    register_gtm_actions(registry)
+    handler = registry.get("gtm.email_send").handler
+    context = _context()
+    context.runtime_credentials = {
+        "gtm.email_send": {
+            "secret_value": "token-123",
+            "user": "me",
+            "trusted_destination_hosts": ["gmail.googleapis.com"],
+        }
+    }
+    destination = VettedNetworkDestination(
+        original_url="https://gmail.googleapis.com/v1/users/me/messages/send",
+        connect_url="https://1.2.3.4/v1/users/me/messages/send",
+        pinned_ip=__import__("ipaddress").ip_address("1.2.3.4"),
+        sni_hostname="gmail.googleapis.com",
+        host_header="gmail.googleapis.com",
+    )
+    response = NetworkEgressResponse(status_code=200, headers={}, body_text='{"id":"msg-1"}', body_truncated=False)
+    authority = MagicMock()
+    authority.request.return_value = (destination, response)
+
+    with patch(
+        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        result = handler(
+            ToolInvocation(
+                action="gtm.email_send",
+                input={"to": "user@example.com", "subject": "Hello", "body": "Hi"},
+                idempotency_key="idem-gmail-1",
+            ),
+            context,
+        )
+
+    assert authority.request.call_args.kwargs["headers"]["Idempotency-Key"] == "idem-gmail-1"
+    assert result.output["idempotency_key"] == "idem-gmail-1"
+
+
 def test_gtm_crm_upsert_simulated_without_credential() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(

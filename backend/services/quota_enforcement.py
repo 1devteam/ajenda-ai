@@ -32,7 +32,7 @@ import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import event
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import get_settings
 from backend.repositories.tenant_repository import (
@@ -76,14 +76,26 @@ def _flush_pending_meter_reports(session: Session) -> None:
     pending = session.info.pop(_PENDING_METER_REPORTS_KEY, None)
     if not pending:
         return
+    bind = session.get_bind()
+    if bind is None:
+        return
+    fresh_session = sessionmaker(
+        bind=bind,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        future=True,
+    )()
     try:
         from backend.services.billing_stripe_integration import StripeBillingService
 
-        billing = StripeBillingService(session)
+        billing = StripeBillingService(fresh_session)
         for report in pending:
             billing.report_metered_usage(report.tenant_id, report.amount, metric=report.metric)
     except Exception:
         pass
+    finally:
+        fresh_session.close()
 
 
 @event.listens_for(Session, "after_commit")

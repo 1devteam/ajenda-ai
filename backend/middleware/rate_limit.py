@@ -39,6 +39,7 @@ from starlette.types import ASGIApp
 
 from backend.app.config import get_settings
 from backend.rate_limit.limiter import RateLimiter, RateLimitKey, RoutePolicy
+from backend.services.quota_enforcement import QuotaExceededError
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         quota = QuotaEnforcementService(session)
                         quota.check_and_record_api_call(UUID(tenant_id))
                         session.commit()
+                    except QuotaExceededError as exc:
+                        session.rollback()
+                        return JSONResponse(
+                            status_code=402,
+                            content={
+                                "code": "QUOTA_EXCEEDED",
+                                "field": exc.field,
+                                "limit": exc.limit,
+                                "current": exc.current,
+                                "plan": exc.plan,
+                                "message": (
+                                    f"You have reached the {exc.field} limit ({exc.limit}) "
+                                    f"for the {exc.plan!r} plan. Upgrade to continue."
+                                ),
+                            },
+                        )
                     except Exception:
                         session.rollback()
                     finally:

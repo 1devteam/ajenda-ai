@@ -528,3 +528,45 @@ class TestStripeMeteringDeferral:
         session.info = {"pending_meter_reports": ["pending"]}
         _discard_pending_meter_reports(session)
         assert "pending_meter_reports" not in session.info
+
+    def test_meter_flush_uses_fresh_session_not_committed_one(self, monkeypatch):
+        from backend.services.quota_enforcement import _PendingMeterReport
+
+        committed_session = MagicMock()
+        committed_session.info = {
+            "pending_meter_reports": [
+                _PendingMeterReport(tenant_id=uuid.uuid4(), amount=1, metric="api_calls"),
+            ]
+        }
+        bind = MagicMock()
+        committed_session.get_bind.return_value = bind
+
+        fresh_session = MagicMock()
+        factory = MagicMock(return_value=fresh_session)
+        fake_sessionmaker = MagicMock(return_value=factory)
+        monkeypatch.setattr(
+            "backend.services.quota_enforcement.sessionmaker",
+            fake_sessionmaker,
+        )
+
+        stripe_sessions: list[object] = []
+
+        class _FakeBilling:
+            def __init__(self, session) -> None:
+                stripe_sessions.append(session)
+
+            def report_metered_usage(self, tid, qty, *, metric="tasks"):
+                pass
+
+        monkeypatch.setattr(
+            "backend.services.billing_stripe_integration.StripeBillingService",
+            _FakeBilling,
+        )
+
+        _flush_pending_meter_reports(committed_session)
+
+        fake_sessionmaker.assert_called_once()
+        factory.assert_called_once()
+        fresh_session.close.assert_called_once()
+        assert stripe_sessions == [fresh_session]
+        assert committed_session is not stripe_sessions[0]

@@ -103,6 +103,23 @@ def _gmail_api_send_payload(*, to: str, subject: str, body: str) -> dict[str, st
     return {"raw": raw}
 
 
+def _http_is_success(status_code: int) -> bool:
+    return 200 <= status_code < 300
+
+
+def _provider_headers(base: dict[str, str], inv: ToolInvocation) -> dict[str, str]:
+    headers = dict(base)
+    if inv.idempotency_key and inv.idempotency_key.strip():
+        headers["Idempotency-Key"] = inv.idempotency_key.strip()
+    return headers
+
+
+def _provider_body(body: dict[str, Any], inv: ToolInvocation) -> dict[str, Any]:
+    if inv.idempotency_key and inv.idempotency_key.strip():
+        return {**body, "idempotency_key": inv.idempotency_key.strip()}
+    return body
+
+
 def _make_evidence(
     action: str,
     provider: str,
@@ -274,7 +291,10 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 user = _gmail_user(gmail_cred)
                 trusted_hosts = _trusted_hosts(gmail_cred, default=("gmail.googleapis.com",))
                 send_url = f"https://{trusted_hosts[0]}/gmail/v1/users/{quote(user, safe='')}/messages/send"
-                headers = {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
+                headers = _provider_headers(
+                    {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
+                    inv,
+                )
                 _dest, resp = get_default_network_egress_authority().request(
                     method="POST",
                     url=send_url,
@@ -284,13 +304,20 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     action_name=inv.action,
                     timeout_seconds=10.0,
                 )
-                sent["status"] = "sent"
-                sent["real"] = True
-                sent["provider"] = "gmail_api"
                 sent["real_response"] = {
                     "status_code": resp.status_code,
                     "body_preview": resp.body_text[:300] if resp.body_text else "",
                 }
+                if _http_is_success(resp.status_code):
+                    sent["status"] = "sent"
+                    sent["real"] = True
+                    sent["provider"] = "gmail_api"
+                    if inv.idempotency_key:
+                        sent["idempotency_key"] = inv.idempotency_key
+                else:
+                    sent["status"] = "error"
+                    sent["real"] = False
+                    sent["error"] = f"Gmail API returned HTTP {resp.status_code}"
             except Exception as e:
                 sent["status"] = "error"
                 sent["error"] = str(e)
@@ -335,7 +362,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     f"https://{trusted_hosts[0]}/gmail/v1/users/{quote(user, safe='')}/messages"
                     f"?q={quote(inp.query, safe='')}&maxResults={inp.limit}"
                 )
-                headers = {"Authorization": f"Bearer {secret}"}
+                headers = _provider_headers({"Authorization": f"Bearer {secret}"}, inv)
                 _dest, resp = get_default_network_egress_authority().request(
                     method="GET",
                     url=list_url,
@@ -345,6 +372,8 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     action_name=inv.action,
                     timeout_seconds=10.0,
                 )
+                if not _http_is_success(resp.status_code):
+                    raise ValueError(f"Gmail API returned HTTP {resp.status_code}")
                 payload_json = json.loads(resp.body_text or "{}")
                 for message in payload_json.get("messages", [])[: inp.limit]:
                     if not isinstance(message, dict):
@@ -417,8 +446,11 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     # Actual real path: use network_egress with cred for external CRM write
                     trusted = getattr(crm_cred, "trusted_destination_hosts", None) or ("api.crm.example.com",)
                     upsert_url = f"https://{trusted[0]}/v1/upsert"
-                    headers = {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
-                    body = {"record_type": inp.record_type, "data": inp.data}
+                    headers = _provider_headers(
+                        {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
+                        inv,
+                    )
+                    body = _provider_body({"record_type": inp.record_type, "data": inp.data}, inv)
                     _dest, resp = get_default_network_egress_authority().request(
                         method="POST",
                         url=upsert_url,
@@ -428,13 +460,20 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                         action_name=inv.action,
                         timeout_seconds=10.0,
                     )
-                    upserted["status"] = "upserted_real"
-                    upserted["credential_used"] = True
-                    upserted["real"] = True
                     upserted["real_response"] = {
                         "status_code": resp.status_code,
                         "body_preview": resp.body_text[:300] if resp.body_text else "",
                     }
+                    if _http_is_success(resp.status_code):
+                        upserted["status"] = "upserted_real"
+                        upserted["credential_used"] = True
+                        upserted["real"] = True
+                        if inv.idempotency_key:
+                            upserted["idempotency_key"] = inv.idempotency_key
+                    else:
+                        upserted["status"] = "error"
+                        upserted["real"] = False
+                        upserted["error"] = f"CRM API returned HTTP {resp.status_code}"
             except Exception as e:
                 upserted["status"] = "error"
                 upserted["error"] = str(e)
@@ -550,8 +589,11 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 if secret:
                     trusted = getattr(social_cred, "trusted_destination_hosts", None) or ("api.social.example.com",)
                     publish_url = f"https://{trusted[0]}/publish"
-                    headers = {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
-                    body = {"platform": inp.platform, "content": inp.content}
+                    headers = _provider_headers(
+                        {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
+                        inv,
+                    )
+                    body = _provider_body({"platform": inp.platform, "content": inp.content}, inv)
                     _dest, resp = get_default_network_egress_authority().request(
                         method="POST",
                         url=publish_url,
@@ -561,13 +603,20 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                         action_name=inv.action,
                         timeout_seconds=10.0,
                     )
-                    published["status"] = "published_real"
-                    published["credential_used"] = True
-                    published["real"] = True
                     published["real_response"] = {
                         "status_code": resp.status_code,
                         "body_preview": resp.body_text[:300] if resp.body_text else "",
                     }
+                    if _http_is_success(resp.status_code):
+                        published["status"] = "published_real"
+                        published["credential_used"] = True
+                        published["real"] = True
+                        if inv.idempotency_key:
+                            published["idempotency_key"] = inv.idempotency_key
+                    else:
+                        published["status"] = "error"
+                        published["real"] = False
+                        published["error"] = f"Social API returned HTTP {resp.status_code}"
             except Exception as e:
                 published["status"] = "error"
                 published["error"] = str(e)
