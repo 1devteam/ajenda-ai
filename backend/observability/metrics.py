@@ -19,6 +19,7 @@ class MetricsSnapshot:
     stage_budget_limit_runtime_minutes: float = 0.0
     stage_budget_spend_runtime_minutes: float = 0.0
     stage_budget_breach_total: int = 0
+    tenant_id: str | None = None  # for per-tenant labels in observability (PR4)
 
 
 class ObservabilityMetrics:
@@ -39,6 +40,7 @@ class ObservabilityMetrics:
         stage_budget_limit_runtime_minutes: float = 0.0,
         stage_budget_spend_runtime_minutes: float = 0.0,
         stage_budget_breach_total: int = 0,
+        tenant_id: str | None = None,
     ) -> MetricsSnapshot:
         return MetricsSnapshot(
             tasks_queued=tasks_queued,
@@ -55,4 +57,5 @@ class ObservabilityMetrics:
             stage_budget_limit_runtime_minutes=stage_budget_limit_runtime_minutes,
             stage_budget_spend_runtime_minutes=stage_budget_spend_runtime_minutes,
             stage_budget_breach_total=stage_budget_breach_total,
+            tenant_id=tenant_id,
         )

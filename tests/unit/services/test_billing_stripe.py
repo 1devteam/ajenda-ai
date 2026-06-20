@@ -304,3 +304,35 @@ class TestPriceIdToPlan:
         with patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP):
             assert _price_id_to_plan("price_starter_test") == "starter"
             assert _price_id_to_plan("price_pro_test") == "pro"
+
+
+# ---------------------------------------------------------------------------
+# Metered usage reporting (PR3)
+# ---------------------------------------------------------------------------
+
+
+class TestReportMeteredUsage:
+    def test_reports_usage_when_customer_and_active_sub_exists(self, billing, db, tenant_with_customer):
+        with (
+            patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
+            patch("stripe.Subscription.list") as mock_list,
+            patch("stripe.SubscriptionItem") as mock_si,
+        ):
+            mock_list.return_value = {
+                "data": [{"items": {"data": [{"id": "si_meted123", "price": {"id": "price_pro_test"}}]}}]
+            }
+            billing.report_metered_usage(tenant_with_customer.id, 5, metric="tasks")
+            mock_si.create_usage_record.assert_called_once()
+            call = mock_si.create_usage_record.call_args
+            assert call.kwargs["subscription_item"] == "si_meted123"
+            assert call.kwargs["quantity"] == 5
+            assert call.kwargs["action"] == "increment"
+
+    def test_skips_when_no_customer(self, billing, db, tenant):
+        billing.report_metered_usage(tenant.id, 10)
+        # no stripe calls expected (implicit, no assert on patch)
+
+    def test_best_effort_on_stripe_error(self, billing, db, tenant_with_customer):
+        with patch("stripe.Subscription.list", side_effect=stripe.StripeError("boom")):
+            # should not raise
+            billing.report_metered_usage(tenant_with_customer.id, 3)

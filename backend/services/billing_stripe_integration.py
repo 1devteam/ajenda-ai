@@ -26,6 +26,7 @@ Security:
 from __future__ import annotations
 
 import logging
+import time
 from uuid import UUID
 
 import stripe
@@ -241,9 +242,14 @@ class StripeBillingService:
         logger.info("Subscription cancelled for tenant %s — downgraded to free.", tenant_id)
 
     def _handle_payment_failed(self, obj: dict) -> None:  # type: ignore[type-arg]
-        """Log payment failures. Suspension is handled by subscription.deleted event."""
+        """Log payment failures for dunning. Suspension on repeated failure is
+        handled via subscription.deleted in Stripe (or manual admin).
+        """
         customer_id = obj.get("customer")
-        logger.warning("Payment failed for Stripe customer %s.", customer_id)
+        logger.warning(
+            "Dunning: payment failed for Stripe customer %s. Review subscription.",
+            customer_id,
+        )
 
     # ------------------------------------------------------------------
     # Quota gate
@@ -261,3 +267,55 @@ class StripeBillingService:
         layer's entry point into that existing enforcement chain.
         """
         quota_service.check_tenant_active(tenant_id)
+
+    # ------------------------------------------------------------------
+    # Metered usage reporting (PR3 Billing v2)
+    # ------------------------------------------------------------------
+
+    def report_metered_usage(
+        self,
+        tenant_id: UUID,
+        quantity: int,
+        *,
+        metric: str = "tasks",
+    ) -> None:
+        """Report incremental usage to Stripe for metered billing (best effort).
+
+        Looks up the tenant's active subscription items via the Stripe customer,
+        finds a matching metered price, and creates a usage record.
+
+        Failures are logged only; they never block quota enforcement or task
+        admission.
+        """
+        if quantity <= 0:
+            return
+        tenant = self._tenant_repo.get(tenant_id)
+        if tenant is None or not tenant.stripe_customer_id:
+            return
+        try:
+            subs = stripe.Subscription.list(
+                customer=tenant.stripe_customer_id,
+                status="active",
+                limit=3,
+            )
+            for sub in subs.get("data", []):
+                for item in sub.get("items", {}).get("data", []):
+                    price = item.get("price", {})
+                    price_id = price.get("id")
+                    if price_id and _price_id_to_plan(price_id):
+                        stripe.SubscriptionItem.create_usage_record(
+                            subscription_item=item["id"],
+                            quantity=quantity,
+                            timestamp=int(time.time()),
+                            action="increment",
+                        )
+                        logger.info(
+                            "Reported metered %s usage +%s for tenant %s (item=%s)",
+                            metric,
+                            quantity,
+                            tenant_id,
+                            item["id"],
+                        )
+                        return
+        except stripe.StripeError as exc:
+            logger.warning("Stripe metered usage report failed for tenant %s: %s", tenant_id, exc)

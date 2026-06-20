@@ -1,6 +1,6 @@
 # AJENDA-AI GTM Capability Catalog
 
-**Status:** Planned (Bundle 6.1 catalog baseline)  
+**Status:** Runtime binding implemented for core GTM actions (internal + high-risk external with credential requirements wired and real network_egress paths for email/CRM/social); generic CRM evolved with credential support for external reads/writes via egress. Cutting-edge retrieval advanced; Wasm/TEE foundation contract layer started. 
 **Effective date:** May 27, 2026  
 **Owner:** Product/Architecture + Growth Operations  
 **Last reviewed:** May 27, 2026
@@ -41,6 +41,7 @@ Each GTM capability should define at minimum:
 |---|---|---|---|---|---|---|
 | `gtm.lead.discovery.query_builder.v1` | Lead discovery query builder | web | low | none | none | Generates search criteria and ICP-aligned query sets. |
 | `gtm.lead.discovery.candidate_enrichment.v1` | Candidate enrichment | web/crm | moderate | sample_review | external_write | Adds enrichment facts with provenance tags. |
+| `crm.research` / `crm.read` | Generic CRM research/read | crm | low | none | none | Local proof + credential-aware external read (evolved from sales alias). |
 | `gtm.lead.discovery.qualification_scoring.v1` | Qualification scoring | internal | moderate | sample_review | none | Produces explainable scoring and disqualification reasons. |
 
 ## B) Outbound sequencing and follow-up
@@ -111,4 +112,10 @@ Deferred high-risk capabilities until explicit pilot hardening:
 - `capability_id` and `schema_version` are immutable once published.
 - Semantic meaning of existing risk or approval values must not be repurposed silently.
 - Unknown future `schema_version` values must fail closed.
+
+## 8) Cutting-edge extensions (post-pilot)
+
+- Retrieval hybrid with governance contracts (implemented foundation, advanced evidence).
+- Wasm/TEE for untrusted code execution in abilities (contract layer started; runtime deferred).
+- Agentic extensions for autonomous GTM workflows (future).
 

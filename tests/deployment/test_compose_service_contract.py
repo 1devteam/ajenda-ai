@@ -100,6 +100,8 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert 'fail "compose env file not found: $COMPOSE_ENV_FILE"' in script
     assert 'docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert expected_command in script
+    assert 'log "queueing low-risk GTM lead enrich proof task"' in script
+    assert '"action": "gtm.lead_enrich"' in script
 
 
 def test_compose_exposes_expected_runtime_ports() -> None:

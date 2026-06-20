@@ -241,3 +241,62 @@ def side_effect_authorized(metadata: Mapping[str, Any], action: str) -> bool:
         return False
     authorization = SideEffectAuthorization.model_validate(dict(raw_auth))
     return action in authorization.allowed_actions
+
+
+# PR6+ GTM abilities expansion
+class GtmLeadEnrichInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    company: str = Field(min_length=1, max_length=160)
+    domain: str | None = Field(default=None, max_length=160)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class GtmEmailDraftInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recipient: str = Field(default="lead@example.com", max_length=160)
+    topic: str = Field(default="follow up", max_length=240)
+    tone: str = Field(default="professional", max_length=80)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class RetrievalHybridInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=500)
+    mission_id: str | None = Field(default=None, max_length=160)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class GtmEmailSendInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    to: str = Field(min_length=1, max_length=160)
+    subject: str = Field(min_length=1, max_length=240)
+    body: str = Field(min_length=1, max_length=5000)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class GtmEmailCheckInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(default="is:unread", min_length=1, max_length=500)
+    limit: int = Field(default=5, ge=1, le=50)
+
+
+class GtmCrmUpsertInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    record_type: str = Field(default="lead", max_length=80)
+    data: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class GtmSocialPublishInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: str = Field(default="twitter", max_length=80)
+    content: str = Field(min_length=1, max_length=280)
+    context: dict[str, Any] = Field(default_factory=dict)

@@ -23,6 +23,8 @@ from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
     QuotaEnforcementService,
     QuotaExceededError,
+    _discard_pending_meter_reports,
+    _flush_pending_meter_reports,
 )
 
 # ---------------------------------------------------------------------------
@@ -435,3 +437,158 @@ class TestBudgetPolicyOptInGates:
 
         monkeypatch.setattr("backend.services.quota_enforcement.get_settings", lambda: _Settings())
         svc.enforce_mission_budget_gate(uuid.uuid4(), {"max_tasks": 999})
+
+
+# ---------------------------------------------------------------------------
+# API calls quota (PR5 broader enforcement)
+# ---------------------------------------------------------------------------
+
+
+class TestApiCallQuota:
+    def test_allows_when_under_limit(self):
+        svc = _make_service(
+            _make_tenant("free"),
+            _make_plan(max_api_calls=1000),
+            _make_usage(api_calls=10),
+        )
+        svc.check_and_record_api_call(uuid.uuid4())
+
+    def test_blocks_when_at_limit(self):
+        svc = _make_service(
+            _make_tenant("free"),
+            _make_plan(max_api_calls=1000),
+            _make_usage(api_calls=1000),
+        )
+        with pytest.raises(QuotaExceededError) as exc_info:
+            svc.check_and_record_api_call(uuid.uuid4())
+        assert exc_info.value.field == "api_calls_per_month"
+        assert exc_info.value.limit == 1000
+
+    def test_increments_on_allowed(self):
+        svc = _make_service(
+            _make_tenant("pro"),
+            _make_plan(max_api_calls=25000),
+            _make_usage(api_calls=100),
+        )
+        tenant_id = uuid.uuid4()
+        svc.check_and_record_api_call(tenant_id)
+        call_kwargs = svc._tenants.increment_usage.call_args
+        assert call_kwargs is not None
+        assert call_kwargs.kwargs.get("field") == "api_calls_count"
+        assert call_kwargs.kwargs.get("amount", 1) == 1
+
+    def test_unlimited_allows(self):
+        svc = _make_service(
+            _make_tenant("enterprise"),
+            _make_plan(max_api_calls=-1),
+            _make_usage(api_calls=999999),
+        )
+        svc.check_and_record_api_call(uuid.uuid4())
+
+    def test_unknown_plan_fails_open(self):
+        db = MagicMock()
+        svc = QuotaEnforcementService(db)
+        repo = MagicMock()
+        repo.get_active.return_value = _make_tenant("unknown")
+        repo.get_plan.return_value = None
+        svc._tenants = repo
+        svc.check_and_record_api_call(uuid.uuid4())  # should not raise
+
+    def test_check_api_call_quota_blocks_without_increment(self):
+        svc = _make_service(
+            _make_tenant("free"),
+            _make_plan(max_api_calls=1000),
+            _make_usage(api_calls=1000),
+        )
+        with pytest.raises(QuotaExceededError):
+            svc.check_api_call_quota(uuid.uuid4())
+        svc._tenants.increment_usage.assert_not_called()
+
+    def test_record_api_call_increments_without_rechecking_limit(self):
+        svc = _make_service(
+            _make_tenant("free"),
+            _make_plan(max_api_calls=1000),
+            _make_usage(api_calls=1000),
+        )
+        tenant_id = uuid.uuid4()
+        svc.record_api_call(tenant_id)
+        call_kwargs = svc._tenants.increment_usage.call_args
+        assert call_kwargs is not None
+        assert call_kwargs.kwargs.get("field") == "api_calls_count"
+
+
+class TestStripeMeteringDeferral:
+    def test_meter_report_is_queued_until_flush(self, monkeypatch):
+        session = MagicMock()
+        session.info = {}
+        svc = QuotaEnforcementService(session)
+        tenant_id = uuid.uuid4()
+        stripe_calls: list[tuple[uuid.UUID, int, str]] = []
+
+        class _FakeBilling:
+            def __init__(self, _session) -> None:
+                pass
+
+            def report_metered_usage(self, tid, qty, *, metric="tasks"):
+                stripe_calls.append((tid, qty, metric))
+
+        monkeypatch.setattr(
+            "backend.services.billing_stripe_integration.StripeBillingService",
+            _FakeBilling,
+        )
+        svc._report_metered_if_possible(tenant_id, 2, "tasks")
+
+        assert len(session.info["pending_meter_reports"]) == 1
+        assert stripe_calls == []
+
+        _flush_pending_meter_reports(session)
+        assert stripe_calls == [(tenant_id, 2, "tasks")]
+        assert "pending_meter_reports" not in session.info
+
+    def test_meter_report_discarded_on_rollback(self):
+        session = MagicMock()
+        session.info = {"pending_meter_reports": ["pending"]}
+        _discard_pending_meter_reports(session)
+        assert "pending_meter_reports" not in session.info
+
+    def test_meter_flush_uses_fresh_session_not_committed_one(self, monkeypatch):
+        from backend.services.quota_enforcement import _PendingMeterReport
+
+        committed_session = MagicMock()
+        committed_session.info = {
+            "pending_meter_reports": [
+                _PendingMeterReport(tenant_id=uuid.uuid4(), amount=1, metric="api_calls"),
+            ]
+        }
+        bind = MagicMock()
+        committed_session.get_bind.return_value = bind
+
+        fresh_session = MagicMock()
+        factory = MagicMock(return_value=fresh_session)
+        fake_sessionmaker = MagicMock(return_value=factory)
+        monkeypatch.setattr(
+            "backend.services.quota_enforcement.sessionmaker",
+            fake_sessionmaker,
+        )
+
+        stripe_sessions: list[object] = []
+
+        class _FakeBilling:
+            def __init__(self, session) -> None:
+                stripe_sessions.append(session)
+
+            def report_metered_usage(self, tid, qty, *, metric="tasks"):
+                pass
+
+        monkeypatch.setattr(
+            "backend.services.billing_stripe_integration.StripeBillingService",
+            _FakeBilling,
+        )
+
+        _flush_pending_meter_reports(committed_session)
+
+        fake_sessionmaker.assert_called_once()
+        factory.assert_called_once()
+        fresh_session.close.assert_called_once()
+        assert stripe_sessions == [fresh_session]
+        assert committed_session is not stripe_sessions[0]

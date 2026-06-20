@@ -22,9 +22,15 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.queue.base import QueueAdapter
+from backend.services.abilities.role_contracts import RoleName
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.quota_enforcement import (
+    FeatureNotAvailableError,
+    QuotaEnforcementService,
+    QuotaExceededError,
+)
 from backend.services.tools.action_registry import ActionDefinition, get_default_action_registry
-from backend.services.tools.schemas import SideEffectClass
+from backend.services.tools.schemas import CredentialReference, SideEffectClass
 
 router = APIRouter(prefix="/ability-runtime", tags=["ability-runtime"])
 
@@ -37,6 +43,10 @@ READ_SAFE_ACTIONS: set[str] = {
     "sales.draft_followup",
     "record.search",
     "record.read",
+    # PR9: expose GTM low-risk (no side effect) for pilot under ability-runtime
+    "gtm.lead_enrich",
+    "gtm.email_draft",
+    "retrieval.hybrid_search",
 }
 
 INTERNAL_WRITE_ACTIONS: set[str] = {
@@ -50,6 +60,24 @@ EXTERNAL_ACTIONS: set[str] = {
     "http.request",
     "provider.external_read",
     "webhook.dispatch",
+    # PR9 pilot: high-risk GTM external side-effect actions (EXTERNAL_SEND/WRITE/PUBLISH)
+    "gtm.email_send",
+    "gtm.crm_upsert",
+    "gtm.social_publish",
+    # Gmail check (read)
+    "gtm.email_check",
+}
+
+GTM_HIGH_RISK_ACTIONS: set[str] = {
+    "gtm.email_send",
+    "gtm.crm_upsert",
+    "gtm.social_publish",
+}
+
+# Credentialed external reads require guardian approval before launch.
+CREDENTIALED_EXTERNAL_READ_ACTIONS: set[str] = {
+    "gtm.email_check",
+    "sales.research",
 }
 
 EXPOSED_ACTIONS: set[str] = READ_SAFE_ACTIONS | INTERNAL_WRITE_ACTIONS | EXTERNAL_ACTIONS
@@ -84,6 +112,7 @@ class AbilityTaskCreate(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=200)
     approved_by: str = Field(default="ability-runtime-ui", min_length=1, max_length=160)
     approval_reason: str = Field(default="User launched ability from product runtime UI.", min_length=1, max_length=500)
+    credential_reference: CredentialReference | None = None
 
     @field_validator("action")
     @classmethod
@@ -160,6 +189,14 @@ def _action_definition(action_name: str) -> ActionDefinition:
         return registry.get(action_name)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _principal_may_approve_gtm_side_effects(request: Request) -> bool:
+    principal = getattr(request.state, "principal", None)
+    if principal is None:
+        return False
+    allowed_roles = {RoleName.GUARDIAN.value, "admin", "tenant_admin"}
+    return bool(allowed_roles.intersection(set(getattr(principal, "roles", ()) or ())))
 
 
 def _validate_exposed_action(action_name: str) -> None:
@@ -281,6 +318,9 @@ def _build_task_metadata(
             }
         }
 
+    if request_body.credential_reference is not None:
+        metadata["credential_reference"] = request_body.credential_reference.model_dump(mode="json")
+
     return metadata
 
 
@@ -394,6 +434,85 @@ def launch_task(
     action = _action_definition(action_name)
     side_effect_class = action.side_effect_class
 
+    # Defense-in-depth quota and feature gate for ability-runtime launched tasks.
+    quota = QuotaEnforcementService(db)
+    quota.check_tenant_active(tenant_id)
+    if action_name in EXTERNAL_ACTIONS or _requires_runtime_authority(side_effect_class):
+        try:
+            quota.require_feature(tenant_id, "ability_runtime")
+        except FeatureNotAvailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=str(exc),
+            ) from exc
+        except QuotaExceededError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=str(exc),
+            ) from exc
+
+    # PR6: gate GTM actions behind feature (will be in pro+ plans)
+    if action_name.startswith("gtm."):
+        try:
+            quota.require_feature(tenant_id, "gtm")
+        except FeatureNotAvailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=str(exc),
+            ) from exc
+
+    # PR9 pilot harness: explicit side_effect_authorization + guardian role enforcement
+    # for high-risk GTM EXTERNAL actions (email_send, crm_upsert, social_publish).
+    # Uses body.approved_by (must reference guardian per GUARDIAN_ROLE_CONTRACT.may_approve_side_effects=True).
+    # This augments the always-written execution_constraints.side_effect_authorization envelope
+    # (for has_side_effect) and the downstream ToolRuntimeAuthority + capability_validation + side_effect_authorized checks.
+    # High-risk GTM also set requires_human_review to engage policy paths for pilot.
+    if action_name in GTM_HIGH_RISK_ACTIONS:
+        if not _principal_may_approve_gtm_side_effects(request):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(f"High-risk GTM action {action_name} requires guardian, admin, or tenant_admin role."),
+            )
+        if body.credential_reference is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"High-risk GTM action {action_name} requires credential_reference in launch payload.",
+            )
+        if not (body.idempotency_key and body.idempotency_key.strip()):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"High-risk GTM action {action_name} requires idempotency_key in launch payload.",
+            )
+
+    if action_name in CREDENTIALED_EXTERNAL_READ_ACTIONS and body.credential_reference is not None:
+        if not _principal_may_approve_gtm_side_effects(request):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"External read action {action_name} with credential_reference "
+                    "requires guardian, admin, or tenant_admin role."
+                ),
+            )
+
+    try:
+        quota.check_and_record_mission_creation(tenant_id)
+        quota.check_and_record_task_creation(tenant_id)
+    except QuotaExceededError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "QUOTA_EXCEEDED",
+                "field": exc.field,
+                "limit": exc.limit,
+                "current": exc.current,
+                "plan": exc.plan,
+                "message": (
+                    f"You have reached the {exc.field} limit ({exc.limit}) "
+                    f"for the {exc.plan!r} plan. Upgrade to continue."
+                ),
+            },
+        ) from exc
+
     capability, adapter = _ensure_runtime_authority(
         db=db,
         tenant_id=str(tenant_id),
@@ -432,7 +551,7 @@ def launch_task(
         ),
         compliance_category="operational",
         jurisdiction="US-ALL",
-        requires_human_review=False,
+        requires_human_review=action_name in GTM_HIGH_RISK_ACTIONS,
     )
     db.add(task)
     db.flush()

@@ -131,6 +131,25 @@ def test_build_tool_action_evidence_records_maps_evidence_to_durable_contract() 
     assert record.collection_status == "collected"
 
 
+def test_build_tool_action_evidence_records_maps_action_result_evidence_alias() -> None:
+    task = _task()
+    lease = _lease(task=task)
+    lineage = _lineage(task=task, lease=lease)
+    output = _tool_output(task=task, lease=lease)
+    output["evidence"][0]["evidence_type"] = "action_result_evidence"  # type: ignore[index]
+
+    records = build_tool_action_evidence_records(
+        task=task,
+        lease=lease,
+        task_output=output,
+        lineage_record=lineage,
+    )
+
+    assert len(records) == 1
+    assert records[0].evidence_type == "execution_trace"
+    assert records[0].provenance_metadata["tool_evidence_type"] == "action_result_evidence"
+
+
 def test_build_tool_action_evidence_records_ignores_non_tool_outputs() -> None:
     task = _task()
     lease = _lease(task=task)

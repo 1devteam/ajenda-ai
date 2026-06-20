@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import MagicMock, patch
 
-from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
+from backend.services.tools.action_registry import ActionRegistry, get_default_action_registry
+from backend.services.tools.sales_actions import register_sales_actions
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
 
 
@@ -130,6 +133,59 @@ def test_sales_log_activity_preserves_record_write_payload_shape() -> None:
         "note": "called buyer",
         "channel": "phone",
     }
+
+
+def test_sales_research_credentialed_uses_external_read_path() -> None:
+    registry = ActionRegistry()
+    register_sales_actions(registry)
+    handler = registry.get("sales.research").handler
+    context = _context()
+    context.runtime_credentials = {
+        "sales.research": {
+            "secret_value": "crm-token",
+            "trusted_destination_hosts": ["api.crm.example.com"],
+        }
+    }
+    destination = VettedNetworkDestination(
+        original_url="https://api.crm.example.com/v1/search",
+        connect_url="https://1.2.3.4/v1/search",
+        pinned_ip=__import__("ipaddress").ip_address("1.2.3.4"),
+        sni_hostname="api.crm.example.com",
+        host_header="api.crm.example.com",
+    )
+    response = NetworkEgressResponse(status_code=200, headers={}, body_text='{"results":[]}', body_truncated=False)
+    authority = MagicMock()
+    authority.request.return_value = (destination, response)
+
+    with patch(
+        "backend.services.tools.sales_actions.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        result = handler(
+            ToolInvocation(
+                action="sales.research",
+                input={"lead": {"company": "Acme"}},
+                idempotency_key="idem-crm-1",
+            ),
+            context,
+        )
+
+    assert result.provider == "external_crm"
+    assert result.side_effect_class.value == "external_read"
+    assert result.output["real"] is True
+    assert authority.request.call_args.kwargs["headers"]["Idempotency-Key"] == "idem-crm-1"
+
+
+def test_sales_research_local_path_is_simulated_external_read() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(action="sales.research", input={"lead": {"company": "Acme"}}),
+        _context(),
+    )
+
+    assert result.provider == "external_crm"
+    assert result.side_effect_class.value == "external_read"
+    assert result.output["real"] is False
 
 
 def test_sales_create_followup_task_preserves_record_write_payload_shape() -> None:

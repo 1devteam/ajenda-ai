@@ -12,12 +12,14 @@ from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
+from backend.domain.outcome_review import OutcomeReview
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
+from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.transitions import transition_lease, transition_task
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
@@ -158,6 +160,7 @@ class WorkerRuntimeService:
         transition_task(task, ExecutionTaskState.COMPLETED)
         self._transition_lease_to_released(lease)
         lease.heartbeat_at = datetime.now(UTC)
+        evidence_ids_for_review: list[str] = []
         if task_output is not None:
             lineage_record = LineageRecordRepository(self._session).append(
                 LineageRecord(
@@ -179,7 +182,22 @@ class WorkerRuntimeService:
                 task_output=task_output,
                 lineage_record=lineage_record,
             ):
-                evidence_repo.add(evidence_record)
+                added = evidence_repo.add(evidence_record)
+                evidence_ids_for_review.append(str(added.id))
+
+            # Outcome review bridge for high-risk GTM side-effecting actions (PR pilot coherence)
+            # Auto-creates a draft review post-completion for missions launched with high-risk GTM
+            # via ability-runtime (where requires_human_review and side_effect_authorization are set).
+            # This fulfills the "completion + evidence + outcome review" stage and removes
+            # "create_outcome_review" from mission lifecycle missing steps.
+            # Creation is internal (no permission gate) and respects OutcomeReview contract
+            # (no runtime mutation).
+            if self._is_high_risk_gtm_side_effect(task, task_output):
+                self._create_draft_outcome_review(
+                    task=task,
+                    task_output=task_output,
+                    evidence_ids=evidence_ids_for_review,
+                )
 
         self._audit.append(
             AuditEvent(
@@ -516,3 +534,81 @@ class WorkerRuntimeService:
         if lease.status == WorkerLeaseState.CLAIMED.value:
             transition_lease(lease, WorkerLeaseState.ACTIVE)
         transition_lease(lease, WorkerLeaseState.RELEASED)
+
+    # --- Outcome Review Bridge helpers (for high-risk GTM pilot coherence) ---
+
+    def _gtm_side_effect_was_real(self, task_output: dict[str, Any]) -> bool:
+        nested = task_output.get("output")
+        if isinstance(nested, dict) and "real" in nested:
+            return bool(nested.get("real"))
+        return bool(task_output.get("real"))
+
+    def _is_high_risk_gtm_side_effect(self, task: ExecutionTask, task_output: dict[str, Any] | None) -> bool:
+        if not task_output or not isinstance(task_output, dict):
+            return False
+        action = str(task_output.get("action", "") or "")
+        side_effect_class = str(task_output.get("side_effect_class", "") or "")
+        if not action.startswith("gtm."):
+            return False
+        if side_effect_class not in {"external_send", "external_write", "external_publish"}:
+            return False
+        return self._gtm_side_effect_was_real(task_output)
+
+    def _create_draft_outcome_review(
+        self,
+        *,
+        task: ExecutionTask,
+        task_output: dict[str, Any],
+        evidence_ids: list[str],
+    ) -> None:
+        """Create a draft OutcomeReview for high-risk GTM side-effect completion.
+
+        Populates from task metadata (side_effect_authorization from PR9 launch) and
+        the just-collected evidence. Idempotent-ish: skips if recent draft exists for mission.
+        """
+        try:
+            repo = OutcomeReviewRepository(self._session)
+            existing = repo.list_for_mission(mission_id=task.mission_id, tenant_id=task.tenant_id)
+            for r in existing:
+                if r.review_status in ("draft", "in_review"):
+                    return  # already has active review
+
+            metadata = task.metadata_json or {}
+            tool_inv = metadata.get("tool_invocation", {}) or {}
+            auth = (metadata.get("execution_constraints") or {}).get("side_effect_authorization", {}) or {}
+            approved_by = auth.get("approved_by") or "system"
+            reason = auth.get("reason") or "High-risk GTM side effect completed"
+
+            action_name = tool_inv.get("action") or task_output.get("action", "gtm.unknown")
+
+            review = OutcomeReview(
+                tenant_id=task.tenant_id,
+                mission_id=task.mission_id,
+                task_graph_reference={"execution_task_id": str(task.id), "action": action_name},
+                reviewed_success_criteria=[
+                    {
+                        "criteria": "high-risk GTM action completed with evidence and guardian approval",
+                        "action": action_name,
+                    }
+                ],
+                evidence_references=[{"evidence_id": eid} for eid in evidence_ids],
+                review_status="draft",
+                review_decision="inconclusive",
+                reviewer_type="system",
+                reviewer_source=approved_by,
+                review_summary=f"Auto-generated draft from completion of high-risk GTM action {action_name}. Reason: {reason}",
+                structured_findings=[],
+                confidence=None,
+                trust_signal={
+                    "source": "worker_runtime_completion_bridge",
+                    "side_effect_authorization": auth,
+                },
+                unresolved_gaps=[],
+                recommended_next_actions=[{"action": "human_review", "reason": "high-risk external side effect"}],
+                human_approval_required=True,
+                human_approval_status="pending",
+            )
+            repo.add(review)
+        except Exception:
+            # Best effort bridge; do not fail completion. Logged via audit elsewhere if needed.
+            pass

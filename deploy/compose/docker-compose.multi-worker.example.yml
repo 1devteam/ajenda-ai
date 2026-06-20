@@ -1,0 +1,21 @@
+# Example overlay for multi-tenant worker pools.
+# Usage:
+#   docker compose -f deploy/compose/docker-compose.prod.yml \
+#     -f deploy/compose/docker-compose.multi-worker.example.yml up -d
+services:
+  worker-tenant-b:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/worker.Dockerfile
+    env_file:
+      - .env.prod
+    environment:
+      AJENDA_WORKER_TENANT_ID: ${AJENDA_WORKER_TENANT_B_ID:?set AJENDA_WORKER_TENANT_B_ID}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped

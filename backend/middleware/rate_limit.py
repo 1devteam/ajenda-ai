@@ -39,6 +39,7 @@ from starlette.types import ASGIApp
 
 from backend.app.config import get_settings
 from backend.rate_limit.limiter import RateLimiter, RateLimitKey, RoutePolicy
+from backend.services.quota_enforcement import QuotaExceededError
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 content={"detail": "rate limit exceeded", "retry_after": decision.retry_after_seconds},
                 headers={"Retry-After": str(decision.retry_after_seconds)},
             )
+
+        # PR5: enforce api_calls quota before handlers run so over-limit tenants
+        # cannot mutate state or queue work before admission is denied.
+        if tenant_id and tenant_id != "anonymous":
+            quota_response = self._enforce_api_call_quota_admission(request, tenant_id)
+            if quota_response is not None:
+                return quota_response
+
         response = await call_next(request)
         _RATE_LIMIT_DECISIONS.labels(plan=plan_label, route_class=route_class, outcome="allowed").inc()
         logger.info(
@@ -159,4 +168,69 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response.headers["X-RateLimit-Limit"] = str(effective_max)
         if plan_slug:
             response.headers["X-RateLimit-Plan"] = str(plan_slug)
+
+        if tenant_id and tenant_id != "anonymous" and 200 <= response.status_code < 400:
+            self._record_api_call_usage(request, tenant_id)
         return response
+
+    def _quota_exceeded_response(self, exc: QuotaExceededError) -> JSONResponse:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "code": "QUOTA_EXCEEDED",
+                "field": exc.field,
+                "limit": exc.limit,
+                "current": exc.current,
+                "plan": exc.plan,
+                "message": (
+                    f"You have reached the {exc.field} limit ({exc.limit}) "
+                    f"for the {exc.plan!r} plan. Upgrade to continue."
+                ),
+            },
+        )
+
+    def _enforce_api_call_quota_admission(self, request: Request, tenant_id: str) -> JSONResponse | None:
+        try:
+            database_runtime = getattr(request.app.state, "database_runtime", None)
+            if database_runtime is None:
+                return None
+            session = database_runtime.session_factory()
+            try:
+                from uuid import UUID
+
+                from backend.services.quota_enforcement import QuotaEnforcementService
+
+                quota = QuotaEnforcementService(session)
+                quota.check_api_call_quota(UUID(tenant_id))
+                session.commit()
+            except QuotaExceededError as exc:
+                session.rollback()
+                return self._quota_exceeded_response(exc)
+            except Exception:
+                session.rollback()
+            finally:
+                session.close()
+        except Exception:
+            return None
+        return None
+
+    def _record_api_call_usage(self, request: Request, tenant_id: str) -> None:
+        try:
+            database_runtime = getattr(request.app.state, "database_runtime", None)
+            if database_runtime is None:
+                return
+            session = database_runtime.session_factory()
+            try:
+                from uuid import UUID
+
+                from backend.services.quota_enforcement import QuotaEnforcementService
+
+                quota = QuotaEnforcementService(session)
+                quota.record_api_call(UUID(tenant_id))
+                session.commit()
+            except Exception:
+                session.rollback()
+            finally:
+                session.close()
+        except Exception:
+            pass

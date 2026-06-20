@@ -31,7 +31,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session
+from sqlalchemy import event
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import get_settings
 from backend.repositories.tenant_repository import (
@@ -54,6 +55,57 @@ class QuotaExceededError(ValueError):
             f"Quota exceeded for {field!r}: current={current}, limit={limit} "
             f"(plan={plan!r}). Upgrade your plan to continue."
         )
+
+
+_PENDING_METER_REPORTS_KEY = "pending_meter_reports"
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingMeterReport:
+    tenant_id: uuid.UUID
+    amount: int
+    metric: str
+
+
+def _queue_meter_report(session: Session, *, tenant_id: uuid.UUID, amount: int, metric: str) -> None:
+    pending: list[_PendingMeterReport] = session.info.setdefault(_PENDING_METER_REPORTS_KEY, [])
+    pending.append(_PendingMeterReport(tenant_id=tenant_id, amount=amount, metric=metric))
+
+
+def _flush_pending_meter_reports(session: Session) -> None:
+    pending = session.info.pop(_PENDING_METER_REPORTS_KEY, None)
+    if not pending:
+        return
+    bind = session.get_bind()
+    if bind is None:
+        return
+    fresh_session = sessionmaker(
+        bind=bind,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        future=True,
+    )()
+    try:
+        from backend.services.billing_stripe_integration import StripeBillingService
+
+        billing = StripeBillingService(fresh_session)
+        for report in pending:
+            billing.report_metered_usage(report.tenant_id, report.amount, metric=report.metric)
+    except Exception:
+        pass
+    finally:
+        fresh_session.close()
+
+
+@event.listens_for(Session, "after_commit")
+def _report_metered_usage_after_commit(session: Session) -> None:
+    _flush_pending_meter_reports(session)
+
+
+@event.listens_for(Session, "after_rollback")
+def _discard_pending_meter_reports(session: Session) -> None:
+    session.info.pop(_PENDING_METER_REPORTS_KEY, None)
 
 
 class FeatureNotAvailableError(ValueError):
@@ -150,6 +202,7 @@ class QuotaEnforcementService:
             )
 
         self._tenants.increment_usage(tenant_id, field="missions_created")
+        self._report_metered_if_possible(tenant_id, 1, "missions")
 
     def check_and_record_task_creation(
         self,
@@ -194,6 +247,7 @@ class QuotaEnforcementService:
             )
 
         self._tenants.increment_usage(tenant_id, field="tasks_created", amount=count)
+        self._report_metered_if_possible(tenant_id, count, "tasks")
 
     def check_and_record_agent_provisioning(
         self,
@@ -225,6 +279,7 @@ class QuotaEnforcementService:
             field="agents_provisioned",
             amount=agents_requested,
         )
+        self._report_metered_if_possible(tenant_id, agents_requested, "agents")
 
     def check_api_key_limit(self, tenant_id: uuid.UUID, *, current_key_count: int) -> None:
         """Check that the tenant has not exceeded their API key limit.
@@ -246,6 +301,48 @@ class QuotaEnforcementService:
                 plan=tenant.plan,
             )
 
+    def check_api_call_quota(self, tenant_id: uuid.UUID) -> None:
+        """Raise if the tenant has reached their monthly API call limit.
+
+        Intended for admission checks before request handlers run. Does not
+        increment usage; pair with :meth:`record_api_call` after success.
+        """
+        tenant = self._tenants.get_active(tenant_id)
+        plan = self._tenants.get_plan(tenant.plan)
+        if plan is None:
+            return
+
+        usage = self._tenants.get_or_create_usage(tenant_id)
+        limit = plan.max_monthly_api_calls
+
+        if limit != -1 and usage.api_calls_count >= limit:
+            raise QuotaExceededError(
+                field="api_calls_per_month",
+                limit=limit,
+                current=usage.api_calls_count,
+                plan=tenant.plan,
+            )
+
+    def record_api_call(self, tenant_id: uuid.UUID) -> None:
+        """Increment monthly API call usage after a successful request."""
+        tenant = self._tenants.get_active(tenant_id)
+        plan = self._tenants.get_plan(tenant.plan)
+        if plan is None:
+            return
+
+        self._tenants.increment_usage(tenant_id, field="api_calls_count")
+        self._report_metered_if_possible(tenant_id, 1, "api_calls")
+
+    def check_and_record_api_call(self, tenant_id: uuid.UUID) -> None:
+        """Check monthly API call quota and increment counter atomically.
+
+        Intended to be called for authenticated API requests (e.g. from rate
+        limit middleware after allowing the request). Raises QuotaExceededError
+        if the tenant has reached max_monthly_api_calls for the plan.
+        """
+        self.check_api_call_quota(tenant_id)
+        self.record_api_call(tenant_id)
+
     # ------------------------------------------------------------------
     # Feature gate
     # ------------------------------------------------------------------
@@ -256,12 +353,10 @@ class QuotaEnforcementService:
         Use this to gate premium features (e.g., compliance layer, webhooks,
         custom OIDC providers) behind plan tiers.
         """
+        from backend.services.feature_flag_service import FeatureFlagService
+
         tenant = self._tenants.get_active(tenant_id)
-        plan = self._tenants.get_plan(tenant.plan)
-        if plan is None:
-            # Unknown plan — fail open
-            return
-        if not plan.allows_feature(feature):
+        if not FeatureFlagService(self._session, tenants=self._tenants).is_enabled(tenant_id, feature):
             raise FeatureNotAvailableError(feature=feature, plan=tenant.plan)
 
     # ------------------------------------------------------------------
@@ -325,3 +420,11 @@ class QuotaEnforcementService:
                     proposed=max_tasks,
                     plan=tenant.plan,
                 )
+
+    # ------------------------------------------------------------------
+    # Metering bridge to Stripe (PR3) — best effort, never blocks
+    # ------------------------------------------------------------------
+
+    def _report_metered_if_possible(self, tenant_id: uuid.UUID, amount: int, metric: str) -> None:
+        """Queue Stripe metering for after the enclosing transaction commits."""
+        _queue_meter_report(self._session, tenant_id=tenant_id, amount=amount, metric=metric)

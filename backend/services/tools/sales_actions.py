@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.local_records import LocalRecordProvider, default_local_record_provider
 from backend.services.tools.schemas import (
@@ -158,27 +159,92 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         )
         if account:
             related.append(account)
-    output = {"lead": payload.lead, "related_records": related, "research_notes": ["local provider lookup completed"]}
+
+    cred = context.runtime_credentials.get("sales.research") or context.runtime_credentials.get("crm.research") or {}
+    secret = (
+        cred.secret_value
+        if cred and hasattr(cred, "secret_value") and cred.secret_value
+        else cred.get("secret_value") if isinstance(cred, dict) else None
+    )
+    is_real = bool(secret)
+    research_notes = ["local provider lookup completed"]
+    real_response = None
+    if is_real:
+        try:
+            trusted = (
+                getattr(cred, "trusted_destination_hosts", None)
+                or (cred.get("trusted_destination_hosts") if isinstance(cred, dict) else None)
+                or ("api.crm.example.com",)
+            )
+            search_url = (
+                f"https://{trusted[0]}/v1/search"
+                f"?company={payload.lead.get('company', '')}&domain={getattr(payload, 'domain', '') or ''}"
+            )
+            headers = {"Authorization": f"Bearer {secret}"}
+            if invocation.idempotency_key and invocation.idempotency_key.strip():
+                headers["Idempotency-Key"] = invocation.idempotency_key.strip()
+            _dest, resp = get_default_network_egress_authority().request(
+                method="GET",
+                url=search_url,
+                headers=headers,
+                allowed_hosts=list(trusted),
+                action_name="sales.research",
+                timeout_seconds=5.0,
+            )
+            real_response = {
+                "status_code": resp.status_code,
+                "body_preview": resp.body_text[:300] if resp.body_text else "",
+            }
+            if 200 <= resp.status_code < 300:
+                research_notes = [f"real CRM external call via network_egress to {search_url} (status={resp.status_code})"]
+            else:
+                is_real = False
+                research_notes = [f"real CRM external call failed with HTTP {resp.status_code} (fallback to local)"]
+        except Exception as e:
+            is_real = False
+            research_notes = [f"real CRM external call failed: {e!s} (using cred but fallback to local)"]
+
+    provider = "external_crm"
+    side_effect_class = SideEffectClass.EXTERNAL_READ
+
+    output = {
+        "lead": payload.lead,
+        "related_records": related,
+        "research_notes": research_notes,
+        "real": is_real,
+    }
+    if is_real:
+        output["credential_reference"] = {
+            "provider": getattr(getattr(cred, "reference", None), "provider", None)
+            if not isinstance(cred, dict)
+            else cred.get("provider"),
+        }
+        if real_response:
+            output["real_response"] = real_response
+        if invocation.idempotency_key:
+            output["idempotency_key"] = invocation.idempotency_key
     inspected = [str(item["id"]) for item in related if "id" in item]
-    summary = f"Researched lead with {len(related)} related local record(s)."
+    summary = f"Researched lead with {len(related)} related local record(s)." + (" (real CRM cred)" if is_real else "")
     return ActionResult(
         action="sales.research",
-        provider="local_sales",
+        provider=provider,
+        side_effect_class=side_effect_class,
         output=output,
         evidence=[
             _evidence(
                 context=context,
                 action="sales.research",
-                provider="local_sales",
+                provider=provider,
                 summary=summary,
                 payload=output,
                 inspected=inspected,
-                confidence=0.78,
+                side_effect_class=side_effect_class,
+                confidence=0.78 if not is_real else 0.9,
             )
         ],
         records_inspected=inspected,
         summary=summary,
-        confidence=0.78,
+        confidence=0.78 if not is_real else 0.9,
     )
 
 
@@ -396,9 +462,10 @@ def register_sales_actions(registry: ActionRegistry) -> None:
         ActionDefinition(
             name="sales.research",
             handler=sales_research,
-            provider="local_sales",
+            provider="external_crm",
             input_model=SalesLeadInput,
-            aliases=("crm.research",),
+            side_effect_class=SideEffectClass.EXTERNAL_READ,
+            aliases=("crm.research", "crm.read"),
         )
     )
     registry.register(

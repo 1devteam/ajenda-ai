@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 
@@ -293,7 +295,24 @@ def test_execute_blocks_side_effecting_tool_invoke_completion_failure_without_no
         tenant_id=tenant_id,
     )
 
-    with caplog.at_level("CRITICAL", logger="ajenda.task_dispatcher"):
+    # Ensure logger state is clean (some prior tests in the suite configure logging or set propagate)
+    side_effect_logger = logging.getLogger("ajenda.task_dispatcher")
+    side_effect_logger.propagate = True
+    side_effect_logger.setLevel(logging.NOTSET)
+
+    captured_critical: list[dict[str, Any]] = []
+
+    def _capture_critical(msg: str, *args: Any, **kwargs: Any) -> None:
+        if msg == "task_dispatch_completion_failed_after_side_effect":
+            extra = kwargs.get("extra", {})
+            captured_critical.append(extra)
+        # call original so other logging works if needed
+        original_critical(msg, *args, **kwargs)
+
+    side_logger = task_dispatcher.logger
+    original_critical = side_logger.critical
+
+    with patch.object(side_logger, "critical", _capture_critical):
         dispatcher.execute(task_id=task_id, lease_id=lease_id)
 
     assert handler_calls == 1
@@ -306,13 +325,12 @@ def test_execute_blocks_side_effecting_tool_invoke_completion_failure_without_no
             "reason": "completion evidence write failed",
         }
     ]
-    record = next(
-        record for record in caplog.records if record.message == "task_dispatch_completion_failed_after_side_effect"
-    )
-    assert record.task_id == str(task_id)
-    assert record.lease_id == str(lease_id)
-    assert record.task_type == "tool.invoke"
-    assert record.side_effect_class == "external_write"
+    assert len(captured_critical) == 1
+    rec = captured_critical[0]
+    assert rec["task_id"] == str(task_id)
+    assert rec["lease_id"] == str(lease_id)
+    assert rec["task_type"] == "tool.invoke"
+    assert rec["side_effect_class"] == "external_write"
 
 
 def test_execute_preserves_normal_failure_for_handler_exception(monkeypatch: pytest.MonkeyPatch) -> None:
