@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from types import SimpleNamespace
 
 from starlette.requests import Request
@@ -350,6 +351,29 @@ def test_dispatch_unexpected_error_returns_500(monkeypatch) -> None:
 
     assert response.status_code == 500
     assert b"internal authentication error" in response.body
+
+
+def test_stripe_webhook_path_bypasses_auth() -> None:
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(path="/v1/billing/webhook/stripe", tenant_id=None)
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 200
+    assert request.state.principal is None
+
+
+def test_billing_checkout_still_requires_auth() -> None:
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        path="/v1/billing/checkout",
+        tenant_id=str(uuid.uuid4()),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 401
+    assert b"missing authentication credentials" in response.body
 
 
 def test_recovery_path_no_longer_bypasses_auth() -> None:

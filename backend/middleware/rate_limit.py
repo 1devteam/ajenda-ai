@@ -52,6 +52,8 @@ _DEFAULT_ROUTE_POLICIES: dict[str, RoutePolicy] = {
     "/v1/webhooks": RoutePolicy(max_requests=10, window_seconds=60),
     # Admin control plane: low expected volume, high blast-radius operations.
     "/v1/admin": RoutePolicy(max_requests=20, window_seconds=60),
+    # Stripe webhook retries can burst; allow higher anonymous throughput.
+    "/v1/billing/webhook/": RoutePolicy(max_requests=200, window_seconds=60),
 }
 
 # Plan-aware adaptive policy:
@@ -83,6 +85,8 @@ def _classify_route(path: str) -> str:
         return "admin"
     if path.startswith("/v1/webhooks"):
         return "webhooks"
+    if path.startswith("/v1/billing/webhook/"):
+        return "stripe_webhook"
     return "default"
 
 

@@ -819,6 +819,8 @@ authority_entries:
       - backend/api/routes/billing.py
       - backend/services/billing_stripe_integration.py
       - backend/repositories/tenant_repository.py
+      - backend/middleware/tenant_context.py
+      - backend/middleware/auth_context.py
       - docs/remediation/phase1_commercial_complete.md
     route_scope:
       - /v1/billing/*
@@ -831,11 +833,13 @@ authority_entries:
       - update tenant billing plan/customer/subscription state through billing service authority
     forbidden_side_effects:
       - bypass tenant isolation for checkout or portal routes
+      - bypass authentication for checkout or portal routes
       - trust unsigned Stripe webhook payloads
       - mutate runtime queue, worker leases, task execution, or mission state
       - expose Stripe secrets or webhook signing secrets
     required_proofs:
       - tests/unit/services/test_billing_stripe.py
+      - tests/contract/api/test_billing_stripe_webhook_route.py
       - docs/remediation/phase1_commercial_complete.md
 
   - id: feature_flag_runtime_contract

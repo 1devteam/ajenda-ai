@@ -12,6 +12,7 @@ Public paths (exempt from X-Tenant-Id requirement):
   /metrics — Prometheus scrape endpoint
   /v1/auth/*  — OIDC token exchange (tenant_id is in the token, not the header)
   /v1/admin/* — Admin control plane (cross-tenant by design, admin role required)
+  /v1/billing/webhook/* — Stripe webhook receiver (tenant resolved from signed event metadata)
 
 Design decisions:
   - The DB lookup is a lightweight SELECT on the tenants table (indexed on id).
@@ -50,6 +51,7 @@ _PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/observability/metrics",
     "/v1/observability/metrics",
     "/v1/admin",
+    "/v1/billing/webhook/",  # Stripe webhook — tenant_id from signed event metadata, not header
     "/docs",
     "/redoc",
     "/openapi.json",

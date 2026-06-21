@@ -222,6 +222,27 @@ def test_valid_tenant_sets_request_state(monkeypatch) -> None:
     assert request.state.tenant is not None
 
 
+def test_stripe_webhook_path_bypasses_tenant_enforcement() -> None:
+    middleware = TenantContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(path="/v1/billing/webhook/stripe")
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 200
+    assert request.state.tenant_id is None
+    assert request.state.tenant is None
+
+
+def test_billing_checkout_still_requires_tenant_header() -> None:
+    middleware = TenantContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(path="/v1/billing/checkout")
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 400
+    assert b"MISSING_TENANT_ID" in response.body
+
+
 def test_recovery_path_no_longer_bypasses_tenant_enforcement() -> None:
     middleware = TenantContextMiddleware(app=lambda scope, receive, send: None)
     request = _request(path="/v1/operations/recovery")

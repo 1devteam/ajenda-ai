@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
-from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
 from backend.services.billing_stripe_integration import StripeBillingService
 from backend.services.quota_enforcement import QuotaExceededError
 
@@ -129,14 +129,14 @@ def create_portal(
 )
 async def stripe_webhook(
     request: Request,
-    db: Session = Depends(get_tenant_db_session),
+    db: Session = Depends(get_db_session),
     stripe_signature: str = Header(..., alias="stripe-signature"),
 ) -> dict[str, str]:
     """Receive and process Stripe webhook events.
 
-    Signature is verified by StripeBillingService.handle_webhook() before
-    any payload is trusted. Returns 400 on signature failure so Stripe
-    retries with the correct secret.
+    Public ingress path (no X-Tenant-Id or API credentials). Authority is
+    Stripe signature verification; tenant scope is resolved from event metadata.
+    Returns 400 on signature failure so Stripe retries with the correct secret.
     """
     payload = await request.body()
     billing = StripeBillingService(db)
