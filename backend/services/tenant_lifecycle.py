@@ -14,6 +14,7 @@ Design decisions:
   - Provisioning seeds the default TenantPlan row lookup (does not create a
     new plan — plans are pre-seeded by migration 0006).
   - The service does not commit — callers own the transaction boundary.
+  - Tenant INSERT authority is centralized here via provision(source=...).
 """
 
 from __future__ import annotations
@@ -24,11 +25,15 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.governance_event import GovernanceEvent
+from backend.domain.provision_source import ProvisionSource
 from backend.repositories.tenant_repository import (
     TenantNotFoundError,
     TenantRepository,
 )
+
+_SELF_SERVE_ALLOWED_PLANS = frozenset({"free"})
 
 
 @dataclass(frozen=True)
@@ -37,13 +42,14 @@ class TenantProvisionResult:
     slug: str
     plan: str
     status: str
+    source: ProvisionSource
 
 
 class TenantLifecycleService:
-    """Manages the full lifecycle of SaaS tenants.
+    """Cross-tenant tenant lifecycle authority.
 
-    Inject this service into admin control-plane routes only. It must never
-    be accessible from tenant-scoped API routes.
+    Callable from admin control-plane routes and the self-serve onboarding
+    orchestrator only. Must never be invoked from tenant-scoped API routes.
     """
 
     def __init__(self, session: Session) -> None:
@@ -57,25 +63,43 @@ class TenantLifecycleService:
         slug: str,
         plan: str = "free",
         actor: str = "system",
+        source: ProvisionSource = ProvisionSource.ADMIN,
     ) -> TenantProvisionResult:
         """Create a new active tenant and emit a provisioning governance event.
 
-        Raises ValueError if a tenant with the given slug already exists.
+        Raises ValueError if a tenant with the given slug already exists or if
+        the plan is not allowed for the given source. IntegrityError may
+        propagate from flush on concurrent slug collision — callers should
+        rollback and map to HTTP 409.
+
         Caller must commit.
         """
+        normalized_plan = plan.strip().lower()
+        self._validate_plan_for_source(normalized_plan, source=source)
+
         existing = self._tenants.get_by_slug(slug)
         if existing is not None:
             raise ValueError(f"Tenant with slug {slug!r} already exists (id={existing.id})")
 
-        tenant = self._tenants.create(name=name, slug=slug, plan=plan)
+        tenant = self._tenants.create(name=name, slug=slug, plan=normalized_plan)
         self._session.flush()
 
+        event_type, decision = self._provision_event_metadata(
+            source=source,
+            slug=slug,
+            plan=normalized_plan,
+        )
         self._emit_event(
             tenant_id=tenant.id,
-            event_type="tenant_provisioned",
+            event_type=event_type,
             actor=actor,
-            decision=f"Tenant {slug!r} provisioned on plan {plan!r}",
-            payload={"name": name, "slug": slug, "plan": plan},
+            decision=decision,
+            payload={
+                "name": name,
+                "slug": slug,
+                "plan": normalized_plan,
+                "source": source.value,
+            },
         )
 
         return TenantProvisionResult(
@@ -83,6 +107,7 @@ class TenantLifecycleService:
             slug=tenant.slug,
             plan=tenant.plan,
             status=tenant.status,
+            source=source,
         )
 
     def suspend(
@@ -183,6 +208,23 @@ class TenantLifecycleService:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _validate_plan_for_source(plan: str, *, source: ProvisionSource) -> None:
+        if source == ProvisionSource.SELF_SERVE and plan not in _SELF_SERVE_ALLOWED_PLANS:
+            raise ValueError(f"Self-serve provisioning may only create free-plan tenants; got {plan!r}.")
+
+    @staticmethod
+    def _provision_event_metadata(*, source: ProvisionSource, slug: str, plan: str) -> tuple[str, str]:
+        if source == ProvisionSource.SELF_SERVE:
+            return (
+                "tenant_self_serve_provisioned",
+                f"Tenant {slug!r} self-serve provisioned on plan {plan!r}",
+            )
+        return (
+            "tenant_provisioned",
+            f"Tenant {slug!r} provisioned on plan {plan!r}",
+        )
+
     def _emit_event(
         self,
         *,
@@ -193,6 +235,7 @@ class TenantLifecycleService:
         payload: dict[str, object],
     ) -> None:
         """Append a GovernanceEvent to the immutable audit trail."""
+        activate_tenant_session(self._session, str(tenant_id))
         event = GovernanceEvent(
             id=uuid.uuid4(),
             tenant_id=str(tenant_id),

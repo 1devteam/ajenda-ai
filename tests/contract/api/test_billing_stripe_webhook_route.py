@@ -16,6 +16,10 @@ from backend.api.router import build_api_router
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
+from backend.services.billing_stripe_integration import (
+    StripeWebhookProcessingError,
+    StripeWebhookResult,
+)
 
 
 class _FakeTenant:
@@ -63,6 +67,9 @@ def test_stripe_webhook_reaches_handler_without_tenant_or_auth() -> None:
 
     with patch(
         "backend.api.routes.billing.StripeBillingService.handle_webhook",
+        return_value=StripeWebhookResult(
+            event_id="evt_test", event_type="checkout.session.completed", outcome="applied"
+        ),
     ) as mock_handle:
         response = client.post(
             "/v1/billing/webhook/stripe",
@@ -71,7 +78,7 @@ def test_stripe_webhook_reaches_handler_without_tenant_or_auth() -> None:
         )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "outcome": "applied"}
     mock_handle.assert_called_once()
     call_kwargs = mock_handle.call_args.kwargs
     assert call_kwargs["payload"] == b'{"id":"evt_test"}'
@@ -94,6 +101,24 @@ def test_stripe_webhook_returns_400_on_invalid_signature() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid Stripe signature."
+
+
+def test_stripe_webhook_returns_500_on_retryable_processing_failure() -> None:
+    app = _build_app()
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch(
+        "backend.api.routes.billing.StripeBillingService.handle_webhook",
+        side_effect=StripeWebhookProcessingError("temporary failure", retryable=True),
+    ):
+        response = client.post(
+            "/v1/billing/webhook/stripe",
+            content=b"{}",
+            headers={"stripe-signature": "t=1,v1=test"},
+        )
+
+    assert response.status_code == 500
+    assert "retry" in response.json()["detail"].lower()
 
 
 def test_stripe_webhook_requires_signature_header() -> None:

@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from backend.app.dependencies.db import get_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.domain.enums import ExecutionTaskState
+from backend.domain.provision_source import ProvisionSource
 from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.tenant_repository import (
@@ -132,6 +133,7 @@ def provision_tenant(
             slug=body.slug,
             plan=body.plan,
             actor=actor,
+            source=ProvisionSource.ADMIN,
         )
         db.commit()
     except ValueError as exc:

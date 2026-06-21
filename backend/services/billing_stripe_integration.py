@@ -7,13 +7,14 @@ Responsibilities:
   - Enforce active-subscription gate via QuotaEnforcementService.
 
 Design decisions:
-  - Webhook handling is idempotent: events are processed only if the
-    subscription metadata carries a valid tenant_id.
-  - Plan changes are written via TenantRepository.upgrade_plan() so that
-    the existing audit-event and governance-event machinery fires.
+  - Webhook handling is idempotent via stripe_webhook_events (event ID dedup).
+  - Plan changes go through TenantLifecycleService.upgrade_plan() so
+    tenant_plan_changed governance events are emitted.
   - Stripe API key is configured lazily inside StripeBillingService.__init__
     rather than at module import time. This prevents test isolation failures
     caused by get_settings() reading empty env vars during test collection.
+  - Retryable processing failures raise StripeWebhookProcessingError so the
+    HTTP layer returns 500 and Stripe retries. Benign skips return 200.
   - QuotaExceededError is re-raised as-is; the HTTP layer maps it to 402.
   - No cross-tenant operations: every method is scoped to a single tenant_id.
 
@@ -21,12 +22,15 @@ Security:
   - Webhook signature is verified via stripe.Webhook.construct_event before
     any payload is trusted.
   - stripe_customer_id is stored on the Tenant row (migration 0025).
+  - Webhook events verify customer ID binding when both sides are known.
 """
 
 from __future__ import annotations
 
 import logging
 import time
+import uuid
+from dataclasses import dataclass
 from uuid import UUID
 
 import stripe
@@ -34,10 +38,30 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
 from backend.domain.tenant import Tenant
+from backend.repositories.stripe_webhook_event_repository import StripeWebhookEventRepository
 from backend.repositories.tenant_repository import TenantRepository
 from backend.services.quota_enforcement import QuotaEnforcementService
+from backend.services.tenant_lifecycle import TenantLifecycleService
 
 logger = logging.getLogger(__name__)
+
+
+class StripeWebhookProcessingError(Exception):
+    """Raised when webhook processing should fail the HTTP request."""
+
+    def __init__(self, message: str, *, retryable: bool = True) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
+@dataclass(frozen=True)
+class StripeWebhookResult:
+    """Structured outcome returned by handle_webhook."""
+
+    event_id: str
+    event_type: str
+    outcome: str
+    detail: str | None = None
 
 
 def _build_plan_price_map() -> dict[str, str]:
@@ -92,6 +116,89 @@ def _price_id_to_plan(price_id: str) -> str | None:
     return reverse.get(price_id)
 
 
+def _extract_customer_id(obj: dict) -> str | None:  # type: ignore[type-arg]
+    """Return the Stripe customer ID from a webhook payload object."""
+    customer = obj.get("customer")
+    if customer is None:
+        return None
+    if isinstance(customer, str):
+        return customer
+    if isinstance(customer, dict):
+        customer_id = customer.get("id")
+        return str(customer_id) if customer_id else None
+    return None
+
+
+def _resolve_tenant_id_from_metadata(obj: dict) -> str | None:  # type: ignore[type-arg]
+    """Extract tenant_id from Stripe object metadata."""
+    metadata = obj.get("metadata") or {}
+    tenant_id = metadata.get("tenant_id")
+    if tenant_id:
+        return str(tenant_id)
+    subscription_data = obj.get("subscription_data") or {}
+    sub_metadata = subscription_data.get("metadata") or {}
+    nested = sub_metadata.get("tenant_id")
+    return str(nested) if nested else None
+
+
+def _price_from_subscription_object(subscription: dict) -> str | None:  # type: ignore[type-arg]
+    """Extract the first subscription item price ID from a subscription object."""
+    items = subscription.get("items") or {}
+    if not isinstance(items, dict):
+        return None
+    data = items.get("data") or []
+    if not data:
+        return None
+    price = data[0].get("price")
+    if isinstance(price, dict):
+        price_id = price.get("id")
+        return str(price_id) if price_id else None
+    if isinstance(price, str):
+        return price
+    return None
+
+
+def _resolve_price_id(obj: dict) -> str | None:  # type: ignore[type-arg]
+    """Resolve the Stripe price ID from a checkout session or subscription object.
+
+    Real Stripe checkout.session.completed payloads typically carry a subscription
+    ID string rather than expanded line_items. Subscription objects carry items.
+    """
+    if "items" in obj:
+        price_id = _price_from_subscription_object(obj)
+        if price_id:
+            return price_id
+
+    line_items = obj.get("line_items")
+    if isinstance(line_items, dict):
+        data = line_items.get("data") or []
+        if data:
+            price = data[0].get("price")
+            if isinstance(price, dict):
+                nested_id = price.get("id")
+                if nested_id:
+                    return str(nested_id)
+            if isinstance(price, str):
+                return price
+
+    subscription = obj.get("subscription")
+    if subscription is None:
+        return None
+    if isinstance(subscription, dict):
+        return _resolve_price_id(subscription)
+    if isinstance(subscription, str):
+        try:
+            retrieved = stripe.Subscription.retrieve(subscription)
+        except stripe.StripeError as exc:
+            raise StripeWebhookProcessingError(
+                f"Failed to retrieve Stripe subscription {subscription!r}: {exc}",
+                retryable=True,
+            ) from exc
+        return _resolve_price_id(dict(retrieved))
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Public service interface
 # ---------------------------------------------------------------------------
@@ -103,7 +210,8 @@ class StripeBillingService:
     def __init__(self, session: Session) -> None:
         self._session = session
         self._tenant_repo = TenantRepository(session)
-        # Configure Stripe SDK lazily so tests can patch settings before init.
+        self._webhook_events = StripeWebhookEventRepository(session)
+        self._lifecycle = TenantLifecycleService(session)
         settings = get_settings()
         stripe.api_key = settings.STRIPE_SECRET_KEY
         self._webhook_secret: str = settings.STRIPE_WEBHOOK_SECRET
@@ -157,14 +265,15 @@ class StripeBillingService:
     # Webhook sync
     # ------------------------------------------------------------------
 
-    def handle_webhook(self, *, payload: bytes, sig_header: str) -> None:
+    def handle_webhook(self, *, payload: bytes, sig_header: str) -> StripeWebhookResult:
         """Process a verified Stripe webhook event.
 
-        Signature is verified before any payload is trusted. Unknown event
-        types are silently ignored (forward-compatible).
+        Signature is verified before any payload is trusted. Duplicate event IDs
+        are ignored. Retryable failures raise StripeWebhookProcessingError.
 
         Raises:
             stripe.SignatureVerificationError: if the signature is invalid.
+            StripeWebhookProcessingError: if processing should fail (retryable).
         """
         event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
             payload,
@@ -172,76 +281,138 @@ class StripeBillingService:
             self._webhook_secret,
         )
 
-        event_type: str = event["type"]
+        event_id: str = str(event["id"])
+        event_type: str = str(event["type"])
         data_object = event["data"]["object"]
 
-        if event_type in ("checkout.session.completed", "customer.subscription.updated"):
-            self._sync_subscription(data_object)
-        elif event_type == "customer.subscription.deleted":
-            self._handle_subscription_deleted(data_object)
-        elif event_type == "invoice.payment_failed":
-            self._handle_payment_failed(data_object)
-        else:
-            logger.debug("Ignoring unhandled Stripe event type: %s", event_type)
+        if not self._webhook_events.try_record_event(event_id=event_id, event_type=event_type):
+            logger.info("Duplicate Stripe webhook event %s — skipping.", event_id)
+            return StripeWebhookResult(
+                event_id=event_id,
+                event_type=event_type,
+                outcome="duplicate",
+                detail="event already processed",
+            )
 
-    def _sync_subscription(self, obj: dict) -> None:  # type: ignore[type-arg]
-        """Sync a Stripe subscription or checkout object into the Tenant plan."""
-        metadata = obj.get("metadata") or {}
-        tenant_id_str = metadata.get("tenant_id") or (
-            (obj.get("subscription_data") or {}).get("metadata", {}).get("tenant_id")
+        outcome, detail, tenant_id = self._dispatch_event(event_type, data_object)
+        self._webhook_events.finalize_outcome(
+            event_id=event_id,
+            outcome=outcome,
+            tenant_id=tenant_id,
+            detail=detail,
         )
+        return StripeWebhookResult(
+            event_id=event_id,
+            event_type=event_type,
+            outcome=outcome,
+            detail=detail,
+        )
+
+    def _dispatch_event(
+        self,
+        event_type: str,
+        data_object: dict,  # type: ignore[type-arg]
+    ) -> tuple[str, str | None, uuid.UUID | None]:
+        if event_type in ("checkout.session.completed", "customer.subscription.updated"):
+            return self._sync_subscription(data_object)
+        if event_type == "customer.subscription.deleted":
+            return self._handle_subscription_deleted(data_object)
+        if event_type == "invoice.payment_failed":
+            return self._handle_payment_failed(data_object)
+        logger.debug("Ignoring unhandled Stripe event type: %s", event_type)
+        return "ignored", f"unhandled event type {event_type}", None
+
+    def _sync_subscription(self, obj: dict) -> tuple[str, str | None, uuid.UUID | None]:  # type: ignore[type-arg]
+        """Sync a Stripe subscription or checkout object into the Tenant plan."""
+        tenant_id_str = _resolve_tenant_id_from_metadata(obj)
         if not tenant_id_str:
             logger.warning("Stripe event missing tenant_id in metadata — skipping.")
-            return
+            return "skipped", "missing tenant_id in metadata", None
 
         try:
             tenant_id = UUID(tenant_id_str)
         except ValueError:
             logger.error("Stripe event has invalid tenant_id %r — skipping.", tenant_id_str)
-            return
+            return "skipped", f"invalid tenant_id {tenant_id_str!r}", None
 
-        # Determine the plan slug from the Stripe price ID.
-        price_id: str | None = None
-        if "items" in obj:
-            items = obj["items"].get("data", [])
-            if items:
-                price_id = items[0].get("price", {}).get("id")
-        elif "line_items" in obj:
-            line_items = obj["line_items"].get("data", [])
-            if line_items:
-                price_id = line_items[0].get("price", {}).get("id")
+        tenant = self._tenant_repo.get(tenant_id)
+        if tenant is None:
+            logger.error("Stripe webhook references unknown tenant %s — skipping.", tenant_id)
+            return "skipped", f"unknown tenant {tenant_id}", tenant_id
 
-        new_plan = _price_id_to_plan(price_id) if price_id else None
+        if tenant.is_deleted():
+            logger.warning("Stripe webhook for deleted tenant %s — skipping plan sync.", tenant_id)
+            return "skipped", "tenant deleted", tenant_id
+        if tenant.is_suspended():
+            logger.warning("Stripe webhook for suspended tenant %s — skipping plan sync.", tenant_id)
+            return "skipped", "tenant suspended", tenant_id
+
+        event_customer_id = _extract_customer_id(obj)
+        if tenant.stripe_customer_id and event_customer_id and tenant.stripe_customer_id != event_customer_id:
+            logger.warning(
+                "Stripe customer mismatch for tenant %s: expected %s got %s — skipping.",
+                tenant_id,
+                tenant.stripe_customer_id,
+                event_customer_id,
+            )
+            return "skipped", "stripe customer mismatch", tenant_id
+
+        try:
+            price_id = _resolve_price_id(obj)
+        except StripeWebhookProcessingError:
+            raise
+
+        if not price_id:
+            raise StripeWebhookProcessingError(
+                "Could not resolve Stripe price ID from event payload",
+                retryable=True,
+            )
+
+        new_plan = _price_id_to_plan(price_id)
         if not new_plan:
             logger.warning(
                 "Could not map Stripe price %r to a plan slug — skipping plan sync.",
                 price_id,
             )
-            return
+            return "skipped", f"unknown price {price_id}", tenant_id
 
-        tenant = self._tenant_repo.get(tenant_id)
-        if tenant is None:
-            logger.error("Stripe webhook references unknown tenant %s — skipping.", tenant_id)
-            return
+        if tenant.plan == new_plan:
+            return "skipped", f"plan already {new_plan}", tenant_id
 
-        if tenant.plan != new_plan:
-            self._tenant_repo.upgrade_plan(tenant_id, new_plan=new_plan, actor="stripe-webhook")
-            logger.info("Synced tenant %s plan: %s → %s", tenant_id, tenant.plan, new_plan)
+        self._lifecycle.upgrade_plan(tenant_id, new_plan=new_plan, actor="stripe-webhook")
+        logger.info("Synced tenant %s plan: %s → %s", tenant_id, tenant.plan, new_plan)
+        return "applied", f"plan changed to {new_plan}", tenant_id
 
-    def _handle_subscription_deleted(self, obj: dict) -> None:  # type: ignore[type-arg]
+    def _handle_subscription_deleted(self, obj: dict) -> tuple[str, str | None, uuid.UUID | None]:  # type: ignore[type-arg]
         """Downgrade tenant to free plan when subscription is cancelled."""
-        metadata = obj.get("metadata") or {}
-        tenant_id_str = metadata.get("tenant_id")
+        tenant_id_str = _resolve_tenant_id_from_metadata(obj)
         if not tenant_id_str:
-            return
+            return "skipped", "missing tenant_id in metadata", None
+
         try:
             tenant_id = UUID(tenant_id_str)
         except ValueError:
-            return
-        self._tenant_repo.upgrade_plan(tenant_id, new_plan="free", actor="stripe-webhook")
-        logger.info("Subscription cancelled for tenant %s — downgraded to free.", tenant_id)
+            return "skipped", f"invalid tenant_id {tenant_id_str!r}", None
 
-    def _handle_payment_failed(self, obj: dict) -> None:  # type: ignore[type-arg]
+        tenant = self._tenant_repo.get(tenant_id)
+        if tenant is None:
+            return "skipped", f"unknown tenant {tenant_id}", tenant_id
+
+        if tenant.is_deleted() or tenant.is_suspended():
+            return "skipped", f"tenant {tenant.status}", tenant_id
+
+        event_customer_id = _extract_customer_id(obj)
+        if tenant.stripe_customer_id and event_customer_id and tenant.stripe_customer_id != event_customer_id:
+            return "skipped", "stripe customer mismatch", tenant_id
+
+        if tenant.plan == "free":
+            return "skipped", "plan already free", tenant_id
+
+        self._lifecycle.upgrade_plan(tenant_id, new_plan="free", actor="stripe-webhook")
+        logger.info("Subscription cancelled for tenant %s — downgraded to free.", tenant_id)
+        return "applied", "plan downgraded to free", tenant_id
+
+    def _handle_payment_failed(self, obj: dict) -> tuple[str, str | None, uuid.UUID | None]:  # type: ignore[type-arg]
         """Log payment failures for dunning. Suspension on repeated failure is
         handled via subscription.deleted in Stripe (or manual admin).
         """
@@ -250,6 +421,7 @@ class StripeBillingService:
             "Dunning: payment failed for Stripe customer %s. Review subscription.",
             customer_id,
         )
+        return "ignored", "payment failure logged", None
 
     # ------------------------------------------------------------------
     # Quota gate

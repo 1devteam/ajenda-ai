@@ -818,7 +818,9 @@ authority_entries:
     source_of_truth:
       - backend/api/routes/billing.py
       - backend/services/billing_stripe_integration.py
+      - backend/services/tenant_lifecycle.py
       - backend/repositories/tenant_repository.py
+      - backend/repositories/stripe_webhook_event_repository.py
       - backend/middleware/tenant_context.py
       - backend/middleware/auth_context.py
       - docs/remediation/phase1_commercial_complete.md
@@ -840,6 +842,7 @@ authority_entries:
     required_proofs:
       - tests/unit/services/test_billing_stripe.py
       - tests/contract/api/test_billing_stripe_webhook_route.py
+      - tests/integration/saas/test_stripe_webhook_real.py
       - docs/remediation/phase1_commercial_complete.md
 
   - id: feature_flag_runtime_contract

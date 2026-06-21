@@ -5,9 +5,13 @@ Tests cover:
   - Checkout session creation (happy path, unknown plan, missing tenant)
   - Stripe Customer lazy creation
   - Webhook event sync: subscription activated, updated, deleted
+  - Realistic checkout.session.completed payloads (subscription ID only)
+  - Event deduplication via stripe_webhook_events
+  - Retryable processing failures (HTTP 500 path)
+  - Tenant lifecycle service usage for plan changes
+  - Customer binding, suspended/deleted tenant skips
   - Payment failure logging
   - Signature verification failure
-  - Plan downgrade on subscription.deleted
   - assert_subscription_active delegation to QuotaEnforcementService
 """
 
@@ -21,7 +25,9 @@ import stripe
 
 from backend.services.billing_stripe_integration import (
     StripeBillingService,
+    StripeWebhookProcessingError,
     _price_id_to_plan,
+    _resolve_price_id,
 )
 from backend.services.quota_enforcement import QuotaExceededError
 
@@ -55,7 +61,10 @@ def tenant():
     t.name = "Acme Corp"
     t.slug = "acme"
     t.plan = "free"
-    t.stripe_customer_id = None
+    t.status = "active"
+    t.stripe_customer_id = "cus_existing123"
+    t.is_deleted.return_value = False
+    t.is_suspended.return_value = False
     return t
 
 
@@ -86,8 +95,17 @@ def _make_subscription(tenant_id: str, price_id: str, status: str = "active") ->
     return {
         "id": "sub_test_123",
         "status": status,
+        "customer": "cus_existing123",
         "metadata": {"tenant_id": tenant_id},
         "items": {"data": [{"price": {"id": price_id}}]},
+    }
+
+
+def _make_stripe_event(event_id: str, event_type: str, data_object: dict) -> dict:
+    return {
+        "id": event_id,
+        "type": event_type,
+        "data": {"object": data_object},
     }
 
 
@@ -104,7 +122,6 @@ class TestCreateCheckoutSession:
             patch.object(billing._tenant_repo, "get", return_value=tenant),
             patch("stripe.Customer.create", return_value={"id": "cus_new123"}),
             patch("stripe.checkout.Session.create", return_value=_make_checkout_session()),
-            patch.object(billing._tenant_repo, "upgrade_plan"),
         ):
             url = billing.create_checkout_session(
                 tenant_id=tenant.id,
@@ -116,6 +133,7 @@ class TestCreateCheckoutSession:
 
     def test_creates_stripe_customer_when_absent(self, billing, db, tenant):
         """A new Stripe Customer is created when tenant has no stripe_customer_id."""
+        tenant.stripe_customer_id = None
         with (
             patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
             patch.object(billing._tenant_repo, "get", return_value=tenant),
@@ -183,68 +201,196 @@ class TestCreateCheckoutSession:
 
 
 class TestHandleWebhook:
-    def _make_event(self, event_type: str, data_object: dict) -> dict:
-        return {
-            "type": event_type,
-            "data": {"object": data_object},
-        }
-
-    def test_syncs_plan_on_checkout_completed(self, billing, tenant):
-        """checkout.session.completed syncs the tenant plan to starter."""
+    def test_syncs_plan_on_checkout_completed_with_subscription_id(self, billing, tenant):
+        """Realistic checkout.session.completed uses subscription ID, not line_items."""
         event_obj = {
             "metadata": {"tenant_id": str(tenant.id)},
-            "line_items": {"data": [{"price": {"id": "price_starter_test"}}]},
+            "customer": "cus_existing123",
+            "subscription": "sub_test_123",
         }
-        event = self._make_event("checkout.session.completed", event_obj)
+        event = _make_stripe_event("evt_checkout_1", "checkout.session.completed", event_obj)
 
         with (
             patch("stripe.Webhook.construct_event", return_value=event),
             patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._webhook_events, "finalize_outcome"),
             patch.object(billing._tenant_repo, "get", return_value=tenant),
-            patch.object(billing._tenant_repo, "upgrade_plan") as mock_upgrade,
+            patch(
+                "stripe.Subscription.retrieve",
+                return_value=_make_subscription(str(tenant.id), "price_starter_test"),
+            ),
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
         ):
-            billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+            result = billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
 
         mock_upgrade.assert_called_once_with(tenant.id, new_plan="starter", actor="stripe-webhook")
+        assert result.outcome == "applied"
+
+    def test_syncs_plan_on_subscription_updated(self, billing, tenant):
+        """customer.subscription.updated syncs via lifecycle service."""
+        event_obj = _make_subscription(str(tenant.id), "price_pro_test")
+        event = _make_stripe_event("evt_sub_upd_1", "customer.subscription.updated", event_obj)
+
+        with (
+            patch("stripe.Webhook.construct_event", return_value=event),
+            patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._webhook_events, "finalize_outcome"),
+            patch.object(billing._tenant_repo, "get", return_value=tenant),
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
+        ):
+            result = billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+
+        mock_upgrade.assert_called_once_with(tenant.id, new_plan="pro", actor="stripe-webhook")
+        assert result.outcome == "applied"
 
     def test_downgrades_plan_on_subscription_deleted(self, billing, tenant):
         """customer.subscription.deleted downgrades the tenant to free."""
-        event_obj = {"metadata": {"tenant_id": str(tenant.id)}}
-        event = self._make_event("customer.subscription.deleted", event_obj)
+        tenant.plan = "starter"
+        event_obj = {
+            "metadata": {"tenant_id": str(tenant.id)},
+            "customer": "cus_existing123",
+        }
+        event = _make_stripe_event("evt_sub_del_1", "customer.subscription.deleted", event_obj)
 
         with (
             patch("stripe.Webhook.construct_event", return_value=event),
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._webhook_events, "finalize_outcome"),
             patch.object(billing._tenant_repo, "get", return_value=tenant),
-            patch.object(billing._tenant_repo, "upgrade_plan") as mock_upgrade,
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
         ):
-            billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+            result = billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
 
         mock_upgrade.assert_called_once_with(tenant.id, new_plan="free", actor="stripe-webhook")
+        assert result.outcome == "applied"
 
-    def test_ignores_event_with_missing_tenant_id(self, billing):
-        """Events without tenant_id in metadata are silently skipped."""
-        event_obj = {"metadata": {}}
-        event = self._make_event("checkout.session.completed", event_obj)
+    def test_skips_duplicate_event(self, billing):
+        """Duplicate Stripe event IDs return outcome=duplicate without processing."""
+        event = _make_stripe_event("evt_dup_1", "checkout.session.completed", {"metadata": {}})
 
         with (
             patch("stripe.Webhook.construct_event", return_value=event),
-            patch.object(billing._tenant_repo, "upgrade_plan") as mock_upgrade,
+            patch.object(billing._webhook_events, "try_record_event", return_value=False),
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
         ):
-            billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+            result = billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
 
         mock_upgrade.assert_not_called()
+        assert result.outcome == "duplicate"
+
+    def test_skips_event_with_missing_tenant_id(self, billing):
+        """Events without tenant_id in metadata are skipped with receipt."""
+        event_obj = {"metadata": {}}
+        event = _make_stripe_event("evt_no_tid_1", "checkout.session.completed", event_obj)
+
+        with (
+            patch("stripe.Webhook.construct_event", return_value=event),
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._webhook_events, "finalize_outcome") as mock_finalize,
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
+        ):
+            result = billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+
+        mock_upgrade.assert_not_called()
+        assert result.outcome == "skipped"
+        mock_finalize.assert_called_once()
+        assert mock_finalize.call_args.kwargs["outcome"] == "skipped"
+
+    def test_skips_suspended_tenant(self, billing, tenant):
+        """Suspended tenants are not upgraded via webhook."""
+        tenant.is_suspended.return_value = True
+        event_obj = _make_subscription(str(tenant.id), "price_starter_test")
+        event = _make_stripe_event("evt_susp_1", "customer.subscription.updated", event_obj)
+
+        with (
+            patch("stripe.Webhook.construct_event", return_value=event),
+            patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._webhook_events, "finalize_outcome"),
+            patch.object(billing._tenant_repo, "get", return_value=tenant),
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
+        ):
+            result = billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+
+        mock_upgrade.assert_not_called()
+        assert result.outcome == "skipped"
+        assert result.detail == "tenant suspended"
+
+    def test_skips_customer_mismatch(self, billing, tenant):
+        """Customer ID mismatch between tenant and event is skipped."""
+        event_obj = {
+            "metadata": {"tenant_id": str(tenant.id)},
+            "customer": "cus_other999",
+            "items": {"data": [{"price": {"id": "price_starter_test"}}]},
+        }
+        event = _make_stripe_event("evt_cus_1", "customer.subscription.updated", event_obj)
+
+        with (
+            patch("stripe.Webhook.construct_event", return_value=event),
+            patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._webhook_events, "finalize_outcome"),
+            patch.object(billing._tenant_repo, "get", return_value=tenant),
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
+        ):
+            result = billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+
+        mock_upgrade.assert_not_called()
+        assert result.outcome == "skipped"
+        assert result.detail == "stripe customer mismatch"
+
+    def test_raises_retryable_when_subscription_fetch_fails(self, billing, tenant):
+        """Stripe API failures during price resolution are retryable."""
+        event_obj = {
+            "metadata": {"tenant_id": str(tenant.id)},
+            "customer": "cus_existing123",
+            "subscription": "sub_test_123",
+        }
+        event = _make_stripe_event("evt_retry_1", "checkout.session.completed", event_obj)
+
+        with (
+            patch("stripe.Webhook.construct_event", return_value=event),
+            patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._tenant_repo, "get", return_value=tenant),
+            patch("stripe.Subscription.retrieve", side_effect=stripe.StripeError("api down")),
+        ):
+            with pytest.raises(StripeWebhookProcessingError, match="Failed to retrieve"):
+                billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+
+    def test_raises_retryable_when_price_unresolvable(self, billing, tenant):
+        """Missing price in payload is retryable so Stripe can redeliver."""
+        event_obj = {
+            "metadata": {"tenant_id": str(tenant.id)},
+            "customer": "cus_existing123",
+        }
+        event = _make_stripe_event("evt_noprice_1", "checkout.session.completed", event_obj)
+
+        with (
+            patch("stripe.Webhook.construct_event", return_value=event),
+            patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._tenant_repo, "get", return_value=tenant),
+        ):
+            with pytest.raises(StripeWebhookProcessingError, match="Could not resolve"):
+                billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
 
     def test_ignores_unknown_event_type(self, billing):
-        """Unknown event types are silently ignored (forward-compatible)."""
-        event = self._make_event("payment_intent.created", {"metadata": {}})
+        """Unknown event types are recorded as ignored (forward-compatible)."""
+        event = _make_stripe_event("evt_unknown_1", "payment_intent.created", {"metadata": {}})
 
         with (
             patch("stripe.Webhook.construct_event", return_value=event),
-            patch.object(billing._tenant_repo, "upgrade_plan") as mock_upgrade,
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._webhook_events, "finalize_outcome"),
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
         ):
-            billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+            result = billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
 
         mock_upgrade.assert_not_called()
+        assert result.outcome == "ignored"
 
     def test_raises_on_invalid_signature(self, billing):
         """SignatureVerificationError propagates to the caller."""
@@ -255,18 +401,40 @@ class TestHandleWebhook:
             with pytest.raises(stripe.SignatureVerificationError):
                 billing.handle_webhook(payload=b"bad", sig_header="t=1,v1=bad")
 
-    def test_ignores_event_with_invalid_tenant_uuid(self, billing):
+    def test_skips_event_with_invalid_tenant_uuid(self, billing):
         """Events with a non-UUID tenant_id are skipped without raising."""
         event_obj = {"metadata": {"tenant_id": "not-a-uuid"}}
-        event = self._make_event("customer.subscription.updated", event_obj)
+        event = _make_stripe_event("evt_baduuid_1", "customer.subscription.updated", event_obj)
 
         with (
             patch("stripe.Webhook.construct_event", return_value=event),
-            patch.object(billing._tenant_repo, "upgrade_plan") as mock_upgrade,
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._webhook_events, "finalize_outcome"),
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
         ):
-            billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
+            result = billing.handle_webhook(payload=b"{}", sig_header="t=1,v1=abc")
 
         mock_upgrade.assert_not_called()
+        assert result.outcome == "skipped"
+
+
+# ---------------------------------------------------------------------------
+# Price resolution helpers
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePriceId:
+    def test_resolves_from_subscription_items(self):
+        obj = {"items": {"data": [{"price": {"id": "price_starter_test"}}]}}
+        assert _resolve_price_id(obj) == "price_starter_test"
+
+    def test_fetches_subscription_when_only_id_present(self):
+        obj = {"subscription": "sub_abc"}
+        with patch(
+            "stripe.Subscription.retrieve",
+            return_value={"items": {"data": [{"price": {"id": "price_pro_test"}}]}},
+        ):
+            assert _resolve_price_id(obj) == "price_pro_test"
 
 
 # ---------------------------------------------------------------------------
@@ -329,10 +497,9 @@ class TestReportMeteredUsage:
             assert call.kwargs["action"] == "increment"
 
     def test_skips_when_no_customer(self, billing, db, tenant):
+        tenant.stripe_customer_id = None
         billing.report_metered_usage(tenant.id, 10)
-        # no stripe calls expected (implicit, no assert on patch)
 
     def test_best_effort_on_stripe_error(self, billing, db, tenant_with_customer):
         with patch("stripe.Subscription.list", side_effect=stripe.StripeError("boom")):
-            # should not raise
             billing.report_metered_usage(tenant_with_customer.id, 3)

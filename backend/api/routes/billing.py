@@ -23,7 +23,10 @@ from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
-from backend.services.billing_stripe_integration import StripeBillingService
+from backend.services.billing_stripe_integration import (
+    StripeBillingService,
+    StripeWebhookProcessingError,
+)
 from backend.services.quota_enforcement import QuotaExceededError
 
 logger = logging.getLogger(__name__)
@@ -137,15 +140,28 @@ async def stripe_webhook(
     Public ingress path (no X-Tenant-Id or API credentials). Authority is
     Stripe signature verification; tenant scope is resolved from event metadata.
     Returns 400 on signature failure so Stripe retries with the correct secret.
+    Returns 500 on retryable processing failures so Stripe retries delivery.
     """
     payload = await request.body()
     billing = StripeBillingService(db)
     try:
-        billing.handle_webhook(payload=payload, sig_header=stripe_signature)
+        result = billing.handle_webhook(payload=payload, sig_header=stripe_signature)
     except stripe.SignatureVerificationError as exc:
         logger.warning("Stripe webhook signature verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid Stripe signature.",
         ) from exc
-    return {"status": "ok"}
+    except StripeWebhookProcessingError as exc:
+        if exc.retryable:
+            logger.error("Stripe webhook retryable processing failure: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Stripe webhook processing failed; retry later.",
+            ) from exc
+        logger.warning("Stripe webhook non-retryable processing failure: %s", exc)
+        return {"status": "ok", "outcome": "failed", "detail": str(exc)}
+    response: dict[str, str] = {"status": "ok", "outcome": result.outcome}
+    if result.detail:
+        response["detail"] = result.detail
+    return response

@@ -23,6 +23,7 @@ from datetime import date
 import pytest
 
 from backend.domain.governance_event import GovernanceEvent
+from backend.domain.provision_source import ProvisionSource
 from backend.domain.tenant import Tenant
 from backend.repositories.tenant_repository import (
     TenantDeletedError,
@@ -267,6 +268,34 @@ class TestTenantLifecycleServiceReal:
         )
         assert len(events) == 1
         assert "gdpr-erasure" in events[0].payload_json["reason"]
+
+    def test_self_serve_provision_emits_distinct_governance_event(self, pg_session) -> None:
+        svc = TenantLifecycleService(pg_session)
+        slug = _slug()
+        svc.provision(
+            name="Self Serve Co.",
+            slug=slug,
+            plan="free",
+            actor="signup:user@example.com",
+            source=ProvisionSource.SELF_SERVE,
+        )
+        pg_session.flush()
+
+        events = pg_session.query(GovernanceEvent).filter_by(event_type="tenant_self_serve_provisioned").all()
+        assert len(events) == 1
+        assert events[0].payload_json["source"] == "self_serve"
+        assert events[0].payload_json["slug"] == slug
+
+    def test_self_serve_provision_rejects_non_free_plan(self, pg_session) -> None:
+        svc = TenantLifecycleService(pg_session)
+        with pytest.raises(ValueError, match="free-plan"):
+            svc.provision(
+                name="Bad Plan Co.",
+                slug=_slug(),
+                plan="starter",
+                actor="signup:user@example.com",
+                source=ProvisionSource.SELF_SERVE,
+            )
 
     def test_upgrade_plan_emits_governance_event(self, pg_session) -> None:
         svc, tenant_id = _provision(pg_session, plan="free")
