@@ -97,3 +97,37 @@ class TenantMemberRepository:
         member.verification_delivery_status = "failed"
         member.updated_at = datetime.now(tz=UTC)
         return member
+
+    def list_pending_with_verification_tokens(self) -> list[TenantMember]:
+        stmt = (
+            select(TenantMember)
+            .where(
+                TenantMember.status == "pending_verification",
+                TenantMember.verification_token_hash.is_not(None),
+            )
+            .order_by(TenantMember.created_at.desc())
+        )
+        return list(self._session.execute(stmt).scalars().all())
+
+    def activate_member(self, member: TenantMember, *, verified_at: datetime) -> TenantMember:
+        member.status = "active"
+        member.verified_at = verified_at
+        member.verification_token_hash = None
+        member.verification_expires_at = None
+        member.verification_delivery_status = "sent"
+        member.updated_at = verified_at
+        return member
+
+    def update_verification_token(
+        self,
+        member: TenantMember,
+        *,
+        token_hash: str,
+        expires_at: datetime,
+        delivery_status: str = "pending",
+    ) -> TenantMember:
+        member.verification_token_hash = token_hash
+        member.verification_expires_at = expires_at
+        member.verification_delivery_status = delivery_status
+        member.updated_at = datetime.now(tz=UTC)
+        return member

@@ -31,6 +31,7 @@ Route inventory under /v1/:
   /v1/webhooks/*      — Tenant webhook endpoint management
   /v1/billing/*       — Stripe checkout, portal, and webhook
   /v1/admin/*         — Platform admin control plane
+  /v1/onboarding/*    — Self-serve tenant signup and verification
 
 Routes at root (/):
   /health             — Liveness probe (no auth required)
@@ -114,6 +115,10 @@ def build_api_router() -> APIRouter:
     v1.include_router(billing_router)  # /v1/billing/*
 
     v1.include_router(admin_router)  # /v1/admin/* (platform control plane)
+
+    from backend.api.routes.onboarding import router as onboarding_router
+
+    v1.include_router(onboarding_router)  # /v1/onboarding/*
 
     root.include_router(v1)
     return root

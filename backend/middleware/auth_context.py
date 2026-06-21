@@ -101,6 +101,9 @@ _PUBLIC_PATH_PREFIXES = (
     "/observability/metrics",
     "/v1/observability/metrics",
     "/v1/billing/webhook/",  # Stripe webhook — signature-verified, no API credentials
+    "/v1/onboarding/signup",
+    "/v1/onboarding/verify-email",
+    "/v1/onboarding/resend-verification",
     "/docs",
     "/openapi.json",
     "/redoc",

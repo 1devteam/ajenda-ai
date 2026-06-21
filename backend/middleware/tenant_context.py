@@ -13,6 +13,7 @@ Public paths (exempt from X-Tenant-Id requirement):
   /v1/auth/*  — OIDC token exchange (tenant_id is in the token, not the header)
   /v1/admin/* — Admin control plane (cross-tenant by design, admin role required)
   /v1/billing/webhook/* — Stripe webhook receiver (tenant resolved from signed event metadata)
+  /v1/onboarding/signup, /verify-email, /resend-verification — public self-serve ingress
 
 Design decisions:
   - The DB lookup is a lightweight SELECT on the tenants table (indexed on id).
@@ -52,6 +53,9 @@ _PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/v1/observability/metrics",
     "/v1/admin",
     "/v1/billing/webhook/",  # Stripe webhook — tenant_id from signed event metadata, not header
+    "/v1/onboarding/signup",
+    "/v1/onboarding/verify-email",
+    "/v1/onboarding/resend-verification",
     "/docs",
     "/redoc",
     "/openapi.json",

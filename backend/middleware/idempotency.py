@@ -31,6 +31,7 @@ Usage (in main.py)::
 
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 import uuid
@@ -45,6 +46,11 @@ _MAX_STORE_SIZE = 10_000  # evict oldest when exceeded
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH"})
 _ANONYMOUS_SCOPE_VALUE = "anonymous"
 _UNCACHEABLE_STATUS_CODES = frozenset({429})
+_ONBOARDING_BODY_HASH_PREFIXES = (
+    "/v1/onboarding/signup",
+    "/v1/onboarding/verify-email",
+    "/v1/onboarding/promote-bootstrap-key",
+)
 
 
 @dataclass
@@ -97,13 +103,51 @@ def _state_value(scope: Scope, name: str) -> Any:
     return None
 
 
-def _build_scoped_cache_key(*, scope: Scope, raw_key: str) -> str:
+def _build_scoped_cache_key(*, scope: Scope, raw_key: str, body_hash: str | None = None) -> str:
     tenant_id = _state_value(scope, "tenant_id") or _ANONYMOUS_SCOPE_VALUE
     principal = _state_value(scope, "principal")
     principal_id = getattr(principal, "subject_id", None) or _ANONYMOUS_SCOPE_VALUE
     method = str(scope.get("method", "")).upper()
     path = str(scope.get("path", ""))
-    return "|".join((str(tenant_id), str(principal_id), method, path, raw_key))
+    parts = [str(tenant_id), str(principal_id), method, path, raw_key]
+    if body_hash is not None:
+        parts.append(body_hash)
+    return "|".join(parts)
+
+
+def _requires_body_hash(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in _ONBOARDING_BODY_HASH_PREFIXES)
+
+
+def _hash_request_body(body: bytes) -> str:
+    return hashlib.sha256(body).hexdigest()
+
+
+async def _read_request_body(receive: Receive) -> bytes:
+    chunks: list[bytes] = []
+    while True:
+        message = await receive()
+        if message["type"] != "http.request":
+            continue
+        chunk = message.get("body", b"")
+        if chunk:
+            chunks.append(chunk)
+        if not message.get("more_body", False):
+            break
+    return b"".join(chunks)
+
+
+def _replay_receive(body: bytes) -> Receive:
+    sent = False
+
+    async def replay() -> dict[str, Any]:
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    return replay
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -179,7 +223,14 @@ class IdempotencyMiddleware:
             await send({"type": "http.response.body", "body": error_body, "more_body": False})
             return
 
-        scoped_key = _build_scoped_cache_key(scope=scope, raw_key=raw_idempotency_key)
+        path = str(scope.get("path", ""))
+        receive_for_app = receive
+        body_hash: str | None = None
+        if _requires_body_hash(path):
+            body_bytes = await _read_request_body(receive)
+            body_hash = _hash_request_body(body_bytes)
+            receive_for_app = _replay_receive(body_bytes)
+        scoped_key = _build_scoped_cache_key(scope=scope, raw_key=raw_idempotency_key, body_hash=body_hash)
 
         # Check store for existing response
         cached = _store.get(scoped_key)
@@ -226,4 +277,4 @@ class IdempotencyMiddleware:
             else:
                 await send(message)
 
-        await self._app(scope, receive, capturing_send)
+        await self._app(scope, receive_for_app, capturing_send)

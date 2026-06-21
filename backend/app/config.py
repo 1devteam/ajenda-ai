@@ -125,6 +125,31 @@ class Settings(BaseSettings):
         default=0.75, alias="AJENDA_LIFECYCLE_POLICY_PROVENANCE_CONFIDENCE_FLOOR"
     )
 
+    # --- Self-serve onboarding ---
+    signup_enabled: bool = Field(default=True, alias="AJENDA_SIGNUP_ENABLED")
+    signup_ip_limit_per_hour: int = Field(default=5, alias="AJENDA_SIGNUP_IP_LIMIT_PER_HOUR")
+    signup_email_limit_per_hour: int = Field(default=3, alias="AJENDA_SIGNUP_EMAIL_LIMIT_PER_HOUR")
+    signup_resend_email_limit_per_hour: int = Field(default=2, alias="AJENDA_SIGNUP_RESEND_EMAIL_LIMIT_PER_HOUR")
+    signup_verify_failures_per_hour: int = Field(default=10, alias="AJENDA_SIGNUP_VERIFY_FAILURES_PER_HOUR")
+    signup_bootstrap_key_ttl_hours: int = Field(default=72, alias="AJENDA_SIGNUP_BOOTSTRAP_KEY_TTL_HOURS")
+    signup_verification_ttl_hours: int = Field(default=24, alias="AJENDA_SIGNUP_VERIFICATION_TTL_HOURS")
+    signup_expose_verification_token: bool = Field(
+        default=False,
+        alias="AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN",
+    )
+    signup_require_idempotency_key: bool | None = Field(
+        default=None,
+        alias="AJENDA_SIGNUP_REQUIRE_IDEMPOTENCY_KEY",
+    )
+    email_provider: Literal["logging", "noop", "resend"] = Field(
+        default="logging",
+        alias="AJENDA_EMAIL_PROVIDER",
+    )
+    resend_api_key: str = Field(default="", alias="AJENDA_RESEND_API_KEY")
+    email_from: str = Field(default="", alias="AJENDA_EMAIL_FROM")
+    signup_verify_url_base: str = Field(default="", alias="AJENDA_SIGNUP_VERIFY_URL_BASE")
+    email_delivery_timeout_seconds: float = Field(default=10.0, alias="AJENDA_EMAIL_DELIVERY_TIMEOUT_SECONDS")
+
     @property
     def cors_allowed_origin_list(self) -> list[str]:
         return [item.strip() for item in self.cors_allowed_origins.split(",") if item.strip()]
@@ -144,6 +169,12 @@ class Settings(BaseSettings):
     @property
     def budget_policy_enforce_plan_set(self) -> set[str]:
         return self._csv_set(self.budget_policy_enforce_plans)
+
+    @property
+    def signup_idempotency_required(self) -> bool:
+        if self.signup_require_idempotency_key is not None:
+            return self.signup_require_idempotency_key
+        return str(self.env).strip().lower() == "production"
 
     def validate_runtime_contract(self) -> None:
         """Validate production/runtime safety configuration.
@@ -263,7 +294,52 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS must be a positive number, got {self.authz_opa_timeout_seconds}"
             )
+        if self.signup_ip_limit_per_hour <= 0:
+            raise ValueError(
+                f"AJENDA_SIGNUP_IP_LIMIT_PER_HOUR must be a positive integer, got {self.signup_ip_limit_per_hour}"
+            )
+        if self.signup_email_limit_per_hour <= 0:
+            raise ValueError(
+                f"AJENDA_SIGNUP_EMAIL_LIMIT_PER_HOUR must be a positive integer, got {self.signup_email_limit_per_hour}"
+            )
+        if self.signup_resend_email_limit_per_hour <= 0:
+            raise ValueError(
+                "AJENDA_SIGNUP_RESEND_EMAIL_LIMIT_PER_HOUR must be a positive integer, "
+                f"got {self.signup_resend_email_limit_per_hour}"
+            )
+        if self.signup_verify_failures_per_hour <= 0:
+            raise ValueError(
+                "AJENDA_SIGNUP_VERIFY_FAILURES_PER_HOUR must be a positive integer, "
+                f"got {self.signup_verify_failures_per_hour}"
+            )
+        if self.signup_bootstrap_key_ttl_hours <= 0:
+            raise ValueError(
+                "AJENDA_SIGNUP_BOOTSTRAP_KEY_TTL_HOURS must be a positive integer, "
+                f"got {self.signup_bootstrap_key_ttl_hours}"
+            )
+        if self.signup_verification_ttl_hours <= 0:
+            raise ValueError(
+                "AJENDA_SIGNUP_VERIFICATION_TTL_HOURS must be a positive integer, "
+                f"got {self.signup_verification_ttl_hours}"
+            )
+        if self.email_delivery_timeout_seconds <= 0:
+            raise ValueError(
+                "AJENDA_EMAIL_DELIVERY_TIMEOUT_SECONDS must be a positive number, "
+                f"got {self.email_delivery_timeout_seconds}"
+            )
+
         if env == "production":
+            if self.email_provider == "logging":
+                raise ValueError("AJENDA_EMAIL_PROVIDER=logging is forbidden in production; use resend")
+            if self.email_provider == "resend":
+                if _blank(self.resend_api_key):
+                    raise ValueError("AJENDA_RESEND_API_KEY is required when AJENDA_EMAIL_PROVIDER=resend")
+                if _blank(self.email_from):
+                    raise ValueError("AJENDA_EMAIL_FROM is required when AJENDA_EMAIL_PROVIDER=resend")
+                if _blank(self.signup_verify_url_base):
+                    raise ValueError("AJENDA_SIGNUP_VERIFY_URL_BASE is required when AJENDA_EMAIL_PROVIDER=resend")
+            if self.signup_expose_verification_token:
+                raise ValueError("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN must be false in production")
             if not self.STRIPE_SECRET_KEY or not self.STRIPE_SECRET_KEY.startswith("sk_"):
                 raise ValueError(
                     "STRIPE_SECRET_KEY is required in production and must begin with 'sk_'. "

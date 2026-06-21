@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Literal
 
 from sqlalchemy.orm import Session
 
@@ -27,27 +29,42 @@ class ApiKeyService:
         self._audit = AuditEventRepository(session) if session is not None else None
         self._memory_store: dict[str, StoredApiKey] = {}
 
-    def create_key(self, *, tenant_id: str, scopes: tuple[str, ...]) -> tuple[str, ApiKeyRecordModel]:
+    def create_key(
+        self,
+        *,
+        tenant_id: str,
+        scopes: tuple[str, ...] = (),
+        roles: tuple[str, ...] = ("machine_executor",),
+        purpose: Literal["bootstrap", "operational"] = "operational",
+        expires_at: datetime | None = None,
+    ) -> tuple[str, ApiKeyRecordModel]:
         """Create a new API key for the given tenant.
 
         Returns the plaintext secret (shown once) and the persisted ApiKeyRecordModel.
         In memory-only mode (no DB session), stores in an in-process dict.
         """
+        if purpose == "bootstrap" and expires_at is None:
+            raise ValueError("bootstrap API keys require expires_at")
+
         plaintext, record = self._hasher.build_record(tenant_id=tenant_id, scopes=scopes)
         mem_record = ApiKeyRecordModel(
             tenant_id=tenant_id,
             key_id=record.key_id,
             hashed_secret=record.hashed_secret,
             scopes_json=list(record.scopes),
+            purpose=purpose,
+            expires_at=expires_at,
+            roles_json=list(roles),
             revoked=False,
         )
         if self._repo is not None:
             db_record = self._repo.add(mem_record)
             self._emit_audit(
-                tenant_id=tenant_id, action="api_key_created", details=f"API key {db_record.key_id} created"
+                tenant_id=tenant_id,
+                action="api_key_created",
+                details=f"API key {db_record.key_id} created ({purpose})",
             )
             return plaintext, db_record
-        # Memory-only mode: store the ApiKeyRecordModel directly in the wrapper
         self._memory_store[record.key_id] = StoredApiKey(record=mem_record)
         return plaintext, mem_record
 
@@ -66,7 +83,14 @@ class ApiKeyService:
             raise ValueError("api key not found")
         stored.record.revoked = True
 
-    def authenticate_machine(self, *, tenant_id: str, key_id: str, plaintext: str) -> MachinePrincipal | None:
+    def authenticate_machine(
+        self,
+        *,
+        tenant_id: str,
+        key_id: str,
+        plaintext: str,
+        now: datetime | None = None,
+    ) -> MachinePrincipal | None:
         try:
             record = self._load_record(key_id)
         except ValueError:
@@ -75,15 +99,20 @@ class ApiKeyService:
             return None
         if record.revoked:
             return None
+        if record.expires_at is not None:
+            current = now or datetime.now(UTC)
+            if current >= record.expires_at:
+                return None
         if not self._hasher.verify(plaintext=plaintext, hashed_secret=record.hashed_secret):
             return None
-        permissions = self._rbac.resolve_permissions(("machine_executor",))
+        roles = tuple(record.roles_json) if record.roles_json else ("machine_executor",)
+        permissions = self._rbac.resolve_permissions(roles)
         self._emit_audit(tenant_id=tenant_id, action="api_key_authenticated", details=f"API key {record.key_id} used")
         return MachinePrincipal(
             subject_id=f"machine:{record.key_id}",
             tenant_id=tenant_id,
             principal_type=PrincipalType.MACHINE,
-            roles=("machine_executor",),
+            roles=roles,
             permissions=permissions,
             key_id=record.key_id,
         )
@@ -96,7 +125,6 @@ class ApiKeyService:
         """
         if self._repo is not None:
             return self._repo.count_active_for_tenant(tenant_id=tenant_id)
-        # Memory-only mode: count non-revoked keys for this tenant
         return sum(
             1
             for stored in self._memory_store.values()

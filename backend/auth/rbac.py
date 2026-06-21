@@ -97,6 +97,31 @@ class RbacAuthorizer:
                     Permission.EXECUTION_QUEUE,
                 }
             ),
+            "signup_bootstrap": frozenset(
+                {
+                    Permission.AUTH_READ,
+                    Permission.MISSION_CREATE,
+                    Permission.EXECUTION_VIEW,
+                    Permission.EXECUTION_QUEUE,
+                    Permission.RUNTIME_VIEW,
+                    Permission.BUSINESS_PROFILE_READ,
+                }
+            ),
+            "tenant_operator": frozenset(
+                {
+                    Permission.AUTH_READ,
+                    Permission.MISSION_CREATE,
+                    Permission.MISSION_MANAGE,
+                    Permission.EXECUTION_VIEW,
+                    Permission.EXECUTION_QUEUE,
+                    Permission.RUNTIME_VIEW,
+                    Permission.BUSINESS_PROFILE_READ,
+                    Permission.BUSINESS_PROFILE_MANAGE,
+                    Permission.API_KEYS_CREATE,
+                    Permission.API_KEYS_READ,
+                    Permission.API_KEYS_REVOKE,
+                }
+            ),
         }
 
     def resolve_permissions(self, roles: tuple[str, ...]) -> frozenset[Permission]:

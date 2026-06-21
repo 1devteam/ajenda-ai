@@ -441,6 +441,11 @@ def _settings_with_confidence_floor(value: float) -> Settings:
         STRIPE_WEBHOOK_SECRET="whsec_placeholder_for_tests",
         STRIPE_PRICE_STARTER="price_starter_test",
         STRIPE_PRICE_PRO="price_pro_test",
+        email_provider="resend",
+        resend_api_key="re_test_placeholder",
+        email_from="Ajenda AI <onboarding@ajenda.ai>",
+        signup_verify_url_base="https://app.ajenda.ai/verify-email",
+        signup_expose_verification_token=False,
     )
 
 

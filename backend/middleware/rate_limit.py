@@ -37,15 +37,22 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
-from backend.app.config import get_settings
+from backend.app.config import Settings, get_settings
 from backend.rate_limit.limiter import RateLimiter, RateLimitKey, RoutePolicy
 from backend.services.quota_enforcement import QuotaExceededError
+from backend.utils.client_ip import extract_client_ip, hash_client_ip
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Per-route policy defaults (tunable via Settings in a future iteration)
 # ---------------------------------------------------------------------------
+_ONBOARDING_ROUTE_POLICIES: dict[str, RoutePolicy] = {
+    "/v1/onboarding/signup": RoutePolicy(max_requests=5, window_seconds=3600),
+    "/v1/onboarding/verify-email": RoutePolicy(max_requests=20, window_seconds=3600),
+    "/v1/onboarding/resend-verification": RoutePolicy(max_requests=3, window_seconds=3600),
+}
+
 _DEFAULT_ROUTE_POLICIES: dict[str, RoutePolicy] = {
     # Webhook registration is expensive (bcrypt hash generation) and
     # abuse-prone (external HTTP calls on dispatch). Tighten significantly.
@@ -87,7 +94,19 @@ def _classify_route(path: str) -> str:
         return "webhooks"
     if path.startswith("/v1/billing/webhook/"):
         return "stripe_webhook"
+    if path.startswith("/v1/onboarding/"):
+        return "onboarding"
     return "default"
+
+
+def _onboarding_route_policy(path: str, settings: Settings) -> RoutePolicy | None:
+    for prefix, policy in _ONBOARDING_ROUTE_POLICIES.items():
+        if path.startswith(prefix):
+            return RoutePolicy(
+                max_requests=settings.signup_ip_limit_per_hour,
+                window_seconds=policy.window_seconds,
+            )
+    return None
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -105,6 +124,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        settings = get_settings()
         principal = getattr(request.state, "principal", None)
         tenant_id = getattr(request.state, "tenant_id", None) or "anonymous"
         principal_id = getattr(principal, "subject_id", "anonymous")
@@ -112,13 +132,25 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         plan_slug = getattr(tenant, "plan", None)
         plan_label = str(plan_slug) if plan_slug else "unknown"
         route_class = _classify_route(request.url.path)
-        key = RateLimitKey(
-            tenant_id=tenant_id,
-            principal_id=principal_id,
-            route=request.url.path,
-        )
-        # Resolve baseline route policy, then adapt by tenant plan.
-        base_max, base_window = self._limiter._resolve_policy(request.url.path)
+        path = request.url.path
+        if route_class == "onboarding":
+            client_ip_hash = hash_client_ip(extract_client_ip(request))
+            key = RateLimitKey(
+                tenant_id="onboarding",
+                principal_id=client_ip_hash,
+                route=path,
+            )
+        else:
+            key = RateLimitKey(
+                tenant_id=tenant_id,
+                principal_id=principal_id,
+                route=path,
+            )
+        onboarding_policy = _onboarding_route_policy(path, settings)
+        if onboarding_policy is not None:
+            base_max, base_window = onboarding_policy.max_requests, onboarding_policy.window_seconds
+        else:
+            base_max, base_window = self._limiter._resolve_policy(path)
         multiplier = _PLAN_RATE_MULTIPLIER.get(str(plan_slug), 1.0)
         burst_credit = _PLAN_BURST_CREDIT.get(str(plan_slug), 0)
         effective_max = max(1, int(base_max * multiplier) + burst_credit)

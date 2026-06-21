@@ -993,3 +993,43 @@ authority_entries:
     required_proofs:
       - backend/services/tools/gtm_actions.py
       - tests/unit/tools/test_gtm_actions.py
+
+  - id: tenant_self_serve_onboarding_contract
+    area: self-serve tenant onboarding
+    source_of_truth:
+      - backend/api/routes/onboarding.py
+      - backend/services/tenant_onboarding_orchestrator.py
+      - backend/services/tenant_lifecycle.py
+      - backend/utils/email_canonical.py
+      - backend/utils/slug.py
+      - backend/db/tenant_session.py
+      - backend/domain/tenant_member.py
+      - alembic/versions/0028_add_tenant_members.py
+      - alembic/versions/0029_api_key_bootstrap.py
+      - alembic/versions/0030_add_signup_abuse_tables.py
+    route_scope:
+      - /v1/onboarding/signup
+      - /v1/onboarding/verify-email
+      - /v1/onboarding/resend-verification
+      - /v1/onboarding/promote-bootstrap-key
+    authority_class: governed_mutation
+    side_effect_class: cross_tenant_tenant_provisioning_mutation
+    allowed_side_effects:
+      - create free-plan tenant only via TenantLifecycleService.provision(source=self_serve)
+      - create pending tenant_owner membership with canonical email
+      - issue time-limited bootstrap API key only after email verification
+      - promote bootstrap key to tenant_operator operational key
+      - emit governance events after RLS session activation
+    forbidden_side_effects:
+      - issue bootstrap or operational API key at signup without verification in production
+      - grant API_KEYS_CREATE or tenant_admin permissions to bootstrap keys
+      - client-selected paid or enterprise plan at signup
+      - log or persist plaintext API keys or verification tokens
+      - write to RLS tables without activate_tenant_session
+    required_proofs:
+      - tests/unit/utils/test_email_canonical.py
+      - tests/unit/services/test_tenant_onboarding_orchestrator.py
+      - tests/unit/services/test_api_key_bootstrap.py
+      - tests/contract/api/test_onboarding_signup_route.py
+      - tests/contract/api/test_onboarding_verify_route.py
+      - tests/integration/saas/test_tenant_onboarding_real.py
