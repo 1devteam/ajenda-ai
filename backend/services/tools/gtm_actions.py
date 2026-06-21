@@ -26,9 +26,9 @@ from backend.services.tools.schemas import (
     GtmEmailDraftInput,
     GtmEmailSendInput,
     GtmLeadEnrichInput,
-    RuntimeCredentialMaterial,
     GtmSocialPublishInput,
     RetrievalHybridInput,
+    RuntimeCredentialMaterial,
     SideEffectClass,
     ToolInvocation,
 )
@@ -105,6 +105,17 @@ def _gmail_api_send_payload(*, to: str, subject: str, body: str) -> dict[str, st
 
 def _http_is_success(status_code: int) -> bool:
     return 200 <= status_code < 300
+
+
+def _ensure_simulated_external_outcome(payload: dict[str, Any], *, reason: str) -> None:
+    """Fail-closed: non-real external actions must not use success-looking status values."""
+    if payload.get("real"):
+        return
+    if payload.get("status") == "error":
+        return
+    payload["status"] = "simulated"
+    payload["real"] = False
+    payload.setdefault("reason", reason)
 
 
 def _provider_headers(base: dict[str, str], inv: ToolInvocation) -> dict[str, str]:
@@ -275,14 +286,14 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
         )
         body_text = inp.body or str(inp.context.get("body", ""))
 
-        sent = {
+        sent: dict[str, Any] = {
             "to": inp.to,
             "subject": inp.subject,
             "body": body_text,
-            "status": "sent",
-            "message_id": "msg_" + str(ctx.task_id)[:8],
+            "status": "simulated",
             "context": inp.context,
             "real": False,
+            "reason": "no_runtime_credential",
         }
 
         secret = _credential_secret(gmail_cred)
@@ -323,6 +334,11 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 sent["error"] = str(e)
                 sent["real"] = False
 
+        _ensure_simulated_external_outcome(
+            sent,
+            reason="runtime_credential_missing_or_send_not_executed",
+        )
+
         return ActionResult(
             action=inv.action,
             provider="external_email",
@@ -333,14 +349,16 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     inv.action,
                     "external_email",
                     ctx,
-                    "email sent externally" + (" (real Gmail)" if sent.get("real") else " (simulated)"),
+                    "External email sent via Gmail"
+                    if sent.get("real")
+                    else "External email not sent (simulated; no outbound effect)",
                     sent,
                     side_effect_class=SideEffectClass.EXTERNAL_SEND,
                 )
             ],
-            summary="External email send via Gmail"
+            summary="External email sent via Gmail"
             if sent.get("real")
-            else "External email send (simulated, requires egress/cred in prod)",
+            else "External email not sent (simulated; no outbound effect)",
         )
 
     def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
@@ -428,11 +446,13 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 crm_cred = ctx.runtime_credentials[k]
                 break
 
-        upserted = {
+        upserted: dict[str, Any] = {
             "record_type": inp.record_type,
             "id": "crm_" + str(ctx.task_id)[:8],
             "data": inp.data,
-            "status": "upserted",
+            "status": "simulated",
+            "real": False,
+            "reason": "no_runtime_credential",
         }
 
         if crm_cred:
@@ -479,6 +499,11 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 upserted["error"] = str(e)
                 upserted["real"] = False
 
+        _ensure_simulated_external_outcome(
+            upserted,
+            reason="runtime_credential_missing_or_upsert_not_executed",
+        )
+
         return ActionResult(
             action=inv.action,
             provider="external_crm",
@@ -489,15 +514,17 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     inv.action,
                     "external_crm",
                     ctx,
-                    "crm upsert external" + (" (real)" if upserted.get("real") else " (simulated)"),
+                    "External CRM upsert completed"
+                    if upserted.get("real")
+                    else "External CRM upsert not executed (simulated; no write effect)",
                     upserted,
                     side_effect_class=SideEffectClass.EXTERNAL_WRITE,
                 )
             ],
-            records_changed=[str(upserted["id"])],
-            summary="External CRM upsert (real via cred)"
+            records_changed=[str(upserted["id"])] if upserted.get("real") else [],
+            summary="External CRM upsert completed (real via cred)"
             if upserted.get("real")
-            else "External CRM upsert (simulated, EXTERNAL_WRITE)",
+            else "External CRM upsert not executed (simulated; no write effect)",
         )
 
     registry.register(
@@ -575,12 +602,12 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 social_cred = ctx.runtime_credentials[k]
                 break
 
-        published = {
+        published: dict[str, Any] = {
             "platform": inp.platform,
             "content": inp.content,
-            "post_id": "post_" + str(ctx.task_id)[:8],
-            "url": f"https://{inp.platform}.com/post/{str(ctx.task_id)[:8]}",
-            "status": "published",
+            "status": "simulated",
+            "real": False,
+            "reason": "no_runtime_credential",
         }
 
         if social_cred:
@@ -622,6 +649,15 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 published["error"] = str(e)
                 published["real"] = False
 
+        if published.get("real"):
+            published.setdefault("post_id", "post_" + str(ctx.task_id)[:8])
+            published.setdefault("url", f"https://{inp.platform}.com/post/{str(ctx.task_id)[:8]}")
+
+        _ensure_simulated_external_outcome(
+            published,
+            reason="runtime_credential_missing_or_publish_not_executed",
+        )
+
         return ActionResult(
             action=inv.action,
             provider="external_social",
@@ -632,14 +668,16 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     inv.action,
                     "external_social",
                     ctx,
-                    "social published externally" + (" (real)" if published.get("real") else " (simulated)"),
+                    "External social publish completed"
+                    if published.get("real")
+                    else "External social publish not executed (simulated; no publish effect)",
                     published,
                     side_effect_class=SideEffectClass.EXTERNAL_PUBLISH,
                 )
             ],
-            summary="External social publish (real via cred)"
+            summary="External social publish completed (real via cred)"
             if published.get("real")
-            else "External social publish (simulated, EXTERNAL_PUBLISH, requires approval)",
+            else "External social publish not executed (simulated; no publish effect)",
         )
 
     registry.register(

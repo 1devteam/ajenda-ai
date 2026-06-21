@@ -13,6 +13,7 @@ from backend.services.tools.schemas import (
     RecordReadInput,
     RecordSearchInput,
     RecordWriteInput,
+    RuntimeCredentialMaterial,
     SalesLeadInput,
     SideEffectClass,
     ToolInvocation,
@@ -160,11 +161,15 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         if account:
             related.append(account)
 
-    cred = context.runtime_credentials.get("sales.research") or context.runtime_credentials.get("crm.research") or {}
+    cred: RuntimeCredentialMaterial | dict[str, Any] | None = context.runtime_credentials.get(
+        "sales.research"
+    ) or context.runtime_credentials.get("crm.research")
     secret = (
         cred.secret_value
         if cred and hasattr(cred, "secret_value") and cred.secret_value
-        else cred.get("secret_value") if isinstance(cred, dict) else None
+        else cred.get("secret_value")
+        if isinstance(cred, dict)
+        else None
     )
     is_real = bool(secret)
     research_notes = ["local provider lookup completed"]
@@ -196,7 +201,9 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
                 "body_preview": resp.body_text[:300] if resp.body_text else "",
             }
             if 200 <= resp.status_code < 300:
-                research_notes = [f"real CRM external call via network_egress to {search_url} (status={resp.status_code})"]
+                research_notes = [
+                    f"real CRM external call via network_egress to {search_url} (status={resp.status_code})"
+                ]
             else:
                 is_real = False
                 research_notes = [f"real CRM external call failed with HTTP {resp.status_code} (fallback to local)"]

@@ -49,6 +49,7 @@ def test_gtm_email_send_simulated_when_no_credential() -> None:
     )
 
     assert result.output["real"] is False
+    assert result.output["status"] == "simulated"
     assert result.side_effect_class.value == "external_send"
 
 
@@ -306,4 +307,5 @@ def test_gtm_crm_upsert_simulated_without_credential() -> None:
     )
 
     assert result.output.get("real") is not True
+    assert result.output["status"] == "simulated"
     assert result.side_effect_class.value == "external_write"

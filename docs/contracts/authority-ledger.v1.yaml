@@ -985,4 +985,4 @@ authority_entries:
       - unsafe egress
     required_proofs:
       - backend/services/tools/gtm_actions.py
-      - authority ledger update
+      - tests/unit/tools/test_gtm_actions.py
