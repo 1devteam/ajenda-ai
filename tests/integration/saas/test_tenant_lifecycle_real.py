@@ -272,7 +272,7 @@ class TestTenantLifecycleServiceReal:
     def test_self_serve_provision_emits_distinct_governance_event(self, pg_session) -> None:
         svc = TenantLifecycleService(pg_session)
         slug = _slug()
-        svc.provision(
+        result = svc.provision(
             name="Self Serve Co.",
             slug=slug,
             plan="free",
@@ -281,7 +281,11 @@ class TestTenantLifecycleServiceReal:
         )
         pg_session.flush()
 
-        events = pg_session.query(GovernanceEvent).filter_by(event_type="tenant_self_serve_provisioned").all()
+        events = (
+            pg_session.query(GovernanceEvent)
+            .filter_by(tenant_id=str(result.tenant_id), event_type="tenant_self_serve_provisioned")
+            .all()
+        )
         assert len(events) == 1
         assert events[0].payload_json["source"] == "self_serve"
         assert events[0].payload_json["slug"] == slug
