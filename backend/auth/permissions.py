@@ -22,3 +22,6 @@ class Permission(StrEnum):
     RETRIEVAL_MANAGE = "retrieval:manage"
     BUSINESS_PROFILE_READ = "business_profile:read"
     BUSINESS_PROFILE_MANAGE = "business_profile:manage"
+    ACCOUNT_READ = "account:read"
+    BILLING_READ = "billing:read"
+    BILLING_MANAGE = "billing:manage"

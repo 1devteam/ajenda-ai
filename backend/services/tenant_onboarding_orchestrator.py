@@ -12,8 +12,8 @@ from backend.app.config import Settings, get_settings
 from backend.auth.principal import MachinePrincipal
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.governance_event import GovernanceEvent
-from backend.domain.tenant_member import TenantMember
 from backend.domain.provision_source import ProvisionSource
+from backend.domain.tenant_member import TenantMember
 from backend.repositories.api_key_repository import ApiKeyRepository
 from backend.repositories.tenant_member_repository import TenantMemberRepository
 from backend.repositories.tenant_repository import TenantRepository

@@ -42,6 +42,27 @@ Primary mission:
 - autonomous outcome scoring that mutates runtime state without explicit authority
 - any cross-tenant mutation pathways
 
+### Customer product surface (current implementation truth)
+
+**Implemented (customer product — staging-ready):**
+
+- self-serve onboarding: `/v1/onboarding/signup`, `/verify-email`, `/resend-verification`, `/promote-bootstrap-key`
+- account self-service: `/v1/account/me`, `/plan`, `/usage`, `/billing`
+- Stripe billing: `/v1/billing/checkout`, `/portal`, `/webhook/stripe` (checkout/portal gated by `billing:manage`)
+- ability runtime launcher: `/v1/ability-runtime/*`
+- customer frontend: signup, verify-email, promote, dashboard, billing, tasks (`/dev` retains internal ability console)
+- deploy: Compose frontend `:8080`, K8s `ajenda-frontend`, GHCR `-frontend` image in release CI
+- proof: `tests/integration/saas/test_paid_customer_loop_real.py`, `deploy/scripts/paid-customer-loop-staging-proof.sh`
+
+**Operator production cutover (configure, not code gaps):**
+
+- replace placeholder host `ajenda.example.com` with the real domain in ingress/ConfigMap/`.env.prod`
+- populate live Resend + Stripe (`sk_live_`, `price_` IDs) secrets; startup validation rejects test keys and localhost origins
+- customer billing UI sells **Pro only**; Starter is admin/sales webhook tier
+- Terraform ECS module ships customer frontend with ALB path routing (`infra/modules/ecs/frontend.tf`)
+
+Visual architecture: `docs/architecture/SYSTEM_ARCHITECTURE.md`
+
 ---
 
 ## 3) Non-negotiable invariants
@@ -212,12 +233,14 @@ Canonical source-of-truth docs:
 
 1. `PROJECT_SPEC.md` (this file)
 2. `README.md`
-3. `docs/product/mission-based-ai-core.md`
+3. `docs/architecture/SYSTEM_ARCHITECTURE.md`
 4. `docs/SAAS_ARCHITECTURE.md`
-5. `docs/validation/live-runtime-matrix.md`
-6. `docs/validation/live-runtime-proof-release-gate.md`
-7. `docs/deployment/production-env-contract.md`
-8. `docs/policies/DOCS_FRESHNESS_POLICY.md`
+5. `docs/PROJECT_STATE_REPORT.md`
+6. `docs/deployment/production-env-contract.md`
+7. `docs/validation/live-runtime-matrix.md`
+8. `docs/validation/live-runtime-proof-release-gate.md`
+9. `docs/policies/DOCS_FRESHNESS_POLICY.md`
+10. `docs/contracts/authority-ledger.v1.yaml`
 
 If documents conflict, precedence order is:
 

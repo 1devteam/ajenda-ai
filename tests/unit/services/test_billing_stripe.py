@@ -401,6 +401,36 @@ class TestHandleWebhook:
             with pytest.raises(stripe.SignatureVerificationError):
                 billing.handle_webhook(payload=b"bad", sig_header="t=1,v1=bad")
 
+    def test_handles_construct_event_stripe_objects(self, billing, tenant):
+        """construct_event returns StripeObject payloads — not plain dicts."""
+        from backend.billing.staging_proof_helpers import (
+            build_checkout_completed_event,
+            dumps_event,
+            sign_stripe_webhook_payload,
+        )
+
+        event_payload = build_checkout_completed_event(
+            tenant_id=str(tenant.id),
+            customer_id="cus_existing123",
+            price_id="price_pro_test",
+            event_id="evt_stripe_object_1",
+        )
+        payload = dumps_event(event_payload)
+        signature = sign_stripe_webhook_payload(payload, secret="whsec_test_integration")
+
+        with (
+            patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
+            patch.object(billing, "_webhook_secret", "whsec_test_integration"),
+            patch.object(billing._webhook_events, "try_record_event", return_value=True),
+            patch.object(billing._webhook_events, "finalize_outcome"),
+            patch.object(billing._tenant_repo, "get", return_value=tenant),
+            patch.object(billing._lifecycle, "upgrade_plan") as mock_upgrade,
+        ):
+            result = billing.handle_webhook(payload=payload, sig_header=signature)
+
+        mock_upgrade.assert_called_once_with(tenant.id, new_plan="pro", actor="stripe-webhook")
+        assert result.outcome == "applied"
+
     def test_skips_event_with_invalid_tenant_uuid(self, billing):
         """Events with a non-UUID tenant_id are skipped without raising."""
         event_obj = {"metadata": {"tenant_id": "not-a-uuid"}}
@@ -433,6 +463,18 @@ class TestResolvePriceId:
         with patch(
             "stripe.Subscription.retrieve",
             return_value={"items": {"data": [{"price": {"id": "price_pro_test"}}]}},
+        ):
+            assert _resolve_price_id(obj) == "price_pro_test"
+
+    def test_fetches_subscription_when_retrieve_returns_stripe_object(self):
+        class _StripeLikeSubscription:
+            def to_dict_recursive(self) -> dict:
+                return {"items": {"data": [{"price": {"id": "price_pro_test"}}]}}
+
+        obj = {"subscription": "sub_abc"}
+        with patch(
+            "stripe.Subscription.retrieve",
+            return_value=_StripeLikeSubscription(),
         ):
             assert _resolve_price_id(obj) == "price_pro_test"
 

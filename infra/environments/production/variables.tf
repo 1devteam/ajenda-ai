@@ -43,6 +43,17 @@ variable "image_tag" {
   type        = string
 }
 
+variable "ecr_frontend_image_uri" {
+  description = "Customer frontend image URI without tag (GHCR or ECR)"
+  type        = string
+}
+
+variable "frontend_image_tag" {
+  description = "Customer frontend image tag"
+  type        = string
+  default     = "latest"
+}
+
 variable "alarm_sns_arn" {
   description = "SNS topic ARN for CloudWatch alarms"
   type        = string

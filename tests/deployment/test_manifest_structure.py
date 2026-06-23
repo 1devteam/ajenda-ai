@@ -8,6 +8,8 @@ EXPECTED_K8S_MANIFESTS = frozenset(
     {
         "api-deployment.yaml",
         "api-service.yaml",
+        "frontend-deployment.yaml",
+        "frontend-service.yaml",
         "configmap.yaml",
         "hpa-worker.yaml",
         "ingress.yaml",

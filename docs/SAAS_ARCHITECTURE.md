@@ -207,3 +207,79 @@ Ajenda’s SaaS architecture should be understood as:
 - and an evidence-backed runtime-proof model that validates whether those guarantees still hold
 
 That final layer is what moves the system toward enterprise-grade operational credibility, and the current priority is to keep the architecture narrative synchronized with the runtime and validation truth already present on `main`.
+
+---
+
+## 13. Self-serve onboarding (implemented)
+
+**Routes:** `/v1/onboarding/signup`, `/verify-email`, `/resend-verification`, `/promote-bootstrap-key`
+
+**Flow:**
+
+1. Signup creates tenant on **free** plan via `TenantLifecycleService.provision` with `ProvisionSource.SELF_SERVE`.
+2. Owner email stored in `tenant_members` with hashed verification token.
+3. Verify activates member and issues **bootstrap** API key (`signup_bootstrap` role, 72h TTL).
+4. Promote revokes bootstrap and issues **tenant_operator** key.
+
+**Public ingress:** signup, verify, and resend bypass tenant header and auth middleware. Promote requires tenant context + bootstrap key.
+
+**Abuse controls:** IP and email rate limits (`SignupAbuseGuard`), `signup_attempt_log`, idempotency on signup/verify/promote in production.
+
+**Email:** `AJENDA_EMAIL_PROVIDER=resend` required in production; `logging` forbidden. Verification token not returned in API response in production.
+
+**Frontend:** Customer UI ships `/verify-email` when the frontend image is deployed. Set `AJENDA_SIGNUP_VERIFY_URL_BASE` to that host (for example `http://localhost:8080/verify-email` in staging, production HTTPS URL in prod). Staging runbook: [`ops/runbooks/paid-customer-loop-staging.md`](../ops/runbooks/paid-customer-loop-staging.md).
+
+**Account APIs:** `GET /v1/account/me`, `/plan`, `/usage`, `/billing` — require `account:read`; bootstrap keys cannot read billing (`403` before promote).
+
+See Mermaid: [`SYSTEM_ARCHITECTURE.md` §3](./architecture/SYSTEM_ARCHITECTURE.md).
+
+---
+
+## 14. Stripe billing (implemented)
+
+**Routes:**
+
+- `POST /v1/billing/checkout` — authenticated, creates Stripe Checkout session
+- `GET /v1/billing/portal` — authenticated, Customer Portal session
+- `POST /v1/billing/webhook/stripe` — public, signature-verified
+
+**Authority:**
+
+- Webhook dedup via `stripe_webhook_events`
+- Plan changes through `TenantLifecycleService.upgrade_plan`
+- Lazy `stripe_customer_id` creation on first checkout
+
+**RBAC gap:** Checkout and portal do not call `require_route_permission`; any authenticated tenant API key can invoke them.
+
+See Mermaid: [`SYSTEM_ARCHITECTURE.md` §4](./architecture/SYSTEM_ARCHITECTURE.md).
+
+---
+
+## 15. Plan features and ability runtime gating
+
+| Plan slug | `ability_runtime` | `gtm` | Typical signup/checkout |
+|-----------|-------------------|-------|-------------------------|
+| free | no | no | Default self-serve signup |
+| starter | no | no | Checkout option in dev console |
+| pro | yes | yes | Checkout option; unlocks side-effect abilities |
+| enterprise | yes | yes | Custom / sales |
+
+`QuotaEnforcementService.require_feature` returns 402 when a tenant's plan lacks the feature. External and side-effect ability-runtime actions require `ability_runtime`. `gtm.*` actions require `gtm`.
+
+**Product mismatch:** Dev console checkout offers starter, but most advertised ability-runtime proofs need **pro**.
+
+---
+
+## 16. Worker tenancy model (deploy constraint)
+
+Workers start via `deploy/scripts/start-worker.sh` with a single `AJENDA_WORKER_TENANT_ID`. Each worker process claims tasks only for that tenant.
+
+Multi-tenant SaaS requires:
+
+1. one worker deployment per tenant, or
+2. tenant-sharded worker pools, or
+3. a future tenant-scanning scheduler (not implemented).
+
+Self-serve signups create new tenant IDs; default single-tenant worker deploy will not execute their queued work.
+
+See Mermaid: [`SYSTEM_ARCHITECTURE.md` §5](./architecture/SYSTEM_ARCHITECTURE.md).

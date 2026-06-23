@@ -78,9 +78,13 @@ def test_mission_timeline_endpoint_returns_read_only_tenant_scoped_events() -> N
     task_repo = MagicMock()
     task_repo.list_for_mission.return_value = [tenant_task, foreign_task]
 
+    plan_repo = MagicMock()
+    plan_repo.get_for_mission.return_value = None
+
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.MissionPlanRepository", return_value=plan_repo),
     ):
         response = client.get(f"/v1/missions/{mission_id}/timeline")
 
@@ -126,9 +130,13 @@ def test_mission_timeline_endpoint_fallbacks_invalid_metadata_updated_at_without
     task_repo = MagicMock()
     task_repo.list_for_mission.return_value = []
 
+    plan_repo = MagicMock()
+    plan_repo.get_for_mission.return_value = None
+
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.MissionPlanRepository", return_value=plan_repo),
     ):
         response = client.get(f"/v1/missions/{mission_id}/timeline")
 
@@ -189,9 +197,13 @@ def test_mission_timeline_endpoint_handles_mixed_naive_and_aware_timestamps() ->
     task_repo = MagicMock()
     task_repo.list_for_mission.return_value = [task]
 
+    plan_repo = MagicMock()
+    plan_repo.get_for_mission.return_value = None
+
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.MissionPlanRepository", return_value=plan_repo),
     ):
         response = client.get(f"/v1/missions/{mission_id}/timeline")
 

@@ -8,6 +8,7 @@ ROOT_DOCKERFILE = Path("Dockerfile")
 API_DOCKERFILE = Path("deploy/docker/api.Dockerfile")
 WORKER_DOCKERFILE = Path("deploy/docker/worker.Dockerfile")
 MIGRATE_DOCKERFILE = Path("deploy/docker/migrate.Dockerfile")
+FRONTEND_DOCKERFILE = Path("deploy/docker/frontend.Dockerfile")
 START_API_SCRIPT = Path("deploy/scripts/start-api.sh")
 START_WORKER_SCRIPT = Path("deploy/scripts/start-worker.sh")
 RUN_MIGRATIONS_SCRIPT = Path("deploy/scripts/run-migrations.sh")
@@ -45,7 +46,8 @@ def test_worker_image_entrypoint_uses_worker_loop_script() -> None:
     assert "build_queue_adapter(settings)" in script
     assert "queue_adapter.ping()" in script
     assert "WorkerLoop(" in script
-    assert "tenant_id=settings.worker_tenant_id" in script
+    assert "build_claim_target(settings" in script
+    assert "claim_target=claim_target" in script
 
 
 def test_migrate_image_entrypoint_uses_migration_script() -> None:
@@ -71,3 +73,10 @@ def test_runtime_images_copy_deploy_scripts() -> None:
 def test_api_and_worker_images_include_curl_for_runtime_checks() -> None:
     assert "curl" in _read(API_DOCKERFILE)
     assert "curl" in _read(WORKER_DOCKERFILE)
+
+
+def test_frontend_image_builds_static_assets_with_nginx() -> None:
+    dockerfile = _read(FRONTEND_DOCKERFILE)
+    assert "npm run build" in dockerfile
+    assert "nginx:1.27-alpine" in dockerfile
+    assert "deploy/nginx/" in dockerfile

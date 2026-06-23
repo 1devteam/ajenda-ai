@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ajenda-frontend
+  namespace: ajenda
+  labels:
+    app: ajenda-ai
+    component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ajenda-ai
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: ajenda-ai
+        component: frontend
+    spec:
+      containers:
+        - name: frontend
+          # Use immutable image tags in production — never :latest
+          # Override via Kustomize or Helm: ghcr.io/<owner>/<repo>-frontend:${VERSION}
+          image: ghcr.io/ajenda-ai/ajenda-ai-frontend:1.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

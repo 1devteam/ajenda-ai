@@ -1,12 +1,32 @@
+import {
+  getApiBaseUrl,
+  isSessionNearExpiry,
+  saveSession,
+  sessionFromOidcResponse,
+  sessionToRuntimeConfig,
+} from "../auth/session";
+import { newIdempotencyKey } from "../utils/errors";
 import type {
   AbilityActionListResponse,
   AbilityTaskCreate,
   AbilityTaskQueuedResponse,
   AbilityTaskStatusResponse,
+  AccountBillingResponse,
+  AccountMeResponse,
+  AccountPlanResponse,
+  AccountUsageResponse,
   ApiFailure,
   CheckoutResponse,
+  CustomerSession,
+  CustomerSessionResponse,
+  OidcConfigResponse,
   PortalResponse,
+  PromoteBootstrapKeyResponse,
   RuntimeConfig,
+  ResendVerificationResponse,
+  SignupRequest,
+  SignupResponse,
+  VerifyEmailResponse,
 } from "../types";
 
 async function parseBody(response: Response): Promise<unknown> {
@@ -22,29 +42,89 @@ async function parseBody(response: Response): Promise<unknown> {
   }
 }
 
-function endpoint(config: RuntimeConfig, path: string): string {
-  const base = config.apiBaseUrl.trim().replace(/\/+$/, "");
+function endpoint(baseUrl: string, path: string): string {
+  const base = baseUrl.trim().replace(/\/+$/, "");
   const normalized = path.startsWith("/") ? path : `/${path}`;
   return `${base}${normalized}`;
 }
 
+function requireTenantCredentials(options: {
+  tenantId?: string;
+  apiKey?: string;
+  accessToken?: string;
+  authMode?: RuntimeConfig["authMode"];
+}): { tenantId: string; apiKey?: string; accessToken?: string; authMode: "oidc" | "api_key" } {
+  const tenantId = options.tenantId?.trim() ?? "";
+  const authMode = options.authMode === "oidc" ? "oidc" : "api_key";
+
+  if (!tenantId) {
+    throw missingSessionFailure();
+  }
+
+  if (authMode === "oidc") {
+    const accessToken = options.accessToken?.trim() ?? "";
+    if (!accessToken) {
+      throw missingSessionFailure();
+    }
+    return { tenantId, accessToken, authMode };
+  }
+
+  const apiKey = options.apiKey?.trim() ?? "";
+  if (!apiKey) {
+    throw missingSessionFailure();
+  }
+  return { tenantId, apiKey, authMode };
+}
+
+function missingSessionFailure(): ApiFailure {
+  return {
+    status: 0,
+    message: "Missing tenant session",
+    body: {
+      detail: "Your session expired or is missing. Sign in again to continue.",
+      code: "MISSING_CLIENT_TENANT_SESSION",
+    },
+  };
+}
+
 async function request<T>(
-  config: RuntimeConfig,
   path: string,
   init: RequestInit = {},
+  options: {
+    tenantId?: string;
+    apiKey?: string;
+    accessToken?: string;
+    authMode?: RuntimeConfig["authMode"];
+    idempotencyKey?: string;
+    requireTenant?: boolean;
+  } = {},
 ): Promise<T> {
   const headers = new Headers(init.headers ?? {});
   headers.set("Content-Type", "application/json");
 
-  if (config.tenantId.trim()) {
-    headers.set("X-Tenant-Id", config.tenantId.trim());
+  if (options.requireTenant) {
+    const credentials = requireTenantCredentials(options);
+    headers.set("X-Tenant-Id", credentials.tenantId);
+    if (credentials.authMode === "oidc" && credentials.accessToken) {
+      headers.set("Authorization", `Bearer ${credentials.accessToken}`);
+    } else if (credentials.apiKey) {
+      headers.set("X-Api-Key", credentials.apiKey);
+    }
+  } else {
+    if (options.tenantId?.trim()) {
+      headers.set("X-Tenant-Id", options.tenantId.trim());
+    }
+
+    if (options.apiKey?.trim()) {
+      headers.set("X-Api-Key", options.apiKey.trim());
+    }
   }
 
-  if (config.apiKey.trim()) {
-    headers.set("X-Api-Key", config.apiKey.trim());
+  if (options.idempotencyKey?.trim()) {
+    headers.set("Idempotency-Key", options.idempotencyKey.trim());
   }
 
-  const response = await fetch(endpoint(config, path), {
+  const response = await fetch(endpoint(getApiBaseUrl(), path), {
     ...init,
     headers,
   });
@@ -63,54 +143,229 @@ async function request<T>(
   return body as T;
 }
 
+function runtimeOptions(config: RuntimeConfig) {
+  return {
+    tenantId: config.tenantId,
+    apiKey: config.apiKey,
+    accessToken: config.accessToken,
+    authMode: config.authMode,
+    requireTenant: true,
+  };
+}
+
+export async function ensureFreshSession(session: CustomerSession): Promise<CustomerSession> {
+  if (session.authMode !== "oidc" || !session.refreshToken || !isSessionNearExpiry(session)) {
+    return session;
+  }
+
+  const response = await refreshCustomerSession(session.refreshToken);
+  const refreshed = sessionFromOidcResponse(response);
+  saveSession(refreshed);
+  return refreshed;
+}
+
+async function withFreshSession<T>(
+  session: CustomerSession,
+  fn: (freshSession: CustomerSession) => Promise<T>,
+): Promise<T> {
+  const fresh = await ensureFreshSession(session);
+  return fn(fresh);
+}
+
+export async function getOidcConfig(): Promise<OidcConfigResponse> {
+  return request<OidcConfigResponse>("/v1/auth/oidc/config");
+}
+
+export async function startOidcLogin(body: {
+  redirect_uri: string;
+  code_challenge: string;
+}): Promise<{ login_intent_id: string; authorization_url: string; expires_at: string }> {
+  return request("/v1/auth/oidc/start", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function completeOidcLogin(body: {
+  login_intent_id: string;
+  code: string;
+  code_verifier: string;
+  redirect_uri: string;
+  tenant_id?: string;
+}): Promise<CustomerSessionResponse> {
+  return request<CustomerSessionResponse>("/v1/auth/oidc/callback", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function refreshCustomerSession(refreshToken: string): Promise<CustomerSessionResponse> {
+  return request<CustomerSessionResponse>("/v1/auth/session/refresh", {
+    method: "POST",
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+}
+
+export async function logoutCustomer(session: CustomerSession): Promise<void> {
+  if (session.authMode !== "oidc" || !session.accessToken) {
+    return;
+  }
+  await request(
+    "/v1/auth/logout",
+    { method: "POST", body: JSON.stringify({}) },
+    {
+      tenantId: session.tenantId,
+      accessToken: session.accessToken,
+      authMode: "oidc",
+      requireTenant: true,
+    },
+  );
+}
+
+export async function signup(body: SignupRequest): Promise<SignupResponse> {
+  return request<SignupResponse>(
+    "/v1/onboarding/signup",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+    { idempotencyKey: newIdempotencyKey() },
+  );
+}
+
+export async function verifyEmail(token: string): Promise<VerifyEmailResponse> {
+  return request<VerifyEmailResponse>(
+    "/v1/onboarding/verify-email",
+    {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    },
+    { idempotencyKey: newIdempotencyKey() },
+  );
+}
+
+export async function resendVerification(email: string): Promise<ResendVerificationResponse> {
+  return request<ResendVerificationResponse>(
+    "/v1/onboarding/resend-verification",
+    {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    },
+    { idempotencyKey: newIdempotencyKey() },
+  );
+}
+
+export async function promoteBootstrapKey(session: CustomerSession): Promise<PromoteBootstrapKeyResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<PromoteBootstrapKeyResponse>(
+      "/v1/onboarding/promote-bootstrap-key",
+      { method: "POST", body: JSON.stringify({}) },
+      {
+        tenantId: fresh.tenantId,
+        apiKey: fresh.apiKey,
+        accessToken: fresh.accessToken,
+        authMode: fresh.authMode,
+        idempotencyKey: newIdempotencyKey(),
+        requireTenant: true,
+      },
+    ),
+  );
+}
+
+export async function getAccountMe(session: CustomerSession): Promise<AccountMeResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<AccountMeResponse>("/v1/account/me", {}, runtimeOptions(sessionToRuntimeConfig(fresh))),
+  );
+}
+
+export async function getAccountPlan(session: CustomerSession): Promise<AccountPlanResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<AccountPlanResponse>("/v1/account/plan", {}, runtimeOptions(sessionToRuntimeConfig(fresh))),
+  );
+}
+
+export async function getAccountUsage(session: CustomerSession): Promise<AccountUsageResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<AccountUsageResponse>("/v1/account/usage", {}, runtimeOptions(sessionToRuntimeConfig(fresh))),
+  );
+}
+
+export async function getAccountBilling(session: CustomerSession): Promise<AccountBillingResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<AccountBillingResponse>("/v1/account/billing", {}, runtimeOptions(sessionToRuntimeConfig(fresh))),
+  );
+}
+
+function authedRuntimeOptions(config: RuntimeConfig) {
+  return runtimeOptions(config);
+}
+
 export async function listActions(config: RuntimeConfig): Promise<AbilityActionListResponse> {
-  return request<AbilityActionListResponse>(config, "/v1/ability-runtime/actions");
+  return request<AbilityActionListResponse>("/v1/ability-runtime/actions", {}, authedRuntimeOptions(config));
 }
 
 export async function launchTask(
   config: RuntimeConfig,
   body: AbilityTaskCreate,
 ): Promise<AbilityTaskQueuedResponse> {
-  return request<AbilityTaskQueuedResponse>(config, "/v1/ability-runtime/tasks", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return request<AbilityTaskQueuedResponse>(
+    "/v1/ability-runtime/tasks",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+    authedRuntimeOptions(config),
+  );
 }
 
 export async function launchProof(
   config: RuntimeConfig,
   proof: "calendar-read" | "calendar-create" | "sales-qualify" | "sales-draft-followup",
 ): Promise<AbilityTaskQueuedResponse> {
-  return request<AbilityTaskQueuedResponse>(config, `/v1/ability-runtime/proofs/${proof}`, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
+  return request<AbilityTaskQueuedResponse>(
+    `/v1/ability-runtime/proofs/${proof}`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+    authedRuntimeOptions(config),
+  );
 }
 
 export async function getTaskStatus(
   config: RuntimeConfig,
   taskId: string,
 ): Promise<AbilityTaskStatusResponse> {
-  return request<AbilityTaskStatusResponse>(config, `/v1/ability-runtime/tasks/${taskId}`);
+  return request<AbilityTaskStatusResponse>(
+    `/v1/ability-runtime/tasks/${taskId}`,
+    {},
+    authedRuntimeOptions(config),
+  );
 }
 
 export async function createCheckout(
   config: RuntimeConfig,
   plan: "starter" | "pro",
 ): Promise<CheckoutResponse> {
-  return request<CheckoutResponse>(config, "/v1/billing/checkout", {
-    method: "POST",
-    body: JSON.stringify({
-      plan,
-      success_url: `${window.location.origin}/billing/success`,
-      cancel_url: `${window.location.origin}/billing/cancel`,
-    }),
-  });
+  return request<CheckoutResponse>(
+    "/v1/billing/checkout",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        plan,
+        success_url: `${window.location.origin}/billing/success`,
+        cancel_url: `${window.location.origin}/billing/cancel`,
+      }),
+    },
+    authedRuntimeOptions(config),
+  );
 }
 
 export async function createPortal(config: RuntimeConfig): Promise<PortalResponse> {
   const returnUrl = encodeURIComponent(`${window.location.origin}/billing`);
-  return request<PortalResponse>(config, `/v1/billing/portal?return_url=${returnUrl}`, {
-    method: "GET",
-  });
+  return request<PortalResponse>(
+    `/v1/billing/portal?return_url=${returnUrl}`,
+    { method: "GET" },
+    authedRuntimeOptions(config),
+  );
 }

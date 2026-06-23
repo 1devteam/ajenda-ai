@@ -232,12 +232,19 @@ jobs:
           - name: api
             dockerfile: Dockerfile
             tag: ajenda-ai-api
+            build_args: ""
           - name: worker
             dockerfile: deploy/docker/worker.Dockerfile
             tag: ajenda-ai-worker
+            build_args: ""
           - name: migrate
             dockerfile: deploy/docker/migrate.Dockerfile
             tag: ajenda-ai-migrate
+            build_args: ""
+          - name: frontend
+            dockerfile: deploy/docker/frontend.Dockerfile
+            tag: ajenda-ai-frontend
+            build_args: NGINX_CONF=deploy/nginx/frontend.k8s.conf
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -252,6 +259,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: false
           tags: ${{ matrix.tag }}:${{ github.sha }}
+          build-args: ${{ matrix.build_args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

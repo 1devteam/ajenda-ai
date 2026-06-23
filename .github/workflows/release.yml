@@ -138,6 +138,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/frontend.Dockerfile
+          push: true
+          build-args: |
+            NGINX_CONF=deploy/nginx/frontend.k8s.conf
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ needs.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # ─────────────────────────────────────────────────────────────────────────
   # Job 4: Create a GitHub Release with auto-generated changelog
   # ─────────────────────────────────────────────────────────────────────────

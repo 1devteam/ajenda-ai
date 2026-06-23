@@ -6,6 +6,7 @@ These instructions apply to AI agents, Codex sessions, connector-assisted edits,
 
 - Treat implementation files, tests, migrations, and runtime proof as the source of truth.
 - Treat `PROJECT_SPEC.md`, README files, architecture notes, and product docs as contracts to verify against implementation, not as proof that behavior exists.
+- For code-aligned system maps and Mermaid flowcharts, use `docs/architecture/SYSTEM_ARCHITECTURE.md` before trusting dated assessments or remediation snapshots.
 - Read relevant implementation files completely before modifying them.
 - Search affected call sites, tests, migrations, validators, and docs before changing contract names or runtime behavior.
 - Prefer complete, coherent fixes over narrow patches that only satisfy one failing test.

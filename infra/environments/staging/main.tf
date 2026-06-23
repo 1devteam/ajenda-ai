@@ -135,12 +135,16 @@ module "ecs" {
   public_subnet_ids  = module.vpc.public_subnet_ids
   private_subnet_ids = module.vpc.private_subnet_ids
   sg_alb_id          = module.vpc.sg_alb_id
-  sg_ecs_api_id      = module.vpc.sg_ecs_api_id
-  sg_ecs_worker_id   = module.vpc.sg_ecs_worker_id
+  sg_ecs_api_id       = module.vpc.sg_ecs_api_id
+  sg_ecs_worker_id    = module.vpc.sg_ecs_worker_id
+  sg_ecs_frontend_id  = module.vpc.sg_ecs_frontend_id
 
-  acm_certificate_arn     = var.acm_certificate_arn
-  ecr_image_uri           = var.ecr_image_uri
-  image_tag               = var.image_tag
+  acm_certificate_arn      = var.acm_certificate_arn
+  ecr_image_uri            = var.ecr_image_uri
+  image_tag                = var.image_tag
+  ecr_frontend_image_uri   = var.ecr_frontend_image_uri
+  frontend_image_tag       = var.frontend_image_tag
+  enable_customer_frontend = true
   secrets_read_policy_arn = module.secrets.ecs_secrets_read_policy_arn
 
   db_host    = module.rds.db_host
@@ -165,6 +169,10 @@ module "ecs" {
   worker_desired_count = 1
   worker_min_count     = 1
   worker_max_count     = 5
+
+  frontend_cpu           = 256
+  frontend_memory        = 512
+  frontend_desired_count = 1
 
   log_level          = "DEBUG"
   log_retention_days = 7

@@ -51,6 +51,8 @@ def _settings(**overrides) -> Settings:
         "queue_url": "redis://redis:6379/0",
         "worker_poll_interval_seconds": 2.0,
         "worker_identity": "worker-1",
+        "worker_tenant_mode": "single",
+        "worker_tenant_refresh_seconds": 30.0,
         "worker_tenant_id": "00000000-0000-0000-0000-000000000001",
         "oidc_jwks_uri": "https://idp.example.com/realms/ajenda/protocol/openid-connect/certs",
         "oidc_issuer": "https://idp.example.com/realms/ajenda",
@@ -70,16 +72,18 @@ def _settings(**overrides) -> Settings:
         "budget_policy_enforce_tenant_ids": "",
         "budget_policy_enforce_plans": "",
         # Stripe billing — required in production
-        "STRIPE_SECRET_KEY": "sk_test_placeholder_for_tests",
-        "STRIPE_PUBLISHABLE_KEY": "pk_test_placeholder_for_tests",
+        "STRIPE_SECRET_KEY": "sk_live_placeholder_for_tests",
+        "STRIPE_PUBLISHABLE_KEY": "pk_live_placeholder_for_tests",
         "STRIPE_WEBHOOK_SECRET": "whsec_placeholder_for_tests",
         "STRIPE_PRICE_STARTER": "price_starter_test",
         "STRIPE_PRICE_PRO": "price_pro_test",
         "email_provider": "resend",
         "resend_api_key": "re_test_placeholder",
         "email_from": "Ajenda AI <onboarding@ajenda.ai>",
-        "signup_verify_url_base": "https://app.ajenda.ai/verify-email",
+        "signup_verify_url_base": "https://ajenda.example.com/verify-email",
         "signup_expose_verification_token": False,
+        "cors_allowed_origins": "https://ajenda.example.com",
+        "signup_enabled": True,
     }
     defaults.update(overrides)
     return Settings.model_construct(**defaults)
@@ -368,6 +372,15 @@ class TestWorkerTenantProductionGuards:
         with pytest.raises(ValueError, match="AJENDA_WORKER_TENANT_ID must be explicitly configured in production"):
             settings.validate_runtime_contract()
 
+    def test_multi_tenant_mode_allows_default_worker_tenant_id(self) -> None:
+        settings = _settings(worker_tenant_id="default", worker_tenant_mode="multi")
+        settings.validate_runtime_contract()
+
+    def test_multi_tenant_mode_rejects_non_positive_refresh_interval(self) -> None:
+        settings = _settings(worker_tenant_mode="multi", worker_tenant_refresh_seconds=0)
+        with pytest.raises(ValueError, match="AJENDA_WORKER_TENANT_REFRESH_SECONDS"):
+            settings.validate_runtime_contract()
+
 
 class TestBudgetPolicyFlagGuards:
     def test_default_disabled_state_passes(self) -> None:
@@ -420,3 +433,35 @@ class TestBudgetPolicyFlagGuards:
         )
         assert settings.budget_policy_enforce_tenant_id_set == {"tenant-a", "tenant-b"}
         assert settings.budget_policy_enforce_plan_set == {"pro", "enterprise"}
+
+
+class TestProductionCommercialCutoverGuards:
+    def test_sk_test_secret_key_in_production_raises(self) -> None:
+        settings = _settings(STRIPE_SECRET_KEY="sk_test_bad")
+        with pytest.raises(ValueError, match="sk_live_"):
+            settings.validate_runtime_contract()
+
+    def test_missing_stripe_price_pro_in_production_raises(self) -> None:
+        settings = _settings(STRIPE_PRICE_PRO="")
+        with pytest.raises(ValueError, match="STRIPE_PRICE_PRO"):
+            settings.validate_runtime_contract()
+
+    def test_invalid_stripe_price_prefix_in_production_raises(self) -> None:
+        settings = _settings(STRIPE_PRICE_STARTER="starter_not_price")
+        with pytest.raises(ValueError, match="STRIPE_PRICE_STARTER"):
+            settings.validate_runtime_contract()
+
+    def test_localhost_verify_url_in_production_raises(self) -> None:
+        settings = _settings(signup_verify_url_base="http://localhost:8080/verify-email")
+        with pytest.raises(ValueError, match="AJENDA_SIGNUP_VERIFY_URL_BASE must not point to localhost"):
+            settings.validate_runtime_contract()
+
+    def test_localhost_cors_origin_in_production_raises(self) -> None:
+        settings = _settings(cors_allowed_origins="http://localhost:8080")
+        with pytest.raises(ValueError, match="AJENDA_CORS_ALLOWED_ORIGINS must not include localhost"):
+            settings.validate_runtime_contract()
+
+    def test_missing_cors_origins_when_signup_enabled_raises(self) -> None:
+        settings = _settings(cors_allowed_origins="   ")
+        with pytest.raises(ValueError, match="AJENDA_CORS_ALLOWED_ORIGINS is required"):
+            settings.validate_runtime_contract()

@@ -11,7 +11,9 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_ENV=production` | yes | no | Enables production runtime validation. |
 | `AJENDA_QUEUE_ADAPTER=redis` | yes | no | Production queue backend. |
 | `AJENDA_QUEUE_URL` | yes | maybe | Redis URL. Secret if it includes a password. |
-| `AJENDA_WORKER_TENANT_ID` | yes | no | Tenant queue processed by this worker group. |
+| `AJENDA_WORKER_TENANT_MODE` | yes | no | `single` (one tenant) or `multi` (round-robin active tenants). |
+| `AJENDA_WORKER_TENANT_REFRESH_SECONDS` | yes | no | Active-tenant roster refresh interval when mode is `multi`. |
+| `AJENDA_WORKER_TENANT_ID` | conditional | no | Required when mode is `single`; ignored in `multi`. |
 | `AJENDA_OIDC_ISSUER` | yes | no | OIDC issuer. Must not be localhost in production. |
 | `AJENDA_OIDC_JWKS_URI` | yes | no | OIDC JWKS endpoint. Must not be localhost in production. |
 | `AJENDA_OIDC_AUDIENCE` | yes | no | Expected JWT audience. |
@@ -25,6 +27,32 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_BUDGET_POLICY_ENABLED` | yes | no | Enables budget-policy scaffolding. |
 | `AJENDA_BUDGET_POLICY_OBSERVE_ONLY` | yes | no | Observe-only mode for budget policy (Bundle 5.2 default). |
 | `AJENDA_BUDGET_POLICY_ENFORCE` | yes | no | Must remain false for Bundle 5.2. |
+| `STRIPE_SECRET_KEY` | yes | yes | Stripe API secret (`sk_live_…` in production; `sk_test_` rejected at startup). |
+| `STRIPE_WEBHOOK_SECRET` | yes | yes | Webhook signing secret (`whsec_…`). Required in production. |
+| `STRIPE_PUBLISHABLE_KEY` | recommended | no | Stripe publishable key for future frontend checkout. |
+| `STRIPE_PRICE_STARTER` | yes | no | Stripe Price ID for starter plan (`price_…`; admin/sales tier). |
+| `STRIPE_PRICE_PRO` | yes | no | Stripe Price ID for pro plan (`price_…`; customer self-serve checkout). |
+| `AJENDA_SIGNUP_ENABLED` | yes | no | Enable self-serve signup (default true). |
+| `AJENDA_SIGNUP_VERIFY_URL_BASE` | yes | no | Base URL for verification links (must not be localhost in prod). |
+| `AJENDA_EMAIL_PROVIDER` | yes | no | Must be `resend` in production (`logging` forbidden). |
+| `AJENDA_RESEND_API_KEY` | yes | yes | Resend API key when `AJENDA_EMAIL_PROVIDER=resend`. |
+| `AJENDA_EMAIL_FROM` | yes | no | From address for verification emails. |
+| `AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN` | yes | no | Must be `false` in production. |
+| `AJENDA_SIGNUP_REQUIRE_IDEMPOTENCY_KEY` | no | no | Defaults to true in production when unset. |
+| `AJENDA_CORS_ALLOWED_ORIGINS` | yes | no | Comma-separated origins when customer frontend is deployed. |
+
+## Stripe and onboarding
+
+Production startup (`Settings.validate_runtime_contract`) rejects:
+
+- missing or invalid `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` (including `sk_test_` in production)
+- missing or invalid `STRIPE_PRICE_STARTER` / `STRIPE_PRICE_PRO` (must start with `price_`)
+- localhost `AJENDA_SIGNUP_VERIFY_URL_BASE` or `AJENDA_CORS_ALLOWED_ORIGINS` when signup is enabled
+- `AJENDA_EMAIL_PROVIDER=logging`
+- Resend without `AJENDA_RESEND_API_KEY`, `AJENDA_EMAIL_FROM`, `AJENDA_SIGNUP_VERIFY_URL_BASE`
+- `AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN=true`
+
+The verify URL base must resolve to a real page that calls `POST /v1/onboarding/verify-email`. The customer frontend ships `/verify-email` when the frontend image is deployed; in production set `AJENDA_SIGNUP_VERIFY_URL_BASE` to that host (for example `https://app.example.com/verify-email`).
 
 ## Generate encryption keys
 
@@ -41,15 +69,12 @@ Do not use deterministic development/test keys in production.
 
 ## Worker tenant assignment
 
-The current worker model is tenant-specific. AJENDA_WORKER_TENANT_ID must match the tenant queue this worker group is expected to process.
+`AJENDA_WORKER_TENANT_MODE` controls how workers choose tenant queues:
 
-For multi-tenant production, use one of these patterns:
+- **`single`** — poll one queue (`AJENDA_WORKER_TENANT_ID` required; must not be `default` in production).
+- **`multi`** — round-robin across all active tenants from the `tenants` table (recommended for self-serve SaaS).
 
-1. one worker deployment per tenant,
-2. tenant-sharded worker pools,
-3. future tenant-scanning worker scheduler.
-
-Do not leave the worker tenant as default in production.
+Per-tenant worker deployments remain valid for dedicated enterprise isolation.
 
 ## Production startup guardrails
 

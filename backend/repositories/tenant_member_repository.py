@@ -68,6 +68,19 @@ class TenantMemberRepository:
         )
         return self._session.execute(stmt).scalar_one_or_none()
 
+    def get_active_owner_for_tenant(self, tenant_id: uuid.UUID) -> TenantMember | None:
+        """Return the active tenant_owner membership row for a tenant, if any."""
+        stmt = (
+            select(TenantMember)
+            .where(
+                TenantMember.tenant_id == tenant_id,
+                TenantMember.role == "tenant_owner",
+                TenantMember.status == "active",
+            )
+            .limit(1)
+        )
+        return self._session.execute(stmt).scalar_one_or_none()
+
     def get_by_tenant_and_email(
         self,
         tenant_id: uuid.UUID,
@@ -78,6 +91,23 @@ class TenantMemberRepository:
             TenantMember.email_canonical == email_canonical,
         )
         return self._session.execute(stmt).scalar_one_or_none()
+
+    def get_active_by_external_subject_id(self, external_subject_id: str) -> TenantMember | None:
+        stmt = (
+            select(TenantMember)
+            .where(
+                TenantMember.external_subject_id == external_subject_id,
+                TenantMember.status == "active",
+            )
+            .order_by(TenantMember.created_at)
+            .limit(1)
+        )
+        return self._session.execute(stmt).scalar_one_or_none()
+
+    def link_external_subject(self, member: TenantMember, *, external_subject_id: str) -> TenantMember:
+        member.external_subject_id = external_subject_id
+        member.updated_at = datetime.now(tz=UTC)
+        return member
 
     def list_active_for_email(self, email_canonical: str) -> list[TenantMember]:
         stmt = (

@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     queue_adapter: Literal["local", "redis"] = Field(default="local", alias="AJENDA_QUEUE_ADAPTER")
     queue_url: str | None = Field(default=None, alias="AJENDA_QUEUE_URL")
     worker_poll_interval_seconds: float = Field(default=2.0, alias="AJENDA_WORKER_POLL_INTERVAL_SECONDS")
+    worker_tenant_mode: Literal["single", "multi"] = Field(default="single", alias="AJENDA_WORKER_TENANT_MODE")
+    worker_tenant_refresh_seconds: float = Field(default=30.0, alias="AJENDA_WORKER_TENANT_REFRESH_SECONDS")
     # Dynamic worker identity: prefer POD_NAME (K8s), fall back to hostname+pid
     worker_identity: str = Field(
         default_factory=lambda: os.getenv("POD_NAME") or f"{socket.gethostname()}-{os.getpid()}",
@@ -71,6 +73,32 @@ class Settings(BaseSettings):
     oidc_audience: str = Field(
         default="ajenda-api",
         alias="AJENDA_OIDC_AUDIENCE",
+    )
+    oidc_login_enabled: bool = Field(default=False, alias="AJENDA_OIDC_LOGIN_ENABLED")
+    oidc_provider: Literal["generic", "google", "auth0"] = Field(
+        default="generic",
+        alias="AJENDA_OIDC_PROVIDER",
+    )
+    oidc_client_id: str = Field(default="", alias="AJENDA_OIDC_CLIENT_ID")
+    oidc_client_secret: str = Field(default="", alias="AJENDA_OIDC_CLIENT_SECRET")
+    oidc_id_token_audience: str = Field(default="", alias="AJENDA_OIDC_ID_TOKEN_AUDIENCE")
+    oidc_scopes: str = Field(default="openid email profile", alias="AJENDA_OIDC_SCOPES")
+    oidc_redirect_uri_allowlist: str = Field(
+        default="http://localhost:8080/auth/callback",
+        alias="AJENDA_OIDC_REDIRECT_URI_ALLOWLIST",
+    )
+    oidc_login_intent_ttl_minutes: int = Field(default=10, alias="AJENDA_OIDC_LOGIN_INTENT_TTL_MINUTES")
+    session_signing_secret: str = Field(default="", alias="AJENDA_SESSION_SIGNING_SECRET")
+    session_access_ttl_seconds: int = Field(default=3600, alias="AJENDA_SESSION_ACCESS_TTL_SECONDS")
+    session_refresh_ttl_seconds: int = Field(default=604800, alias="AJENDA_SESSION_REFRESH_TTL_SECONDS")
+    auth_login_start_ip_limit_per_hour: int = Field(default=30, alias="AJENDA_AUTH_LOGIN_START_IP_LIMIT_PER_HOUR")
+    auth_login_callback_ip_limit_per_hour: int = Field(
+        default=30,
+        alias="AJENDA_AUTH_LOGIN_CALLBACK_IP_LIMIT_PER_HOUR",
+    )
+    auth_login_callback_email_limit_per_hour: int = Field(
+        default=20,
+        alias="AJENDA_AUTH_LOGIN_CALLBACK_EMAIL_LIMIT_PER_HOUR",
     )
 
     # Rate limiting
@@ -171,6 +199,24 @@ class Settings(BaseSettings):
         return self._csv_set(self.budget_policy_enforce_plans)
 
     @property
+    def oidc_redirect_uri_allowlist_set(self) -> set[str]:
+        return {item.strip() for item in self.oidc_redirect_uri_allowlist.split(",") if item.strip()}
+
+    @property
+    def oidc_login_ready(self) -> bool:
+        return bool(
+            self.oidc_login_enabled
+            and str(self.oidc_client_id).strip()
+            and str(self.oidc_issuer).strip()
+            and str(self.session_signing_secret).strip()
+        )
+
+    @property
+    def customer_session_auth_ready(self) -> bool:
+        secret = str(self.session_signing_secret).strip()
+        return bool(self.oidc_login_enabled and len(secret) >= 32)
+
+    @property
     def signup_idempotency_required(self) -> bool:
         if self.signup_require_idempotency_key is not None:
             return self.signup_require_idempotency_key
@@ -245,8 +291,14 @@ class Settings(BaseSettings):
                     "AJENDA_OIDC_ISSUER must not point to localhost in production. "
                     f"Current value: {self.oidc_issuer!r}. Use the production IdP issuer URL."
                 )
-            if self.worker_tenant_id == "default" or not str(self.worker_tenant_id).strip():
-                raise ValueError("AJENDA_WORKER_TENANT_ID must be explicitly configured in production")
+            if self.worker_tenant_mode == "single":
+                if self.worker_tenant_id == "default" or not str(self.worker_tenant_id).strip():
+                    raise ValueError("AJENDA_WORKER_TENANT_ID must be explicitly configured in production")
+            elif self.worker_tenant_refresh_seconds <= 0:
+                raise ValueError(
+                    "AJENDA_WORKER_TENANT_REFRESH_SECONDS must be a positive number when "
+                    "AJENDA_WORKER_TENANT_MODE=multi"
+                )
             _validate_fernet_key(
                 value=self.webhook_secret_encryption_key,
                 env_name="AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
@@ -327,6 +379,49 @@ class Settings(BaseSettings):
                 "AJENDA_EMAIL_DELIVERY_TIMEOUT_SECONDS must be a positive number, "
                 f"got {self.email_delivery_timeout_seconds}"
             )
+        if self.oidc_login_intent_ttl_minutes <= 0:
+            raise ValueError(
+                "AJENDA_OIDC_LOGIN_INTENT_TTL_MINUTES must be a positive integer, "
+                f"got {self.oidc_login_intent_ttl_minutes}"
+            )
+        if self.session_access_ttl_seconds <= 0:
+            raise ValueError(
+                f"AJENDA_SESSION_ACCESS_TTL_SECONDS must be a positive integer, got {self.session_access_ttl_seconds}"
+            )
+        if self.session_refresh_ttl_seconds <= 0:
+            raise ValueError(
+                f"AJENDA_SESSION_REFRESH_TTL_SECONDS must be a positive integer, got {self.session_refresh_ttl_seconds}"
+            )
+        if self.auth_login_start_ip_limit_per_hour <= 0:
+            raise ValueError(
+                "AJENDA_AUTH_LOGIN_START_IP_LIMIT_PER_HOUR must be a positive integer, "
+                f"got {self.auth_login_start_ip_limit_per_hour}"
+            )
+        if self.auth_login_callback_ip_limit_per_hour <= 0:
+            raise ValueError(
+                "AJENDA_AUTH_LOGIN_CALLBACK_IP_LIMIT_PER_HOUR must be a positive integer, "
+                f"got {self.auth_login_callback_ip_limit_per_hour}"
+            )
+        if self.auth_login_callback_email_limit_per_hour <= 0:
+            raise ValueError(
+                "AJENDA_AUTH_LOGIN_CALLBACK_EMAIL_LIMIT_PER_HOUR must be a positive integer, "
+                f"got {self.auth_login_callback_email_limit_per_hour}"
+            )
+        if self.oidc_login_enabled:
+            if _blank(self.oidc_client_id):
+                raise ValueError("AJENDA_OIDC_CLIENT_ID is required when AJENDA_OIDC_LOGIN_ENABLED=true")
+            if _blank(self.session_signing_secret) or len(str(self.session_signing_secret).strip()) < 32:
+                raise ValueError(
+                    "AJENDA_SESSION_SIGNING_SECRET must be at least 32 characters when OIDC login is enabled"
+                )
+            if not self.oidc_redirect_uri_allowlist_set:
+                raise ValueError(
+                    "AJENDA_OIDC_REDIRECT_URI_ALLOWLIST must include at least one redirect URI when OIDC login is enabled"
+                )
+            if env == "production" and _blank(self.oidc_client_secret):
+                raise ValueError(
+                    "AJENDA_OIDC_CLIENT_SECRET is required in production when AJENDA_OIDC_LOGIN_ENABLED=true"
+                )
 
         if env == "production":
             if self.email_provider == "logging":
@@ -350,6 +445,36 @@ class Settings(BaseSettings):
                     "STRIPE_WEBHOOK_SECRET is required in production and must begin with 'whsec_'. "
                     f"Current value: {self.STRIPE_WEBHOOK_SECRET!r}"
                 )
+            if self.STRIPE_SECRET_KEY.startswith("sk_test_"):
+                raise ValueError(
+                    "STRIPE_SECRET_KEY must use live mode in production (sk_live_…). "
+                    f"Current value: {self.STRIPE_SECRET_KEY!r}"
+                )
+            for price_env, price_value in (
+                ("STRIPE_PRICE_STARTER", self.STRIPE_PRICE_STARTER),
+                ("STRIPE_PRICE_PRO", self.STRIPE_PRICE_PRO),
+            ):
+                if _blank(price_value) or not str(price_value).startswith("price_"):
+                    raise ValueError(
+                        f"{price_env} is required in production and must begin with 'price_'. "
+                        f"Current value: {price_value!r}"
+                    )
+            if self.signup_enabled:
+                if _blank(self.cors_allowed_origins):
+                    raise ValueError(
+                        "AJENDA_CORS_ALLOWED_ORIGINS is required in production when AJENDA_SIGNUP_ENABLED=true"
+                    )
+                for origin in self.cors_allowed_origin_list:
+                    if _is_localhost_url(origin):
+                        raise ValueError(
+                            "AJENDA_CORS_ALLOWED_ORIGINS must not include localhost in production. "
+                            f"Current value: {self.cors_allowed_origins!r}"
+                        )
+                if _is_localhost_url(self.signup_verify_url_base):
+                    raise ValueError(
+                        "AJENDA_SIGNUP_VERIFY_URL_BASE must not point to localhost in production. "
+                        f"Current value: {self.signup_verify_url_base!r}"
+                    )
 
         if self.budget_policy_enforce and not self.budget_policy_enabled:
             raise ValueError("AJENDA_BUDGET_POLICY_ENFORCE requires AJENDA_BUDGET_POLICY_ENABLED=true")

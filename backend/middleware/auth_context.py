@@ -35,9 +35,23 @@ from starlette.responses import JSONResponse, Response
 
 from backend.auth.jwt_validator import JwtValidationError
 from backend.auth.oidc import OidcAuthenticator
+from backend.auth.principal import PrincipalType, UserPrincipal
+from backend.auth.rbac import RbacAuthorizer
+from backend.auth.session_token import SessionTokenService
+from backend.repositories.customer_auth_session_repository import CustomerAuthSessionRepository
 from backend.services.api_key_service import ApiKeyService
 
 logger = logging.getLogger("ajenda.auth_context")
+
+
+def _customer_session_auth_ready(settings: object) -> bool:
+    ready = getattr(settings, "customer_session_auth_ready", None)
+    if ready is not None:
+        return bool(ready)
+    return bool(
+        getattr(settings, "oidc_login_enabled", False)
+        and len(str(getattr(settings, "session_signing_secret", "")).strip()) >= 32
+    )
 
 
 class _SessionScopeLike(Protocol):
@@ -101,6 +115,8 @@ _PUBLIC_PATH_PREFIXES = (
     "/observability/metrics",
     "/v1/observability/metrics",
     "/v1/billing/webhook/",  # Stripe webhook — signature-verified, no API credentials
+    "/v1/auth/oidc/",
+    "/v1/auth/session/refresh",
     "/v1/onboarding/signup",
     "/v1/onboarding/verify-email",
     "/v1/onboarding/resend-verification",
@@ -236,9 +252,31 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         call_next: Callable[[Request], Awaitable[Response]],
         token: str,
     ) -> Response:
+        settings = getattr(request.app.state, "settings", None)
+        session_error: JwtValidationError | None = None
+        if settings is not None and _customer_session_auth_ready(settings):
+            try:
+                principal = self._authenticate_customer_session(request, token=token, settings=settings)
+            except (JwtValidationError, ValueError) as exc:
+                session_error = exc if isinstance(exc, JwtValidationError) else JwtValidationError(str(exc))
+                principal = None
+            if principal is not None:
+                cross_tenant_error = self._check_cross_tenant(
+                    request,
+                    principal_tenant_id=getattr(principal, "tenant_id", None),
+                )
+                if cross_tenant_error is not None:
+                    return cross_tenant_error
+                request.state.principal = principal
+                return await call_next(request)
+
         oidc = getattr(request.app.state, "oidc_authenticator", None)
         if oidc is None:
-            settings = request.app.state.settings
+            if settings is None:
+                return JSONResponse(
+                    status_code=500,
+                    content={"detail": "internal authentication error"},
+                )
             oidc = OidcAuthenticator(
                 jwks_uri=settings.oidc_jwks_uri,
                 issuer=settings.oidc_issuer,
@@ -247,7 +285,10 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         try:
             result = oidc.validate_bearer_token(token)
         except JwtValidationError as exc:
-            logger.warning("bearer_auth_failed", extra={"error": str(exc)})
+            logger.warning(
+                "bearer_auth_failed",
+                extra={"error": str(exc), "session_error": str(session_error) if session_error else None},
+            )
             return JSONResponse(
                 status_code=401,
                 content={"detail": "invalid bearer token"},
@@ -262,3 +303,32 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 
         request.state.principal = result.principal
         return await call_next(request)
+
+    def _authenticate_customer_session(self, request: Request, *, token: str, settings: object) -> UserPrincipal:
+        from datetime import UTC, datetime
+
+        from backend.app.config import Settings as AppSettings
+
+        app_settings = settings if isinstance(settings, AppSettings) else request.app.state.settings
+        token_service = SessionTokenService(
+            signing_secret=app_settings.session_signing_secret,
+            access_ttl_seconds=app_settings.session_access_ttl_seconds,
+        )
+        claims = token_service.validate_access_token(token)
+        db_runtime = request.app.state.database_runtime
+        with _db_session_context(db_runtime) as session:
+            record = CustomerAuthSessionRepository(session).get_by_access_jti(claims.jti)
+            now = datetime.now(tz=UTC)
+            if record is None or record.revoked_at is not None or record.expires_at <= now:
+                raise JwtValidationError("session has been revoked or expired")
+
+        rbac = RbacAuthorizer()
+        permissions = rbac.resolve_permissions(claims.roles)
+        return UserPrincipal(
+            subject_id=f"user:{claims.member_id}",
+            tenant_id=claims.tenant_id,
+            principal_type=PrincipalType.USER,
+            roles=claims.roles,
+            permissions=permissions,
+            email=claims.email,
+        )

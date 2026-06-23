@@ -393,7 +393,7 @@ def test_post_plan_creates_durable_plan_and_lifecycle_reports_plan_present() -> 
     assert "create_mission_plan" not in lifecycle["missing_next_steps"]
 
 
-def test_legacy_put_returns_existing_durable_plan_without_overwriting_canonical_truth() -> None:
+def test_legacy_put_replaces_existing_durable_plan_metadata() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
     app = _build_app(tenant_id)
@@ -404,6 +404,14 @@ def test_legacy_put_returns_existing_durable_plan_without_overwriting_canonical_
     durable_plan = _plan(tenant_id=tenant_id, mission_id=mission_id)
     plan_repo = MagicMock()
     plan_repo.get_for_mission.return_value = durable_plan
+
+    def _replace_active_plan(*, plan, metadata_json, status=None):
+        plan.metadata_json = metadata_json
+        if status is not None:
+            plan.status = status
+        return plan
+
+    plan_repo.replace_active_plan.side_effect = _replace_active_plan
 
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
@@ -420,5 +428,8 @@ def test_legacy_put_returns_existing_durable_plan_without_overwriting_canonical_
     assert response.status_code == 200
     body = response.json()
     assert body["plan_id"] == str(durable_plan.id)
-    assert body["plan"] == durable_plan.metadata_json
+    assert body["status"] == "ready"
+    assert body["plan"]["planning_status"] == "approved"
+    assert body["plan"]["phases"][0]["objective"] == "Legacy objective"
+    plan_repo.replace_active_plan.assert_called_once()
     mission_repo.update_metadata.assert_not_called()

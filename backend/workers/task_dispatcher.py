@@ -27,8 +27,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.execution_task import ExecutionTask
 from backend.queue.base import QueueAdapter
 from backend.services.tools.schemas import SideEffectClass
@@ -171,6 +172,11 @@ class TaskDispatcher:
     worker_id: str
     tenant_id: str
 
+    def _open_tenant_session(self) -> Session:
+        session = cast(Session, self.session_factory())
+        activate_tenant_session(session, self.tenant_id)
+        return session
+
     def execute(self, *, task_id: uuid.UUID, lease_id: uuid.UUID) -> None:
         """Execute a claimed task. Always calls complete() or fail() — never returns silently."""
         task = self._load_task(task_id)
@@ -269,7 +275,7 @@ class TaskDispatcher:
     def _heartbeat_loop(self, lease_id: uuid.UUID, stop: threading.Event) -> None:
         """Background thread: sends heartbeats every HEARTBEAT_INTERVAL seconds."""
         while not stop.wait(timeout=_HEARTBEAT_INTERVAL):
-            session = self.session_factory()
+            session = self._open_tenant_session()
             try:
                 runtime = WorkerRuntimeService(session, self.queue)
                 runtime.heartbeat(
@@ -295,7 +301,7 @@ class TaskDispatcher:
         result: dict[str, Any] | None = None,
         output_reason: str | None = None,
     ) -> None:
-        session = self.session_factory()
+        session = self._open_tenant_session()
         try:
             runtime = WorkerRuntimeService(session, self.queue)
             runtime.complete(
@@ -324,7 +330,7 @@ class TaskDispatcher:
         side_effect_class: str,
         reason: str,
     ) -> None:
-        session = self.session_factory()
+        session = self._open_tenant_session()
         try:
             runtime = WorkerRuntimeService(session, self.queue)
             runtime.block_completion_failure(
@@ -352,7 +358,7 @@ class TaskDispatcher:
             session.close()
 
     def _fail(self, *, lease_id: uuid.UUID, reason: str) -> None:
-        session = self.session_factory()
+        session = self._open_tenant_session()
         try:
             runtime = WorkerRuntimeService(session, self.queue)
             runtime.fail(
@@ -372,7 +378,7 @@ class TaskDispatcher:
             session.close()
 
     def _load_task(self, task_id: uuid.UUID) -> ExecutionTask | None:
-        session = self.session_factory()
+        session = self._open_tenant_session()
         try:
             from backend.repositories.execution_task_repository import ExecutionTaskRepository
 

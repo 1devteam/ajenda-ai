@@ -436,8 +436,8 @@ def _settings_with_confidence_floor(value: float) -> Settings:
         lifecycle_policy_enforce_escalation_transitions=False,
         lifecycle_policy_enforce_provenance_confidence_floor=False,
         lifecycle_policy_provenance_confidence_floor=value,
-        STRIPE_SECRET_KEY="sk_test_placeholder_for_tests",
-        STRIPE_PUBLISHABLE_KEY="pk_test_placeholder_for_tests",
+        STRIPE_SECRET_KEY="sk_live_placeholder_for_tests",
+        STRIPE_PUBLISHABLE_KEY="pk_live_placeholder_for_tests",
         STRIPE_WEBHOOK_SECRET="whsec_placeholder_for_tests",
         STRIPE_PRICE_STARTER="price_starter_test",
         STRIPE_PRICE_PRO="price_pro_test",
@@ -446,6 +446,7 @@ def _settings_with_confidence_floor(value: float) -> Settings:
         email_from="Ajenda AI <onboarding@ajenda.ai>",
         signup_verify_url_base="https://app.ajenda.ai/verify-email",
         signup_expose_verification_token=False,
+        cors_allowed_origins="https://app.ajenda.ai",
     )
 
 

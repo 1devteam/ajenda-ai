@@ -31,6 +31,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 import stripe
@@ -62,6 +63,22 @@ class StripeWebhookResult:
     event_type: str
     outcome: str
     detail: str | None = None
+
+
+def _normalize_stripe_object(obj: object) -> dict[str, Any]:
+    """Convert Stripe SDK objects from construct_event into plain dicts."""
+    if isinstance(obj, dict):
+        return obj
+    to_dict_recursive = getattr(obj, "to_dict_recursive", None)
+    if callable(to_dict_recursive):
+        return dict(to_dict_recursive())
+    to_dict = getattr(obj, "to_dict", None)
+    if callable(to_dict):
+        return dict(to_dict())
+    raise StripeWebhookProcessingError(
+        "Unsupported Stripe webhook payload object type",
+        retryable=False,
+    )
 
 
 def _build_plan_price_map() -> dict[str, str]:
@@ -194,7 +211,7 @@ def _resolve_price_id(obj: dict) -> str | None:  # type: ignore[type-arg]
                 f"Failed to retrieve Stripe subscription {subscription!r}: {exc}",
                 retryable=True,
             ) from exc
-        return _resolve_price_id(dict(retrieved))
+        return _resolve_price_id(_normalize_stripe_object(retrieved))
 
     return None
 
@@ -283,7 +300,7 @@ class StripeBillingService:
 
         event_id: str = str(event["id"])
         event_type: str = str(event["type"])
-        data_object = event["data"]["object"]
+        data_object = _normalize_stripe_object(event["data"]["object"])
 
         if not self._webhook_events.try_record_event(event_id=event_id, event_type=event_type):
             logger.info("Duplicate Stripe webhook event %s — skipping.", event_id)

@@ -2,6 +2,15 @@
 
 This directory contains Terraform modules for deploying Ajenda AI to AWS. The architecture is designed for multi-tenant SaaS operation with high availability, security-first configuration, and cost-efficient scaling.
 
+**Code-aligned system map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](../docs/architecture/SYSTEM_ARCHITECTURE.md)
+
+**Deploy constraints (current `main`):**
+
+- Ships API, worker, and **customer frontend** on ECS Fargate with ALB path routing (`/v1` → API, `/` → SPA) via `infra/modules/ecs/frontend.tf`.
+- Workers support `AJENDA_WORKER_TENANT_MODE=multi` (round-robin active tenants) or `single` (one `AJENDA_WORKER_TENANT_ID`) — see ADR-0004.
+- Self-serve onboarding requires Resend email + `AJENDA_SIGNUP_VERIFY_URL_BASE` pointing at the deployed frontend `/verify-email` route.
+- Stripe secrets: see `deploy/k8s/secret.example.yaml` and `docs/deployment/production-env-contract.md`.
+
 ## Architecture Overview
 
 ```

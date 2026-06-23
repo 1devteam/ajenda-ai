@@ -41,6 +41,7 @@ def test_build_mission_intake_metadata_preserves_first_class_intake_fields() -> 
         "scope_limits": ["last 30 days"],
         "allowed_actions": ["read_crm"],
         "allowed_tools": ["crm"],
+        "allow_legacy_v1": False,
     }
 
 

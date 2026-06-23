@@ -16,6 +16,9 @@ class SessionStub:
         self.rolled_back = False
         self.closed = False
 
+    def execute(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
     def commit(self) -> None:
         self.committed = True
 

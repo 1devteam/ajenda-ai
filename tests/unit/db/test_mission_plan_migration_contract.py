@@ -11,7 +11,7 @@ def test_mission_plan_migration_has_single_head_and_short_revision_id() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0030_signup_abuse_tables"]
+    assert heads == ["0032_customer_auth_tables"]
     assert len(heads[0]) <= 32
 
 
@@ -42,3 +42,15 @@ def test_mission_plan_status_hardening_migration_adds_valid_value_constraint() -
     assert "cancelled" in migration
     assert "op.create_check_constraint" in migration
     assert "op.drop_constraint" in migration
+
+
+def test_mission_plan_backfill_migration_copies_legacy_metadata_into_durable_table() -> None:
+    migration = Path("alembic/versions/0031_backfill_mission_plans_from_metadata.py").read_text(encoding="utf-8")
+
+    assert "0031_backfill_mission_plans" in migration
+    assert "build_mission_plan_contract_metadata_from_legacy_metadata" in migration
+    assert "legacy_mission_plan_status_from_planning_status" in migration
+    assert "mission_plans" in migration
+    assert "metadata_json ?" in migration
+    assert "legacy_v1" in migration
+    assert "def downgrade" in migration

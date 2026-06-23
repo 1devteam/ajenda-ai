@@ -37,7 +37,13 @@ class MissionRuntimeQueueAdmissionService:
         self._execution_coordinator_cls = execution_coordinator_cls
 
     def admit(self, *, mission_id: UUID, tenant_id: UUID) -> dict[str, object]:
-        from backend.api.routes import mission as mission_route
+        from backend.services.mission_bridge.queue_admission import (
+            build_runtime_queue_admission_metadata,
+            current_materialized_execution_task_ids,
+            runtime_queue_admission_blocker,
+            runtime_queue_admission_response,
+        )
+        from backend.services.mission_bridge.quota import quota_exceeded_response
 
         tenant_id_str = str(tenant_id)
         mission_repo = self._mission_repository_cls(self._db)
@@ -46,7 +52,7 @@ class MissionRuntimeQueueAdmissionService:
             raise HTTPException(status_code=404, detail="mission not found for tenant")
 
         metadata = dict(mission.metadata_json or {})
-        materialized_task_ids = mission_route._current_materialized_execution_task_ids(metadata)
+        materialized_task_ids = current_materialized_execution_task_ids(metadata)
         task_repo = self._execution_task_repository_cls(self._db)
         tasks_by_id = {task.id: task for task in task_repo.list_for_mission(mission_id=mission_id)}
 
@@ -55,7 +61,7 @@ class MissionRuntimeQueueAdmissionService:
         blockers: list[dict[str, Any]] = []
         if not materialized_task_ids:
             blockers.append(
-                mission_route._runtime_queue_admission_blocker(
+                runtime_queue_admission_blocker(
                     task_id=None,
                     code="no_current_materialized_tasks",
                     message="Mission has no current materialized execution tasks for queue admission.",
@@ -65,7 +71,7 @@ class MissionRuntimeQueueAdmissionService:
             task = tasks_by_id.get(task_id)
             if task is None:
                 blockers.append(
-                    mission_route._runtime_queue_admission_blocker(
+                    runtime_queue_admission_blocker(
                         task_id=task_id,
                         code="materialized_task_missing",
                         message="Materialized execution task row was not found for this mission.",
@@ -74,7 +80,7 @@ class MissionRuntimeQueueAdmissionService:
                 continue
             if task.tenant_id != tenant_id_str or task.mission_id != mission_id:
                 blockers.append(
-                    mission_route._runtime_queue_admission_blocker(
+                    runtime_queue_admission_blocker(
                         task_id=task_id,
                         code="materialized_task_scope_mismatch",
                         message="Materialized execution task is not owned by this tenant and mission.",
@@ -89,7 +95,7 @@ class MissionRuntimeQueueAdmissionService:
                 already_queued_task_ids.append(str(task.id))
                 continue
             blockers.append(
-                mission_route._runtime_queue_admission_blocker(
+                runtime_queue_admission_blocker(
                     task_id=task.id,
                     code="materialized_task_not_queueable",
                     message="Materialized execution task is not planned or already queued.",
@@ -103,7 +109,7 @@ class MissionRuntimeQueueAdmissionService:
                     tenant_id, count=len(tasks_to_queue)
                 )
             except QuotaExceededError as exc:
-                raise mission_route._quota_exceeded_response(exc) from exc
+                raise quota_exceeded_response(exc) from exc
 
         coordinator = self._execution_coordinator_cls(self._db, self._queue)
         queued_task_ids: list[str] = []
@@ -114,7 +120,7 @@ class MissionRuntimeQueueAdmissionService:
                 result = coordinator.queue_task(tenant_id=tenant_id_str, task_id=task.id)
             except Exception as exc:
                 blockers.append(
-                    mission_route._runtime_queue_admission_blocker(
+                    runtime_queue_admission_blocker(
                         task_id=task.id,
                         code="queue_task_failed",
                         message="Execution coordinator failed to queue the materialized task.",
@@ -129,7 +135,7 @@ class MissionRuntimeQueueAdmissionService:
             if result.state == ExecutionTaskState.PENDING_REVIEW.value:
                 pending_review_task_ids.append(str(task.id))
                 blockers.append(
-                    mission_route._runtime_queue_admission_blocker(
+                    runtime_queue_admission_blocker(
                         task_id=task.id,
                         code="policy_review_required",
                         message="Execution coordinator routed the materialized task to policy review.",
@@ -141,7 +147,7 @@ class MissionRuntimeQueueAdmissionService:
             denied_task = {"task_id": str(task.id), "state": result.state, "reason": result.reason}
             denied_tasks.append(denied_task)
             blockers.append(
-                mission_route._runtime_queue_admission_blocker(
+                runtime_queue_admission_blocker(
                     task_id=task.id,
                     code="runtime_governor_denied",
                     message="Runtime governor denied queue admission for the materialized task.",
@@ -150,7 +156,7 @@ class MissionRuntimeQueueAdmissionService:
                 )
             )
 
-        queue_admission_metadata = mission_route._build_runtime_queue_admission_metadata(
+        queue_admission_metadata = build_runtime_queue_admission_metadata(
             mission_id=mission_id,
             tenant_id=tenant_id_str,
             materialized_task_ids=materialized_task_ids,
@@ -164,4 +170,4 @@ class MissionRuntimeQueueAdmissionService:
         )
         metadata[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY] = queue_admission_metadata
         mission_repo.update_metadata(mission=mission, metadata_json=metadata)
-        return mission_route._runtime_queue_admission_response(queue_admission_metadata)
+        return runtime_queue_admission_response(queue_admission_metadata)

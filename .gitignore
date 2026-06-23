@@ -57,13 +57,16 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.prod.example
+!.env.staging.example
+.env.backup*
 *.pem
 *.key
 *.crt
 secrets/
 *.secret
-# Explicitly block the production env file even if someone tries to git add -f
+# Compose runtime env — templates (*.example) stay committable via rules above
 deploy/compose/.env.prod
+deploy/compose/.env.staging
 
 # Database / local state
 *.sqlite

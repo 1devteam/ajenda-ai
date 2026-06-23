@@ -1,5 +1,7 @@
 # Remediation Phase 1 Complete — Commercial Viability
 
+> **Implementation snapshot.** Billing, account APIs, customer frontend, multi-tenant workers, deploy wiring, and E2E paid-loop proof are on `main`. Production cutover (Resend, live Stripe, prod hostnames) remains — see [`docs/architecture/SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md) §6 and §13.
+
 ## Summary
 
 Stripe billing integration delivered as Phase 1 of the commercial viability remediation.

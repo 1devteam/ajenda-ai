@@ -323,15 +323,27 @@ def test_mission_plan_upsert_persists_tenant_scoped_plan_without_queueing() -> N
 
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
+    durable_plan = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=str(tenant_id),
+        mission_id=mission_id,
+        status="draft",
+        metadata_json={},
+        created_at=datetime(2026, 5, 9, 12, 30, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 9, 12, 30, tzinfo=UTC),
+    )
+    plan_repo = MagicMock()
+    plan_repo.get_for_mission.return_value = None
 
-    def _update_metadata(*, mission, metadata_json):
-        mission.metadata_json = metadata_json
-        return mission
+    def _create_or_get_active_for_mission(*, mission, metadata_json, status):
+        durable_plan.metadata_json = metadata_json
+        return durable_plan
 
-    repo.update_metadata.side_effect = _update_metadata
+    plan_repo.create_or_get_active_for_mission.side_effect = _create_or_get_active_for_mission
 
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.MissionPlanRepository", return_value=plan_repo),
         patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
@@ -342,6 +354,7 @@ def test_mission_plan_upsert_persists_tenant_scoped_plan_without_queueing() -> N
     body = response.json()
     assert body["mission_id"] == str(mission_id)
     assert body["tenant_id"] == str(tenant_id)
+    assert body["status"] == "draft"
     assert body["plan"]["schema_version"] == 1
     assert body["plan"]["planning_status"] == "draft"
     assert body["plan"]["phases"] == plan_payload["phases"]
@@ -349,9 +362,11 @@ def test_mission_plan_upsert_persists_tenant_scoped_plan_without_queueing() -> N
     assert body["plan"]["capability_requirements"] == plan_payload["capability_requirements"]
     assert body["plan"]["approval_gates"] == plan_payload["approval_gates"]
     repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
-    persisted_metadata = repo.update_metadata.call_args.kwargs["metadata_json"]
-    assert persisted_metadata[MISSION_INTAKE_METADATA_KEY] == {"schema_version": 1}
-    assert persisted_metadata["mission_plan"]["estimated_scope"] == plan_payload["estimated_scope"]
+    plan_repo.get_for_mission.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    plan_repo.create_or_get_active_for_mission.assert_called_once()
+    persisted_metadata = plan_repo.create_or_get_active_for_mission.call_args.kwargs["metadata_json"]
+    assert persisted_metadata["legacy_v1"]["estimated_scope"] == plan_payload["estimated_scope"]
+    repo.update_metadata.assert_not_called()
     task_repo_cls.assert_not_called()
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
@@ -370,13 +385,19 @@ def test_mission_plan_read_uses_tenant_scoped_repository_query() -> None:
     )
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
+    plan_repo = MagicMock()
+    plan_repo.get_for_mission.return_value = None
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.MissionPlanRepository", return_value=plan_repo),
+    ):
         response = client.get(f"/v1/missions/{mission_id}/plan")
 
     assert response.status_code == 200
     assert response.json()["plan"] == plan
     repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
+    plan_repo.get_for_mission.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
 
 
 def test_mission_plan_read_hides_cross_tenant_mission() -> None:
@@ -429,12 +450,15 @@ def test_mission_plan_upsert_hides_cross_tenant_mission() -> None:
     repo = MagicMock()
     repo.get_for_tenant.return_value = None
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.MissionPlanRepository") as plan_repo_cls,
+    ):
         response = client.put(f"/v1/missions/{mission_id}/plan", json=_valid_plan_payload())
 
     assert response.status_code == 404
     assert response.json() == {"detail": "mission not found for tenant"}
-    repo.update_metadata.assert_not_called()
+    plan_repo_cls.assert_not_called()
 
 
 def _valid_task_graph_payload() -> dict[str, object]:
@@ -806,12 +830,19 @@ def test_mission_task_graph_validation_rejects_duplicate_node_keys() -> None:
     payload["nodes"][1]["node_key"] = "collect-signals"
     payload["nodes"][1]["key"] = "collect-signals"
 
-    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={MISSION_INTAKE_METADATA_KEY: {"schema_version": 1}},
+    )
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
         response = client.put(f"/v1/missions/{mission_id}/task-graph", json=payload)
 
     assert response.status_code == 422
     assert "node_key values must be unique" in response.text
-    repo_cls.assert_not_called()
+    repo.update_metadata.assert_not_called()
 
 
 def test_mission_task_graph_validation_rejects_edge_to_missing_node() -> None:
@@ -822,12 +853,19 @@ def test_mission_task_graph_validation_rejects_edge_to_missing_node() -> None:
     payload = _valid_task_graph_payload()
     payload["edges"][0]["to_node_key"] = "missing-node"
 
-    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={MISSION_INTAKE_METADATA_KEY: {"schema_version": 1}},
+    )
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
         response = client.put(f"/v1/missions/{mission_id}/task-graph", json=payload)
 
     assert response.status_code == 422
     assert "edge target must reference an existing node_key" in response.text
-    repo_cls.assert_not_called()
+    repo.update_metadata.assert_not_called()
 
 
 def test_mission_task_graph_validation_rejects_cycle() -> None:
@@ -845,12 +883,19 @@ def test_mission_task_graph_validation_rejects_cycle() -> None:
         }
     )
 
-    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = _mission_with_metadata(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        metadata_json={MISSION_INTAKE_METADATA_KEY: {"schema_version": 1}},
+    )
+
+    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
         response = client.put(f"/v1/missions/{mission_id}/task-graph", json=payload)
 
     assert response.status_code == 422
     assert "task graph must be a DAG" in response.text
-    repo_cls.assert_not_called()
+    repo.update_metadata.assert_not_called()
 
 
 def _valid_materialization_payload(capability_id: str | None = None) -> dict[str, object]:

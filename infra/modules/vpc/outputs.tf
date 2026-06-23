@@ -18,6 +18,11 @@ output "sg_alb_id" {
   value       = aws_security_group.alb.id
 }
 
+output "sg_ecs_frontend_id" {
+  description = "Security group ID for ECS frontend tasks"
+  value       = aws_security_group.ecs_frontend.id
+}
+
 output "sg_ecs_api_id" {
   description = "Security group ID for ECS API tasks"
   value       = aws_security_group.ecs_api.id

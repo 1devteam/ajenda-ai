@@ -43,6 +43,12 @@ variable "sg_ecs_worker_id" {
   type        = string
 }
 
+variable "sg_ecs_frontend_id" {
+  description = "Security group ID for ECS frontend tasks"
+  type        = string
+  default     = ""
+}
+
 variable "acm_certificate_arn" {
   description = "ARN of the ACM certificate for the ALB HTTPS listener"
   type        = string
@@ -187,6 +193,42 @@ variable "alb_access_logs_bucket" {
   description = "S3 bucket name for ALB access logs (empty string to disable)"
   type        = string
   default     = ""
+}
+
+variable "enable_customer_frontend" {
+  description = "Deploy customer frontend on ECS and route SPA traffic via ALB path rules"
+  type        = bool
+  default     = true
+}
+
+variable "ecr_frontend_image_uri" {
+  description = "ECR/GHCR image URI for the customer frontend (without tag)"
+  type        = string
+  default     = ""
+}
+
+variable "frontend_image_tag" {
+  description = "Customer frontend image tag"
+  type        = string
+  default     = "latest"
+}
+
+variable "frontend_cpu" {
+  description = "ECS frontend task CPU units"
+  type        = number
+  default     = 256
+}
+
+variable "frontend_memory" {
+  description = "ECS frontend task memory in MiB"
+  type        = number
+  default     = 512
+}
+
+variable "frontend_desired_count" {
+  description = "Desired number of frontend tasks"
+  type        = number
+  default     = 2
 }
 
 variable "tags" {

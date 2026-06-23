@@ -22,6 +22,18 @@ def test_health_route_returns_ok() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_system_health_is_deprecated_alias_of_root_health() -> None:
+    app = create_app()
+    app.state.database_runtime = _FailIfCalled()
+    app.state.queue_adapter = _FailIfCalled()
+    with TestClient(app) as client:
+        response = client.get("/v1/system/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert response.headers.get("deprecation") == "true"
+    assert '</health>; rel="successor-version"' in response.headers.get("link", "")
+
+
 def test_root_readiness_dependency_failure() -> None:
     app = create_app()
     db = Mock()

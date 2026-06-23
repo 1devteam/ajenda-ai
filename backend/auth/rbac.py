@@ -41,6 +41,34 @@ class RbacAuthorizer:
                     Permission.RETRIEVAL_MANAGE,
                     Permission.BUSINESS_PROFILE_READ,
                     Permission.BUSINESS_PROFILE_MANAGE,
+                    Permission.ACCOUNT_READ,
+                    Permission.BILLING_READ,
+                    Permission.BILLING_MANAGE,
+                }
+            ),
+            "tenant_owner": frozenset(
+                {
+                    Permission.AUTH_READ,
+                    Permission.AUTH_MANAGE,
+                    Permission.API_KEYS_CREATE,
+                    Permission.API_KEYS_READ,
+                    Permission.API_KEYS_REVOKE,
+                    Permission.EXECUTION_VIEW,
+                    Permission.EXECUTION_QUEUE,
+                    Permission.MISSION_CREATE,
+                    Permission.MISSION_MANAGE,
+                    Permission.RUNTIME_OPERATE,
+                    Permission.PROVISION_WORKFORCE,
+                    Permission.RUNTIME_VIEW,
+                    Permission.CAPABILITY_MANAGE,
+                    Permission.EVIDENCE_MANAGE,
+                    Permission.OUTCOME_REVIEW_MANAGE,
+                    Permission.RETRIEVAL_MANAGE,
+                    Permission.BUSINESS_PROFILE_READ,
+                    Permission.BUSINESS_PROFILE_MANAGE,
+                    Permission.ACCOUNT_READ,
+                    Permission.BILLING_READ,
+                    Permission.BILLING_MANAGE,
                 }
             ),
             "tenant_admin": frozenset(
@@ -63,6 +91,9 @@ class RbacAuthorizer:
                     Permission.RETRIEVAL_MANAGE,
                     Permission.BUSINESS_PROFILE_READ,
                     Permission.BUSINESS_PROFILE_MANAGE,
+                    Permission.ACCOUNT_READ,
+                    Permission.BILLING_READ,
+                    Permission.BILLING_MANAGE,
                 }
             ),
             "operator": frozenset(
@@ -89,6 +120,8 @@ class RbacAuthorizer:
                     Permission.EXECUTION_VIEW,
                     Permission.RUNTIME_VIEW,
                     Permission.BUSINESS_PROFILE_READ,
+                    Permission.ACCOUNT_READ,
+                    Permission.BILLING_READ,
                 }
             ),
             "machine_executor": frozenset(
@@ -100,6 +133,7 @@ class RbacAuthorizer:
             "signup_bootstrap": frozenset(
                 {
                     Permission.AUTH_READ,
+                    Permission.ACCOUNT_READ,
                     Permission.MISSION_CREATE,
                     Permission.EXECUTION_VIEW,
                     Permission.EXECUTION_QUEUE,
@@ -110,6 +144,9 @@ class RbacAuthorizer:
             "tenant_operator": frozenset(
                 {
                     Permission.AUTH_READ,
+                    Permission.ACCOUNT_READ,
+                    Permission.BILLING_READ,
+                    Permission.BILLING_MANAGE,
                     Permission.MISSION_CREATE,
                     Permission.MISSION_MANAGE,
                     Permission.EXECUTION_VIEW,

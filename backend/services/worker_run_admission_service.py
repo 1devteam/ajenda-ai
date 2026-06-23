@@ -19,6 +19,7 @@ from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
+from backend.runtime.claim_holders import worker_bridge_holder
 from backend.workers.task_dispatcher import TaskDispatcher
 
 
@@ -43,7 +44,19 @@ class WorkerRunAdmissionService:
         self._task_dispatcher_cls = task_dispatcher_cls
 
     def admit(self, *, mission_id: UUID, tenant_id: UUID, admitted_by: str, request: Any) -> Any:
-        from backend.api.routes import mission as mission_route
+        from backend.services.mission_bridge.worker_claim import task_type_for_claim
+        from backend.services.mission_bridge.worker_run import (
+            retry_count_for_run_attempt,
+            run_admission_blocker,
+            run_admission_status,
+            run_receipt,
+            run_receipt_matches_attempt,
+            safe_run_summary,
+            tenant_aware_dispatcher_session_factory,
+            worker_run_admission_authority_flags,
+            worker_run_admission_to_read,
+        )
+        from backend.services.mission_bridge.worker_start import receipt_worker_lease_id
 
         tenant_id_str = str(tenant_id)
         mission_repo = self._mission_repository_cls(self._db)
@@ -85,7 +98,7 @@ class WorkerRunAdmissionService:
 
         if not isinstance(start_admission, dict):
             blockers.append(
-                mission_route._run_admission_blocker(
+                run_admission_blocker(
                     task_id=None,
                     code="worker_start_admission_missing",
                     message="Worker run admission requires current worker execution start admission metadata.",
@@ -97,7 +110,7 @@ class WorkerRunAdmissionService:
             start_status = start_admission.get("admission_status")
             if start_status not in {"admitted", "partially_admitted"}:
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=None,
                         code="worker_start_admission_not_admitted",
                         message="Worker run admission requires admitted or partially admitted worker start metadata.",
@@ -115,17 +128,15 @@ class WorkerRunAdmissionService:
                 }
                 if not started_task_ids:
                     blockers.append(
-                        mission_route._run_admission_blocker(
+                        run_admission_blocker(
                             task_id=None,
                             code="worker_start_admission_empty",
                             message="Worker start admission has no durable started_task_ids to run.",
                         )
                     )
 
-        holder_identity = f"worker_claim_admission:{tenant_id_str}:{mission_id}"
-        dispatcher_session_factory = mission_route._tenant_aware_dispatcher_session_factory(
-            request=request, tenant_id=tenant_id_str
-        )
+        holder_identity = worker_bridge_holder(tenant_id=tenant_id_str, mission_id=mission_id)
+        dispatcher_session_factory = tenant_aware_dispatcher_session_factory(request=request, tenant_id=tenant_id_str)
 
         historical_run_receipts = [dict(receipt) for receipt in prior_run_receipts]
 
@@ -135,7 +146,7 @@ class WorkerRunAdmissionService:
             if start_receipt is None:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task_id,
                         code="worker_start_receipt_missing",
                         message="Started task is missing a durable start receipt.",
@@ -145,7 +156,7 @@ class WorkerRunAdmissionService:
             if task is None:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task_id,
                         code="run_task_unavailable",
                         message="Started task is unavailable at run admission time.",
@@ -155,7 +166,7 @@ class WorkerRunAdmissionService:
             if task.tenant_id != tenant_id_str or task.mission_id != mission_id:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="run_task_scope_mismatch",
                         message="Run candidate is not owned by this tenant and mission.",
@@ -163,11 +174,11 @@ class WorkerRunAdmissionService:
                     )
                 )
                 continue
-            task_type = mission_route._task_type_for_claim(task)
+            task_type = task_type_for_claim(task)
             if not task_type:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="run_task_missing_task_type",
                         message="Run admission requires explicit non-empty task_type metadata.",
@@ -176,13 +187,11 @@ class WorkerRunAdmissionService:
                 )
                 continue
             task_metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
-            expected_lease_id = str(
-                task_metadata.get("worker_lease_id") or mission_route._receipt_worker_lease_id(start_receipt)
-            )
+            expected_lease_id = str(task_metadata.get("worker_lease_id") or receipt_worker_lease_id(start_receipt))
             if not expected_lease_id:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="worker_lease_id_missing",
                         message="Run admission requires a worker_lease_id in task metadata or start receipt.",
@@ -195,7 +204,7 @@ class WorkerRunAdmissionService:
             except ValueError:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="worker_lease_id_invalid",
                         message="Run admission requires a valid worker_lease_id.",
@@ -208,7 +217,7 @@ class WorkerRunAdmissionService:
             started_from_admission_at = (
                 str(start_receipt.get("started_at")) if start_receipt.get("started_at") else None
             )
-            retry_count = mission_route._retry_count_for_run_attempt(task, start_receipt)
+            retry_count = retry_count_for_run_attempt(task, start_receipt)
             existing_receipt = next(
                 (
                     receipt
@@ -219,7 +228,7 @@ class WorkerRunAdmissionService:
                         "already_completed_by_current_run_admission",
                         "already_failed_by_current_run_admission",
                     }
-                    and mission_route._run_receipt_matches_attempt(
+                    and run_receipt_matches_attempt(
                         receipt=receipt,
                         task_id=task_id,
                         worker_lease_id=expected_lease_id,
@@ -253,7 +262,7 @@ class WorkerRunAdmissionService:
             if lease is None:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="worker_lease_missing",
                         message="Run admission requires an existing WorkerLease.",
@@ -265,7 +274,7 @@ class WorkerRunAdmissionService:
             if lease.tenant_id != tenant_id_str or lease.task_id != task.id:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="worker_lease_scope_mismatch",
                         message="WorkerLease must belong to the same tenant and task as the run candidate.",
@@ -277,7 +286,7 @@ class WorkerRunAdmissionService:
             if lease.holder_identity != holder_identity:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="worker_lease_holder_mismatch",
                         message="WorkerLease holder does not match current worker claim admission owner.",
@@ -289,7 +298,7 @@ class WorkerRunAdmissionService:
             if lease.status != WorkerLeaseState.ACTIVE.value:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="worker_lease_inactive",
                         message="WorkerLease is not active for dispatcher execution.",
@@ -302,7 +311,7 @@ class WorkerRunAdmissionService:
                 skipped_task_ids.append(task_id)
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="run_task_not_running",
                         message="Worker run admission only executes running tasks from current start admission.",
@@ -317,7 +326,7 @@ class WorkerRunAdmissionService:
             if not claim_result.ok:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="queue_claim_unavailable",
                         message="Queue payload could not be claimed into processing for dispatcher execution.",
@@ -353,7 +362,7 @@ class WorkerRunAdmissionService:
             refreshed_lease = lease_repo.get(lease.id) or lease
             current_state = str(getattr(refreshed_task, "status", task.status))
             terminal_at = datetime.now(UTC).isoformat()
-            receipt = mission_route._run_receipt(
+            receipt = run_receipt(
                 task=refreshed_task,
                 previous_state=ExecutionTaskState.RUNNING.value,
                 current_state=current_state,
@@ -367,7 +376,7 @@ class WorkerRunAdmissionService:
                 failed_at=terminal_at
                 if current_state in {ExecutionTaskState.FAILED.value, ExecutionTaskState.DEAD_LETTERED.value}
                 else None,
-                result_summary=mission_route._safe_run_summary(refreshed_task, handler_key=task_type),
+                result_summary=safe_run_summary(refreshed_task, handler_key=task_type),
                 error_summary={"message": "handler failed or dispatcher marked task failed"}
                 if current_state != ExecutionTaskState.COMPLETED.value
                 else None,
@@ -382,7 +391,7 @@ class WorkerRunAdmissionService:
             else:
                 blocked_task_ids.append(task_id)
                 blockers.append(
-                    mission_route._run_admission_blocker(
+                    run_admission_blocker(
                         task_id=task.id,
                         code="dispatcher_terminal_state_missing",
                         message="Dispatcher returned without a completed, failed, or dead-lettered task state.",
@@ -390,7 +399,7 @@ class WorkerRunAdmissionService:
                     )
                 )
 
-        status = mission_route._run_admission_status(
+        status = run_admission_status(
             completed=completed_task_ids,
             failed=failed_task_ids,
             already_completed=already_completed_task_ids,
@@ -454,12 +463,10 @@ class WorkerRunAdmissionService:
             "run_admitted_by": admitted_by,
             "run_admitted_at": now,
             "updated_at": datetime.now(UTC).isoformat(),
-            "runtime_authority": mission_route._worker_run_admission_authority_flags(
+            "runtime_authority": worker_run_admission_authority_flags(
                 read_only=False, completed=bool(completed_task_ids), failed=bool(failed_task_ids)
             ).model_dump(),
         }
         metadata[MISSION_WORKER_RUN_ADMISSION_METADATA_KEY] = admission
         mission_repo.update_metadata(mission=mission, metadata_json=metadata)
-        return mission_route._worker_run_admission_to_read(
-            mission_id=mission_id, tenant_id=tenant_id_str, admission=admission
-        )
+        return worker_run_admission_to_read(mission_id=mission_id, tenant_id=tenant_id_str, admission=admission)

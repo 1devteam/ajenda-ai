@@ -26,6 +26,9 @@ def test_bootstrap_key_uses_signup_bootstrap_permissions() -> None:
     )
     assert principal is not None
     assert Permission.MISSION_CREATE in principal.permissions
+    assert Permission.ACCOUNT_READ in principal.permissions
+    assert Permission.BILLING_READ not in principal.permissions
+    assert Permission.BILLING_MANAGE not in principal.permissions
     assert Permission.API_KEYS_CREATE not in principal.permissions
     assert principal.roles == ("signup_bootstrap",)
 
@@ -63,6 +66,9 @@ def test_tenant_operator_key_has_api_key_permissions() -> None:
     assert principal is not None
     assert Permission.API_KEYS_CREATE in principal.permissions
     assert Permission.MISSION_MANAGE in principal.permissions
+    assert Permission.ACCOUNT_READ in principal.permissions
+    assert Permission.BILLING_READ in principal.permissions
+    assert Permission.BILLING_MANAGE in principal.permissions
 
 
 def test_create_bootstrap_key_requires_expiry() -> None:

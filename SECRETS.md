@@ -54,6 +54,19 @@ If a commit is blocked by `detect-secrets`, either:
 
 ---
 
+## Production secret inventory (commercial/onboarding)
+
+| Secret | Where to obtain | Stored as |
+|--------|-----------------|-----------|
+| `STRIPE_SECRET_KEY` | Stripe Dashboard → API keys | K8s Secret / secrets manager |
+| `STRIPE_WEBHOOK_SECRET` | Stripe Dashboard → Webhook endpoint | K8s Secret / secrets manager |
+| `AJENDA_RESEND_API_KEY` | Resend dashboard | K8s Secret / secrets manager |
+| Fernet keys | `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` | K8s Secret / secrets manager |
+
+Non-secret production config (verify URL, email from, CORS origins) lives in ConfigMap or env — see `deploy/k8s/configmap.yaml` and `docs/deployment/production-env-contract.md`.
+
+---
+
 ## Production Secrets Management
 
 For production deployments, use one of the following — **never** a `.env` file on a server:

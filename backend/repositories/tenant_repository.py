@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from backend.domain.tenant import Tenant
@@ -70,6 +70,15 @@ class TenantRepository:
 
     def get_by_slug(self, slug: str) -> Tenant | None:
         return self._session.query(Tenant).filter_by(slug=slug).first()
+
+    def list_active_tenant_ids(self) -> list[str]:
+        """Return active tenant IDs in stable creation order for worker fair-queue polling."""
+        stmt = (
+            select(Tenant.id)
+            .where(Tenant.status == "active", Tenant.deleted_at.is_(None))
+            .order_by(Tenant.created_at.asc())
+        )
+        return [str(tenant_id) for tenant_id in self._session.scalars(stmt).all()]
 
     def create(
         self,

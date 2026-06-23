@@ -1,5 +1,7 @@
 # AJENDA-AI Remediation Execution Plan (Schema-Aligned, Safe-PR Bundles)
 
+> **Historical document.** Many bundles in this plan are merged or superseded. Current architecture and product gaps: [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md). Current status: [`docs/PROJECT_STATE_REPORT.md`](PROJECT_STATE_REPORT.md).
+
 ## Objective
 
 Deliver a phased, low-regression remediation plan that resolves the identified cons/tradeoffs and P0/P1/P2 gaps while preserving existing runtime authority contracts, tenant isolation, queue/lease safety, and current schema semantics.

@@ -1,105 +1,84 @@
 # Ajenda AI Product Vertical Slice Build Contract
 
+**Last verified:** 2026-06-21 (`main` @ `6a14e40`)  
+**Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md)
+
 ## Purpose
 
-This document is the implementation contract for turning Ajenda AI from a backend/runtime-heavy system into a runnable product vertical slice.
-
-The goal is not another review-note hardening pass.
-
-The goal is:
-
-1. Put a frontend in the repository.
-2. Expose worker abilities through a clean API.
-3. Let the user launch real runtime tasks from the UI.
-4. Let the user see task status, output, lineage, and evidence.
-5. Wire SaaS/payment UI to the existing billing backend.
-6. Use the snapshot as the source of truth for what exists and what is missing.
-7. Only harden after the live vertical slice exists and runs.
+This document tracks the product vertical slice: what exists in code vs what a paying stranger still needs.
 
 ## Source-of-truth rule
 
-The repository snapshot is treated as truth.
+Implementation + tests win over this document. When in doubt, read `frontend/src/`, `backend/api/routes/`, and `SYSTEM_ARCHITECTURE.md`.
 
-If a surface is absent from the snapshot, it is treated as missing.
-
-If a backend service exists but has no UI path, it is treated as backend-present and product-incomplete.
-
-If a provider is local/proof-only, it is treated as proof-capable but not production-provider-complete.
+---
 
 ## Confirmed current state
 
-### Repository state
+### Repository
 
-Snapshot state:
-
-- Repository: `ajenda-ai`
 - Branch: `main`
-- Head: `883077a`
-- Origin main: `883077a`
-- Working tree: clean
-- Python: `3.12.3`
-- Files scanned: `646`
-- Static routes detected: `921`
-- Python errors: `0`
-- Frontend inventory: empty / absent from snapshot
+- Alembic head: `0030_signup_abuse_tables`
+- Frontend: **present** — Runtime Ability Console (dev tool, not customer product)
 
-### Backend routes already present
+### Backend routes on `/v1`
 
-The API router mounts business routes under `/v1`.
+All areas in `backend/api/router.py`, including:
 
-Known mounted areas:
+- `/v1/onboarding/*` — self-serve signup, verify, resend, promote
+- `/v1/billing/*` — checkout, portal, Stripe webhook
+- `/v1/ability-runtime/*` — product-facing task launcher
+- `/v1/auth/*`, `/v1/api-keys/*`, missions, tasks, workforce, admin, …
 
-- `/v1/auth/*`
-- `/v1/api-keys/*`
-- `/v1/capabilities/*`
-- `/v1/capability-adapters/*`
-- `/v1/business-profile/*`
-- `/v1/evidence/*`
-- `/v1/outcome-reviews/*`
-- `/v1/retrieval-contracts/*`
-- `/v1/mission-brief/*`
-- `/v1/missions/*`
-- `/v1/tasks/*`
-- `/v1/workforce/*`
-- `/v1/branches/*`
-- `/v1/runtime/*`
-- `/v1/operations/*`
-- `/v1/system/*`
-- `/v1/observability/*`
-- `/v1/webhooks/*`
-- `/v1/billing/*`
-- `/v1/admin/*`
+### Frontend (`frontend/`)
 
-### Runtime proof already passed locally
+| Exists | Missing |
+|--------|---------|
+| React 19 + Vite app | Customer signup/dashboard |
+| Manual tenant + API key config | react-router, auth session |
+| Ability-runtime proof launchers | Onboarding API calls |
+| Billing checkout/portal buttons | Verify-email page |
+| Task status monitor | Deploy in prod manifests |
 
-The runtime proof demonstrated:
+### Runtime proof
 
-- Docker Compose stack starts.
-- Database is reachable.
-- Redis is reachable.
-- API readiness passes.
-- Worker starts.
-- Worker receives Redis queue config.
-- Worker claims a task.
-- Worker completes a task.
-- Lease is released.
-- Audit is written.
-- Lineage is written.
-- Metrics endpoint works.
-- Prometheus scrape target health works.
-- Redis lease cleanup is checked.
+Live runtime proof validates queue-backed worker execution, leases, audit, lineage, metrics. It does **not** prove stranger-ready paid customer loop.
 
-This proves runtime plumbing.
+---
 
-It does not prove product completeness.
+## Vertical slice checklist
 
-## Missing product surfaces
+| # | Requirement | Status |
+|---|-------------|--------|
+| 1 | Frontend in repository | **Done** — dev console only |
+| 2 | Worker abilities via clean API | **Done** — `/v1/ability-runtime/*` |
+| 3 | Launch runtime tasks from UI | **Done** — dev console (requires pre-configured API key) |
+| 4 | Task status, lineage, evidence in UI | **Done** — dev console task monitor |
+| 5 | SaaS/payment UI wired to billing backend | **Partial** — checkout/portal buttons; no post-payment UX |
+| 6 | Self-serve signup without manual keys | **Not done** — API only |
+| 7 | Verify-email landing page | **Not done** |
+| 8 | Account/plan/usage self-service APIs | **Not done** |
+| 9 | E2E paid-customer integration test | **Not done** |
+| 10 | Multi-tenant worker execution | **Not done** — single `AJENDA_WORKER_TENANT_ID` |
 
-### Missing frontend
+---
 
-The snapshot has no frontend app.
+## Remaining product work
 
-Required frontend path:
+1. Customer frontend replacing dev-console auth model
+2. Verify page at `AJENDA_SIGNUP_VERIFY_URL_BASE`
+3. `/v1/account/*` APIs (me, plan, quota, billing)
+4. Guided onboarding UX (signup → verify → promote → checkout → first task)
+5. Plan alignment (starter vs pro vs `ability_runtime` gates)
+6. Multi-tenant worker strategy
+7. Frontend static hosting in deploy
+8. `test_paid_customer_loop` integration test
+
+---
+
+## Required frontend structure (target customer product)
+
+Current `frontend/` satisfies the **dev console** slice. Customer product will extend or replace it with:
 
 ```text
 frontend/
@@ -109,7 +88,11 @@ frontend/
   tsconfig.json
   src/
     main.tsx
-    App.tsx
-    api/client.ts
+    App.tsx              # routing: /signup, /verify-email, /dashboard, /billing
+    api/client.ts        # onboarding + account + ability-runtime + billing
+    pages/               # customer flows (not yet present)
     types.ts
     styles.css
+```
+
+See Mermaid target-vs-today diagram: `SYSTEM_ARCHITECTURE.md` §6.

@@ -97,3 +97,37 @@ A staging Compose deployment is considered proof-passing when all of the followi
 - Alert rules are loaded and inactive under healthy idle conditions.
 - A worker-tenant task can be queued and completed by the worker.
 - Redis pending and processing queues drain after task completion.
+
+## Paid customer loop proof (Compose)
+
+In addition to runtime proof above, the **customer product path** can be validated on the same Compose stack.
+
+### Prerequisites
+
+- Copy `deploy/compose/.env.staging.example` → `deploy/compose/.env.staging`, edit secrets, then sync to `deploy/compose/.env.prod` (API/worker/migrate load `.env.prod`).
+- Start stack: `docker compose --env-file deploy/compose/.env.prod -f deploy/compose/docker-compose.prod.yml up -d --build`
+- Customer UI on **http://localhost:8080** (nginx proxies `/v1` to API)
+
+### Automated HTTP proof
+
+```bash
+bash deploy/scripts/paid-customer-loop-staging-proof.sh
+```
+
+Exit code `0` when all of the following hold:
+
+| Step | Check |
+| --- | --- |
+| Frontend SPA | `GET /` serves React mount (`id="root"`) |
+| Readiness proxy | `GET /readiness` via frontend returns ready |
+| Signup | `POST /v1/onboarding/signup` via frontend proxy → `201` |
+| Verify | `POST /v1/onboarding/verify-email` → bootstrap API key |
+| Billing RBAC | Bootstrap key `GET /v1/account/billing` → `403` |
+| Promote | `POST /v1/onboarding/promote-bootstrap-key` → operational key |
+| Account reads | `GET /v1/account/me`, `/usage`, `/billing` → `200` |
+
+Full walkthrough (Stripe CLI, manual UI): [`ops/runbooks/paid-customer-loop-staging.md`](../../ops/runbooks/paid-customer-loop-staging.md).
+
+### CI integration proof
+
+`tests/integration/saas/test_paid_customer_loop_real.py` covers signup → verify → promote → account reads → mocked Stripe webhook → `calendar-read` task launch over HTTP (Testcontainers Postgres/Redis).

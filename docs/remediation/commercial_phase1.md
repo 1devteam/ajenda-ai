@@ -1,6 +1,8 @@
 # Phase 1: Commercial Viability — Stripe Billing Integration
 
-## Status: Implemented
+> **Implementation snapshot.** Full paid-customer product path is staging-ready on `main`. Production cutover gaps are in [`docs/architecture/SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md) §13.
+
+## Status: Implemented (staging-ready — production cutover open)
 
 ## What Was Delivered
 

@@ -1,34 +1,21 @@
-# Vector 2 — Production TLS Hardening
-# Requires cert-manager with a ClusterIssuer named "letsencrypt-production"
-# and nginx-ingress-controller deployed in the cluster.
+# DEPRECATED — use deploy/k8s/ingress.yaml instead.
+#
+# ingress.yaml is the canonical single-host contract:
+#   https://<domain>/        → customer frontend (SPA)
+#   https://<domain>/v1/*    → API (including Stripe webhook)
+#
+# This split-host manifest (api.ajenda.ai only, no frontend) predates the
+# customer product UI and is retained for migration reference only.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ajenda-api-ingress
+  name: ajenda-api-ingress-legacy-split-host
   namespace: ajenda
   labels:
     app: ajenda-api
-    version: "1.1.0"
+    component: ingress-legacy
   annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-production"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    kubernetes.io/description: "Deprecated — use ajenda-ingress in ingress.yaml"
 spec:
   ingressClassName: nginx
-  tls:
-    - hosts:
-        - api.ajenda.ai
-      secretName: ajenda-tls-secret
-  rules:
-    - host: api.ajenda.ai
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: ajenda-api
-                port:
-                  number: 8000
+  rules: []

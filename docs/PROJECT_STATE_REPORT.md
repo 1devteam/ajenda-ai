@@ -1,258 +1,121 @@
 # Ajenda AI — Project State Report
 
-**Date:** April 22, 2026  
+**Date:** June 22, 2026  
 **Branch:** `main`  
-**Version:** `1.1.0`
+**Alembic head:** `0031_backfill_mission_plans`  
+**Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
 
-This document describes the current project posture of Ajenda AI as a governed, multi-tenant execution platform with a live runtime validation layer.
-
-It is intended to reflect implementation-backed truth and current operational direction, not aspirational architecture alone.
-
----
-
-## 1. Current project posture
-
-Ajenda AI is no longer just a platform with runtime components and tests. It now has a distinct runtime-proof layer used to evaluate whether core guarantees still hold under live validation.
-
-Current posture:
-
-- governed multi-tenant runtime
-- queue-backed execution authority
-- lease-based worker ownership
-- bounded recovery path for stale work
-- policy/compliance gating before queue admission
-- tenant-scoped SaaS and quota controls
-- live runtime validation matrix with evidence capture
-- merged recovery-visibility and targeted validation-workflow hardening on `main`
+This report reflects implementation-backed truth on `main`. For visual flows, see the Mermaid diagrams in `SYSTEM_ARCHITECTURE.md`.
 
 ---
 
-## 2. Architectural status
+## 1. Executive summary
 
-### 2.1 Multi-tenancy and isolation
+| Dimension | Rating | Notes |
+|-----------|--------|-------|
+| Backend platform | Strong | Runtime, isolation, queue/lease, recovery, governance |
+| SaaS APIs | Strong | Onboarding, account self-service, Stripe billing with RBAC |
+| Customer product | Staging-ready | Frontend + verify page + E2E proof on Compose |
+| Deploy | Compose + K8s | API, worker, **frontend**; GHCR images including `-frontend` |
+| Production launch | Ready to configure | Startup guards + hostname contract; operator replaces `ajenda.example.com` and live secrets |
 
-Tenant isolation is enforced across multiple layers:
-
-- HTTP tenant envelope via `TenantContextMiddleware`
-- cross-tenant rejection in `AuthContextMiddleware`
-- database isolation via PostgreSQL RLS and tenant session scoping
-- tenant-partitioned runtime behavior and tenant-aware worker operations
-
-This is one of the system’s primary non-negotiable guarantees.
-
-### 2.2 Authentication and authorization
-
-Authentication supports:
-
-- OIDC/JWT bearer flows
-- tenant-scoped API key flows
-- fail-closed behavior on invalid credentials
-- cross-tenant rejection when principal and request tenant do not match
-
-Authorization also includes a policy-as-code runway with selectable enforcement modes.
-
-### 2.3 SaaS governance and quotas
-
-Ajenda includes:
-
-- tenant lifecycle management
-- plan enforcement
-- quota enforcement
-- feature gating
-- tenant-aware operational boundaries
-
-### 2.4 Compliance and pending-review path
-
-Compliance and governance are active runtime concerns, not documentation only.
-
-Tasks can be prevented from queue admission and routed to `PENDING_REVIEW` when policy evaluation requires human review. Governance and audit evidence are emitted for those decisions.
-
-### 2.5 Authoritative runtime execution
-
-The execution runtime is centered on:
-
-- queue admission
-- task claim
-- lease creation and ownership
-- execution start
-- completion/failure handling
-- lease release
-- bounded recovery for expired leases
-
-Worker/runtime correctness is not treated as a best-effort concern. It is an authoritative contract surface.
-
-### 2.6 Recovery and retry safety
-
-Ajenda includes a bounded recovery model for expired leases:
-
-- stale claimed work can be re-queued
-- stale running work transitions through `recovering`
-- retry count is tracked
-- tasks can be dead-lettered when retry ceilings are reached
-- recovery API summaries expose dead-letter outcomes as part of the bounded result
-
-This is one of the core runtime safety properties.
-
-### 2.7 Webhook delivery and reliability
-
-Webhook support includes:
-
-- tenant-scoped endpoint management
-- replay support
-- reliability summaries
-- delivery signing and protected secret storage
-
-### 2.8 Observability
-
-Observability currently includes:
-
-- Prometheus metrics
-- audit events
-- governance events
-- validation artifacts from live runtime scenarios
+**Overall launch readiness for strangers:** staging-proofable locally; production cutover checklist in [`ops/runbooks/paid-customer-loop-staging.md`](../ops/runbooks/paid-customer-loop-staging.md) §5.
 
 ---
 
-## 3. Runtime validation posture
+## 2. What is implemented
 
-A major current milestone is the existence of the live runtime validation system.
+### 2.1 Runtime and execution
 
-Primary surfaces:
+- Queue-backed `ExecutionCoordinator` with Redis adapter
+- `WorkerLoop` + `TaskDispatcher` with lease ownership
+- Bounded recovery, dead-letter, operations surfaces
+- Ability runtime API (`/v1/ability-runtime/*`) with plan feature gates
+- GTM actions behind `gtm` feature (pro/enterprise)
+- Multi-tenant workers (`AJENDA_WORKER_TENANT_MODE=multi`, ADR-0004)
 
-- `docs/validation/live-runtime-matrix.md`
-- `scripts/validation/live_runtime_matrix.sh`
-- `scripts/validation/lib.sh`
-- `artifacts/validation/README.md`
+### 2.2 Tenant isolation and auth
 
-This layer provides:
+- `TenantContextMiddleware` + `AuthContextMiddleware`
+- PostgreSQL RLS with tenant session activation
+- OIDC/JWT and API-key auth; cross-tenant rejection
+- Public routes: health, Stripe webhook, onboarding signup/verify/resend
 
-- a release-gating scenario set
-- a broader runtime scenario inventory
-- scenario evidence capture across API / DB / Redis / audit / worker logs
-- safety classes for read-only, tenant-scoped mutation, and global mutation validation
-- targeted GitHub-side verification for recovery-hardening and runtime-validation paths
+### 2.3 SaaS and commercial
 
-This is a meaningful architectural step because it shifts Ajenda from “tested platform” toward “runtime-proof and release-governed platform.”
+- Tenant lifecycle (provision, suspend, upgrade_plan)
+- Quota and feature enforcement (`QuotaEnforcementService`)
+- Self-serve onboarding: signup → verify → bootstrap key → promote
+- Account APIs: `/v1/account/me`, `/plan`, `/usage`, `/billing`
+- Billing RBAC: checkout/portal require `billing:manage`; account reads use `account:read`
+- Stripe: checkout, portal, webhook with `stripe_webhook_events` dedup
+- Plans: free, starter, pro, enterprise (`0006` seed; `0026` ability_runtime on pro+)
 
----
+### 2.4 Customer frontend
 
-## 4. Current strengths
+- React 19 + Vite + `react-router-dom`
+- Routes: `/signup`, `/verify-email`, `/promote`, `/dashboard`, `/billing`, `/tasks`, `/dev`
+- Session storage for bootstrap vs operational API keys
+- Compose: customer UI on **:8080** (nginx proxies `/v1` to API)
+- K8s: `ajenda-frontend` deployment + ingress paths; image `ghcr.io/<org>/<repo>-frontend:<version>`
 
-Ajenda’s strongest current properties are:
+### 2.5 Data model (recent)
 
-- clear queue-backed runtime authority
-- explicit middleware and routing contracts
-- tenant isolation emphasis across layers
-- bounded recovery model
-- policy/compliance-aware queue admission
-- practical observability and audit surfaces
-- real validation artifacts tied to runtime scenarios
-- stronger recovery visibility and dead-letter summary alignment at the API boundary
+- `tenant_members` — owner email, verification state
+- `api_key_records` — purpose, expires_at, roles_json (bootstrap support)
+- `signup_attempt_log` — abuse tracking
+- `stripe_customer_id` on tenants
+- `mission_plans` — canonical plan storage; `0031` backfill from legacy metadata
 
----
+### 2.6 Tests
 
-## 5. Current hardening priority
-
-The current highest-leverage work is not random new feature implementation.
-
-The current highest-leverage work is:
-
-## Documentation / validation / implementation truth alignment
-
-This means:
-
-- keeping top-level docs and architecture docs aligned with merged runtime truth
-- preserving the validation matrix as an authoritative release-control artifact
-- strengthening evidence requirements where proof is still weaker than runtime importance
-- extending resilience and isolation coverage without regressing existing release gates
-- tightening the relationship between docs, runner behavior, tests, and implementation truth
-
-The recently merged recovery and validation hardening work moved several previously “in progress” areas into current repo truth rather than future intent.
+- ~1600+ non-integration tests passing
+- SaaS integration: onboarding, Stripe webhook, lifecycle, tenant members
+- **Paid customer E2E:** `tests/integration/saas/test_paid_customer_loop_real.py`
+- Staging HTTP proof: `deploy/scripts/paid-customer-loop-staging-proof.sh`
 
 ---
 
-## 6. Testing and validation posture
+## 3. What is not implemented / remaining gaps
 
-Ajenda uses multiple proof surfaces:
-
-- unit tests
-- contract tests
-- integration tests
-- live validation scenarios
-- runtime artifacts
-- targeted GitHub Actions verification for recovery hardening paths
-
-These do not serve the same role.
-
-Tests prove code and contract behavior.
-Live validation proves runtime behavior and release confidence under actual scenario execution.
+| Gap | Impact |
+|-----|--------|
+| Operator replaces placeholder domain | `ajenda.example.com` in manifests must become the real production host |
+| Live secrets in K8s/Compose prod | Resend + Stripe live keys are template placeholders until deploy |
+| Stranger-ready on prod hostnames | Staging proof uses localhost + exposed verification token |
 
 ---
 
-## 7. Operational readiness
+## 4. Deployment surfaces
 
-Current operational/deployment surfaces include:
+| Target | Present in repo | Notes |
+|--------|-----------------|-------|
+| Docker Compose prod | yes | api, worker, **frontend**, db, redis, migrate, prometheus, otel |
+| Kubernetes | yes | api, worker, **frontend**, ingress (`/v1` → API, `/` → frontend) |
+| GHCR release CI | yes | api, worker, migrate, **frontend** images on merge to `main` |
+| Terraform/AWS (`infra/`) | yes | VPC, RDS, Redis, ECS + **frontend** ALB path routing |
 
-- Docker-based local runtime
-- Alembic migrations
-- GitHub Actions CI
-- Terraform infrastructure definitions
-- Kubernetes deployment assets
-- versioned API surface under `/v1`
-- stable root probes for `/health` and `/readiness`
-
-Startup is fail-fast around queue availability, which is an important operational contract.
+Production env contract: `docs/deployment/production-env-contract.md`  
+Compose templates: `deploy/compose/.env.prod.example`, `deploy/compose/.env.staging.example`
 
 ---
 
-## 8. Prioritized next actions
+## 5. Prioritized next work
 
-### Priority 1 — Documentation truth maintenance
-
-Keep top-level docs, architecture summaries, and validation-facing docs aligned with current runtime and validation truth on `main`.
-
-Includes:
-
-- README / state-report alignment
-- architecture-doc wording refresh where hardening has already landed
-- removing “future tense” language for already-merged recovery validation work
-
-### Priority 2 — Broader runtime-proof expansion
-
-Expand weak runtime-proof areas deliberately:
-
-- deeper resilience
-- deeper isolation
-- integrity contradictions / forbidden outcomes
-- operational recovery and observability scenarios
-
-### Priority 3 — Validation maturity hardening
-
-Continue strengthening:
-
-- maturity/backing classification
-- release-decision semantics
-- execution-policy clarity by safety class
-- runner/doc/test/implementation alignment
-
-### Priority 4 — Remaining platform hardening
-
-Continue platform hardening where still needed, including:
-
-- broader tenant-scoped DB-session rollout
-- operational/admin UX improvements
-- secret hygiene and rotation strategy
-- continued runtime and validation coverage hardening
+1. Replace `ajenda.example.com` with production domain (ingress, ConfigMap, `.env.prod`)
+2. Populate live Resend + Stripe secrets; register Stripe webhook on the public API path
+3. Run paid-customer staging proof against production-like hostnames before launch
 
 ---
 
-## 9. Summary
+## 6. Documentation canonical set
 
-Ajenda AI is currently best described as:
-
-- a governed multi-tenant execution platform
-- with queue-backed runtime authority
-- bounded recovery and compliance-aware task admission
-- and a runtime-proof / release-governance layer that now has merged recovery-visibility and targeted verification hardening on `main`
-
-The next documentation frontier is no longer inventing the posture. It is keeping the written posture synchronized with the code and validation truth already merged.
+| Doc | Role |
+|-----|------|
+| `docs/architecture/SYSTEM_ARCHITECTURE.md` | Code-aligned Mermaid architecture |
+| `PROJECT_SPEC.md` | Canonical specification |
+| `README.md` | Repository entry point |
+| `docs/SAAS_ARCHITECTURE.md` | SaaS enforcement detail |
+| `ops/runbooks/paid-customer-loop-staging.md` | Staging customer-loop runbook |
+| `docs/deployment/STAGING_PROOF.md` | Runtime + customer-loop staging proof |
+| `docs/deployment/production-env-contract.md` | Required production variables |

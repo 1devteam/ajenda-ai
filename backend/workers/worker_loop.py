@@ -22,9 +22,12 @@ from pathlib import Path
 
 from sqlalchemy.orm import sessionmaker
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.queue.base import QueueAdapter
+from backend.runtime.claim_holders import worker_daemon_holder
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
+from backend.workers.tenant_scheduler import FixedTenantClaimTarget, TenantClaimTarget
 
 logger = logging.getLogger("ajenda.worker_loop")
 
@@ -43,10 +46,25 @@ class WorkerLoop:
     session_factory: sessionmaker  # type: ignore[type-arg]
     queue: QueueAdapter
     worker_id: str
-    tenant_id: str
+    tenant_id: str | None = None
+    claim_target: TenantClaimTarget | None = None
     poll_interval_seconds: float = 2.0
     heartbeat_interval_seconds: float = 15.0
     _last_liveness_update: float = field(default=0.0, init=False)
+    _current_claim_tenant_id: str | None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        if self.claim_target is None:
+            if self.tenant_id is None or not self.tenant_id.strip():
+                raise ValueError("WorkerLoop requires tenant_id or claim_target")
+            object.__setattr__(self, "claim_target", FixedTenantClaimTarget(tenant_id=self.tenant_id))
+
+    def _execution_tenant_id(self) -> str | None:
+        if self._current_claim_tenant_id is not None:
+            return self._current_claim_tenant_id
+        if isinstance(self.claim_target, FixedTenantClaimTarget):
+            return self.claim_target.tenant_id
+        return None
 
     def run_forever(self) -> None:
         """Main loop. Runs until the process is killed."""
@@ -63,12 +81,22 @@ class WorkerLoop:
             self._run_claimed_task(task_id=task_id, lease_id=lease_id)
 
     def _claim_and_start_task(self) -> tuple[uuid.UUID, uuid.UUID] | None:
+        assert self.claim_target is not None
+        tenant_id = self.claim_target.next_tenant_id()
+        if tenant_id is None:
+            return None
+
+        object.__setattr__(self, "_current_claim_tenant_id", tenant_id)
         session = self.session_factory()
+        activate_tenant_session(session, tenant_id)
         lease_id: uuid.UUID | None = None
         started = False
         try:
             runtime = WorkerRuntimeService(session, self.queue)
-            task = runtime.claim_next_task(tenant_id=self.tenant_id, worker_id=self.worker_id)
+            task = runtime.claim_next_task(
+                tenant_id=tenant_id,
+                worker_id=worker_daemon_holder(worker_id=self.worker_id),
+            )
             if task is None:
                 session.rollback()
                 return None
@@ -79,12 +107,12 @@ class WorkerLoop:
             lease_id = uuid.UUID(lease_id_str)
 
             runtime.heartbeat(
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 lease_id=lease_id,
                 worker_id=self.worker_id,
             )
             runtime.start_execution(
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 lease_id=lease_id,
                 worker_id=self.worker_id,
             )
@@ -109,11 +137,15 @@ class WorkerLoop:
             session.close()
 
     def _release_unstarted_claim_once(self, *, lease_id: uuid.UUID, reason: str) -> None:
+        tenant_id = self._execution_tenant_id()
+        if tenant_id is None:
+            return
         session = self.session_factory()
         try:
+            activate_tenant_session(session, tenant_id)
             runtime = WorkerRuntimeService(session, self.queue)
             runtime.release(
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 lease_id=lease_id,
                 worker_id=self.worker_id,
             )
@@ -133,12 +165,15 @@ class WorkerLoop:
 
     def _run_claimed_task(self, *, task_id: uuid.UUID, lease_id: uuid.UUID) -> None:
         """Dispatch real task execution and compensate if dispatcher raises."""
+        tenant_id = self._execution_tenant_id()
+        if tenant_id is None:
+            raise RuntimeError("claimed task missing tenant context")
         try:
             dispatcher = TaskDispatcher(
                 session_factory=self.session_factory,
                 queue=self.queue,
                 worker_id=self.worker_id,
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
             )
             dispatcher.execute(task_id=task_id, lease_id=lease_id)
 
@@ -150,11 +185,15 @@ class WorkerLoop:
             self._fail_once(lease_id=lease_id, reason=str(exc))
 
     def _fail_once(self, *, lease_id: uuid.UUID, reason: str) -> None:
+        tenant_id = self._execution_tenant_id()
+        if tenant_id is None:
+            return
         session = self.session_factory()
         try:
+            activate_tenant_session(session, tenant_id)
             runtime = WorkerRuntimeService(session, self.queue)
             runtime.fail(
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 lease_id=lease_id,
                 worker_id=self.worker_id,
                 reason=reason,

@@ -53,6 +53,8 @@ _PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/v1/observability/metrics",
     "/v1/admin",
     "/v1/billing/webhook/",  # Stripe webhook — tenant_id from signed event metadata, not header
+    "/v1/auth/oidc/",
+    "/v1/auth/session/refresh",
     "/v1/onboarding/signup",
     "/v1/onboarding/verify-email",
     "/v1/onboarding/resend-verification",

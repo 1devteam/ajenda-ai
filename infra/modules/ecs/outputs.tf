@@ -42,3 +42,18 @@ output "worker_task_role_arn" {
   description = "ARN of the ECS Worker task IAM role"
   value       = aws_iam_role.worker_task.arn
 }
+
+output "https_listener_arn" {
+  description = "ARN of the ALB HTTPS listener"
+  value       = aws_lb_listener.https.arn
+}
+
+output "frontend_service_name" {
+  description = "ECS frontend service name (empty when disabled)"
+  value       = var.enable_customer_frontend ? aws_ecs_service.frontend[0].name : ""
+}
+
+output "frontend_target_group_arn" {
+  description = "ALB target group ARN for the customer frontend (empty when disabled)"
+  value       = var.enable_customer_frontend ? aws_lb_target_group.frontend[0].arn : ""
+}

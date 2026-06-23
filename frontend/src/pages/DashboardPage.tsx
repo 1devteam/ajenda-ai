@@ -1,0 +1,142 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { getAccountMe, getAccountPlan, getAccountUsage } from "../api/client";
+import { loadSession } from "../auth/session";
+import type { AccountMeResponse, AccountPlanResponse, AccountUsageResponse } from "../types";
+import { failureText } from "../utils/errors";
+
+function formatLimit(current: number, limit: number): string {
+  if (limit < 0) {
+    return `${current} / unlimited`;
+  }
+  return `${current} / ${limit}`;
+}
+
+export default function DashboardPage() {
+  const session = loadSession();
+  const [me, setMe] = useState<AccountMeResponse | null>(null);
+  const [plan, setPlan] = useState<AccountPlanResponse | null>(null);
+  const [usage, setUsage] = useState<AccountUsageResponse | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function load() {
+      if (!session) {
+        return;
+      }
+      try {
+        const [meResponse, planResponse, usageResponse] = await Promise.all([
+          getAccountMe(session),
+          getAccountPlan(session),
+          getAccountUsage(session),
+        ]);
+        if (!cancelled) {
+          setMe(meResponse);
+          setPlan(planResponse);
+          setUsage(usageResponse);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(failureText(err));
+        }
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.tenantId, session?.apiKey]);
+
+  return (
+    <main className="page-shell">
+      <section className="hero compact-hero">
+        <div>
+          <p className="eyebrow">Dashboard</p>
+          <h1>{me?.tenant.name ?? "Your workspace"}</h1>
+          <p>
+            Plan <strong>{me?.tenant.plan ?? "..."}</strong> · slug{" "}
+            <strong>{me?.tenant.slug ?? "..."}</strong>
+          </p>
+        </div>
+        <div className="status-card">
+          <span className={`status-dot ${me?.tenant.status === "active" ? "ok" : ""}`} />
+          <div>
+            <strong>{me?.tenant.status ?? "loading"}</strong>
+            <small>{me?.membership?.email ?? me?.principal.email ?? "Tenant owner"}</small>
+          </div>
+        </div>
+      </section>
+
+      <section className="stat-grid">
+        <article className="stat-card">
+          <span className="stat-label">Plan</span>
+          <strong>{plan?.display_name ?? me?.tenant.plan ?? "..."}</strong>
+          <small>{plan?.features_enabled.length ?? 0} feature flags enabled</small>
+        </article>
+        <article className="stat-card">
+          <span className="stat-label">Missions this month</span>
+          <strong>
+            {usage
+              ? formatLimit(usage.usage.missions_created ?? 0, usage.limits.missions_per_month ?? -1)
+              : "..."}
+          </strong>
+          <small>Billing period {usage?.billing_period ?? "..."}</small>
+        </article>
+        <article className="stat-card">
+          <span className="stat-label">Tasks this month</span>
+          <strong>
+            {usage
+              ? formatLimit(usage.usage.tasks_created ?? 0, usage.limits.tasks_per_month ?? -1)
+              : "..."}
+          </strong>
+          <small>Queue-backed worker execution</small>
+        </article>
+        <article className="stat-card">
+          <span className="stat-label">API calls</span>
+          <strong>
+            {usage
+              ? formatLimit(usage.usage.api_calls_count ?? 0, usage.limits.api_calls_per_month ?? -1)
+              : "..."}
+          </strong>
+          <small>Monthly quota meter</small>
+        </article>
+      </section>
+
+      <section className="grid two">
+        <div className="panel">
+          <h2>Next steps</h2>
+          <div className="action-list">
+            <Link className="action-link" to="/billing">
+              Upgrade plan or open billing portal
+            </Link>
+            <Link className="action-link" to="/tasks">
+              Launch a runtime proof task
+            </Link>
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>Plan limits</h2>
+          {plan ? (
+            <pre>{JSON.stringify(plan.limits, null, 2)}</pre>
+          ) : (
+            <p className="muted">Loading plan details...</p>
+          )}
+        </div>
+      </section>
+
+      {error ? (
+        <div className="inline-error">
+          <pre>{error}</pre>
+        </div>
+      ) : null}
+    </main>
+  );
+}

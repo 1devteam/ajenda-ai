@@ -34,3 +34,8 @@ output "worker_service_name" {
   description = "ECS Worker service name"
   value       = module.ecs.worker_service_name
 }
+
+output "frontend_service_name" {
+  description = "ECS customer frontend service name"
+  value       = module.ecs.frontend_service_name
+}

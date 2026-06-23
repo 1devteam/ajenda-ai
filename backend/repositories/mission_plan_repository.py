@@ -8,7 +8,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.domain.enums import MissionPlanStatus
-from backend.domain.mission import Mission, MissionPlan, mission_plan_active_statuses
+from backend.domain.mission import (
+    Mission,
+    MissionPlan,
+    mission_plan_active_statuses,
+    validate_mission_plan_status_transition,
+)
 
 
 class MissionPlanRepository:
@@ -74,6 +79,24 @@ class MissionPlanRepository:
             if existing_after_conflict is None:
                 raise
             return existing_after_conflict
+        self._session.refresh(plan)
+        return plan
+
+    def replace_active_plan(
+        self,
+        *,
+        plan: MissionPlan,
+        metadata_json: dict[str, Any],
+        status: str | None = None,
+    ) -> MissionPlan:
+        """Replace the active plan contract metadata and optionally transition status."""
+        if plan.status not in mission_plan_active_statuses():
+            raise ValueError(f"cannot replace inactive mission plan: {plan.status}")
+        if status is not None and status != plan.status:
+            validate_mission_plan_status_transition(plan.status, status)
+            plan.status = status
+        plan.metadata_json = metadata_json
+        self._session.flush()
         self._session.refresh(plan)
         return plan
 

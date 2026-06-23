@@ -12,9 +12,16 @@ from backend.services.system_status_service import SystemStatusService
 router = APIRouter(tags=["system"])
 
 
-@router.get("/system/health")
-def system_health() -> dict[str, str]:
-    return {"status": "ok"}
+@router.get("/system/health", deprecated=True)
+def system_health() -> JSONResponse:
+    """Deprecated alias for root ``/health``. Use ``/health`` for deploy probes."""
+    return JSONResponse(
+        content={"status": "ok"},
+        headers={
+            "Deprecation": "true",
+            "Link": '</health>; rel="successor-version"',
+        },
+    )
 
 
 @router.get("/system/readiness")

@@ -119,6 +119,48 @@ def test_duplicate_create_race_reraises_when_no_active_plan_can_be_reloaded() ->
         )
 
 
+def test_replace_active_plan_updates_metadata_and_transitions_status() -> None:
+    mission = _mission()
+    plan = MissionPlan(
+        tenant_id=mission.tenant_id,
+        mission_id=mission.id,
+        status=MissionPlanStatus.DRAFT.value,
+        metadata_json={"existing": True},
+    )
+    session = MagicMock()
+    updated_metadata = build_mission_plan_contract_metadata(objectives=["Updated objective."])
+
+    result = MissionPlanRepository(session).replace_active_plan(
+        plan=plan,
+        metadata_json=updated_metadata,
+        status=MissionPlanStatus.READY.value,
+    )
+
+    assert result is plan
+    assert result.status == MissionPlanStatus.READY.value
+    assert result.metadata_json == updated_metadata
+    session.flush.assert_called_once_with()
+    session.refresh.assert_called_once_with(plan)
+
+
+def test_replace_active_plan_rejects_invalid_status_transition() -> None:
+    mission = _mission()
+    plan = MissionPlan(
+        tenant_id=mission.tenant_id,
+        mission_id=mission.id,
+        status=MissionPlanStatus.READY.value,
+        metadata_json={},
+    )
+    session = MagicMock()
+
+    with pytest.raises(ValueError, match="mission plan status transition not allowed"):
+        MissionPlanRepository(session).replace_active_plan(
+            plan=plan,
+            metadata_json=build_mission_plan_contract_metadata(),
+            status=MissionPlanStatus.DRAFT.value,
+        )
+
+
 def test_idempotent_create_with_different_status_returns_existing_plan_unchanged() -> None:
     mission = _mission()
     existing = MissionPlan(

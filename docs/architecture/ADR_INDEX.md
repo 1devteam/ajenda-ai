@@ -2,7 +2,9 @@
 
 This index tracks active architecture doctrines that govern implementation choices, contract boundaries, and release safety for AJENDA-AI.
 
-All ADRs in this folder should be treated as policy-level architecture guidance and kept aligned with `PROJECT_SPEC.md`, `README.md`, and runtime-proof evidence surfaces.
+All ADRs in this folder should be treated as policy-level architecture guidance and kept aligned with `PROJECT_SPEC.md`, `README.md`, `docs/architecture/SYSTEM_ARCHITECTURE.md`, and runtime-proof evidence surfaces.
+
+**Visual system map:** [`SYSTEM_ARCHITECTURE.md`](./SYSTEM_ARCHITECTURE.md) (Mermaid flowcharts, code-aligned, updated 2026-06-21).
 
 ---
 
@@ -22,6 +24,7 @@ All ADRs in this folder should be treated as policy-level architecture guidance 
 | [ADR-0001](./ADR-0001-authority-classification-doctrine.md) | Authority Classification Doctrine | Accepted | 2026-05-23 | Contract authority classes and mutation boundaries |
 | [ADR-0002](./ADR-0002-schema-evolution-strategy.md) | Schema Evolution Strategy | Accepted | 2026-05-23 | Backward-compatible schema and metadata evolution |
 | [ADR-0003](./ADR-0003-readiness-semantics-doctrine.md) | Readiness Semantics Doctrine | Accepted | 2026-05-23 | Health/readiness dependency truth and response safety |
+| [ADR-0004](./ADR-0004-worker-tenancy-strategy.md) | Worker Tenancy Strategy | Accepted | 2026-06-21 | Single-tenant vs multi-tenant worker queue polling |
 
 ---
 

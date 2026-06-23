@@ -19,3 +19,8 @@ output "ecs_cluster_name" {
   description = "ECS cluster name"
   value       = module.ecs.cluster_name
 }
+
+output "frontend_service_name" {
+  description = "ECS customer frontend service name"
+  value       = module.ecs.frontend_service_name
+}

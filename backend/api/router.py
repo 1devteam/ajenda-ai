@@ -30,6 +30,7 @@ Route inventory under /v1/:
   /v1/observability/* — Observability endpoints (lineage, governance events)
   /v1/webhooks/*      — Tenant webhook endpoint management
   /v1/billing/*       — Stripe checkout, portal, and webhook
+  /v1/account/*       — Tenant self-service account, plan, usage, billing reads
   /v1/admin/*         — Platform admin control plane
   /v1/onboarding/*    — Self-serve tenant signup and verification
 
@@ -113,6 +114,10 @@ def build_api_router() -> APIRouter:
     from backend.api.routes.billing import router as billing_router
 
     v1.include_router(billing_router)  # /v1/billing/*
+
+    from backend.api.routes.account import router as account_router
+
+    v1.include_router(account_router)  # /v1/account/*
 
     v1.include_router(admin_router)  # /v1/admin/* (platform control plane)
 

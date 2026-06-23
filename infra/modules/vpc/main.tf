@@ -221,7 +221,7 @@ resource "aws_flow_log" "main" {
 # ALB — accepts HTTPS from the internet
 resource "aws_security_group" "alb" {
   name        = "${var.name_prefix}-sg-alb"
-  description = "ALB: accept HTTPS from internet, send to ECS API"
+  description = "ALB: accept HTTPS from internet, send to ECS API and frontend"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -249,6 +249,31 @@ resource "aws_security_group" "alb" {
   }
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-sg-alb" })
+}
+
+# ECS frontend — accepts HTTP from ALB only
+resource "aws_security_group" "ecs_frontend" {
+  name        = "${var.name_prefix}-sg-ecs-frontend"
+  description = "ECS frontend: accept from ALB on port 80"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description     = "HTTP from ALB"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    description = "All outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-sg-ecs-frontend" })
 }
 
 # ECS API — accepts traffic from ALB only

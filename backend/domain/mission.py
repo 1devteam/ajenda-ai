@@ -61,6 +61,7 @@ def build_mission_intake_metadata(
     scope_limits: list[str],
     allowed_actions: list[str],
     allowed_tools: list[str],
+    allow_legacy_v1: bool = False,
 ) -> dict[str, Any]:
     """Build the durable metadata envelope for mission intake v1.
 
@@ -82,8 +83,17 @@ def build_mission_intake_metadata(
             "scope_limits": scope_limits,
             "allowed_actions": allowed_actions,
             "allowed_tools": allowed_tools,
+            "allow_legacy_v1": allow_legacy_v1,
         }
     }
+
+
+def mission_intake_allows_legacy_v1(metadata: dict[str, Any]) -> bool:
+    """Return whether mission intake explicitly opted into legacy v1 task graph contracts."""
+    intake = metadata.get(MISSION_INTAKE_METADATA_KEY)
+    if not isinstance(intake, dict):
+        return False
+    return bool(intake.get("allow_legacy_v1"))
 
 
 def build_mission_plan_metadata(
@@ -232,7 +242,7 @@ def normalize_mission_plan_contract_metadata(metadata: dict[str, Any]) -> dict[s
         if missing_dependencies:
             raise ValueError("mission plan planned_steps dependencies must reference existing sequences")
 
-    return {
+    normalized = {
         "schema_version": MISSION_PLAN_CONTRACT_SCHEMA_VERSION,
         "objectives": _normalize_string_list_field(metadata_copy, "objectives"),
         "constraints": _normalize_string_list_field(metadata_copy, "constraints"),
@@ -241,6 +251,12 @@ def normalize_mission_plan_contract_metadata(metadata: dict[str, Any]) -> dict[s
         "planned_steps": planned_steps,
         "risk_notes": _normalize_string_list_field(metadata_copy, "risk_notes"),
     }
+    legacy_v1 = metadata_copy.get("legacy_v1")
+    if legacy_v1 is not None:
+        if not isinstance(legacy_v1, dict):
+            raise ValueError("mission plan legacy_v1 must be an object")
+        normalized["legacy_v1"] = _json_safe_copy(legacy_v1)
+    return normalized
 
 
 def can_transition_mission_plan_status(from_status: str, to_status: str) -> bool:
@@ -257,6 +273,166 @@ def validate_mission_plan_status_transition(from_status: str, to_status: str) ->
         raise ValueError(f"unknown mission plan status: {to_status}")
     if not can_transition_mission_plan_status(from_status, to_status):
         raise ValueError(f"mission plan status transition not allowed: {from_status} -> {to_status}")
+
+
+def _build_durable_plan_with_legacy_v1(legacy_v1: dict[str, Any]) -> dict[str, Any]:
+    objectives: list[str] = []
+    planned_steps: list[dict[str, Any]] = []
+    sequence = 1
+    for phase in legacy_v1.get("phases") or []:
+        if not isinstance(phase, dict):
+            continue
+        objective = phase.get("objective")
+        if isinstance(objective, str) and objective.strip():
+            objectives.append(objective.strip())
+        for stage in phase.get("stages") or []:
+            if not isinstance(stage, dict):
+                continue
+            name = stage.get("name")
+            intent = stage.get("intent")
+            if not isinstance(name, str) or not isinstance(intent, str):
+                continue
+            desired_outputs = stage.get("desired_outputs") or []
+            expected_output = desired_outputs[0] if desired_outputs and isinstance(desired_outputs[0], str) else name
+            planned_steps.append(
+                {
+                    "sequence": sequence,
+                    "title": name.strip(),
+                    "description": intent.strip(),
+                    "depends_on": [],
+                    "expected_output": expected_output.strip(),
+                    "metadata": {
+                        "phase": phase.get("name"),
+                        "legacy_stage": _json_safe_copy(stage),
+                    },
+                }
+            )
+            sequence += 1
+
+    acceptance_criteria: list[str] = []
+    for output in legacy_v1.get("desired_outputs") or []:
+        if not isinstance(output, dict):
+            continue
+        for criterion in output.get("acceptance_criteria") or []:
+            if isinstance(criterion, str) and criterion.strip():
+                acceptance_criteria.append(criterion.strip())
+
+    constraints: list[str] = []
+    for requirement in legacy_v1.get("capability_requirements") or []:
+        if not isinstance(requirement, dict):
+            continue
+        req_name = requirement.get("name")
+        purpose = requirement.get("purpose")
+        if isinstance(req_name, str) and isinstance(purpose, str):
+            constraints.append(f"{req_name.strip()}: {purpose.strip()}")
+
+    risk_notes: list[str] = []
+    for risk in legacy_v1.get("risk_annotations") or []:
+        if not isinstance(risk, dict):
+            continue
+        risk_name = risk.get("name")
+        description = risk.get("description")
+        if isinstance(risk_name, str) and isinstance(description, str):
+            risk_notes.append(f"{risk_name.strip()}: {description.strip()}")
+
+    assumptions: list[str] = []
+    planning_notes = legacy_v1.get("planning_notes")
+    if isinstance(planning_notes, str) and planning_notes.strip():
+        assumptions.append(planning_notes.strip())
+
+    canonical = build_mission_plan_contract_metadata(
+        objectives=objectives,
+        constraints=constraints,
+        assumptions=assumptions,
+        acceptance_criteria=acceptance_criteria,
+        planned_steps=planned_steps,
+        risk_notes=risk_notes,
+    )
+    return {**canonical, "legacy_v1": legacy_v1}
+
+
+def build_mission_plan_contract_metadata_from_legacy_metadata(legacy_plan: dict[str, Any]) -> dict[str, Any]:
+    """Convert persisted legacy mission_plan metadata into a durable table contract."""
+    if not isinstance(legacy_plan, dict):
+        raise ValueError("legacy mission plan must be an object")
+    if "objectives" in legacy_plan or "planned_steps" in legacy_plan:
+        return normalize_mission_plan_contract_metadata(legacy_plan)
+    return _build_durable_plan_with_legacy_v1(_json_safe_copy(legacy_plan))
+
+
+def build_mission_plan_contract_metadata_from_legacy_write(
+    *,
+    planning_status: str,
+    phases: list[dict[str, Any]],
+    planning_notes: str | None,
+    desired_outputs: list[dict[str, Any]],
+    capability_requirements: list[dict[str, Any]],
+    execution_strategy_hints: dict[str, Any],
+    approval_gates: list[dict[str, Any]],
+    operator_overrides: dict[str, Any],
+    estimated_scope: dict[str, Any],
+    risk_annotations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Bridge legacy mission plan writes into the durable mission_plans table contract."""
+    legacy_v1 = {
+        "schema_version": MISSION_PLAN_SCHEMA_VERSION,
+        "planning_status": planning_status,
+        "phases": phases,
+        "planning_notes": planning_notes,
+        "desired_outputs": desired_outputs,
+        "capability_requirements": capability_requirements,
+        "execution_strategy_hints": execution_strategy_hints,
+        "approval_gates": approval_gates,
+        "operator_overrides": operator_overrides,
+        "estimated_scope": estimated_scope,
+        "risk_annotations": risk_annotations,
+    }
+    return _build_durable_plan_with_legacy_v1(legacy_v1)
+
+
+def legacy_mission_plan_status_from_planning_status(planning_status: str) -> str:
+    """Map legacy planning_status values onto durable mission plan lifecycle statuses."""
+    if planning_status == "approved":
+        return MissionPlanStatus.READY.value
+    if planning_status == "rejected":
+        return MissionPlanStatus.CANCELLED.value
+    if planning_status == "superseded":
+        return MissionPlanStatus.SUPERSEDED.value
+    return MissionPlanStatus.DRAFT.value
+
+
+def stored_task_graph_requires_legacy_v1(task_graph: dict[str, Any]) -> bool:
+    """Return whether a persisted task graph must be normalized with legacy v1 compatibility."""
+    if any(
+        field in task_graph
+        for field in (
+            "mission_id",
+            "graph_version",
+            "graph_fingerprint",
+            "operator_notes",
+            "validation_metadata",
+        )
+    ):
+        return True
+    nodes = task_graph.get("nodes")
+    if not isinstance(nodes, list):
+        return False
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if ("name" in node or "intended_task_type" in node) and "title" not in node:
+            return True
+    return False
+
+
+def mission_task_graph_allows_legacy_v1(metadata: dict[str, Any]) -> bool:
+    """Return whether task graph normalization should accept legacy v1 contracts for this mission."""
+    if mission_intake_allows_legacy_v1(metadata):
+        return True
+    task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
+    if isinstance(task_graph, dict) and stored_task_graph_requires_legacy_v1(task_graph):
+        return True
+    return False
 
 
 def build_mission_plan_contract_metadata(

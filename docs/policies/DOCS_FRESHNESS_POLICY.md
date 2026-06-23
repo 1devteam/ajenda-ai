@@ -3,7 +3,7 @@
 **Status:** Active  
 **Effective date:** May 23, 2026  
 **Owner:** Architecture + Runtime Governance
-**Last reviewed:** May 23, 2026
+**Last reviewed:** June 21, 2026
 **Source-of-truth precedence:** Implementation/tests/runtime proof > PROJECT_SPEC.md > architecture docs
 
 ---
@@ -29,7 +29,9 @@ This policy applies to all canonical and operational docs that influence impleme
 
 - `PROJECT_SPEC.md`
 - `README.md`
+- `docs/architecture/SYSTEM_ARCHITECTURE.md`
 - `docs/architecture/ADR_INDEX.md`
+- `docs/PROJECT_STATE_REPORT.md`
 - `docs/validation/live-runtime-matrix.md`
 - `docs/validation/live-runtime-proof-release-gate.md`
 
