@@ -23,6 +23,16 @@ A rollout-ready ability must define:
 11. Runtime integration proof
 12. Validation matrix and documentation update
 
+## Product-phase gate policy
+
+Upcoming tool and ability work follows [`TOOL_AND_ABILITY_PHASE_PRIORITIES.md`](TOOL_AND_ABILITY_PHASE_PRIORITIES.md) and [ADR-0005](../architecture/ADR-0005-informed-autonomy-gate-policy.md):
+
+- **Misplaced gates** (guardian role on tenant owners, `pending_review` without review UX, paywall on read/draft tiers) are scheduled for rollback under feature flag.
+- **Recorded disclaimers** replace those gates on Tier 2–3 launches.
+- Manifest `approval_required` and runtime side-effect envelopes **remain** for side-effecting actions; `approved_by` may reference `autonomy:{principal_id}` after disclaimer acceptance.
+
+This contract still governs how actions are registered and promoted; tier policy governs what end users experience at launch time.
+
 ## Runtime authority boundary
 
 Ability manifests describe rollout readiness. They do not execute work.

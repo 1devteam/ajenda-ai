@@ -28,6 +28,7 @@ When docs conflict with code, **code + tests win**. Start with the canonical set
 | [`architecture/ADR-0001-authority-classification-doctrine.md`](architecture/ADR-0001-authority-classification-doctrine.md) | Authority classes |
 | [`architecture/ADR-0002-schema-evolution-strategy.md`](architecture/ADR-0002-schema-evolution-strategy.md) | Schema evolution |
 | [`architecture/ADR-0003-readiness-semantics-doctrine.md`](architecture/ADR-0003-readiness-semantics-doctrine.md) | Health/readiness |
+| [`architecture/ADR-0005-informed-autonomy-gate-policy.md`](architecture/ADR-0005-informed-autonomy-gate-policy.md) | Informed autonomy vs approval theater |
 | [`policies/DOCS_FRESHNESS_POLICY.md`](policies/DOCS_FRESHNESS_POLICY.md) | Documentation SLA |
 | [`policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md`](policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md) | Tenant DB session policy |
 
@@ -55,6 +56,7 @@ These documents describe specific contract surfaces. For the full customer produ
 
 | Document | Scope |
 |----------|-------|
+| [`product/TOOL_AND_ABILITY_PHASE_PRIORITIES.md`](product/TOOL_AND_ABILITY_PHASE_PRIORITIES.md) | **Active roadmap** — tools/abilities, gate rollback, informed autonomy |
 | [`product/mission-based-ai-core.md`](product/mission-based-ai-core.md) | Mission execution model |
 | [`product/ability-rollout-contract.md`](product/ability-rollout-contract.md) | Ability rollout |
 | [`product/GTM_CAPABILITY_CATALOG.md`](product/GTM_CAPABILITY_CATALOG.md) | GTM actions |

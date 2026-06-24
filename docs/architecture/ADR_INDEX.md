@@ -25,6 +25,7 @@ All ADRs in this folder should be treated as policy-level architecture guidance 
 | [ADR-0002](./ADR-0002-schema-evolution-strategy.md) | Schema Evolution Strategy | Accepted | 2026-05-23 | Backward-compatible schema and metadata evolution |
 | [ADR-0003](./ADR-0003-readiness-semantics-doctrine.md) | Readiness Semantics Doctrine | Accepted | 2026-05-23 | Health/readiness dependency truth and response safety |
 | [ADR-0004](./ADR-0004-worker-tenancy-strategy.md) | Worker Tenancy Strategy | Accepted | 2026-06-21 | Single-tenant vs multi-tenant worker queue polling |
+| [ADR-0005](./ADR-0005-informed-autonomy-gate-policy.md) | Informed Autonomy Gate Policy | Accepted (policy) | 2026-06-23 | Replace misplaced gates with tiered disclaimers for tool/ability phases |
 
 ---
 
