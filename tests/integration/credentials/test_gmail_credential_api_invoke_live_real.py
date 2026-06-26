@@ -11,13 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.domain.execution_task import ExecutionTask
 from backend.main import create_app
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
-from tests.integration.credentials.credential_e2e_support import (
-    assert_not_simulated,
-    auth_headers,
-    credential_live_onboarding,
-    gmail_live_token,
-    provision_operational_tenant,
-)
+from tests.integration.credentials.credential_e2e_support import auth_headers, provision_operational_tenant
 
 pytestmark = pytest.mark.integration
 

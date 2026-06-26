@@ -20,7 +20,7 @@ def test_tenant_internal_record_migration_matches_orm_fields() -> None:
     model = Path("backend/domain/tenant_internal_record.py").read_text(encoding="utf-8")
 
     assert "tenant_internal_records" in migration
-    assert 'record_type' in migration
+    assert "record_type" in migration
     assert "data_json" in migration
     assert "search_text" in migration
     assert "TenantInternalRecord" in model

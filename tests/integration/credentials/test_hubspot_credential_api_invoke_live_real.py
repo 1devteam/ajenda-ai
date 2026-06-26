@@ -14,8 +14,6 @@ from backend.workers.handlers.tool_invoke import tool_invoke_handler
 from tests.integration.credentials.credential_e2e_support import (
     assert_not_simulated,
     auth_headers,
-    credential_live_onboarding,
-    hubspot_live_adapter_settings,
     provision_operational_tenant,
 )
 

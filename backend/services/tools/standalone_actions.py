@@ -126,10 +126,7 @@ def _collect_ddg_topics(
 
 def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds: float) -> dict[str, Any]:
     encoded_query = quote(query.strip())
-    search_url = (
-        f"https://{DDG_INSTANT_ANSWER_HOST}/"
-        f"?q={encoded_query}&format=json&no_html=1&skip_disambig=1"
-    )
+    search_url = f"https://{DDG_INSTANT_ANSWER_HOST}/?q={encoded_query}&format=json&no_html=1&skip_disambig=1"
     try:
         _dest, response = get_default_network_egress_authority().request(
             method="GET",
@@ -319,11 +316,7 @@ def web_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> Act
         "real": bool(search_bundle.get("real")),
         "plugin_required": False,
     }
-    inspected = [
-        str(record.get("id"))
-        for record in internal_matches
-        if isinstance(record, dict) and record.get("id")
-    ]
+    inspected = [str(record.get("id")) for record in internal_matches if isinstance(record, dict) and record.get("id")]
     summary = (
         f"Web search for '{payload.query}' returned {output['web_result_count']} public result(s)"
         f" and {len(internal_matches)} internal record(s)."

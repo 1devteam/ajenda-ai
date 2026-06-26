@@ -104,14 +104,14 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert expected_command in script
     assert 'log "queueing low-risk GTM lead enrich proof task"' in script
     assert '"action": "gtm.lead_enrich"' in script
-    assert 'AJENDA_PROOF_PLUGIN_LANE_ENABLED' in script
+    assert "AJENDA_PROOF_PLUGIN_LANE_ENABLED" in script
     assert "plugin-runtime-proof.sh" in script
 
 
 def test_plugin_runtime_proof_script_is_env_gated() -> None:
     script = _read(PLUGIN_RUNTIME_PROOF)
 
-    assert 'AJENDA_PROOF_PLUGIN_LANE_ENABLED' in script
+    assert "AJENDA_PROOF_PLUGIN_LANE_ENABLED" in script
     assert "crm.research" in script
     assert "gtm.email_check" in script
     assert "autonomy_disclaimer_accepted" in script
