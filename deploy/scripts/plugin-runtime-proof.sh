@@ -320,6 +320,8 @@ import uuid
 
 from backend.app.config import get_settings
 from backend.db.session import DatabaseRuntime
+from backend.domain.capability import Capability
+from backend.domain.capability_adapter import CapabilityAdapter
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
@@ -334,18 +336,85 @@ input_payload = json.loads(os.environ["AJENDA_PROOF_INPUT_JSON"])
 timeout_seconds = float(os.environ["AJENDA_PROOF_TIMEOUT_SECONDS"])
 poll_seconds = float(os.environ["AJENDA_PROOF_POLL_SECONDS"])
 
+ACTION_SIDE_EFFECT = {
+    "crm.research": "none",
+    "gtm.email_check": "external_read",
+    "gtm.crm_upsert": "internal_write",
+}
+ADAPTER_CLASS = {
+    "none": "none",
+    "internal_write": "non_idempotent_write",
+    "external_read": "external_read",
+    "external_write": "external_write",
+}
+
 settings = get_settings()
 runtime = DatabaseRuntime(settings)
 queue = build_queue_adapter(settings)
 try:
     session = runtime.session_factory()
     try:
+        side_effect = ACTION_SIDE_EFFECT.get(action, "none")
+        adapter_class = ADAPTER_CLASS.get(side_effect, "none")
+        approval_required = adapter_class in {
+            "external_write",
+            "external_side_effect",
+            "external_send",
+            "external_publish",
+        }
+        suffix = uuid.uuid4().hex[:10]
+        capability = Capability(
+            tenant_id=tenant_id,
+            name=f"plugin-proof-{action}-{suffix}",
+            version="1.0.0",
+            description=f"Plugin runtime proof for {action}",
+            supported_task_types=["tool.invoke", action],
+            input_schema_hints={},
+            output_schema_hints={},
+            required_permissions=[],
+            required_tools=[action],
+            risk_level="medium",
+            approval_requirements={"required": approval_required, "generated_by": "plugin-runtime-proof"},
+            evidence_expectations=[f"{action} evidence"],
+            execution_constraints={},
+            enabled=True,
+            schema_version=1,
+        )
+        session.add(capability)
+        session.flush()
+        adapter = CapabilityAdapter(
+            tenant_id=tenant_id,
+            name=f"plugin-proof-{action}-adapter-{suffix}",
+            version="1.0.0",
+            capability_id=capability.id,
+            capability_name=capability.name,
+            capability_version=capability.version,
+            supported_task_types=["tool.invoke", action],
+            input_contract={},
+            output_contract={},
+            required_permissions=[],
+            required_tools=[action],
+            execution_mode="queued",
+            risk_level="medium",
+            approval_requirements={"required": approval_required, "generated_by": "plugin-runtime-proof"},
+            evidence_expectations=[f"{action} evidence"],
+            timeout_retry_hints={},
+            idempotency_expectations={},
+            side_effect_classification=adapter_class,
+            enabled=True,
+            schema_version=1,
+        )
+        session.add(adapter)
+        session.flush()
+
         mission = Mission(tenant_id=tenant_id, objective=f"Plugin proof {action}", status="running")
         session.add(mission)
         session.flush()
         metadata = {
             "task_type": "tool.invoke",
             "tool_invocation": {"action": action, "input": input_payload},
+            "capability_reference": {"capability_id": str(capability.id)},
+            "adapter_reference": {"adapter_id": str(adapter.id)},
             "credential_reference": {
                 "schema_version": 1,
                 "credential_id": credential_id,
@@ -398,7 +467,8 @@ try:
                 ExecutionTaskState.DEAD_LETTERED.value,
             }:
                 final_status = current.status
-                output = current.metadata_json.get("output")
+                handler_result = current.metadata_json.get("handler_result") or {}
+                output = current.metadata_json.get("output") or handler_result.get("output")
                 break
         finally:
             session.close()
