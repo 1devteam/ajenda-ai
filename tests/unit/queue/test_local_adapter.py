@@ -19,6 +19,19 @@ def _message(tenant_id: str = "tenant-a") -> QueueMessage:
     )
 
 
+def test_pending_depth_counts_only_matching_tenant_pending_messages() -> None:
+    adapter = LocalQueueAdapter()
+    tenant_a_message = _message("tenant-a")
+    tenant_b_message = _message("tenant-b")
+    assert adapter.enqueue_task(tenant_a_message).ok is True
+    assert adapter.enqueue_task(tenant_a_message).ok is True
+    assert adapter.enqueue_task(tenant_b_message).ok is True
+
+    assert adapter.pending_depth(tenant_id="tenant-a") == 2
+    assert adapter.pending_depth(tenant_id="tenant-b") == 1
+    assert adapter.pending_depth(tenant_id="tenant-c") == 0
+
+
 def test_complete_task_removes_claimed_message_and_lease_without_requeue() -> None:
     adapter = LocalQueueAdapter()
     message = _message()

@@ -570,6 +570,13 @@ return {0, "dead-letter entry not found"}
         except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"retry_dead_letter failed: {exc}")
 
+    def pending_depth(self, *, tenant_id: str) -> int:
+        try:
+            result = self._execute(["LLEN", self._pending_key(tenant_id)])
+        except Exception:
+            return 0
+        return int(result) if isinstance(result, int) else 0
+
     def _touch_lease_key(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> None:
         result = self._execute(
             [

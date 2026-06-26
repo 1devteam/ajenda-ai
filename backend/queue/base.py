@@ -111,3 +111,8 @@ class QueueAdapter(abc.ABC):
     @abc.abstractmethod
     def retry_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
         raise NotImplementedError
+
+    @abc.abstractmethod
+    def pending_depth(self, *, tenant_id: str) -> int:
+        """Return the number of pending queue payloads for a tenant."""
+        raise NotImplementedError

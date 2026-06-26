@@ -211,6 +211,29 @@ def _terminal_runtime_subject(
     return service, session, queue, lease, task, tenant_id, worker_id
 
 
+def test_complete_mirrors_handler_result_and_output_to_task_metadata() -> None:
+    service, _session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    task_output = {
+        "handler": "echo",
+        "status": "completed",
+        "output": {"count": 2},
+    }
+
+    service.complete(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_output=task_output,
+        output_reason="echo handler completed",
+    )
+
+    assert task.metadata_json["handler_result"] == task_output
+    assert task.metadata_json["output"] == {"count": 2}
+
+
 def test_complete_commits_db_when_queue_complete_ack_fails() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value

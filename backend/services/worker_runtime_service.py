@@ -26,6 +26,17 @@ from backend.services.tools.evidence_bridge import build_tool_action_evidence_re
 
 logger = logging.getLogger("ajenda.worker_runtime_service")
 
+
+def _mirror_task_output_to_metadata(task_output: dict[str, Any]) -> dict[str, Any]:
+    """Project handler output onto task metadata for API/poll consumers."""
+
+    nested_output = task_output.get("output")
+    return {
+        "handler_result": task_output,
+        "output": nested_output if nested_output is not None else task_output,
+    }
+
+
 _TERMINAL_TASK_STATES: frozenset[str] = frozenset(
     {
         ExecutionTaskState.COMPLETED.value,
@@ -162,6 +173,7 @@ class WorkerRuntimeService:
         lease.heartbeat_at = datetime.now(UTC)
         evidence_ids_for_review: list[str] = []
         if task_output is not None:
+            task.metadata_json = {**task.metadata_json, **_mirror_task_output_to_metadata(task_output)}
             lineage_record = LineageRecordRepository(self._session).append(
                 LineageRecord(
                     tenant_id=task.tenant_id,

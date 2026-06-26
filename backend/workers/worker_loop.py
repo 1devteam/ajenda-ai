@@ -98,8 +98,10 @@ class WorkerLoop:
                 worker_id=worker_daemon_holder(worker_id=self.worker_id),
             )
             if task is None:
+                self.claim_target.record_claim_result(tenant_id=tenant_id, claimed=False)
                 session.rollback()
                 return None
+            self.claim_target.record_claim_result(tenant_id=tenant_id, claimed=True)
 
             lease_id_str = task.metadata_json.get("worker_lease_id")
             if not isinstance(lease_id_str, str):

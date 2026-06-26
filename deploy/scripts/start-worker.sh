@@ -16,7 +16,11 @@ if not queue_adapter.ping():
     raise SystemExit(f"queue adapter {settings.queue_adapter} failed startup ping")
 
 database_runtime = DatabaseRuntime(settings)
-claim_target = build_claim_target(settings, session_factory=database_runtime.session_factory)
+claim_target = build_claim_target(
+    settings,
+    session_factory=database_runtime.session_factory,
+    queue=queue_adapter,
+)
 
 try:
     WorkerLoop(

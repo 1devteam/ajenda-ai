@@ -22,6 +22,23 @@ def _message() -> QueueMessage:
     )
 
 
+def test_pending_depth_uses_pending_list_length(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    monkeypatch.setattr(adapter, "_execute", lambda command: 3 if command[0] == "LLEN" else 0)
+
+    assert adapter.pending_depth(tenant_id="tenant-a") == 3
+
+
+def test_pending_depth_returns_zero_when_redis_errors(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+
+    def _boom(command):
+        raise OSError("down")
+
+    monkeypatch.setattr(adapter, "_execute", _boom)
+    assert adapter.pending_depth(tenant_id="tenant-a") == 0
+
+
 def test_ping_returns_true_on_pong(monkeypatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
     monkeypatch.setattr(adapter, "_execute", lambda command: "PONG")

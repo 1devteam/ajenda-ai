@@ -225,6 +225,10 @@ class LocalQueueAdapter(QueueAdapter):
             self._dead_letter.pop(matched_index)
             return QueueOperationResult(ok=True)
 
+    def pending_depth(self, *, tenant_id: str) -> int:
+        with self._lock:
+            return sum(1 for message in self._queue if message.tenant_id == tenant_id)
+
     def _dead_letter_envelope(
         self,
         *,

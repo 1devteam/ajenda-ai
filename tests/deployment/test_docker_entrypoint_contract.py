@@ -46,7 +46,8 @@ def test_worker_image_entrypoint_uses_worker_loop_script() -> None:
     assert "build_queue_adapter(settings)" in script
     assert "queue_adapter.ping()" in script
     assert "WorkerLoop(" in script
-    assert "build_claim_target(settings" in script
+    assert "build_claim_target(" in script
+    assert "queue=queue_adapter" in script
     assert "claim_target=claim_target" in script
 
 

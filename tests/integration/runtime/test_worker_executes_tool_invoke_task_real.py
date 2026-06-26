@@ -96,6 +96,8 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
 
         assert final_task is not None
         assert final_task.status == ExecutionTaskState.COMPLETED.value
+        assert final_task.metadata_json["handler_result"]["handler"] == "tool.invoke"
+        assert final_task.metadata_json["output"]["count"] == 1
         assert final_lease is not None
         assert final_lease.status == WorkerLeaseState.RELEASED.value
         assert len(lineage) == 1
