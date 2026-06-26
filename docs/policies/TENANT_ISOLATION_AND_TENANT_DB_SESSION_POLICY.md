@@ -54,7 +54,7 @@ A route is tenant-facing if it reads, writes, queues, mutates, lists, or inspect
 - `/v1/api-keys/*`
 - `/v1/missions/*`
 - `/v1/tasks/*`
-- `/v1/workforce/*`
+- `/v1/workforces/*`
 - `/v1/branches/*`
 - `/v1/runtime/*` when acting on tenant-owned runtime data
 - `/v1/operations/*` when acting on tenant-owned work

@@ -22,7 +22,7 @@ Route inventory under /v1/:
   /v1/mission-brief/* — Mission Brief read-model drafts
   /v1/missions/*      — Mission queuing and management
   /v1/tasks/*         — Task queuing and state management
-  /v1/workforce/*     — Workforce fleet management
+  /v1/workforces/*    — Workforce fleet management
   /v1/branches/*      — Execution branch management
   /v1/runtime/*       — Runtime governor controls
   /v1/operations/*    — Operational controls (pause, drain, resume)
@@ -33,6 +33,7 @@ Route inventory under /v1/:
   /v1/account/*       — Tenant self-service account, plan, usage, billing reads
   /v1/admin/*         — Platform admin control plane
   /v1/onboarding/*    — Self-serve tenant signup and verification
+  /v1/plugins/*       — Plugin discovery and standard contracts
 
 Routes at root (/):
   /health             — Liveness probe (no auth required)
@@ -61,6 +62,7 @@ from backend.api.routes.mission_brief import router as mission_brief_router
 from backend.api.routes.observability import router as observability_router
 from backend.api.routes.operations import router as operations_router
 from backend.api.routes.outcome_review import router as outcome_review_router
+from backend.api.routes.plugins import router as plugins_router
 from backend.api.routes.retrieval_contract import router as retrieval_contract_router
 from backend.api.routes.runtime import router as runtime_router
 from backend.api.routes.system import router as system_router
@@ -101,7 +103,7 @@ def build_api_router() -> APIRouter:
     v1.include_router(mission_brief_router)  # /v1/mission-brief/*
     v1.include_router(mission_router)  # /v1/missions/*
     v1.include_router(task_router)  # /v1/tasks/*
-    v1.include_router(workforce_router)  # /v1/workforce/*
+    v1.include_router(workforce_router)  # /v1/workforces/*
     v1.include_router(branch_router)  # /v1/branches/*
     v1.include_router(runtime_router)  # /v1/runtime/*
     v1.include_router(operations_router)  # /v1/operations/*
@@ -124,6 +126,7 @@ def build_api_router() -> APIRouter:
     from backend.api.routes.onboarding import router as onboarding_router
 
     v1.include_router(onboarding_router)  # /v1/onboarding/*
+    v1.include_router(plugins_router)  # /v1/plugins/*
 
     root.include_router(v1)
     return root

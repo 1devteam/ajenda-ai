@@ -42,6 +42,7 @@ def test_compose_nginx_proxies_api_paths() -> None:
     nginx = _read(COMPOSE_NGINX)
     assert "location /v1/" in nginx
     assert "proxy_pass http://api:8000" in nginx
+    assert "proxy_set_header Authorization" in nginx
     assert "proxy_set_header X-Tenant-Id" in nginx
     assert "try_files $uri $uri/ /index.html" in nginx
 

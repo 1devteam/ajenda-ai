@@ -135,6 +135,54 @@ export interface AccountBillingResponse {
   stripe_customer_id?: string | null;
 }
 
+export interface ProviderCredentialResponse {
+  credential_id: string;
+  tenant_id: string;
+  provider: string;
+  credential_type: string;
+  enabled: boolean;
+  revoked: boolean;
+  allowed_actions: string[];
+  allowed_side_effect_classes: string[];
+  trusted_destination_hosts: string[];
+  uses_platform_master_key: boolean;
+  platform_master_warning?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProviderCredentialCreateRequest {
+  credential_id: string;
+  provider: string;
+  integration?: "hubspot" | "gmail" | "smtp" | "generic";
+  secret_value?: string;
+  use_platform_master_key?: boolean;
+  allowed_actions?: string[];
+  allowed_side_effect_classes?: string[];
+  trusted_destination_hosts?: string[];
+}
+
+export interface ProviderCredentialCreateResponse {
+  credential: ProviderCredentialResponse;
+  warning?: string | null;
+}
+
+export interface ProviderCredentialListResponse {
+  credentials: ProviderCredentialResponse[];
+}
+
+export interface GmailOAuthAuthorizeUrlResponse {
+  authorization_url: string;
+  state: string;
+  redirect_uri: string;
+}
+
+export interface GmailOAuthConnectRequest {
+  code: string;
+  state: string;
+  credential_id?: string;
+}
+
 export interface AbilityAction {
   name: string;
   provider: string;
@@ -149,6 +197,30 @@ export interface AbilityActionListResponse {
   actions: AbilityAction[];
 }
 
+export interface AutonomyAcknowledgment {
+  schema_version: number;
+  disclaimer_id: string;
+  disclaimer_text_hash: string;
+  accepted_at: string;
+  principal_id: string;
+  action: string;
+  side_effect_class?: string;
+}
+
+export interface AutonomyDisclaimer {
+  disclaimer_id: string;
+  tier: number;
+  actions: string[];
+  text: string;
+  text_hash: string;
+}
+
+export interface AutonomyDisclaimerListResponse {
+  schema_version: number;
+  mode: "off" | "pilot" | "enforce";
+  disclaimers: AutonomyDisclaimer[];
+}
+
 export interface AbilityTaskCreate {
   action: string;
   input: Record<string, unknown>;
@@ -158,6 +230,13 @@ export interface AbilityTaskCreate {
   idempotency_key?: string;
   approved_by?: string;
   approval_reason?: string;
+  credential_reference?: {
+    schema_version: number;
+    credential_id: string;
+    provider: string;
+    credential_type: string;
+  };
+  autonomy_acknowledgment?: AutonomyAcknowledgment;
 }
 
 export interface AbilityTaskQueuedResponse {

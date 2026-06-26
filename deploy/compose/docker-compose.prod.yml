@@ -24,6 +24,8 @@ services:
     env_file:
       - .env.prod
     depends_on:
+      hubspot-crm-ingress:
+        condition: service_started
       migrate:
         condition: service_completed_successfully
       db:
@@ -48,6 +50,8 @@ services:
     env_file:
       - .env.prod
     depends_on:
+      hubspot-crm-ingress:
+        condition: service_started
       migrate:
         condition: service_completed_successfully
       db:
@@ -103,6 +107,24 @@ services:
       - ../k8s/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     ports:
       - "4317:4317"
+    restart: unless-stopped
+
+  hubspot-crm-adapter:
+    build:
+      context: ../..
+      dockerfile: services/hubspot_crm_adapter/Dockerfile
+    environment:
+      HUBSPOT_API_BASE: https://api.hubapi.com
+      HUBSPOT_ADAPTER_TIMEOUT_SECONDS: "15"
+    restart: unless-stopped
+
+  hubspot-crm-ingress:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/hubspot-crm-ingress/Dockerfile
+    depends_on:
+      hubspot-crm-adapter:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

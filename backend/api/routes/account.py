@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.api.routes._authorization import require_route_permission
+from backend.api.routes.provider_credentials import router as provider_credentials_router
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
 from backend.repositories.tenant_repository import (
@@ -19,6 +20,7 @@ from backend.repositories.tenant_repository import (
 from backend.services.account_service import AccountService
 
 router = APIRouter(prefix="/account", tags=["account"])
+router.include_router(provider_credentials_router)
 
 
 class AccountTenantResponse(BaseModel):

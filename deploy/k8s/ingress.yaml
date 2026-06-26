@@ -30,8 +30,19 @@ spec:
   tls:
     - hosts:
         - ajenda.example.com
+        - crm-adapter.ajenda.example.com
       secretName: ajenda-tls
   rules:
+    - host: crm-adapter.ajenda.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hubspot-crm-adapter
+                port:
+                  number: 8080
     - host: ajenda.example.com
       http:
         paths:

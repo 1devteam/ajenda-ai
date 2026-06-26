@@ -7,6 +7,8 @@ from pathlib import Path
 
 COMPOSE_FILE = Path("deploy/compose/docker-compose.prod.yml")
 LIVE_RUNTIME_PROOF = Path("deploy/scripts/live-runtime-proof.sh")
+PLUGIN_RUNTIME_PROOF = Path("deploy/scripts/plugin-runtime-proof.sh")
+STAGING_AUTONOMY_PLUGIN_PROOF = Path("deploy/scripts/staging-autonomy-plugin-proof.sh")
 
 REQUIRED_SERVICES = frozenset(
     {
@@ -102,6 +104,25 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert expected_command in script
     assert 'log "queueing low-risk GTM lead enrich proof task"' in script
     assert '"action": "gtm.lead_enrich"' in script
+    assert 'AJENDA_PROOF_PLUGIN_LANE_ENABLED' in script
+    assert "plugin-runtime-proof.sh" in script
+
+
+def test_plugin_runtime_proof_script_is_env_gated() -> None:
+    script = _read(PLUGIN_RUNTIME_PROOF)
+
+    assert 'AJENDA_PROOF_PLUGIN_LANE_ENABLED' in script
+    assert "crm.research" in script
+    assert "gtm.email_check" in script
+    assert "autonomy_disclaimer_accepted" in script
+    assert "provider-credentials" in script
+
+
+def test_staging_autonomy_plugin_proof_delegates_to_plugin_lane() -> None:
+    script = _read(STAGING_AUTONOMY_PLUGIN_PROOF)
+
+    assert "plugin-runtime-proof.sh" in script
+    assert "AJENDA_PROOF_AUTONOMY_LANE" in script
 
 
 def test_compose_exposes_expected_runtime_ports() -> None:

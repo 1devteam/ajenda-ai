@@ -59,3 +59,4 @@ class TestTenantMemberRepositoryReal:
         )
         with pytest.raises(Exception):
             pg_session.flush()
+        pg_session.rollback()

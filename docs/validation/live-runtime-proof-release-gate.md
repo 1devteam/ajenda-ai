@@ -68,6 +68,20 @@ Configurable inputs:
 | `AJENDA_PROOF_POLL_SECONDS` | `2` | Poll interval for retry loops |
 | `AJENDA_PROOF_CURL_CONNECT_TIMEOUT_SECONDS` | `5` | Curl connection timeout |
 | `AJENDA_PROOF_CURL_MAX_TIME_SECONDS` | `10` | Curl max request time |
+| `AJENDA_PROOF_PLUGIN_LANE_ENABLED` | unset (`0`) | When `1`, run optional plugin proof after core echo/GTM proof |
+| `AJENDA_PROOF_AUTONOMY_LANE` | unset (`0`) | When `1`, plugin script also runs informed-autonomy tier-3 queue proof |
+| `AJENDA_E2E_HUBSPOT_PAK` | unset | HubSpot bearer/PAK for live CRM plugin lane |
+| `AJENDA_E2E_GMAIL_TOKEN` | unset | Gmail bearer for live email plugin lane |
+| `AJENDA_E2E_ADAPTER_HOST` | `127.0.0.1:8443` | HubSpot CRM ingress host:port (script may start root `docker-compose.yml` ingress) |
+
+Optional plugin scripts:
+
+```text
+deploy/scripts/plugin-runtime-proof.sh
+deploy/scripts/staging-autonomy-plugin-proof.sh
+```
+
+When `AJENDA_PROOF_PLUGIN_LANE_ENABLED=1`, `live-runtime-proof.sh` delegates to `plugin-runtime-proof.sh` after the core worker/metrics proof succeeds. The plugin lane is **not** part of the default CI release gate unless an operator enables it and supplies live provider tokens.
 
 ---
 

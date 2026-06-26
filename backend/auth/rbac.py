@@ -42,6 +42,8 @@ class RbacAuthorizer:
                     Permission.BUSINESS_PROFILE_READ,
                     Permission.BUSINESS_PROFILE_MANAGE,
                     Permission.ACCOUNT_READ,
+                    Permission.CREDENTIALS_READ,
+                    Permission.CREDENTIALS_MANAGE,
                     Permission.BILLING_READ,
                     Permission.BILLING_MANAGE,
                 }
@@ -67,6 +69,8 @@ class RbacAuthorizer:
                     Permission.BUSINESS_PROFILE_READ,
                     Permission.BUSINESS_PROFILE_MANAGE,
                     Permission.ACCOUNT_READ,
+                    Permission.CREDENTIALS_READ,
+                    Permission.CREDENTIALS_MANAGE,
                     Permission.BILLING_READ,
                     Permission.BILLING_MANAGE,
                 }
@@ -92,6 +96,8 @@ class RbacAuthorizer:
                     Permission.BUSINESS_PROFILE_READ,
                     Permission.BUSINESS_PROFILE_MANAGE,
                     Permission.ACCOUNT_READ,
+                    Permission.CREDENTIALS_READ,
+                    Permission.CREDENTIALS_MANAGE,
                     Permission.BILLING_READ,
                     Permission.BILLING_MANAGE,
                 }
@@ -121,6 +127,7 @@ class RbacAuthorizer:
                     Permission.RUNTIME_VIEW,
                     Permission.BUSINESS_PROFILE_READ,
                     Permission.ACCOUNT_READ,
+                    Permission.CREDENTIALS_READ,
                     Permission.BILLING_READ,
                 }
             ),
@@ -157,6 +164,8 @@ class RbacAuthorizer:
                     Permission.API_KEYS_CREATE,
                     Permission.API_KEYS_READ,
                     Permission.API_KEYS_REVOKE,
+                    Permission.CREDENTIALS_READ,
+                    Permission.CREDENTIALS_MANAGE,
                 }
             ),
         }

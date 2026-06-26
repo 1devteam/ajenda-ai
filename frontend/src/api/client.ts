@@ -8,6 +8,7 @@ import {
 import { newIdempotencyKey } from "../utils/errors";
 import type {
   AbilityActionListResponse,
+  AutonomyDisclaimerListResponse,
   AbilityTaskCreate,
   AbilityTaskQueuedResponse,
   AbilityTaskStatusResponse,
@@ -15,6 +16,12 @@ import type {
   AccountMeResponse,
   AccountPlanResponse,
   AccountUsageResponse,
+  GmailOAuthAuthorizeUrlResponse,
+  GmailOAuthConnectRequest,
+  ProviderCredentialCreateRequest,
+  ProviderCredentialCreateResponse,
+  ProviderCredentialListResponse,
+  ProviderCredentialResponse,
   ApiFailure,
   CheckoutResponse,
   CustomerSession,
@@ -115,7 +122,9 @@ async function request<T>(
       headers.set("X-Tenant-Id", options.tenantId.trim());
     }
 
-    if (options.apiKey?.trim()) {
+    if (options.authMode === "oidc" && options.accessToken?.trim()) {
+      headers.set("Authorization", `Bearer ${options.accessToken.trim()}`);
+    } else if (options.apiKey?.trim()) {
       headers.set("X-Api-Key", options.apiKey.trim());
     }
   }
@@ -296,6 +305,83 @@ export async function getAccountBilling(session: CustomerSession): Promise<Accou
   );
 }
 
+export async function listProviderCredentials(
+  session: CustomerSession,
+): Promise<ProviderCredentialListResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialListResponse>(
+      "/v1/account/provider-credentials",
+      {},
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function createProviderCredential(
+  session: CustomerSession,
+  body: ProviderCredentialCreateRequest,
+): Promise<ProviderCredentialCreateResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialCreateResponse>(
+      "/v1/account/provider-credentials",
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function revokeProviderCredential(
+  session: CustomerSession,
+  credentialId: string,
+): Promise<ProviderCredentialResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialResponse>(
+      `/v1/account/provider-credentials/${encodeURIComponent(credentialId)}/revoke`,
+      { method: "POST", body: JSON.stringify({}) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function deleteProviderCredential(
+  session: CustomerSession,
+  credentialId: string,
+): Promise<ProviderCredentialResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialResponse>(
+      `/v1/account/provider-credentials/${encodeURIComponent(credentialId)}`,
+      { method: "DELETE" },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function getGmailOAuthAuthorizeUrl(
+  session: CustomerSession,
+  credentialId = "gmail-email",
+): Promise<GmailOAuthAuthorizeUrlResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<GmailOAuthAuthorizeUrlResponse>(
+      `/v1/account/provider-credentials/gmail/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
+      {},
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function connectGmailOAuth(
+  session: CustomerSession,
+  body: GmailOAuthConnectRequest,
+): Promise<ProviderCredentialCreateResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialCreateResponse>(
+      "/v1/account/provider-credentials/gmail/oauth/connect",
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
 function authedRuntimeOptions(config: RuntimeConfig) {
   return runtimeOptions(config);
 }
@@ -304,17 +390,29 @@ export async function listActions(config: RuntimeConfig): Promise<AbilityActionL
   return request<AbilityActionListResponse>("/v1/ability-runtime/actions", {}, authedRuntimeOptions(config));
 }
 
+export async function listAutonomyDisclaimers(
+  config: RuntimeConfig,
+): Promise<AutonomyDisclaimerListResponse> {
+  return request<AutonomyDisclaimerListResponse>(
+    "/v1/ability-runtime/disclaimers",
+    {},
+    authedRuntimeOptions(config),
+  );
+}
+
 export async function launchTask(
   config: RuntimeConfig,
   body: AbilityTaskCreate,
+  options?: { idempotencyKey?: string },
 ): Promise<AbilityTaskQueuedResponse> {
+  const idempotencyKey = options?.idempotencyKey ?? body.idempotency_key ?? newIdempotencyKey();
   return request<AbilityTaskQueuedResponse>(
     "/v1/ability-runtime/tasks",
     {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, idempotency_key: body.idempotency_key ?? idempotencyKey }),
     },
-    authedRuntimeOptions(config),
+    { ...authedRuntimeOptions(config), idempotencyKey },
   );
 }
 

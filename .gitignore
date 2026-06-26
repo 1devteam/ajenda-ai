@@ -52,6 +52,20 @@ temp/
 .DS_Store
 Thumbs.db
 
+# HubSpot CLI / local tokens (global creds live in ~/.hscli/ — never commit)
+.hs/
+hubspot.config.yml
+.hsaccount
+.hubspot.pat
+hubspot.pat
+.hubspot-credentials
+*.hubspot.token
+
+# Google CLI OAuth (tokens live in ~/.ajenda/ — never commit)
+.ajenda/
+google-cli-client.json
+client_secret*.json
+
 # Env / secrets — NEVER commit real env files
 .env
 .env.*

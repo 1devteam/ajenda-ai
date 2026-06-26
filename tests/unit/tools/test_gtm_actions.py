@@ -306,6 +306,7 @@ def test_gtm_crm_upsert_simulated_without_credential() -> None:
         _context(),
     )
 
-    assert result.output.get("real") is not True
-    assert result.output["status"] == "simulated"
-    assert result.side_effect_class.value == "external_write"
+    assert result.output.get("real") is True
+    assert result.output["status"] == "upserted_internal"
+    assert result.output["source"] == "ajenda_brain"
+    assert result.side_effect_class.value == "internal_write"

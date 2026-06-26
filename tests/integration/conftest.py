@@ -188,7 +188,8 @@ def pg_session(pg_engine) -> Generator[Session, None, None]:
     yield session
 
     session.close()
-    transaction.rollback()
+    if transaction.is_active:
+        transaction.rollback()
     connection.close()
 
 

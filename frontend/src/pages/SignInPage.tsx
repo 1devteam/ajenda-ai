@@ -32,6 +32,13 @@ export default function SignInPage() {
     setLoading(true);
     setError("");
 
+    const normalizedTenantId = tenantId.trim();
+    if (!normalizedTenantId) {
+      setError("Tenant ID is required. Copy it from signup verification or the /promote activation screen.");
+      setLoading(false);
+      return;
+    }
+
     const parsedKey = parseApiKeyHeader(apiKey);
     if (!parsedKey) {
       setError("API key must use the key_id.secret format.");
@@ -41,7 +48,7 @@ export default function SignInPage() {
 
     const candidate = {
       authMode: "api_key" as const,
-      tenantId: tenantId.trim(),
+      tenantId: normalizedTenantId,
       apiKey: parsedKey.apiKey,
       keyId: parsedKey.keyId,
       phase: "operational" as const,

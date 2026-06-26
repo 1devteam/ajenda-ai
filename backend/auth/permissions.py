@@ -23,5 +23,7 @@ class Permission(StrEnum):
     BUSINESS_PROFILE_READ = "business_profile:read"
     BUSINESS_PROFILE_MANAGE = "business_profile:manage"
     ACCOUNT_READ = "account:read"
+    CREDENTIALS_READ = "credentials:read"
+    CREDENTIALS_MANAGE = "credentials:manage"
     BILLING_READ = "billing:read"
     BILLING_MANAGE = "billing:manage"

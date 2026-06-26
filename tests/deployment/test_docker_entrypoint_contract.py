@@ -75,6 +75,11 @@ def test_api_and_worker_images_include_curl_for_runtime_checks() -> None:
     assert "curl" in _read(WORKER_DOCKERFILE)
 
 
+def test_api_image_includes_autonomy_disclaimer_catalog() -> None:
+    dockerfile = _read(API_DOCKERFILE)
+    assert "autonomy-disclaimer-catalog.v1.yaml" in dockerfile
+
+
 def test_frontend_image_builds_static_assets_with_nginx() -> None:
     dockerfile = _read(FRONTEND_DOCKERFILE)
     assert "npm run build" in dockerfile

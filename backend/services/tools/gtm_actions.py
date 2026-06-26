@@ -16,7 +16,13 @@ from urllib.parse import quote
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
 from backend.services.credentials.runtime_authority import CredentialRequirement
 from backend.services.network_egress import get_default_network_egress_authority
+from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.email_transport import (
+    credential_transport_mode,
+    parse_smtp_secret,
+    send_via_smtp,
+)
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -298,37 +304,52 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
         secret = _credential_secret(gmail_cred)
         if secret:
+            transport = credential_transport_mode(gmail_cred)
             try:
-                user = _gmail_user(gmail_cred)
-                trusted_hosts = _trusted_hosts(gmail_cred, default=("gmail.googleapis.com",))
-                send_url = f"https://{trusted_hosts[0]}/gmail/v1/users/{quote(user, safe='')}/messages/send"
-                headers = _provider_headers(
-                    {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
-                    inv,
-                )
-                _dest, resp = get_default_network_egress_authority().request(
-                    method="POST",
-                    url=send_url,
-                    headers=headers,
-                    json_body=_gmail_api_send_payload(to=inp.to, subject=inp.subject, body=body_text),
-                    allowed_hosts=list(trusted_hosts),
-                    action_name=inv.action,
-                    timeout_seconds=10.0,
-                )
-                sent["real_response"] = {
-                    "status_code": resp.status_code,
-                    "body_preview": resp.body_text[:300] if resp.body_text else "",
-                }
-                if _http_is_success(resp.status_code):
-                    sent["status"] = "sent"
-                    sent["real"] = True
-                    sent["provider"] = "gmail_api"
-                    if inv.idempotency_key:
-                        sent["idempotency_key"] = inv.idempotency_key
+                if transport == "smtp":
+                    smtp_config = parse_smtp_secret(secret)
+                    smtp_result = send_via_smtp(
+                        config=smtp_config,
+                        to=inp.to,
+                        subject=inp.subject,
+                        body=body_text,
+                    )
+                    sent["provider"] = smtp_result.provider
+                    sent["status"] = smtp_result.status
+                    sent["real"] = smtp_result.real
+                    if smtp_result.error:
+                        sent["error"] = smtp_result.error
                 else:
-                    sent["status"] = "error"
-                    sent["real"] = False
-                    sent["error"] = f"Gmail API returned HTTP {resp.status_code}"
+                    user = _gmail_user(gmail_cred)
+                    trusted_hosts = _trusted_hosts(gmail_cred, default=("gmail.googleapis.com",))
+                    send_url = f"https://{trusted_hosts[0]}/gmail/v1/users/{quote(user, safe='')}/messages/send"
+                    headers = _provider_headers(
+                        {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
+                        inv,
+                    )
+                    _dest, resp = get_default_network_egress_authority().request(
+                        method="POST",
+                        url=send_url,
+                        headers=headers,
+                        json_body=_gmail_api_send_payload(to=inp.to, subject=inp.subject, body=body_text),
+                        allowed_hosts=list(trusted_hosts),
+                        action_name=inv.action,
+                        timeout_seconds=10.0,
+                    )
+                    sent["real_response"] = {
+                        "status_code": resp.status_code,
+                        "body_preview": resp.body_text[:300] if resp.body_text else "",
+                    }
+                    if _http_is_success(resp.status_code):
+                        sent["status"] = "sent"
+                        sent["real"] = True
+                        sent["provider"] = "gmail_api"
+                    else:
+                        sent["status"] = "error"
+                        sent["real"] = False
+                        sent["error"] = f"Gmail API returned HTTP {resp.status_code}"
+                if sent.get("real") and inv.idempotency_key:
+                    sent["idempotency_key"] = inv.idempotency_key
             except Exception as e:
                 sent["status"] = "error"
                 sent["error"] = str(e)
@@ -439,92 +460,66 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
     def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         inp = GtmCrmUpsertInput.model_validate(inv.input)
 
-        # Item 2: support real CRM via credential (mirror email_send real Gmail logic)
         crm_cred = None
-        for k in (inv.action, "gtm.crm_upsert", "external_crm"):
-            if k in getattr(ctx, "runtime_credentials", {}):
-                crm_cred = ctx.runtime_credentials[k]
+        for key in (inv.action, "gtm.crm_upsert", "external_crm"):
+            if key in getattr(ctx, "runtime_credentials", {}):
+                crm_cred = ctx.runtime_credentials[key]
                 break
 
+        result = default_crm_client().upsert(
+            context=ctx,
+            record_type=inp.record_type,
+            data=inp.data,
+            credential=crm_cred,
+            invocation=inv,
+            action_name=inv.action,
+        )
+        use_external = is_live_external_crm_result(
+            source=result.source,
+            real=result.real,
+            error=result.error,
+        )
         upserted: dict[str, Any] = {
-            "record_type": inp.record_type,
-            "id": "crm_" + str(ctx.task_id)[:8],
-            "data": inp.data,
-            "status": "simulated",
-            "real": False,
-            "reason": "no_runtime_credential",
+            "record_type": result.record_type,
+            "id": result.record_id or f"crm_{str(ctx.task_id)[:8]}",
+            "data": result.data,
+            "status": result.status,
+            "real": result.real,
+            "source": result.source,
+            "plugin_required": use_external,
         }
+        if result.error:
+            upserted["error"] = result.error
+        if result.status_code is not None:
+            upserted["real_response"] = {"status_code": result.status_code}
+        if inv.idempotency_key and result.real:
+            upserted["idempotency_key"] = inv.idempotency_key
 
-        if crm_cred:
-            try:
-                secret = (
-                    getattr(crm_cred, "secret_value", None)
-                    if not isinstance(crm_cred, dict)
-                    else crm_cred.get("secret_value")
-                )
-                if secret:
-                    # Actual real path: use network_egress with cred for external CRM write
-                    trusted = getattr(crm_cred, "trusted_destination_hosts", None) or ("api.crm.example.com",)
-                    upsert_url = f"https://{trusted[0]}/v1/upsert"
-                    headers = _provider_headers(
-                        {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
-                        inv,
-                    )
-                    body = _provider_body({"record_type": inp.record_type, "data": inp.data}, inv)
-                    _dest, resp = get_default_network_egress_authority().request(
-                        method="POST",
-                        url=upsert_url,
-                        headers=headers,
-                        json_body=body,
-                        allowed_hosts=list(trusted),
-                        action_name=inv.action,
-                        timeout_seconds=10.0,
-                    )
-                    upserted["real_response"] = {
-                        "status_code": resp.status_code,
-                        "body_preview": resp.body_text[:300] if resp.body_text else "",
-                    }
-                    if _http_is_success(resp.status_code):
-                        upserted["status"] = "upserted_real"
-                        upserted["credential_used"] = True
-                        upserted["real"] = True
-                        if inv.idempotency_key:
-                            upserted["idempotency_key"] = inv.idempotency_key
-                    else:
-                        upserted["status"] = "error"
-                        upserted["real"] = False
-                        upserted["error"] = f"CRM API returned HTTP {resp.status_code}"
-            except Exception as e:
-                upserted["status"] = "error"
-                upserted["error"] = str(e)
-                upserted["real"] = False
-
-        _ensure_simulated_external_outcome(
-            upserted,
-            reason="runtime_credential_missing_or_upsert_not_executed",
+        provider = "ajenda_brain"
+        side_effect = SideEffectClass.INTERNAL_WRITE
+        summary = (
+            "External CRM upsert completed via plugin"
+            if use_external
+            else "Internal CRM upsert completed in Ajenda brain"
         )
 
         return ActionResult(
             action=inv.action,
-            provider="external_crm",
-            side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+            provider=provider,
+            side_effect_class=side_effect,
             output=upserted,
             evidence=[
                 _make_evidence(
                     inv.action,
-                    "external_crm",
+                    provider,
                     ctx,
-                    "External CRM upsert completed"
-                    if upserted.get("real")
-                    else "External CRM upsert not executed (simulated; no write effect)",
+                    summary,
                     upserted,
-                    side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+                    side_effect_class=side_effect,
                 )
             ],
-            records_changed=[str(upserted["id"])] if upserted.get("real") else [],
-            summary="External CRM upsert completed (real via cred)"
-            if upserted.get("real")
-            else "External CRM upsert not executed (simulated; no write effect)",
+            records_changed=[str(upserted["id"])] if result.real else [],
+            summary=summary,
         )
 
     registry.register(
@@ -581,14 +576,9 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
         ActionDefinition(
             name="gtm.crm_upsert",
             handler=crm_upsert_handler,
-            side_effect_class=SideEffectClass.EXTERNAL_WRITE,
-            provider="external_crm",
+            side_effect_class=SideEffectClass.INTERNAL_WRITE,
+            provider="ajenda_brain",
             input_model=GtmCrmUpsertInput,
-            credential_requirement=CredentialRequirement(
-                provider="external_crm",
-                credential_type="api_key",
-                allowed_side_effect_classes=(SideEffectClass.EXTERNAL_WRITE,),
-            ),
         )
     )
 

@@ -10,6 +10,8 @@ from urllib.parse import urlparse, urlunparse
 
 import httpx
 
+from backend.app.config import get_settings
+
 BLOCKED_HOSTNAMES = {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
 BLOCKED_HOST_FRAGMENTS = {"internal", "intranet", "metadata", "169.254.169.254"}
 DEFAULT_RESPONSE_TEXT_LIMIT = 4096
@@ -117,13 +119,17 @@ class NetworkEgressAuthority:
                     continue
                 seen.add(resolved)
                 resolved_addresses.append(resolved)
-                if _is_blocked_ip(resolved) or not resolved.is_global:
+                if not get_settings().network_egress_allow_private_destinations and (
+                    _is_blocked_ip(resolved) or not resolved.is_global
+                ):
                     raise _safe_error(action_name, "blocked private DNS resolution") from None
             if not resolved_addresses:
                 raise _safe_error(action_name, "DNS resolution did not return a public routable address") from None
             pinned_ip = resolved_addresses[0]
         else:
-            if _is_blocked_ip(ip) or not ip.is_global:
+            if not get_settings().network_egress_allow_private_destinations and (
+                _is_blocked_ip(ip) or not ip.is_global
+            ):
                 raise _safe_error(action_name, "blocked private IP literal")
             pinned_ip = ip
         return VettedNetworkDestination(
@@ -170,6 +176,7 @@ class NetworkEgressAuthority:
             with httpx.Client(
                 timeout=timeout_seconds,
                 follow_redirects=False,
+                verify=get_settings().network_egress_tls_verify,
                 limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
             ) as http_client:
                 response = http_client.request(method, destination.connect_url, **request_kwargs)

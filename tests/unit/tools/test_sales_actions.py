@@ -158,7 +158,7 @@ def test_sales_research_credentialed_uses_external_read_path() -> None:
     authority.request.return_value = (destination, response)
 
     with patch(
-        "backend.services.tools.sales_actions.get_default_network_egress_authority",
+        "backend.services.plugins.crm_client.get_default_network_egress_authority",
         return_value=authority,
     ):
         result = handler(
@@ -170,22 +170,67 @@ def test_sales_research_credentialed_uses_external_read_path() -> None:
             context,
         )
 
-    assert result.provider == "external_crm"
-    assert result.side_effect_class.value == "external_read"
+    assert result.provider == "ajenda_brain"
+    assert result.side_effect_class.value == "internal_read"
     assert result.output["real"] is True
+    assert result.output["plugin_required"] is True
     assert authority.request.call_args.kwargs["headers"]["Idempotency-Key"] == "idem-crm-1"
 
 
-def test_sales_research_local_path_is_simulated_external_read() -> None:
+def test_sales_research_hubspot_adapter_source_counts_as_external_plugin() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    handler = registry.get("sales.research").handler
+    context = _context()
+    context.runtime_credentials = {
+        "sales.research": {
+            "secret_value": "crm-token",
+            "trusted_destination_hosts": ["hubspot-crm-ingress"],
+        }
+    }
+    destination = VettedNetworkDestination(
+        original_url="https://hubspot-crm-ingress/v1/search",
+        connect_url="https://10.0.0.2/v1/search",
+        pinned_ip=__import__("ipaddress").ip_address("10.0.0.2"),
+        sni_hostname="hubspot-crm-ingress",
+        host_header="hubspot-crm-ingress",
+    )
+    response = NetworkEgressResponse(
+        status_code=200,
+        headers={},
+        body_text='{"results":[{"id":"330345792208"}],"count":1,"source":"hubspot"}',
+        body_truncated=False,
+    )
+    authority = MagicMock()
+    authority.request.return_value = (destination, response)
+
+    with patch(
+        "backend.services.plugins.crm_client.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        result = handler(
+            ToolInvocation(
+                action="crm.research",
+                input={"lead": {"company": "HubSpot", "domain": "hubspot.com"}},
+            ),
+            context,
+        )
+
+    assert result.output["plugin_required"] is True
+    assert result.output["source"] == "hubspot"
+    assert "via external plugin" in result.summary
+
+
+def test_sales_research_local_path_uses_ajenda_brain() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(
         ToolInvocation(action="sales.research", input={"lead": {"company": "Acme"}}),
         _context(),
     )
 
-    assert result.provider == "external_crm"
-    assert result.side_effect_class.value == "external_read"
-    assert result.output["real"] is False
+    assert result.provider == "ajenda_brain"
+    assert result.side_effect_class.value == "internal_read"
+    assert result.output["real"] is True
+    assert result.output["plugin_required"] is False
 
 
 def test_sales_create_followup_task_preserves_record_write_payload_shape() -> None:

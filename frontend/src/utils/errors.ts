@@ -23,7 +23,7 @@ export function failureText(error: unknown): string {
           return "Your email is not verified yet. Finish verification, then sign in with Google again.";
         }
         if (code === "MISSING_TENANT_ID") {
-          return `${detail}\n\nFinish email verification, then open /promote to activate your API key before using dashboard or billing APIs.`;
+          return `${detail}\n\nTenant-scoped APIs need X-Tenant-Id on every request. In the product UI: sign in at /signin with your tenant UUID and API key (key_id.secret), or finish signup → verify → /promote. Do not open /v1/... URLs directly in the browser address bar.`;
         }
         if (code === "MISSING_CLIENT_TENANT_SESSION") {
           return detail;

@@ -56,6 +56,9 @@ class ToolRuntimeAuthority:
         )
         if resolved_credential is not None:
             runtime_credentials[action.name] = resolved_credential
+            plugin_provider = resolved_credential.reference.provider
+            if plugin_provider != action.provider:
+                runtime_credentials[plugin_provider] = resolved_credential
         runtime_context = ActionRuntimeContext(
             tenant_id=task.tenant_id,
             task_id=task.id,

@@ -1,25 +1,119 @@
 import { useEffect, useMemo, useState } from "react";
-import { getTaskStatus, launchProof } from "../api/client";
+import DisclaimerModal from "../components/DisclaimerModal";
+import {
+  getAccountMe,
+  getTaskStatus,
+  launchProof,
+  launchTask,
+  listAutonomyDisclaimers,
+  listProviderCredentials,
+} from "../api/client";
 import { loadSession, sessionToRuntimeConfig } from "../auth/session";
-import type { AbilityTaskQueuedResponse, AbilityTaskStatusResponse } from "../types";
-import { failureText, pretty } from "../utils/errors";
+import type {
+  AbilityTaskQueuedResponse,
+  AbilityTaskStatusResponse,
+  AutonomyDisclaimer,
+  ProviderCredentialResponse,
+} from "../types";
+import { failureText, newIdempotencyKey, pretty } from "../utils/errors";
 
 const PROOF_BUTTONS = [
   { key: "calendar-read" as const, title: "Calendar Read", description: "Read-only calendar proof." },
   { key: "sales-qualify" as const, title: "Sales Qualify", description: "Qualify a sample roofing lead." },
 ] as const;
 
+type Tier3Action = "gtm.email_send" | "gtm.crm_upsert";
+
+const TIER3_ACTIONS: Array<{
+  action: Tier3Action;
+  title: string;
+  description: string;
+  provider: string;
+  credentialType: string;
+}> = [
+  {
+    action: "gtm.email_send",
+    title: "Send email",
+    description: "Tier 3 external send through connected Gmail.",
+    provider: "external_email",
+    credentialType: "api_key",
+  },
+  {
+    action: "gtm.crm_upsert",
+    title: "CRM upsert",
+    description: "Tier 3 external write through connected HubSpot CRM.",
+    provider: "external_crm",
+    credentialType: "api_key",
+  },
+];
+
 export default function TasksPage() {
   const session = loadSession();
   const config = useMemo(
     () => (session ? sessionToRuntimeConfig(session) : null),
-    [session?.tenantId, session?.apiKey],
+    [session?.tenantId, session?.apiKey, session?.accessToken],
   );
   const [activeTaskId, setActiveTaskId] = useState("");
   const [taskStatus, setTaskStatus] = useState<AbilityTaskStatusResponse | null>(null);
   const [lastQueued, setLastQueued] = useState<AbilityTaskQueuedResponse | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [autonomyMode, setAutonomyMode] = useState<"off" | "pilot" | "enforce">("off");
+  const [disclaimers, setDisclaimers] = useState<AutonomyDisclaimer[]>([]);
+  const [principalId, setPrincipalId] = useState("");
+  const [credentials, setCredentials] = useState<ProviderCredentialResponse[]>([]);
+  const [tier3Credentials, setTier3Credentials] = useState<Record<Tier3Action, string>>({
+    "gtm.email_send": "",
+    "gtm.crm_upsert": "",
+  });
+  const [pendingTier3, setPendingTier3] = useState<Tier3Action | null>(null);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+
+  const draftDisclaimer = disclaimers.find((item) => item.actions.includes("gtm.email_draft")) ?? null;
+  const pendingDisclaimer = pendingTier3
+    ? disclaimers.find((item) => item.actions.includes(pendingTier3)) ?? null
+    : null;
+
+  useEffect(() => {
+    if (!config || !session) {
+      return;
+    }
+    let cancelled = false;
+    async function loadAutonomyContext() {
+      try {
+        const [disclaimerResponse, account, credentialResponse] = await Promise.all([
+          listAutonomyDisclaimers(config!),
+          getAccountMe(session!),
+          listProviderCredentials(session!),
+        ]);
+        if (!cancelled) {
+          setAutonomyMode(disclaimerResponse.mode);
+          setDisclaimers(disclaimerResponse.disclaimers);
+          setPrincipalId(account.principal.subject_id);
+          const activeCredentials = credentialResponse.credentials.filter((item) => !item.revoked);
+          setCredentials(activeCredentials);
+          setTier3Credentials({
+            "gtm.email_send":
+              activeCredentials.find(
+                (item) => item.provider === "external_email" && item.allowed_actions.includes("gtm.email_send"),
+              )?.credential_id ?? "",
+            "gtm.crm_upsert":
+              activeCredentials.find(
+                (item) => item.provider === "external_crm" && item.allowed_actions.includes("gtm.crm_upsert"),
+              )?.credential_id ?? "",
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setAutonomyMode("off");
+        }
+      }
+    }
+    void loadAutonomyContext();
+    return () => {
+      cancelled = true;
+    };
+  }, [config, session]);
 
   useEffect(() => {
     if (!activeTaskId || !config) {
@@ -52,6 +146,127 @@ export default function TasksPage() {
       window.clearInterval(timer);
     };
   }, [activeTaskId, config]);
+
+  function credentialOptionsFor(action: Tier3Action) {
+    const spec = TIER3_ACTIONS.find((item) => item.action === action);
+    if (!spec) {
+      return [];
+    }
+    return credentials.filter(
+      (item) => item.provider === spec.provider && item.allowed_actions.includes(action),
+    );
+  }
+
+  async function handleDraftWithDisclaimer() {
+    if (!config || !draftDisclaimer || !principalId) {
+      return;
+    }
+    setLoading("Launching email draft");
+    setError("");
+    try {
+      const queued = await launchTask(config, {
+        action: "gtm.email_draft",
+        input: {
+          recipient: "prospect@example.com",
+          topic: "Ajenda follow-up",
+          tone: "professional",
+          context: "Product runtime disclaimer path",
+        },
+        autonomy_acknowledgment: {
+          schema_version: 1,
+          disclaimer_id: draftDisclaimer.disclaimer_id,
+          disclaimer_text_hash: draftDisclaimer.text_hash,
+          accepted_at: new Date().toISOString(),
+          principal_id: principalId,
+          action: "gtm.email_draft",
+        },
+      });
+      setLastQueued(queued);
+      setActiveTaskId(queued.task_id);
+    } catch (err) {
+      setError(failureText(err));
+    } finally {
+      setLoading(null);
+      setShowDisclaimer(false);
+    }
+  }
+
+  async function handleTier3WithDisclaimer() {
+    const selectedCredentialId = pendingTier3 ? tier3Credentials[pendingTier3] : "";
+    if (!config || !pendingTier3 || !pendingDisclaimer || !principalId || !selectedCredentialId) {
+      return;
+    }
+    const spec = TIER3_ACTIONS.find((item) => item.action === pendingTier3);
+    if (!spec) {
+      return;
+    }
+
+    setLoading(`Launching ${pendingTier3}`);
+    setError("");
+    const idempotencyKey = newIdempotencyKey();
+    try {
+      const input =
+        pendingTier3 === "gtm.email_send"
+          ? {
+              to: "prospect@example.com",
+              subject: "Ajenda autonomy send proof",
+              body: "Tier 3 informed autonomy launch from Tasks UI.",
+            }
+          : {
+              record_type: "contact",
+              data: { email: "prospect@example.com", firstname: "Prospect" },
+            };
+
+      const queued = await launchTask(
+        config,
+        {
+          action: pendingTier3,
+          input,
+          idempotency_key: idempotencyKey,
+          credential_reference: {
+            schema_version: 1,
+            credential_id: selectedCredentialId,
+            provider: spec.provider,
+            credential_type: spec.credentialType,
+          },
+          autonomy_acknowledgment: {
+            schema_version: 1,
+            disclaimer_id: pendingDisclaimer.disclaimer_id,
+            disclaimer_text_hash: pendingDisclaimer.text_hash,
+            accepted_at: new Date().toISOString(),
+            principal_id: principalId,
+            action: pendingTier3,
+            side_effect_class: pendingTier3 === "gtm.email_send" ? "external_send" : "external_write",
+          },
+        },
+        { idempotencyKey },
+      );
+      setLastQueued(queued);
+      setActiveTaskId(queued.task_id);
+    } catch (err) {
+      setError(failureText(err));
+    } finally {
+      setLoading(null);
+      setShowDisclaimer(false);
+      setPendingTier3(null);
+    }
+  }
+
+  function openTier3Disclaimer(action: Tier3Action) {
+    const options = credentialOptionsFor(action);
+    if (options.length === 0) {
+      setError(`Connect a credential for ${action} on the Credentials page first.`);
+      return;
+    }
+    if (!tier3Credentials[action]) {
+      setTier3Credentials((current) => ({
+        ...current,
+        [action]: options[0]?.credential_id ?? "",
+      }));
+    }
+    setPendingTier3(action);
+    setShowDisclaimer(true);
+  }
 
   async function handleProof(proof: (typeof PROOF_BUTTONS)[number]["key"]) {
     if (!config) return;
@@ -95,6 +310,70 @@ export default function TasksPage() {
           ))}
         </div>
       </section>
+
+      {autonomyMode !== "off" ? (
+        <section className="panel">
+          <h2>Informed autonomy</h2>
+          <p>
+            Autonomy mode is <strong>{autonomyMode}</strong>. Disclaimers are recorded in audit when you launch governed
+            actions. Principal: <code>{principalId || "loading…"}</code>
+          </p>
+
+          {draftDisclaimer ? (
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!config || loading !== null || !principalId}
+              onClick={() => {
+                setPendingTier3(null);
+                setShowDisclaimer(true);
+              }}
+            >
+              Draft email (Tier 1)
+            </button>
+          ) : null}
+
+          <div className="card-grid two-up tier3-grid">
+            {TIER3_ACTIONS.map((item) => {
+              const options = credentialOptionsFor(item.action);
+              return (
+                <div className="proof-card static-card" key={item.action}>
+                  <strong>{item.title}</strong>
+                  <span>{item.description}</span>
+                  <label>
+                    Credential
+                    <select
+                      value={tier3Credentials[item.action]}
+                      disabled={options.length === 0 || loading !== null}
+                      onChange={(event) =>
+                        setTier3Credentials((current) => ({
+                          ...current,
+                          [item.action]: event.target.value,
+                        }))
+                      }
+                    >
+                      {options.length === 0 ? <option value="">No credential connected</option> : null}
+                      {options.map((credential) => (
+                        <option key={credential.credential_id} value={credential.credential_id}>
+                          {credential.credential_id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    disabled={!config || loading !== null || options.length === 0 || !principalId}
+                    onClick={() => openTier3Disclaimer(item.action)}
+                  >
+                    Launch with disclaimer
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel">
         <h2>Task monitor</h2>
@@ -157,6 +436,20 @@ export default function TasksPage() {
         <div className="inline-error">
           <pre>{error}</pre>
         </div>
+      ) : null}
+
+      {(pendingDisclaimer ?? draftDisclaimer) ? (
+        <DisclaimerModal
+          disclaimer={(pendingDisclaimer ?? draftDisclaimer)!}
+          open={showDisclaimer}
+          onCancel={() => {
+            setShowDisclaimer(false);
+            setPendingTier3(null);
+          }}
+          onConfirm={() =>
+            void (pendingTier3 ? handleTier3WithDisclaimer() : handleDraftWithDisclaimer())
+          }
+        />
       ) : null}
     </main>
   );

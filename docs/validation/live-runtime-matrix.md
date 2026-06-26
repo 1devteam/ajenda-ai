@@ -440,6 +440,21 @@ Current broader scenario count: **54**
 | AR-05 | action_runtime_plane | credential references resolve only through the secret runtime boundary and never leak raw secret material | P0 | CREDENTIAL_SECRET_RUNTIME_BOUNDARY | evidence_backed | unit_and_contract_test | `tool.invoke` metadata includes a structured `credential_reference` for an action that declares a credential requirement | run `ToolRuntimeAuthority` through promotion, then resolve through worker-wired `CredentialRuntimeAuthority` backed by the live SQLAlchemy credential runtime repository, then invoke through `ActionRegistry` | missing, unknown, cross-tenant, disabled, revoked, deleted, provider/type-incompatible, action-incompatible, or side-effect-incompatible credentials fail closed; raw secret keys in metadata/input are rejected; runtime-only material is injected only after promotion; ActionResult/EvidenceItem/log-visible structures are recursively redacted | raw API keys/tokens/passwords/secrets/private keys in task metadata, invocation input, action output, evidence payloads, logs, operator errors, docs examples, or credential existence bypassing promotion/action registry/network egress authority | unit tests | `backend/services/credentials/runtime_authority.py`, `backend/services/security/redaction.py`, `backend/services/tools/runtime_authority.py`, `backend/services/tools/action_registry.py`, `backend/services/tools/schemas.py`, `tests/unit/services/test_credential_runtime_authority.py`, `tests/unit/services/test_sensitive_redaction.py`, `tests/unit/tools/test_tool_runtime_authority.py`, `tests/unit/tools/test_action_registry.py` | CI/local |
 | AR-06 | action_runtime_plane | generic CRM research/read and GTM CRM upsert use real network egress when credential present | P1 | TENANT_SCOPED_EXTERNAL_READ_WRITE | evidence_backed | contract_test | crm.research (aliased) or gtm.crm_upsert invoked with cred for external_crm | use network_egress with Bearer from secret + trusted hosts; capture real_response in output/evidence | local-only proof when cred available; unsafe hosts or secret leak | unit tests, rollout | `backend/services/tools/sales_actions.py`, `backend/services/tools/gtm_actions.py`, `backend/services/network_egress.py`, `backend/services/abilities/catalog.py` | CI/local |
 | AR-07 | action_runtime_plane | gtm.social_publish executes real publish via egress when credential available | P1 | TENANT_SCOPED_EXTERNAL_PUBLISH | evidence_backed | contract_test | gtm.social_publish with cred | POST via vetted egress, status=published_real, evidence with response | simulated publish when cred present | unit, rollout | `backend/services/tools/gtm_actions.py`, `backend/services/network_egress.py` | CI/local |
+| AR-08 | action_runtime_plane | Gmail plugin `gtm.email_check` and `gtm.email_send` use real HTTPS egress through credential runtime | P1 | TENANT_SCOPED_EXTERNAL_READ_SEND | evidence_backed | contract_and_integration | `tool.invoke` references `gtm.email_check` or `gtm.email_send` with `credential_reference` for `external_email` / `gmail-email`; tenant credential registered via Credentials API or runtime store | invoke through `ToolRuntimeAuthority` → `CredentialRuntimeAuthority` → `ActionRegistry` → `NetworkEgressAuthority` to `gmail.googleapis.com` | `real: true` in output/evidence for live token; inbox read returns non-simulated message ids; send returns `status=sent` and `provider=gmail_api` when scopes permit; missing `credential_reference` fails closed at runtime authority; expired token fails closed with actionable error, not simulated success | simulated inbox/send when credential present; raw OAuth token in task metadata, output, evidence, or logs; egress to hosts outside credential `trusted_destination_hosts`; SMTP path used when Gmail credential is declared | integration tests, opt-in live E2E, audit | `backend/services/tools/gtm_actions.py`, `backend/services/tools/gmail_provider.py`, `backend/services/credentials/management_service.py`, `backend/services/credentials/runtime_authority.py`, `backend/services/network_egress.py`, `backend/services/plugins/contracts.py`, `tests/integration/standalone/test_brain_e2e_no_simulation_real.py`, `tests/integration/credentials/test_gmail_credential_flow_real.py`, `tests/integration/credentials/test_gmail_credential_api_invoke_live_real.py`, `tests/integration/credentials/test_gmail_oauth_refresh_real.py` | local/isolated; live opt-in with `~/.ajenda` OAuth |
+| AR-09 | action_runtime_plane | HubSpot CRM plugin uses Credentials API registration then live adapter egress (not direct DB seed) | P1 | TENANT_SCOPED_EXTERNAL_READ_WRITE | evidence_backed | contract_and_integration | tenant registers `hubspot-crm` via `POST /v1/account/provider-credentials` with `integration=hubspot`; hubspot-crm-ingress reachable; `tool.invoke` uses `credential_reference` for `external_crm` | `crm.research`/`sales.research` search via adapter `GET /v1/search`; `gtm.crm_upsert` via adapter `POST /v1/upsert` with `side_effect_authorization`; Bearer from runtime credential resolution; `real: true` and non-simulated statuses in output/evidence | direct `ProviderRuntimeCredential` DB seed presented as product proof; simulated CRM outcomes when credential and ingress are available; secret leak; adapter host bypass outside `trusted_destination_hosts` | API, integration tests, opt-in live E2E | `backend/api/routes/provider_credentials.py`, `backend/services/credentials/management_service.py`, `backend/services/plugins/crm_client.py`, `services/hubspot_crm_adapter/main.py`, `tests/integration/credentials/test_hubspot_credential_flow_real.py`, `tests/integration/credentials/test_hubspot_credential_api_invoke_real.py`, `tests/integration/credentials/test_hubspot_credential_api_invoke_live_real.py`, `tests/integration/standalone/test_brain_e2e_no_simulation_real.py` | local/isolated; live opt-in with ingress on 8443 |
+| AR-10 | action_runtime_plane | standalone brain and plugin paths remain strictly separated at runtime | P0 | STANDALONE_PLUGIN_BOUNDARY | evidence_backed | integration_test | ajenda-brain actions invoked without `credential_reference`; plugin actions invoked with and without credential | `gtm.crm_upsert` without credential writes `tenant_internal_records` only (`status=upserted_internal`, `source=ajenda_brain`, `plugin_required=false`); `web.research`/`sales.research` without credential uses internal records and optional public fetch only; plugin-required actions (`gtm.email_send`, `gtm.email_check`, credentialed `gtm.crm_upsert`, `crm.research`) without valid credential fail closed before provider execution | silent routing from brain actions to external plugin without explicit `credential_reference`; simulated external success on plugin paths when credential is absent; internal upsert mutating external CRM without credential | integration tests, plugin discovery API | `backend/services/plugins/contracts.py`, `backend/services/tools/standalone_actions.py`, `backend/services/tools/record_store.py`, `backend/services/tools/sales_actions.py`, `backend/services/tools/gtm_actions.py`, `tests/integration/standalone/test_brain_e2e_no_simulation_real.py`, `tests/integration/standalone/test_standalone_plugin_boundary_real.py`, `tests/unit/plugins/test_plugin_registry.py` | CI/local |
+
+### Informed autonomy plane (ADR-0005)
+
+Default mode is `off` (guardian / `pending_review` pilot behavior). Set `AJENDA_AUTONOMY_DISCLAIMER_MODE=pilot` or `enforce` to activate disclaimer-backed tenant-owner launches.
+
+| ID | Domain | Scenario | Priority | Safety Class | Matrix Status | Validation Backing | Preconditions | Action | Expected Result | Forbidden Result | Evidence Sources | Implementation Mapping | Execution Policy |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| AU-01 | informed_autonomy_plane | Tier 3 ability-runtime launch without `autonomy_acknowledgment` is rejected | P0 | TENANT_SCOPED_SIDE_EFFECT_GATE | evidence_backed | contract_test | `AJENDA_AUTONOMY_DISCLAIMER_MODE=enforce`; Tier 3 action (e.g. `gtm.email_send`, `gtm.crm_upsert`) | POST `/v1/ability-runtime/tasks` without valid disclaimer envelope | 400 denial; no enqueue; no side effect | side effect or enqueue without recorded user acknowledgment | API, audit | `backend/api/routes/ability_runtime.py`, `docs/product/autonomy-disclaimer-catalog.v1.yaml`, `tests/unit/api/test_ability_runtime_autonomy.py` | CI/local |
+| AU-02 | informed_autonomy_plane | Tier 3 launch with valid disclaimer, idempotency, and credential queues on tenant-owner path | P1 | TENANT_SCOPED_MUTATION | evidence_backed | contract_and_integration | disclaimer catalog hash matches; tenant_owner or tenant_operator principal (`machine:{keyId}` from `/v1/account/me`); credential connected; mode `pilot` or `enforce` | POST ability-runtime task with `autonomy_acknowledgment` + `side_effect_authorization.approved_by=autonomy:{principal_id}` | launch authority resolves with `requires_human_review=false`; audit contains `autonomy_disclaimer_accepted` on queue; worker evidence shows real outcome when credential present | guardian role still required when valid acknowledgment present; fake `approved_by: ability-runtime-ui` accepted as sole authority | API, DB, audit, integration tests | `backend/api/routes/ability_runtime.py`, `backend/services/autonomy/disclaimer_catalog.py`, `tests/integration/autonomy/test_informed_autonomy_queue_real.py`, `docs/architecture/ADR-0005-informed-autonomy-gate-policy.md` | local/isolated |
+| AU-03 | informed_autonomy_plane | stale or mismatched disclaimer hash fails closed | P0 | TENANT_SCOPED_SIDE_EFFECT_GATE | evidence_backed | unit_test | Tier 2–3 action; wrong `disclaimer_text_hash` or unknown `disclaimer_id` | attempt launch | 400 denial; no enqueue | acceptance with tampered or outdated disclaimer metadata | unit tests | `backend/services/autonomy/disclaimer_catalog.py`, `tests/unit/services/test_autonomy_disclaimer_catalog.py` | CI/local |
+| AU-04 | informed_autonomy_plane | feature flag `off` restores guardian and `pending_review` behavior | P1 | SAFE_READ_ONLY | evidence_backed | contract_test | `AJENDA_AUTONOMY_DISCLAIMER_MODE=off` | Tier 3 launch without guardian role | guardian gate and `pending_review` paths behave as pre-Phase-3 | silent behavior change without flag control | contract tests | `backend/api/routes/ability_runtime.py`, `backend/app/config.py` | CI/local |
+| AU-05 | informed_autonomy_plane | misplaced `requires_human_review` blocking removed when UI already collected disclaimer + confirm | P1 | TENANT_SCOPED_MUTATION | evidence_backed | contract_and_integration | ability-runtime UI presented disclaimer; valid acknowledgment present; mode `pilot` or `enforce`; principal_id from `/v1/account/me` | queue Tier 3 task from Tasks page with credential picker + idempotency | task metadata sets `requires_human_review=false` when acknowledgment valid; reaches authoritative queued state without spurious `pending_review` stall | queue blocked solely because `requires_human_review` with no user-visible review UX; `human:{email}` principal mismatch for API-key sessions | unit tests, frontend Tasks page, integration queue proof | `backend/api/routes/ability_runtime.py`, `frontend/src/pages/TasksPage.tsx`, `frontend/src/components/DisclaimerModal.tsx`, `tests/integration/autonomy/test_informed_autonomy_queue_real.py` | local/isolated |
 
 ## Current runner-supported scenarios
 
@@ -528,10 +543,14 @@ The strongest current matrix surfaces are:
 
 The less mature current matrix areas are:
 
+- **external plugin runtime lane** — AR-08 through AR-10 are `partial`: live E2E exists for HubSpot and Gmail, but Credentials API → invoke closure and Gmail integration tests are not yet matrix-closed
+- **informed autonomy plane** — AU-01 through AU-05 are `deferred` until Phase 3 (`AJENDA_AUTONOMY_DISCLAIMER_MODE`)
 - broader resilience-plane coverage
-- deeper mixed-tenant concurrency proof beyond core claim isolation
+- deeper mixed-tenant concurrency proof beyond core lease/recovery protections
 - stronger negative-space scenarios beyond core lease/recovery protections
 - richer operational semantics around stale evidence and environment eligibility
+- dual-database / vector ephemeral state (no matrix rows yet — add `data_plane` when implementation lands)
+- mission graph → plugin dispatch (Phase 4; outside current AR rows)
 
 These rows should remain visible rather than omitted.
 
@@ -578,8 +597,39 @@ Treat it as the runtime-proof contract for the governed execution system.
 
 ## Immediate hardening priorities
 
-1. keep the matrix internally normalized
-2. preserve the separation between static matrix truth and dynamic run truth
-3. tighten runner/doc/test alignment
-4. expand weaker resilience/isolation/integrity rows deliberately
-5. maintain release gates as a compact, strict subset
+1. close AU-02 and AU-05 with full integration + frontend E2E when autonomy flag enabled in staging
+2. run opt-in live-runtime-proof plugin lane in staging with real tokens (`AJENDA_PROOF_PLUGIN_LANE_ENABLED=1`)
+3. keep the matrix internally normalized
+4. preserve the separation between static matrix truth and dynamic run truth
+5. tighten runner/doc/test alignment
+6. expand weaker resilience/isolation/integrity rows deliberately
+7. maintain release gates as a compact, strict subset
+8. promote AU-* rows from `deferred` only when Phase 3 code and tests ship
+
+---
+
+## Implementation sequencing (authoritative order)
+
+This order closes the external-plugin runtime lane before widening autonomy, expanding data plane, or frontend overhaul.
+
+| Phase | Work | Matrix impact | Blocks |
+|-------|------|---------------|--------|
+| **1 — Done** | AR-08/AR-09/AR-10 row definitions (this document) | Plugin + AU rows in matrix | — |
+| **2 — Done** | Gmail credential integration test | AR-08 `evidence_backed` (CI) | — |
+| **3 — Done** | HubSpot API-register → `tool.invoke` test | AR-09 `evidence_backed` (CI) | — |
+| **4 — Done** | Gmail runtime OAuth refresh at credential resolve | `gmail_runtime_token.py` + SQLAlchemy persist | — |
+| **5 — Done** | Credentials UI (Gmail tab) + Tasks disclaimer modal | product UX for credentials + autonomy | — |
+| **6 — Done** | Informed autonomy (`AJENDA_AUTONOMY_DISCLAIMER_MODE`, catalog, AU tests) | AU-* `partial`/`evidence_backed`; default `off` | enable flag in staging |
+| **7 — Done** | AR-10 standalone/plugin boundary integration tests | AR-10 `evidence_backed` | — |
+| **8** | Dual DB (persistent + ephemeral/vector) | new `data_plane` rows when implemented | retrieval depth |
+| **9** | Standalone ability + retrieval enhancement | brain/retrieval rows | mission memory |
+| **10** | Additional plugin platforms (repeat credential + matrix template) | one row per platform | — |
+| **11** | Frontend overhaul (mission graph, dispatch UX) | Phase 4 execution rows | full mission autonomy |
+| **12 — Done** | Optional `live-runtime-proof.sh` plugin lane (env-gated) | `deploy/scripts/plugin-runtime-proof.sh`, `deploy/scripts/staging-autonomy-plugin-proof.sh` | extends release gate, not RG set |
+
+**Non-negotiable ordering rules**
+
+- Do not implement Phase 6 (autonomy rollback) before Phases 2–4 (real credential runtime).
+- Do not add `data_plane` matrix rows until dual-DB code exists.
+- Do not treat AU-* rows as release-gating while `matrix_status=deferred`.
+- AR-02, AR-05, RG-12, and tenant-isolation rows remain unchanged across autonomy work.

@@ -14,6 +14,7 @@ COPY backend /app/backend
 COPY alembic.ini /app/
 COPY alembic /app/alembic
 COPY deploy/scripts /app/deploy/scripts
+COPY docs/product/autonomy-disclaimer-catalog.v1.yaml /app/docs/product/autonomy-disclaimer-catalog.v1.yaml
 
 RUN pip install --upgrade pip && pip install .
 

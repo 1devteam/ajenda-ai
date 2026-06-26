@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hubspot-crm-adapter
+  namespace: ajenda
+  labels:
+    app: ajenda-ai
+    component: hubspot-crm-adapter
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ajenda-ai
+      component: hubspot-crm-adapter
+  template:
+    metadata:
+      labels:
+        app: ajenda-ai
+        component: hubspot-crm-adapter
+    spec:
+      containers:
+        - name: hubspot-crm-adapter
+          image: ghcr.io/1devteam/ajenda-ai-hubspot-crm-adapter:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: HUBSPOT_API_BASE
+              value: https://api.hubapi.com
+            - name: HUBSPOT_ADAPTER_TIMEOUT_SECONDS
+              value: "15"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20

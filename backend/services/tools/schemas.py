@@ -300,3 +300,23 @@ class GtmSocialPublishInput(BaseModel):
     platform: str = Field(default="twitter", max_length=80)
     content: str = Field(min_length=1, max_length=280)
     context: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebResearchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=500)
+    company: str | None = Field(default=None, max_length=160)
+    domain: str | None = Field(default=None, max_length=160)
+    fetch_public_page: bool = False
+    limit: int = Field(default=5, ge=1, le=20)
+    timeout_seconds: float = Field(default=5.0, ge=0.5, le=10.0)
+
+
+class WebSearchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=500)
+    limit: int = Field(default=5, ge=1, le=10)
+    include_internal_records: bool = True
+    timeout_seconds: float = Field(default=8.0, ge=0.5, le=15.0)

@@ -6,7 +6,16 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.config import get_settings
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
+from backend.services.credentials.gmail_runtime_token import (
+    GmailRuntimeTokenError,
+    resolve_gmail_credential_secret,
+)
+from backend.services.credentials.management_service import (
+    PLATFORM_MASTER_CREDENTIAL_TYPE,
+    PLATFORM_MASTER_SENTINEL,
+)
 from backend.services.credentials.runtime_authority import CredentialRecord, CredentialRuntimeRepository
 from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
 from backend.services.tools.schemas import SideEffectClass
@@ -41,12 +50,12 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
             ).scalar_one_or_none()
             if row is None:
                 return None
-            return self._to_credential_record(row)
+            return self._to_credential_record(row, session=session)
         finally:
             session.close()
 
-    def _to_credential_record(self, row: ProviderRuntimeCredential) -> CredentialRecord:
-        secret_value = self._secret_protector.decrypt_secret(row.secret_ciphertext)
+    def _to_credential_record(self, row: ProviderRuntimeCredential, *, session: Session) -> CredentialRecord:
+        secret_value = self._resolve_secret_value(row, session=session)
         return CredentialRecord(
             credential_id=row.credential_id,
             tenant_id=row.tenant_id,
@@ -62,6 +71,33 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
             trusted_destination_hosts=tuple(_string_items(row.trusted_destination_hosts)),
             secret_value=secret_value,
         )
+
+    def _resolve_secret_value(self, row: ProviderRuntimeCredential, *, session: Session) -> str:
+        if row.credential_type == PLATFORM_MASTER_CREDENTIAL_TYPE:
+            settings = get_settings()
+            if not settings.hubspot_platform_master_ready:
+                raise ValueError("platform master HubSpot key is not configured")
+            return str(settings.hubspot_platform_master_key).strip()
+        decrypted = self._secret_protector.decrypt_secret(row.secret_ciphertext)
+        if decrypted == PLATFORM_MASTER_SENTINEL:
+            settings = get_settings()
+            if not settings.hubspot_platform_master_ready:
+                raise ValueError("platform master HubSpot key is not configured")
+            return str(settings.hubspot_platform_master_key).strip()
+        if row.provider == "external_email" and row.credential_type == "api_key":
+            return self._resolve_gmail_secret(row=row, decrypted=decrypted, session=session)
+        return decrypted
+
+    def _resolve_gmail_secret(self, *, row: ProviderRuntimeCredential, decrypted: str, session: Session) -> str:
+        try:
+            resolution = resolve_gmail_credential_secret(decrypted, auto_refresh=True)
+        except GmailRuntimeTokenError as exc:
+            raise ValueError(str(exc)) from exc
+        if resolution.updated_secret and resolution.updated_secret != decrypted:
+            row.secret_ciphertext = self._secret_protector.encrypt_secret(resolution.updated_secret)
+            session.add(row)
+            session.commit()
+        return resolution.access_token
 
 
 def _string_items(value: Any) -> list[str]:

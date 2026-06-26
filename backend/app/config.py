@@ -127,6 +127,36 @@ class Settings(BaseSettings):
         alias="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
     )
 
+    # --- HubSpot CRM integration ---
+    hubspot_crm_adapter_public_host: str = Field(
+        default="hubspot-crm-ingress",
+        alias="AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST",
+    )
+    hubspot_platform_master_key_enabled: bool = Field(
+        default=False,
+        alias="AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED",
+    )
+    hubspot_platform_master_key: str | None = Field(
+        default=None,
+        alias="AJENDA_HUBSPOT_PLATFORM_MASTER_KEY",
+    )
+    network_egress_allow_private_destinations: bool = Field(
+        default=False,
+        alias="AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS",
+    )
+    network_egress_tls_verify: bool = Field(
+        default=True,
+        alias="AJENDA_NETWORK_EGRESS_TLS_VERIFY",
+    )
+    autonomy_disclaimer_mode: Literal["off", "pilot", "enforce"] = Field(
+        default="off",
+        alias="AJENDA_AUTONOMY_DISCLAIMER_MODE",
+    )
+    gmail_oauth_redirect_uri: str = Field(
+        default="http://localhost:5173/credentials/gmail/callback",
+        alias="AJENDA_GMAIL_OAUTH_REDIRECT_URI",
+    )
+
     # --- Billing (Stripe) ---
     STRIPE_SECRET_KEY: str = Field(default="", alias="STRIPE_SECRET_KEY")
     STRIPE_PUBLISHABLE_KEY: str = Field(default="", alias="STRIPE_PUBLISHABLE_KEY")
@@ -222,6 +252,19 @@ class Settings(BaseSettings):
             return self.signup_require_idempotency_key
         return str(self.env).strip().lower() == "production"
 
+    @property
+    def hubspot_crm_adapter_base_url(self) -> str:
+        host = str(self.hubspot_crm_adapter_public_host).strip().lower().rstrip(".")
+        return f"https://{host}"
+
+    @property
+    def hubspot_platform_master_ready(self) -> bool:
+        return bool(
+            self.hubspot_platform_master_key_enabled
+            and self.hubspot_platform_master_key
+            and str(self.hubspot_platform_master_key).strip()
+        )
+
     def validate_runtime_contract(self) -> None:
         """Validate production/runtime safety configuration.
 
@@ -309,6 +352,15 @@ class Settings(BaseSettings):
                 env_name="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
                 required=True,
             )
+            if self.hubspot_platform_master_key_enabled and not self.hubspot_platform_master_ready:
+                raise ValueError(
+                    "AJENDA_HUBSPOT_PLATFORM_MASTER_KEY is required when "
+                    "AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED=true in production"
+                )
+            if self.network_egress_allow_private_destinations:
+                raise ValueError("AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS is forbidden in production")
+            if not self.network_egress_tls_verify:
+                raise ValueError("AJENDA_NETWORK_EGRESS_TLS_VERIFY=false is forbidden in production")
 
         if self.webhook_secret_encryption_key_prev is not None and str(self.webhook_secret_encryption_key_prev).strip():
             _validate_fernet_key(

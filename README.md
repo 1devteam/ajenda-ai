@@ -38,6 +38,12 @@ flowchart LR
 | Backend platform | Production-grade runtime, tenant isolation, queue/lease authority, recovery |
 | Self-serve onboarding API | Implemented (`/v1/onboarding/*`) — signup, verify, resend, promote |
 | Account self-service API | Implemented (`/v1/account/me`, `/plan`, `/usage`, `/billing`) |
+| Provider credentials API | Implemented (`/v1/account/provider-credentials` + revoke/delete) |
+| Ajenda central brain (standalone) | Implemented — durable `tenant_internal_records`, `web.research`, internal `gtm.crm_upsert` |
+| Plugin discovery API | Implemented (`GET /v1/plugins`, action→plugin mapping) |
+| HubSpot CRM adapter (optional plugin) | Implemented (`services/hubspot_crm_adapter`, TLS ingress in Compose/K8s) |
+| Gmail + SMTP email plugins | Implemented — `external_email` credentials; `gtm.email_send` / `gtm.email_check` |
+| Credentials UI | Implemented at `/credentials` (customer frontend) |
 | Stripe billing API | Implemented — checkout, portal (`billing:manage`), signed webhook with dedup |
 | Ability runtime API | Implemented — task launch, proofs, feature/quota gates |
 | Customer frontend | Implemented — React Router app (`/signup`, `/verify-email`, `/dashboard`, `/billing`, `/tasks`) |
@@ -47,6 +53,50 @@ flowchart LR
 | Production stranger-ready | **Partial** — needs Resend, live Stripe, `AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN=false`, prod hostnames |
 
 New signups provision on the **free** plan. `ability_runtime` (required for most side-effect abilities) is on **pro/enterprise** only. Workers support **`single`** (one `AJENDA_WORKER_TENANT_ID`) or **`multi`** (round-robin across active tenants); production defaults to **`multi`** — see ADR-0004.
+
+### Ajenda central brain (standalone mode)
+
+Ajenda runs fully without external CRM or email plugins:
+
+1. **Internal contacts** — `record.search`, `record.read`, `record.write` persist to `tenant_internal_records` when a DB session is available.
+2. **Web research** — `web.research` searches internal records and optionally fetches a public page snippet.
+3. **Sales intelligence** — `sales.qualify`, `sales.score_lead`, `sales.recommend_next_action`, `sales.draft_followup` run locally.
+4. **Internal CRM upsert** — `gtm.crm_upsert` without credentials writes to tenant internal records (`status=upserted_internal`).
+5. **Plugin discovery** — `GET /v1/plugins` lists standalone vs optional plugins and standard CRM contract paths.
+
+See [`docs/product/plugin-architecture.md`](docs/product/plugin-architecture.md).
+
+### HubSpot CRM integration (optional plugin)
+
+1. **Start stack with adapter + TLS ingress**
+
+   ```bash
+   docker compose up -d hubspot-crm-adapter hubspot-crm-ingress api worker
+   ```
+
+   - Adapter health: `http://127.0.0.1:8088/health`
+   - TLS ingress (worker target): `https://hubspot-crm-ingress:443` (Compose maps `8443:443`)
+
+2. **Register credentials (UI or API)**
+
+   - UI: sign in → **Credentials** → paste HubSpot personal access key
+   - API: `POST /v1/account/provider-credentials` with `provider=external_crm`, `integration=hubspot`
+
+3. **Launch governed CRM actions**
+
+   - `crm.research` / `sales.research` → adapter `GET /v1/search`
+   - `gtm.crm_upsert` → adapter `POST /v1/upsert`
+
+4. **Platform master key mode (operator only)**
+
+   - Set `AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED=true` and `AJENDA_HUBSPOT_PLATFORM_MASTER_KEY`
+   - Tenants may register with `use_platform_master_key=true` (UI checkbox)
+   - **Warning:** shared blast radius — prefer per-tenant keys in production
+
+5. **Production hostname**
+
+   - Set `AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST=crm-adapter.ajenda.example.com`
+   - K8s ingress routes `crm-adapter.ajenda.example.com` → `hubspot-crm-adapter` service (TLS required; private egress bypass is forbidden in production)
 
 ---
 
@@ -187,7 +237,8 @@ Current implementation note:
   - `/v1/outcome-reviews/*`
   - `/v1/retrieval-contracts/*`
   - `/v1/tasks/*`
-  - `/v1/workforce/*`
+  - `/v1/workforces/*`
+  - `/v1/plugins/*`
   - `/v1/branches/*`
   - `/v1/runtime/*`
   - `/v1/operations/*`

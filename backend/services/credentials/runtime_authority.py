@@ -118,15 +118,24 @@ class CredentialRuntimeAuthority:
             ):
                 raise CredentialRuntimeAuthorityError("credential_reference is not allowed for side-effect class")
         if reference.provider != provider:
-            raise CredentialRuntimeAuthorityError("credential_reference provider does not match action provider")
+            from backend.services.plugins.credential_bridge import accepts_plugin_credential
+
+            if not accepts_plugin_credential(
+                action_name=action_name,
+                action_provider=provider,
+                credential_provider=reference.provider,
+            ):
+                raise CredentialRuntimeAuthorityError("credential_reference provider does not match action provider")
         record = self._repository.get_visible_for_tenant(tenant_id=tenant_id, credential_id=reference.credential_id)
         if record is None:
             raise CredentialRuntimeAuthorityError("credential_reference is not visible for tenant")
+        plugin_bridged = reference.provider != provider
         self._validate_record(
             record=record,
             reference=reference,
             action_name=action_name,
             side_effect_class=side_effect_class,
+            relax_side_effect=plugin_bridged,
         )
         return RuntimeCredentialMaterial(
             reference=reference,
@@ -141,6 +150,7 @@ class CredentialRuntimeAuthority:
         reference: CredentialReference,
         action_name: str,
         side_effect_class: SideEffectClass,
+        relax_side_effect: bool = False,
     ) -> None:
         if not record.enabled:
             raise CredentialRuntimeAuthorityError("credential_reference is disabled")
@@ -152,5 +162,9 @@ class CredentialRuntimeAuthority:
             raise CredentialRuntimeAuthorityError("credential_reference is not compatible with stored credential")
         if record.allowed_actions and action_name not in record.allowed_actions:
             raise CredentialRuntimeAuthorityError("credential_reference is not allowed for action")
-        if record.allowed_side_effect_classes and side_effect_class not in record.allowed_side_effect_classes:
+        if (
+            not relax_side_effect
+            and record.allowed_side_effect_classes
+            and side_effect_class not in record.allowed_side_effect_classes
+        ):
             raise CredentialRuntimeAuthorityError("credential_reference is not allowed for side-effect class")

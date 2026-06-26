@@ -439,4 +439,14 @@ PY
 
 log "gtm proof result: $gtm_proof_json"
 
+if [[ "${AJENDA_PROOF_PLUGIN_LANE_ENABLED:-}" == "1" ]]; then
+  log "running optional env-gated plugin runtime lane"
+  export AJENDA_PROOF_API_BASE_URL="$API_BASE_URL"
+  export AJENDA_PROOF_COMPOSE_FILE="$COMPOSE_FILE"
+  export AJENDA_PROOF_COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE"
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plugin-runtime-proof.sh"
+else
+  log "plugin lane skipped (set AJENDA_PROOF_PLUGIN_LANE_ENABLED=1 and provider tokens to enable)"
+fi
+
 log "live runtime proof passed"

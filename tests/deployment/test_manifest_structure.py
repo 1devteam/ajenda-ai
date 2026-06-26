@@ -12,6 +12,8 @@ EXPECTED_K8S_MANIFESTS = frozenset(
         "frontend-service.yaml",
         "configmap.yaml",
         "hpa-worker.yaml",
+        "hubspot-crm-adapter-deployment.yaml",
+        "hubspot-crm-adapter-service.yaml",
         "ingress.yaml",
         "ingress-tls.yaml",
         "migrate-job.yaml",

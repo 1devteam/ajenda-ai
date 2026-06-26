@@ -63,6 +63,9 @@ include = ["backend*"]
 [tool.pytest.ini_options]
 addopts = "-q -ra"
 testpaths = ["tests"]
+filterwarnings = [
+  "ignore:datetime.datetime.utcnow\\(\\) is deprecated.*:DeprecationWarning",
+]
 markers = [
   "integration: marks tests as integration tests requiring Docker/Testcontainers (deselect with -m 'not integration')",
   "unit: marks tests as unit tests (no external dependencies required)",

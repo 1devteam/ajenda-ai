@@ -10,6 +10,7 @@ import AuthCallbackPage from "./pages/AuthCallbackPage";
 import SignInPage from "./pages/SignInPage";
 import SignupPage from "./pages/SignupPage";
 import TasksPage from "./pages/TasksPage";
+import CredentialsPage from "./pages/CredentialsPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 
 function HomeRedirect() {
@@ -42,6 +43,8 @@ export default function App() {
             <Route path="/billing/success" element={<BillingPage />} />
             <Route path="/billing/cancel" element={<BillingPage />} />
             <Route path="/tasks" element={<TasksPage />} />
+            <Route path="/credentials" element={<CredentialsPage />} />
+            <Route path="/credentials/gmail/callback" element={<CredentialsPage />} />
           </Route>
           <Route path="/dev" element={<DevConsolePage />} />
         </Route>

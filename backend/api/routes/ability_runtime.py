@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -10,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.api.routes._authorization import require_route_permission
+from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.permissions import Permission
@@ -23,6 +25,13 @@ from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.queue.base import QueueAdapter
 from backend.services.abilities.role_contracts import RoleName
+from backend.services.autonomy.disclaimer_catalog import (
+    AutonomyPolicyError,
+    action_tier,
+    catalog_entries_for_api,
+    parse_autonomy_acknowledgment,
+    validate_autonomy_acknowledgment,
+)
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
@@ -47,6 +56,8 @@ READ_SAFE_ACTIONS: set[str] = {
     "gtm.lead_enrich",
     "gtm.email_draft",
     "retrieval.hybrid_search",
+    "web.research",
+    "web.search",
 }
 
 INTERNAL_WRITE_ACTIONS: set[str] = {
@@ -71,6 +82,11 @@ EXTERNAL_ACTIONS: set[str] = {
 GTM_HIGH_RISK_ACTIONS: set[str] = {
     "gtm.email_send",
     "gtm.crm_upsert",
+    "gtm.social_publish",
+}
+
+GTM_HIGH_RISK_ACTIONS_REQUIRING_CREDENTIAL: set[str] = {
+    "gtm.email_send",
     "gtm.social_publish",
 }
 
@@ -113,6 +129,7 @@ class AbilityTaskCreate(BaseModel):
     approved_by: str = Field(default="ability-runtime-ui", min_length=1, max_length=160)
     approval_reason: str = Field(default="User launched ability from product runtime UI.", min_length=1, max_length=500)
     credential_reference: CredentialReference | None = None
+    autonomy_acknowledgment: dict[str, Any] | None = None
 
     @field_validator("action")
     @classmethod
@@ -197,6 +214,98 @@ def _principal_may_approve_gtm_side_effects(request: Request) -> bool:
         return False
     allowed_roles = {RoleName.GUARDIAN.value, "admin", "tenant_admin"}
     return bool(allowed_roles.intersection(set(getattr(principal, "roles", ()) or ())))
+
+
+def _principal_subject_id(request: Request) -> str | None:
+    principal = getattr(request.state, "principal", None)
+    if principal is None:
+        return None
+    return str(getattr(principal, "subject_id", "")).strip() or None
+
+
+INFORMED_AUTONOMY_LAUNCH_ROLES = frozenset({"tenant_owner", "tenant_operator"})
+
+
+def _principal_may_launch_informed_autonomy(request: Request) -> bool:
+    principal = getattr(request.state, "principal", None)
+    if principal is None:
+        return False
+    return bool(INFORMED_AUTONOMY_LAUNCH_ROLES.intersection(set(getattr(principal, "roles", ()) or ())))
+
+
+@dataclass(slots=True)
+class _LaunchAuthority:
+    approved_by: str
+    approval_reason: str
+    requires_human_review: bool
+    autonomy_acknowledgment: dict[str, Any] | None
+
+
+def _resolve_launch_authority(
+    *,
+    request: Request,
+    body: AbilityTaskCreate,
+    action_name: str,
+) -> _LaunchAuthority:
+    settings = get_settings()
+    mode = settings.autonomy_disclaimer_mode
+    approved_by = body.approved_by
+    approval_reason = body.approval_reason
+    requires_human_review = action_name in GTM_HIGH_RISK_ACTIONS
+    autonomy_payload: dict[str, Any] | None = None
+
+    if mode in {"pilot", "enforce"} and body.autonomy_acknowledgment is not None:
+        try:
+            acknowledgment = parse_autonomy_acknowledgment(body.autonomy_acknowledgment)
+            entry = validate_autonomy_acknowledgment(acknowledgment=acknowledgment, action_name=action_name)
+        except AutonomyPolicyError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        principal_id = _principal_subject_id(request)
+        if principal_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing authentication")
+        if acknowledgment.principal_id != principal_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="autonomy_acknowledgment.principal_id must match authenticated principal",
+            )
+        if not _principal_may_launch_informed_autonomy(request):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="informed autonomy launches require tenant_owner or tenant_operator principal",
+            )
+
+        approved_by = f"autonomy:{principal_id}"
+        approval_reason = f"User accepted disclaimer {entry.disclaimer_id}"
+        requires_human_review = False
+        autonomy_payload = {
+            "schema_version": acknowledgment.schema_version,
+            "disclaimer_id": acknowledgment.disclaimer_id,
+            "disclaimer_text_hash": acknowledgment.disclaimer_text_hash,
+            "accepted_at": acknowledgment.accepted_at,
+            "principal_id": acknowledgment.principal_id,
+            "action": acknowledgment.action,
+            "side_effect_class": acknowledgment.side_effect_class,
+        }
+        return _LaunchAuthority(
+            approved_by=approved_by,
+            approval_reason=approval_reason,
+            requires_human_review=requires_human_review,
+            autonomy_acknowledgment=autonomy_payload,
+        )
+
+    if mode == "enforce" and action_tier(action_name) >= 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Action {action_name} requires autonomy_acknowledgment when AJENDA_AUTONOMY_DISCLAIMER_MODE=enforce",
+        )
+
+    return _LaunchAuthority(
+        approved_by=approved_by,
+        approval_reason=approval_reason,
+        requires_human_review=requires_human_review,
+        autonomy_acknowledgment=None,
+    )
 
 
 def _validate_exposed_action(action_name: str) -> None:
@@ -288,6 +397,9 @@ def _build_task_metadata(
     capability: Capability | None,
     adapter: CapabilityAdapter | None,
     request_body: AbilityTaskCreate,
+    approved_by: str,
+    approval_reason: str,
+    autonomy_acknowledgment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "schema_version": 1,
@@ -308,15 +420,18 @@ def _build_task_metadata(
     if adapter is not None:
         metadata["adapter_reference"] = {"adapter_id": str(adapter.id)}
 
-    if side_effect_class.has_side_effect:
-        metadata["execution_constraints"] = {
-            "side_effect_authorization": {
+    if side_effect_class.has_side_effect or autonomy_acknowledgment is not None:
+        execution_constraints: dict[str, Any] = {}
+        if side_effect_class.has_side_effect:
+            execution_constraints["side_effect_authorization"] = {
                 "schema_version": 1,
                 "allowed_actions": [action_name],
-                "reason": request_body.approval_reason,
-                "approved_by": request_body.approved_by,
+                "reason": approval_reason,
+                "approved_by": approved_by,
             }
-        }
+        if autonomy_acknowledgment is not None:
+            execution_constraints["autonomy_acknowledgment"] = autonomy_acknowledgment
+        metadata["execution_constraints"] = execution_constraints
 
     if request_body.credential_reference is not None:
         metadata["credential_reference"] = request_body.credential_reference.model_dump(mode="json")
@@ -414,6 +529,25 @@ def list_actions(
     return AbilityActionListResponse(actions=actions)
 
 
+@router.get("/disclaimers")
+def list_disclaimers(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> dict[str, Any]:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.EXECUTION_VIEW,
+        tenant_id=tenant_id,
+    )
+    return {
+        "schema_version": 1,
+        "mode": get_settings().autonomy_disclaimer_mode,
+        "disclaimers": catalog_entries_for_api(),
+    }
+
+
 @router.post("/tasks", response_model=AbilityTaskQueuedResponse, status_code=status.HTTP_202_ACCEPTED)
 def launch_task(
     body: AbilityTaskCreate,
@@ -461,19 +595,19 @@ def launch_task(
                 detail=str(exc),
             ) from exc
 
+    launch_authority = _resolve_launch_authority(request=request, body=body, action_name=action_name)
+
     # PR9 pilot harness: explicit side_effect_authorization + guardian role enforcement
     # for high-risk GTM EXTERNAL actions (email_send, crm_upsert, social_publish).
-    # Uses body.approved_by (must reference guardian per GUARDIAN_ROLE_CONTRACT.may_approve_side_effects=True).
-    # This augments the always-written execution_constraints.side_effect_authorization envelope
-    # (for has_side_effect) and the downstream ToolRuntimeAuthority + capability_validation + side_effect_authorized checks.
-    # High-risk GTM also set requires_human_review to engage policy paths for pilot.
+    # Informed autonomy (ADR-0005) may waive guardian + requires_human_review when a valid
+    # autonomy_acknowledgment is present and AJENDA_AUTONOMY_DISCLAIMER_MODE is pilot/enforce.
     if action_name in GTM_HIGH_RISK_ACTIONS:
-        if not _principal_may_approve_gtm_side_effects(request):
+        if launch_authority.autonomy_acknowledgment is None and not _principal_may_approve_gtm_side_effects(request):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(f"High-risk GTM action {action_name} requires guardian, admin, or tenant_admin role."),
             )
-        if body.credential_reference is None:
+        if action_name in GTM_HIGH_RISK_ACTIONS_REQUIRING_CREDENTIAL and body.credential_reference is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"High-risk GTM action {action_name} requires credential_reference in launch payload.",
@@ -484,7 +618,11 @@ def launch_task(
                 detail=f"High-risk GTM action {action_name} requires idempotency_key in launch payload.",
             )
 
-    if action_name in CREDENTIALED_EXTERNAL_READ_ACTIONS and body.credential_reference is not None:
+    if (
+        action_name in CREDENTIALED_EXTERNAL_READ_ACTIONS
+        and body.credential_reference is not None
+        and launch_authority.autonomy_acknowledgment is None
+    ):
         if not _principal_may_approve_gtm_side_effects(request):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -518,7 +656,7 @@ def launch_task(
         tenant_id=str(tenant_id),
         action_name=action.name,
         side_effect_class=side_effect_class,
-        approved_by=body.approved_by,
+        approved_by=launch_authority.approved_by,
     )
 
     mission = Mission(
@@ -548,13 +686,33 @@ def launch_task(
             capability=capability,
             adapter=adapter,
             request_body=body,
+            approved_by=launch_authority.approved_by,
+            approval_reason=launch_authority.approval_reason,
+            autonomy_acknowledgment=launch_authority.autonomy_acknowledgment,
         ),
         compliance_category="operational",
         jurisdiction="US-ALL",
-        requires_human_review=action_name in GTM_HIGH_RISK_ACTIONS,
+        requires_human_review=launch_authority.requires_human_review,
     )
     db.add(task)
     db.flush()
+
+    if launch_authority.autonomy_acknowledgment is not None:
+        db.add(
+            AuditEvent(
+                tenant_id=str(tenant_id),
+                mission_id=mission.id,
+                category="autonomy",
+                action="autonomy_disclaimer_accepted",
+                actor=launch_authority.approved_by,
+                details=f"Accepted {launch_authority.autonomy_acknowledgment['disclaimer_id']} for {action_name}",
+                payload_json={
+                    "task_id": str(task.id),
+                    "action": action_name,
+                    **launch_authority.autonomy_acknowledgment,
+                },
+            )
+        )
 
     queued = ExecutionCoordinator(db, queue).queue_task(
         tenant_id=str(tenant_id),

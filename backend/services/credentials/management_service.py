@@ -1,0 +1,311 @@
+from __future__ import annotations
+
+import re
+import uuid
+from dataclasses import dataclass
+from typing import Literal
+
+from sqlalchemy.orm import Session
+
+from backend.app.config import Settings, get_settings
+from backend.domain.audit_event import AuditEvent
+from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
+from backend.repositories.audit_event_repository import AuditEventRepository
+from backend.repositories.provider_runtime_credential_repository import ProviderRuntimeCredentialRepository
+from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
+
+PLATFORM_MASTER_CREDENTIAL_TYPE = "platform_master"
+TENANT_API_KEY_CREDENTIAL_TYPE = "api_key"
+PLATFORM_MASTER_SENTINEL = "__AJENDA_PLATFORM_MASTER__"
+
+HUBSPOT_EXTERNAL_CRM_ACTIONS = (
+    "sales.research",
+    "crm.research",
+    "crm.read",
+    "gtm.crm_upsert",
+)
+HUBSPOT_EXTERNAL_CRM_SIDE_EFFECTS = ("external_read", "external_write")
+GMAIL_EMAIL_ACTIONS = ("gtm.email_send", "gtm.email_check")
+GMAIL_EMAIL_SIDE_EFFECTS = ("external_send", "external_read")
+SMTP_EMAIL_ACTIONS = ("gtm.email_send",)
+SMTP_EMAIL_SIDE_EFFECTS = ("external_send",)
+
+
+class ProviderCredentialManagementError(ValueError):
+    """Deterministic management-layer validation failure."""
+
+
+@dataclass(slots=True)
+class ProviderCredentialSummary:
+    credential_id: str
+    tenant_id: str
+    provider: str
+    credential_type: str
+    enabled: bool
+    revoked: bool
+    allowed_actions: list[str]
+    allowed_side_effect_classes: list[str]
+    trusted_destination_hosts: list[str]
+    uses_platform_master_key: bool
+    platform_master_warning: str | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True)
+class ProviderCredentialCreateResult:
+    summary: ProviderCredentialSummary
+    secret_returned_once: bool
+    warning: str | None = None
+
+
+class ProviderCredentialManagementService:
+    def __init__(self, session: Session, *, settings: Settings | None = None) -> None:
+        self._session = session
+        self._settings = settings or get_settings()
+        self._repo = ProviderRuntimeCredentialRepository(session)
+        self._audit = AuditEventRepository(session)
+        self._protector = RuntimeCredentialSecretProtector()
+
+    def register(
+        self,
+        *,
+        tenant_id: str,
+        credential_id: str,
+        provider: str,
+        integration: Literal["hubspot", "gmail", "smtp", "generic"] = "hubspot",
+        secret_value: str | None = None,
+        use_platform_master_key: bool = False,
+        allowed_actions: list[str] | None = None,
+        allowed_side_effect_classes: list[str] | None = None,
+        trusted_destination_hosts: list[str] | None = None,
+        actor_id: str,
+    ) -> ProviderCredentialCreateResult:
+        normalized_id = _normalize_credential_id(credential_id)
+        normalized_provider = provider.strip().lower()
+        if normalized_provider not in {"external_crm", "external_read_provider", "external_email"}:
+            raise ProviderCredentialManagementError(
+                "provider must be external_crm, external_read_provider, or external_email"
+            )
+
+        warning: str | None = None
+        credential_type = self._resolve_credential_type(
+            provider=normalized_provider,
+            integration=integration,
+            use_platform_master_key=use_platform_master_key,
+        )
+        ciphertext: str
+
+        if use_platform_master_key:
+            if not self._settings.hubspot_platform_master_ready:
+                raise ProviderCredentialManagementError("platform master key mode is not configured on this deployment")
+            credential_type = PLATFORM_MASTER_CREDENTIAL_TYPE
+            ciphertext = self._protector.encrypt_secret(PLATFORM_MASTER_SENTINEL)
+            warning = (
+                "WARNING: This credential uses the platform master HubSpot key. "
+                "All tenants sharing this mode depend on operator key rotation and "
+                "centralized blast-radius risk. Prefer per-tenant keys for production."
+            )
+        else:
+            if not secret_value or not secret_value.strip():
+                raise ProviderCredentialManagementError("secret_value is required unless use_platform_master_key=true")
+            normalized_secret = secret_value.strip()
+            if credential_type == "smtp":
+                self._validate_smtp_secret(normalized_secret)
+            ciphertext = self._protector.encrypt_secret(normalized_secret)
+
+        actions, side_effects, hosts = self._default_scope(
+            provider=normalized_provider,
+            integration=integration,
+            allowed_actions=allowed_actions,
+            allowed_side_effect_classes=allowed_side_effect_classes,
+            trusted_destination_hosts=trusted_destination_hosts,
+        )
+
+        record = ProviderRuntimeCredential(
+            id=f"prc-{uuid.uuid4()}",
+            tenant_id=tenant_id,
+            credential_id=normalized_id,
+            provider=normalized_provider,
+            credential_type=credential_type,
+            enabled=True,
+            revoked=False,
+            deleted=False,
+            allowed_actions=list(actions),
+            allowed_side_effect_classes=list(side_effects),
+            trusted_destination_hosts=list(hosts),
+            secret_ciphertext=ciphertext,
+        )
+        saved = self._repo.upsert(record)
+        self._emit_audit(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            action="provider_credential_registered",
+            details=f"Registered provider credential {normalized_id} ({normalized_provider})",
+            payload={
+                "credential_id": normalized_id,
+                "provider": normalized_provider,
+                "credential_type": credential_type,
+                "uses_platform_master_key": use_platform_master_key,
+                "trusted_destination_hosts": hosts,
+                "warning": warning,
+            },
+        )
+        summary = self._to_summary(saved)
+        return ProviderCredentialCreateResult(
+            summary=summary,
+            secret_returned_once=False,
+            warning=warning,
+        )
+
+    def list_credentials(self, *, tenant_id: str) -> list[ProviderCredentialSummary]:
+        return [self._to_summary(row) for row in self._repo.list_for_tenant(tenant_id=tenant_id)]
+
+    def revoke(self, *, tenant_id: str, credential_id: str, actor_id: str) -> ProviderCredentialSummary:
+        normalized_id = _normalize_credential_id(credential_id)
+        saved = self._repo.mark_revoked(tenant_id=tenant_id, credential_id=normalized_id)
+        self._emit_audit(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            action="provider_credential_revoked",
+            details=f"Revoked provider credential {normalized_id}",
+            payload={"credential_id": normalized_id},
+        )
+        return self._to_summary(saved)
+
+    def delete(self, *, tenant_id: str, credential_id: str, actor_id: str) -> ProviderCredentialSummary:
+        normalized_id = _normalize_credential_id(credential_id)
+        saved = self._repo.mark_deleted(tenant_id=tenant_id, credential_id=normalized_id)
+        self._emit_audit(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            action="provider_credential_deleted",
+            details=f"Deleted provider credential {normalized_id}",
+            payload={"credential_id": normalized_id},
+        )
+        return self._to_summary(saved)
+
+    def _default_scope(
+        self,
+        *,
+        provider: str,
+        integration: str,
+        allowed_actions: list[str] | None,
+        allowed_side_effect_classes: list[str] | None,
+        trusted_destination_hosts: list[str] | None,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        if provider == "external_crm" and integration == "hubspot":
+            actions = tuple(allowed_actions or HUBSPOT_EXTERNAL_CRM_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or HUBSPOT_EXTERNAL_CRM_SIDE_EFFECTS)
+            hosts = tuple(
+                trusted_destination_hosts
+                or (self._settings.hubspot_crm_adapter_public_host.strip().lower().rstrip("."),)
+            )
+            return actions, side_effects, hosts
+        if provider == "external_read_provider":
+            actions = tuple(allowed_actions or ("provider.external_read",))
+            side_effects = tuple(allowed_side_effect_classes or ("external_read",))
+            hosts = tuple(trusted_destination_hosts or ("api.hubapi.com",))
+            return actions, side_effects, hosts
+        if provider == "external_email" and integration == "gmail":
+            actions = tuple(allowed_actions or GMAIL_EMAIL_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or GMAIL_EMAIL_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or ("gmail.googleapis.com",))
+            return actions, side_effects, hosts
+        if provider == "external_email" and integration == "smtp":
+            actions = tuple(allowed_actions or SMTP_EMAIL_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or SMTP_EMAIL_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or ())
+            return actions, side_effects, hosts
+        actions = tuple(allowed_actions or ())
+        side_effects = tuple(allowed_side_effect_classes or ())
+        hosts = tuple(trusted_destination_hosts or ())
+        if not hosts:
+            raise ProviderCredentialManagementError("trusted_destination_hosts is required for generic integrations")
+        return actions, side_effects, hosts
+
+    def _to_summary(self, row: ProviderRuntimeCredential) -> ProviderCredentialSummary:
+        uses_platform = row.credential_type == PLATFORM_MASTER_CREDENTIAL_TYPE
+        warning = None
+        if uses_platform:
+            warning = (
+                "Platform master key mode: shared operator credential with elevated blast radius. "
+                "Rotate AJENDA_HUBSPOT_PLATFORM_MASTER_KEY with care."
+            )
+        return ProviderCredentialSummary(
+            credential_id=row.credential_id,
+            tenant_id=row.tenant_id,
+            provider=row.provider,
+            credential_type=row.credential_type,
+            enabled=row.enabled,
+            revoked=row.revoked,
+            allowed_actions=list(row.allowed_actions or []),
+            allowed_side_effect_classes=list(row.allowed_side_effect_classes or []),
+            trusted_destination_hosts=list(row.trusted_destination_hosts or []),
+            uses_platform_master_key=uses_platform,
+            platform_master_warning=warning,
+            created_at=row.created_at.isoformat(),
+            updated_at=row.updated_at.isoformat(),
+        )
+
+    def _resolve_credential_type(
+        self,
+        *,
+        provider: str,
+        integration: str,
+        use_platform_master_key: bool,
+    ) -> str:
+        if use_platform_master_key:
+            return PLATFORM_MASTER_CREDENTIAL_TYPE
+        if provider == "external_email" and integration == "smtp":
+            return "smtp"
+        return TENANT_API_KEY_CREDENTIAL_TYPE
+
+    @staticmethod
+    def _validate_smtp_secret(secret_value: str) -> None:
+        import json
+
+        try:
+            payload = json.loads(secret_value)
+        except json.JSONDecodeError as exc:
+            raise ProviderCredentialManagementError("smtp secret_value must be JSON") from exc
+        if not isinstance(payload, dict):
+            raise ProviderCredentialManagementError("smtp secret_value must be a JSON object")
+        for field in ("host", "password"):
+            if not str(payload.get(field, "")).strip():
+                raise ProviderCredentialManagementError(f"smtp secret_value requires {field}")
+        user = payload.get("user", payload.get("username"))
+        if not str(user or "").strip():
+            raise ProviderCredentialManagementError("smtp secret_value requires user or username")
+
+    def _emit_audit(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        action: str,
+        details: str,
+        payload: dict[str, object],
+    ) -> None:
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=None,
+                category="credentials",
+                action=action,
+                actor=actor_id,
+                details=details,
+                payload_json=payload,
+            )
+        )
+
+
+def _normalize_credential_id(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise ProviderCredentialManagementError("credential_id is required")
+    if len(stripped) > 160:
+        raise ProviderCredentialManagementError("credential_id is too long")
+    if not re.fullmatch(r"[A-Za-z0-9._:-]+", stripped):
+        raise ProviderCredentialManagementError("credential_id contains invalid characters")
+    return stripped

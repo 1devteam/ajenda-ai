@@ -1,0 +1,33 @@
+schema_version: 1
+disclaimers:
+  - disclaimer_id: autonomy.session.ai_review.v1
+    tier: 1
+    actions:
+      - gtm.email_draft
+      - sales.draft_followup
+    text: >
+      AI-generated drafts may be inaccurate. You are responsible for reviewing output before use.
+  - disclaimer_id: autonomy.external_read.v1
+    tier: 2
+    actions:
+      - gtm.email_check
+      - sales.research
+    text: >
+      You authorize Ajenda to read data from your connected external account using the supplied credential.
+  - disclaimer_id: autonomy.external_send.v1
+    tier: 3
+    actions:
+      - gtm.email_send
+    text: >
+      You accept responsibility for email content, recipients, and delivery when sending through your connected account.
+  - disclaimer_id: autonomy.external_write.v1
+    tier: 3
+    actions:
+      - gtm.crm_upsert
+      - gtm.social_publish
+      - record.write
+      - calendar.create_event
+      - sales.log_activity
+      - webhook.dispatch
+    text: >
+      You accept responsibility for external mutations performed through your connected account or configured integration.
