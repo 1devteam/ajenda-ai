@@ -193,9 +193,17 @@ class LocalRecordStoreAdapter:
         )
 
 
+def _session_factory_supports_durable_store(session_factory: Callable[[], Session]) -> bool:
+    session = session_factory()
+    try:
+        return all(hasattr(session, attr) for attr in ("execute", "commit", "rollback", "close"))
+    finally:
+        session.close()
+
+
 def resolve_record_store(context: ActionRuntimeContext) -> RecordStore:
     session_factory = context.session_factory
-    if session_factory is None:
+    if session_factory is None or not _session_factory_supports_durable_store(session_factory):
         return LocalRecordStoreAdapter()
     return SessionScopedDurableRecordStore(session_factory, context.tenant_id)
 

@@ -77,6 +77,7 @@ client_secret*.json
 *.key
 *.crt
 secrets/
+!infra/modules/secrets/
 *.secret
 # Compose runtime env — templates (*.example) stay committable via rules above
 deploy/compose/.env.prod
