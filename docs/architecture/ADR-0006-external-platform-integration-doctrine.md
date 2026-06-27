@@ -52,6 +52,8 @@ Registry default side-effect classes represent the **no-credential** path (`INTE
 | `gtm.crm_upsert` | `EXTERNAL_WRITE` | External upsert via plugin; errors return `real=false` without brain fallback |
 | `gtm.email_check` | `EXTERNAL_READ` | Live Gmail read or fail closed |
 | `gtm.email_send` | `EXTERNAL_SEND` | Live send or explicit error result |
+| `linkedin.profile_read` | `EXTERNAL_READ` | Live LinkedIn profile read or fail closed |
+| `salesforce.soql_read` | `EXTERNAL_READ` | Live SELECT SOQL or fail closed |
 
 `ToolRuntimeAuthority` enriches `ToolInvocation.credential_reference` from task metadata before resolver evaluation so runtime and catalog stay aligned.
 
@@ -67,7 +69,22 @@ Registry default side-effect classes represent the **no-credential** path (`INTE
 
 ### 6. Expansion gate (LinkedIn, Salesforce)
 
-Do not clone external integrations until P0 policy gaps are closed:
+#### Hold status
+
+| Field | Value |
+|---|---|
+| **Status** | Lifted |
+| **Date** | 2026-06-27 |
+| **Lifted by** | Obex Blackvault |
+| **Commit** | `576a6c6` |
+| **Reason** | P0 requirements completed and verified (fail-closed `gtm.email_check`, side-effect resolvers, taxonomy alignment, doc/ledger refresh, integration proofs, `contract_drift_check` enforcement). |
+
+Platform expansion is authorized under this ADR in this order:
+
+1. **LinkedIn read-only** — `linkedin.profile_read` + `external_read_provider` / `integration=linkedin`
+2. **Salesforce read-only** — `salesforce.soql_read` + `external_read_provider` / `integration=salesforce` (tenant instance host required)
+
+P0 prerequisites (all satisfied at hold lift):
 
 1. Fail-closed credentialed reads/sends
 2. Resolver-backed side-effect taxonomy in registry + ability catalog

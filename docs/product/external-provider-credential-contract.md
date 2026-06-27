@@ -56,6 +56,26 @@ When `provider=external_email`:
 Direct HubSpot reads may alternatively use `provider=external_read_provider` with
 `trusted_destination_hosts=["api.hubapi.com"]` and action `provider.external_read`.
 
+## LinkedIn read {#linkedin-read}
+
+When `integration=linkedin` and `provider=external_read_provider`:
+
+- `allowed_actions`: `linkedin.profile_read`, `provider.external_read`
+- `allowed_side_effect_classes`: `external_read`
+- `trusted_destination_hosts`: `api.linkedin.com`
+- Runtime action `linkedin.profile_read` uses LinkedIn REST headers (`LinkedIn-Version`, `X-Restli-Protocol-Version`)
+- Credentialed path fails closed on LinkedIn API errors (no simulated profile fallback)
+
+## Salesforce read {#salesforce-read}
+
+When `integration=salesforce` and `provider=external_read_provider`:
+
+- `allowed_actions`: `salesforce.soql_read`, `provider.external_read`
+- `allowed_side_effect_classes`: `external_read`
+- `trusted_destination_hosts`: **required** tenant instance host (e.g. `mycompany.my.salesforce.com`)
+- Runtime action `salesforce.soql_read` accepts read-only `SELECT` SOQL only
+- Credentialed path fails closed on Salesforce API errors (no simulated query fallback)
+
 ## Supported reference kinds (runtime envelope)
 
 - `credential_reference` in task metadata (`schema_version=1`)
@@ -65,6 +85,8 @@ Direct HubSpot reads may alternatively use `provider=external_read_provider` wit
 
 - HubSpot CRM (via adapter + `external_crm`)
 - Gmail (`external_email`)
+- LinkedIn read (`external_read_provider` + `integration=linkedin`)
+- Salesforce read (`external_read_provider` + `integration=salesforce`)
 - Google Calendar
 - GitHub
 - Generic CRM HTTP

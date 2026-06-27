@@ -233,7 +233,9 @@ def build_default_action_registry() -> ActionRegistry:
     from backend.services.tools.calendar_actions import register_calendar_actions
     from backend.services.tools.gtm_actions import register_gtm_actions
     from backend.services.tools.http_actions import register_http_actions
+    from backend.services.tools.linkedin_actions import register_linkedin_actions
     from backend.services.tools.provider_read_actions import register_provider_read_actions
+    from backend.services.tools.salesforce_actions import register_salesforce_actions
     from backend.services.tools.sales_actions import register_sales_actions
     from backend.services.tools.standalone_actions import register_standalone_actions
     from backend.services.tools.webhook_actions import register_webhook_actions
@@ -242,6 +244,8 @@ def build_default_action_registry() -> ActionRegistry:
     register_sales_actions(registry)
     register_http_actions(registry)
     register_provider_read_actions(registry)
+    register_linkedin_actions(registry)
+    register_salesforce_actions(registry)
     register_webhook_actions(registry)
     register_calendar_actions(registry)
     register_gtm_actions(registry)

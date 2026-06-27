@@ -117,6 +117,58 @@ def test_register_smtp_email_credential(session_factory) -> None:
     assert "gtm.email_send" in result.summary.allowed_actions
 
 
+def test_register_linkedin_read_credential(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session)
+        result = service.register(
+            tenant_id=tenant_id,
+            credential_id="linkedin-read",
+            provider="external_read_provider",
+            integration="linkedin",
+            secret_value="linkedin-oauth-token",
+            actor_id="user-1",
+        )
+        session.commit()
+
+    assert "linkedin.profile_read" in result.summary.allowed_actions
+    assert "api.linkedin.com" in result.summary.trusted_destination_hosts
+
+
+def test_register_salesforce_read_requires_instance_host(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session)
+        with pytest.raises(ProviderCredentialManagementError, match="trusted_destination_hosts"):
+            service.register(
+                tenant_id=tenant_id,
+                credential_id="salesforce-read",
+                provider="external_read_provider",
+                integration="salesforce",
+                secret_value="sf-oauth-token",
+                actor_id="user-1",
+            )
+
+
+def test_register_salesforce_read_credential(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session)
+        result = service.register(
+            tenant_id=tenant_id,
+            credential_id="salesforce-read",
+            provider="external_read_provider",
+            integration="salesforce",
+            secret_value="sf-oauth-token",
+            trusted_destination_hosts=["acme.my.salesforce.com"],
+            actor_id="user-1",
+        )
+        session.commit()
+
+    assert "salesforce.soql_read" in result.summary.allowed_actions
+    assert result.summary.trusted_destination_hosts == ["acme.my.salesforce.com"]
+
+
 def test_revoke_and_list_credentials(session_factory) -> None:
     tenant_id = str(uuid.uuid4())
     with session_factory() as session:

@@ -29,6 +29,11 @@ GMAIL_EMAIL_ACTIONS = ("gtm.email_send", "gtm.email_check")
 GMAIL_EMAIL_SIDE_EFFECTS = ("external_send", "external_read")
 SMTP_EMAIL_ACTIONS = ("gtm.email_send",)
 SMTP_EMAIL_SIDE_EFFECTS = ("external_send",)
+LINKEDIN_READ_ACTIONS = ("linkedin.profile_read", "provider.external_read")
+LINKEDIN_READ_SIDE_EFFECTS = ("external_read",)
+LINKEDIN_TRUSTED_HOSTS = ("api.linkedin.com",)
+SALESFORCE_READ_ACTIONS = ("salesforce.soql_read", "provider.external_read")
+SALESFORCE_READ_SIDE_EFFECTS = ("external_read",)
 
 
 class ProviderCredentialManagementError(ValueError):
@@ -73,7 +78,7 @@ class ProviderCredentialManagementService:
         tenant_id: str,
         credential_id: str,
         provider: str,
-        integration: Literal["hubspot", "gmail", "smtp", "generic"] = "hubspot",
+        integration: Literal["hubspot", "gmail", "smtp", "linkedin", "salesforce", "generic"] = "hubspot",
         secret_value: str | None = None,
         use_platform_master_key: bool = False,
         allowed_actions: list[str] | None = None,
@@ -201,6 +206,21 @@ class ProviderCredentialManagementService:
                 trusted_destination_hosts
                 or (self._settings.hubspot_crm_adapter_public_host.strip().lower().rstrip("."),)
             )
+            return actions, side_effects, hosts
+        if provider == "external_read_provider" and integration == "linkedin":
+            actions = tuple(allowed_actions or LINKEDIN_READ_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or LINKEDIN_READ_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or LINKEDIN_TRUSTED_HOSTS)
+            return actions, side_effects, hosts
+        if provider == "external_read_provider" and integration == "salesforce":
+            actions = tuple(allowed_actions or SALESFORCE_READ_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or SALESFORCE_READ_SIDE_EFFECTS)
+            if not trusted_destination_hosts:
+                raise ProviderCredentialManagementError(
+                    "trusted_destination_hosts is required for salesforce integration "
+                    "(tenant Salesforce instance host, e.g. mycompany.my.salesforce.com)"
+                )
+            hosts = tuple(trusted_destination_hosts)
             return actions, side_effects, hosts
         if provider == "external_read_provider":
             actions = tuple(allowed_actions or ("provider.external_read",))

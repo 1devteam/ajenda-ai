@@ -415,3 +415,199 @@ def test_crm_upsert_credentialed_invoke_without_capability_monkeypatch(
     assert result["side_effect_class"] == "external_write"
     assert result["output"]["real"] is True
     assert result["output"]["status"] == "upserted_real"
+
+
+def _store_linkedin_credential(session: Session, *, tenant_id: str, credential_id: str = "linkedin-read") -> str:
+    protector = RuntimeCredentialSecretProtector()
+    ciphertext = protector.encrypt_secret("integration-test-linkedin-token")
+    row = ProviderRuntimeCredential(
+        id=f"prc-{uuid.uuid4()}",
+        tenant_id=tenant_id,
+        credential_id=credential_id,
+        provider="external_read_provider",
+        credential_type="api_key",
+        enabled=True,
+        revoked=False,
+        deleted=False,
+        allowed_actions=["linkedin.profile_read", "provider.external_read"],
+        allowed_side_effect_classes=["external_read"],
+        trusted_destination_hosts=["api.linkedin.com"],
+        secret_ciphertext=ciphertext,
+    )
+    session.add(row)
+    session.flush()
+    return credential_id
+
+
+def _store_salesforce_credential(session: Session, *, tenant_id: str, credential_id: str = "salesforce-read") -> str:
+    protector = RuntimeCredentialSecretProtector()
+    ciphertext = protector.encrypt_secret("integration-test-salesforce-token")
+    row = ProviderRuntimeCredential(
+        id=f"prc-{uuid.uuid4()}",
+        tenant_id=tenant_id,
+        credential_id=credential_id,
+        provider="external_read_provider",
+        credential_type="api_key",
+        enabled=True,
+        revoked=False,
+        deleted=False,
+        allowed_actions=["salesforce.soql_read", "provider.external_read"],
+        allowed_side_effect_classes=["external_read"],
+        trusted_destination_hosts=["acme.my.salesforce.com"],
+        secret_ciphertext=ciphertext,
+    )
+    session.add(row)
+    session.flush()
+    return credential_id
+
+
+def test_linkedin_profile_read_invoke_without_capability_monkeypatch(
+    integration_env: None,
+    pg_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    credential_id = _store_linkedin_credential(pg_session, tenant_id=tenant_id)
+    authority_refs = seed_capability_adapter_authority(
+        pg_session,
+        tenant_id=tenant_id,
+        action_name="linkedin.profile_read",
+        side_effect_classification="external_read",
+    )
+    pg_session.commit()
+
+    authority = MagicMock()
+    authority.request.return_value = (
+        VettedNetworkDestination(
+            original_url="https://api.linkedin.com/v2/me",
+            connect_url="https://10.0.0.7/v2/me",
+            pinned_ip=__import__("ipaddress").ip_address("10.0.0.7"),
+            sni_hostname="api.linkedin.com",
+            host_header="api.linkedin.com",
+        ),
+        NetworkEgressResponse(
+            status_code=200,
+            headers={},
+            body_text='{"id":"li-live-1","headline":{"localized":{"en_US":"Builder"}}}',
+            body_truncated=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.tools.linkedin_actions.get_default_network_egress_authority",
+        lambda: authority,
+    )
+
+    task = ExecutionTask(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        title="linkedin profile read",
+        description="linkedin profile read",
+        status="running",
+        metadata_json={
+            "task_type": "tool.invoke",
+            "tool_invocation": {
+                "action": "linkedin.profile_read",
+                "input": {},
+            },
+            "credential_reference": {
+                "schema_version": 1,
+                "credential_id": credential_id,
+                "provider": "external_read_provider",
+                "credential_type": "api_key",
+            },
+            **authority_refs,
+        },
+        compliance_category="operational",
+        jurisdiction="US-ALL",
+        requires_human_review=False,
+    )
+    result = tool_invoke_handler(
+        task,
+        {
+            "worker_id": "worker-test",
+            "tenant_id": tenant_id,
+            "lease_id": str(uuid.uuid4()),
+            "session_factory": lambda: pg_session,
+        },
+    )
+
+    assert result["side_effect_class"] == "external_read"
+    assert result["output"]["real"] is True
+    assert result["output"]["profile"]["id"] == "li-live-1"
+
+
+def test_salesforce_soql_read_invoke_without_capability_monkeypatch(
+    integration_env: None,
+    pg_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    credential_id = _store_salesforce_credential(pg_session, tenant_id=tenant_id)
+    authority_refs = seed_capability_adapter_authority(
+        pg_session,
+        tenant_id=tenant_id,
+        action_name="salesforce.soql_read",
+        side_effect_classification="external_read",
+    )
+    pg_session.commit()
+
+    authority = MagicMock()
+    authority.request.return_value = (
+        VettedNetworkDestination(
+            original_url="https://acme.my.salesforce.com/services/data/v59.0/query",
+            connect_url="https://10.0.0.8/services/data/v59.0/query",
+            pinned_ip=__import__("ipaddress").ip_address("10.0.0.8"),
+            sni_hostname="acme.my.salesforce.com",
+            host_header="acme.my.salesforce.com",
+        ),
+        NetworkEgressResponse(
+            status_code=200,
+            headers={},
+            body_text='{"totalSize":1,"done":true,"records":[{"Id":"001","Name":"Acme"}]}',
+            body_truncated=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.tools.salesforce_actions.get_default_network_egress_authority",
+        lambda: authority,
+    )
+
+    task = ExecutionTask(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        title="salesforce soql read",
+        description="salesforce soql read",
+        status="running",
+        metadata_json={
+            "task_type": "tool.invoke",
+            "tool_invocation": {
+                "action": "salesforce.soql_read",
+                "input": {"soql": "SELECT Id, Name FROM Account LIMIT 1"},
+            },
+            "credential_reference": {
+                "schema_version": 1,
+                "credential_id": credential_id,
+                "provider": "external_read_provider",
+                "credential_type": "api_key",
+            },
+            **authority_refs,
+        },
+        compliance_category="operational",
+        jurisdiction="US-ALL",
+        requires_human_review=False,
+    )
+    result = tool_invoke_handler(
+        task,
+        {
+            "worker_id": "worker-test",
+            "tenant_id": tenant_id,
+            "lease_id": str(uuid.uuid4()),
+            "session_factory": lambda: pg_session,
+        },
+    )
+
+    assert result["side_effect_class"] == "external_read"
+    assert result["output"]["real"] is True
+    assert result["output"]["result"]["records"][0]["Id"] == "001"

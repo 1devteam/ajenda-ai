@@ -1,5 +1,5 @@
 version: 1
-last_reviewed: 2026-06-27
+last_reviewed: 2026-06-28
 owner: architecture-runtime-governance
 
 notes:
@@ -1059,6 +1059,31 @@ authority_entries:
       - tests/integration/credentials/test_gmail_oauth_refresh_real.py
       - tests/unit/tools/test_gtm_actions.py
       - scripts/validation/ability_rollout_contract_check.py
+      - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
+
+  - id: linkedin_salesforce_read_only_platform_expansion
+    area: LinkedIn and Salesforce read-only platform expansion (post-P0)
+    source_of_truth:
+      - backend/services/tools/linkedin_actions.py
+      - backend/services/tools/salesforce_actions.py
+      - backend/services/credentials/management_service.py
+      - backend/services/plugins/contracts.py
+      - backend/services/abilities/catalog.py
+    route_scope: []
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_external_read
+    allowed_side_effects:
+      - linkedin.profile_read via credential + NetworkEgressAuthority to api.linkedin.com
+      - salesforce.soql_read via credential + NetworkEgressAuthority to tenant Salesforce instance host
+      - register credentials with integration linkedin or salesforce under external_read_provider
+    forbidden_side_effects:
+      - simulated success on credentialed LinkedIn/Salesforce paths when provider failed
+      - mutating Salesforce SOQL (non-SELECT) through salesforce.soql_read
+      - bypassing ToolRuntimeAuthority or credential resolution
+    required_proofs:
+      - tests/unit/tools/test_linkedin_actions.py
+      - tests/unit/tools/test_salesforce_actions.py
+      - tests/integration/credentials/test_external_invoke_authority_real.py
       - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
 
   - id: social_publish_real_egress

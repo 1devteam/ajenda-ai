@@ -75,8 +75,12 @@ def test_ability_runtime_enforcement_imports_and_sets():
         "crm.read",
         "crm.research",
         "gtm.email_check",
+        "linkedin.profile_read",
         "sales.research",
+        "salesforce.soql_read",
     }
+    assert "linkedin.profile_read" in EXTERNAL_ACTIONS
+    assert "salesforce.soql_read" in EXTERNAL_ACTIONS
 
     # Internal writes also trigger authority (and thus potential future quota/feature)
     assert "record.write" in INTERNAL_WRITE_ACTIONS
@@ -86,7 +90,7 @@ def test_ability_runtime_enforcement_imports_and_sets():
     assert "sales.research" in READ_SAFE_ACTIONS
     assert "crm.research" in READ_SAFE_ACTIONS
     assert "crm.read" in READ_SAFE_ACTIONS
-    assert len(EXTERNAL_ACTIONS) >= 6
+    assert len(EXTERNAL_ACTIONS) >= 8
 
 
 def test_requires_runtime_authority_matches_external_and_write():

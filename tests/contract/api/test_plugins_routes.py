@@ -18,6 +18,8 @@ def test_list_plugins_endpoint() -> None:
     plugin_ids = {item["plugin_id"] for item in body["plugins"]}
     assert "ajenda-brain" in plugin_ids
     assert "hubspot-crm" in plugin_ids
+    assert "linkedin-read" in plugin_ids
+    assert "salesforce-read" in plugin_ids
 
 
 def test_get_plugin_by_id() -> None:

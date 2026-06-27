@@ -73,6 +73,8 @@ INTERNAL_WRITE_ACTIONS: set[str] = {
 EXTERNAL_ACTIONS: set[str] = {
     "http.request",
     "provider.external_read",
+    "linkedin.profile_read",
+    "salesforce.soql_read",
     "webhook.dispatch",
     # PR9 pilot: high-risk GTM external side-effect actions (EXTERNAL_SEND/WRITE/PUBLISH)
     "gtm.email_send",
@@ -99,6 +101,8 @@ CREDENTIALED_EXTERNAL_READ_ACTIONS: set[str] = {
     "sales.research",
     "crm.research",
     "crm.read",
+    "linkedin.profile_read",
+    "salesforce.soql_read",
 }
 
 EXPOSED_ACTIONS: set[str] = READ_SAFE_ACTIONS | INTERNAL_WRITE_ACTIONS | EXTERNAL_ACTIONS

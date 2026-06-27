@@ -45,6 +45,8 @@ Each GTM capability should define at minimum:
 | `sales.research` | Sales lead research | crm/internal | moderate | required (when credentialed) | internal_read / external_read | Same hybrid CRM doctrine as `crm.research`; aliases: `crm.research`, `crm.read`. |
 | `gtm.email_check` | Gmail inbox read | email | high | required (when credentialed) | external_read | Simulated inbox only without credential; credentialed path fails closed on Gmail API errors. |
 | `gtm.crm_upsert` | CRM record upsert | crm | high | multi_party_required (credentialed) | internal_write / external_write | Internal brain write without credential; credentialed path uses plugin egress and does not hybrid-fallback. |
+| `linkedin.profile_read` | LinkedIn profile lookup | linkedin | high | required (when credentialed) | external_read | Simulated profile only without credential; credentialed path fails closed on API errors. |
+| `salesforce.soql_read` | Salesforce SOQL query (SELECT only) | crm | high | required (when credentialed) | external_read | Simulated rows without credential; tenant must register instance host; credentialed path fails closed. |
 | `gtm.lead.discovery.qualification_scoring.v1` | Qualification scoring | internal | moderate | sample_review | none | Produces explainable scoring and disqualification reasons. |
 
 ## B) Outbound sequencing and follow-up

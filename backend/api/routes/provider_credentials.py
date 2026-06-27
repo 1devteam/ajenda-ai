@@ -35,7 +35,7 @@ class ProviderCredentialCreateRequest(BaseModel):
 
     credential_id: str = Field(min_length=1, max_length=160)
     provider: str = Field(min_length=1, max_length=120)
-    integration: Literal["hubspot", "gmail", "smtp", "generic"] = "hubspot"
+    integration: Literal["hubspot", "gmail", "smtp", "linkedin", "salesforce", "generic"] = "hubspot"
     secret_value: str | None = Field(default=None, max_length=4000)
     use_platform_master_key: bool = False
     allowed_actions: list[str] = Field(default_factory=list)
