@@ -8,6 +8,10 @@ This contract defines tenant-scoped provider runtime credentials used by governe
 - Encrypted storage in `provider_runtime_credentials` (migration `0024`)
 - Gmail OAuth authorize URL + code exchange (`/v1/account/provider-credentials/gmail/oauth/*`)
 - Gmail OAuth access-token refresh at credential resolve time (`gmail_runtime_token.py`, `google_oauth_cli.py`)
+- LinkedIn OAuth authorize URL + code exchange (`/v1/account/provider-credentials/linkedin/oauth/*`)
+- LinkedIn OAuth access-token refresh at credential resolve time (`linkedin_runtime_token.py`, `linkedin_oauth_client.py`)
+- Salesforce OAuth authorize URL + code exchange (`/v1/account/provider-credentials/salesforce/oauth/*`)
+- Salesforce OAuth access-token refresh at credential resolve time (`salesforce_runtime_token.py`, `salesforce_oauth_client.py`)
 - HTTP lifecycle API:
   - `POST /v1/account/provider-credentials`
   - `GET /v1/account/provider-credentials`
@@ -63,6 +67,8 @@ When `integration=linkedin` and `provider=external_read_provider`:
 - `allowed_actions`: `linkedin.profile_read`, `provider.external_read`
 - `allowed_side_effect_classes`: `external_read`
 - `trusted_destination_hosts`: `api.linkedin.com`
+- OAuth secrets are stored as JSON (`provider_kind=linkedin`, `access_token`, `refresh_token`, `expires_at`); refresh occurs before invoke when expired
+- Product OAuth redirect: `AJENDA_LINKEDIN_OAUTH_REDIRECT_URI` (default `http://localhost:5173/credentials/linkedin/callback`)
 - Runtime action `linkedin.profile_read` uses LinkedIn REST headers (`LinkedIn-Version`, `X-Restli-Protocol-Version`)
 - Credentialed path fails closed on LinkedIn API errors (no simulated profile fallback)
 
@@ -72,7 +78,9 @@ When `integration=salesforce` and `provider=external_read_provider`:
 
 - `allowed_actions`: `salesforce.soql_read`, `provider.external_read`
 - `allowed_side_effect_classes`: `external_read`
-- `trusted_destination_hosts`: **required** tenant instance host (e.g. `mycompany.my.salesforce.com`)
+- `trusted_destination_hosts`: **required** tenant instance host (e.g. `mycompany.my.salesforce.com`); OAuth connect captures host from `instance_url`
+- OAuth secrets are stored as JSON (`provider_kind=salesforce`, `access_token`, `refresh_token`, `instance_url`, `expires_at`); refresh occurs before invoke when expired
+- Product OAuth redirect: `AJENDA_SALESFORCE_OAUTH_REDIRECT_URI` (default `http://localhost:5173/credentials/salesforce/callback`)
 - Runtime action `salesforce.soql_read` accepts read-only `SELECT` SOQL only
 - Credentialed path fails closed on Salesforce API errors (no simulated query fallback)
 

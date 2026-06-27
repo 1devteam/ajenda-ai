@@ -21,6 +21,18 @@ from backend.services.credentials.gmail_oauth_connect import (
     issue_gmail_oauth_authorization,
     verify_gmail_oauth_state,
 )
+from backend.services.credentials.linkedin_oauth_connect import (
+    LinkedInOAuthConnectError,
+    exchange_linkedin_oauth_code,
+    issue_linkedin_oauth_authorization,
+    verify_linkedin_oauth_state,
+)
+from backend.services.credentials.salesforce_oauth_connect import (
+    SalesforceOAuthConnectError,
+    exchange_salesforce_oauth_code,
+    issue_salesforce_oauth_authorization,
+    verify_salesforce_oauth_state,
+)
 from backend.services.credentials.management_service import (
     ProviderCredentialManagementError,
     ProviderCredentialManagementService,
@@ -88,6 +100,14 @@ class GmailOAuthConnectRequest(BaseModel):
     code: str = Field(min_length=1, max_length=4000)
     state: str = Field(min_length=1, max_length=4000)
     credential_id: str = Field(default="gmail-email", min_length=1, max_length=160)
+
+
+class OAuthConnectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=4000)
+    state: str = Field(min_length=1, max_length=4000)
+    credential_id: str = Field(min_length=1, max_length=160)
 
 
 def _map_errors(exc: Exception) -> HTTPException:
@@ -244,6 +264,185 @@ def gmail_oauth_connect(
         credential=_to_response(result.summary),
         warning=result.warning,
     )
+
+
+def _oauth_connect_response(
+    *,
+    service: ProviderCredentialManagementService,
+    tenant_id: str,
+    actor_id: str,
+    credential_id: str,
+    provider: str,
+    integration: Literal["linkedin", "salesforce"],
+    secret_value: str,
+    trusted_destination_hosts: list[str] | None = None,
+) -> ProviderCredentialCreateResponse:
+    result = service.register(
+        tenant_id=tenant_id,
+        credential_id=credential_id,
+        provider=provider,
+        integration=integration,
+        secret_value=secret_value,
+        trusted_destination_hosts=trusted_destination_hosts,
+        actor_id=actor_id,
+    )
+    return ProviderCredentialCreateResponse(
+        credential=_to_response(result.summary),
+        warning=result.warning,
+    )
+
+
+@router.get(
+    "/provider-credentials/linkedin/oauth/authorize-url",
+    response_model=GmailOAuthAuthorizeUrlResponse,
+)
+def linkedin_oauth_authorize_url(
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    credential_id: str = "linkedin-read",
+) -> GmailOAuthAuthorizeUrlResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        result = issue_linkedin_oauth_authorization(
+            tenant_id=str(tenant_id),
+            credential_id=credential_id,
+            actor_id=actor_id,
+        )
+    except LinkedInOAuthConnectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return GmailOAuthAuthorizeUrlResponse(
+        authorization_url=result.authorization_url,
+        state=result.state,
+        redirect_uri=result.redirect_uri,
+    )
+
+
+@router.post(
+    "/provider-credentials/linkedin/oauth/connect",
+    response_model=ProviderCredentialCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def linkedin_oauth_connect(
+    body: OAuthConnectRequest,
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> ProviderCredentialCreateResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        claims = verify_linkedin_oauth_state(body.state)
+    except LinkedInOAuthConnectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if claims.tenant_id != str(tenant_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state tenant mismatch")
+    if claims.credential_id != body.credential_id.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state credential mismatch")
+    if claims.actor_id != actor_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state actor mismatch")
+
+    try:
+        secret_value = exchange_linkedin_oauth_code(code=body.code, state=body.state)
+        return _oauth_connect_response(
+            service=ProviderCredentialManagementService(db),
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            credential_id=body.credential_id,
+            provider="external_read_provider",
+            integration="linkedin",
+            secret_value=secret_value,
+        )
+    except (LinkedInOAuthConnectError, ProviderCredentialManagementError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/provider-credentials/salesforce/oauth/authorize-url",
+    response_model=GmailOAuthAuthorizeUrlResponse,
+)
+def salesforce_oauth_authorize_url(
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    credential_id: str = "salesforce-read",
+) -> GmailOAuthAuthorizeUrlResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        result = issue_salesforce_oauth_authorization(
+            tenant_id=str(tenant_id),
+            credential_id=credential_id,
+            actor_id=actor_id,
+        )
+    except SalesforceOAuthConnectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return GmailOAuthAuthorizeUrlResponse(
+        authorization_url=result.authorization_url,
+        state=result.state,
+        redirect_uri=result.redirect_uri,
+    )
+
+
+@router.post(
+    "/provider-credentials/salesforce/oauth/connect",
+    response_model=ProviderCredentialCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def salesforce_oauth_connect(
+    body: OAuthConnectRequest,
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> ProviderCredentialCreateResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        claims = verify_salesforce_oauth_state(body.state)
+    except SalesforceOAuthConnectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if claims.tenant_id != str(tenant_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state tenant mismatch")
+    if claims.credential_id != body.credential_id.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state credential mismatch")
+    if claims.actor_id != actor_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state actor mismatch")
+
+    try:
+        connect_secret = exchange_salesforce_oauth_code(code=body.code, state=body.state)
+        return _oauth_connect_response(
+            service=ProviderCredentialManagementService(db),
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            credential_id=body.credential_id,
+            provider="external_read_provider",
+            integration="salesforce",
+            secret_value=connect_secret.secret_value,
+            trusted_destination_hosts=list(connect_secret.trusted_destination_hosts),
+        )
+    except (SalesforceOAuthConnectError, ProviderCredentialManagementError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/provider-credentials", response_model=ProviderCredentialListResponse)

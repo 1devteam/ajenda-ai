@@ -165,6 +165,14 @@ class Settings(BaseSettings):
         default="http://localhost:5173/credentials/gmail/callback",
         alias="AJENDA_GMAIL_OAUTH_REDIRECT_URI",
     )
+    linkedin_oauth_redirect_uri: str = Field(
+        default="http://localhost:5173/credentials/linkedin/callback",
+        alias="AJENDA_LINKEDIN_OAUTH_REDIRECT_URI",
+    )
+    salesforce_oauth_redirect_uri: str = Field(
+        default="http://localhost:5173/credentials/salesforce/callback",
+        alias="AJENDA_SALESFORCE_OAUTH_REDIRECT_URI",
+    )
 
     # --- Billing (Stripe) ---
     STRIPE_SECRET_KEY: str = Field(default="", alias="STRIPE_SECRET_KEY")

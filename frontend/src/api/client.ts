@@ -385,6 +385,58 @@ export async function connectGmailOAuth(
   );
 }
 
+export async function getLinkedInOAuthAuthorizeUrl(
+  session: CustomerSession,
+  credentialId = "linkedin-read",
+): Promise<GmailOAuthAuthorizeUrlResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<GmailOAuthAuthorizeUrlResponse>(
+      `/v1/account/provider-credentials/linkedin/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
+      {},
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function connectLinkedInOAuth(
+  session: CustomerSession,
+  body: GmailOAuthConnectRequest,
+): Promise<ProviderCredentialCreateResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialCreateResponse>(
+      "/v1/account/provider-credentials/linkedin/oauth/connect",
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function getSalesforceOAuthAuthorizeUrl(
+  session: CustomerSession,
+  credentialId = "salesforce-read",
+): Promise<GmailOAuthAuthorizeUrlResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<GmailOAuthAuthorizeUrlResponse>(
+      `/v1/account/provider-credentials/salesforce/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
+      {},
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function connectSalesforceOAuth(
+  session: CustomerSession,
+  body: GmailOAuthConnectRequest,
+): Promise<ProviderCredentialCreateResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialCreateResponse>(
+      "/v1/account/provider-credentials/salesforce/oauth/connect",
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
 function authedRuntimeOptions(config: RuntimeConfig) {
   return runtimeOptions(config);
 }

@@ -12,6 +12,16 @@ from backend.services.credentials.gmail_runtime_token import (
     GmailRuntimeTokenError,
     resolve_gmail_credential_secret,
 )
+from backend.services.credentials.linkedin_runtime_token import (
+    LinkedInRuntimeTokenError,
+    is_linkedin_oauth_secret,
+    resolve_linkedin_credential_secret,
+)
+from backend.services.credentials.salesforce_runtime_token import (
+    SalesforceRuntimeTokenError,
+    is_salesforce_oauth_secret,
+    resolve_salesforce_credential_secret,
+)
 from backend.services.credentials.management_service import (
     PLATFORM_MASTER_CREDENTIAL_TYPE,
     PLATFORM_MASTER_SENTINEL,
@@ -86,6 +96,8 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
             return str(settings.hubspot_platform_master_key).strip()
         if row.provider == "external_email" and row.credential_type == "api_key":
             return self._resolve_gmail_secret(row=row, decrypted=decrypted, session=session)
+        if row.provider == "external_read_provider" and row.credential_type == "api_key":
+            return self._resolve_external_read_secret(row=row, decrypted=decrypted, session=session)
         return decrypted
 
     def _resolve_gmail_secret(self, *, row: ProviderRuntimeCredential, decrypted: str, session: Session) -> str:
@@ -93,6 +105,36 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
             resolution = resolve_gmail_credential_secret(decrypted, auto_refresh=True)
         except GmailRuntimeTokenError as exc:
             raise ValueError(str(exc)) from exc
+        if resolution.updated_secret and resolution.updated_secret != decrypted:
+            row.secret_ciphertext = self._secret_protector.encrypt_secret(resolution.updated_secret)
+            session.add(row)
+            session.commit()
+        return resolution.access_token
+
+    def _resolve_external_read_secret(self, *, row: ProviderRuntimeCredential, decrypted: str, session: Session) -> str:
+        settings = get_settings()
+        trusted_hosts = _string_items(row.trusted_destination_hosts)
+        if is_salesforce_oauth_secret(decrypted) or any(".salesforce.com" in host for host in trusted_hosts):
+            try:
+                resolution = resolve_salesforce_credential_secret(
+                    decrypted,
+                    auto_refresh=True,
+                    redirect_uri=settings.salesforce_oauth_redirect_uri,
+                )
+            except SalesforceRuntimeTokenError as exc:
+                raise ValueError(str(exc)) from exc
+        elif is_linkedin_oauth_secret(decrypted) or "api.linkedin.com" in trusted_hosts:
+            try:
+                resolution = resolve_linkedin_credential_secret(
+                    decrypted,
+                    auto_refresh=True,
+                    redirect_uri=settings.linkedin_oauth_redirect_uri,
+                )
+            except LinkedInRuntimeTokenError as exc:
+                raise ValueError(str(exc)) from exc
+        else:
+            return decrypted
+
         if resolution.updated_secret and resolution.updated_secret != decrypted:
             row.secret_ciphertext = self._secret_protector.encrypt_secret(resolution.updated_secret)
             session.add(row)

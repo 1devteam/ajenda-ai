@@ -47,6 +47,8 @@ export default function App() {
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/credentials" element={<CredentialsPage />} />
             <Route path="/credentials/gmail/callback" element={<CredentialsPage />} />
+            <Route path="/credentials/linkedin/callback" element={<CredentialsPage />} />
+            <Route path="/credentials/salesforce/callback" element={<CredentialsPage />} />
           </Route>
           <Route path="/dev" element={<DevConsolePage />} />
         </Route>

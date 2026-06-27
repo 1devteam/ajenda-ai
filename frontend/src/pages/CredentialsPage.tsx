@@ -2,9 +2,13 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   connectGmailOAuth,
+  connectLinkedInOAuth,
+  connectSalesforceOAuth,
   createProviderCredential,
   deleteProviderCredential,
   getGmailOAuthAuthorizeUrl,
+  getLinkedInOAuthAuthorizeUrl,
+  getSalesforceOAuthAuthorizeUrl,
   listProviderCredentials,
   revokeProviderCredential,
 } from "../api/client";
@@ -12,7 +16,7 @@ import { loadSession } from "../auth/session";
 import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
 import { failureText } from "../utils/errors";
 
-type IntegrationKind = "hubspot" | "gmail";
+type IntegrationKind = "hubspot" | "gmail" | "linkedin" | "salesforce";
 
 const HUBSPOT_FORM: ProviderCredentialCreateRequest = {
   credential_id: "hubspot-crm",
@@ -30,6 +34,65 @@ const GMAIL_FORM: ProviderCredentialCreateRequest = {
   use_platform_master_key: false,
 };
 
+const LINKEDIN_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "linkedin-read",
+  provider: "external_read_provider",
+  integration: "linkedin",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
+const SALESFORCE_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "salesforce-read",
+  provider: "external_read_provider",
+  integration: "salesforce",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
+const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateRequest> = {
+  hubspot: HUBSPOT_FORM,
+  gmail: GMAIL_FORM,
+  linkedin: LINKEDIN_FORM,
+  salesforce: SALESFORCE_FORM,
+};
+
+const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
+  hubspot: "HubSpot CRM",
+  gmail: "Gmail",
+  linkedin: "LinkedIn",
+  salesforce: "Salesforce",
+};
+
+const OAUTH_CALLBACKS: Record<
+  string,
+  {
+    integration: IntegrationKind;
+    defaultCredentialId: string;
+    loadingLabel: string;
+    connect: typeof connectGmailOAuth;
+  }
+> = {
+  "/credentials/gmail/callback": {
+    integration: "gmail",
+    defaultCredentialId: "gmail-email",
+    loadingLabel: "Connecting Gmail via OAuth",
+    connect: connectGmailOAuth,
+  },
+  "/credentials/linkedin/callback": {
+    integration: "linkedin",
+    defaultCredentialId: "linkedin-read",
+    loadingLabel: "Connecting LinkedIn via OAuth",
+    connect: connectLinkedInOAuth,
+  },
+  "/credentials/salesforce/callback": {
+    integration: "salesforce",
+    defaultCredentialId: "salesforce-read",
+    loadingLabel: "Connecting Salesforce via OAuth",
+    connect: connectSalesforceOAuth,
+  },
+};
+
 export default function CredentialsPage() {
   const session = loadSession();
   const location = useLocation();
@@ -42,7 +105,7 @@ export default function CredentialsPage() {
   const [loading, setLoading] = useState<string | null>(null);
 
   useEffect(() => {
-    setForm(integration === "hubspot" ? { ...HUBSPOT_FORM } : { ...GMAIL_FORM });
+    setForm({ ...FORM_BY_INTEGRATION[integration] });
   }, [integration]);
 
   useEffect(() => {
@@ -69,7 +132,11 @@ export default function CredentialsPage() {
   }, [session?.tenantId, session?.apiKey, session?.accessToken]);
 
   useEffect(() => {
-    if (!session || !location.pathname.endsWith("/credentials/gmail/callback")) {
+    if (!session) {
+      return;
+    }
+    const callback = OAUTH_CALLBACKS[location.pathname];
+    if (!callback) {
       return;
     }
     const params = new URLSearchParams(location.search);
@@ -81,19 +148,19 @@ export default function CredentialsPage() {
 
     let cancelled = false;
     async function finishOAuth(oauthCode: string, oauthState: string) {
-      setLoading("Connecting Gmail via OAuth");
+      setLoading(callback.loadingLabel);
       setError("");
       try {
-        const response = await connectGmailOAuth(session!, {
+        const response = await callback.connect(session!, {
           code: oauthCode,
           state: oauthState,
-          credential_id: "gmail-email",
+          credential_id: callback.defaultCredentialId,
         });
         if (!cancelled) {
           if (response.warning) {
             setWarning(response.warning);
           }
-          setIntegration("gmail");
+          setIntegration(callback.integration);
           navigate("/credentials", { replace: true });
           const listed = await listProviderCredentials(session!);
           setCredentials(listed.credentials);
@@ -128,7 +195,7 @@ export default function CredentialsPage() {
     if (!session) {
       return;
     }
-    const label = integration === "hubspot" ? "HubSpot" : "Gmail";
+    const label = INTEGRATION_LABELS[integration];
     setLoading(`Connecting ${label}`);
     setError("");
     setWarning("");
@@ -137,7 +204,7 @@ export default function CredentialsPage() {
       if (response.warning) {
         setWarning(response.warning);
       }
-      setForm(integration === "hubspot" ? { ...HUBSPOT_FORM } : { ...GMAIL_FORM });
+      setForm({ ...FORM_BY_INTEGRATION[integration] });
       await refreshList();
     } catch (err) {
       setError(failureText(err));
@@ -146,14 +213,22 @@ export default function CredentialsPage() {
     }
   }
 
-  async function handleGmailOAuthConnect() {
+  async function handleOAuthConnect() {
     if (!session) {
       return;
     }
-    setLoading("Starting Gmail OAuth");
+    const label = INTEGRATION_LABELS[integration];
+    setLoading(`Starting ${label} OAuth`);
     setError("");
     try {
-      const response = await getGmailOAuthAuthorizeUrl(session, form.credential_id);
+      let response;
+      if (integration === "gmail") {
+        response = await getGmailOAuthAuthorizeUrl(session, form.credential_id);
+      } else if (integration === "linkedin") {
+        response = await getLinkedInOAuthAuthorizeUrl(session, form.credential_id);
+      } else {
+        response = await getSalesforceOAuthAuthorizeUrl(session, form.credential_id);
+      }
       window.location.assign(response.authorization_url);
     } catch (err) {
       setError(failureText(err));
@@ -193,32 +268,36 @@ export default function CredentialsPage() {
     }
   }
 
+  const supportsOAuth = integration === "gmail" || integration === "linkedin" || integration === "salesforce";
+  const submitLabel =
+    integration === "hubspot"
+      ? "Connect HubSpot CRM"
+      : supportsOAuth
+        ? `Connect ${INTEGRATION_LABELS[integration]} (paste)`
+        : `Connect ${INTEGRATION_LABELS[integration]}`;
+
   return (
     <main className="page-shell">
       <section className="panel">
         <h1>Provider credentials</h1>
         <p>
-          Connect external CRM and email plugins for governed runtime actions. Secrets are encrypted per tenant and
-          never returned after registration.
+          Connect external CRM, email, and read providers for governed runtime actions. Secrets are encrypted per
+          tenant and never returned after registration.
         </p>
         {warning ? <p className="notice warning">{warning}</p> : null}
         {error ? <p className="notice error">{error}</p> : null}
 
         <div className="credential-tabs">
-          <button
-            type="button"
-            className={`credential-tab ${integration === "hubspot" ? "active" : ""}`}
-            onClick={() => setIntegration("hubspot")}
-          >
-            HubSpot CRM
-          </button>
-          <button
-            type="button"
-            className={`credential-tab ${integration === "gmail" ? "active" : ""}`}
-            onClick={() => setIntegration("gmail")}
-          >
-            Gmail
-          </button>
+          {(Object.keys(INTEGRATION_LABELS) as IntegrationKind[]).map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className={`credential-tab ${integration === kind ? "active" : ""}`}
+              onClick={() => setIntegration(kind)}
+            >
+              {INTEGRATION_LABELS[kind]}
+            </button>
+          ))}
         </div>
 
         <form className="stack-form" onSubmit={handleConnect}>
@@ -258,7 +337,7 @@ export default function CredentialsPage() {
                 Use platform master key (operator-managed; shared blast radius)
               </label>
             </>
-          ) : (
+          ) : integration === "gmail" ? (
             <>
               <label>
                 Gmail OAuth bearer or JSON bundle
@@ -276,15 +355,57 @@ export default function CredentialsPage() {
                 type="button"
                 className="ghost-button"
                 disabled={loading !== null}
-                onClick={() => void handleGmailOAuthConnect()}
+                onClick={() => void handleOAuthConnect()}
               >
                 Connect Gmail with Google
+              </button>
+            </>
+          ) : integration === "linkedin" ? (
+            <>
+              <label>
+                LinkedIn OAuth bearer or JSON bundle
+                <textarea
+                  value={form.secret_value ?? ""}
+                  onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
+                  placeholder='Paste access token or JSON: {"provider_kind":"linkedin","access_token":"...","refresh_token":"...","expires_at":"..."}'
+                />
+                <span className="field-hint">Or connect with LinkedIn below for OAuth refresh at runtime.</span>
+              </label>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={loading !== null}
+                onClick={() => void handleOAuthConnect()}
+              >
+                Connect LinkedIn with OAuth
+              </button>
+            </>
+          ) : (
+            <>
+              <label>
+                Salesforce OAuth bearer or JSON bundle
+                <textarea
+                  value={form.secret_value ?? ""}
+                  onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
+                  placeholder='Paste access token or JSON: {"provider_kind":"salesforce","access_token":"...","refresh_token":"...","instance_url":"https://...","expires_at":"..."}'
+                />
+                <span className="field-hint">
+                  Or connect with Salesforce below. Instance host is captured from the OAuth response.
+                </span>
+              </label>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={loading !== null}
+                onClick={() => void handleOAuthConnect()}
+              >
+                Connect Salesforce with OAuth
               </button>
             </>
           )}
 
           <button type="submit" className="primary-button" disabled={loading !== null}>
-            {loading ?? (integration === "hubspot" ? "Connect HubSpot CRM" : "Connect Gmail (paste)")}
+            {loading ?? submitLabel}
           </button>
         </form>
       </section>

@@ -68,14 +68,14 @@ def _trusted_hosts(material: RuntimeCredentialMaterial | dict[str, Any] | None) 
 
 
 def _profile_url(*, profile_id: str | None, fields: tuple[str, ...]) -> str:
-    projection = ",".join(fields)
     if profile_id and profile_id.strip():
+        projection = ",".join(fields)
         encoded_id = quote(profile_id.strip(), safe="")
         return (
             f"https://{LINKEDIN_API_HOST}/v2/people/(id:{encoded_id})"
             f"?projection=({projection})"
         )
-    return f"https://{LINKEDIN_API_HOST}/v2/me?projection=({projection})"
+    return f"https://{LINKEDIN_API_HOST}/v2/userinfo"
 
 
 def _simulated_profile() -> dict[str, Any]:
@@ -101,11 +101,10 @@ def linkedin_profile_read(invocation: ToolInvocation, context: ActionRuntimeCont
 
     if secret:
         url = _profile_url(profile_id=payload.profile_id, fields=payload.fields)
-        headers = {
-            "Authorization": f"Bearer {secret}",
-            "X-Restli-Protocol-Version": LINKEDIN_RESTLI_PROTOCOL_VERSION,
-            "LinkedIn-Version": LINKEDIN_API_VERSION,
-        }
+        headers = {"Authorization": f"Bearer {secret}"}
+        if payload.profile_id and payload.profile_id.strip():
+            headers["X-Restli-Protocol-Version"] = LINKEDIN_RESTLI_PROTOCOL_VERSION
+            headers["LinkedIn-Version"] = LINKEDIN_API_VERSION
         try:
             _destination, response = get_default_network_egress_authority().request(
                 method="GET",

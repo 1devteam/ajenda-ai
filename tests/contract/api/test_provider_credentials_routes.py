@@ -151,6 +151,145 @@ def test_gmail_oauth_connect_registers_credential(
     assert "oauth-access" not in response.text
 
 
+@patch("backend.api.routes.provider_credentials.issue_linkedin_oauth_authorization")
+def test_linkedin_oauth_authorize_url_returns_signed_state(mock_issue: MagicMock) -> None:
+    from backend.services.credentials.linkedin_oauth_connect import LinkedInOAuthAuthorizeResult
+
+    mock_issue.return_value = LinkedInOAuthAuthorizeResult(
+        authorization_url="https://www.linkedin.com/oauth/v2/authorization?client_id=test",
+        state="signed-state-token",
+        redirect_uri="http://localhost:5173/credentials/linkedin/callback",
+    )
+    client, _tenant_id = _build_client()
+    response = client.get("/v1/account/provider-credentials/linkedin/oauth/authorize-url")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["authorization_url"].startswith("https://www.linkedin.com/")
+    assert body["state"] == "signed-state-token"
+
+
+@patch("backend.api.routes.provider_credentials.ProviderCredentialManagementService")
+@patch("backend.api.routes.provider_credentials.exchange_linkedin_oauth_code")
+@patch("backend.api.routes.provider_credentials.verify_linkedin_oauth_state")
+def test_linkedin_oauth_connect_registers_credential(
+    mock_verify: MagicMock,
+    mock_exchange: MagicMock,
+    mock_service_cls: MagicMock,
+) -> None:
+    from backend.services.credentials.oauth_state import OAuthStateClaims
+
+    client, tenant_id = _build_client()
+    mock_verify.return_value = OAuthStateClaims(
+        tenant_id=str(tenant_id),
+        credential_id="linkedin-read",
+        actor_id="human:test@example.com",
+        nonce="nonce",
+        issued_at=1_700_000_000,
+        provider="linkedin",
+    )
+    mock_exchange.return_value = '{"provider_kind":"linkedin","access_token":"oauth-access"}'
+    summary = ProviderCredentialSummary(
+        credential_id="linkedin-read",
+        tenant_id=str(tenant_id),
+        provider="external_read_provider",
+        credential_type="api_key",
+        enabled=True,
+        revoked=False,
+        allowed_actions=["linkedin.profile_read"],
+        allowed_side_effect_classes=["external_read"],
+        trusted_destination_hosts=["api.linkedin.com"],
+        uses_platform_master_key=False,
+        platform_master_warning=None,
+        created_at="2026-06-25T00:00:00+00:00",
+        updated_at="2026-06-25T00:00:00+00:00",
+    )
+    mock_service_cls.return_value.register.return_value = ProviderCredentialCreateResult(
+        summary=summary,
+        secret_returned_once=False,
+        warning=None,
+    )
+
+    response = client.post(
+        "/v1/account/provider-credentials/linkedin/oauth/connect",
+        json={"code": "auth-code", "state": "signed-state-token", "credential_id": "linkedin-read"},
+    )
+    assert response.status_code == 201
+    assert response.json()["credential"]["credential_id"] == "linkedin-read"
+    assert "oauth-access" not in response.text
+
+
+@patch("backend.api.routes.provider_credentials.issue_salesforce_oauth_authorization")
+def test_salesforce_oauth_authorize_url_returns_signed_state(mock_issue: MagicMock) -> None:
+    from backend.services.credentials.salesforce_oauth_connect import SalesforceOAuthAuthorizeResult
+
+    mock_issue.return_value = SalesforceOAuthAuthorizeResult(
+        authorization_url="https://login.salesforce.com/services/oauth2/authorize?client_id=test",
+        state="signed-state-token",
+        redirect_uri="http://localhost:5173/credentials/salesforce/callback",
+    )
+    client, _tenant_id = _build_client()
+    response = client.get("/v1/account/provider-credentials/salesforce/oauth/authorize-url")
+    assert response.status_code == 200
+    body = response.json()
+    assert "salesforce.com" in body["authorization_url"]
+    assert body["state"] == "signed-state-token"
+
+
+@patch("backend.api.routes.provider_credentials.ProviderCredentialManagementService")
+@patch("backend.api.routes.provider_credentials.exchange_salesforce_oauth_code")
+@patch("backend.api.routes.provider_credentials.verify_salesforce_oauth_state")
+def test_salesforce_oauth_connect_registers_credential_with_instance_host(
+    mock_verify: MagicMock,
+    mock_exchange: MagicMock,
+    mock_service_cls: MagicMock,
+) -> None:
+    from backend.services.credentials.oauth_state import OAuthStateClaims
+    from backend.services.credentials.salesforce_oauth_connect import SalesforceOAuthConnectSecret
+
+    client, tenant_id = _build_client()
+    mock_verify.return_value = OAuthStateClaims(
+        tenant_id=str(tenant_id),
+        credential_id="salesforce-read",
+        actor_id="human:test@example.com",
+        nonce="nonce",
+        issued_at=1_700_000_000,
+        provider="salesforce",
+    )
+    mock_exchange.return_value = SalesforceOAuthConnectSecret(
+        secret_value='{"provider_kind":"salesforce","access_token":"oauth-access"}',
+        trusted_destination_hosts=("mycompany.my.salesforce.com",),
+    )
+    summary = ProviderCredentialSummary(
+        credential_id="salesforce-read",
+        tenant_id=str(tenant_id),
+        provider="external_read_provider",
+        credential_type="api_key",
+        enabled=True,
+        revoked=False,
+        allowed_actions=["salesforce.soql_read"],
+        allowed_side_effect_classes=["external_read"],
+        trusted_destination_hosts=["mycompany.my.salesforce.com"],
+        uses_platform_master_key=False,
+        platform_master_warning=None,
+        created_at="2026-06-25T00:00:00+00:00",
+        updated_at="2026-06-25T00:00:00+00:00",
+    )
+    mock_service_cls.return_value.register.return_value = ProviderCredentialCreateResult(
+        summary=summary,
+        secret_returned_once=False,
+        warning=None,
+    )
+
+    response = client.post(
+        "/v1/account/provider-credentials/salesforce/oauth/connect",
+        json={"code": "auth-code", "state": "signed-state-token", "credential_id": "salesforce-read"},
+    )
+    assert response.status_code == 201
+    assert response.json()["credential"]["credential_id"] == "salesforce-read"
+    assert response.json()["credential"]["trusted_destination_hosts"] == ["mycompany.my.salesforce.com"]
+    assert "oauth-access" not in response.text
+
+
 @patch("backend.api.routes.provider_credentials.ProviderCredentialManagementService")
 def test_viewer_cannot_create_provider_credential(mock_service_cls: MagicMock) -> None:
     client, _tenant_id = _build_client(roles=("viewer",))

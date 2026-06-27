@@ -1,5 +1,5 @@
 version: 1
-last_reviewed: 2026-06-28
+last_reviewed: 2026-06-27
 owner: architecture-runtime-governance
 
 notes:
@@ -111,22 +111,28 @@ authority_entries:
     route_scope:
       - /v1/account/*
       - /v1/account/provider-credentials/gmail/oauth/*
+      - /v1/account/provider-credentials/linkedin/oauth/*
+      - /v1/account/provider-credentials/salesforce/oauth/*
     authority_class: governed_mutation
     side_effect_class: tenant_scoped_account_read_and_credential_mutation
     allowed_side_effects:
       - read tenant account, plan, usage, and billing summary for authenticated members
       - register, list, revoke, and delete tenant-scoped provider runtime credentials
       - issue signed Gmail OAuth authorize URLs and exchange OAuth codes into encrypted Gmail credential secrets
+      - issue signed LinkedIn and Salesforce OAuth authorize URLs and exchange OAuth codes into encrypted credential secrets
     forbidden_side_effects:
       - return plaintext provider secrets on list or get
       - mutate cross-tenant account or credential state
       - bypass credentials RBAC or tenant envelope
       - accept Gmail OAuth state or code for a different tenant, actor, or credential_id
+      - accept LinkedIn or Salesforce OAuth state or code for a different tenant, actor, credential_id, or provider
     required_proofs:
       - tests/contract/api/test_account_self_service_route.py
       - tests/contract/api/test_provider_credentials_routes.py
       - tests/unit/services/test_provider_credential_management_service.py
       - tests/integration/credentials/test_gmail_oauth_refresh_real.py
+      - tests/integration/credentials/test_linkedin_oauth_refresh_real.py
+      - tests/integration/credentials/test_salesforce_oauth_refresh_real.py
 
   - id: plugin_discovery_contract
     area: plugin discovery and contracts
@@ -1067,15 +1073,22 @@ authority_entries:
       - backend/services/tools/linkedin_actions.py
       - backend/services/tools/salesforce_actions.py
       - backend/services/credentials/management_service.py
+      - backend/services/credentials/linkedin_oauth_connect.py
+      - backend/services/credentials/salesforce_oauth_connect.py
+      - backend/services/credentials/linkedin_runtime_token.py
+      - backend/services/credentials/salesforce_runtime_token.py
       - backend/services/plugins/contracts.py
       - backend/services/abilities/catalog.py
-    route_scope: []
+    route_scope:
+      - /v1/account/provider-credentials/linkedin/oauth/*
+      - /v1/account/provider-credentials/salesforce/oauth/*
     authority_class: runtime_authoritative
     side_effect_class: tenant_scoped_external_read
     allowed_side_effects:
       - linkedin.profile_read via credential + NetworkEgressAuthority to api.linkedin.com
       - salesforce.soql_read via credential + NetworkEgressAuthority to tenant Salesforce instance host
       - register credentials with integration linkedin or salesforce under external_read_provider
+      - refresh LinkedIn and Salesforce OAuth tokens at credential resolve time before invoke
     forbidden_side_effects:
       - simulated success on credentialed LinkedIn/Salesforce paths when provider failed
       - mutating Salesforce SOQL (non-SELECT) through salesforce.soql_read
@@ -1083,7 +1096,11 @@ authority_entries:
     required_proofs:
       - tests/unit/tools/test_linkedin_actions.py
       - tests/unit/tools/test_salesforce_actions.py
+      - tests/unit/credentials/test_linkedin_oauth_connect.py
+      - tests/unit/credentials/test_salesforce_oauth_connect.py
       - tests/integration/credentials/test_external_invoke_authority_real.py
+      - tests/integration/credentials/test_linkedin_oauth_refresh_real.py
+      - tests/integration/credentials/test_salesforce_oauth_refresh_real.py
       - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
 
   - id: social_publish_real_egress
