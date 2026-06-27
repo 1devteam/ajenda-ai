@@ -164,6 +164,27 @@ def test_mission_intake_rejects_missing_success_criteria() -> None:
     repo_cls.assert_not_called()
 
 
+def test_mission_intake_rejects_vague_prompt_with_structured_quality_detail() -> None:
+    tenant_id = uuid.uuid4()
+    payload = {
+        "objective": "do something",
+        "success_criteria": [{"description": "be successful", "evidence": []}],
+        "compliance_category": "operational",
+        "jurisdiction": "US-ALL",
+    }
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["detail"]["code"] == "MISSION_INTAKE_QUALITY_DENIED"
+    assert body["detail"]["violations"]
+    repo_cls.assert_not_called()
+
+
 def test_mission_intake_rejects_blank_constraint_fields() -> None:
     tenant_id = uuid.uuid4()
     payload = _valid_payload()

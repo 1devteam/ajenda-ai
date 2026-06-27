@@ -152,6 +152,10 @@ class Settings(BaseSettings):
         default="off",
         alias="AJENDA_AUTONOMY_DISCLAIMER_MODE",
     )
+    mission_intake_quality_mode: Literal["off", "enforce"] = Field(
+        default="enforce",
+        alias="AJENDA_MISSION_INTAKE_QUALITY_MODE",
+    )
     gmail_oauth_redirect_uri: str = Field(
         default="http://localhost:5173/credentials/gmail/callback",
         alias="AJENDA_GMAIL_OAUTH_REDIRECT_URI",

@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.orm import Session
 
 from backend.api.routes._authorization import require_route_permission
+from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.permissions import Permission
@@ -106,6 +107,10 @@ from backend.services.mission_bridge.worker_start import (
     worker_start_admission_to_read as _worker_start_admission_to_read,
 )
 from backend.services.mission_executor import MissionExecutor
+from backend.services.mission_intake_quality import (
+    MissionIntakeQualityDeniedError,
+    validate_mission_intake_prompt,
+)
 from backend.services.mission_runtime_projection import (
     supersede_runtime_task_materialization,
 )
@@ -1457,6 +1462,16 @@ def create_mission(
 ) -> MissionRead:
     """Create a tenant-owned mission intake record without queueing runtime work."""
     require_route_permission(request=request, db=db, permission=Permission.MISSION_CREATE, tenant_id=tenant_id)
+    if get_settings().mission_intake_quality_mode == "enforce":
+        try:
+            validate_mission_intake_prompt(
+                objective=body.objective,
+                success_criteria=[criterion.model_dump() for criterion in body.success_criteria],
+                allow_legacy_v1=body.allow_legacy_v1,
+            )
+        except MissionIntakeQualityDeniedError as exc:
+            raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
+
     quota = QuotaEnforcementService(db)
     budget_limits = body.budget_limits.model_dump(exclude_none=True) if body.budget_limits else None
     try:

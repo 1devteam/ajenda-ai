@@ -1,0 +1,484 @@
+"""Mission intake prompt quality gate — deny vague or senseless missions at intake."""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict
+
+MISSION_INTAKE_QUALITY_SCHEMA_VERSION = 1
+
+MissionIntakeQualitySeverity = Literal["required"]
+
+_OBJECTIVE_MIN_CHARS = 24
+_SUCCESS_CRITERION_MIN_CHARS = 20
+_OBJECTIVE_MIN_CONTENT_WORDS = 4
+_EVIDENCE_MIN_CHARS = 8
+
+_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "to",
+        "for",
+        "of",
+        "in",
+        "on",
+        "at",
+        "by",
+        "with",
+        "from",
+        "into",
+        "about",
+        "as",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "this",
+        "that",
+        "these",
+        "those",
+        "my",
+        "our",
+        "your",
+        "their",
+        "me",
+        "us",
+        "you",
+        "they",
+        "it",
+        "we",
+        "i",
+        "do",
+        "does",
+        "did",
+        "doing",
+        "done",
+        "have",
+        "has",
+        "had",
+        "having",
+        "will",
+        "would",
+        "should",
+        "could",
+        "can",
+        "may",
+        "might",
+        "must",
+        "need",
+        "needs",
+        "needed",
+        "want",
+        "wants",
+        "wanted",
+        "just",
+        "some",
+        "any",
+        "all",
+        "more",
+        "most",
+        "very",
+        "really",
+        "please",
+        "help",
+        "make",
+        "get",
+        "go",
+        "thing",
+        "things",
+        "stuff",
+        "something",
+        "anything",
+        "everything",
+        "work",
+        "working",
+        "better",
+        "good",
+        "nice",
+        "great",
+        "best",
+    }
+)
+
+_OUTCOME_VERBS = frozenset(
+    {
+        "analyze",
+        "analyse",
+        "audit",
+        "automate",
+        "classify",
+        "compare",
+        "complete",
+        "consolidate",
+        "detect",
+        "draft",
+        "eliminate",
+        "enrich",
+        "extract",
+        "find",
+        "follow",
+        "identify",
+        "improve",
+        "increase",
+        "investigate",
+        "map",
+        "monitor",
+        "notify",
+        "organize",
+        "organise",
+        "plan",
+        "prepare",
+        "prioritize",
+        "prioritise",
+        "qualify",
+        "reconcile",
+        "recommend",
+        "recover",
+        "reduce",
+        "research",
+        "review",
+        "route",
+        "score",
+        "summarize",
+        "summarise",
+        "surface",
+        "sync",
+        "track",
+        "triage",
+        "update",
+        "validate",
+        "verify",
+    }
+)
+
+_MEASURABLE_MARKERS = frozenset(
+    {
+        "%",
+        "all",
+        "at least",
+        "before",
+        "complete",
+        "completed",
+        "confirmed",
+        "count",
+        "delivered",
+        "documented",
+        "each",
+        "every",
+        "listed",
+        "minimum",
+        "maximum",
+        "no more than",
+        "none remaining",
+        "number",
+        "percent",
+        "rate",
+        "ratio",
+        "recorded",
+        "sent",
+        "summarized",
+        "summarised",
+        "threshold",
+        "updated",
+        "verified",
+        "within",
+        "zero",
+    }
+)
+
+_VAGUE_CRITERION_PHRASES = frozenset(
+    {
+        "be better",
+        "be successful",
+        "do better",
+        "do good",
+        "do well",
+        "finish",
+        "get better",
+        "get done",
+        "go well",
+        "improve things",
+        "it works",
+        "make it work",
+        "mission complete",
+        "mission success",
+        "mission accomplished",
+        "no issues",
+        "looks good",
+        "make money",
+        "success",
+        "successful",
+        "works",
+    }
+)
+
+_PLACEHOLDER_OBJECTIVES = frozenset(
+    {
+        "asdf",
+        "bar",
+        "be better",
+        "do it",
+        "do something",
+        "do stuff",
+        "do things",
+        "fix things",
+        "foo",
+        "get better",
+        "hello",
+        "help me",
+        "hi",
+        "idk",
+        "improve things",
+        "just do it",
+        "make it work",
+        "make money",
+        "mission",
+        "run mission",
+        "something",
+        "test",
+        "testing",
+        "tbd",
+        "todo",
+        "whatever",
+    }
+)
+
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9'-]*", re.IGNORECASE)
+
+
+class MissionIntakeQualityViolation(BaseModel):
+    """One intake-quality denial with a stable machine code."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    code: str
+    reason: str
+    severity: MissionIntakeQualitySeverity = "required"
+
+
+class MissionIntakeQualityDeniedError(ValueError):
+    """Raised when mission intake text fails the prompt quality gate."""
+
+    def __init__(self, violations: list[MissionIntakeQualityViolation]) -> None:
+        self.violations = violations
+        message = violations[0].reason if violations else "mission intake quality denied"
+        super().__init__(message)
+
+    def to_detail(self) -> dict[str, Any]:
+        return {
+            "code": "MISSION_INTAKE_QUALITY_DENIED",
+            "message": "Mission intake failed prompt quality gate",
+            "schema_version": MISSION_INTAKE_QUALITY_SCHEMA_VERSION,
+            "violations": [item.model_dump() for item in self.violations],
+        }
+
+
+def _normalize_text(value: str) -> str:
+    return " ".join(value.strip().split())
+
+
+def _content_words(text: str) -> list[str]:
+    tokens = [token.lower() for token in _TOKEN_RE.findall(text)]
+    return [token for token in tokens if token not in _STOPWORDS and len(token) > 1]
+
+
+def _contains_outcome_signal(text: str) -> bool:
+    lowered = text.lower()
+    if any(char.isdigit() for char in text):
+        return True
+    words = _content_words(text)
+    if any(word in _OUTCOME_VERBS for word in words):
+        return True
+    if any(marker in lowered for marker in _MEASURABLE_MARKERS):
+        return True
+    return False
+
+
+def _is_measurable_text(text: str) -> bool:
+    lowered = text.lower()
+    if any(char.isdigit() for char in text):
+        return True
+    if any(marker in lowered for marker in _MEASURABLE_MARKERS):
+        return True
+    words = _content_words(text)
+    return any(word in _OUTCOME_VERBS for word in words) and len(words) >= 3
+
+
+def _is_placeholder_objective(text: str) -> bool:
+    normalized = _normalize_text(text).lower().rstrip(".!?")
+    if normalized in _PLACEHOLDER_OBJECTIVES:
+        return True
+    if len(normalized) <= 12 and normalized in _STOPWORDS:
+        return True
+    if normalized.startswith("test ") and len(normalized) < 40:
+        return True
+    return False
+
+
+def _is_interrogative_only(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if not normalized.endswith("?"):
+        return False
+    return not _contains_outcome_signal(normalized)
+
+
+def validate_mission_intake_prompt(
+    *,
+    objective: str,
+    success_criteria: list[dict[str, Any]],
+    allow_legacy_v1: bool = False,
+) -> None:
+    """Fail closed when mission prompt text is too vague to plan or measure."""
+
+    if allow_legacy_v1:
+        return
+
+    violations: list[MissionIntakeQualityViolation] = []
+    normalized_objective = _normalize_text(objective)
+
+    if _is_placeholder_objective(normalized_objective):
+        violations.append(
+            MissionIntakeQualityViolation(
+                field="objective",
+                code="objective_placeholder",
+                reason="Objective reads like a placeholder or test prompt, not a business outcome.",
+            )
+        )
+    elif len(normalized_objective) < _OBJECTIVE_MIN_CHARS:
+        violations.append(
+            MissionIntakeQualityViolation(
+                field="objective",
+                code="objective_too_short",
+                reason=(
+                    f"Objective must be at least {_OBJECTIVE_MIN_CHARS} characters and describe a concrete outcome."
+                ),
+            )
+        )
+    elif _is_interrogative_only(normalized_objective):
+        violations.append(
+            MissionIntakeQualityViolation(
+                field="objective",
+                code="objective_interrogative_only",
+                reason="Objective must state what should be accomplished, not only ask an open question.",
+            )
+        )
+    elif len(_content_words(normalized_objective)) < _OBJECTIVE_MIN_CONTENT_WORDS:
+        violations.append(
+            MissionIntakeQualityViolation(
+                field="objective",
+                code="objective_too_few_content_words",
+                reason="Objective must include enough specific nouns and verbs to describe the desired outcome.",
+            )
+        )
+    elif not _contains_outcome_signal(normalized_objective):
+        violations.append(
+            MissionIntakeQualityViolation(
+                field="objective",
+                code="objective_no_outcome_signal",
+                reason="Objective must describe an actionable outcome (for example: research, qualify, recover, draft, or verify).",
+            )
+        )
+
+    normalized_objective_lower = normalized_objective.lower()
+    measurable_criteria = 0
+
+    for index, raw_criterion in enumerate(success_criteria):
+        if not isinstance(raw_criterion, dict):
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=f"success_criteria[{index}]",
+                    code="success_criterion_invalid",
+                    reason="Each success criterion must be an object with a description.",
+                )
+            )
+            continue
+
+        description = raw_criterion.get("description")
+        if not isinstance(description, str):
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=f"success_criteria[{index}].description",
+                    code="success_criterion_missing_description",
+                    reason="Each success criterion requires a description.",
+                )
+            )
+            continue
+
+        normalized_description = _normalize_text(description)
+        field_name = f"success_criteria[{index}].description"
+
+        lowered_description = normalized_description.lower()
+        if lowered_description in _VAGUE_CRITERION_PHRASES:
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=field_name,
+                    code="success_criterion_too_vague",
+                    reason="Success criterion is too vague to verify completion.",
+                )
+            )
+            continue
+
+        if len(normalized_description) < _SUCCESS_CRITERION_MIN_CHARS:
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=field_name,
+                    code="success_criterion_too_short",
+                    reason=(
+                        f"Success criterion must be at least {_SUCCESS_CRITERION_MIN_CHARS} characters and observable."
+                    ),
+                )
+            )
+            continue
+
+        if lowered_description == normalized_objective_lower:
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=field_name,
+                    code="success_criterion_duplicate_objective",
+                    reason="Success criterion must add measurable detail beyond repeating the objective.",
+                )
+            )
+            continue
+
+        evidence = raw_criterion.get("evidence")
+        substantive_evidence = False
+        if isinstance(evidence, list):
+            substantive_evidence = any(
+                isinstance(item, str) and len(item.strip()) >= _EVIDENCE_MIN_CHARS for item in evidence
+            )
+
+        if _is_measurable_text(normalized_description) or substantive_evidence:
+            measurable_criteria += 1
+        else:
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=field_name,
+                    code="success_criterion_not_measurable",
+                    reason=(
+                        "Success criterion must be measurable or include concrete evidence expectations "
+                        "(counts, thresholds, deliverables, or named artifacts)."
+                    ),
+                )
+            )
+
+    if not violations and measurable_criteria == 0:
+        violations.append(
+            MissionIntakeQualityViolation(
+                field="success_criteria",
+                code="success_criteria_not_measurable",
+                reason="At least one success criterion must be measurable or backed by evidence expectations.",
+            )
+        )
+
+    if violations:
+        raise MissionIntakeQualityDeniedError(violations)
