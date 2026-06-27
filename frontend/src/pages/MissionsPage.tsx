@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { createMission } from "../api/client";
 import { loadSession, sessionToRuntimeConfig } from "../auth/session";
+import { MISSION_ALLOWED_ACTION_OPTIONS } from "../config/missionAbilities";
 import type { MissionIntakeQualityViolation, MissionReadResponse } from "../types";
 import { failureText, pretty } from "../utils/errors";
 
@@ -13,6 +14,8 @@ const MISSION_PROMPT_GUIDE = {
   exampleCriterion:
     "Three leads are documented with company name, contact email, and qualification notes ready for outreach.",
   rejectedExamples: ["do something", "help me", "be successful", "make it work"],
+  exampleScope: "Austin metro roofing segment, three leads, greeting-email deliverables",
+  defaultAllowedActions: ["gtm.lead_enrich", "gtm.email_draft", "crm.research", "gtm.email_check"],
 };
 
 const DEFAULT_OBJECTIVE = "";
@@ -43,6 +46,8 @@ export default function MissionsPage() {
   );
   const [objective, setObjective] = useState(DEFAULT_OBJECTIVE);
   const [successCriterion, setSuccessCriterion] = useState(DEFAULT_CRITERION);
+  const [scopeLimit, setScopeLimit] = useState("");
+  const [allowedActions, setAllowedActions] = useState<string[]>(MISSION_PROMPT_GUIDE.defaultAllowedActions);
   const [createdMission, setCreatedMission] = useState<MissionReadResponse | null>(null);
   const [violations, setViolations] = useState<MissionIntakeQualityViolation[]>([]);
   const [error, setError] = useState("");
@@ -51,8 +56,16 @@ export default function MissionsPage() {
   function applyExample() {
     setObjective(MISSION_PROMPT_GUIDE.exampleObjective);
     setSuccessCriterion(MISSION_PROMPT_GUIDE.exampleCriterion);
+    setScopeLimit(MISSION_PROMPT_GUIDE.exampleScope);
+    setAllowedActions([...MISSION_PROMPT_GUIDE.defaultAllowedActions]);
     setViolations([]);
     setError("");
+  }
+
+  function toggleAllowedAction(action: string) {
+    setAllowedActions((current) =>
+      current.includes(action) ? current.filter((item) => item !== action) : [...current, action],
+    );
   }
 
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
@@ -72,13 +85,16 @@ export default function MissionsPage() {
         success_criteria: [
           {
             description: successCriterion.trim(),
-            evidence: ["lead research summary"],
+            evidence: ["lead research summary", "draft email artifacts"],
           },
         ],
+        scope_limits: scopeLimit.trim() ? [scopeLimit.trim()] : [],
+        allowed_actions: allowedActions,
       });
       setCreatedMission(mission);
       setObjective("");
       setSuccessCriterion("");
+      setScopeLimit("");
     } catch (err) {
       const qualityViolations = parseQualityViolations(err);
       if (qualityViolations.length > 0) {
@@ -154,6 +170,33 @@ export default function MissionsPage() {
             </span>
           </label>
 
+          <label>
+            Scope limit
+            <input
+              value={scopeLimit}
+              onChange={(event) => setScopeLimit(event.target.value)}
+              placeholder={MISSION_PROMPT_GUIDE.exampleScope}
+            />
+            <span className="field-hint">Bound the mission with region, segment, timeframe, or audience.</span>
+          </label>
+
+          <fieldset className="ability-scope-fieldset">
+            <legend>Allowed abilities for this mission</legend>
+            <div className="ability-scope-grid">
+              {MISSION_ALLOWED_ACTION_OPTIONS.map((item) => (
+                <label className="ability-scope-option" key={item.action}>
+                  <input
+                    type="checkbox"
+                    checked={allowedActions.includes(item.action)}
+                    onChange={() => toggleAllowedAction(item.action)}
+                  />
+                  <span>{item.label}</span>
+                  <small>{item.action}</small>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
           <button type="submit" disabled={!config || loading}>
             {loading ? "Creating mission…" : "Create mission"}
           </button>
@@ -181,8 +224,8 @@ export default function MissionsPage() {
             Mission <code>{createdMission.mission_id}</code> is planned and ready for the next bridge stages.
           </p>
           <pre>{pretty(createdMission)}</pre>
-          <Link className="action-link" to="/tasks">
-            Launch runtime tasks for this workspace
+          <Link className="action-link" to={`/tasks?mission_id=${createdMission.mission_id}`}>
+            Launch mission-scoped abilities
           </Link>
         </section>
       ) : null}

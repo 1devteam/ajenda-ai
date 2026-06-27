@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-MISSION_INTAKE_QUALITY_SCHEMA_VERSION = 1
+MISSION_INTAKE_QUALITY_SCHEMA_VERSION = 2
 
 MissionIntakeQualitySeverity = Literal["required"]
 
@@ -221,6 +221,60 @@ _VAGUE_CRITERION_PHRASES = frozenset(
     }
 )
 
+_SCOPE_SIGNAL_MARKERS = frozenset(
+    {
+        "accounts",
+        "across",
+        "audience",
+        "campaign",
+        "city",
+        "clients",
+        "companies",
+        "contacts",
+        "customers",
+        "days",
+        "each",
+        "emails",
+        "every",
+        "for ",
+        "in ",
+        "inbox",
+        "leads",
+        "market",
+        "month",
+        "opportunities",
+        "per ",
+        "pipeline",
+        "prospects",
+        "quarter",
+        "region",
+        "segment",
+        "territory",
+        "week",
+        "within",
+    }
+)
+
+_VAGUE_SCOPE_LIMIT_PHRASES = frozenset(
+    {
+        "anywhere",
+        "everywhere",
+        "no limits",
+        "no scope",
+        "unlimited",
+        "whatever",
+    }
+)
+
+_PLACEHOLDER_ALLOWED_ACTIONS = frozenset(
+    {
+        "anything",
+        "do anything",
+        "everything",
+        "whatever",
+    }
+)
+
 _PLACEHOLDER_OBJECTIVES = frozenset(
     {
         "asdf",
@@ -332,10 +386,40 @@ def _is_interrogative_only(text: str) -> bool:
     return not _contains_outcome_signal(normalized)
 
 
+def _is_repeated_character_spam(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text.lower())
+    if len(compact) < 8:
+        return False
+    for char in set(compact):
+        if compact.count(char) / len(compact) > 0.4:
+            return True
+    return False
+
+
+def _has_scope_signal(text: str) -> bool:
+    lowered = text.lower()
+    if any(char.isdigit() for char in text):
+        return True
+    return any(marker in lowered for marker in _SCOPE_SIGNAL_MARKERS)
+
+
+def _is_vague_free_text(text: str) -> bool:
+    normalized = _normalize_text(text).lower()
+    if normalized in _VAGUE_CRITERION_PHRASES:
+        return True
+    if normalized in _PLACEHOLDER_OBJECTIVES:
+        return True
+    return len(_content_words(text)) < 3
+
+
 def validate_mission_intake_prompt(
     *,
     objective: str,
     success_criteria: list[dict[str, Any]],
+    constraints: list[dict[str, Any]] | None = None,
+    scope_limits: list[str] | None = None,
+    allowed_actions: list[str] | None = None,
+    operator_notes: str | None = None,
     allow_legacy_v1: bool = False,
 ) -> None:
     """Fail closed when mission prompt text is too vague to plan or measure."""
@@ -380,6 +464,25 @@ def validate_mission_intake_prompt(
                 reason="Objective must include enough specific nouns and verbs to describe the desired outcome.",
             )
         )
+    elif _is_repeated_character_spam(normalized_objective):
+        violations.append(
+            MissionIntakeQualityViolation(
+                field="objective",
+                code="objective_repeated_character_spam",
+                reason="Objective looks like keyboard noise or filler characters, not a business outcome.",
+            )
+        )
+    elif not _has_scope_signal(normalized_objective):
+        violations.append(
+            MissionIntakeQualityViolation(
+                field="objective",
+                code="objective_lacks_scope_signal",
+                reason=(
+                    "Objective must name who or what it targets — for example three leads, a market, a segment, "
+                    "or a time window."
+                ),
+            )
+        )
     elif not _contains_outcome_signal(normalized_objective):
         violations.append(
             MissionIntakeQualityViolation(
@@ -391,6 +494,7 @@ def validate_mission_intake_prompt(
 
     normalized_objective_lower = normalized_objective.lower()
     measurable_criteria = 0
+    seen_criteria: set[str] = set()
 
     for index, raw_criterion in enumerate(success_criteria):
         if not isinstance(raw_criterion, dict):
@@ -450,6 +554,17 @@ def validate_mission_intake_prompt(
             )
             continue
 
+        if lowered_description in seen_criteria:
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=field_name,
+                    code="success_criterion_duplicate",
+                    reason="Each success criterion must be distinct.",
+                )
+            )
+            continue
+        seen_criteria.add(lowered_description)
+
         evidence = raw_criterion.get("evidence")
         substantive_evidence = False
         if isinstance(evidence, list):
@@ -477,6 +592,57 @@ def validate_mission_intake_prompt(
                 field="success_criteria",
                 code="success_criteria_not_measurable",
                 reason="At least one success criterion must be measurable or backed by evidence expectations.",
+            )
+        )
+
+    for index, raw_constraint in enumerate(constraints or []):
+        if not isinstance(raw_constraint, dict):
+            continue
+        description = raw_constraint.get("description")
+        if not isinstance(description, str):
+            continue
+        normalized_description = _normalize_text(description)
+        if _is_vague_free_text(normalized_description):
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=f"constraints[{index}].description",
+                    code="constraint_too_vague",
+                    reason="Constraint descriptions must be specific enough to govern planning and execution.",
+                )
+            )
+
+    for index, raw_scope_limit in enumerate(scope_limits or []):
+        if not isinstance(raw_scope_limit, str):
+            continue
+        normalized_scope = _normalize_text(raw_scope_limit).lower()
+        if normalized_scope in _VAGUE_SCOPE_LIMIT_PHRASES or _is_vague_free_text(raw_scope_limit):
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=f"scope_limits[{index}]",
+                    code="scope_limit_too_vague",
+                    reason="Scope limits must bound the mission with concrete boundaries such as region, segment, or timeframe.",
+                )
+            )
+
+    for index, raw_action in enumerate(allowed_actions or []):
+        if not isinstance(raw_action, str):
+            continue
+        normalized_action = _normalize_text(raw_action).lower()
+        if normalized_action in _PLACEHOLDER_ALLOWED_ACTIONS:
+            violations.append(
+                MissionIntakeQualityViolation(
+                    field=f"allowed_actions[{index}]",
+                    code="allowed_action_placeholder",
+                    reason="Allowed actions must name concrete abilities such as web.search or gtm.email_draft.",
+                )
+            )
+
+    if operator_notes is not None and _is_vague_free_text(operator_notes):
+        violations.append(
+            MissionIntakeQualityViolation(
+                field="operator_notes",
+                code="operator_notes_too_vague",
+                reason="Operator notes must add concrete guidance, not placeholder text.",
             )
         )
 

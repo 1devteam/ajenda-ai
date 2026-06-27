@@ -229,6 +229,8 @@ export interface MissionSuccessCriterionInput {
 export interface MissionCreateRequest {
   objective: string;
   success_criteria: MissionSuccessCriterionInput[];
+  scope_limits?: string[];
+  allowed_actions?: string[];
   compliance_category?: string;
   jurisdiction?: string;
 }
@@ -264,6 +266,7 @@ export interface AbilityTaskCreate {
   input: Record<string, unknown>;
   title?: string;
   description?: string;
+  mission_id?: string;
   mission_objective?: string;
   idempotency_key?: string;
   approved_by?: string;

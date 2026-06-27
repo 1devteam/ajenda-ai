@@ -69,7 +69,12 @@ def test_ability_runtime_enforcement_imports_and_sets():
     assert "gtm.crm_upsert" in EXTERNAL_ACTIONS
     assert "gtm.social_publish" in EXTERNAL_ACTIONS
     assert GTM_HIGH_RISK_ACTIONS == {"gtm.email_send", "gtm.crm_upsert", "gtm.social_publish"}
-    assert CREDENTIALED_EXTERNAL_READ_ACTIONS == {"gtm.email_check", "sales.research"}
+    assert CREDENTIALED_EXTERNAL_READ_ACTIONS == {
+        "crm.read",
+        "crm.research",
+        "gtm.email_check",
+        "sales.research",
+    }
 
     # Internal writes also trigger authority (and thus potential future quota/feature)
     assert "record.write" in INTERNAL_WRITE_ACTIONS
@@ -77,6 +82,8 @@ def test_ability_runtime_enforcement_imports_and_sets():
 
     # Safe reads do not
     assert "sales.research" in READ_SAFE_ACTIONS
+    assert "crm.research" in READ_SAFE_ACTIONS
+    assert "crm.read" in READ_SAFE_ACTIONS
     assert len(EXTERNAL_ACTIONS) >= 6
 
 

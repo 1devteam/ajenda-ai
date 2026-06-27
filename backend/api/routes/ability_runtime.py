@@ -18,11 +18,11 @@ from backend.auth.permissions import Permission
 from backend.domain.audit_event import AuditEvent
 from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
-from backend.domain.enums import ExecutionTaskState
+from backend.domain.enums import ExecutionTaskState, MissionState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
-from backend.domain.mission import Mission
+from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, Mission
 from backend.queue.base import QueueAdapter
 from backend.services.abilities.role_contracts import RoleName
 from backend.services.autonomy.disclaimer_catalog import (
@@ -32,6 +32,7 @@ from backend.services.autonomy.disclaimer_catalog import (
     parse_autonomy_acknowledgment,
     validate_autonomy_acknowledgment,
 )
+from backend.repositories.mission_repository import MissionRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
@@ -58,6 +59,8 @@ READ_SAFE_ACTIONS: set[str] = {
     "retrieval.hybrid_search",
     "web.research",
     "web.search",
+    "crm.research",
+    "crm.read",
 }
 
 INTERNAL_WRITE_ACTIONS: set[str] = {
@@ -94,6 +97,8 @@ GTM_HIGH_RISK_ACTIONS_REQUIRING_CREDENTIAL: set[str] = {
 CREDENTIALED_EXTERNAL_READ_ACTIONS: set[str] = {
     "gtm.email_check",
     "sales.research",
+    "crm.research",
+    "crm.read",
 }
 
 EXPOSED_ACTIONS: set[str] = READ_SAFE_ACTIONS | INTERNAL_WRITE_ACTIONS | EXTERNAL_ACTIONS
@@ -125,6 +130,7 @@ class AbilityTaskCreate(BaseModel):
     title: str | None = Field(default=None, max_length=240)
     description: str | None = Field(default=None, max_length=1000)
     mission_objective: str | None = Field(default=None, max_length=1000)
+    mission_id: uuid.UUID | None = None
     idempotency_key: str | None = Field(default=None, max_length=200)
     approved_by: str = Field(default="ability-runtime-ui", min_length=1, max_length=160)
     approval_reason: str = Field(default="User launched ability from product runtime UI.", min_length=1, max_length=500)
@@ -168,6 +174,40 @@ class AbilityTaskStatusResponse(BaseModel):
 
 def _label_for_action(action_name: str) -> str:
     return action_name.replace(".", " ").replace("_", " ").title()
+
+
+def _mission_allowed_actions(metadata_json: dict[str, Any]) -> list[str]:
+    intake = metadata_json.get(MISSION_INTAKE_METADATA_KEY)
+    if not isinstance(intake, dict):
+        return []
+    raw_actions = intake.get("allowed_actions")
+    if not isinstance(raw_actions, list):
+        return []
+    return [str(item).strip() for item in raw_actions if isinstance(item, str) and item.strip()]
+
+
+def _assert_action_allowed_for_mission(*, mission: Mission, action_name: str) -> None:
+    allowed_actions = _mission_allowed_actions(mission.metadata_json)
+    if not allowed_actions:
+        return
+    registry = get_default_action_registry()
+    try:
+        definition = registry.get(action_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Action {action_name!r} is not registered for mission-scoped launch.",
+        ) from exc
+    permitted_names = {definition.name, *definition.aliases}
+    if not permitted_names.intersection(allowed_actions):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "MISSION_ACTION_NOT_ALLOWED",
+                "message": f"Action {action_name!r} is outside this mission's allowed_actions scope.",
+                "allowed_actions": allowed_actions,
+            },
+        )
 
 
 def _provider_mode(provider: str, side_effect_class: SideEffectClass) -> Literal["local", "external", "mixed"]:
@@ -633,7 +673,8 @@ def launch_task(
             )
 
     try:
-        quota.check_and_record_mission_creation(tenant_id)
+        if body.mission_id is None:
+            quota.check_and_record_mission_creation(tenant_id)
         quota.check_and_record_task_creation(tenant_id)
     except QuotaExceededError as exc:
         raise HTTPException(
@@ -659,18 +700,26 @@ def launch_task(
         approved_by=launch_authority.approved_by,
     )
 
-    mission = Mission(
-        tenant_id=str(tenant_id),
-        objective=body.mission_objective or f"Ability runtime task: {action.name}",
-        status="running",
-        metadata_json={
-            "schema_version": 1,
-            "source": "ability-runtime",
-            "action": action.name,
-            "created_at": datetime.now(UTC).isoformat(),
-        },
-    )
-    db.add(mission)
+    if body.mission_id is not None:
+        mission = MissionRepository(db).get_for_tenant(mission_id=body.mission_id, tenant_id=str(tenant_id))
+        if mission is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mission not found for tenant")
+        _assert_action_allowed_for_mission(mission=mission, action_name=action_name)
+        if mission.status == MissionState.PLANNED.value:
+            mission.status = MissionState.RUNNING.value
+    else:
+        mission = Mission(
+            tenant_id=str(tenant_id),
+            objective=body.mission_objective or f"Ability runtime task: {action.name}",
+            status=MissionState.RUNNING.value,
+            metadata_json={
+                "schema_version": 1,
+                "source": "ability-runtime",
+                "action": action.name,
+                "created_at": datetime.now(UTC).isoformat(),
+            },
+        )
+        db.add(mission)
     db.flush()
 
     task = ExecutionTask(

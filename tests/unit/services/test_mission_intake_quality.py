@@ -63,6 +63,41 @@ def test_validate_allows_legacy_v1_bypass() -> None:
     )
 
 
+def test_validate_denies_objective_without_scope_signal() -> None:
+    with pytest.raises(MissionIntakeQualityDeniedError) as exc_info:
+        validate_mission_intake_prompt(
+            objective="Investigate workflows thoroughly and prepare concise summary notes.",
+            success_criteria=[_valid_criterion()],
+        )
+
+    codes = {item.code for item in exc_info.value.violations}
+    assert "objective_lacks_scope_signal" in codes
+
+
+def test_validate_denies_duplicate_success_criteria() -> None:
+    criterion = _valid_criterion()
+    with pytest.raises(MissionIntakeQualityDeniedError) as exc_info:
+        validate_mission_intake_prompt(
+            objective="Find three qualified roofing leads in Austin and draft greeting emails for each prospect.",
+            success_criteria=[criterion, criterion],
+        )
+
+    codes = {item.code for item in exc_info.value.violations}
+    assert "success_criterion_duplicate" in codes
+
+
+def test_validate_denies_placeholder_allowed_action() -> None:
+    with pytest.raises(MissionIntakeQualityDeniedError) as exc_info:
+        validate_mission_intake_prompt(
+            objective="Find three qualified roofing leads in Austin and draft greeting emails for each prospect.",
+            success_criteria=[_valid_criterion()],
+            allowed_actions=["whatever"],
+        )
+
+    codes = {item.code for item in exc_info.value.violations}
+    assert "allowed_action_placeholder" in codes
+
+
 def test_denied_error_detail_is_structured() -> None:
     try:
         validate_mission_intake_prompt(
@@ -75,6 +110,6 @@ def test_denied_error_detail_is_structured() -> None:
         raise AssertionError("expected denial")
 
     assert detail["code"] == "MISSION_INTAKE_QUALITY_DENIED"
-    assert detail["schema_version"] == 1
+    assert detail["schema_version"] == 2
     assert detail["violations"]
     assert detail["violations"][0]["field"] == "objective"

@@ -1467,6 +1467,10 @@ def create_mission(
             validate_mission_intake_prompt(
                 objective=body.objective,
                 success_criteria=[criterion.model_dump() for criterion in body.success_criteria],
+                constraints=[constraint.model_dump() for constraint in body.constraints],
+                scope_limits=body.scope_limits,
+                allowed_actions=body.allowed_actions,
+                operator_notes=body.operator_notes,
                 allow_legacy_v1=body.allow_legacy_v1,
             )
         except MissionIntakeQualityDeniedError as exc:

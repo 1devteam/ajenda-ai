@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import DisclaimerModal from "../components/DisclaimerModal";
 import {
   getAccountMe,
@@ -9,6 +10,7 @@ import {
   listProviderCredentials,
 } from "../api/client";
 import { loadSession, sessionToRuntimeConfig } from "../auth/session";
+import { MISSION_ABILITY_PRESETS, type MissionAbilityPreset } from "../config/missionAbilities";
 import type {
   AbilityTaskQueuedResponse,
   AbilityTaskStatusResponse,
@@ -48,6 +50,8 @@ const TIER3_ACTIONS: Array<{
 ];
 
 export default function TasksPage() {
+  const [searchParams] = useSearchParams();
+  const missionId = searchParams.get("mission_id")?.trim() ?? "";
   const session = loadSession();
   const config = useMemo(
     () => (session ? sessionToRuntimeConfig(session) : null),
@@ -147,6 +151,73 @@ export default function TasksPage() {
     };
   }, [activeTaskId, config]);
 
+  function credentialForPreset(preset: MissionAbilityPreset) {
+    if (!preset.provider) {
+      return "";
+    }
+    return (
+      credentials.find(
+        (item) =>
+          item.provider === preset.provider &&
+          item.allowed_actions.includes(preset.action) &&
+          !item.revoked,
+      )?.credential_id ?? ""
+    );
+  }
+
+  async function handleMissionAbility(preset: MissionAbilityPreset) {
+    if (!config || !missionId) {
+      return;
+    }
+    if (preset.requiresCredential) {
+      const credentialId = credentialForPreset(preset);
+      if (!credentialId) {
+        setError(`Connect a credential for ${preset.action} on the Credentials page first.`);
+        return;
+      }
+      setLoading(`Launching ${preset.action}`);
+      setError("");
+      try {
+        const queued = await launchTask(config, {
+          action: preset.action,
+          input: preset.input,
+          mission_id: missionId,
+          idempotency_key: newIdempotencyKey(),
+          credential_reference: {
+            schema_version: 1,
+            credential_id: credentialId,
+            provider: preset.provider!,
+            credential_type: preset.credentialType ?? "api_key",
+          },
+        });
+        setLastQueued(queued);
+        setActiveTaskId(queued.task_id);
+      } catch (err) {
+        setError(failureText(err));
+      } finally {
+        setLoading(null);
+      }
+      return;
+    }
+
+    setLoading(`Launching ${preset.action}`);
+    setError("");
+    try {
+      const queued = await launchTask(config, {
+        action: preset.action,
+        input: preset.input,
+        mission_id: missionId,
+        idempotency_key: newIdempotencyKey(),
+      });
+      setLastQueued(queued);
+      setActiveTaskId(queued.task_id);
+    } catch (err) {
+      setError(failureText(err));
+    } finally {
+      setLoading(null);
+    }
+  }
+
   function credentialOptionsFor(action: Tier3Action) {
     const spec = TIER3_ACTIONS.find((item) => item.action === action);
     if (!spec) {
@@ -166,6 +237,7 @@ export default function TasksPage() {
     try {
       const queued = await launchTask(config, {
         action: "gtm.email_draft",
+        mission_id: missionId || undefined,
         input: {
           recipient: "prospect@example.com",
           topic: "Ajenda follow-up",
@@ -221,6 +293,7 @@ export default function TasksPage() {
         config,
         {
           action: pendingTier3,
+          mission_id: missionId || undefined,
           input,
           idempotency_key: idempotencyKey,
           credential_reference: {
@@ -288,10 +361,39 @@ export default function TasksPage() {
       <section className="hero compact-hero">
         <div>
           <p className="eyebrow">Runtime tasks</p>
-          <h1>Launch worker proofs</h1>
-          <p>Queue ability-runtime tasks and monitor status, lineage, and evidence from your tenant session.</p>
+          <h1>{missionId ? "Launch mission abilities" : "Launch worker proofs"}</h1>
+          <p>
+            Queue ability-runtime tasks and monitor status, lineage, and evidence from your tenant session.
+          </p>
         </div>
       </section>
+
+      {missionId ? (
+        <section className="panel">
+          <div className="mission-context-banner">
+            <strong>Mission scope active</strong>
+            <p className="muted">
+              Tasks launched here attach to mission <code>{missionId}</code> and must stay inside its allowed
+              abilities.
+            </p>
+          </div>
+          <h2>Mission abilities</h2>
+          <div className="card-grid two-up">
+            {MISSION_ABILITY_PRESETS.map((preset) => (
+              <button
+                className="proof-card"
+                key={preset.action}
+                type="button"
+                onClick={() => void handleMissionAbility(preset)}
+                disabled={!config || loading !== null}
+              >
+                <strong>{preset.title}</strong>
+                <span>{preset.description}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel">
         <h2>Proof launchers</h2>

@@ -547,6 +547,46 @@ pre {
   color: #fecaca;
 }
 
+.ability-scope-fieldset {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.8rem;
+  padding: 1rem;
+  margin: 0;
+}
+
+.ability-scope-fieldset legend {
+  padding: 0 0.35rem;
+  color: #cbd5e1;
+  font-weight: 700;
+}
+
+.ability-scope-grid {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.ability-scope-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.65rem;
+  align-items: center;
+  font-weight: 600;
+}
+
+.ability-scope-option small {
+  grid-column: 2;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.mission-context-banner {
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 0.9rem;
+  padding: 1rem;
+  background: rgba(14, 116, 144, 0.12);
+  margin-bottom: 1rem;
+}
+
 .checklist {
   margin: 0;
   padding-left: 1.2rem;
