@@ -13,6 +13,7 @@ import type {
   AbilityTaskQueuedResponse,
   AbilityTaskStatusResponse,
   MissionCreateRequest,
+  MissionListResponse,
   MissionReadResponse,
   AccountBillingResponse,
   AccountMeResponse,
@@ -386,6 +387,14 @@ export async function connectGmailOAuth(
 
 function authedRuntimeOptions(config: RuntimeConfig) {
   return runtimeOptions(config);
+}
+
+export async function listMissions(
+  config: RuntimeConfig,
+  options?: { limit?: number },
+): Promise<MissionListResponse> {
+  const limit = options?.limit ?? 50;
+  return request<MissionListResponse>(`/v1/missions?limit=${limit}`, {}, authedRuntimeOptions(config));
 }
 
 export async function createMission(

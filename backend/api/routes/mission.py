@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
@@ -788,6 +788,25 @@ class MissionRead(BaseModel):
     updated_at: str
 
 
+class MissionListItem(BaseModel):
+    """Compact mission summary for tenant mission lists."""
+
+    mission_id: UUID
+    objective: str
+    status: str
+    scope_limits: list[str] = Field(default_factory=list)
+    allowed_actions: list[str] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
+
+
+class MissionListResponse(BaseModel):
+    """Tenant-scoped mission list envelope."""
+
+    missions: list[MissionListItem]
+    count: int
+
+
 class MissionLifecycleCompleteness(BaseModel):
     """Contract-layer presence indicators for a mission lifecycle."""
 
@@ -1133,6 +1152,21 @@ def _mission_to_read(mission: Mission) -> MissionRead:
         compliance_category=mission.compliance_category,
         jurisdiction=mission.jurisdiction,
         intake=mission.metadata_json.get(MISSION_INTAKE_METADATA_KEY, {}),
+        created_at=mission.created_at.isoformat(),
+        updated_at=mission.updated_at.isoformat(),
+    )
+
+
+def _mission_to_list_item(mission: Mission) -> MissionListItem:
+    intake = mission.metadata_json.get(MISSION_INTAKE_METADATA_KEY, {})
+    scope_limits = intake.get("scope_limits") if isinstance(intake, dict) else []
+    allowed_actions = intake.get("allowed_actions") if isinstance(intake, dict) else []
+    return MissionListItem(
+        mission_id=mission.id,
+        objective=mission.objective,
+        status=mission.status,
+        scope_limits=[str(item) for item in scope_limits] if isinstance(scope_limits, list) else [],
+        allowed_actions=[str(item) for item in allowed_actions] if isinstance(allowed_actions, list) else [],
         created_at=mission.created_at.isoformat(),
         updated_at=mission.updated_at.isoformat(),
     )
@@ -1511,6 +1545,19 @@ def create_mission(
         )
     )
     return _mission_to_read(mission)
+
+
+@router.get("", response_model=MissionListResponse)
+def list_missions(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> MissionListResponse:
+    """List tenant-owned missions newest-first for product navigation."""
+    missions = MissionRepository(db).list_by_tenant(str(tenant_id), limit=limit)
+    items = [_mission_to_list_item(mission) for mission in missions]
+    return MissionListResponse(missions=items, count=len(items))
 
 
 @router.get("/{mission_id}", response_model=MissionRead)

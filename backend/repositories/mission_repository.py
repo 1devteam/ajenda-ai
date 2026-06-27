@@ -40,6 +40,11 @@ class MissionRepository:
         stmt = select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id).with_for_update()
         return self._session.scalar(stmt)
 
-    def list_by_tenant(self, tenant_id: str) -> list[Mission]:
-        stmt = select(Mission).where(Mission.tenant_id == tenant_id).order_by(Mission.created_at.asc())
+    def list_by_tenant(self, tenant_id: str, *, limit: int = 50) -> list[Mission]:
+        stmt = (
+            select(Mission)
+            .where(Mission.tenant_id == tenant_id)
+            .order_by(Mission.created_at.desc())
+            .limit(max(1, min(limit, 200)))
+        )
         return list(self._session.scalars(stmt))

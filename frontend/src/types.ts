@@ -261,6 +261,21 @@ export interface MissionReadResponse {
   updated_at: string;
 }
 
+export interface MissionListItem {
+  mission_id: string;
+  objective: string;
+  status: string;
+  scope_limits: string[];
+  allowed_actions: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MissionListResponse {
+  missions: MissionListItem[];
+  count: number;
+}
+
 export interface AbilityTaskCreate {
   action: string;
   input: Record<string, unknown>;

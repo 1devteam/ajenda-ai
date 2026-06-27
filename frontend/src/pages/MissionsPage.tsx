@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { createMission } from "../api/client";
+import { createMission, listMissions } from "../api/client";
 import { loadSession, sessionToRuntimeConfig } from "../auth/session";
 import { MISSION_ALLOWED_ACTION_OPTIONS } from "../config/missionAbilities";
-import type { MissionIntakeQualityViolation, MissionReadResponse } from "../types";
-import { failureText, pretty } from "../utils/errors";
+import type { MissionIntakeQualityViolation, MissionListItem, MissionReadResponse } from "../types";
+import { failureText } from "../utils/errors";
 
 const MISSION_PROMPT_GUIDE = {
   summary:
@@ -48,10 +48,32 @@ export default function MissionsPage() {
   const [successCriterion, setSuccessCriterion] = useState(DEFAULT_CRITERION);
   const [scopeLimit, setScopeLimit] = useState("");
   const [allowedActions, setAllowedActions] = useState<string[]>(MISSION_PROMPT_GUIDE.defaultAllowedActions);
+  const [missions, setMissions] = useState<MissionListItem[]>([]);
   const [createdMission, setCreatedMission] = useState<MissionReadResponse | null>(null);
   const [violations, setViolations] = useState<MissionIntakeQualityViolation[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
+
+  const refreshMissions = useCallback(async () => {
+    if (!config) {
+      setMissions([]);
+      return;
+    }
+    setListLoading(true);
+    try {
+      const response = await listMissions(config, { limit: 50 });
+      setMissions(response.missions);
+    } catch (err) {
+      setError(failureText(err));
+    } finally {
+      setListLoading(false);
+    }
+  }, [config]);
+
+  useEffect(() => {
+    void refreshMissions();
+  }, [refreshMissions]);
 
   function applyExample() {
     setObjective(MISSION_PROMPT_GUIDE.exampleObjective);
@@ -92,6 +114,7 @@ export default function MissionsPage() {
         allowed_actions: allowedActions,
       });
       setCreatedMission(mission);
+      await refreshMissions();
       setObjective("");
       setSuccessCriterion("");
       setScopeLimit("");
@@ -117,6 +140,43 @@ export default function MissionsPage() {
             happen and how you will measure success.
           </p>
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading-row">
+          <h2>Your missions</h2>
+          <button type="button" className="ghost-button" disabled={!config || listLoading} onClick={() => void refreshMissions()}>
+            {listLoading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+        {missions.length === 0 ? (
+          <p className="muted">No missions yet. Create your first outcome below.</p>
+        ) : (
+          <ul className="mission-list">
+            {missions.map((mission) => (
+              <li className="mission-card" key={mission.mission_id}>
+                <div className="mission-card-header">
+                  <span className={`status-pill status-${mission.status}`}>{mission.status}</span>
+                  <time dateTime={mission.created_at}>{new Date(mission.created_at).toLocaleString()}</time>
+                </div>
+                <p className="mission-card-objective">{mission.objective}</p>
+                {mission.scope_limits.length > 0 ? (
+                  <p className="mission-card-meta">
+                    <strong>Scope:</strong> {mission.scope_limits.join("; ")}
+                  </p>
+                ) : null}
+                {mission.allowed_actions.length > 0 ? (
+                  <p className="mission-card-meta">
+                    <strong>Abilities:</strong> {mission.allowed_actions.join(", ")}
+                  </p>
+                ) : null}
+                <Link className="action-link" to={`/tasks?mission_id=${mission.mission_id}`}>
+                  Launch abilities
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="panel">
@@ -218,12 +278,12 @@ export default function MissionsPage() {
       ) : null}
 
       {createdMission ? (
-        <section className="panel">
+        <section className="panel success-panel">
           <h2>Mission created</h2>
           <p>
-            Mission <code>{createdMission.mission_id}</code> is planned and ready for the next bridge stages.
+            <code>{createdMission.mission_id}</code> is <strong>{createdMission.status}</strong> and ready for
+            mission-scoped abilities.
           </p>
-          <pre>{pretty(createdMission)}</pre>
           <Link className="action-link" to={`/tasks?mission_id=${createdMission.mission_id}`}>
             Launch mission-scoped abilities
           </Link>

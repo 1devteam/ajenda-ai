@@ -547,6 +547,87 @@ pre {
   color: #fecaca;
 }
 
+.panel-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel-heading-row h2 {
+  margin: 0;
+}
+
+.mission-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.mission-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem 1.1rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.mission-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.mission-card-objective {
+  margin: 0;
+  color: #e2e8f0;
+  line-height: 1.55;
+}
+
+.mission-card-meta {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #cbd5e1;
+}
+
+.status-pill.status-running {
+  border-color: rgba(56, 189, 248, 0.45);
+  color: #7dd3fc;
+  background: rgba(14, 165, 233, 0.12);
+}
+
+.status-pill.status-planned {
+  border-color: rgba(168, 85, 247, 0.4);
+  color: #d8b4fe;
+  background: rgba(168, 85, 247, 0.12);
+}
+
+.success-panel {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(6, 78, 59, 0.18);
+}
+
 .ability-scope-fieldset {
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 0.8rem;

@@ -7,6 +7,13 @@ export function pretty(value: unknown): string {
 export function failureText(error: unknown): string {
   const maybe = error as Partial<ApiFailure>;
   if (typeof maybe.status === "number") {
+    if (maybe.status === 504) {
+      return "Ajenda API timed out. The service may be restarting — wait a few seconds and try again.";
+    }
+    if (maybe.status === 502 || maybe.status === 503) {
+      return "Ajenda API is temporarily unavailable. Wait a moment and retry.";
+    }
+
     const body = maybe.body;
     if (typeof body === "object" && body !== null && "detail" in body) {
       const detail = (body as { detail: unknown }).detail;
