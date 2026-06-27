@@ -103,10 +103,30 @@ export default function CredentialsPage() {
   const [warning, setWarning] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState<string | null>(null);
+  const [salesforceInstanceHost, setSalesforceInstanceHost] = useState("");
 
   useEffect(() => {
     setForm({ ...FORM_BY_INTEGRATION[integration] });
+    if (integration !== "salesforce") {
+      setSalesforceInstanceHost("");
+    }
   }, [integration]);
+
+  function parseSalesforceInstanceHost(secretValue: string): string {
+    const trimmed = secretValue.trim();
+    if (!trimmed.startsWith("{")) {
+      return "";
+    }
+    try {
+      const payload = JSON.parse(trimmed) as { instance_url?: unknown };
+      if (typeof payload.instance_url !== "string") {
+        return "";
+      }
+      return new URL(payload.instance_url).hostname;
+    } catch {
+      return "";
+    }
+  }
 
   useEffect(() => {
     if (!session) {
@@ -200,7 +220,15 @@ export default function CredentialsPage() {
     setError("");
     setWarning("");
     try {
-      const response = await createProviderCredential(session, form);
+      const payload: ProviderCredentialCreateRequest = { ...form };
+      if (integration === "salesforce") {
+        const derivedHost = parseSalesforceInstanceHost(form.secret_value ?? "");
+        const host = (salesforceInstanceHost || derivedHost).trim();
+        if (host) {
+          payload.trusted_destination_hosts = [host];
+        }
+      }
+      const response = await createProviderCredential(session, payload);
       if (response.warning) {
         setWarning(response.warning);
       }
@@ -383,10 +411,29 @@ export default function CredentialsPage() {
           ) : (
             <>
               <label>
+                Salesforce instance host
+                <input
+                  value={salesforceInstanceHost}
+                  onChange={(event) => setSalesforceInstanceHost(event.target.value)}
+                  placeholder="mycompany.my.salesforce.com"
+                />
+                <span className="field-hint">
+                  Required for plain bearer tokens. OAuth connect and JSON bundles with{" "}
+                  <code>instance_url</code> infer this automatically.
+                </span>
+              </label>
+              <label>
                 Salesforce OAuth bearer or JSON bundle
                 <textarea
                   value={form.secret_value ?? ""}
-                  onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
+                  onChange={(event) => {
+                    const secretValue = event.target.value;
+                    setForm({ ...form, secret_value: secretValue });
+                    const derivedHost = parseSalesforceInstanceHost(secretValue);
+                    if (derivedHost) {
+                      setSalesforceInstanceHost(derivedHost);
+                    }
+                  }}
                   placeholder='Paste access token or JSON: {"provider_kind":"salesforce","access_token":"...","refresh_token":"...","instance_url":"https://...","expires_at":"..."}'
                 />
                 <span className="field-hint">

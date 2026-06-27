@@ -39,6 +39,7 @@ No bypass via direct HTTP clients, task metadata secrets, or handler-local socke
 
 - Task metadata carries `credential_reference` only; secrets resolve at invoke time.
 - Gmail OAuth refresh is **in scope** and implemented via `gmail_runtime_token` / `google_oauth_cli` at repository read time.
+- LinkedIn and Salesforce OAuth refresh is **in scope** via `linkedin_runtime_token` / `salesforce_runtime_token` at repository read time (product OAuth connect + Credentials UI).
 - Credentialed external paths **fail closed** on provider errors (no simulated success). Example: `gtm.email_check` raises on Gmail API failure when a credential is present.
 - SMTP remains a scoped alternate transport for `gtm.email_send` when credential transport mode permits; HTTPS Gmail API is the default real path.
 

@@ -17,6 +17,8 @@ export const MISSION_ALLOWED_ACTION_OPTIONS = [
   { action: "gtm.email_check", label: "Check inbox" },
   { action: "gtm.email_send", label: "Send email" },
   { action: "gtm.crm_upsert", label: "CRM upsert" },
+  { action: "linkedin.profile_read", label: "LinkedIn profile read" },
+  { action: "salesforce.soql_read", label: "Salesforce SOQL read" },
 ] as const;
 
 export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
@@ -66,6 +68,24 @@ export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
     description: "Read recent inbox messages through connected Gmail.",
     input: { query: "in:inbox", limit: 3 },
     provider: "external_email",
+    credentialType: "api_key",
+    requiresCredential: true,
+  },
+  {
+    action: "linkedin.profile_read",
+    title: "LinkedIn profile read",
+    description: "Read the connected member profile via LinkedIn userinfo.",
+    input: {},
+    provider: "external_read_provider",
+    credentialType: "api_key",
+    requiresCredential: true,
+  },
+  {
+    action: "salesforce.soql_read",
+    title: "Salesforce SOQL read",
+    description: "Run a read-only SELECT query against the connected Salesforce org.",
+    input: { soql: "SELECT Id, Name FROM Account LIMIT 5" },
+    provider: "external_read_provider",
     credentialType: "api_key",
     requiresCredential: true,
   },

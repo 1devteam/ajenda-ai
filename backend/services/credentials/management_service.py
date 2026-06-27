@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass
@@ -100,6 +101,7 @@ class ProviderCredentialManagementService:
             use_platform_master_key=use_platform_master_key,
         )
         ciphertext: str
+        normalized_secret: str | None = None
 
         if use_platform_master_key:
             if not self._settings.hubspot_platform_master_ready:
@@ -122,6 +124,7 @@ class ProviderCredentialManagementService:
         actions, side_effects, hosts = self._default_scope(
             provider=normalized_provider,
             integration=integration,
+            secret_value=normalized_secret,
             allowed_actions=allowed_actions,
             allowed_side_effect_classes=allowed_side_effect_classes,
             trusted_destination_hosts=trusted_destination_hosts,
@@ -195,6 +198,7 @@ class ProviderCredentialManagementService:
         *,
         provider: str,
         integration: str,
+        secret_value: str | None = None,
         allowed_actions: list[str] | None,
         allowed_side_effect_classes: list[str] | None,
         trusted_destination_hosts: list[str] | None,
@@ -215,12 +219,16 @@ class ProviderCredentialManagementService:
         if provider == "external_read_provider" and integration == "salesforce":
             actions = tuple(allowed_actions or SALESFORCE_READ_ACTIONS)
             side_effects = tuple(allowed_side_effect_classes or SALESFORCE_READ_SIDE_EFFECTS)
-            if not trusted_destination_hosts:
+            hosts = tuple(trusted_destination_hosts or ())
+            if not hosts:
+                derived_host = _salesforce_instance_host_from_secret(secret_value)
+                if derived_host:
+                    hosts = (derived_host,)
+            if not hosts:
                 raise ProviderCredentialManagementError(
                     "trusted_destination_hosts is required for salesforce integration "
                     "(tenant Salesforce instance host, e.g. mycompany.my.salesforce.com)"
                 )
-            hosts = tuple(trusted_destination_hosts)
             return actions, side_effects, hosts
         if provider == "external_read_provider":
             actions = tuple(allowed_actions or ("provider.external_read",))
@@ -318,6 +326,23 @@ class ProviderCredentialManagementService:
                 payload_json=payload,
             )
         )
+
+
+def _salesforce_instance_host_from_secret(secret_value: str | None) -> str | None:
+    if not secret_value or not secret_value.strip().startswith("{"):
+        return None
+    try:
+        payload = json.loads(secret_value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    instance_url = payload.get("instance_url")
+    if not isinstance(instance_url, str) or not instance_url.strip():
+        return None
+    from backend.services.credentials.salesforce_oauth_client import instance_host_from_url
+
+    return instance_host_from_url(instance_url)
 
 
 def _normalize_credential_id(value: str) -> str:

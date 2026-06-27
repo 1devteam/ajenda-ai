@@ -133,6 +133,7 @@ authority_entries:
       - tests/integration/credentials/test_gmail_oauth_refresh_real.py
       - tests/integration/credentials/test_linkedin_oauth_refresh_real.py
       - tests/integration/credentials/test_salesforce_oauth_refresh_real.py
+      - tests/integration/credentials/test_external_read_credential_flow_real.py
 
   - id: plugin_discovery_contract
     area: plugin discovery and contracts
@@ -1099,8 +1100,10 @@ authority_entries:
       - tests/unit/credentials/test_linkedin_oauth_connect.py
       - tests/unit/credentials/test_salesforce_oauth_connect.py
       - tests/integration/credentials/test_external_invoke_authority_real.py
+      - tests/integration/credentials/test_external_read_credential_flow_real.py
       - tests/integration/credentials/test_linkedin_oauth_refresh_real.py
       - tests/integration/credentials/test_salesforce_oauth_refresh_real.py
+      - frontend/src/config/missionAbilities.ts
       - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
 
   - id: social_publish_real_egress
