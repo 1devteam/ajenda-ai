@@ -19,6 +19,8 @@ from backend.api.routes.ability_runtime import (
     _requires_runtime_authority,
     launch_task,
 )
+from backend.domain.enums import MissionState
+from backend.domain.mission import MISSION_INTAKE_METADATA_KEY
 from backend.services.execution_coordinator import CoordinationResult
 from backend.services.quota_enforcement import QuotaExceededError
 from backend.services.tools.runtime_authority import ToolRuntimeAuthority
@@ -257,6 +259,97 @@ def test_launch_task_credentialed_sales_research_requires_guardian() -> None:
 
     assert exc_info.value.status_code == 403
     assert "sales.research" in str(exc_info.value.detail)
+
+
+def test_launch_task_with_mission_id_skips_mission_quota_and_starts_planned_mission() -> None:
+    from backend.domain.execution_task import ExecutionTask
+    from backend.domain.mission import Mission
+
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request()
+    mission = Mission(
+        tenant_id=str(tenant_id),
+        objective="Find three qualified roofing leads in Austin and draft greeting emails.",
+        status=MissionState.PLANNED.value,
+        metadata_json={
+            MISSION_INTAKE_METADATA_KEY: {
+                "allowed_actions": ["web.search", "gtm.email_draft"],
+            }
+        },
+    )
+    mission.id = mission_id
+
+    body = AbilityTaskCreate(
+        action="web.search",
+        input={"query": "roofing contractors Austin", "limit": 3},
+        mission_id=mission_id,
+    )
+
+    def _assign_ids(obj: object) -> None:
+        if isinstance(obj, ExecutionTask):
+            obj.id = task_id
+
+    db.add.side_effect = _assign_ids
+
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+    coordinator.queue_task.return_value = CoordinationResult(ok=True, task_id=task_id, state="queued")
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+
+    with (
+        patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.ability_runtime.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.ability_runtime._ensure_runtime_authority", return_value=(None, None)),
+        patch("backend.api.routes.ability_runtime.MissionRepository", return_value=mission_repo),
+    ):
+        response = launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    quota_svc.check_and_record_mission_creation.assert_not_called()
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    assert mission.status == MissionState.RUNNING.value
+    assert response.mission_id == mission_id
+
+
+def test_launch_task_with_mission_id_rejects_disallowed_action() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request()
+    mission = MagicMock()
+    mission.metadata_json = {
+        MISSION_INTAKE_METADATA_KEY: {
+            "allowed_actions": ["gtm.email_draft"],
+        }
+    }
+
+    body = AbilityTaskCreate(
+        action="web.search",
+        input={"query": "roofing contractors Austin", "limit": 3},
+        mission_id=mission_id,
+    )
+
+    quota_svc = MagicMock()
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+
+    with (
+        patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.ability_runtime.MissionRepository", return_value=mission_repo),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["code"] == "MISSION_ACTION_NOT_ALLOWED"
+    assert "web.search" in exc_info.value.detail["message"]
+    quota_svc.check_and_record_mission_creation.assert_not_called()
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
 
 
 def test_launch_task_returns_429_when_mission_quota_exceeded() -> None:
