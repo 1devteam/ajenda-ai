@@ -11,15 +11,20 @@ from backend.app.config import Settings
 
 class DatabaseRuntime:
     def __init__(self, settings: Settings) -> None:
-        self._engine = create_engine(
-            settings.database_url,
-            future=True,
-            pool_pre_ping=True,
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_max_overflow,
-            pool_timeout=settings.db_pool_timeout,
-            pool_recycle=settings.db_pool_recycle,
-        )
+        engine_kwargs: dict[str, object] = {
+            "future": True,
+            "pool_pre_ping": True,
+            "pool_size": settings.db_pool_size,
+            "max_overflow": settings.db_max_overflow,
+            "pool_timeout": settings.db_pool_timeout,
+            "pool_recycle": settings.db_pool_recycle,
+        }
+        idle_timeout_ms = settings.db_idle_in_transaction_session_timeout_ms
+        if idle_timeout_ms > 0:
+            engine_kwargs["connect_args"] = {
+                "options": f"-c idle_in_transaction_session_timeout={idle_timeout_ms}",
+            }
+        self._engine = create_engine(settings.database_url, **engine_kwargs)
         self._session_factory: sessionmaker[Session] = sessionmaker(
             bind=self._engine,
             autoflush=False,

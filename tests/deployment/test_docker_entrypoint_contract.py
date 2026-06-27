@@ -34,7 +34,8 @@ def test_api_image_entrypoint_uses_start_api_script() -> None:
 
     assert 'ENTRYPOINT ["/app/deploy/scripts/start-api.sh"]' in dockerfile
     assert "uvicorn backend.main:app" in script
-    assert '--port "${AJENDA_PORT:-8000}"' in script
+    assert 'port="${AJENDA_PORT:-8000}"' in script
+    assert "AJENDA_UVICORN_WORKERS" in script
 
 
 def test_worker_image_entrypoint_uses_worker_loop_script() -> None:

@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=20, alias="AJENDA_DB_MAX_OVERFLOW")
     db_pool_timeout: int = Field(default=30, alias="AJENDA_DB_POOL_TIMEOUT")
     db_pool_recycle: int = Field(default=1800, alias="AJENDA_DB_POOL_RECYCLE")
+    db_idle_in_transaction_session_timeout_ms: int = Field(
+        default=30_000,
+        alias="AJENDA_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS",
+    )
+    uvicorn_workers: int = Field(default=1, alias="AJENDA_UVICORN_WORKERS")
     redact_keys: str = Field(
         default="password,secret,token,api_key,authorization,cookie,set-cookie",
         alias="AJENDA_REDACT_KEYS",
