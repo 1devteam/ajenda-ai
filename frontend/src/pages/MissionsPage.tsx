@@ -52,6 +52,7 @@ export default function MissionsPage() {
   const [createdMission, setCreatedMission] = useState<MissionReadResponse | null>(null);
   const [violations, setViolations] = useState<MissionIntakeQualityViolation[]>([]);
   const [error, setError] = useState("");
+  const [listError, setListError] = useState("");
   const [loading, setLoading] = useState(false);
   const [listLoading, setListLoading] = useState(false);
 
@@ -61,11 +62,12 @@ export default function MissionsPage() {
       return;
     }
     setListLoading(true);
+    setListError("");
     try {
       const response = await listMissions(config, { limit: 50 });
       setMissions(response.missions);
     } catch (err) {
-      setError(failureText(err));
+      setListError(failureText(err));
     } finally {
       setListLoading(false);
     }
@@ -177,6 +179,11 @@ export default function MissionsPage() {
             ))}
           </ul>
         )}
+        {listError ? (
+          <div className="inline-error compact-error">
+            <pre>{listError}</pre>
+          </div>
+        ) : null}
       </section>
 
       <section className="panel">

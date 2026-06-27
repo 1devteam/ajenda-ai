@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import DisclaimerModal from "../components/DisclaimerModal";
 import {
   getAccountMe,
@@ -371,7 +371,12 @@ export default function TasksPage() {
       {missionId ? (
         <section className="panel">
           <div className="mission-context-banner">
-            <strong>Mission scope active</strong>
+            <div className="panel-heading-row">
+              <strong>Mission scope active</strong>
+              <Link className="ghost-link" to="/missions">
+                ← All missions
+              </Link>
+            </div>
             <p className="muted">
               Tasks launched here attach to mission <code>{missionId}</code> and must stay inside its allowed
               abilities.

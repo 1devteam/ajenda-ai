@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { getAccountMe, getAccountPlan, getAccountUsage } from "../api/client";
-import { loadSession } from "../auth/session";
+import { loadSession, saveSession } from "../auth/session";
 import type { AccountMeResponse, AccountPlanResponse, AccountUsageResponse } from "../types";
 import { failureText } from "../utils/errors";
 
@@ -12,7 +12,15 @@ function formatLimit(current: number, limit: number): string {
   return `${current} / ${limit}`;
 }
 
+function usagePercent(current: number, limit: number): number | null {
+  if (limit < 0 || limit === 0) {
+    return null;
+  }
+  return Math.round((current / limit) * 100);
+}
+
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const session = loadSession();
   const [me, setMe] = useState<AccountMeResponse | null>(null);
   const [plan, setPlan] = useState<AccountPlanResponse | null>(null);
@@ -40,6 +48,14 @@ export default function DashboardPage() {
           setMe(meResponse);
           setPlan(planResponse);
           setUsage(usageResponse);
+          if (session.plan !== meResponse.tenant.plan || session.slug !== meResponse.tenant.slug) {
+            saveSession({
+              ...session,
+              plan: meResponse.tenant.plan,
+              slug: meResponse.tenant.slug,
+              orgName: meResponse.tenant.name,
+            });
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -73,6 +89,28 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
+
+      {usage && usagePercent(usage.usage.api_calls_count ?? 0, usage.limits.api_calls_per_month ?? -1) !== null
+        ? (() => {
+            const pct = usagePercent(usage.usage.api_calls_count ?? 0, usage.limits.api_calls_per_month ?? -1)!;
+            if (pct < 80) {
+              return null;
+            }
+            return (
+              <section className="notice-banner quota-warning">
+                <strong>API usage at {pct}%</strong>
+                <span>
+                  {pct >= 100
+                    ? "You have hit your monthly API call limit. Upgrade or wait for the next billing period."
+                    : "You are approaching your monthly API call limit."}
+                </span>
+                <button type="button" className="ghost-button" onClick={() => navigate("/billing")}>
+                  Open billing
+                </button>
+              </section>
+            );
+          })()
+        : null}
 
       <section className="stat-grid">
         <article className="stat-card">

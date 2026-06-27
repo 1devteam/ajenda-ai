@@ -145,6 +145,13 @@ export default function BillingPage() {
         </div>
       </section>
 
+      {onPro ? (
+        <section className="notice-banner success-panel">
+          <strong>Plan active: {currentPlan}</strong>
+          <span>Runtime abilities and higher quotas are enabled for this workspace.</span>
+        </section>
+      ) : null}
+
       {notice ? <div className="notice-banner">{notice}</div> : null}
       {loading ? <div className="toast">Working: {loading}</div> : null}
       {error ? (

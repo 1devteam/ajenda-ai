@@ -57,6 +57,7 @@ export default function AppLayout() {
             <>
               <span className="session-pill">
                 {session.slug ?? session.tenantId.slice(0, 8)}
+                {session.plan ? ` · ${session.plan}` : ""}
                 {operational ? "" : " · bootstrap"}
               </span>
               <button type="button" className="ghost-button" onClick={handleSignOut}>

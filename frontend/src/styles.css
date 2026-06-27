@@ -628,6 +628,23 @@ pre {
   background: rgba(6, 78, 59, 0.18);
 }
 
+.compact-error {
+  margin-top: 0.75rem;
+}
+
+.quota-warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(120, 53, 15, 0.25);
+}
+
+.mission-context-banner .panel-heading-row {
+  margin-bottom: 0.35rem;
+}
+
 .ability-scope-fieldset {
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 0.8rem;

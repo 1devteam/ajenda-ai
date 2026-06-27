@@ -13,6 +13,17 @@ export function failureText(error: unknown): string {
     if (maybe.status === 502 || maybe.status === 503) {
       return "Ajenda API is temporarily unavailable. Wait a moment and retry.";
     }
+    if (maybe.status === 402) {
+      const body = maybe.body;
+      if (typeof body === "object" && body !== null && "code" in body && (body as { code: string }).code === "QUOTA_EXCEEDED") {
+        const quota = body as { field?: string; limit?: number; current?: number; plan?: string; message?: string };
+        const field = quota.field?.replace(/_/g, " ") ?? "usage";
+        return (
+          quota.message ??
+          `You have reached your monthly ${field} limit (${quota.current ?? "?"} / ${quota.limit ?? "?"} on the ${quota.plan ?? "current"} plan). Open Billing to upgrade, or wait for the next billing period.`
+        );
+      }
+    }
 
     const body = maybe.body;
     if (typeof body === "object" && body !== null && "detail" in body) {
@@ -83,6 +94,9 @@ export function failureText(error: unknown): string {
             })
             .join("\n");
           return lines || structured.message || "Mission intake failed prompt quality gate.";
+        }
+        if (structured.code === "MISSION_ACTION_NOT_ALLOWED" && typeof structured.message === "string") {
+          return `${structured.message} Adjust allowed abilities on the mission or pick a different action.`;
         }
         if (typeof structured.message === "string") {
           return structured.message;
