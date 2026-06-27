@@ -67,6 +67,16 @@ export function failureText(error: unknown): string {
         if (structured.code === "MULTIPLE_TENANTS") {
           return "Multiple workspaces match this Google account. Choose one below to continue.";
         }
+        if (structured.code === "MISSION_INTAKE_QUALITY_DENIED" && Array.isArray((detail as { violations?: unknown }).violations)) {
+          const violations = (detail as { violations: Array<{ field?: string; reason?: string }> }).violations;
+          const lines = violations
+            .map((item) => {
+              const field = item.field ? `${item.field}: ` : "";
+              return `${field}${item.reason ?? "Mission prompt needs more detail."}`;
+            })
+            .join("\n");
+          return lines || structured.message || "Mission intake failed prompt quality gate.";
+        }
         if (typeof structured.message === "string") {
           return structured.message;
         }

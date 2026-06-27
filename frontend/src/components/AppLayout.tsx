@@ -4,9 +4,10 @@ import { clearSession, isOperational, loadSession } from "../auth/session";
 
 const CUSTOMER_LINKS = [
   { to: "/dashboard", label: "Dashboard" },
-  { to: "/billing", label: "Billing" },
-  { to: "/credentials", label: "Credentials" },
+  { to: "/missions", label: "Missions" },
   { to: "/tasks", label: "Tasks" },
+  { to: "/credentials", label: "Credentials" },
+  { to: "/billing", label: "Billing" },
 ] as const;
 
 export default function AppLayout() {

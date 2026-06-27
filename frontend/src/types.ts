@@ -221,6 +221,44 @@ export interface AutonomyDisclaimerListResponse {
   disclaimers: AutonomyDisclaimer[];
 }
 
+export interface MissionSuccessCriterionInput {
+  description: string;
+  evidence?: string[];
+}
+
+export interface MissionCreateRequest {
+  objective: string;
+  success_criteria: MissionSuccessCriterionInput[];
+  compliance_category?: string;
+  jurisdiction?: string;
+}
+
+export interface MissionIntakeQualityViolation {
+  field: string;
+  code: string;
+  reason: string;
+  severity: "required";
+}
+
+export interface MissionIntakeQualityDeniedDetail {
+  code: "MISSION_INTAKE_QUALITY_DENIED";
+  message: string;
+  schema_version: number;
+  violations: MissionIntakeQualityViolation[];
+}
+
+export interface MissionReadResponse {
+  mission_id: string;
+  tenant_id: string;
+  objective: string;
+  status: string;
+  compliance_category: string;
+  jurisdiction: string;
+  intake: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AbilityTaskCreate {
   action: string;
   input: Record<string, unknown>;

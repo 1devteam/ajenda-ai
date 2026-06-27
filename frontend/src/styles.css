@@ -488,6 +488,65 @@ pre {
   background: rgba(14, 116, 144, 0.12);
 }
 
+.mission-example-callout {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.mission-example-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.mission-example-list dt {
+  margin: 0;
+  color: #38bdf8;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mission-example-list dd {
+  margin: 0.25rem 0 0;
+  color: #e2e8f0;
+  line-height: 1.55;
+}
+
+.mission-create-form {
+  margin-top: 0.5rem;
+}
+
+.mission-textarea {
+  min-height: 6.5rem;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.violation-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.violation-list li {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.18);
+}
+
+.violation-list span {
+  color: #fecaca;
+}
+
 .checklist {
   margin: 0;
   padding-left: 1.2rem;

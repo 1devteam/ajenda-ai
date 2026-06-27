@@ -116,6 +116,9 @@ export default function DashboardPage() {
             <Link className="action-link" to="/billing">
               Upgrade plan or open billing portal
             </Link>
+            <Link className="action-link" to="/missions">
+              Create a mission with a clear outcome
+            </Link>
             <Link className="action-link" to="/tasks">
               Launch a runtime proof task
             </Link>

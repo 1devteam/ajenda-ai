@@ -12,6 +12,8 @@ import type {
   AbilityTaskCreate,
   AbilityTaskQueuedResponse,
   AbilityTaskStatusResponse,
+  MissionCreateRequest,
+  MissionReadResponse,
   AccountBillingResponse,
   AccountMeResponse,
   AccountPlanResponse,
@@ -384,6 +386,24 @@ export async function connectGmailOAuth(
 
 function authedRuntimeOptions(config: RuntimeConfig) {
   return runtimeOptions(config);
+}
+
+export async function createMission(
+  config: RuntimeConfig,
+  body: MissionCreateRequest,
+): Promise<MissionReadResponse> {
+  return request<MissionReadResponse>(
+    "/v1/missions",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        compliance_category: "operational",
+        jurisdiction: "US-ALL",
+        ...body,
+      }),
+    },
+    authedRuntimeOptions(config),
+  );
 }
 
 export async function listActions(config: RuntimeConfig): Promise<AbilityActionListResponse> {
