@@ -46,41 +46,47 @@ def test_gmail_api_register_then_live_email_check_no_egress_mock(
     session_factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
     worker_session = session_factory()
     try:
-        result = tool_invoke_handler(
-            ExecutionTask(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                mission_id=uuid.uuid4(),
-                title="live api gmail check",
-                description="no egress mock",
-                status="running",
-                metadata_json={
-                    "task_type": "tool.invoke",
-                    "tool_invocation": {
-                        "action": "gtm.email_check",
-                        "input": {"query": "in:inbox", "limit": 3},
+        try:
+            result = tool_invoke_handler(
+                ExecutionTask(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant_id,
+                    mission_id=uuid.uuid4(),
+                    title="live api gmail check",
+                    description="no egress mock",
+                    status="running",
+                    metadata_json={
+                        "task_type": "tool.invoke",
+                        "tool_invocation": {
+                            "action": "gtm.email_check",
+                            "input": {"query": "in:inbox", "limit": 3},
+                        },
+                        "credential_reference": {
+                            "schema_version": 1,
+                            "credential_id": "gmail-email",
+                            "provider": "external_email",
+                            "credential_type": "api_key",
+                        },
                     },
-                    "credential_reference": {
-                        "schema_version": 1,
-                        "credential_id": "gmail-email",
-                        "provider": "external_email",
-                        "credential_type": "api_key",
-                    },
+                    compliance_category="operational",
+                    jurisdiction="US-ALL",
+                    requires_human_review=False,
+                ),
+                {
+                    "worker_id": "worker-gmail-live-api",
+                    "tenant_id": tenant_id,
+                    "lease_id": str(uuid.uuid4()),
+                    "session_factory": lambda: worker_session,
                 },
-                compliance_category="operational",
-                jurisdiction="US-ALL",
-                requires_human_review=False,
-            ),
-            {
-                "worker_id": "worker-gmail-live-api",
-                "tenant_id": tenant_id,
-                "lease_id": str(uuid.uuid4()),
-                "session_factory": lambda: worker_session,
-            },
-        )
+            )
+        except ValueError as exc:
+            if "HTTP 401" in str(exc) or "HTTP 403" in str(exc):
+                pytest.skip(f"Gmail live token unavailable or unauthorized: {exc}")
+            raise
         output = result["output"]
         assert output.get("emails")
         assert output["emails"][0].get("id") != "sim-1"
         assert "simulated" not in str(output).lower()
+        assert output.get("real") is True
     finally:
         worker_session.close()

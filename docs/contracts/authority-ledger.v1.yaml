@@ -1,5 +1,5 @@
 version: 1
-last_reviewed: 2026-05-23
+last_reviewed: 2026-06-27
 owner: architecture-runtime-governance
 
 notes:
@@ -969,7 +969,9 @@ authority_entries:
     side_effect_class: tenant_scoped_side_effect_authorization
     allowed_side_effects:
       - launch high-risk gtm.* actions (gtm.email_send, gtm.crm_upsert, gtm.social_publish) only when caller has guardian/admin/tenant_admin role and supplies credential_reference
-      - gtm.email_send real delivery uses NetworkEgressAuthority HTTPS to gmail.googleapis.com (no raw SMTP)
+      - gtm.email_send real delivery uses NetworkEgressAuthority HTTPS to gmail.googleapis.com (SMTP only when credential transport mode explicitly allows)
+      - gtm.email_check credentialed reads use NetworkEgressAuthority HTTPS to gmail.googleapis.com and fail closed on provider errors (no simulated inbox)
+      - Gmail OAuth access-token refresh occurs at credential resolve time before credentialed email invoke
       - populate versioned execution_constraints.side_effect_authorization envelope from guardian-approved body for EXTERNAL_SEND/WRITE/PUBLISH
       - set requires_human_review for high-risk GTM pilot to engage PolicyGuardian paths
       - list gtm actions in ability-runtime exposed surface when gated by gtm feature
@@ -1040,13 +1042,24 @@ authority_entries:
     allowed_side_effects:
       - use credential secret + network_egress for real CRM research/read (GET) and upsert (POST)
       - produce evidence with real_response when cred present
+      - sales.research hybrid-fallback to Ajenda brain after external adapter failure with external_attempt_failed output flag
+      - side-effect resolvers promote INTERNAL registry defaults to EXTERNAL classes when credential_reference is present
     forbidden_side_effects:
       - bypass credential or egress for CRM actions
       - leak raw secrets
+      - simulated external CRM/email success when credential is present and provider failed
+      - credentialed gtm.crm_upsert silently falling back to Ajenda brain
     required_proofs:
       - backend/services/tools/sales_actions.py
       - backend/services/tools/gtm_actions.py
+      - backend/services/tools/side_effect_resolvers.py
+      - backend/services/tools/runtime_authority.py
+      - tests/integration/credentials/test_external_invoke_authority_real.py
+      - tests/integration/credentials/test_hubspot_credential_flow_real.py
+      - tests/integration/credentials/test_gmail_oauth_refresh_real.py
+      - tests/unit/tools/test_gtm_actions.py
       - scripts/validation/ability_rollout_contract_check.py
+      - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
 
   - id: social_publish_real_egress
     area: gtm.social_publish real network egress

@@ -6,6 +6,8 @@ This contract defines tenant-scoped provider runtime credentials used by governe
 ## Implemented (code truth)
 
 - Encrypted storage in `provider_runtime_credentials` (migration `0024`)
+- Gmail OAuth authorize URL + code exchange (`/v1/account/provider-credentials/gmail/oauth/*`)
+- Gmail OAuth access-token refresh at credential resolve time (`gmail_runtime_token.py`, `google_oauth_cli.py`)
 - HTTP lifecycle API:
   - `POST /v1/account/provider-credentials`
   - `GET /v1/account/provider-credentials`
@@ -41,6 +43,16 @@ When `integration=hubspot` and `provider=external_crm`:
 - `allowed_side_effect_classes`: `external_read`, `external_write`
 - `trusted_destination_hosts`: `AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST` (TLS ingress hostname)
 
+## Gmail integration defaults
+
+When `provider=external_email`:
+
+- `allowed_actions`: `gtm.email_send`, `gtm.email_check`
+- `allowed_side_effect_classes`: `external_read`, `external_send`
+- `trusted_destination_hosts`: `gmail.googleapis.com`
+- OAuth secrets are stored as JSON (`access_token`, `refresh_token`, `expires_at`); refresh occurs before invoke when expired
+- Credentialed `gtm.email_check` fails closed on Gmail API errors (no simulated inbox fallback)
+
 Direct HubSpot reads may alternatively use `provider=external_read_provider` with
 `trusted_destination_hosts=["api.hubapi.com"]` and action `provider.external_read`.
 
@@ -59,8 +71,15 @@ Direct HubSpot reads may alternatively use `provider=external_read_provider` wit
 - Browser
 - MCP (contract only; runtime bridge deferred)
 
+## Fail-closed rules (credentialed external paths)
+
+- Missing, cross-tenant, revoked, or incompatible credentials deny before provider execution.
+- `gtm.email_check` with a resolved credential must not return simulated messages (`sim-1`) on API failure.
+- `gtm.crm_upsert` with a credential does not silently fall back to Ajenda brain on adapter failure.
+- `sales.research` may hybrid-fallback to Ajenda brain after external failure; output must set `external_attempt_failed=true` (see ADR-0006).
+
 ## Non-goals
 
-- OAuth token refresh
 - Returning secrets on list/get endpoints
 - Bypassing `ToolRuntimeAuthority` / queue / evidence path
+- Direct provider HTTP from handlers without `NetworkEgressAuthority`

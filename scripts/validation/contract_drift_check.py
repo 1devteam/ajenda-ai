@@ -229,8 +229,10 @@ def _check(strict_baseline: bool = False) -> list[DriftIssue]:
 
     proof_paths = [proof for entry in entries for proof in entry.get("required_proofs", []) if isinstance(proof, str)]
     for proof in proof_paths:
-        if not (REPO_ROOT / proof).exists():
-            issues.append(DriftIssue("warn", f"Required proof path does not exist: {proof}"))
+        if (REPO_ROOT / proof).exists():
+            continue
+        severity = "fail" if proof.startswith("tests/") and proof.endswith(".py") else "warn"
+        issues.append(DriftIssue(severity, f"Required proof path does not exist: {proof}"))
 
     credential_entries = [
         entry

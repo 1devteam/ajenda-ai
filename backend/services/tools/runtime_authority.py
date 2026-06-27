@@ -17,6 +17,7 @@ from backend.services.tools.capability_validation import (
 )
 from backend.services.tools.schemas import (
     ActionRuntimeContext,
+    CredentialReference,
     RuntimeCredentialMaterial,
     SideEffectClass,
     ToolInvocation,
@@ -110,6 +111,7 @@ class ToolRuntimeAuthority:
             invocation = ToolInvocation.model_validate(raw_invocation)
         except ValidationError as exc:
             raise ToolRuntimeAuthorityError("invalid tool_invocation") from exc
+        invocation = self._enrich_invocation_from_metadata(invocation=invocation, metadata=task.metadata_json)
 
         action = self._registry.get(invocation.action)
         self._validate_ability_manifest(action)
@@ -133,6 +135,23 @@ class ToolRuntimeAuthority:
         finally:
             session.close()
         return invocation, action, effective_side_effect_class
+
+    @staticmethod
+    def _enrich_invocation_from_metadata(
+        *,
+        invocation: ToolInvocation,
+        metadata: Mapping[str, Any],
+    ) -> ToolInvocation:
+        if invocation.credential_reference is not None:
+            return invocation
+        raw_reference = metadata.get("credential_reference")
+        if not isinstance(raw_reference, Mapping):
+            return invocation
+        try:
+            credential_reference = CredentialReference.model_validate(raw_reference)
+        except ValidationError:
+            return invocation
+        return invocation.model_copy(update={"credential_reference": credential_reference})
 
     def _resolve_runtime_credential(
         self,

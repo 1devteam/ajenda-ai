@@ -25,6 +25,28 @@ def test_internal_ability_catalog_covers_default_registry() -> None:
     )
 
 
+def test_sales_research_manifest_declares_hybrid_external_read_risk() -> None:
+    manifest = ABILITY_MANIFESTS_BY_ACTION["sales.research"]
+
+    assert manifest.side_effect_class == SideEffectClass.INTERNAL_READ
+    assert manifest.max_side_effect_class == SideEffectClass.EXTERNAL_READ
+    assert manifest.resolver_side_effect_classes == (
+        SideEffectClass.INTERNAL_READ,
+        SideEffectClass.EXTERNAL_READ,
+    )
+
+
+def test_gtm_crm_upsert_manifest_declares_dynamic_external_write_risk() -> None:
+    manifest = ABILITY_MANIFESTS_BY_ACTION["gtm.crm_upsert"]
+
+    assert manifest.side_effect_class == SideEffectClass.INTERNAL_WRITE
+    assert manifest.max_side_effect_class == SideEffectClass.EXTERNAL_WRITE
+    assert manifest.resolver_side_effect_classes == (
+        SideEffectClass.INTERNAL_WRITE,
+        SideEffectClass.EXTERNAL_WRITE,
+    )
+
+
 def test_http_request_manifest_declares_dynamic_external_write_risk() -> None:
     manifest = ABILITY_MANIFESTS_BY_ACTION["http.request"]
 

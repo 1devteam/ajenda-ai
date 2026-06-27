@@ -67,6 +67,24 @@ def _context(tenant_id: str = "tenant") -> dict[str, object]:
     }
 
 
+def test_runtime_enriches_invocation_credential_reference_from_task_metadata() -> None:
+    invocation = ToolInvocation(action="sales.research", input={"lead": {"company": "Acme"}})
+    enriched = ToolRuntimeAuthority._enrich_invocation_from_metadata(
+        invocation=invocation,
+        metadata={
+            "credential_reference": {
+                "schema_version": 1,
+                "credential_id": "hubspot-crm",
+                "provider": "external_crm",
+                "credential_type": "api_key",
+            }
+        },
+    )
+
+    assert enriched.credential_reference is not None
+    assert enriched.credential_reference.credential_id == "hubspot-crm"
+
+
 def test_runtime_authority_denies_registered_action_without_ability_manifest() -> None:
     registry = ActionRegistry()
     registry.register(

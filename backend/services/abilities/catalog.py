@@ -286,7 +286,10 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
     ),
     AbilityManifest(
         ability_id="sales-research",
-        display_name="Sales Research (Ajenda brain; optional CRM plugin via crm.research / crm.read aliases)",
+        display_name=(
+            "Sales Research (Ajenda brain default; hybrid CRM plugin via credential_reference "
+            "with explicit brain fallback on adapter failure)"
+        ),
         action_name="sales.research",
         provider="ajenda_brain",
         capability_name="sales",
@@ -296,6 +299,8 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         input_schema_ref="backend.services.tools.schemas.SalesLeadInput",
         output_schema_ref=ACTION_RESULT_SCHEMA_REF,
         side_effect_class=SideEffectClass.INTERNAL_READ,
+        max_side_effect_class=SideEffectClass.EXTERNAL_READ,
+        resolver_side_effect_classes=(SideEffectClass.INTERNAL_READ, SideEffectClass.EXTERNAL_READ),
         risk_level=AbilityRiskLevel.MEDIUM,
         required_permissions=[],
         required_tools=[],
@@ -471,7 +476,7 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
     ),
     AbilityManifest(
         ability_id="gtm-crm-upsert",
-        display_name="GTM CRM Upsert",
+        display_name="GTM CRM Upsert (internal brain default; external write when credential_reference present)",
         action_name="gtm.crm_upsert",
         provider="ajenda_brain",
         capability_name="gtm",
@@ -481,6 +486,8 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         input_schema_ref="backend.services.tools.schemas.GtmCrmUpsertInput",
         output_schema_ref=ACTION_RESULT_SCHEMA_REF,
         side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        max_side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+        resolver_side_effect_classes=(SideEffectClass.INTERNAL_WRITE, SideEffectClass.EXTERNAL_WRITE),
         risk_level=AbilityRiskLevel.HIGH,
         required_permissions=[],
         required_tools=[],

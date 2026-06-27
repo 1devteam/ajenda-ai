@@ -166,12 +166,17 @@ def test_sales_research_credentialed_uses_external_read_path() -> None:
                 action="sales.research",
                 input={"lead": {"company": "Acme"}},
                 idempotency_key="idem-crm-1",
+                credential_reference={
+                    "credential_id": "crm-cred",
+                    "provider": "external_crm",
+                    "credential_type": "api_key",
+                },
             ),
             context,
         )
 
     assert result.provider == "ajenda_brain"
-    assert result.side_effect_class.value == "internal_read"
+    assert result.side_effect_class.value == "external_read"
     assert result.output["real"] is True
     assert result.output["plugin_required"] is True
     assert authority.request.call_args.kwargs["headers"]["Idempotency-Key"] == "idem-crm-1"

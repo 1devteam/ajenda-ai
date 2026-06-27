@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import (
@@ -193,7 +195,47 @@ def test_gtm_email_check_uses_gmail_api_with_runtime_credential_material() -> No
         )
 
     assert result.output["emails"] == [{"id": "m1", "thread_id": "t1", "snippet": "Hello"}]
+    assert result.output["real"] is True
     assert "is%3Aunread" in authority.request.call_args.kwargs["url"]
+
+
+def test_gtm_email_check_fail_closed_on_credentialed_api_error() -> None:
+    from backend.services.tools.action_registry import ActionRegistry
+    from backend.services.tools.gtm_actions import register_gtm_actions
+
+    registry = ActionRegistry()
+    register_gtm_actions(registry)
+    handler = registry.get("gtm.email_check").handler
+    context = _context()
+    context.runtime_credentials = {
+        "gtm.email_check": {
+            "secret_value": "token-123",
+            "trusted_destination_hosts": ["gmail.googleapis.com"],
+        }
+    }
+    destination = VettedNetworkDestination(
+        original_url="https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        connect_url="https://1.2.3.4/gmail/v1/users/me/messages",
+        pinned_ip=__import__("ipaddress").ip_address("1.2.3.4"),
+        sni_hostname="gmail.googleapis.com",
+        host_header="gmail.googleapis.com",
+    )
+    response = NetworkEgressResponse(status_code=503, headers={}, body_text="unavailable", body_truncated=False)
+    authority = MagicMock()
+    authority.request.return_value = (destination, response)
+
+    with patch(
+        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        with pytest.raises(ValueError, match="credentialed path"):
+            handler(
+                ToolInvocation(
+                    action="gtm.email_check",
+                    input={"query": "is:unread", "limit": 3},
+                ),
+                context,
+            )
 
 
 def test_gtm_email_check_simulated_without_credential() -> None:

@@ -1,9 +1,9 @@
 # AJENDA-AI GTM Capability Catalog
 
-**Status:** Runtime binding implemented for core GTM actions (internal + high-risk external with credential requirements wired and real network_egress paths for email/CRM/social); generic CRM evolved with credential support for external reads/writes via egress. Cutting-edge retrieval advanced; Wasm/TEE foundation contract layer started. 
+**Status:** Runtime binding implemented for core GTM actions (internal + high-risk external with credential requirements wired and real network_egress paths for email/CRM/social). Side-effect resolvers align registry defaults (`INTERNAL_*`) with credentialed runtime classes (`EXTERNAL_*`). Hybrid CRM research fallback is explicit and machine-flagged.  
 **Effective date:** May 27, 2026  
 **Owner:** Product/Architecture + Growth Operations  
-**Last reviewed:** May 27, 2026
+**Last reviewed:** June 27, 2026
 
 ---
 
@@ -41,7 +41,10 @@ Each GTM capability should define at minimum:
 |---|---|---|---|---|---|---|
 | `gtm.lead.discovery.query_builder.v1` | Lead discovery query builder | web | low | none | none | Generates search criteria and ICP-aligned query sets. |
 | `gtm.lead.discovery.candidate_enrichment.v1` | Candidate enrichment | web/crm | moderate | sample_review | external_write | Adds enrichment facts with provenance tags. |
-| `crm.research` / `crm.read` | Generic CRM research/read | crm | low | none | none | Local proof + credential-aware external read (evolved from sales alias). |
+| `crm.research` / `crm.read` | Generic CRM research/read | crm | moderate | required (when credentialed) | external_read | Default Ajenda brain (`internal_read`); with `credential_reference` promotes to `external_read` via HubSpot sidecar. Hybrid fallback sets `external_attempt_failed=true` on adapter failure (ADR-0006). |
+| `sales.research` | Sales lead research | crm/internal | moderate | required (when credentialed) | internal_read / external_read | Same hybrid CRM doctrine as `crm.research`; aliases: `crm.research`, `crm.read`. |
+| `gtm.email_check` | Gmail inbox read | email | high | required (when credentialed) | external_read | Simulated inbox only without credential; credentialed path fails closed on Gmail API errors. |
+| `gtm.crm_upsert` | CRM record upsert | crm | high | multi_party_required (credentialed) | internal_write / external_write | Internal brain write without credential; credentialed path uses plugin egress and does not hybrid-fallback. |
 | `gtm.lead.discovery.qualification_scoring.v1` | Qualification scoring | internal | moderate | sample_review | none | Produces explainable scoring and disqualification reasons. |
 
 ## B) Outbound sequencing and follow-up

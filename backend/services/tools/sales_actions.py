@@ -4,6 +4,7 @@ from typing import Any
 
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.side_effect_resolvers import credential_reference_external_read
 from backend.services.tools.record_store import RecordStore, record_store_limitations, resolve_record_store
 from backend.services.tools.schemas import (
     ActionResult,
@@ -181,13 +182,19 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         error=search.error,
     )
     provider = "ajenda_brain"
-    side_effect_class = SideEffectClass.INTERNAL_READ
+    attempted_external = invocation.credential_reference is not None or cred is not None
+    side_effect_class = (
+        SideEffectClass.EXTERNAL_READ
+        if invocation.credential_reference is not None
+        else SideEffectClass.INTERNAL_READ
+    )
+    external_attempt_failed = bool(attempted_external and search.error)
     research_notes = (
         [f"external CRM plugin search via {search.source} (count={search.count})"]
         if use_external
         else [f"Ajenda central brain search (count={search.count})"]
     )
-    if search.error:
+    if external_attempt_failed:
         research_notes.append(f"external attempt failed: {search.error}; used internal brain fallback")
 
     output = {
@@ -198,7 +205,10 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         "real": True,
         "plugin_required": use_external,
         "source": search.source,
+        "hybrid_mode": external_attempt_failed,
     }
+    if external_attempt_failed:
+        output["external_attempt_failed"] = True
     if use_external and cred is not None:
         output["credential_reference"] = {
             "provider": getattr(getattr(cred, "reference", None), "provider", None)
@@ -455,6 +465,7 @@ def register_sales_actions(registry: ActionRegistry) -> None:
             provider="ajenda_brain",
             input_model=SalesLeadInput,
             side_effect_class=SideEffectClass.INTERNAL_READ,
+            side_effect_resolver=credential_reference_external_read,
             aliases=("crm.research", "crm.read"),
         )
     )

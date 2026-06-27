@@ -302,3 +302,5 @@ def test_crm_research_falls_back_when_adapter_returns_error(
     )
     assert result["output"]["real"] is True
     assert result["output"]["source"] == "ajenda_brain"
+    assert result["output"]["external_attempt_failed"] is True
+    assert result["output"]["hybrid_mode"] is True

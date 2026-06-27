@@ -18,6 +18,7 @@ from backend.services.credentials.runtime_authority import CredentialRequirement
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.side_effect_resolvers import credential_reference_external_write
 from backend.services.tools.email_transport import (
     credential_transport_mode,
     parse_smtp_secret,
@@ -393,7 +394,8 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
         emails: list[dict[str, Any]] = []
         secret = _credential_secret(gmail_cred)
-        if secret:
+        credentialed_path = bool(secret)
+        if credentialed_path:
             try:
                 user = _gmail_user(gmail_cred)
                 trusted_hosts = _trusted_hosts(gmail_cred, default=("gmail.googleapis.com",))
@@ -424,10 +426,9 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                             "snippet": message.get("snippet"),
                         }
                     )
-            except Exception as e:
-                emails = [{"error": str(e)}]
-
-        if not emails:
+            except Exception as exc:
+                raise ValueError(f"Gmail email check failed on credentialed path: {exc}") from exc
+        elif not emails:
             emails = [
                 {
                     "id": "sim-1",
@@ -438,7 +439,17 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 },
             ]
 
-        payload = {"query": inp.query, "limit": inp.limit, "emails": emails}
+        payload = {
+            "query": inp.query,
+            "limit": inp.limit,
+            "emails": emails,
+            "real": credentialed_path,
+        }
+        summary = (
+            f"Gmail check ({len(emails)} results)"
+            if credentialed_path
+            else "Gmail check (simulated)"
+        )
         return ActionResult(
             action=inv.action,
             provider="external_email",
@@ -449,12 +460,12 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     inv.action,
                     "external_email",
                     ctx,
-                    f"checked {len(emails)} email(s)",
+                    summary,
                     payload,
                     side_effect_class=SideEffectClass.EXTERNAL_READ,
                 )
             ],
-            summary=f"Gmail check ({len(emails)} results)" if gmail_cred else "Gmail check (simulated)",
+            summary=summary,
         )
 
     def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
@@ -496,7 +507,11 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             upserted["idempotency_key"] = inv.idempotency_key
 
         provider = "ajenda_brain"
-        side_effect = SideEffectClass.INTERNAL_WRITE
+        side_effect = (
+            SideEffectClass.EXTERNAL_WRITE
+            if inv.credential_reference is not None
+            else SideEffectClass.INTERNAL_WRITE
+        )
         summary = (
             "External CRM upsert completed via plugin"
             if use_external
@@ -577,6 +592,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             name="gtm.crm_upsert",
             handler=crm_upsert_handler,
             side_effect_class=SideEffectClass.INTERNAL_WRITE,
+            side_effect_resolver=credential_reference_external_write,
             provider="ajenda_brain",
             input_model=GtmCrmUpsertInput,
         )
