@@ -519,6 +519,101 @@ pre {
   margin-top: 0.5rem;
 }
 
+.standalone-info-layout {
+  display: grid;
+  grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.standalone-process-panel,
+.standalone-profile-panel {
+  padding: 1.25rem;
+}
+
+.standalone-process-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.standalone-process-list li {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.standalone-process-list strong {
+  color: #e2e8f0;
+}
+
+.standalone-callout {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.standalone-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.standalone-fieldset legend {
+  color: #38bdf8;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.15rem;
+}
+
+.standalone-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.standalone-field-grid label.span-2 {
+  grid-column: 1 / -1;
+}
+
+.standalone-profile-form label small {
+  font-weight: 500;
+}
+
+.success-banner,
+.error-banner {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.8rem;
+}
+
+.success-banner {
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: rgba(20, 83, 45, 0.22);
+  color: #bbf7d0;
+}
+
+.error-banner {
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.18);
+  color: #fecaca;
+}
+
+@media (max-width: 960px) {
+  .standalone-info-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .standalone-field-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .mission-textarea {
   min-height: 6.5rem;
   font-family: inherit;

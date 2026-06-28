@@ -4,6 +4,7 @@ import { clearSession, isOperational, loadSession } from "../auth/session";
 
 const CUSTOMER_LINKS = [
   { to: "/dashboard", label: "Dashboard" },
+  { to: "/business", label: "Business info" },
   { to: "/missions", label: "Missions" },
   { to: "/tasks", label: "Tasks" },
   { to: "/credentials", label: "Credentials" },

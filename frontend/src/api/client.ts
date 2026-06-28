@@ -51,6 +51,8 @@ import type {
   SignupRequest,
   SignupResponse,
   VerifyEmailResponse,
+  BusinessProfileFactUpsertRequest,
+  BusinessProfileReadResponse,
 } from "../types";
 
 async function parseBody(response: Response): Promise<unknown> {
@@ -733,6 +735,22 @@ export async function createPortal(config: RuntimeConfig): Promise<PortalRespons
   return request<PortalResponse>(
     `/v1/billing/portal?return_url=${returnUrl}`,
     { method: "GET" },
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function getBusinessProfile(config: RuntimeConfig): Promise<BusinessProfileReadResponse> {
+  return request<BusinessProfileReadResponse>("/v1/business-profile", {}, authedRuntimeOptions(config));
+}
+
+export async function upsertBusinessProfileFact(
+  config: RuntimeConfig,
+  category: string,
+  body: BusinessProfileFactUpsertRequest,
+): Promise<BusinessProfileReadResponse> {
+  return request<BusinessProfileReadResponse>(
+    `/v1/business-profile/facts/${encodeURIComponent(category)}`,
+    { method: "PUT", body: JSON.stringify(body) },
     authedRuntimeOptions(config),
   );
 }

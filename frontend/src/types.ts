@@ -505,6 +505,22 @@ export interface PortalResponse {
   portal_url: string;
 }
 
+export interface BusinessProfileReadResponse {
+  profile_id: string | null;
+  tenant_id: string;
+  status: string;
+  approved_facts: Record<string, Record<string, unknown>>;
+  provenance: Record<string, Record<string, unknown>>;
+  schema_version: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface BusinessProfileFactUpsertRequest {
+  approved_fact: Record<string, unknown>;
+  provenance_metadata?: Record<string, unknown>;
+}
+
 export interface ApiFailure {
   status: number;
   message: string;
