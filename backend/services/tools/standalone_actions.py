@@ -205,9 +205,11 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     store = resolve_record_store(context)
     company, domain = default_company_and_domain(
         context=context,
-        company=payload.company or payload.query,
+        company=payload.company,
         domain=payload.domain,
     )
+    if not company:
+        company = payload.query
 
     internal_matches: list[dict[str, Any]] = []
     if company:

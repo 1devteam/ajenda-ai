@@ -24,7 +24,9 @@ from backend.domain.mission import (
 )
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
+from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID
 from backend.repositories.ephemeral_memory_chunk_repository import EphemeralMemoryChunkRepository
+from backend.services.ajenda_demo_fixtures import seed_ajenda_live_demo
 from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
 from backend.services.mission_runtime_queue_admission_service import MissionRuntimeQueueAdmissionService
 from backend.services.mission_runtime_task_materialization_service import MissionRuntimeTaskMaterializationService
@@ -61,7 +63,7 @@ def _retrieval_task_graph(*, mission_id: uuid.UUID, capability_id: str) -> dict[
                     "tool_invocation": {
                         "schema_version": 1,
                         "action": "retrieval.hybrid_search",
-                        "input": {"query": "approved outreach playbook", "limit": 5},
+                        "input": {"query": "Ajenda AI", "limit": 5},
                     }
                 },
                 "expected_output_contract": {"artifact": "memory_hits"},
@@ -202,6 +204,7 @@ def test_mission_materializes_queues_and_executes_retrieval_hybrid_task(
         flag_modified(mission, "metadata_json")
 
         activate_tenant_session(setup, tenant_id_str)
+        seed_ajenda_live_demo(session=setup, tenant_id=tenant_id_str)
         memory_repo = EphemeralMemoryChunkRepository(setup)
         memory_repo.upsert_chunk(
             tenant_id=tenant_id_str,
@@ -292,6 +295,13 @@ def test_mission_materializes_queues_and_executes_retrieval_hybrid_task(
         assert "mem1" not in memory_ids
         assert "mem2" not in memory_ids
         assert "mission-retrieval-chunk" in memory_ids
+        assert PROFILE_ACCOUNT_RECORD_ID in memory_ids or any(
+            "Ajenda" in str(item.get("content")) for item in output.get("memories", [])
+        )
+        evidence_items = handler_result.get("evidence") or []
+        assert evidence_items
+        business_context = (evidence_items[0].get("provenance") or {}).get("business_context") or {}
+        assert business_context.get("business_name") == "Ajenda AI"
 
         assert final_lease is not None
         assert final_lease.status == WorkerLeaseState.RELEASED.value
