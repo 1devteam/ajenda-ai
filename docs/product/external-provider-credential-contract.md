@@ -14,6 +14,8 @@ This contract defines tenant-scoped provider runtime credentials used by governe
 - Salesforce OAuth access-token refresh at credential resolve time (`salesforce_runtime_token.py`, `salesforce_oauth_client.py`)
 - Google Calendar OAuth authorize URL + code exchange (`/v1/account/provider-credentials/google-calendar/oauth/*`)
 - Google Calendar OAuth access-token refresh at credential resolve time (`google_calendar_runtime_token.py`, `google_oauth_cli.py`)
+- GitHub OAuth authorize URL + code exchange (`/v1/account/provider-credentials/github/oauth/*`)
+- GitHub OAuth access-token refresh at credential resolve time (`github_runtime_token.py`, `github_oauth_client.py`)
 - HTTP lifecycle API:
   - `POST /v1/account/provider-credentials`
   - `GET /v1/account/provider-credentials`
@@ -87,6 +89,20 @@ When `integration=google_calendar` and `provider=external_read_provider`:
 - Runtime action `google_calendar.events_read` lists events from Calendar API v3
 - Credentialed path fails closed on Google Calendar API errors (no simulated event fallback)
 
+## GitHub read {#github-read}
+
+When `integration=github` and `provider=external_read_provider`:
+
+- `allowed_actions`: `github.repo_read`, `provider.external_read`
+- `allowed_side_effect_classes`: `external_read`
+- `trusted_destination_hosts`: `api.github.com`
+- OAuth secrets are stored as JSON (`provider_kind=github`, `access_token`, `refresh_token`, `expires_at`); refresh occurs before invoke when expired (requires OAuth app with expiring user access tokens enabled)
+- Product OAuth redirect: `AJENDA_GITHUB_OAUTH_REDIRECT_URI` (default `http://localhost:5173/credentials/github/callback`)
+- Default OAuth scope: `read:user` (public repository metadata does not require additional scopes)
+- Runtime action `github.repo_read` reads repository metadata from GitHub REST API v3
+- Credentialed path fails closed on GitHub API errors (no simulated repository fallback)
+- Plain personal access tokens (PAT) may be pasted directly without JSON wrapping
+
 ## Salesforce read {#salesforce-read}
 
 When `integration=salesforce` and `provider=external_read_provider`:
@@ -111,7 +127,7 @@ When `integration=salesforce` and `provider=external_read_provider`:
 - LinkedIn read (`external_read_provider` + `integration=linkedin`)
 - Salesforce read (`external_read_provider` + `integration=salesforce`)
 - Google Calendar read (`external_read_provider` + `integration=google_calendar`)
-- GitHub
+- GitHub read (`external_read_provider` + `integration=github`)
 - Generic CRM HTTP
 - Browser
 - MCP (contract only; runtime bridge deferred)

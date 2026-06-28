@@ -20,6 +20,7 @@ export const MISSION_ALLOWED_ACTION_OPTIONS = [
   { action: "linkedin.profile_read", label: "LinkedIn profile read" },
   { action: "salesforce.soql_read", label: "Salesforce SOQL read" },
   { action: "google_calendar.events_read", label: "Google Calendar read" },
+  { action: "github.repo_read", label: "GitHub repo read" },
 ] as const;
 
 export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
@@ -95,6 +96,15 @@ export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
     title: "Google Calendar read",
     description: "List upcoming events from the connected Google Calendar.",
     input: { calendar_id: "primary", limit: 5 },
+    provider: "external_read_provider",
+    credentialType: "api_key",
+    requiresCredential: true,
+  },
+  {
+    action: "github.repo_read",
+    title: "GitHub repo read",
+    description: "Read public repository metadata from GitHub.",
+    input: { owner: "1devteam", repo: "ajenda-ai" },
     provider: "external_read_provider",
     credentialType: "api_key",
     requiresCredential: true,

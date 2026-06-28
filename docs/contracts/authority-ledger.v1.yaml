@@ -114,19 +114,20 @@ authority_entries:
       - /v1/account/provider-credentials/linkedin/oauth/*
       - /v1/account/provider-credentials/salesforce/oauth/*
       - /v1/account/provider-credentials/google-calendar/oauth/*
+      - /v1/account/provider-credentials/github/oauth/*
     authority_class: governed_mutation
     side_effect_class: tenant_scoped_account_read_and_credential_mutation
     allowed_side_effects:
       - read tenant account, plan, usage, and billing summary for authenticated members
       - register, list, revoke, and delete tenant-scoped provider runtime credentials
       - issue signed Gmail OAuth authorize URLs and exchange OAuth codes into encrypted Gmail credential secrets
-      - issue signed LinkedIn, Salesforce, and Google Calendar OAuth authorize URLs and exchange OAuth codes into encrypted credential secrets
+      - issue signed LinkedIn, Salesforce, Google Calendar, and GitHub OAuth authorize URLs and exchange OAuth codes into encrypted credential secrets
     forbidden_side_effects:
       - return plaintext provider secrets on list or get
       - mutate cross-tenant account or credential state
       - bypass credentials RBAC or tenant envelope
       - accept Gmail OAuth state or code for a different tenant, actor, or credential_id
-      - accept LinkedIn, Salesforce, or Google Calendar OAuth state or code for a different tenant, actor, credential_id, or provider
+      - accept LinkedIn, Salesforce, Google Calendar, or GitHub OAuth state or code for a different tenant, actor, credential_id, or provider
     required_proofs:
       - tests/contract/api/test_account_self_service_route.py
       - tests/contract/api/test_provider_credentials_routes.py
@@ -135,6 +136,7 @@ authority_entries:
       - tests/integration/credentials/test_linkedin_oauth_refresh_real.py
       - tests/integration/credentials/test_salesforce_oauth_refresh_real.py
       - tests/integration/credentials/test_google_calendar_oauth_refresh_real.py
+      - tests/integration/credentials/test_github_oauth_refresh_real.py
       - tests/integration/credentials/test_external_read_credential_flow_real.py
 
   - id: plugin_discovery_contract
@@ -1122,6 +1124,7 @@ authority_entries:
       - backend/services/abilities/catalog.py
     route_scope:
       - /v1/account/provider-credentials/google-calendar/oauth/*
+      - /v1/account/provider-credentials/github/oauth/*
     authority_class: runtime_authoritative
     side_effect_class: tenant_scoped_external_read
     allowed_side_effects:
@@ -1137,6 +1140,34 @@ authority_entries:
       - tests/integration/credentials/test_external_invoke_authority_real.py
       - tests/integration/credentials/test_external_read_credential_flow_real.py
       - tests/integration/credentials/test_google_calendar_oauth_refresh_real.py
+      - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
+
+  - id: github_read_only_platform_expansion
+    area: GitHub read-only platform expansion
+    source_of_truth:
+      - backend/services/tools/github_actions.py
+      - backend/services/credentials/github_oauth_connect.py
+      - backend/services/credentials/github_runtime_token.py
+      - backend/services/credentials/management_service.py
+      - backend/services/plugins/contracts.py
+      - backend/services/abilities/catalog.py
+    route_scope:
+      - /v1/account/provider-credentials/github/oauth/*
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_external_read
+    allowed_side_effects:
+      - github.repo_read via credential + NetworkEgressAuthority to api.github.com
+      - register credentials with integration github under external_read_provider
+      - refresh GitHub OAuth tokens at credential resolve time before invoke
+    forbidden_side_effects:
+      - simulated success on credentialed GitHub paths when provider failed
+      - bypassing ToolRuntimeAuthority or credential resolution
+    required_proofs:
+      - tests/unit/tools/test_github_actions.py
+      - tests/unit/credentials/test_github_oauth_connect.py
+      - tests/integration/credentials/test_external_invoke_authority_real.py
+      - tests/integration/credentials/test_external_read_credential_flow_real.py
+      - tests/integration/credentials/test_github_oauth_refresh_real.py
       - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
 
   - id: social_publish_real_egress

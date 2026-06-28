@@ -48,6 +48,7 @@ Each GTM capability should define at minimum:
 | `linkedin.profile_read` | LinkedIn profile lookup | linkedin | high | required (when credentialed) | external_read | Simulated profile only without credential; register via Credentials UI OAuth or paste; credentialed path fails closed on API errors. |
 | `salesforce.soql_read` | Salesforce SOQL query (SELECT only) | crm | high | required (when credentialed) | external_read | Simulated rows without credential; register via Credentials UI OAuth (instance host captured) or paste with instance host; credentialed path fails closed. |
 | `google_calendar.events_read` | Google Calendar event listing | calendar | high | required (when credentialed) | external_read | Simulated events without credential; register via Credentials UI Google OAuth or paste; credentialed path fails closed. |
+| `github.repo_read` | GitHub repository metadata read | devtools | high | required (when credentialed) | external_read | Simulated repository without credential; register via Credentials UI GitHub OAuth or paste PAT; credentialed path fails closed. |
 | `gtm.lead.discovery.qualification_scoring.v1` | Qualification scoring | internal | moderate | sample_review | none | Produces explainable scoring and disqualification reasons. |
 
 ## B) Outbound sequencing and follow-up

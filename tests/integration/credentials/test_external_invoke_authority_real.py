@@ -711,3 +711,101 @@ def test_google_calendar_events_read_invoke_without_capability_monkeypatch(
     assert result["side_effect_class"] == "external_read"
     assert result["output"]["real"] is True
     assert result["output"]["events"][0]["id"] == "evt-1"
+
+
+def _store_github_credential(session: Session, *, tenant_id: str, credential_id: str = "github-read") -> str:
+    protector = RuntimeCredentialSecretProtector()
+    ciphertext = protector.encrypt_secret("integration-test-github-token")
+    row = ProviderRuntimeCredential(
+        id=f"prc-{uuid.uuid4()}",
+        tenant_id=tenant_id,
+        credential_id=credential_id,
+        provider="external_read_provider",
+        credential_type="api_key",
+        enabled=True,
+        revoked=False,
+        deleted=False,
+        allowed_actions=["github.repo_read", "provider.external_read"],
+        allowed_side_effect_classes=["external_read"],
+        trusted_destination_hosts=["api.github.com"],
+        secret_ciphertext=ciphertext,
+    )
+    session.add(row)
+    session.flush()
+    return credential_id
+
+
+def test_github_repo_read_invoke_without_capability_monkeypatch(
+    integration_env: None,
+    pg_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    credential_id = _store_github_credential(pg_session, tenant_id=tenant_id)
+    authority_refs = seed_capability_adapter_authority(
+        pg_session,
+        tenant_id=tenant_id,
+        action_name="github.repo_read",
+        side_effect_classification="external_read",
+    )
+    pg_session.commit()
+
+    authority = MagicMock()
+    authority.request.return_value = (
+        VettedNetworkDestination(
+            original_url="https://api.github.com/repos/ajenda/ajenda-ai",
+            connect_url="https://10.0.0.10/repos/ajenda/ajenda-ai",
+            pinned_ip=__import__("ipaddress").ip_address("10.0.0.10"),
+            sni_hostname="api.github.com",
+            host_header="api.github.com",
+        ),
+        NetworkEgressResponse(
+            status_code=200,
+            headers={},
+            body_text='{"id":99,"full_name":"ajenda/ajenda-ai","private":false}',
+            body_truncated=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.tools.github_actions.get_default_network_egress_authority",
+        lambda: authority,
+    )
+
+    task = ExecutionTask(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        title="github repo read",
+        description="github repo read",
+        status="running",
+        metadata_json={
+            "task_type": "tool.invoke",
+            "tool_invocation": {
+                "action": "github.repo_read",
+                "input": {"owner": "ajenda", "repo": "ajenda-ai"},
+            },
+            "credential_reference": {
+                "schema_version": 1,
+                "credential_id": credential_id,
+                "provider": "external_read_provider",
+                "credential_type": "api_key",
+            },
+            **authority_refs,
+        },
+        compliance_category="operational",
+        jurisdiction="US-ALL",
+        requires_human_review=False,
+    )
+    result = tool_invoke_handler(
+        task,
+        {
+            "worker_id": "worker-test",
+            "tenant_id": tenant_id,
+            "lease_id": str(uuid.uuid4()),
+            "session_factory": lambda: pg_session,
+        },
+    )
+
+    assert result["side_effect_class"] == "external_read"
+    assert result["output"]["real"] is True
+    assert result["output"]["repository"]["id"] == 99

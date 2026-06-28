@@ -177,6 +177,10 @@ class Settings(BaseSettings):
         default="http://localhost:5173/credentials/google-calendar/callback",
         alias="AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI",
     )
+    github_oauth_redirect_uri: str = Field(
+        default="http://localhost:5173/credentials/github/callback",
+        alias="AJENDA_GITHUB_OAUTH_REDIRECT_URI",
+    )
 
     # --- Billing (Stripe) ---
     STRIPE_SECRET_KEY: str = Field(default="", alias="STRIPE_SECRET_KEY")

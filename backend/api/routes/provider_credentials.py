@@ -21,6 +21,12 @@ from backend.services.credentials.gmail_oauth_connect import (
     issue_gmail_oauth_authorization,
     verify_gmail_oauth_state,
 )
+from backend.services.credentials.github_oauth_connect import (
+    GitHubOAuthConnectError,
+    exchange_github_oauth_code,
+    issue_github_oauth_authorization,
+    verify_github_oauth_state,
+)
 from backend.services.credentials.google_calendar_oauth_connect import (
     GoogleCalendarOAuthConnectError,
     exchange_google_calendar_oauth_code,
@@ -54,7 +60,7 @@ class ProviderCredentialCreateRequest(BaseModel):
     credential_id: str = Field(min_length=1, max_length=160)
     provider: str = Field(min_length=1, max_length=120)
     integration: Literal[
-        "hubspot", "gmail", "smtp", "linkedin", "salesforce", "google_calendar", "generic"
+        "hubspot", "gmail", "smtp", "linkedin", "salesforce", "google_calendar", "github", "generic"
     ] = "hubspot"
     secret_value: str | None = Field(default=None, max_length=4000)
     use_platform_master_key: bool = False
@@ -281,7 +287,7 @@ def _oauth_connect_response(
     actor_id: str,
     credential_id: str,
     provider: str,
-    integration: Literal["linkedin", "salesforce", "google_calendar"],
+    integration: Literal["linkedin", "salesforce", "google_calendar", "github"],
     secret_value: str,
     trusted_destination_hosts: list[str] | None = None,
 ) -> ProviderCredentialCreateResponse:
@@ -526,6 +532,82 @@ def google_calendar_oauth_connect(
             secret_value=secret_value,
         )
     except (GoogleCalendarOAuthConnectError, ProviderCredentialManagementError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/provider-credentials/github/oauth/authorize-url",
+    response_model=GmailOAuthAuthorizeUrlResponse,
+)
+def github_oauth_authorize_url(
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    credential_id: str = "github-read",
+) -> GmailOAuthAuthorizeUrlResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        result = issue_github_oauth_authorization(
+            tenant_id=str(tenant_id),
+            credential_id=credential_id,
+            actor_id=actor_id,
+        )
+    except GitHubOAuthConnectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return GmailOAuthAuthorizeUrlResponse(
+        authorization_url=result.authorization_url,
+        state=result.state,
+        redirect_uri=result.redirect_uri,
+    )
+
+
+@router.post(
+    "/provider-credentials/github/oauth/connect",
+    response_model=ProviderCredentialCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def github_oauth_connect(
+    body: OAuthConnectRequest,
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> ProviderCredentialCreateResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        claims = verify_github_oauth_state(body.state)
+    except GitHubOAuthConnectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if claims.tenant_id != str(tenant_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state tenant mismatch")
+    if claims.credential_id != body.credential_id.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state credential mismatch")
+    if claims.actor_id != actor_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state actor mismatch")
+
+    try:
+        secret_value = exchange_github_oauth_code(code=body.code, state=body.state)
+        return _oauth_connect_response(
+            service=ProviderCredentialManagementService(db),
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            credential_id=body.credential_id,
+            provider="external_read_provider",
+            integration="github",
+            secret_value=secret_value,
+        )
+    except (GitHubOAuthConnectError, ProviderCredentialManagementError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 

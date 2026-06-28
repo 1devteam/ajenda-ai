@@ -136,3 +136,30 @@ def test_provider_credentials_api_register_google_calendar_read(
         assert body["credential_id"] == "google-calendar-read"
         assert "google_calendar.events_read" in body["allowed_actions"]
         assert body["trusted_destination_hosts"] == ["www.googleapis.com"]
+
+
+def test_provider_credentials_api_register_github_read(
+    integration_env: None,
+    pg_engine: object,
+    read_flow_onboarding: None,
+) -> None:
+    _ = pg_engine
+    with TestClient(create_app()) as client:
+        tenant_id, api_key = _provision_operational_tenant(client)
+
+        create_resp = client.post(
+            "/v1/account/provider-credentials",
+            headers=_auth_headers(tenant_id=tenant_id, api_key=api_key),
+            json={
+                "credential_id": "github-read",
+                "provider": "external_read_provider",
+                "integration": "github",
+                "secret_value": "tenant-github-bearer",
+            },
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        body = create_resp.json()["credential"]
+        assert body["credential_id"] == "github-read"
+        assert "github.repo_read" in body["allowed_actions"]
+        assert body["trusted_destination_hosts"] == ["api.github.com"]
+        assert "tenant-github-bearer" not in create_resp.text

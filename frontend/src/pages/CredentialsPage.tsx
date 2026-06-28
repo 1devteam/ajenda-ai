@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   connectGmailOAuth,
+  connectGitHubOAuth,
   connectGoogleCalendarOAuth,
   connectLinkedInOAuth,
   connectSalesforceOAuth,
   createProviderCredential,
   deleteProviderCredential,
   getGmailOAuthAuthorizeUrl,
+  getGitHubOAuthAuthorizeUrl,
   getGoogleCalendarOAuthAuthorizeUrl,
   getLinkedInOAuthAuthorizeUrl,
   getSalesforceOAuthAuthorizeUrl,
@@ -18,7 +20,7 @@ import { loadSession } from "../auth/session";
 import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
 import { failureText } from "../utils/errors";
 
-type IntegrationKind = "hubspot" | "gmail" | "linkedin" | "salesforce" | "google_calendar";
+type IntegrationKind = "hubspot" | "gmail" | "linkedin" | "salesforce" | "google_calendar" | "github";
 
 const HUBSPOT_FORM: ProviderCredentialCreateRequest = {
   credential_id: "hubspot-crm",
@@ -60,12 +62,21 @@ const GOOGLE_CALENDAR_FORM: ProviderCredentialCreateRequest = {
   use_platform_master_key: false,
 };
 
+const GITHUB_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "github-read",
+  provider: "external_read_provider",
+  integration: "github",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
 const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateRequest> = {
   hubspot: HUBSPOT_FORM,
   gmail: GMAIL_FORM,
   linkedin: LINKEDIN_FORM,
   salesforce: SALESFORCE_FORM,
   google_calendar: GOOGLE_CALENDAR_FORM,
+  github: GITHUB_FORM,
 };
 
 const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
@@ -74,6 +85,7 @@ const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
   linkedin: "LinkedIn",
   salesforce: "Salesforce",
   google_calendar: "Google Calendar",
+  github: "GitHub",
 };
 
 const OAUTH_CALLBACKS: Record<
@@ -108,6 +120,12 @@ const OAUTH_CALLBACKS: Record<
     defaultCredentialId: "google-calendar-read",
     loadingLabel: "Connecting Google Calendar via OAuth",
     connect: connectGoogleCalendarOAuth,
+  },
+  "/credentials/github/callback": {
+    integration: "github",
+    defaultCredentialId: "github-read",
+    loadingLabel: "Connecting GitHub via OAuth",
+    connect: connectGitHubOAuth,
   },
 };
 
@@ -274,8 +292,10 @@ export default function CredentialsPage() {
         response = await getLinkedInOAuthAuthorizeUrl(session, form.credential_id);
       } else if (integration === "salesforce") {
         response = await getSalesforceOAuthAuthorizeUrl(session, form.credential_id);
-      } else {
+      } else if (integration === "google_calendar") {
         response = await getGoogleCalendarOAuthAuthorizeUrl(session, form.credential_id);
+      } else {
+        response = await getGitHubOAuthAuthorizeUrl(session, form.credential_id);
       }
       window.location.assign(response.authorization_url);
     } catch (err) {
@@ -320,7 +340,8 @@ export default function CredentialsPage() {
     integration === "gmail" ||
     integration === "linkedin" ||
     integration === "salesforce" ||
-    integration === "google_calendar";
+    integration === "google_calendar" ||
+    integration === "github";
   const submitLabel =
     integration === "hubspot"
       ? "Connect HubSpot CRM"
@@ -473,7 +494,7 @@ export default function CredentialsPage() {
                 Connect Salesforce with OAuth
               </button>
             </>
-          ) : (
+          ) : integration === "google_calendar" ? (
             <>
               <label>
                 Google Calendar OAuth bearer or JSON bundle
@@ -494,6 +515,28 @@ export default function CredentialsPage() {
                 onClick={() => void handleOAuthConnect()}
               >
                 Connect Google Calendar with OAuth
+              </button>
+            </>
+          ) : (
+            <>
+              <label>
+                GitHub OAuth bearer, PAT, or JSON bundle
+                <textarea
+                  value={form.secret_value ?? ""}
+                  onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
+                  placeholder='Paste PAT or JSON: {"provider_kind":"github","access_token":"...","refresh_token":"...","expires_at":"..."}'
+                />
+                <span className="field-hint">
+                  Or connect with GitHub below. OAuth app must enable expiring tokens for runtime refresh.
+                </span>
+              </label>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={loading !== null}
+                onClick={() => void handleOAuthConnect()}
+              >
+                Connect GitHub with OAuth
               </button>
             </>
           )}

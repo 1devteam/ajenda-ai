@@ -38,6 +38,9 @@ SALESFORCE_READ_SIDE_EFFECTS = ("external_read",)
 GOOGLE_CALENDAR_READ_ACTIONS = ("google_calendar.events_read", "provider.external_read")
 GOOGLE_CALENDAR_READ_SIDE_EFFECTS = ("external_read",)
 GOOGLE_CALENDAR_TRUSTED_HOSTS = ("www.googleapis.com",)
+GITHUB_READ_ACTIONS = ("github.repo_read", "provider.external_read")
+GITHUB_READ_SIDE_EFFECTS = ("external_read",)
+GITHUB_TRUSTED_HOSTS = ("api.github.com",)
 
 
 class ProviderCredentialManagementError(ValueError):
@@ -83,7 +86,7 @@ class ProviderCredentialManagementService:
         credential_id: str,
         provider: str,
         integration: Literal[
-            "hubspot", "gmail", "smtp", "linkedin", "salesforce", "google_calendar", "generic"
+            "hubspot", "gmail", "smtp", "linkedin", "salesforce", "google_calendar", "github", "generic"
         ] = "hubspot",
         secret_value: str | None = None,
         use_platform_master_key: bool = False,
@@ -220,6 +223,11 @@ class ProviderCredentialManagementService:
             actions = tuple(allowed_actions or GOOGLE_CALENDAR_READ_ACTIONS)
             side_effects = tuple(allowed_side_effect_classes or GOOGLE_CALENDAR_READ_SIDE_EFFECTS)
             hosts = tuple(trusted_destination_hosts or GOOGLE_CALENDAR_TRUSTED_HOSTS)
+            return actions, side_effects, hosts
+        if provider == "external_read_provider" and integration == "github":
+            actions = tuple(allowed_actions or GITHUB_READ_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or GITHUB_READ_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or GITHUB_TRUSTED_HOSTS)
             return actions, side_effects, hosts
         if provider == "external_read_provider" and integration == "linkedin":
             actions = tuple(allowed_actions or LINKEDIN_READ_ACTIONS)

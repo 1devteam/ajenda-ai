@@ -189,6 +189,24 @@ def test_register_google_calendar_read_credential(session_factory) -> None:
     assert result.summary.trusted_destination_hosts == ["www.googleapis.com"]
 
 
+def test_register_github_read_credential(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session)
+        result = service.register(
+            tenant_id=tenant_id,
+            credential_id="github-read",
+            provider="external_read_provider",
+            integration="github",
+            secret_value="github-oauth-token",
+            actor_id="user-1",
+        )
+        session.commit()
+
+    assert "github.repo_read" in result.summary.allowed_actions
+    assert result.summary.trusted_destination_hosts == ["api.github.com"]
+
+
 def test_register_salesforce_read_credential(session_factory) -> None:
     tenant_id = str(uuid.uuid4())
     with session_factory() as session:
