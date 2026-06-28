@@ -21,6 +21,7 @@ export const MISSION_ALLOWED_ACTION_OPTIONS = [
   { action: "salesforce.soql_read", label: "Salesforce SOQL read" },
   { action: "google_calendar.events_read", label: "Google Calendar read" },
   { action: "github.repo_read", label: "GitHub repo read" },
+  { action: "retrieval.hybrid_search", label: "Hybrid memory retrieval" },
 ] as const;
 
 export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
@@ -108,5 +109,11 @@ export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
     provider: "external_read_provider",
     credentialType: "api_key",
     requiresCredential: true,
+  },
+  {
+    action: "retrieval.hybrid_search",
+    title: "Hybrid memory retrieval",
+    description: "Search governed internal records and ephemeral mission memory.",
+    input: { query: "approved outreach playbook", limit: 5 },
   },
 ];

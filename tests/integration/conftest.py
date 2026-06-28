@@ -167,6 +167,10 @@ def pg_engine(pg_url: str, integration_env: None):
 
     alembic_command.upgrade(alembic_cfg, "head")
 
+    from backend.db.vector_schema import ensure_vector_schema
+
+    ensure_vector_schema(engine)
+
     yield engine
     engine.dispose()
 

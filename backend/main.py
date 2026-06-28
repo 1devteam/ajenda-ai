@@ -4,10 +4,11 @@ Startup sequence (lifespan):
   1. Load and validate Settings (validate_runtime_contract raises on misconfiguration)
   2. Configure structured logging
   3. Initialize DatabaseRuntime (connection pool)
-  4. Build and ping queue adapter (fail-fast on startup if queue is unreachable)
-  5. Store shared resources on app.state for dependency injection
-  6. Yield (application serves requests)
-  7. Dispose database connection pool on shutdown
+  4. Initialize VectorDatabaseRuntime when enabled (ephemeral/vector data plane)
+  5. Build and ping queue adapter (fail-fast on startup if queue is unreachable)
+  6. Store shared resources on app.state for dependency injection
+  7. Yield (application serves requests)
+  8. Dispose database connection pools on shutdown
 
 Middleware stack (outermost to innermost — applied in reverse registration order):
   1. SecurityHeadersMiddleware  — injects HSTS, CSP, X-Frame-Options, etc.
@@ -39,6 +40,7 @@ from backend.app.config import get_settings
 from backend.app.logging import configure_logging
 from backend.auth.oidc import OidcAuthenticator
 from backend.db.session import DatabaseRuntime
+from backend.db.vector_session import VectorDatabaseRuntime
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.idempotency import IdempotencyMiddleware
 from backend.middleware.rate_limit import RateLimitMiddleware
@@ -74,7 +76,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Step 3: Initialise database connection pool
     database_runtime = DatabaseRuntime(settings)
 
-    # Step 4: Build queue adapter and verify connectivity
+    # Step 4: Initialise vector/ephemeral data plane when enabled
+    vector_database_runtime: VectorDatabaseRuntime | None = None
+    if settings.vector_db_enabled and settings.resolved_vector_database_url:
+        vector_database_runtime = VectorDatabaseRuntime(settings)
+        vector_database_runtime.ensure_schema()
+        if not vector_database_runtime.ping():
+            raise RuntimeError(
+                "Vector database failed startup ping. "
+                "Check AJENDA_VECTOR_DATABASE_URL / AJENDA_DATABASE_URL and database health."
+            )
+
+    # Step 5: Build queue adapter and verify connectivity
     queue_adapter = build_queue_adapter(settings)
     if not queue_adapter.ping():
         raise RuntimeError(
@@ -82,9 +95,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "Check AJENDA_QUEUE_URL and queue service health before starting."
         )
 
-    # Step 5: Store shared resources on app.state for dependency injection
+    # Step 6: Store shared resources on app.state for dependency injection
     app.state.settings = settings
     app.state.database_runtime = database_runtime
+    app.state.vector_database_runtime = vector_database_runtime
     app.state.queue_adapter = queue_adapter
     app.state.oidc_authenticator = OidcAuthenticator(
         jwks_uri=settings.oidc_jwks_uri,
@@ -95,8 +109,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
-        # Step 7: Clean shutdown — dispose connection pool
+        # Step 8: Clean shutdown — dispose connection pools
         database_runtime.dispose()
+        if vector_database_runtime is not None:
+            vector_database_runtime.dispose()
 
 
 def create_app() -> FastAPI:

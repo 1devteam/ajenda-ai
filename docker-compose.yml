@@ -9,6 +9,7 @@ services:
       AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST: hubspot-crm-ingress
       AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS: "true"
       AJENDA_NETWORK_EGRESS_TLS_VERIFY: "false"
+      AJENDA_VECTOR_DB_ENABLED: "true"
     ports:
       - "8000:8000"
     depends_on:
@@ -29,6 +30,7 @@ services:
       AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST: hubspot-crm-ingress
       AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS: "true"
       AJENDA_NETWORK_EGRESS_TLS_VERIFY: "false"
+      AJENDA_VECTOR_DB_ENABLED: "true"
     depends_on:
       hubspot-crm-ingress:
         condition: service_started
@@ -46,6 +48,9 @@ services:
       dockerfile: deploy/docker/migrate.Dockerfile
     env_file:
       - .env
+    environment:
+      # Colocated vector plane: ephemeral_memory_chunks on the primary Postgres instance.
+      AJENDA_VECTOR_DB_ENABLED: "true"
     depends_on:
       db:
         condition: service_healthy

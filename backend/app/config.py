@@ -40,6 +40,12 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://ajenda:ajenda@db:5432/ajenda",
         alias="AJENDA_DATABASE_URL",
     )
+    vector_database_url: str | None = Field(default=None, alias="AJENDA_VECTOR_DATABASE_URL")
+    vector_db_enabled: bool = Field(default=True, alias="AJENDA_VECTOR_DB_ENABLED")
+    vector_search_enabled: bool = Field(default=True, alias="AJENDA_VECTOR_SEARCH_ENABLED")
+    vector_db_pool_size: int = Field(default=3, alias="AJENDA_VECTOR_DB_POOL_SIZE")
+    vector_db_max_overflow: int = Field(default=5, alias="AJENDA_VECTOR_DB_MAX_OVERFLOW")
+    ephemeral_memory_ttl_seconds: int = Field(default=86_400, alias="AJENDA_EPHEMERAL_MEMORY_TTL_SECONDS")
     db_pool_size: int = Field(default=10, alias="AJENDA_DB_POOL_SIZE")
     db_max_overflow: int = Field(default=20, alias="AJENDA_DB_MAX_OVERFLOW")
     db_pool_timeout: int = Field(default=30, alias="AJENDA_DB_POOL_TIMEOUT")
@@ -232,6 +238,13 @@ class Settings(BaseSettings):
     email_from: str = Field(default="", alias="AJENDA_EMAIL_FROM")
     signup_verify_url_base: str = Field(default="", alias="AJENDA_SIGNUP_VERIFY_URL_BASE")
     email_delivery_timeout_seconds: float = Field(default=10.0, alias="AJENDA_EMAIL_DELIVERY_TIMEOUT_SECONDS")
+
+    @property
+    def resolved_vector_database_url(self) -> str | None:
+        if not self.vector_db_enabled:
+            return None
+        explicit = self.vector_database_url.strip() if isinstance(self.vector_database_url, str) else ""
+        return explicit or self.database_url
 
     @property
     def cors_allowed_origin_list(self) -> list[str]:

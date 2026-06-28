@@ -38,13 +38,14 @@ from backend.services.worker_runtime_service import WorkerRuntimeService
 logger = logging.getLogger("ajenda.task_dispatcher")
 
 
-class TaskHandlerContext(TypedDict):
+class TaskHandlerContext(TypedDict, total=False):
     """Runtime context passed into task handlers."""
 
     worker_id: str
     tenant_id: str
     lease_id: str
     session_factory: Any
+    vector_session_factory: Any
 
 
 TaskHandler = Callable[[ExecutionTask, TaskHandlerContext], dict[str, Any]]
@@ -171,6 +172,7 @@ class TaskDispatcher:
     queue: QueueAdapter
     worker_id: str
     tenant_id: str
+    vector_session_factory: sessionmaker | None = None  # type: ignore[type-arg]
 
     def _open_tenant_session(self) -> Session:
         session = cast(Session, self.session_factory())
@@ -221,6 +223,8 @@ class TaskDispatcher:
                 "lease_id": str(lease_id),
                 "session_factory": self.session_factory,
             }
+            if self.vector_session_factory is not None:
+                context["vector_session_factory"] = self.vector_session_factory
             output_reason = _OUTPUT_REASON_BY_TASK_TYPE.get(task_type)
             result = _validate_handler_result(
                 handler(task, context),

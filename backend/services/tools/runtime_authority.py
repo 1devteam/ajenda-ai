@@ -67,6 +67,7 @@ class ToolRuntimeAuthority:
             worker_id=str(context["worker_id"]),
             lease_id=str(context["lease_id"]),
             session_factory=context["session_factory"],
+            vector_session_factory=context.get("vector_session_factory"),
             runtime_credentials=runtime_credentials,
         )
         result = self._registry.invoke(invocation, runtime_context)

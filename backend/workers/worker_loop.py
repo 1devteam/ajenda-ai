@@ -47,6 +47,7 @@ class WorkerLoop:
     queue: QueueAdapter
     worker_id: str
     tenant_id: str | None = None
+    vector_session_factory: sessionmaker | None = None  # type: ignore[type-arg]
     claim_target: TenantClaimTarget | None = None
     poll_interval_seconds: float = 2.0
     heartbeat_interval_seconds: float = 15.0
@@ -176,6 +177,7 @@ class WorkerLoop:
                 queue=self.queue,
                 worker_id=self.worker_id,
                 tenant_id=tenant_id,
+                vector_session_factory=self.vector_session_factory,
             )
             dispatcher.execute(task_id=task_id, lease_id=lease_id)
 

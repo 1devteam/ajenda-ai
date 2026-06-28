@@ -13,7 +13,6 @@ from email.mime.text import MIMEText
 from typing import Any
 from urllib.parse import quote
 
-from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
 from backend.services.credentials.runtime_authority import CredentialRequirement
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
@@ -34,7 +33,6 @@ from backend.services.tools.schemas import (
     GtmEmailSendInput,
     GtmLeadEnrichInput,
     GtmSocialPublishInput,
-    RetrievalHybridInput,
     RuntimeCredentialMaterial,
     SideEffectClass,
     ToolInvocation,
@@ -195,93 +193,6 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             output=draft,
             evidence=[_make_evidence(inv.action, "local_gtm", ctx, "email draft", draft)],
             summary="Drafted email (local proof)",
-        )
-
-    def retrieval_hybrid_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
-        inp = RetrievalHybridInput.model_validate(inv.input)
-        memories = [
-            {"id": "mem1", "content": f"Related to {inp.query}", "score": 0.92},
-            {"id": "mem2", "content": "Supporting fact from prior mission", "score": 0.81},
-        ]
-        contract_summaries: list[dict[str, Any]] = []
-        # PR10: full retrieval - use tenant-scoped RetrievalContracts for governance and source evidence
-        if inp.mission_id and ctx.session_factory:
-            try:
-                session = ctx.session_factory()
-                repo = RetrievalContractRepository(session)
-                contracts = repo.list_for_mission(mission_id=uuid.UUID(inp.mission_id), tenant_id=ctx.tenant_id)
-                for c in contracts:
-                    summary = {
-                        "id": str(c.id),
-                        "strategy": c.retrieval_strategy,
-                        "reason": c.retrieval_reason,
-                        "governance_constraints": c.governance_constraints,
-                        "trust_signal": c.trust_signal,
-                        "provenance_metadata": c.provenance_metadata,
-                        "status": c.retrieval_status,
-                    }
-                    contract_summaries.append(summary)
-                    # Incorporate memory references from the contract as governed source material (demo)
-                    for ref in (
-                        getattr(c, "returned_memory_references", None) or getattr(c, "memory_references", None) or []
-                    ):
-                        if isinstance(ref, dict) and ref.get("memory_id"):
-                            memories.append(
-                                {
-                                    "id": str(ref.get("memory_id")),
-                                    "source": "retrieval_contract",
-                                    "contract_id": str(c.id),
-                                }
-                            )
-            except Exception:
-                pass
-            finally:
-                if "session" in locals():
-                    session.close()
-
-        payload: dict[str, Any] = {
-            "query": inp.query,
-            "memories": memories,
-            "filters": inp.filters,
-            "retrieval_contracts": contract_summaries,
-        }
-        inspected: list[str] = []
-        for m in memories:
-            if isinstance(m, dict):
-                mid = m.get("id")
-                if isinstance(mid, str):
-                    inspected.append(mid)
-
-        provenance: dict[str, Any] = {}
-        if contract_summaries:
-            provenance = {
-                "retrieval_contract_ids": [s["id"] for s in contract_summaries],
-                "governance_contract_count": len(contract_summaries),
-                "source": "retrieval_contracts",
-            }
-
-        evidence = _make_evidence(
-            inv.action,
-            "local_retrieval",
-            ctx,
-            "hybrid retrieval (governed)",
-            payload,
-            side_effect_class=SideEffectClass.INTERNAL_READ,
-            provenance=provenance,
-        )
-
-        return ActionResult(
-            action=inv.action,
-            provider="local_retrieval",
-            side_effect_class=SideEffectClass.INTERNAL_READ,
-            output=payload,
-            evidence=[evidence],
-            records_inspected=inspected,
-            summary=(
-                f"Hybrid retrieval (semantic+keyword mock, governed by {len(contract_summaries)} retrieval contract(s))"
-                if contract_summaries
-                else "Hybrid retrieval (semantic+keyword mock, contract-backed)"
-            ),
         )
 
     def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
@@ -553,15 +464,6 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             side_effect_class=SideEffectClass.NONE,
             provider="local_gtm",
             input_model=GtmEmailDraftInput,
-        )
-    )
-    registry.register(
-        ActionDefinition(
-            name="retrieval.hybrid_search",
-            handler=retrieval_hybrid_handler,
-            side_effect_class=SideEffectClass.INTERNAL_READ,
-            provider="local_retrieval",
-            input_model=RetrievalHybridInput,
         )
     )
     registry.register(

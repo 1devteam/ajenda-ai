@@ -86,6 +86,7 @@ class ActionRuntimeContext(BaseModel):
     worker_id: str = Field(min_length=1)
     lease_id: str = Field(min_length=1)
     session_factory: Any | None = None
+    vector_session_factory: Any | None = None
     runtime_credentials: dict[str, RuntimeCredentialMaterial] = Field(default_factory=dict, repr=False)
 
 
