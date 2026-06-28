@@ -88,6 +88,7 @@ class ActionRuntimeContext(BaseModel):
     session_factory: Any | None = None
     vector_session_factory: Any | None = None
     runtime_credentials: dict[str, RuntimeCredentialMaterial] = Field(default_factory=dict, repr=False)
+    runtime_cache: dict[str, Any] = Field(default_factory=dict, repr=False)
 
 
 class EvidenceItem(BaseModel):

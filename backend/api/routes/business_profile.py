@@ -24,6 +24,7 @@ from backend.domain.business_profile import (
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.mission_repository import MissionRepository
+from backend.services.business_profile_record_sync import sync_profile_to_internal_records
 
 router = APIRouter(prefix="/business-profile", tags=["business-profile"])
 
@@ -359,6 +360,14 @@ def _resolve_value_error(exc: ValueError) -> HTTPException:
     return HTTPException(status_code=409, detail=str(exc))
 
 
+def _sync_profile_internal_records(*, db: Session, tenant_id: str, profile: BusinessProfile) -> None:
+    sync_profile_to_internal_records(
+        session=db,
+        tenant_id=tenant_id,
+        approved_facts=profile.approved_facts if isinstance(profile.approved_facts, dict) else {},
+    )
+
+
 @router.get("", response_model=BusinessProfileRead)
 def read_business_profile(
     request: Request,
@@ -414,6 +423,7 @@ def upsert_business_profile_fact(
     except ValueError as exc:
         raise _resolve_value_error(exc) from exc
     normalized_category = _normalize_category(category)
+    _sync_profile_internal_records(db=db, tenant_id=tenant_scope, profile=updated)
     _append_business_profile_audit_event(
         db=db,
         tenant_id=tenant_scope,
@@ -504,6 +514,7 @@ def approve_business_profile_suggestion(
         )
     except ValueError as exc:
         raise _resolve_value_error(exc) from exc
+    _sync_profile_internal_records(db=db, tenant_id=tenant_scope, profile=updated_profile)
     _append_business_profile_audit_event(
         db=db,
         tenant_id=tenant_scope,
@@ -547,6 +558,7 @@ def approve_business_profile_suggestion_with_edits(
         )
     except ValueError as exc:
         raise _resolve_value_error(exc) from exc
+    _sync_profile_internal_records(db=db, tenant_id=tenant_scope, profile=updated_profile)
     _append_business_profile_audit_event(
         db=db,
         tenant_id=tenant_scope,

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.business_context_resolver import resolve_business_context
 from backend.services.tools.local_records import LocalRecordProvider, default_local_record_provider
 from backend.services.tools.schemas import ActionRuntimeContext
 
@@ -211,4 +212,10 @@ def resolve_record_store(context: ActionRuntimeContext) -> RecordStore:
 def record_store_limitations(context: ActionRuntimeContext) -> list[str]:
     if context.session_factory is None:
         return ["in-memory proof provider; records reset on process restart"]
-    return ["durable tenant-scoped internal records (Ajenda central brain)"]
+    limitations = ["durable tenant-scoped internal records (Ajenda central brain)"]
+    business_context = resolve_business_context(context)
+    if business_context.account_record_id:
+        limitations.append(
+            f"business profile projects account record {business_context.account_record_id}"
+        )
+    return limitations

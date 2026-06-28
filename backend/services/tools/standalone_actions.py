@@ -6,6 +6,7 @@ import json
 from typing import Any
 from urllib.parse import quote
 
+from backend.services.business_context_resolver import default_company_and_domain, resolve_business_context
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
@@ -202,8 +203,11 @@ def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds:
 def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebResearchInput.model_validate(invocation.input)
     store = resolve_record_store(context)
-    company = payload.company or payload.query
-    domain = payload.domain or ""
+    company, domain = default_company_and_domain(
+        context=context,
+        company=payload.company or payload.query,
+        domain=payload.domain,
+    )
 
     internal_matches: list[dict[str, Any]] = []
     if company:
@@ -242,6 +246,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         action_name="web.research",
     )
 
+    business_context = resolve_business_context(context)
     output = {
         "query": payload.query,
         "company": company,
@@ -250,6 +255,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "internal_count": len(internal_matches),
         "crm_brain_matches": crm_search.results[: payload.limit],
         "web_snippet": web_snippet,
+        "business_context_source": business_context.source,
         "source": "ajenda_brain",
         "real": True,
         "plugin_required": False,

@@ -4,6 +4,7 @@ import uuid
 from typing import Any
 
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
+from backend.services.business_context_resolver import resolve_business_context
 from backend.services.data_plane.memory_chunk_store import resolve_memory_chunk_store
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.record_store import resolve_record_store
@@ -150,6 +151,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
             if isinstance(item, dict) and item.get("search_mode")
         }
     )
+    business_context = resolve_business_context(context)
     provenance: dict[str, Any] = {
         "source": "hybrid_retrieval",
         "search_modes": search_modes or ["keyword"],
@@ -157,6 +159,13 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
         "memory_chunk_keyword_count": len(keyword_hits),
         "memory_chunk_vector_count": len(vector_hits),
     }
+    if business_context.business_name:
+        provenance["business_context"] = {
+            "business_name": business_context.business_name,
+            "account_record_id": business_context.account_record_id,
+            "contact_record_id": business_context.contact_record_id,
+            "source": business_context.source,
+        }
     if contract_summaries:
         provenance["retrieval_contract_ids"] = [summary["id"] for summary in contract_summaries]
         provenance["governance_contract_count"] = len(contract_summaries)

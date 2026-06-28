@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 from typing import Any
 from urllib.parse import quote
 
+from backend.services.business_context_resolver import default_company_and_domain
 from backend.services.credentials.runtime_authority import CredentialRequirement
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
@@ -163,10 +164,20 @@ def _make_evidence(
 
 def register_gtm_actions(registry: ActionRegistry) -> None:
     def lead_enrich_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
-        inp = GtmLeadEnrichInput.model_validate(inv.input)
+        merged_input = dict(inv.input)
+        company, domain = default_company_and_domain(
+            context=ctx,
+            company=str(merged_input.get("company", "") or ""),
+            domain=str(merged_input.get("domain", "") or "") or None,
+        )
+        if company:
+            merged_input["company"] = company
+        if domain:
+            merged_input["domain"] = domain
+        inp = GtmLeadEnrichInput.model_validate(merged_input)
         enriched = {
             "company": inp.company,
-            "domain": inp.domain or "example.com",
+            "domain": inp.domain or domain or "example.com",
             "contacts": [{"email": "found@example.com", "role": "Owner"}],
             "context": inp.context,
         }

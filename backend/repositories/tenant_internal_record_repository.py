@@ -8,6 +8,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.domain.tenant_internal_record import TenantInternalRecord
+from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
+from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.services.tools.local_records import SUPPORTED_RECORD_TYPES
 
 
@@ -128,6 +130,8 @@ class TenantInternalRecordRepository:
         )
         if count:
             return
+        if self._should_skip_demo_seed(tenant_id=tenant_id):
+            return
         defaults: dict[str, dict[str, dict[str, object]]] = {
             "account": {
                 "acct-1": {"id": "acct-1", "name": "Acme Manufacturing", "industry": "manufacturing", "score": 84},
@@ -149,6 +153,22 @@ class TenantInternalRecordRepository:
                     record_id=record_id,
                     data=payload,
                 )
+
+    def _should_skip_demo_seed(self, *, tenant_id: str) -> bool:
+        for record_id in (PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID):
+            existing = self._session.scalars(
+                select(TenantInternalRecord).where(
+                    TenantInternalRecord.tenant_id == tenant_id,
+                    TenantInternalRecord.record_id == record_id,
+                    TenantInternalRecord.deleted.is_(False),
+                )
+            ).first()
+            if existing is not None:
+                return True
+        profile = BusinessProfileRepository(self._session).get_active_profile_for_tenant(tenant_id=tenant_id)
+        if profile is not None and isinstance(profile.approved_facts, dict) and profile.approved_facts:
+            return True
+        return False
 
     @staticmethod
     def _validate_record_type(record_type: str) -> None:

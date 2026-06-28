@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.services.business_context_resolver import default_company_and_domain
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.side_effect_resolvers import credential_reference_external_read
@@ -165,8 +166,11 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
     cred: RuntimeCredentialMaterial | dict[str, Any] | None = context.runtime_credentials.get(
         "sales.research"
     ) or context.runtime_credentials.get("crm.research")
-    company = str(payload.lead.get("company", ""))
-    domain = str(payload.lead.get("domain", "") or "")
+    company, domain = default_company_and_domain(
+        context=context,
+        company=str(payload.lead.get("company", "") or ""),
+        domain=str(payload.lead.get("domain", "") or "") or None,
+    )
     search = default_crm_client().search(
         context=context,
         company=company,
