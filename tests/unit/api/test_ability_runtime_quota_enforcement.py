@@ -78,6 +78,8 @@ def test_ability_runtime_enforcement_imports_and_sets():
         "linkedin.profile_read",
         "sales.research",
         "salesforce.soql_read",
+        "google_calendar.events_read",
+        "github.repo_read",
     }
     assert "linkedin.profile_read" in EXTERNAL_ACTIONS
     assert "salesforce.soql_read" in EXTERNAL_ACTIONS
