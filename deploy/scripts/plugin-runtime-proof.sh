@@ -111,6 +111,77 @@ raise SystemExit(1)
 PY
 }
 
+resolve_google_calendar_secret() {
+  if [[ -n "${AJENDA_E2E_GOOGLE_CALENDAR_SECRET:-}" ]]; then
+    printf '%s' "$AJENDA_E2E_GOOGLE_CALENDAR_SECRET"
+    return 0
+  fi
+  python3 - <<'PY'
+import json
+from pathlib import Path
+
+calendar_scope = "https://www.googleapis.com/auth/calendar.readonly"
+calendar_path = Path.home() / ".ajenda" / "google-calendar-oauth.json"
+if calendar_path.is_file():
+    text = calendar_path.read_text(encoding="utf-8").strip()
+    if text:
+        print(text)
+        raise SystemExit(0)
+
+shared_path = Path.home() / ".ajenda" / "google-oauth.yml"
+if not shared_path.is_file():
+    raise SystemExit(1)
+try:
+    import yaml
+except ImportError:
+    raise SystemExit(1)
+payload = yaml.safe_load(shared_path.read_text(encoding="utf-8"))
+if not isinstance(payload, dict):
+    raise SystemExit(1)
+scopes = payload.get("scopes")
+scope_text = payload.get("scope")
+has_calendar = False
+if isinstance(scopes, list):
+    has_calendar = any(calendar_scope in str(item) for item in scopes)
+elif isinstance(scope_text, str):
+    has_calendar = calendar_scope in scope_text
+if not has_calendar or not isinstance(payload.get("access_token"), str):
+    raise SystemExit(1)
+document = {
+    "provider_kind": "google_calendar",
+    "access_token": payload.get("access_token"),
+    "refresh_token": payload.get("refresh_token"),
+    "expires_at": payload.get("expires_at"),
+    "scopes": scopes if isinstance(scopes, list) else [calendar_scope],
+    "token_type": payload.get("token_type"),
+}
+print(json.dumps(document, sort_keys=True))
+PY
+}
+
+resolve_github_secret() {
+  if [[ -n "${AJENDA_E2E_GITHUB_SECRET:-}" ]]; then
+    printf '%s' "$AJENDA_E2E_GITHUB_SECRET"
+    return 0
+  fi
+  if [[ -n "${AJENDA_E2E_GITHUB_TOKEN:-}" ]]; then
+    printf '%s' "$AJENDA_E2E_GITHUB_TOKEN"
+    return 0
+  fi
+  python3 - <<'PY'
+from pathlib import Path
+
+config_path = Path.home() / ".ajenda" / "github-oauth.json"
+if not config_path.is_file():
+    raise SystemExit(1)
+text = config_path.read_text(encoding="utf-8").strip()
+if text:
+    print(text)
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
 resolve_salesforce_secret() {
   if [[ -n "${AJENDA_E2E_SALESFORCE_SECRET:-}" ]]; then
     printf '%s' "$AJENDA_E2E_SALESFORCE_SECRET"
@@ -186,6 +257,8 @@ run_http_and_worker_proof() {
   local gmail_token="${3:-}"
   local linkedin_token="${4:-}"
   local salesforce_secret="${5:-}"
+  local google_calendar_secret="${6:-}"
+  local github_secret="${7:-}"
   export API_BASE_URL
   export TIMEOUT_SECONDS
   export POLL_SECONDS
@@ -195,6 +268,8 @@ run_http_and_worker_proof() {
   export GMAIL_TOKEN="$gmail_token"
   export LINKEDIN_TOKEN="$linkedin_token"
   export SALESFORCE_SECRET="$salesforce_secret"
+  export GOOGLE_CALENDAR_SECRET="$google_calendar_secret"
+  export GITHUB_SECRET="$github_secret"
   export COMPOSE_FILE
   export COMPOSE_ENV_FILE
 
@@ -223,6 +298,8 @@ HUBSPOT_TOKEN = os.environ.get("HUBSPOT_TOKEN", "")
 GMAIL_TOKEN = os.environ.get("GMAIL_TOKEN", "")
 LINKEDIN_TOKEN = os.environ.get("LINKEDIN_TOKEN", "")
 SALESFORCE_SECRET = os.environ.get("SALESFORCE_SECRET", "")
+GOOGLE_CALENDAR_SECRET = os.environ.get("GOOGLE_CALENDAR_SECRET", "")
+GITHUB_SECRET = os.environ.get("GITHUB_SECRET", "")
 COMPOSE_FILE = os.environ["COMPOSE_FILE"]
 COMPOSE_ENV_FILE = os.environ["COMPOSE_ENV_FILE"]
 ADAPTER_HOST = os.environ.get("ADAPTER_HOST", "127.0.0.1:8443")
@@ -402,6 +479,8 @@ ACTION_SIDE_EFFECT = {
     "gtm.crm_upsert": "internal_write",
     "linkedin.profile_read": "external_read",
     "salesforce.soql_read": "external_read",
+    "google_calendar.events_read": "external_read",
+    "github.repo_read": "external_read",
 }
 ADAPTER_CLASS = {
     "none": "none",
@@ -693,6 +772,75 @@ def run_salesforce_lane() -> dict:
     return {"lane": "salesforce", "tenant_id": tenant_id, **result}
 
 
+def run_google_calendar_lane() -> dict:
+    if not GOOGLE_CALENDAR_SECRET:
+        raise RuntimeError("missing Google Calendar secret")
+    tenant_id, api_key, _email = provision_tenant()
+    auth = auth_headers(tenant_id, api_key)
+    request(
+        "POST",
+        "/v1/account/provider-credentials",
+        headers=auth,
+        body={
+            "credential_id": "google-calendar-read",
+            "provider": "external_read_provider",
+            "integration": "google_calendar",
+            "secret_value": GOOGLE_CALENDAR_SECRET,
+        },
+        expected=201,
+    )
+    result = queue_tool_invoke_and_wait(
+        tenant_id=tenant_id,
+        action="google_calendar.events_read",
+        input_payload={"calendar_id": "primary", "limit": 3},
+        credential_id="google-calendar-read",
+        provider="external_read_provider",
+    )
+    output = result.get("output")
+    assert_not_simulated(output)
+    if isinstance(output, dict) and output.get("events"):
+        events = output["events"]
+        if isinstance(events, list) and events:
+            first = events[0]
+            if isinstance(first, dict) and first.get("id") == "sim-gcal-1":
+                raise RuntimeError("google calendar events read returned simulated event id")
+    return {"lane": "google_calendar", "tenant_id": tenant_id, **result}
+
+
+def run_github_lane() -> dict:
+    if not GITHUB_SECRET:
+        raise RuntimeError("missing GitHub secret")
+    tenant_id, api_key, _email = provision_tenant()
+    auth = auth_headers(tenant_id, api_key)
+    request(
+        "POST",
+        "/v1/account/provider-credentials",
+        headers=auth,
+        body={
+            "credential_id": "github-read",
+            "provider": "external_read_provider",
+            "integration": "github",
+            "secret_value": GITHUB_SECRET,
+        },
+        expected=201,
+    )
+    result = queue_tool_invoke_and_wait(
+        tenant_id=tenant_id,
+        action="github.repo_read",
+        input_payload={"owner": "1devteam", "repo": "ajenda-ai"},
+        credential_id="github-read",
+        provider="external_read_provider",
+    )
+    output = result.get("output")
+    assert_not_simulated(output)
+    if isinstance(output, dict):
+        repository = output.get("repository")
+        if isinstance(repository, dict) and repository.get("full_name") not in {None, "1devteam/ajenda-ai"}:
+            if repository.get("id") == 1 and repository.get("description") == "Simulated GitHub repository metadata":
+                raise RuntimeError("github repo read returned simulated repository payload")
+    return {"lane": "github", "tenant_id": tenant_id, **result}
+
+
 def run_autonomy_lane() -> dict:
     tenant_id, api_key, _email = provision_tenant()
     auth = auth_headers(tenant_id, api_key)
@@ -788,6 +936,10 @@ elif LANE == "linkedin":
     results.append(run_linkedin_lane())
 elif LANE == "salesforce":
     results.append(run_salesforce_lane())
+elif LANE == "google_calendar":
+    results.append(run_google_calendar_lane())
+elif LANE == "github":
+    results.append(run_github_lane())
 elif LANE == "autonomy":
     results.append(run_autonomy_lane())
 else:
@@ -821,7 +973,7 @@ main() {
   if hubspot_token="$(resolve_hubspot_token 2>/dev/null || true)" && [[ -n "$hubspot_token" ]]; then
     ensure_hubspot_ingress
     log "running HubSpot credential API → worker → live adapter proof"
-    hubspot_json="$(run_http_and_worker_proof hubspot "$hubspot_token" "" "" "")"
+    hubspot_json="$(run_http_and_worker_proof hubspot "$hubspot_token" "" "" "" "" "")"
     log "hubspot proof: $hubspot_json"
     ran=1
   else
@@ -830,7 +982,7 @@ main() {
 
   if gmail_token="$(resolve_gmail_token 2>/dev/null || true)" && [[ -n "$gmail_token" ]]; then
     log "running Gmail credential API → worker → live API proof"
-    gmail_json="$(run_http_and_worker_proof gmail "" "$gmail_token" "")"
+    gmail_json="$(run_http_and_worker_proof gmail "" "$gmail_token" "" "" "" "")"
     log "gmail proof: $gmail_json"
     ran=1
   else
@@ -839,7 +991,7 @@ main() {
 
   if linkedin_token="$(resolve_linkedin_token 2>/dev/null || true)" && [[ -n "$linkedin_token" ]]; then
     log "running LinkedIn credential API → worker → live API proof"
-    linkedin_json="$(run_http_and_worker_proof linkedin "" "" "$linkedin_token" "")"
+    linkedin_json="$(run_http_and_worker_proof linkedin "" "" "$linkedin_token" "" "" "")"
     log "linkedin proof: $linkedin_json"
     ran=1
   else
@@ -848,11 +1000,29 @@ main() {
 
   if salesforce_secret="$(resolve_salesforce_secret 2>/dev/null || true)" && [[ -n "$salesforce_secret" ]]; then
     log "running Salesforce credential API → worker → live API proof"
-    salesforce_json="$(run_http_and_worker_proof salesforce "" "" "" "$salesforce_secret")"
+    salesforce_json="$(run_http_and_worker_proof salesforce "" "" "" "$salesforce_secret" "" "")"
     log "salesforce proof: $salesforce_json"
     ran=1
   else
     skip "Salesforce lane (set AJENDA_E2E_SALESFORCE_SECRET or token+instance host or ~/.ajenda/salesforce-oauth.json)"
+  fi
+
+  if google_calendar_secret="$(resolve_google_calendar_secret 2>/dev/null || true)" && [[ -n "$google_calendar_secret" ]]; then
+    log "running Google Calendar credential API → worker → live API proof"
+    google_calendar_json="$(run_http_and_worker_proof google_calendar "" "" "" "" "$google_calendar_secret" "")"
+    log "google calendar proof: $google_calendar_json"
+    ran=1
+  else
+    skip "Google Calendar lane (set AJENDA_E2E_GOOGLE_CALENDAR_SECRET or calendar OAuth file with calendar.readonly)"
+  fi
+
+  if github_secret="$(resolve_github_secret 2>/dev/null || true)" && [[ -n "$github_secret" ]]; then
+    log "running GitHub credential API → worker → live API proof"
+    github_json="$(run_http_and_worker_proof github "" "" "" "" "" "$github_secret")"
+    log "github proof: $github_json"
+    ran=1
+  else
+    skip "GitHub lane (set AJENDA_E2E_GITHUB_SECRET or AJENDA_E2E_GITHUB_TOKEN or ~/.ajenda/github-oauth.json)"
   fi
 
   if [[ "${AJENDA_PROOF_AUTONOMY_LANE:-}" == "1" ]]; then
@@ -862,7 +1032,7 @@ main() {
     if [[ -n "${hubspot_token:-}" ]]; then
       ensure_hubspot_ingress
       log "running informed autonomy tier-3 ability-runtime proof"
-      autonomy_json="$(run_http_and_worker_proof autonomy "$hubspot_token" "" "" "")"
+      autonomy_json="$(run_http_and_worker_proof autonomy "$hubspot_token" "" "" "" "" "")"
       log "autonomy proof: $autonomy_json"
       ran=1
     else

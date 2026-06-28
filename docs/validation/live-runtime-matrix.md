@@ -628,8 +628,10 @@ This order closes the external-plugin runtime lane before widening autonomy, exp
 | **8** | Dual DB (persistent + ephemeral/vector) | new `data_plane` rows when implemented | retrieval depth |
 | **9** | Standalone ability + retrieval enhancement | brain/retrieval rows | mission memory |
 | **10 — Done** | LinkedIn + Salesforce read platforms (credential + OAuth + Tasks UI + matrix rows AR-11/AR-12) | AR-11/AR-12 `evidence_backed` (CI) | — |
+| **10b — Done** | Google Calendar + GitHub read platforms (credential + OAuth + Tasks UI + matrix rows AR-13/AR-14) | AR-13/AR-14 `evidence_backed` (CI) | — |
+| **10c — Done** | Opt-in live proof lanes for Calendar + GitHub in `plugin-runtime-proof.sh` | extends Phase 12 plugin lane | — |
 | **11** | Frontend overhaul (mission graph, dispatch UX) | Phase 4 execution rows | full mission autonomy |
-| **12 — Done** | Optional `live-runtime-proof.sh` plugin lane (env-gated) | `deploy/scripts/plugin-runtime-proof.sh`, `deploy/scripts/staging-autonomy-plugin-proof.sh` | extends release gate, not RG set |
+| **12 — Done** | Optional `plugin-runtime-proof.sh` plugin lane (env-gated) | `deploy/scripts/plugin-runtime-proof.sh`, `deploy/scripts/staging-autonomy-plugin-proof.sh` | extends release gate, not RG set |
 
 **Non-negotiable ordering rules**
 

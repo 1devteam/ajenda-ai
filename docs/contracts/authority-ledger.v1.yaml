@@ -1140,6 +1140,8 @@ authority_entries:
       - tests/integration/credentials/test_external_invoke_authority_real.py
       - tests/integration/credentials/test_external_read_credential_flow_real.py
       - tests/integration/credentials/test_google_calendar_oauth_refresh_real.py
+      - tests/integration/credentials/test_google_calendar_credential_api_invoke_live_real.py
+      - deploy/scripts/plugin-runtime-proof.sh
       - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
 
   - id: github_read_only_platform_expansion
@@ -1168,6 +1170,8 @@ authority_entries:
       - tests/integration/credentials/test_external_invoke_authority_real.py
       - tests/integration/credentials/test_external_read_credential_flow_real.py
       - tests/integration/credentials/test_github_oauth_refresh_real.py
+      - tests/integration/credentials/test_github_credential_api_invoke_live_real.py
+      - deploy/scripts/plugin-runtime-proof.sh
       - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
 
   - id: social_publish_real_egress

@@ -7,7 +7,11 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.integration.standalone.github_e2e_support import resolve_github_credential_secret_for_e2e
 from tests.integration.standalone.gmail_e2e_support import resolve_gmail_access_token_for_e2e
+from tests.integration.standalone.google_calendar_e2e_support import (
+    resolve_google_calendar_credential_secret_for_e2e,
+)
 from tests.integration.standalone.hubspot_e2e_support import resolve_hubspot_access_token
 from tests.integration.standalone.linkedin_e2e_support import resolve_linkedin_credential_secret_for_e2e
 from tests.integration.standalone.salesforce_e2e_support import resolve_salesforce_credential_secret_for_e2e
@@ -102,6 +106,38 @@ def linkedin_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
         )
     monkeypatch.setenv("AJENDA_LINKEDIN_CLIENT_ID", os.environ.get("AJENDA_LINKEDIN_CLIENT_ID", ""))
     monkeypatch.setenv("AJENDA_LINKEDIN_CLIENT_SECRET", os.environ.get("AJENDA_LINKEDIN_CLIENT_SECRET", ""))
+    from backend.app.config import get_settings
+
+    get_settings.cache_clear()
+    return secret
+
+
+@pytest.fixture
+def google_calendar_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
+    secret = resolve_google_calendar_credential_secret_for_e2e()
+    if not secret:
+        pytest.skip(
+            "No Google Calendar credential: set AJENDA_E2E_GOOGLE_CALENDAR_SECRET or "
+            "~/.ajenda/google-calendar-oauth.json or ~/.ajenda/google-oauth.yml with calendar.readonly"
+        )
+    monkeypatch.setenv("AJENDA_GOOGLE_CLI_CLIENT_ID", os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_ID", ""))
+    monkeypatch.setenv("AJENDA_GOOGLE_CLI_CLIENT_SECRET", os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_SECRET", ""))
+    from backend.app.config import get_settings
+
+    get_settings.cache_clear()
+    return secret
+
+
+@pytest.fixture
+def github_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
+    secret = resolve_github_credential_secret_for_e2e()
+    if not secret:
+        pytest.skip(
+            "No GitHub credential: set AJENDA_E2E_GITHUB_SECRET or AJENDA_E2E_GITHUB_TOKEN or "
+            "~/.ajenda/github-oauth.json"
+        )
+    monkeypatch.setenv("AJENDA_GITHUB_CLIENT_ID", os.environ.get("AJENDA_GITHUB_CLIENT_ID", ""))
+    monkeypatch.setenv("AJENDA_GITHUB_CLIENT_SECRET", os.environ.get("AJENDA_GITHUB_CLIENT_SECRET", ""))
     from backend.app.config import get_settings
 
     get_settings.cache_clear()

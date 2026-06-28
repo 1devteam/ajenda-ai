@@ -72,7 +72,7 @@ Registry default side-effect classes represent the **no-credential** path (`INTE
 
 `gtm.crm_upsert` does **not** hybrid-fallback; credentialed failures remain external errors.
 
-### 6. Expansion gate (LinkedIn, Salesforce)
+### 6. Expansion gate (external read providers)
 
 #### Hold status
 
@@ -84,12 +84,16 @@ Registry default side-effect classes represent the **no-credential** path (`INTE
 | **Commit** | `576a6c6` |
 | **Reason** | P0 requirements completed and verified (fail-closed `gtm.email_check`, side-effect resolvers, taxonomy alignment, doc/ledger refresh, integration proofs, `contract_drift_check` enforcement). |
 
-Platform expansion is authorized under this ADR in this order:
+#### Initial expansion sequence (complete)
 
-1. **LinkedIn read-only** — `linkedin.profile_read` + `external_read_provider` / `integration=linkedin`
-2. **Salesforce read-only** — `salesforce.soql_read` + `external_read_provider` / `integration=salesforce` (tenant instance host required)
-3. **Google Calendar read-only** — `google_calendar.events_read` + `external_read_provider` / `integration=google_calendar`
-4. **GitHub read-only** — `github.repo_read` + `external_read_provider` / `integration=github`
+| # | Platform | Status |
+|---|---|---|
+| 1 | **LinkedIn read-only** — `linkedin.profile_read` | Shipped |
+| 2 | **Salesforce read-only** — `salesforce.soql_read` | Shipped |
+| 3 | **Google Calendar read-only** — `google_calendar.events_read` | Shipped |
+| 4 | **GitHub read-only** — `github.repo_read` | Shipped |
+
+Post-expansion hardening (in progress on roadmap): opt-in live proof lanes in `deploy/scripts/plugin-runtime-proof.sh` for all read providers; write paths and net-new platforms (Twilio, Meta, finance APIs, etc.) remain **out of scope** until a new ADR amendment.
 
 P0 prerequisites (all satisfied at hold lift):
 
