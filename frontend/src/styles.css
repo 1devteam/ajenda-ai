@@ -604,6 +604,98 @@ pre {
   color: #fecaca;
 }
 
+.wizard-shell {
+  padding: 1.25rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.wizard-stepper {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.wizard-step {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.45);
+  color: #94a3b8;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wizard-step.active {
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #e2e8f0;
+  background: rgba(14, 116, 144, 0.18);
+}
+
+.wizard-step.done {
+  color: #cbd5e1;
+}
+
+.wizard-step:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.wizard-step-index {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #38bdf8;
+}
+
+.wizard-step-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.wizard-body {
+  display: grid;
+  gap: 1rem;
+}
+
+.wizard-panel-header h2 {
+  margin: 0 0 0.35rem;
+}
+
+.wizard-panel-header p {
+  margin: 0;
+}
+
+.wizard-field-grid {
+  margin-top: 0.25rem;
+}
+
+.wizard-welcome,
+.wizard-callout {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.wizard-checklist {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #e2e8f0;
+}
+
+.wizard-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.wizard-footnote {
+  display: block;
+}
+
 @media (max-width: 960px) {
   .standalone-info-layout {
     grid-template-columns: 1fr;
@@ -611,6 +703,10 @@ pre {
 
   .standalone-field-grid {
     grid-template-columns: 1fr;
+  }
+
+  .wizard-stepper {
+    grid-template-columns: 1fr 1fr;
   }
 }
 

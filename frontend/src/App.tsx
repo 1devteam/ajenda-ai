@@ -14,6 +14,7 @@ import MissionDispatchPage from "./pages/MissionDispatchPage";
 import TasksPage from "./pages/TasksPage";
 import CredentialsPage from "./pages/CredentialsPage";
 import BusinessProfilePage from "./pages/BusinessProfilePage";
+import StandaloneWizardPage from "./pages/StandaloneWizardPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 
 function HomeRedirect() {
@@ -42,6 +43,7 @@ export default function App() {
           </Route>
           <Route element={<ProtectedRoute requireOperational />}>
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/setup" element={<StandaloneWizardPage />} />
             <Route path="/business" element={<BusinessProfilePage />} />
             <Route path="/missions" element={<MissionsPage />} />
             <Route path="/missions/:missionId" element={<MissionDispatchPage />} />

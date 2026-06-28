@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { getBusinessProfile, upsertBusinessProfileFact } from "../api/client";
+import { getBusinessProfile } from "../api/client";
 import { loadSession, sessionToRuntimeConfig } from "../auth/session";
 import {
   BUSINESS_PROFILE_FIELDS,
@@ -9,13 +9,11 @@ import {
 } from "../config/businessProfileFields";
 import type { BusinessProfileReadResponse } from "../types";
 import {
-  listFact,
-  listFromInput,
   listToInput,
   readProfileList,
   readProfileText,
-  textFact,
 } from "../utils/businessProfile";
+import { saveBusinessProfileFacts } from "../utils/saveBusinessProfileFacts";
 import { failureText } from "../utils/errors";
 
 type FormValues = Record<string, string>;
@@ -38,13 +36,6 @@ function valuesFromProfile(profile: BusinessProfileReadResponse | null): FormVal
     values[field.category] = readProfileText(facts, field.category, field.fallbackKeys);
   }
   return values;
-}
-
-function buildFactPayload(field: BusinessProfileField, raw: string): Record<string, unknown> {
-  if (field.kind === "list") {
-    return listFact(listFromInput(raw));
-  }
-  return textFact(raw);
 }
 
 export default function BusinessProfilePage() {
@@ -127,17 +118,7 @@ export default function BusinessProfilePage() {
     setError("");
     setSuccess("");
     try {
-      let latest = profile;
-      for (const field of BUSINESS_PROFILE_FIELDS) {
-        const raw = values[field.category] ?? "";
-        if (!raw.trim()) {
-          continue;
-        }
-        latest = await upsertBusinessProfileFact(config, field.category, {
-          approved_fact: buildFactPayload(field, raw),
-          provenance_metadata: { source: "business_profile_page" },
-        });
-      }
+      const latest = await saveBusinessProfileFacts(config, values, "business_profile_page");
       setProfile(latest);
       if (latest) {
         setValues(valuesFromProfile(latest));
@@ -189,6 +170,7 @@ export default function BusinessProfilePage() {
               Plugins like HubSpot and Gmail are optional. With a complete business profile, Ajenda
               can run missions using internal records, hybrid retrieval, and web research.
             </p>
+            <Link to="/setup">Run setup wizard</Link>
             <Link to="/credentials">Manage optional plugins</Link>
           </div>
         </aside>

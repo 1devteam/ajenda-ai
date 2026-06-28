@@ -4,6 +4,7 @@ import { getAccountMe, getAccountPlan, getAccountUsage } from "../api/client";
 import { loadSession, saveSession } from "../auth/session";
 import type { AccountMeResponse, AccountPlanResponse, AccountUsageResponse } from "../types";
 import { failureText } from "../utils/errors";
+import { readWizardCompletedAt } from "../utils/standaloneWizard";
 
 function formatLimit(current: number, limit: number): string {
   if (limit < 0) {
@@ -26,6 +27,7 @@ export default function DashboardPage() {
   const [plan, setPlan] = useState<AccountPlanResponse | null>(null);
   const [usage, setUsage] = useState<AccountUsageResponse | null>(null);
   const [error, setError] = useState("");
+  const wizardDone = session ? readWizardCompletedAt(session.tenantId) !== null : false;
 
   useEffect(() => {
     if (!session) {
@@ -147,15 +149,31 @@ export default function DashboardPage() {
         </article>
       </section>
 
+      {!wizardDone ? (
+        <section className="notice-banner">
+          <strong>Finish standalone brain setup</strong>
+          <span>
+            Run the setup wizard to save business profile facts and sync internal records for hybrid
+            retrieval.
+          </span>
+          <Link className="primary-link" to="/setup">
+            Open setup wizard
+          </Link>
+        </section>
+      ) : null}
+
       <section className="grid two">
         <div className="panel">
           <h2>Next steps</h2>
           <div className="action-list">
+            <Link className="action-link" to="/setup">
+              Standalone setup wizard (profile → records → plugins)
+            </Link>
             <Link className="action-link" to="/billing">
               Upgrade plan or open billing portal
             </Link>
             <Link className="action-link" to="/business">
-              Set up standalone business info (name, contacts, market)
+              Edit business info (name, contacts, market)
             </Link>
             <Link className="action-link" to="/missions">
               Create a mission with a clear outcome
