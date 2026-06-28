@@ -910,6 +910,119 @@ pre {
   color: #94a3b8;
 }
 
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.primary-button {
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.9), rgba(79, 70, 229, 0.9));
+  color: white;
+  border-radius: 0.8rem;
+  padding: 0.55rem 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary-button:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.primary-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mission-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.dispatch-pipeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.dispatch-step {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 0.9rem;
+  padding: 0.95rem 1rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.dispatch-step-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.dispatch-step-indicator {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+  margin-top: 0.35rem;
+  background: #64748b;
+  flex-shrink: 0;
+}
+
+.dispatch-step-complete .dispatch-step-indicator {
+  background: #34d399;
+}
+
+.dispatch-step-blocked .dispatch-step-indicator {
+  background: #f87171;
+}
+
+.dispatch-step-running .dispatch-step-indicator {
+  background: #38bdf8;
+}
+
+.dispatch-step-status {
+  display: block;
+  margin-top: 0.15rem;
+  color: #94a3b8;
+  font-size: 0.82rem;
+  text-transform: capitalize;
+}
+
+.dispatch-step-actions {
+  margin-top: 0.65rem;
+  margin-left: 1.5rem;
+}
+
+.task-id-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.task-id-button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.code-block {
+  margin: 0.75rem 0 0;
+  padding: 0.85rem 1rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(2, 6, 23, 0.55);
+  color: #cbd5e1;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 @media (max-width: 980px) {
   .hero,
   .grid.two,

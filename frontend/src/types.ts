@@ -276,6 +276,186 @@ export interface MissionListResponse {
   count: number;
 }
 
+export interface MissionPlanCreateRequest {
+  objectives: string[];
+  constraints: string[];
+  assumptions: string[];
+  acceptance_criteria: string[];
+  planned_steps: Array<{
+    sequence: number;
+    title: string;
+    description: string;
+    depends_on: number[];
+    expected_output: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  risk_notes: string[];
+}
+
+export interface MissionPlanReadResponse {
+  mission_id: string;
+  tenant_id: string;
+  plan: Record<string, unknown>;
+  updated_at: string;
+  plan_id?: string | null;
+  status?: string | null;
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+}
+
+export interface MissionTaskGraphPayload {
+  schema_version: number;
+  graph_status: string;
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+}
+
+export interface MissionTaskGraphReadResponse extends MissionTaskGraphPayload {
+  mission_id?: string | null;
+  graph_version?: number | null;
+  graph_fingerprint?: string | null;
+}
+
+export interface GraphMaterializationWriteRequest {
+  materialization_status: string;
+  materialization_source: string;
+  materialization_source_version: string;
+  planner_provenance: Record<string, unknown>;
+  capability_selection_provenance: Array<Record<string, unknown>>;
+  graph_validation_result: Record<string, unknown>;
+  operator_review?: Record<string, unknown>;
+  graph_generation_metadata: Record<string, unknown>;
+  deterministic_compilation_metadata: Record<string, unknown>;
+  generation_notes?: string[];
+}
+
+export interface GraphMaterializationReadResponse {
+  mission_id: string;
+  tenant_id: string;
+  materialization: Record<string, unknown>;
+  updated_at: string;
+}
+
+export interface RuntimeAdmissionWriteRequest {
+  admission_status: string;
+  admitted_by: string;
+  selected_nodes: Array<{
+    node_key: string;
+    runtime_task_type?: string;
+    capability_id?: string;
+    adapter_id?: string;
+    operator_notes?: string;
+  }>;
+  validation_notes?: string[];
+}
+
+export interface RuntimeAdmissionReadResponse {
+  mission_id: string;
+  tenant_id: string;
+  runtime_admission: Record<string, unknown>;
+  updated_at: string;
+}
+
+export interface MissionLifecycleCompleteness {
+  has_intake: boolean;
+  has_plan: boolean;
+  has_task_graph: boolean;
+  has_materialization: boolean;
+  has_runtime_admission: boolean;
+  has_evidence: boolean;
+  has_outcome_review: boolean;
+  has_memory_promotions: boolean;
+  has_retrieval_contracts: boolean;
+}
+
+export interface MissionLifecycleReadResponse {
+  mission: {
+    mission_id: string;
+    tenant_id: string;
+    objective: string;
+    status: string;
+    compliance_category: string;
+    jurisdiction: string;
+    created_at: string;
+    updated_at: string;
+  };
+  intake: Record<string, unknown> | null;
+  plan: Record<string, unknown> | null;
+  task_graph: Record<string, unknown> | null;
+  materialization: Record<string, unknown> | null;
+  runtime_admission: Record<string, unknown> | null;
+  completeness: MissionLifecycleCompleteness;
+  missing_next_steps: string[];
+}
+
+export interface RuntimeReadinessItem {
+  code: string;
+  status: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface RuntimeReadinessReadResponse {
+  mission_id: string;
+  tenant_id: string;
+  ready: boolean;
+  readiness_status: string;
+  checked_at: string;
+  selected_node_count: number;
+  checks: RuntimeReadinessItem[];
+  blockers: RuntimeReadinessItem[];
+  warnings: RuntimeReadinessItem[];
+}
+
+export interface RuntimeTaskMaterializationReadResponse {
+  mission_id: string;
+  tenant_id: string;
+  materialization_status: string;
+  materialization_version: number | null;
+  created_execution_task_ids: string[];
+  task_count: number;
+  blockers: RuntimeReadinessItem[];
+  warnings: RuntimeReadinessItem[];
+  updated_at: string;
+}
+
+export interface RuntimeDispatchReadinessReadResponse {
+  mission_id: string;
+  tenant_id: string;
+  readiness_status: string;
+  dispatch_ready_task_ids: string[];
+  not_ready_task_ids: string[];
+  blocked_task_ids: string[];
+  task_count: number;
+  queued_task_count: number;
+  blockers: Array<Record<string, unknown>>;
+  warnings: Array<Record<string, unknown>>;
+  checked_at: string;
+}
+
+export interface RuntimeQueueAdmissionResponse {
+  admission_status: string;
+  admitted_task_ids: string[];
+  blocked_task_ids: string[];
+  queued_task_ids: string[];
+  pending_review_task_ids: string[];
+  denied_tasks: Array<Record<string, string | null>>;
+  blockers: Array<Record<string, unknown>>;
+}
+
+export interface BridgeRuntimeAuthorityReadResponse {
+  mission_id: string;
+  tenant_id: string;
+  node_authorities: Array<{
+    node_key: string;
+    action: string;
+    capability_id: string;
+    adapter_id: string;
+    capability_name: string;
+  }>;
+}
+
 export interface AbilityTaskCreate {
   action: string;
   input: Record<string, unknown>;

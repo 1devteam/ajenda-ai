@@ -12,9 +12,23 @@ import type {
   AbilityTaskCreate,
   AbilityTaskQueuedResponse,
   AbilityTaskStatusResponse,
+  BridgeRuntimeAuthorityReadResponse,
+  GraphMaterializationReadResponse,
+  GraphMaterializationWriteRequest,
   MissionCreateRequest,
+  MissionLifecycleReadResponse,
   MissionListResponse,
+  MissionPlanCreateRequest,
+  MissionPlanReadResponse,
   MissionReadResponse,
+  MissionTaskGraphPayload,
+  MissionTaskGraphReadResponse,
+  RuntimeAdmissionReadResponse,
+  RuntimeAdmissionWriteRequest,
+  RuntimeDispatchReadinessReadResponse,
+  RuntimeQueueAdmissionResponse,
+  RuntimeReadinessReadResponse,
+  RuntimeTaskMaterializationReadResponse,
   AccountBillingResponse,
   AccountMeResponse,
   AccountPlanResponse,
@@ -515,6 +529,128 @@ export async function createMission(
         ...body,
       }),
     },
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function getMission(config: RuntimeConfig, missionId: string): Promise<MissionReadResponse> {
+  return request<MissionReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}`,
+    {},
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function getMissionLifecycle(
+  config: RuntimeConfig,
+  missionId: string,
+): Promise<MissionLifecycleReadResponse> {
+  return request<MissionLifecycleReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/lifecycle`,
+    {},
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function createMissionPlan(
+  config: RuntimeConfig,
+  missionId: string,
+  body: MissionPlanCreateRequest,
+): Promise<MissionPlanReadResponse> {
+  return request<MissionPlanReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/plan`,
+    { method: "POST", body: JSON.stringify(body) },
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function upsertMissionTaskGraph(
+  config: RuntimeConfig,
+  missionId: string,
+  body: MissionTaskGraphPayload,
+): Promise<MissionTaskGraphReadResponse> {
+  return request<MissionTaskGraphReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/task-graph`,
+    { method: "PUT", body: JSON.stringify(body) },
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function materializeMissionGraph(
+  config: RuntimeConfig,
+  missionId: string,
+  body: GraphMaterializationWriteRequest,
+): Promise<GraphMaterializationReadResponse> {
+  return request<GraphMaterializationReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/materialize-graph`,
+    { method: "POST", body: JSON.stringify(body) },
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function provisionBridgeRuntimeAuthority(
+  config: RuntimeConfig,
+  missionId: string,
+): Promise<BridgeRuntimeAuthorityReadResponse> {
+  return request<BridgeRuntimeAuthorityReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/bridge-runtime-authority`,
+    { method: "POST", body: JSON.stringify({}) },
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function admitMissionToRuntime(
+  config: RuntimeConfig,
+  missionId: string,
+  body: RuntimeAdmissionWriteRequest,
+): Promise<RuntimeAdmissionReadResponse> {
+  return request<RuntimeAdmissionReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/runtime-admission`,
+    { method: "POST", body: JSON.stringify(body) },
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function getMissionRuntimeReadiness(
+  config: RuntimeConfig,
+  missionId: string,
+): Promise<RuntimeReadinessReadResponse> {
+  return request<RuntimeReadinessReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/runtime-readiness`,
+    {},
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function materializeMissionRuntimeTasks(
+  config: RuntimeConfig,
+  missionId: string,
+): Promise<RuntimeTaskMaterializationReadResponse> {
+  return request<RuntimeTaskMaterializationReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/runtime-task-materialization`,
+    { method: "POST", body: JSON.stringify({}) },
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function admitMissionRuntimeQueue(
+  config: RuntimeConfig,
+  missionId: string,
+): Promise<RuntimeQueueAdmissionResponse> {
+  return request<RuntimeQueueAdmissionResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/runtime-queue-admission`,
+    { method: "POST", body: JSON.stringify({}) },
+    authedRuntimeOptions(config),
+  );
+}
+
+export async function getMissionDispatchReadiness(
+  config: RuntimeConfig,
+  missionId: string,
+): Promise<RuntimeDispatchReadinessReadResponse> {
+  return request<RuntimeDispatchReadinessReadResponse>(
+    `/v1/missions/${encodeURIComponent(missionId)}/runtime-dispatch-readiness`,
+    {},
     authedRuntimeOptions(config),
   );
 }

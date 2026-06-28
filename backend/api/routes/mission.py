@@ -114,6 +114,7 @@ from backend.services.mission_intake_quality import (
 from backend.services.mission_runtime_projection import (
     supersede_runtime_task_materialization,
 )
+from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
 from backend.services.mission_runtime_queue_admission_service import MissionRuntimeQueueAdmissionService
 from backend.services.mission_runtime_task_materialization_service import MissionRuntimeTaskMaterializationService
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaEnforcementService, QuotaExceededError
@@ -949,6 +950,24 @@ class RuntimeQueueAdmissionResponse(MissionQueueResponse):
     blocked_task_ids: list[str]
     blockers: list[dict[str, Any]]
     runtime_queue_admission: dict[str, Any]
+
+
+class BridgeRuntimeAuthorityNode(BaseModel):
+    """Capability/adapter authority provisioned for one mission graph node."""
+
+    node_key: str
+    action: str
+    capability_id: str
+    adapter_id: str
+    capability_name: str
+
+
+class BridgeRuntimeAuthorityRead(BaseModel):
+    """Response envelope for mission bridge runtime authority provisioning."""
+
+    mission_id: UUID
+    tenant_id: str
+    node_authorities: list[BridgeRuntimeAuthorityNode]
 
 
 def _normalize_unique_string_list(value: list[str]) -> list[str]:
@@ -2548,6 +2567,26 @@ def read_mission_runtime_admission(
     if MISSION_RUNTIME_ADMISSION_METADATA_KEY not in (mission.metadata_json or {}):
         raise HTTPException(status_code=404, detail="mission runtime admission not found")
     return _runtime_admission_to_read(mission)
+
+
+@router.post("/{mission_id}/bridge-runtime-authority", response_model=BridgeRuntimeAuthorityRead)
+def provision_mission_bridge_runtime_authority(
+    mission_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> BridgeRuntimeAuthorityRead:
+    """Provision tenant-scoped capability/adapter authority for mission bridge tool.invoke nodes."""
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
+    principal = getattr(request.state, "principal", None)
+    admitted_by = str(getattr(principal, "subject_id", "mission-bridge-ui")).strip() or "mission-bridge-ui"
+    result = provision_bridge_runtime_authority(
+        db=db,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        admitted_by=admitted_by,
+    )
+    return BridgeRuntimeAuthorityRead.model_validate(result)
 
 
 @router.post(

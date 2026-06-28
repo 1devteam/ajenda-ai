@@ -172,9 +172,14 @@ export default function MissionsPage() {
                     <strong>Abilities:</strong> {mission.allowed_actions.join(", ")}
                   </p>
                 ) : null}
-                <Link className="action-link" to={`/tasks?mission_id=${mission.mission_id}`}>
-                  Launch abilities
-                </Link>
+                <div className="mission-card-actions">
+                  <Link className="action-link" to={`/missions/${mission.mission_id}`}>
+                    Open dispatch
+                  </Link>
+                  <Link className="ghost-link" to={`/tasks?mission_id=${mission.mission_id}`}>
+                    Launch abilities
+                  </Link>
+                </div>
               </li>
             ))}
           </ul>
@@ -291,9 +296,14 @@ export default function MissionsPage() {
             <code>{createdMission.mission_id}</code> is <strong>{createdMission.status}</strong> and ready for
             mission-scoped abilities.
           </p>
-          <Link className="action-link" to={`/tasks?mission_id=${createdMission.mission_id}`}>
-            Launch mission-scoped abilities
-          </Link>
+          <div className="mission-card-actions">
+            <Link className="action-link" to={`/missions/${createdMission.mission_id}`}>
+              Open mission dispatch
+            </Link>
+            <Link className="ghost-link" to={`/tasks?mission_id=${createdMission.mission_id}`}>
+              Launch abilities directly
+            </Link>
+          </div>
         </section>
       ) : null}
 

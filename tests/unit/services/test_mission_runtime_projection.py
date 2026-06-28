@@ -70,6 +70,31 @@ def test_execution_task_payload_extends_preview_envelope_with_trace_references()
     assert payload["materialization_selection_reference"] == {"node_key": "n"}
 
 
+def test_execution_task_payload_promotes_tool_invoke_contract_fields() -> None:
+    preview_item = {
+        "preview_task_key": "mission:m:graph:1:node:n:runtime-task-preview",
+        "payload_preview": {
+            "mission_id": "m",
+            "graph_node_key": "n",
+            "runtime_task_type": "tool.invoke",
+            "input_contract": {
+                "tool_invocation": {"schema_version": 1, "action": "web.search", "input": {"query": "roofing"}},
+                "execution_constraints": {"read_only": True},
+            },
+        },
+        "capability_reference": {"capability_id": "capability"},
+        "adapter_reference": None,
+        "dependency_keys": [],
+        "materialization_selection_reference": None,
+    }
+
+    payload = build_execution_task_payload(preview_item)
+
+    assert payload["task_type"] == "tool.invoke"
+    assert payload["tool_invocation"]["action"] == "web.search"
+    assert payload["execution_constraints"] == {"read_only": True}
+
+
 def test_materialization_metadata_is_current_only_for_matching_active_references() -> None:
     mission_id = uuid.uuid4()
     graph_reference = {"graph_version": 1}

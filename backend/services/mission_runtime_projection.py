@@ -227,7 +227,7 @@ def build_execution_task_payload(preview_item: Any) -> dict[str, Any]:
         item = dict(preview_item)
     payload_preview = item.get("payload_preview") if isinstance(item.get("payload_preview"), dict) else {}
     runtime_task_type = payload_preview.get("runtime_task_type")
-    return {
+    payload: dict[str, Any] = {
         **deepcopy(payload_preview),
         "task_type": runtime_task_type,
         "capability_reference": deepcopy(item.get("capability_reference")),
@@ -236,6 +236,19 @@ def build_execution_task_payload(preview_item: Any) -> dict[str, Any]:
         "materialization_selection_reference": deepcopy(item.get("materialization_selection_reference")),
         "preview_task_key": item.get("preview_task_key"),
     }
+    if runtime_task_type == "tool.invoke":
+        input_contract = payload.get("input_contract")
+        if isinstance(input_contract, dict):
+            tool_invocation = input_contract.get("tool_invocation")
+            if isinstance(tool_invocation, dict):
+                payload["tool_invocation"] = deepcopy(tool_invocation)
+            execution_constraints = input_contract.get("execution_constraints")
+            if isinstance(execution_constraints, dict) and "execution_constraints" not in payload:
+                payload["execution_constraints"] = deepcopy(execution_constraints)
+            credential_reference = input_contract.get("credential_reference")
+            if isinstance(credential_reference, dict) and "credential_reference" not in payload:
+                payload["credential_reference"] = deepcopy(credential_reference)
+    return payload
 
 
 def build_runtime_task_materialization_metadata(

@@ -10,6 +10,7 @@ import AuthCallbackPage from "./pages/AuthCallbackPage";
 import SignInPage from "./pages/SignInPage";
 import SignupPage from "./pages/SignupPage";
 import MissionsPage from "./pages/MissionsPage";
+import MissionDispatchPage from "./pages/MissionDispatchPage";
 import TasksPage from "./pages/TasksPage";
 import CredentialsPage from "./pages/CredentialsPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
@@ -41,6 +42,7 @@ export default function App() {
           <Route element={<ProtectedRoute requireOperational />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/missions" element={<MissionsPage />} />
+            <Route path="/missions/:missionId" element={<MissionDispatchPage />} />
             <Route path="/billing" element={<BillingPage />} />
             <Route path="/billing/success" element={<BillingPage />} />
             <Route path="/billing/cancel" element={<BillingPage />} />
