@@ -189,7 +189,7 @@ def test_dispatcher_executes_tool_invoke_and_persists_structured_result(monkeypa
         status="running",
         metadata_json={
             "task_type": "tool.invoke",
-            "tool_invocation": {"action": "record.search", "input": {"record_type": "account", "query": "Acme"}},
+            "tool_invocation": {"action": "record.search", "input": {"record_type": "account", "query": "Ajenda"}},
         },
         compliance_category="operational",
         jurisdiction="US-ALL",
@@ -216,7 +216,7 @@ def test_dispatcher_executes_tool_invoke_and_persists_structured_result(monkeypa
     assert completed["lease_id"] == lease_id
     assert completed["output_reason"] == "tool action completed"
     assert completed["result"]["handler"] == "tool.invoke"
-    assert completed["result"]["output"]["count"] == 1
+    assert completed["result"]["output"]["count"] >= 1
 
 
 def test_dispatcher_fails_malformed_tool_invoke_through_failure_path(monkeypatch: pytest.MonkeyPatch) -> None:

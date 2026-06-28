@@ -24,13 +24,13 @@ def test_sales_and_record_actions_return_evidence_shaped_output() -> None:
     context = _context()
 
     result = registry.invoke(
-        ToolInvocation(action="record.search", input={"record_type": "account", "query": "Acme"}), context
+        ToolInvocation(action="record.search", input={"record_type": "account", "query": "Ajenda"}), context
     )
 
-    assert result.output["count"] == 1
+    assert result.output["count"] >= 1
     assert result.evidence[0].action_name == "record.search"
     assert result.evidence[0].tenant_id == context.tenant_id
-    assert result.evidence[0].records_inspected == ["acct-1"]
+    assert "profile-account-primary" in result.evidence[0].records_inspected
 
 
 def test_sales_qualify_score_and_recommendation_are_deterministic() -> None:

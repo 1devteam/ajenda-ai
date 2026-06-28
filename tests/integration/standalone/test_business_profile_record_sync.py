@@ -109,7 +109,13 @@ def test_profile_synced_records_are_discoverable_via_hybrid_search(pg_engine) ->
         )
         assert account is not None
         assert account["name"] == "Cedar Creek Landscaping"
-        demo = internal_repo.read_record(tenant_id=tenant_id, record_type="account", record_id="acct-1")
+        from backend.services.ajenda_demo_fixtures import DEMO_PROSPECT_ACCOUNT_ID
+
+        demo = internal_repo.read_record(
+            tenant_id=tenant_id,
+            record_type="account",
+            record_id=DEMO_PROSPECT_ACCOUNT_ID,
+        )
         assert demo is None
     finally:
         verify.close()

@@ -4,25 +4,13 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-SUPPORTED_RECORD_TYPES = {"account", "contact", "opportunity", "activity", "task"}
+from backend.services.tools.record_types import SUPPORTED_RECORD_TYPES
 
-_DEFAULT_FIXTURES: dict[str, dict[str, dict[str, dict[str, Any]]]] = {
-    "default": {
-        "account": {
-            "acct-1": {"id": "acct-1", "name": "Acme Manufacturing", "industry": "manufacturing", "score": 84},
-            "acct-2": {"id": "acct-2", "name": "Northwind Labs", "industry": "software", "score": 71},
-        },
-        "contact": {
-            "cont-1": {"id": "cont-1", "name": "Avery Stone", "account_id": "acct-1", "role": "VP Operations"},
-            "cont-2": {"id": "cont-2", "name": "Jordan Lee", "account_id": "acct-2", "role": "Director"},
-        },
-        "opportunity": {
-            "opp-1": {"id": "opp-1", "name": "Acme Expansion", "account_id": "acct-1", "stage": "qualified"}
-        },
-        "activity": {},
-        "task": {},
-    }
-}
+
+def _default_fixtures() -> dict[str, dict[str, dict[str, dict[str, Any]]]]:
+    from backend.services.ajenda_demo_fixtures import build_in_memory_demo_records
+
+    return {"default": build_in_memory_demo_records()}
 
 
 @dataclass(slots=True)
@@ -37,8 +25,9 @@ class LocalRecordProvider:
         self.reset(self.seed_records)
 
     def reset(self, seed_records: dict[str, dict[str, dict[str, dict[str, Any]]]] | None = None) -> None:
-        self._records = deepcopy(seed_records if seed_records is not None else _DEFAULT_FIXTURES)
-        self._default_tenant_template = deepcopy(_DEFAULT_FIXTURES["default"] if seed_records is None else {})
+        fixtures = _default_fixtures()
+        self._records = deepcopy(seed_records if seed_records is not None else fixtures)
+        self._default_tenant_template = deepcopy(fixtures["default"] if seed_records is None else {})
 
     def seed_tenant(self, tenant_id: str, records: dict[str, dict[str, dict[str, Any]]]) -> None:
         normalized: dict[str, dict[str, dict[str, Any]]] = {record_type: {} for record_type in SUPPORTED_RECORD_TYPES}

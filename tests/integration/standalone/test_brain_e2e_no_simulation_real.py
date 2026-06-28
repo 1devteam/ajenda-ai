@@ -321,7 +321,7 @@ def test_worker_dispatch_record_search_persists_real_evidence_no_simulation(
                 "tool_invocation": {
                     "schema_version": 1,
                     "action": "record.search",
-                    "input": {"record_type": "account", "query": "Acme"},
+                    "input": {"record_type": "account", "query": "Ajenda"},
                 },
             },
             compliance_category="operational",

@@ -16,7 +16,7 @@ export const BUSINESS_PROFILE_FIELDS: BusinessProfileField[] = [
     label: "Business name",
     description: "Legal or trading name used in mission briefs and internal records.",
     kind: "text",
-    placeholder: "Acme Roofing Co.",
+    placeholder: "Ajenda AI",
     fallbackKeys: ["name"],
     section: "identity",
   },
@@ -25,7 +25,7 @@ export const BUSINESS_PROFILE_FIELDS: BusinessProfileField[] = [
     label: "Primary contact",
     description: "Owner or operator name for outreach and mission context.",
     kind: "text",
-    placeholder: "Jordan Lee",
+    placeholder: "Ajenda Operator",
     section: "identity",
   },
   {
@@ -33,7 +33,7 @@ export const BUSINESS_PROFILE_FIELDS: BusinessProfileField[] = [
     label: "Contact email",
     description: "Main business email for replies and operator notifications.",
     kind: "text",
-    placeholder: "hello@acmeroofing.com",
+    placeholder: "hello@ajenda.ai",
     section: "contact",
   },
   {
@@ -49,7 +49,7 @@ export const BUSINESS_PROFILE_FIELDS: BusinessProfileField[] = [
     label: "Website",
     description: "Public site used for web research and lead enrichment.",
     kind: "text",
-    placeholder: "https://acmeroofing.com",
+    placeholder: "https://ajenda.ai",
     section: "contact",
   },
   {
@@ -57,7 +57,7 @@ export const BUSINESS_PROFILE_FIELDS: BusinessProfileField[] = [
     label: "Service area",
     description: "Geography or territory your standalone missions should prioritize.",
     kind: "text",
-    placeholder: "Austin metro, Texas",
+    placeholder: "Global multi-tenant SaaS",
     fallbackKeys: ["business_address", "address"],
     section: "contact",
   },
@@ -66,7 +66,7 @@ export const BUSINESS_PROFILE_FIELDS: BusinessProfileField[] = [
     label: "Target customers",
     description: "Who you sell to. One segment per line.",
     kind: "list",
-    placeholder: "Homeowners needing roof replacement\nCommercial property managers",
+    placeholder: "Ops leaders automating governed missions\nTeams needing audit trails and tenant isolation",
     section: "market",
   },
   {
@@ -74,7 +74,7 @@ export const BUSINESS_PROFILE_FIELDS: BusinessProfileField[] = [
     label: "Products & services",
     description: "What you offer. One offering per line.",
     kind: "list",
-    placeholder: "Roof inspection\nStorm damage repair",
+    placeholder: "Governed mission runtime\nHybrid retrieval over internal records",
     fallbackKeys: ["services", "offerings"],
     section: "market",
   },
@@ -95,7 +95,7 @@ export const STANDALONE_PROCESS_STEPS = [
   },
   {
     title: "Internal records",
-    detail: "Contacts and accounts persist in tenant_internal_records without HubSpot or Salesforce.",
+    detail: "Ajenda AI demo seeds profile-backed accounts and a sample prospect pipeline in tenant_internal_records.",
   },
   {
     title: "Hybrid retrieval",

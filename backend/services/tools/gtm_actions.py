@@ -195,7 +195,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
         draft = {
             "to": inp.recipient,
             "subject": f"Re: {inp.topic}",
-            "body": f"Hi,\n\nFollowing up on {inp.topic} in {inp.tone} tone.\nContext: {inp.context}\n\nBest, Acme",
+            "body": f"Hi,\n\nFollowing up on {inp.topic} in {inp.tone} tone.\nContext: {inp.context}\n\nBest, Ajenda AI",
         }
         return ActionResult(
             action=inv.action,

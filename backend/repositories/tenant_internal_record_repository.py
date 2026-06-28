@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from backend.domain.tenant_internal_record import TenantInternalRecord
 from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
 from backend.repositories.business_profile_repository import BusinessProfileRepository
-from backend.services.tools.local_records import SUPPORTED_RECORD_TYPES
+from backend.services.tools.record_types import SUPPORTED_RECORD_TYPES
 
 
 class TenantInternalRecordRepository:
@@ -132,27 +132,9 @@ class TenantInternalRecordRepository:
             return
         if self._should_skip_demo_seed(tenant_id=tenant_id):
             return
-        defaults: dict[str, dict[str, dict[str, object]]] = {
-            "account": {
-                "acct-1": {"id": "acct-1", "name": "Acme Manufacturing", "industry": "manufacturing", "score": 84},
-                "acct-2": {"id": "acct-2", "name": "Northwind Labs", "industry": "software", "score": 71},
-            },
-            "contact": {
-                "cont-1": {"id": "cont-1", "name": "Avery Stone", "account_id": "acct-1", "role": "VP Operations"},
-                "cont-2": {"id": "cont-2", "name": "Jordan Lee", "account_id": "acct-2", "role": "Director"},
-            },
-            "opportunity": {
-                "opp-1": {"id": "opp-1", "name": "Acme Expansion", "account_id": "acct-1", "stage": "qualified"},
-            },
-        }
-        for record_type, records in defaults.items():
-            for record_id, payload in records.items():
-                self.write_record(
-                    tenant_id=tenant_id,
-                    record_type=record_type,
-                    record_id=record_id,
-                    data=payload,
-                )
+        from backend.services.ajenda_demo_fixtures import seed_ajenda_live_demo
+
+        seed_ajenda_live_demo(session=self._session, tenant_id=tenant_id)
 
     def _should_skip_demo_seed(self, *, tenant_id: str) -> bool:
         for record_id in (PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID):
