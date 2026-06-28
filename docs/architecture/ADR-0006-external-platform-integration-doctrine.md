@@ -40,6 +40,7 @@ No bypass via direct HTTP clients, task metadata secrets, or handler-local socke
 - Task metadata carries `credential_reference` only; secrets resolve at invoke time.
 - Gmail OAuth refresh is **in scope** and implemented via `gmail_runtime_token` / `google_oauth_cli` at repository read time.
 - LinkedIn and Salesforce OAuth refresh is **in scope** via `linkedin_runtime_token` / `salesforce_runtime_token` at repository read time (product OAuth connect + Credentials UI).
+- Google Calendar read OAuth refresh is **in scope** via `google_calendar_runtime_token` / `google_oauth_cli` at repository read time.
 - Credentialed external paths **fail closed** on provider errors (no simulated success). Example: `gtm.email_check` raises on Gmail API failure when a credential is present.
 - SMTP remains a scoped alternate transport for `gtm.email_send` when credential transport mode permits; HTTPS Gmail API is the default real path.
 
@@ -55,6 +56,7 @@ Registry default side-effect classes represent the **no-credential** path (`INTE
 | `gtm.email_send` | `EXTERNAL_SEND` | Live send or explicit error result |
 | `linkedin.profile_read` | `EXTERNAL_READ` | Live LinkedIn profile read or fail closed |
 | `salesforce.soql_read` | `EXTERNAL_READ` | Live SELECT SOQL or fail closed |
+| `google_calendar.events_read` | `EXTERNAL_READ` | Live Calendar API read or fail closed |
 
 `ToolRuntimeAuthority` enriches `ToolInvocation.credential_reference` from task metadata before resolver evaluation so runtime and catalog stay aligned.
 
@@ -84,6 +86,7 @@ Platform expansion is authorized under this ADR in this order:
 
 1. **LinkedIn read-only** — `linkedin.profile_read` + `external_read_provider` / `integration=linkedin`
 2. **Salesforce read-only** — `salesforce.soql_read` + `external_read_provider` / `integration=salesforce` (tenant instance host required)
+3. **Google Calendar read-only** — `google_calendar.events_read` + `external_read_provider` / `integration=google_calendar`
 
 P0 prerequisites (all satisfied at hold lift):
 

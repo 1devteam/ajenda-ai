@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   connectGmailOAuth,
+  connectGoogleCalendarOAuth,
   connectLinkedInOAuth,
   connectSalesforceOAuth,
   createProviderCredential,
   deleteProviderCredential,
   getGmailOAuthAuthorizeUrl,
+  getGoogleCalendarOAuthAuthorizeUrl,
   getLinkedInOAuthAuthorizeUrl,
   getSalesforceOAuthAuthorizeUrl,
   listProviderCredentials,
@@ -16,7 +18,7 @@ import { loadSession } from "../auth/session";
 import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
 import { failureText } from "../utils/errors";
 
-type IntegrationKind = "hubspot" | "gmail" | "linkedin" | "salesforce";
+type IntegrationKind = "hubspot" | "gmail" | "linkedin" | "salesforce" | "google_calendar";
 
 const HUBSPOT_FORM: ProviderCredentialCreateRequest = {
   credential_id: "hubspot-crm",
@@ -50,11 +52,20 @@ const SALESFORCE_FORM: ProviderCredentialCreateRequest = {
   use_platform_master_key: false,
 };
 
+const GOOGLE_CALENDAR_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "google-calendar-read",
+  provider: "external_read_provider",
+  integration: "google_calendar",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
 const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateRequest> = {
   hubspot: HUBSPOT_FORM,
   gmail: GMAIL_FORM,
   linkedin: LINKEDIN_FORM,
   salesforce: SALESFORCE_FORM,
+  google_calendar: GOOGLE_CALENDAR_FORM,
 };
 
 const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
@@ -62,6 +73,7 @@ const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
   gmail: "Gmail",
   linkedin: "LinkedIn",
   salesforce: "Salesforce",
+  google_calendar: "Google Calendar",
 };
 
 const OAUTH_CALLBACKS: Record<
@@ -90,6 +102,12 @@ const OAUTH_CALLBACKS: Record<
     defaultCredentialId: "salesforce-read",
     loadingLabel: "Connecting Salesforce via OAuth",
     connect: connectSalesforceOAuth,
+  },
+  "/credentials/google-calendar/callback": {
+    integration: "google_calendar",
+    defaultCredentialId: "google-calendar-read",
+    loadingLabel: "Connecting Google Calendar via OAuth",
+    connect: connectGoogleCalendarOAuth,
   },
 };
 
@@ -254,8 +272,10 @@ export default function CredentialsPage() {
         response = await getGmailOAuthAuthorizeUrl(session, form.credential_id);
       } else if (integration === "linkedin") {
         response = await getLinkedInOAuthAuthorizeUrl(session, form.credential_id);
-      } else {
+      } else if (integration === "salesforce") {
         response = await getSalesforceOAuthAuthorizeUrl(session, form.credential_id);
+      } else {
+        response = await getGoogleCalendarOAuthAuthorizeUrl(session, form.credential_id);
       }
       window.location.assign(response.authorization_url);
     } catch (err) {
@@ -296,7 +316,11 @@ export default function CredentialsPage() {
     }
   }
 
-  const supportsOAuth = integration === "gmail" || integration === "linkedin" || integration === "salesforce";
+  const supportsOAuth =
+    integration === "gmail" ||
+    integration === "linkedin" ||
+    integration === "salesforce" ||
+    integration === "google_calendar";
   const submitLabel =
     integration === "hubspot"
       ? "Connect HubSpot CRM"
@@ -408,7 +432,7 @@ export default function CredentialsPage() {
                 Connect LinkedIn with OAuth
               </button>
             </>
-          ) : (
+          ) : integration === "salesforce" ? (
             <>
               <label>
                 Salesforce instance host
@@ -447,6 +471,29 @@ export default function CredentialsPage() {
                 onClick={() => void handleOAuthConnect()}
               >
                 Connect Salesforce with OAuth
+              </button>
+            </>
+          ) : (
+            <>
+              <label>
+                Google Calendar OAuth bearer or JSON bundle
+                <textarea
+                  value={form.secret_value ?? ""}
+                  onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
+                  placeholder='Paste access token or JSON: {"provider_kind":"google_calendar","access_token":"...","refresh_token":"...","expires_at":"..."}'
+                />
+                <span className="field-hint">
+                  Or connect with Google below. Reuses the same Google OAuth client as Gmail with calendar.readonly
+                  scope.
+                </span>
+              </label>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={loading !== null}
+                onClick={() => void handleOAuthConnect()}
+              >
+                Connect Google Calendar with OAuth
               </button>
             </>
           )}

@@ -12,6 +12,11 @@ from backend.services.credentials.gmail_runtime_token import (
     GmailRuntimeTokenError,
     resolve_gmail_credential_secret,
 )
+from backend.services.credentials.google_calendar_runtime_token import (
+    GoogleCalendarRuntimeTokenError,
+    is_google_calendar_oauth_secret,
+    resolve_google_calendar_credential_secret,
+)
 from backend.services.credentials.linkedin_runtime_token import (
     LinkedInRuntimeTokenError,
     is_linkedin_oauth_secret,
@@ -122,6 +127,15 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
                     redirect_uri=settings.salesforce_oauth_redirect_uri,
                 )
             except SalesforceRuntimeTokenError as exc:
+                raise ValueError(str(exc)) from exc
+        elif is_google_calendar_oauth_secret(decrypted) or "www.googleapis.com" in trusted_hosts:
+            try:
+                resolution = resolve_google_calendar_credential_secret(
+                    decrypted,
+                    auto_refresh=True,
+                    redirect_uri=settings.google_calendar_oauth_redirect_uri,
+                )
+            except GoogleCalendarRuntimeTokenError as exc:
                 raise ValueError(str(exc)) from exc
         elif is_linkedin_oauth_secret(decrypted) or "api.linkedin.com" in trusted_hosts:
             try:

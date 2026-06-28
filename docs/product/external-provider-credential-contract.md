@@ -12,6 +12,8 @@ This contract defines tenant-scoped provider runtime credentials used by governe
 - LinkedIn OAuth access-token refresh at credential resolve time (`linkedin_runtime_token.py`, `linkedin_oauth_client.py`)
 - Salesforce OAuth authorize URL + code exchange (`/v1/account/provider-credentials/salesforce/oauth/*`)
 - Salesforce OAuth access-token refresh at credential resolve time (`salesforce_runtime_token.py`, `salesforce_oauth_client.py`)
+- Google Calendar OAuth authorize URL + code exchange (`/v1/account/provider-credentials/google-calendar/oauth/*`)
+- Google Calendar OAuth access-token refresh at credential resolve time (`google_calendar_runtime_token.py`, `google_oauth_cli.py`)
 - HTTP lifecycle API:
   - `POST /v1/account/provider-credentials`
   - `GET /v1/account/provider-credentials`
@@ -72,6 +74,19 @@ When `integration=linkedin` and `provider=external_read_provider`:
 - Runtime action `linkedin.profile_read` uses LinkedIn REST headers (`LinkedIn-Version`, `X-Restli-Protocol-Version`)
 - Credentialed path fails closed on LinkedIn API errors (no simulated profile fallback)
 
+## Google Calendar read {#google-calendar-read}
+
+When `integration=google_calendar` and `provider=external_read_provider`:
+
+- `allowed_actions`: `google_calendar.events_read`, `provider.external_read`
+- `allowed_side_effect_classes`: `external_read`
+- `trusted_destination_hosts`: `www.googleapis.com`
+- OAuth secrets are stored as JSON (`provider_kind=google_calendar`, `access_token`, `refresh_token`, `expires_at`); refresh occurs before invoke when expired
+- Product OAuth redirect: `AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI` (default `http://localhost:5173/credentials/google-calendar/callback`)
+- Reuses Google OAuth client env vars (`AJENDA_GOOGLE_CLI_CLIENT_ID` / `AJENDA_GOOGLE_CLI_CLIENT_SECRET`)
+- Runtime action `google_calendar.events_read` lists events from Calendar API v3
+- Credentialed path fails closed on Google Calendar API errors (no simulated event fallback)
+
 ## Salesforce read {#salesforce-read}
 
 When `integration=salesforce` and `provider=external_read_provider`:
@@ -95,7 +110,7 @@ When `integration=salesforce` and `provider=external_read_provider`:
 - Gmail (`external_email`)
 - LinkedIn read (`external_read_provider` + `integration=linkedin`)
 - Salesforce read (`external_read_provider` + `integration=salesforce`)
-- Google Calendar
+- Google Calendar read (`external_read_provider` + `integration=google_calendar`)
 - GitHub
 - Generic CRM HTTP
 - Browser

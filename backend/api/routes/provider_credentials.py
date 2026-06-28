@@ -21,6 +21,12 @@ from backend.services.credentials.gmail_oauth_connect import (
     issue_gmail_oauth_authorization,
     verify_gmail_oauth_state,
 )
+from backend.services.credentials.google_calendar_oauth_connect import (
+    GoogleCalendarOAuthConnectError,
+    exchange_google_calendar_oauth_code,
+    issue_google_calendar_oauth_authorization,
+    verify_google_calendar_oauth_state,
+)
 from backend.services.credentials.linkedin_oauth_connect import (
     LinkedInOAuthConnectError,
     exchange_linkedin_oauth_code,
@@ -47,7 +53,9 @@ class ProviderCredentialCreateRequest(BaseModel):
 
     credential_id: str = Field(min_length=1, max_length=160)
     provider: str = Field(min_length=1, max_length=120)
-    integration: Literal["hubspot", "gmail", "smtp", "linkedin", "salesforce", "generic"] = "hubspot"
+    integration: Literal[
+        "hubspot", "gmail", "smtp", "linkedin", "salesforce", "google_calendar", "generic"
+    ] = "hubspot"
     secret_value: str | None = Field(default=None, max_length=4000)
     use_platform_master_key: bool = False
     allowed_actions: list[str] = Field(default_factory=list)
@@ -273,7 +281,7 @@ def _oauth_connect_response(
     actor_id: str,
     credential_id: str,
     provider: str,
-    integration: Literal["linkedin", "salesforce"],
+    integration: Literal["linkedin", "salesforce", "google_calendar"],
     secret_value: str,
     trusted_destination_hosts: list[str] | None = None,
 ) -> ProviderCredentialCreateResponse:
@@ -442,6 +450,82 @@ def salesforce_oauth_connect(
             trusted_destination_hosts=list(connect_secret.trusted_destination_hosts),
         )
     except (SalesforceOAuthConnectError, ProviderCredentialManagementError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/provider-credentials/google-calendar/oauth/authorize-url",
+    response_model=GmailOAuthAuthorizeUrlResponse,
+)
+def google_calendar_oauth_authorize_url(
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    credential_id: str = "google-calendar-read",
+) -> GmailOAuthAuthorizeUrlResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        result = issue_google_calendar_oauth_authorization(
+            tenant_id=str(tenant_id),
+            credential_id=credential_id,
+            actor_id=actor_id,
+        )
+    except GoogleCalendarOAuthConnectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return GmailOAuthAuthorizeUrlResponse(
+        authorization_url=result.authorization_url,
+        state=result.state,
+        redirect_uri=result.redirect_uri,
+    )
+
+
+@router.post(
+    "/provider-credentials/google-calendar/oauth/connect",
+    response_model=ProviderCredentialCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def google_calendar_oauth_connect(
+    body: OAuthConnectRequest,
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> ProviderCredentialCreateResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        claims = verify_google_calendar_oauth_state(body.state)
+    except GoogleCalendarOAuthConnectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if claims.tenant_id != str(tenant_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state tenant mismatch")
+    if claims.credential_id != body.credential_id.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state credential mismatch")
+    if claims.actor_id != actor_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state actor mismatch")
+
+    try:
+        secret_value = exchange_google_calendar_oauth_code(code=body.code, state=body.state)
+        return _oauth_connect_response(
+            service=ProviderCredentialManagementService(db),
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            credential_id=body.credential_id,
+            provider="external_read_provider",
+            integration="google_calendar",
+            secret_value=secret_value,
+        )
+    except (GoogleCalendarOAuthConnectError, ProviderCredentialManagementError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 

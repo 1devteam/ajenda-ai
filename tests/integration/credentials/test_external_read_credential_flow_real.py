@@ -13,6 +13,16 @@ from backend.main import create_app
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture
+def read_flow_onboarding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AJENDA_SIGNUP_ENABLED", "true")
+    monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
+    monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
+    from backend.app.config import get_settings
+
+    get_settings.cache_clear()
+
+
 def _auth_headers(*, tenant_id: str, api_key: str) -> dict[str, str]:
     return {"X-Tenant-Id": tenant_id, "X-Api-Key": api_key}
 
@@ -43,13 +53,10 @@ def _provision_operational_tenant(client: TestClient) -> tuple[str, str]:
 
 
 def test_provider_credentials_api_register_linkedin_read(
-    monkeypatch: pytest.MonkeyPatch,
     integration_env: None,
     pg_engine: object,
+    read_flow_onboarding: None,
 ) -> None:
-    monkeypatch.setenv("AJENDA_SIGNUP_ENABLED", "true")
-    monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
-    monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
     with TestClient(create_app()) as client:
         tenant_id, api_key = _provision_operational_tenant(client)
 
@@ -72,13 +79,10 @@ def test_provider_credentials_api_register_linkedin_read(
 
 
 def test_provider_credentials_api_register_salesforce_read_from_json_instance_url(
-    monkeypatch: pytest.MonkeyPatch,
     integration_env: None,
     pg_engine: object,
+    read_flow_onboarding: None,
 ) -> None:
-    monkeypatch.setenv("AJENDA_SIGNUP_ENABLED", "true")
-    monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
-    monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
     secret = json.dumps(
         {
             "provider_kind": "salesforce",
@@ -106,3 +110,29 @@ def test_provider_credentials_api_register_salesforce_read_from_json_instance_ur
         assert "salesforce.soql_read" in body["allowed_actions"]
         assert body["trusted_destination_hosts"] == ["acme.my.salesforce.com"]
         assert "sf-access" not in create_resp.text
+
+
+def test_provider_credentials_api_register_google_calendar_read(
+    integration_env: None,
+    pg_engine: object,
+    read_flow_onboarding: None,
+) -> None:
+    _ = pg_engine
+    with TestClient(create_app()) as client:
+        tenant_id, api_key = _provision_operational_tenant(client)
+
+        create_resp = client.post(
+            "/v1/account/provider-credentials",
+            headers=_auth_headers(tenant_id=tenant_id, api_key=api_key),
+            json={
+                "credential_id": "google-calendar-read",
+                "provider": "external_read_provider",
+                "integration": "google_calendar",
+                "secret_value": "tenant-google-calendar-bearer",
+            },
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        body = create_resp.json()["credential"]
+        assert body["credential_id"] == "google-calendar-read"
+        assert "google_calendar.events_read" in body["allowed_actions"]
+        assert body["trusted_destination_hosts"] == ["www.googleapis.com"]

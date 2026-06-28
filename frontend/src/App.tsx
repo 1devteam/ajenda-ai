@@ -49,6 +49,7 @@ export default function App() {
             <Route path="/credentials/gmail/callback" element={<CredentialsPage />} />
             <Route path="/credentials/linkedin/callback" element={<CredentialsPage />} />
             <Route path="/credentials/salesforce/callback" element={<CredentialsPage />} />
+            <Route path="/credentials/google-calendar/callback" element={<CredentialsPage />} />
           </Route>
           <Route path="/dev" element={<DevConsolePage />} />
         </Route>

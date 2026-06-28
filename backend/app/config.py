@@ -173,6 +173,10 @@ class Settings(BaseSettings):
         default="http://localhost:5173/credentials/salesforce/callback",
         alias="AJENDA_SALESFORCE_OAUTH_REDIRECT_URI",
     )
+    google_calendar_oauth_redirect_uri: str = Field(
+        default="http://localhost:5173/credentials/google-calendar/callback",
+        alias="AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI",
+    )
 
     # --- Billing (Stripe) ---
     STRIPE_SECRET_KEY: str = Field(default="", alias="STRIPE_SECRET_KEY")

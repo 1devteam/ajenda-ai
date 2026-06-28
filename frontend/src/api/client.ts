@@ -437,6 +437,32 @@ export async function connectSalesforceOAuth(
   );
 }
 
+export async function getGoogleCalendarOAuthAuthorizeUrl(
+  session: CustomerSession,
+  credentialId = "google-calendar-read",
+): Promise<GmailOAuthAuthorizeUrlResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<GmailOAuthAuthorizeUrlResponse>(
+      `/v1/account/provider-credentials/google-calendar/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
+      {},
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function connectGoogleCalendarOAuth(
+  session: CustomerSession,
+  body: GmailOAuthConnectRequest,
+): Promise<ProviderCredentialCreateResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialCreateResponse>(
+      "/v1/account/provider-credentials/google-calendar/oauth/connect",
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
 function authedRuntimeOptions(config: RuntimeConfig) {
   return runtimeOptions(config);
 }
