@@ -1103,6 +1103,9 @@ authority_entries:
       - tests/integration/credentials/test_external_read_credential_flow_real.py
       - tests/integration/credentials/test_linkedin_oauth_refresh_real.py
       - tests/integration/credentials/test_salesforce_oauth_refresh_real.py
+      - tests/integration/credentials/test_linkedin_credential_api_invoke_live_real.py
+      - tests/integration/credentials/test_salesforce_credential_api_invoke_live_real.py
+      - deploy/scripts/plugin-runtime-proof.sh
       - frontend/src/config/missionAbilities.ts
       - docs/architecture/ADR-0006-external-platform-integration-doctrine.md
 

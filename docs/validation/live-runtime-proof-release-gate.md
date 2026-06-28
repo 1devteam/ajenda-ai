@@ -72,6 +72,9 @@ Configurable inputs:
 | `AJENDA_PROOF_AUTONOMY_LANE` | unset (`0`) | When `1`, plugin script also runs informed-autonomy tier-3 queue proof |
 | `AJENDA_E2E_HUBSPOT_PAK` | unset | HubSpot bearer/PAK for live CRM plugin lane |
 | `AJENDA_E2E_GMAIL_TOKEN` | unset | Gmail bearer for live email plugin lane |
+| `AJENDA_E2E_LINKEDIN_TOKEN` | unset | LinkedIn bearer or OAuth JSON for live read lane |
+| `AJENDA_E2E_SALESFORCE_SECRET` | unset | Salesforce OAuth JSON for live SOQL lane |
+| `AJENDA_E2E_SALESFORCE_TOKEN` + `AJENDA_E2E_SALESFORCE_INSTANCE_HOST` | unset | Alternate Salesforce live proof inputs |
 | `AJENDA_E2E_ADAPTER_HOST` | `127.0.0.1:8443` | HubSpot CRM ingress host:port (script may start root `docker-compose.yml` ingress) |
 
 Optional plugin scripts:

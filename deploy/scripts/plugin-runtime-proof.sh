@@ -92,6 +92,60 @@ raise SystemExit(1)
 PY
 }
 
+resolve_linkedin_token() {
+  if [[ -n "${AJENDA_E2E_LINKEDIN_TOKEN:-}" ]]; then
+    printf '%s' "$AJENDA_E2E_LINKEDIN_TOKEN"
+    return 0
+  fi
+  python3 - <<'PY'
+from pathlib import Path
+
+config_path = Path.home() / ".ajenda" / "linkedin-oauth.json"
+if not config_path.is_file():
+    raise SystemExit(1)
+text = config_path.read_text(encoding="utf-8").strip()
+if text:
+    print(text)
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+resolve_salesforce_secret() {
+  if [[ -n "${AJENDA_E2E_SALESFORCE_SECRET:-}" ]]; then
+    printf '%s' "$AJENDA_E2E_SALESFORCE_SECRET"
+    return 0
+  fi
+  python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+token = os.environ.get("AJENDA_E2E_SALESFORCE_TOKEN", "").strip()
+host = os.environ.get("AJENDA_E2E_SALESFORCE_INSTANCE_HOST", "").strip().lower().rstrip(".")
+if token and host:
+    print(
+        json.dumps(
+            {
+                "provider_kind": "salesforce",
+                "access_token": token,
+                "instance_url": f"https://{host}",
+            },
+            sort_keys=True,
+        )
+    )
+    raise SystemExit(0)
+
+config_path = Path.home() / ".ajenda" / "salesforce-oauth.json"
+if config_path.is_file():
+    text = config_path.read_text(encoding="utf-8").strip()
+    if text:
+        print(text)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
 ensure_hubspot_ingress() {
   local host="${ADAPTER_HOST%%:*}"
   local port="${ADAPTER_HOST##*:}"
@@ -130,6 +184,8 @@ run_http_and_worker_proof() {
   local lane="$1"
   local hubspot_token="${2:-}"
   local gmail_token="${3:-}"
+  local linkedin_token="${4:-}"
+  local salesforce_secret="${5:-}"
   export API_BASE_URL
   export TIMEOUT_SECONDS
   export POLL_SECONDS
@@ -137,6 +193,8 @@ run_http_and_worker_proof() {
   export LANE="$lane"
   export HUBSPOT_TOKEN="$hubspot_token"
   export GMAIL_TOKEN="$gmail_token"
+  export LINKEDIN_TOKEN="$linkedin_token"
+  export SALESFORCE_SECRET="$salesforce_secret"
   export COMPOSE_FILE
   export COMPOSE_ENV_FILE
 
@@ -163,6 +221,8 @@ POLL_SECONDS = float(os.environ["POLL_SECONDS"])
 LANE = os.environ["LANE"]
 HUBSPOT_TOKEN = os.environ.get("HUBSPOT_TOKEN", "")
 GMAIL_TOKEN = os.environ.get("GMAIL_TOKEN", "")
+LINKEDIN_TOKEN = os.environ.get("LINKEDIN_TOKEN", "")
+SALESFORCE_SECRET = os.environ.get("SALESFORCE_SECRET", "")
 COMPOSE_FILE = os.environ["COMPOSE_FILE"]
 COMPOSE_ENV_FILE = os.environ["COMPOSE_ENV_FILE"]
 ADAPTER_HOST = os.environ.get("ADAPTER_HOST", "127.0.0.1:8443")
@@ -340,6 +400,8 @@ ACTION_SIDE_EFFECT = {
     "crm.research": "none",
     "gtm.email_check": "external_read",
     "gtm.crm_upsert": "internal_write",
+    "linkedin.profile_read": "external_read",
+    "salesforce.soql_read": "external_read",
 }
 ADAPTER_CLASS = {
     "none": "none",
@@ -561,6 +623,76 @@ def run_gmail_lane() -> dict:
     return {"lane": "gmail", "tenant_id": tenant_id, **result}
 
 
+def run_linkedin_lane() -> dict:
+    if not LINKEDIN_TOKEN:
+        raise RuntimeError("missing LinkedIn token")
+    tenant_id, api_key, _email = provision_tenant()
+    auth = auth_headers(tenant_id, api_key)
+    request(
+        "POST",
+        "/v1/account/provider-credentials",
+        headers=auth,
+        body={
+            "credential_id": "linkedin-read",
+            "provider": "external_read_provider",
+            "integration": "linkedin",
+            "secret_value": LINKEDIN_TOKEN,
+        },
+        expected=201,
+    )
+    result = queue_tool_invoke_and_wait(
+        tenant_id=tenant_id,
+        action="linkedin.profile_read",
+        input_payload={},
+        credential_id="linkedin-read",
+        provider="external_read_provider",
+    )
+    output = result.get("output")
+    assert_not_simulated(output)
+    if isinstance(output, dict):
+        profile = output.get("profile")
+        if isinstance(profile, dict) and profile.get("id") == "sim-linkedin-1":
+            raise RuntimeError("linkedin profile read returned simulated profile id")
+    return {"lane": "linkedin", "tenant_id": tenant_id, **result}
+
+
+def run_salesforce_lane() -> dict:
+    if not SALESFORCE_SECRET:
+        raise RuntimeError("missing Salesforce secret")
+    tenant_id, api_key, _email = provision_tenant()
+    auth = auth_headers(tenant_id, api_key)
+    request(
+        "POST",
+        "/v1/account/provider-credentials",
+        headers=auth,
+        body={
+            "credential_id": "salesforce-read",
+            "provider": "external_read_provider",
+            "integration": "salesforce",
+            "secret_value": SALESFORCE_SECRET,
+        },
+        expected=201,
+    )
+    result = queue_tool_invoke_and_wait(
+        tenant_id=tenant_id,
+        action="salesforce.soql_read",
+        input_payload={"soql": "SELECT Id FROM User LIMIT 1"},
+        credential_id="salesforce-read",
+        provider="external_read_provider",
+    )
+    output = result.get("output")
+    assert_not_simulated(output)
+    if isinstance(output, dict):
+        query_result = output.get("result")
+        if isinstance(query_result, dict):
+            records = query_result.get("records")
+            if isinstance(records, list) and records:
+                first = records[0]
+                if isinstance(first, dict) and first.get("Id") == "sim-sf-1":
+                    raise RuntimeError("salesforce soql read returned simulated record id")
+    return {"lane": "salesforce", "tenant_id": tenant_id, **result}
+
+
 def run_autonomy_lane() -> dict:
     tenant_id, api_key, _email = provision_tenant()
     auth = auth_headers(tenant_id, api_key)
@@ -652,6 +784,10 @@ if LANE == "hubspot":
     results.append(run_hubspot_lane())
 elif LANE == "gmail":
     results.append(run_gmail_lane())
+elif LANE == "linkedin":
+    results.append(run_linkedin_lane())
+elif LANE == "salesforce":
+    results.append(run_salesforce_lane())
 elif LANE == "autonomy":
     results.append(run_autonomy_lane())
 else:
@@ -685,7 +821,7 @@ main() {
   if hubspot_token="$(resolve_hubspot_token 2>/dev/null || true)" && [[ -n "$hubspot_token" ]]; then
     ensure_hubspot_ingress
     log "running HubSpot credential API → worker → live adapter proof"
-    hubspot_json="$(run_http_and_worker_proof hubspot "$hubspot_token" "")"
+    hubspot_json="$(run_http_and_worker_proof hubspot "$hubspot_token" "" "" "")"
     log "hubspot proof: $hubspot_json"
     ran=1
   else
@@ -694,11 +830,29 @@ main() {
 
   if gmail_token="$(resolve_gmail_token 2>/dev/null || true)" && [[ -n "$gmail_token" ]]; then
     log "running Gmail credential API → worker → live API proof"
-    gmail_json="$(run_http_and_worker_proof gmail "" "$gmail_token")"
+    gmail_json="$(run_http_and_worker_proof gmail "" "$gmail_token" "")"
     log "gmail proof: $gmail_json"
     ran=1
   else
     skip "Gmail lane (set AJENDA_E2E_GMAIL_TOKEN or ~/.ajenda/google-oauth.yml)"
+  fi
+
+  if linkedin_token="$(resolve_linkedin_token 2>/dev/null || true)" && [[ -n "$linkedin_token" ]]; then
+    log "running LinkedIn credential API → worker → live API proof"
+    linkedin_json="$(run_http_and_worker_proof linkedin "" "" "$linkedin_token" "")"
+    log "linkedin proof: $linkedin_json"
+    ran=1
+  else
+    skip "LinkedIn lane (set AJENDA_E2E_LINKEDIN_TOKEN or ~/.ajenda/linkedin-oauth.json)"
+  fi
+
+  if salesforce_secret="$(resolve_salesforce_secret 2>/dev/null || true)" && [[ -n "$salesforce_secret" ]]; then
+    log "running Salesforce credential API → worker → live API proof"
+    salesforce_json="$(run_http_and_worker_proof salesforce "" "" "" "$salesforce_secret")"
+    log "salesforce proof: $salesforce_json"
+    ran=1
+  else
+    skip "Salesforce lane (set AJENDA_E2E_SALESFORCE_SECRET or token+instance host or ~/.ajenda/salesforce-oauth.json)"
   fi
 
   if [[ "${AJENDA_PROOF_AUTONOMY_LANE:-}" == "1" ]]; then
@@ -708,7 +862,7 @@ main() {
     if [[ -n "${hubspot_token:-}" ]]; then
       ensure_hubspot_ingress
       log "running informed autonomy tier-3 ability-runtime proof"
-      autonomy_json="$(run_http_and_worker_proof autonomy "$hubspot_token" "")"
+      autonomy_json="$(run_http_and_worker_proof autonomy "$hubspot_token" "" "" "")"
       log "autonomy proof: $autonomy_json"
       ran=1
     else

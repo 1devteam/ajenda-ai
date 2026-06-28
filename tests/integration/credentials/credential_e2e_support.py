@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 
 from tests.integration.standalone.gmail_e2e_support import resolve_gmail_access_token_for_e2e
 from tests.integration.standalone.hubspot_e2e_support import resolve_hubspot_access_token
+from tests.integration.standalone.linkedin_e2e_support import resolve_linkedin_credential_secret_for_e2e
+from tests.integration.standalone.salesforce_e2e_support import resolve_salesforce_credential_secret_for_e2e
 
 
 def auth_headers(*, tenant_id: str, api_key: str) -> dict[str, str]:
@@ -89,3 +91,35 @@ def gmail_live_token(monkeypatch: pytest.MonkeyPatch) -> str:
 
     get_settings.cache_clear()
     return token
+
+
+@pytest.fixture
+def linkedin_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
+    secret = resolve_linkedin_credential_secret_for_e2e()
+    if not secret:
+        pytest.skip(
+            "No LinkedIn credential: set AJENDA_E2E_LINKEDIN_TOKEN or ~/.ajenda/linkedin-oauth.json"
+        )
+    monkeypatch.setenv("AJENDA_LINKEDIN_CLIENT_ID", os.environ.get("AJENDA_LINKEDIN_CLIENT_ID", ""))
+    monkeypatch.setenv("AJENDA_LINKEDIN_CLIENT_SECRET", os.environ.get("AJENDA_LINKEDIN_CLIENT_SECRET", ""))
+    from backend.app.config import get_settings
+
+    get_settings.cache_clear()
+    return secret
+
+
+@pytest.fixture
+def salesforce_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
+    secret = resolve_salesforce_credential_secret_for_e2e()
+    if not secret:
+        pytest.skip(
+            "No Salesforce credential: set AJENDA_E2E_SALESFORCE_SECRET or "
+            "AJENDA_E2E_SALESFORCE_TOKEN + AJENDA_E2E_SALESFORCE_INSTANCE_HOST "
+            "or ~/.ajenda/salesforce-oauth.json"
+        )
+    monkeypatch.setenv("AJENDA_SALESFORCE_CLIENT_ID", os.environ.get("AJENDA_SALESFORCE_CLIENT_ID", ""))
+    monkeypatch.setenv("AJENDA_SALESFORCE_CLIENT_SECRET", os.environ.get("AJENDA_SALESFORCE_CLIENT_SECRET", ""))
+    from backend.app.config import get_settings
+
+    get_settings.cache_clear()
+    return secret
