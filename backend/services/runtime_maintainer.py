@@ -52,6 +52,12 @@ _TERMINAL_TASK_STATES = {
     ExecutionTaskState.COMPLETED.value,
     ExecutionTaskState.CANCELLED.value,
     ExecutionTaskState.DEAD_LETTERED.value,
+    ExecutionTaskState.BLOCKED.value,
+    ExecutionTaskState.FAILED.value,
+}
+_TERMINAL_QUEUE_CLEANUP_STATES = {
+    ExecutionTaskState.COMPLETED.value,
+    ExecutionTaskState.BLOCKED.value,
 }
 
 
@@ -380,14 +386,19 @@ class RuntimeMaintainer:
                 if active_lease is not None:
                     continue
 
-                if task.status == ExecutionTaskState.COMPLETED.value:
+                if task.status in _TERMINAL_QUEUE_CLEANUP_STATES:
                     holder = self._latest_lease_holder(tenant_id=tenant_id, task_id=task.id) or "runtime_maintainer"
                     result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=holder)
                     if not result.ok:
                         mismatched_state_count += 1
                         logger.error(
                             "runtime_maintainer_terminal_cleanup_failed",
-                            extra={"tenant_id": tenant_id, "task_id": str(task.id), "reason": result.reason},
+                            extra={
+                                "tenant_id": tenant_id,
+                                "task_id": str(task.id),
+                                "task_status": task.status,
+                                "reason": result.reason,
+                            },
                         )
                     continue
 
@@ -432,7 +443,7 @@ class RuntimeMaintainer:
                     transition_task(task, ExecutionTaskState.RECOVERING)
                     task.retry_count += 1
                     transition_task(task, ExecutionTaskState.QUEUED)
-                elif task.status in {ExecutionTaskState.CLAIMED.value, ExecutionTaskState.BLOCKED.value}:
+                elif task.status == ExecutionTaskState.CLAIMED.value:
                     transition_task(task, ExecutionTaskState.QUEUED)
                 elif task.status == ExecutionTaskState.RECOVERING.value:
                     transition_task(task, ExecutionTaskState.QUEUED)

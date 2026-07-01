@@ -124,6 +124,23 @@ class OAuthConnectRequest(BaseModel):
     credential_id: str = Field(min_length=1, max_length=160)
 
 
+def _structured_oauth_error(
+    *,
+    code: str,
+    message: str,
+    status_code: int = status.HTTP_400_BAD_REQUEST,
+) -> HTTPException:
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+def _oauth_connect_http_error(exc: Exception) -> HTTPException:
+    return _structured_oauth_error(code="OAUTH_CONNECT_FAILED", message=str(exc))
+
+
+def _oauth_state_claim_mismatch(code: str, message: str) -> HTTPException:
+    return _structured_oauth_error(code=code, message=message)
+
+
 def _map_errors(exc: Exception) -> HTTPException:
     if isinstance(exc, ProviderCredentialManagementError):
         return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -225,7 +242,7 @@ def gmail_oauth_authorize_url(
             actor_id=actor_id,
         )
     except GmailOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     return GmailOAuthAuthorizeUrlResponse(
         authorization_url=result.authorization_url,
         state=result.state,
@@ -254,13 +271,13 @@ def gmail_oauth_connect(
     try:
         claims = verify_gmail_oauth_state(body.state)
     except GmailOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     if claims.tenant_id != str(tenant_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state tenant mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state credential mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
     if claims.actor_id != actor_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state actor mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
     try:
         secret_value = exchange_gmail_oauth_code(code=body.code, state=body.state)
@@ -272,8 +289,10 @@ def gmail_oauth_connect(
             secret_value=secret_value,
             actor_id=actor_id,
         )
-    except (GmailOAuthConnectError, ProviderCredentialManagementError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except GmailOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    except ProviderCredentialManagementError as exc:
+        raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc
     return ProviderCredentialCreateResponse(
         credential=_to_response(result.summary),
         warning=result.warning,
@@ -330,7 +349,7 @@ def linkedin_oauth_authorize_url(
             actor_id=actor_id,
         )
     except LinkedInOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     return GmailOAuthAuthorizeUrlResponse(
         authorization_url=result.authorization_url,
         state=result.state,
@@ -359,13 +378,13 @@ def linkedin_oauth_connect(
     try:
         claims = verify_linkedin_oauth_state(body.state)
     except LinkedInOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     if claims.tenant_id != str(tenant_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state tenant mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state credential mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
     if claims.actor_id != actor_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state actor mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
     try:
         secret_value = exchange_linkedin_oauth_code(code=body.code, state=body.state)
@@ -378,8 +397,10 @@ def linkedin_oauth_connect(
             integration="linkedin",
             secret_value=secret_value,
         )
-    except (LinkedInOAuthConnectError, ProviderCredentialManagementError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except LinkedInOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    except ProviderCredentialManagementError as exc:
+        raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc
 
 
 @router.get(
@@ -406,7 +427,7 @@ def salesforce_oauth_authorize_url(
             actor_id=actor_id,
         )
     except SalesforceOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     return GmailOAuthAuthorizeUrlResponse(
         authorization_url=result.authorization_url,
         state=result.state,
@@ -435,13 +456,13 @@ def salesforce_oauth_connect(
     try:
         claims = verify_salesforce_oauth_state(body.state)
     except SalesforceOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     if claims.tenant_id != str(tenant_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state tenant mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state credential mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
     if claims.actor_id != actor_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state actor mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
     try:
         connect_secret = exchange_salesforce_oauth_code(code=body.code, state=body.state)
@@ -455,8 +476,10 @@ def salesforce_oauth_connect(
             secret_value=connect_secret.secret_value,
             trusted_destination_hosts=list(connect_secret.trusted_destination_hosts),
         )
-    except (SalesforceOAuthConnectError, ProviderCredentialManagementError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except SalesforceOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    except ProviderCredentialManagementError as exc:
+        raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc
 
 
 @router.get(
@@ -483,7 +506,7 @@ def google_calendar_oauth_authorize_url(
             actor_id=actor_id,
         )
     except GoogleCalendarOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     return GmailOAuthAuthorizeUrlResponse(
         authorization_url=result.authorization_url,
         state=result.state,
@@ -512,13 +535,13 @@ def google_calendar_oauth_connect(
     try:
         claims = verify_google_calendar_oauth_state(body.state)
     except GoogleCalendarOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     if claims.tenant_id != str(tenant_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state tenant mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state credential mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
     if claims.actor_id != actor_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state actor mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
     try:
         secret_value = exchange_google_calendar_oauth_code(code=body.code, state=body.state)
@@ -531,8 +554,10 @@ def google_calendar_oauth_connect(
             integration="google_calendar",
             secret_value=secret_value,
         )
-    except (GoogleCalendarOAuthConnectError, ProviderCredentialManagementError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except GoogleCalendarOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    except ProviderCredentialManagementError as exc:
+        raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc
 
 
 @router.get(
@@ -559,7 +584,7 @@ def github_oauth_authorize_url(
             actor_id=actor_id,
         )
     except GitHubOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     return GmailOAuthAuthorizeUrlResponse(
         authorization_url=result.authorization_url,
         state=result.state,
@@ -588,13 +613,13 @@ def github_oauth_connect(
     try:
         claims = verify_github_oauth_state(body.state)
     except GitHubOAuthConnectError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _oauth_connect_http_error(exc) from exc
     if claims.tenant_id != str(tenant_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state tenant mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state credential mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
     if claims.actor_id != actor_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state actor mismatch")
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
     try:
         secret_value = exchange_github_oauth_code(code=body.code, state=body.state)
@@ -607,8 +632,10 @@ def github_oauth_connect(
             integration="github",
             secret_value=secret_value,
         )
-    except (GitHubOAuthConnectError, ProviderCredentialManagementError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except GitHubOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    except ProviderCredentialManagementError as exc:
+        raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc
 
 
 @router.get("/provider-credentials", response_model=ProviderCredentialListResponse)

@@ -8,7 +8,10 @@ from urllib.parse import quote, urlencode
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.services.network_egress import get_default_network_egress_authority
+from backend.services.network_egress import (
+    STRUCTURED_API_READ_RESPONSE_LIMIT,
+    get_default_network_egress_authority,
+)
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.provider_read_actions import PROVIDER_EXTERNAL_READ_PROVIDER
 from backend.services.tools.schemas import (
@@ -122,10 +125,13 @@ def google_calendar_events_read(invocation: ToolInvocation, context: ActionRunti
                 allowed_hosts=list(_trusted_hosts(credential)),
                 action_name=GOOGLE_CALENDAR_EVENTS_READ_ACTION,
                 timeout_seconds=15.0,
+                response_text_limit=STRUCTURED_API_READ_RESPONSE_LIMIT,
             )
             status_code = response.status_code
             if not 200 <= response.status_code < 300:
                 raise ValueError(f"Google Calendar API returned HTTP {response.status_code}")
+            if response.body_truncated:
+                raise ValueError("Google Calendar API response truncated before JSON parse")
             parsed = json.loads(response.body_text or "{}")
             if not isinstance(parsed, dict):
                 raise ValueError("Google Calendar API returned non-object events payload")

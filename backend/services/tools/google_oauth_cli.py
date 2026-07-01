@@ -73,6 +73,7 @@ def build_google_authorization_url(
     client: GoogleOAuthClientConfig,
     state: str,
     scopes: tuple[str, ...] | None = None,
+    pick_account: bool = False,
 ) -> str:
     scope_values = scopes or required_gmail_scopes()
     params = {
@@ -81,7 +82,7 @@ def build_google_authorization_url(
         "scope": " ".join(scope_values),
         "redirect_uri": client.redirect_uri,
         "access_type": "offline",
-        "prompt": "consent",
+        "prompt": "select_account consent" if pick_account else "consent",
         "state": state,
     }
     return f"{GOOGLE_OAUTH_AUTH_URL}?{urlencode(params)}"
@@ -167,10 +168,12 @@ def resolve_gmail_access_token(
     config_path: Path | None = None,
     explicit_token: str | None = None,
     auto_refresh: bool = True,
+    prefer_config_refresh: bool = False,
 ) -> str | None:
-    token = (explicit_token or os.environ.get("AJENDA_E2E_GMAIL_TOKEN", "")).strip()
-    if token:
-        return token
+    if not prefer_config_refresh:
+        token = (explicit_token or os.environ.get("AJENDA_E2E_GMAIL_TOKEN", "")).strip()
+        if token:
+            return token
 
     path = config_path or DEFAULT_GOOGLE_OAUTH_CONFIG_PATH
     if not path.is_file():

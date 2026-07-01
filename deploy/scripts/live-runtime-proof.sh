@@ -116,6 +116,9 @@ fi
 log "validating compose configuration"
 compose config --quiet
 
+log "resetting prior compose volumes (avoids stale DB credentials after env rotation)"
+compose down -v --remove-orphans >/dev/null 2>&1 || true
+
 log "starting compose services"
 compose up -d --build db redis migrate api worker prometheus otel-collector
 

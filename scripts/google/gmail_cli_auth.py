@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 from backend.services.tools.gmail_provider import DEFAULT_GMAIL_CLI_REDIRECT_URI, required_gmail_scopes
+from backend.services.tools.google_calendar_provider import GOOGLE_CALENDAR_READ_SCOPE
 from backend.services.tools.google_oauth_cli import (
     DEFAULT_GOOGLE_OAUTH_CONFIG_PATH,
     GoogleOAuthClientConfig,
@@ -71,6 +72,11 @@ def _parse_args() -> argparse.Namespace:
     auth = subparsers.add_parser("auth", help="Run browser OAuth and store Gmail tokens")
     auth.add_argument("--no-browser", action="store_true", help="Print auth URL instead of opening a browser")
     auth.add_argument(
+        "--pick-account",
+        action="store_true",
+        help="Force Google account picker (use when the wrong account was selected)",
+    )
+    auth.add_argument(
         "--code",
         help="Authorization code from redirect (use with --no-browser after approving in Google)",
     )
@@ -103,6 +109,22 @@ def _parse_args() -> argparse.Namespace:
         nargs="?",
         default=str(Path.home() / ".ajenda" / "google-cli-client.json"),
         help="Path to downloaded OAuth client JSON",
+    )
+
+    calendar_auth = subparsers.add_parser(
+        "calendar-auth",
+        help="Run browser OAuth for Google Calendar read scope",
+    )
+    calendar_auth.add_argument("--no-browser", action="store_true")
+    calendar_auth.add_argument(
+        "--pick-account",
+        action="store_true",
+        help="Force Google account picker (use when the wrong account was selected)",
+    )
+    calendar_auth.add_argument("--code", help="Authorization code when using --no-browser")
+    calendar_auth.add_argument(
+        "--output-path",
+        default=str(Path.home() / ".ajenda" / "google-calendar-oauth.json"),
     )
 
     return parser.parse_args()
@@ -139,6 +161,23 @@ def _command_init_client(client_json: str) -> int:
     return 0
 
 
+def _save_calendar_auth_bundle(*, client: GoogleOAuthClientConfig, bundle: GoogleOAuthTokenBundle, output_path: str) -> int:
+    payload = {
+        "provider_kind": "google_calendar",
+        "access_token": bundle.access_token,
+        "refresh_token": bundle.refresh_token,
+        "expires_at": bundle.expires_at,
+        "scopes": list(bundle.scopes or (GOOGLE_CALENDAR_READ_SCOPE,)),
+        "token_type": bundle.token_type,
+    }
+    path = Path(output_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+    print(f"Saved Google Calendar OAuth token to {path}")
+    return 0
+
+
 def _save_auth_bundle(*, client: GoogleOAuthClientConfig, bundle: GoogleOAuthTokenBundle, config_path: str) -> int:
     account_email = _lookup_account_email(bundle.access_token)
     saved = GoogleOAuthTokenBundle(
@@ -164,7 +203,81 @@ def _save_auth_bundle(*, client: GoogleOAuthClientConfig, bundle: GoogleOAuthTok
     return 0
 
 
-def _command_auth(*, no_browser: bool, code: str | None, config_path: str) -> int:
+def _command_calendar_auth(
+    *,
+    no_browser: bool,
+    pick_account: bool,
+    code: str | None,
+    output_path: str,
+) -> int:
+    try:
+        client = resolve_google_oauth_client_config()
+    except GoogleOAuthCliError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    scopes = (GOOGLE_CALENDAR_READ_SCOPE,)
+    if code and code.strip():
+        bundle = exchange_authorization_code(client=client, code=code.strip())
+        bundle = GoogleOAuthTokenBundle(
+            access_token=bundle.access_token,
+            refresh_token=bundle.refresh_token,
+            expires_at=bundle.expires_at,
+            scopes=scopes,
+            token_type=bundle.token_type,
+            account_email=bundle.account_email,
+        )
+        return _save_calendar_auth_bundle(client=client, bundle=bundle, output_path=output_path)
+
+    state = secrets.token_urlsafe(24)
+    auth_url = build_google_authorization_url(
+        client=client,
+        state=state,
+        scopes=scopes,
+        pick_account=pick_account,
+    )
+    if no_browser:
+        print(auth_url)
+        code_hint = " --pick-account" if pick_account else ""
+        print(
+            "Open the URL, approve access, then run:\n"
+            f"  python scripts/google/gmail_cli_auth.py calendar-auth{code_hint} --code 'PASTE_CODE_HERE'"
+        )
+        return 0
+
+    _OAuthCallbackHandler.authorization_code = None
+    _OAuthCallbackHandler.oauth_error = None
+    redirect = urlparse(client.redirect_uri)
+    server = HTTPServer((redirect.hostname or "127.0.0.1", redirect.port or 8765), _OAuthCallbackHandler)
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+    print(f"Opening browser for Google Calendar OAuth ({GOOGLE_CALENDAR_READ_SCOPE})")
+    if pick_account:
+        print("Choose the correct Google account in the browser.")
+    webbrowser.open(auth_url)
+    thread.join(timeout=180)
+    server.server_close()
+
+    if _OAuthCallbackHandler.oauth_error:
+        print(f"OAuth error: {_OAuthCallbackHandler.oauth_error}", file=sys.stderr)
+        return 2
+    if not _OAuthCallbackHandler.authorization_code:
+        print("Timed out waiting for OAuth callback", file=sys.stderr)
+        return 2
+
+    bundle = exchange_authorization_code(client=client, code=_OAuthCallbackHandler.authorization_code)
+    bundle = GoogleOAuthTokenBundle(
+        access_token=bundle.access_token,
+        refresh_token=bundle.refresh_token,
+        expires_at=bundle.expires_at,
+        scopes=scopes,
+        token_type=bundle.token_type,
+        account_email=bundle.account_email,
+    )
+    return _save_calendar_auth_bundle(client=client, bundle=bundle, output_path=output_path)
+
+
+def _command_auth(*, no_browser: bool, pick_account: bool, code: str | None, config_path: str) -> int:
     try:
         client = resolve_google_oauth_client_config()
     except GoogleOAuthCliError as exc:
@@ -177,12 +290,13 @@ def _command_auth(*, no_browser: bool, code: str | None, config_path: str) -> in
         return _save_auth_bundle(client=client, bundle=bundle, config_path=config_path)
 
     state = secrets.token_urlsafe(24)
-    auth_url = build_google_authorization_url(client=client, state=state)
+    auth_url = build_google_authorization_url(client=client, state=state, pick_account=pick_account)
     if no_browser:
         print(auth_url)
+        code_hint = " --pick-account" if pick_account else ""
         print(
             "Open the URL, approve access, then run:\n"
-            "  python scripts/google/gmail_cli_auth.py auth --code 'PASTE_CODE_HERE'"
+            f"  python scripts/google/gmail_cli_auth.py auth{code_hint} --code 'PASTE_CODE_HERE'"
         )
         return 0
 
@@ -193,6 +307,8 @@ def _command_auth(*, no_browser: bool, code: str | None, config_path: str) -> in
     thread = threading.Thread(target=server.handle_request, daemon=True)
     thread.start()
     print(f"Opening browser for Gmail OAuth ({', '.join(required_gmail_scopes())})")
+    if pick_account:
+        print("Choose the correct Google account in the browser.")
     webbrowser.open(auth_url)
     thread.join(timeout=180)
     server.server_close()
@@ -259,11 +375,23 @@ def main() -> int:
     if args.command == "init-client":
         return _command_init_client(args.client_json)
     if args.command == "auth":
-        return _command_auth(no_browser=args.no_browser, code=args.code, config_path=args.config_path)
+        return _command_auth(
+            no_browser=args.no_browser,
+            pick_account=args.pick_account,
+            code=args.code,
+            config_path=args.config_path,
+        )
     if args.command == "status":
         return _command_status(args.config_path)
     if args.command == "token":
         return _command_token(args.config_path)
+    if args.command == "calendar-auth":
+        return _command_calendar_auth(
+            no_browser=args.no_browser,
+            pick_account=args.pick_account,
+            code=args.code,
+            output_path=args.output_path,
+        )
     return 2
 
 

@@ -16,6 +16,7 @@ from backend.app.config import Settings
 from backend.auth.id_token_validator import IdTokenClaims
 from backend.domain.tenant import Tenant
 from backend.domain.tenant_member import TenantMember
+from backend.services.auth_login_abuse_guard import AuthLoginRateLimitedError
 from backend.services.oidc_login_service import (
     OidcAccountNotFoundError,
     OidcAccountPendingVerificationError,
@@ -398,3 +399,12 @@ def test_complete_login_returns_multiple_tenant_choices() -> None:
         )
 
     assert len(exc_info.value.tenants) == 2
+
+
+def test_refresh_session_enforces_ip_rate_limit() -> None:
+    service = OidcLoginService(MagicMock(spec=Session), settings=_settings())
+    with (
+        patch.object(service._abuse, "check_refresh_ip", side_effect=AuthLoginRateLimitedError(dimension="ip", route="/v1/auth/session/refresh")),
+        pytest.raises(AuthLoginRateLimitedError),
+    ):
+        service.refresh_session(refresh_token="refresh-token", client_ip_hash="ip-hash")

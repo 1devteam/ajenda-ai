@@ -1,12 +1,13 @@
 import { Navigate, Outlet } from "react-router-dom";
-import { isOperational, loadSession } from "../auth/session";
+import { useAuth } from "../auth/AuthProvider";
+import { isOperational } from "../auth/session";
 
 interface ProtectedRouteProps {
   requireOperational?: boolean;
 }
 
 export default function ProtectedRoute({ requireOperational = false }: ProtectedRouteProps) {
-  const session = loadSession();
+  const { session } = useAuth();
 
   if (!session) {
     return <Navigate to="/signin" replace />;

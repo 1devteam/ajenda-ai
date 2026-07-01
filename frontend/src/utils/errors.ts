@@ -1,7 +1,121 @@
 import type { ApiFailure } from "../types";
 
+export interface AuthErrorDetails {
+  title?: string;
+  message: string;
+  code?: string;
+  action?: { label: string; href: string };
+}
+
 export function pretty(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+function extractFailureCode(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null) {
+    return undefined;
+  }
+  if ("code" in body && typeof (body as { code: unknown }).code === "string") {
+    return (body as { code: string }).code;
+  }
+  if ("detail" in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === "object" && detail !== null && "code" in detail) {
+      const code = (detail as { code: unknown }).code;
+      if (typeof code === "string") {
+        return code;
+      }
+    }
+  }
+  return undefined;
+}
+
+export function authErrorDetails(error: unknown): AuthErrorDetails {
+  const message = failureText(error);
+  const failure = error as Partial<ApiFailure>;
+  const code = typeof failure.body === "object" && failure.body !== null ? extractFailureCode(failure.body) : undefined;
+
+  if (code === "OIDC_ACCESS_DENIED") {
+    return {
+      title: "Sign-in cancelled",
+      message: "Google sign-in was cancelled. Try again when you are ready.",
+      code,
+      action: { label: "Try again", href: "/signin" },
+    };
+  }
+  if (code === "ACCESS_DENIED") {
+    return {
+      title: "Authorization cancelled",
+      message: "OAuth authorization was cancelled. Try connecting again when you are ready.",
+      code,
+      action: { label: "Back to credentials", href: "/credentials" },
+    };
+  }
+  if (code === "OAUTH_ERROR") {
+    return {
+      title: "OAuth connection failed",
+      message,
+      code,
+      action: { label: "Back to credentials", href: "/credentials" },
+    };
+  }
+  if (code === "ACCOUNT_NOT_FOUND") {
+    return {
+      title: "No matching workspace",
+      message,
+      code,
+      action: { label: "Create account", href: "/signup" },
+    };
+  }
+  if (code === "EMAIL_VERIFICATION_REQUIRED" || message.includes("not verified")) {
+    return {
+      title: "Email verification required",
+      message,
+      code: code ?? "EMAIL_VERIFICATION_REQUIRED",
+      action: { label: "Verify email", href: "/verify-email" },
+    };
+  }
+  if (code === "MISSING_CLIENT_TENANT_SESSION") {
+    return {
+      title: "Session expired",
+      message,
+      code,
+      action: { label: "Sign in", href: "/signin" },
+    };
+  }
+  if (failure.status === 401) {
+    return {
+      title: "Authentication failed",
+      message,
+      code,
+      action: { label: "Sign in again", href: "/signin" },
+    };
+  }
+  if (failure.status === 404 && message.toLowerCase().includes("no pending verification")) {
+    return {
+      title: "Already verified?",
+      message: "This email may already be verified. Sign in with Google or an API key to continue.",
+      code: "ALREADY_VERIFIED",
+      action: { label: "Sign in", href: "/signin" },
+    };
+  }
+  if (failure.status === 429) {
+    return {
+      title: "Rate limited",
+      message,
+      code: code ?? "RATE_LIMITED",
+    };
+  }
+  if (failure.status === 402 || code === "QUOTA_EXCEEDED") {
+    return {
+      title: "Plan limit reached",
+      message,
+      code: code ?? "QUOTA_EXCEEDED",
+      action: { label: "Open billing", href: "/billing" },
+    };
+  }
+
+  return { message, code };
 }
 
 export function failureText(error: unknown): string {

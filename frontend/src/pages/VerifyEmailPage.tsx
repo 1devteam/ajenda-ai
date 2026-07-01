@@ -4,18 +4,27 @@ import { verifyEmail } from "../api/client";
 import { beginOidcRedirect } from "../auth/oidc";
 import { saveSession } from "../auth/session";
 import OidcProviderButton from "../components/OidcProviderButton";
-import { useOidcConfig } from "../hooks/useOidcConfig";
+import VerificationHelpPanel from "../components/VerificationHelpPanel";
+import { useAuth } from "../auth/AuthProvider";
 import { failureText } from "../utils/errors";
+
+interface StoredBootstrapCredentials {
+  tenantId: string;
+  apiKey: string;
+  keyId: string;
+}
 
 export default function VerifyEmailPage() {
   const navigate = useNavigate();
-  const { config, enabled: oidcEnabled, loading: configLoading } = useOidcConfig();
+  const { oidcConfig: config, oidcEnabled, oidcLoading: configLoading } = useAuth();
   const [searchParams] = useSearchParams();
+  const initialEmail = searchParams.get("email") ?? "";
   const [token, setToken] = useState(searchParams.get("token") ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [autoAttempted, setAutoAttempted] = useState(false);
   const [verified, setVerified] = useState(false);
+  const [bootstrapCredentials, setBootstrapCredentials] = useState<StoredBootstrapCredentials | null>(null);
 
   async function completeVerification(verificationToken: string) {
     setLoading(true);
@@ -27,20 +36,27 @@ export default function VerifyEmailPage() {
         throw new Error("Verification succeeded but tenant credentials were missing from the response.");
       }
 
+      const credentials: StoredBootstrapCredentials = {
+        tenantId: response.tenant_id.trim(),
+        apiKey: response.api_key?.trim() ?? "",
+        keyId: response.key_id?.trim() ?? "",
+      };
+      setBootstrapCredentials(credentials);
+
       if (oidcEnabled) {
         setVerified(true);
         return;
       }
 
-      if (!response.api_key?.trim() || !response.key_id?.trim()) {
+      if (!credentials.apiKey || !credentials.keyId) {
         throw new Error("Verification succeeded but bootstrap credentials were missing from the response.");
       }
 
       saveSession({
         authMode: "api_key",
-        tenantId: response.tenant_id.trim(),
-        apiKey: response.api_key.trim(),
-        keyId: response.key_id.trim(),
+        tenantId: credentials.tenantId,
+        apiKey: credentials.apiKey,
+        keyId: credentials.keyId,
         phase: "bootstrap",
       });
       navigate("/promote", { replace: true });
@@ -62,28 +78,25 @@ export default function VerifyEmailPage() {
     }
   }
 
-  async function handleBootstrapFallback() {
-    const verificationToken = token.trim();
-    if (!verificationToken) {
-      setError("Verification token is required.");
+  function handleBootstrapFallback() {
+    if (!bootstrapCredentials?.tenantId || !bootstrapCredentials.apiKey || !bootstrapCredentials.keyId) {
+      setError("Bootstrap credentials are missing. Verify your email again to continue with an API key.");
       return;
     }
 
     setLoading(true);
     setError("");
     try {
-      const response = await verifyEmail(verificationToken);
       saveSession({
         authMode: "api_key",
-        tenantId: response.tenant_id.trim(),
-        apiKey: response.api_key.trim(),
-        keyId: response.key_id.trim(),
+        tenantId: bootstrapCredentials.tenantId,
+        apiKey: bootstrapCredentials.apiKey,
+        keyId: bootstrapCredentials.keyId,
         phase: "bootstrap",
       });
       navigate("/promote", { replace: true });
     } catch (err) {
       setError(failureText(err));
-    } finally {
       setLoading(false);
     }
   }
@@ -120,7 +133,7 @@ export default function VerifyEmailPage() {
             />
             <details className="staging-signin">
               <summary>Use bootstrap API key instead</summary>
-              <button type="button" className="ghost-button" onClick={() => void handleBootstrapFallback()} disabled={loading}>
+              <button type="button" className="ghost-button" onClick={handleBootstrapFallback} disabled={loading}>
                 Continue with API key activation
               </button>
             </details>
@@ -141,9 +154,19 @@ export default function VerifyEmailPage() {
         <p className="eyebrow">Email verification</p>
         <h1>Activate your workspace</h1>
         <p>
-          Paste the verification token from your email link. After verification you can sign in with Google
-          using the same email address.
+          Paste the verification token from your email link, or resend verification for your signup email.
+          After verification you can sign in with Google using the same email address.
         </p>
+
+        <VerificationHelpPanel
+          initialEmail={initialEmail}
+          introText="Resend verification for your signup email if you lost the link."
+          onVerifyNow={(nextToken) => {
+            setToken(nextToken);
+            void completeVerification(nextToken);
+          }}
+          disabled={loading}
+        />
 
         <form className="form-grid" onSubmit={(event) => void handleSubmit(event)}>
           <label>

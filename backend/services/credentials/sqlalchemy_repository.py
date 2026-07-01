@@ -111,8 +111,13 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
         return decrypted
 
     def _resolve_gmail_secret(self, *, row: ProviderRuntimeCredential, decrypted: str, session: Session) -> str:
+        settings = get_settings()
         try:
-            resolution = resolve_gmail_credential_secret(decrypted, auto_refresh=True)
+            resolution = resolve_gmail_credential_secret(
+                decrypted,
+                auto_refresh=True,
+                redirect_uri=settings.gmail_oauth_redirect_uri,
+            )
         except GmailRuntimeTokenError as exc:
             raise ValueError(str(exc)) from exc
         if resolution.updated_secret and resolution.updated_secret != decrypted:

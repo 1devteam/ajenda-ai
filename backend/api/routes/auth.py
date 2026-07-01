@@ -218,6 +218,9 @@ def refresh_session(
     except OidcLoginDisabledError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except AuthLoginRateLimitedError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded") from exc
     except (OidcAccountNotFoundError, OidcLoginValidationError) as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
@@ -258,7 +261,7 @@ def logout(
     except JwtValidationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid session token") from exc
 
-    OidcLoginService(db, settings=settings).revoke_access_token(access_jti=claims.jti)
+    OidcLoginService(db, settings=settings).revoke_session(access_jti=claims.jti)
     db.commit()
     return {"status": "ok"}
 

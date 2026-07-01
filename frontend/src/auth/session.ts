@@ -1,6 +1,9 @@
 import type { CustomerSession, RuntimeConfig } from "../types";
 
-const SESSION_KEY = "ajenda.customer.session.v1";
+export const SESSION_STORAGE_KEY = "ajenda.customer.session.v1";
+export const SESSION_CHANGED_EVENT = "ajenda:session-changed";
+
+const SESSION_KEY = SESSION_STORAGE_KEY;
 
 export function getApiBaseUrl(): string {
   return (import.meta.env.VITE_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
@@ -85,12 +88,18 @@ export function requireSession(): CustomerSession {
   return session;
 }
 
+function notifySessionChanged(): void {
+  window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
+}
+
 export function saveSession(session: CustomerSession): void {
   window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  notifySessionChanged();
 }
 
 export function clearSession(): void {
   window.sessionStorage.removeItem(SESSION_KEY);
+  notifySessionChanged();
 }
 
 export function sessionToRuntimeConfig(session: CustomerSession): RuntimeConfig {

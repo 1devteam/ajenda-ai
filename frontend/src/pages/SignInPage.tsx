@@ -5,12 +5,13 @@ import { beginOidcRedirect } from "../auth/oidc";
 import { parseApiKeyHeader, saveSession } from "../auth/session";
 import OidcProviderButton from "../components/OidcProviderButton";
 import OidcUnavailableNotice from "../components/OidcUnavailableNotice";
-import { useOidcConfig } from "../hooks/useOidcConfig";
+import VerificationHelpPanel from "../components/VerificationHelpPanel";
+import { useAuth } from "../auth/AuthProvider";
 import { failureText } from "../utils/errors";
 
 export default function SignInPage() {
   const navigate = useNavigate();
-  const { config, enabled: oidcEnabled } = useOidcConfig();
+  const { oidcConfig: config, oidcEnabled } = useAuth();
   const [tenantId, setTenantId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(false);
@@ -90,12 +91,26 @@ export default function SignInPage() {
             />
             <p className="muted">
               Your Google email must match the address you used to create and verify your Ajenda account.
-              Use <strong>http://localhost:8080</strong> consistently (not 127.0.0.1) when signing in locally.
+              Use <strong>{window.location.origin}</strong> consistently (not 127.0.0.1) when signing in
+              locally.
             </p>
           </div>
         ) : (
           <OidcUnavailableNotice />
         )}
+
+        <details className="staging-signin">
+          <summary>Email not verified yet?</summary>
+          <VerificationHelpPanel
+            introText={
+              "Google sign-in requires a verified Ajenda account. Resend verification, then finish at /verify-email."
+            }
+            onVerifyNow={(verifyToken) => {
+              navigate(`/verify-email?token=${encodeURIComponent(verifyToken)}`);
+            }}
+            disabled={loading}
+          />
+        </details>
 
         <details className="staging-signin">
           <summary>Machine sign-in (API key)</summary>

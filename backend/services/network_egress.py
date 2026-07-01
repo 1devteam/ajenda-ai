@@ -15,6 +15,8 @@ from backend.app.config import get_settings
 BLOCKED_HOSTNAMES = {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
 BLOCKED_HOST_FRAGMENTS = {"internal", "intranet", "metadata", "169.254.169.254"}
 DEFAULT_RESPONSE_TEXT_LIMIT = 4096
+# External JSON API reads (GitHub repo metadata, Salesforce SOQL, etc.) need more than 4 KiB.
+STRUCTURED_API_READ_RESPONSE_LIMIT = 131_072
 
 IPAddress = IPv4Address | IPv6Address
 
