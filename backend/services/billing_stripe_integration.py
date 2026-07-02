@@ -158,6 +158,24 @@ def _resolve_tenant_id_from_metadata(obj: dict) -> str | None:  # type: ignore[t
     return str(nested) if nested else None
 
 
+def _report_subscription_item_usage(
+    *,
+    subscription_item_id: str,
+    quantity: int,
+    timestamp: int,
+) -> None:
+    """Create a Stripe metered usage record (SDK stubs omit this class method)."""
+    create_usage_record = getattr(stripe.SubscriptionItem, "create_usage_record", None)
+    if not callable(create_usage_record):
+        raise stripe.StripeError("Stripe SDK missing SubscriptionItem.create_usage_record")
+    create_usage_record(
+        subscription_item=subscription_item_id,
+        quantity=quantity,
+        timestamp=timestamp,
+        action="increment",
+    )
+
+
 def _price_from_subscription_object(subscription: dict) -> str | None:  # type: ignore[type-arg]
     """Extract the first subscription item price ID from a subscription object."""
     items = subscription.get("items") or {}
@@ -482,21 +500,28 @@ class StripeBillingService:
         if tenant is None or not tenant.stripe_customer_id:
             return
         try:
-            subs = stripe.Subscription.list(
-                customer=tenant.stripe_customer_id,
-                status="active",
-                limit=3,
+            subs = _normalize_stripe_object(
+                stripe.Subscription.list(
+                    customer=tenant.stripe_customer_id,
+                    status="active",
+                    limit=3,
+                )
             )
-            for sub in subs.get("data", []):
-                for item in sub.get("items", {}).get("data", []):
+            for sub_raw in subs.get("data", []):
+                sub = sub_raw if isinstance(sub_raw, dict) else _normalize_stripe_object(sub_raw)
+                items_raw = sub.get("items") or {}
+                items = items_raw if isinstance(items_raw, dict) else _normalize_stripe_object(items_raw)
+                for item_raw in items.get("data", []):
+                    item = item_raw if isinstance(item_raw, dict) else _normalize_stripe_object(item_raw)
                     price = item.get("price", {})
+                    if not isinstance(price, dict):
+                        price = _normalize_stripe_object(price)
                     price_id = price.get("id")
                     if price_id and _price_id_to_plan(price_id):
-                        stripe.SubscriptionItem.create_usage_record(
-                            subscription_item=item["id"],
+                        _report_subscription_item_usage(
+                            subscription_item_id=str(item["id"]),
                             quantity=quantity,
                             timestamp=int(time.time()),
-                            action="increment",
                         )
                         logger.info(
                             "Reported metered %s usage +%s for tenant %s (item=%s)",
