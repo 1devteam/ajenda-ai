@@ -9,8 +9,10 @@ import {
   resolveCodeVerifier,
 } from "../auth/oidc";
 import { saveSession, sessionFromOidcResponse } from "../auth/session";
+import AuthErrorAlert from "../components/AuthErrorAlert";
+import VerificationHelpPanel from "../components/VerificationHelpPanel";
 import type { ApiFailure, OidcTenantChoice } from "../types";
-import { failureText } from "../utils/errors";
+import { authErrorDetails } from "../utils/errors";
 
 interface PendingCallback {
   code: string;
@@ -47,15 +49,19 @@ export default function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const callbackKey = `${searchParams.get("state") ?? ""}:${searchParams.get("code") ?? ""}:${searchParams.get("error") ?? ""}`;
   const handledKeyRef = useRef<string | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [tenantChoices, setTenantChoices] = useState<OidcTenantChoice[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [pendingCallback, setPendingCallback] = useState<PendingCallback | null>(null);
 
+  const errorMessage = error ? authErrorDetails(error).message : "";
+  const verificationRequired = errorMessage.includes("not verified");
+  const accountNotFound = errorMessage.includes("No Ajenda account");
+
   async function finishLogin(callback: PendingCallback, tenantId?: string) {
     setLoading(true);
-    setError("");
+    setError(null);
     setTenantChoices([]);
 
     try {
@@ -78,7 +84,7 @@ export default function AuthCallbackPage() {
         setLoading(false);
         return;
       }
-      setError(failureText(err));
+      setError(err);
       setLoading(false);
     }
   }
@@ -96,11 +102,15 @@ export default function AuthCallbackPage() {
       if (oauthError) {
         if (!cancelled) {
           clearOidcTransientState(searchParams.get("state"));
-          setError(
-            oauthError === "access_denied"
-              ? "Google sign-in was cancelled. Try again when you are ready."
-              : `Identity provider error: ${oauthError}`,
-          );
+          const description = searchParams.get("error_description")?.trim();
+          setError({
+            status: 400,
+            message: oauthError,
+            body: {
+              detail: description || oauthError,
+              code: oauthError === "access_denied" ? "OIDC_ACCESS_DENIED" : "OAUTH_ERROR",
+            },
+          });
           setLoading(false);
         }
         return;
@@ -112,13 +122,18 @@ export default function AuthCallbackPage() {
 
       if (!code || !loginIntentId || !codeVerifier) {
         if (!cancelled) {
-          setError(
-            describeMissingCallbackParams({
-              code,
-              loginIntentId,
-              codeVerifier,
-            }),
-          );
+          setError({
+            status: 400,
+            message: "missing callback parameters",
+            body: {
+              detail: describeMissingCallbackParams({
+                code,
+                loginIntentId,
+                codeVerifier,
+              }),
+              code: "MISSING_CALLBACK_PARAMS",
+            },
+          });
           setLoading(false);
         }
         return;
@@ -182,19 +197,22 @@ export default function AuthCallbackPage() {
           <p>Verifying your Google session and linking your workspace…</p>
         ) : (
           <>
-            <p>{error || "Something went wrong during sign-in."}</p>
+            {error ? <AuthErrorAlert error={error} /> : <p>Something went wrong during sign-in.</p>}
+            {verificationRequired ? (
+              <VerificationHelpPanel
+                introText="Resend verification for the same email you used at signup, verify it, then return here and sign in with Google again."
+                onVerifyNow={(verifyToken) => {
+                  navigate(`/verify-email?token=${encodeURIComponent(verifyToken)}`);
+                }}
+              />
+            ) : null}
             <div className="button-row">
               <Link className="primary-link" to="/signin">
                 Try again
               </Link>
-              {error.includes("No Ajenda account") ? (
+              {accountNotFound ? (
                 <Link className="ghost-link" to="/signup">
                   Create account
-                </Link>
-              ) : null}
-              {error.includes("not verified") ? (
-                <Link className="ghost-link" to="/verify-email">
-                  Verify email
                 </Link>
               ) : null}
             </div>

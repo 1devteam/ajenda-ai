@@ -65,7 +65,9 @@ def test_list_missions_returns_newest_first_summary(monkeypatch) -> None:
     app = _build_app(tenant_id)
     repo = MagicMock()
     older = _mission(tenant_id=str(tenant_id), objective="Older roofing mission in Austin.")
-    newer = _mission(tenant_id=str(tenant_id), objective="Find three qualified roofing leads in Austin.", status="running")
+    newer = _mission(
+        tenant_id=str(tenant_id), objective="Find three qualified roofing leads in Austin.", status="running"
+    )
     repo.list_by_tenant.return_value = [newer, older]
     monkeypatch.setattr(mission_module, "MissionRepository", lambda _db: repo)
 

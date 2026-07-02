@@ -24,7 +24,9 @@ def seed_capability_adapter_authority(
     required_tools = sorted({action_name, *extra_tools})
     risk_level = "high" if side_effect_classification.startswith("external_") else "medium"
     approval_requirements = (
-        {"required": True} if side_effect_classification in {"external_write", "external_send", "external_publish"} else {}
+        {"required": True}
+        if side_effect_classification in {"external_write", "external_send", "external_publish"}
+        else {}
     )
     capability = Capability(
         id=capability_id,

@@ -16,9 +16,10 @@ import {
   listProviderCredentials,
   revokeProviderCredential,
 } from "../api/client";
-import { loadSession } from "../auth/session";
+import { useAuth } from "../auth/AuthProvider";
+import AuthErrorAlert from "../components/AuthErrorAlert";
 import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
-import { failureText } from "../utils/errors";
+
 
 type IntegrationKind = "hubspot" | "gmail" | "linkedin" | "salesforce" | "google_calendar" | "github";
 
@@ -130,14 +131,14 @@ const OAUTH_CALLBACKS: Record<
 };
 
 export default function CredentialsPage() {
-  const session = loadSession();
+  const { session } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [integration, setIntegration] = useState<IntegrationKind>("hubspot");
   const [credentials, setCredentials] = useState<ProviderCredentialResponse[]>([]);
   const [form, setForm] = useState<ProviderCredentialCreateRequest>(HUBSPOT_FORM);
   const [warning, setWarning] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [salesforceInstanceHost, setSalesforceInstanceHost] = useState("");
 
@@ -177,7 +178,7 @@ export default function CredentialsPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
         }
       }
     }
@@ -196,6 +197,21 @@ export default function CredentialsPage() {
       return;
     }
     const params = new URLSearchParams(location.search);
+    const oauthError = params.get("error");
+    if (oauthError) {
+      const description = params.get("error_description")?.trim();
+      setError({
+        status: 400,
+        message: oauthError,
+        body: {
+          detail: description || oauthError,
+          code: oauthError === "access_denied" ? "ACCESS_DENIED" : "OAUTH_ERROR",
+        },
+      });
+      navigate("/credentials", { replace: true });
+      return;
+    }
+
     const code = params.get("code");
     const state = params.get("state");
     if (!code || !state) {
@@ -205,7 +221,7 @@ export default function CredentialsPage() {
     let cancelled = false;
     async function finishOAuth(oauthCode: string, oauthState: string) {
       setLoading(callback.loadingLabel);
-      setError("");
+      setError(null);
       try {
         const response = await callback.connect(session!, {
           code: oauthCode,
@@ -223,7 +239,7 @@ export default function CredentialsPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
           navigate("/credentials", { replace: true });
         }
       } finally {
@@ -253,7 +269,7 @@ export default function CredentialsPage() {
     }
     const label = INTEGRATION_LABELS[integration];
     setLoading(`Connecting ${label}`);
-    setError("");
+    setError(null);
     setWarning("");
     try {
       const payload: ProviderCredentialCreateRequest = { ...form };
@@ -271,7 +287,7 @@ export default function CredentialsPage() {
       setForm({ ...FORM_BY_INTEGRATION[integration] });
       await refreshList();
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(null);
     }
@@ -283,7 +299,7 @@ export default function CredentialsPage() {
     }
     const label = INTEGRATION_LABELS[integration];
     setLoading(`Starting ${label} OAuth`);
-    setError("");
+    setError(null);
     try {
       let response;
       if (integration === "gmail") {
@@ -299,7 +315,7 @@ export default function CredentialsPage() {
       }
       window.location.assign(response.authorization_url);
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
       setLoading(null);
     }
   }
@@ -308,13 +324,16 @@ export default function CredentialsPage() {
     if (!session) {
       return;
     }
+    if (!window.confirm(`Revoke credential "${credentialId}"? Runtime actions using it will stop working.`)) {
+      return;
+    }
     setLoading(`Revoking ${credentialId}`);
-    setError("");
+    setError(null);
     try {
       await revokeProviderCredential(session, credentialId);
       await refreshList();
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(null);
     }
@@ -324,13 +343,16 @@ export default function CredentialsPage() {
     if (!session) {
       return;
     }
+    if (!window.confirm(`Delete credential "${credentialId}" permanently? This cannot be undone.`)) {
+      return;
+    }
     setLoading(`Deleting ${credentialId}`);
-    setError("");
+    setError(null);
     try {
       await deleteProviderCredential(session, credentialId);
       await refreshList();
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(null);
     }
@@ -358,7 +380,7 @@ export default function CredentialsPage() {
           tenant and never returned after registration.
         </p>
         {warning ? <p className="notice warning">{warning}</p> : null}
-        {error ? <p className="notice error">{error}</p> : null}
+        {error ? <AuthErrorAlert error={error} className="notice error" /> : null}
 
         <div className="credential-tabs">
           {(Object.keys(INTEGRATION_LABELS) as IntegrationKind[]).map((kind) => (

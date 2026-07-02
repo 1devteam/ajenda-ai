@@ -201,7 +201,12 @@ def test_task_queue_route_rejects_missing_auth_before_queue_or_quota_usage(
     response = client.post(f"/v1/tasks/{task.id}/queue")
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "missing authentication"}
+    assert response.json() == {
+        "detail": {
+            "code": "AUTHENTICATION_REQUIRED",
+            "message": "missing authentication credentials",
+        },
+    }
     assert _tasks_created(pg_session, tenant.id) == 0
 
     claimed = queue_adapter.claim_task(tenant_id=str(tenant.id), worker_id="api-route-proof-worker")

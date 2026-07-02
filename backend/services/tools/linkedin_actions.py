@@ -8,7 +8,10 @@ from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.services.network_egress import get_default_network_egress_authority
+from backend.services.network_egress import (
+    STRUCTURED_API_READ_RESPONSE_LIMIT,
+    get_default_network_egress_authority,
+)
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.provider_read_actions import PROVIDER_EXTERNAL_READ_PROVIDER
 from backend.services.tools.schemas import (
@@ -71,10 +74,7 @@ def _profile_url(*, profile_id: str | None, fields: tuple[str, ...]) -> str:
     if profile_id and profile_id.strip():
         projection = ",".join(fields)
         encoded_id = quote(profile_id.strip(), safe="")
-        return (
-            f"https://{LINKEDIN_API_HOST}/v2/people/(id:{encoded_id})"
-            f"?projection=({projection})"
-        )
+        return f"https://{LINKEDIN_API_HOST}/v2/people/(id:{encoded_id})?projection=({projection})"
     return f"https://{LINKEDIN_API_HOST}/v2/userinfo"
 
 
@@ -114,10 +114,13 @@ def linkedin_profile_read(invocation: ToolInvocation, context: ActionRuntimeCont
                 allowed_hosts=list(_trusted_hosts(credential)),
                 action_name=LINKEDIN_PROFILE_READ_ACTION,
                 timeout_seconds=10.0,
+                response_text_limit=STRUCTURED_API_READ_RESPONSE_LIMIT,
             )
             status_code = response.status_code
             if not 200 <= response.status_code < 300:
                 raise ValueError(f"LinkedIn API returned HTTP {response.status_code}")
+            if response.body_truncated:
+                raise ValueError("LinkedIn API response truncated before JSON parse")
             profile = json.loads(response.body_text or "{}")
             if not isinstance(profile, dict):
                 raise ValueError("LinkedIn API returned non-object profile payload")
@@ -136,11 +139,7 @@ def linkedin_profile_read(invocation: ToolInvocation, context: ActionRuntimeCont
     if status_code is not None:
         output["real_response"] = {"status_code": status_code}
 
-    summary = (
-        "LinkedIn profile read completed via API"
-        if real
-        else "LinkedIn profile read (simulated; no credential)"
-    )
+    summary = "LinkedIn profile read completed via API" if real else "LinkedIn profile read (simulated; no credential)"
     evidence = EvidenceItem(
         evidence_type="action_result",
         evidence_source=f"tool.invoke.{LINKEDIN_PROFILE_READ_ACTION}",

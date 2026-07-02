@@ -111,6 +111,10 @@ class Settings(BaseSettings):
         default=20,
         alias="AJENDA_AUTH_LOGIN_CALLBACK_EMAIL_LIMIT_PER_HOUR",
     )
+    auth_login_refresh_ip_limit_per_hour: int = Field(
+        default=60,
+        alias="AJENDA_AUTH_LOGIN_REFRESH_IP_LIMIT_PER_HOUR",
+    )
 
     # Rate limiting
     rate_limit_requests: int = Field(default=100, alias="AJENDA_RATE_LIMIT_REQUESTS")
@@ -496,6 +500,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AJENDA_AUTH_LOGIN_CALLBACK_EMAIL_LIMIT_PER_HOUR must be a positive integer, "
                 f"got {self.auth_login_callback_email_limit_per_hour}"
+            )
+        if self.auth_login_refresh_ip_limit_per_hour <= 0:
+            raise ValueError(
+                "AJENDA_AUTH_LOGIN_REFRESH_IP_LIMIT_PER_HOUR must be a positive integer, "
+                f"got {self.auth_login_refresh_ip_limit_per_hour}"
             )
         if self.oidc_login_enabled:
             if _blank(self.oidc_client_id):

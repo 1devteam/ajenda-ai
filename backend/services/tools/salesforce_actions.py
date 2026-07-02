@@ -9,7 +9,10 @@ from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.services.network_egress import get_default_network_egress_authority
+from backend.services.network_egress import (
+    STRUCTURED_API_READ_RESPONSE_LIMIT,
+    get_default_network_egress_authority,
+)
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.provider_read_actions import PROVIDER_EXTERNAL_READ_PROVIDER
 from backend.services.tools.schemas import (
@@ -117,10 +120,7 @@ def salesforce_soql_read(invocation: ToolInvocation, context: ActionRuntimeConte
         if not trusted_hosts:
             raise ValueError("salesforce.soql_read credential missing trusted_destination_hosts")
         host = trusted_hosts[0].strip().lower().rstrip(".")
-        query_url = (
-            f"https://{host}/services/data/{payload.api_version}/query"
-            f"?q={quote(payload.soql, safe='')}"
-        )
+        query_url = f"https://{host}/services/data/{payload.api_version}/query?q={quote(payload.soql, safe='')}"
         headers = {"Authorization": f"Bearer {secret}"}
         try:
             _destination, response = get_default_network_egress_authority().request(
@@ -131,10 +131,13 @@ def salesforce_soql_read(invocation: ToolInvocation, context: ActionRuntimeConte
                 allowed_hosts=[host],
                 action_name=SALESFORCE_SOQL_READ_ACTION,
                 timeout_seconds=15.0,
+                response_text_limit=STRUCTURED_API_READ_RESPONSE_LIMIT,
             )
             status_code = response.status_code
             if not 200 <= response.status_code < 300:
                 raise ValueError(f"Salesforce API returned HTTP {response.status_code}")
+            if response.body_truncated:
+                raise ValueError("Salesforce API response truncated before JSON parse")
             parsed = json.loads(response.body_text or "{}")
             if not isinstance(parsed, dict):
                 raise ValueError("Salesforce API returned non-object query payload")
@@ -171,7 +174,9 @@ def salesforce_soql_read(invocation: ToolInvocation, context: ActionRuntimeConte
         mission_id=str(context.mission_id) if context.mission_id else None,
         summary=summary,
         structured_payload=output,
-        records_inspected=[str(item.get("Id", "")) for item in result_payload.get("records", []) if isinstance(item, dict)],
+        records_inspected=[
+            str(item.get("Id", "")) for item in result_payload.get("records", []) if isinstance(item, dict)
+        ],
         side_effect_class=SideEffectClass.EXTERNAL_READ,
     )
     return ActionResult(

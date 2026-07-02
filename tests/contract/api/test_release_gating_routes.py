@@ -150,7 +150,9 @@ def test_rg_dead_letter_inspection_route_rejects_invalid_bearer_under_full_middl
         )
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "invalid bearer token"}
+    assert response.json() == {
+        "detail": {"code": "INVALID_BEARER_TOKEN", "message": "invalid bearer token"},
+    }
     service.inspect_dead_letter.assert_not_called()
 
 
@@ -171,7 +173,9 @@ def test_rg_dead_letter_inspection_route_stops_at_auth_boundary_before_service_e
         )
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "invalid bearer token"}
+    assert response.json() == {
+        "detail": {"code": "INVALID_BEARER_TOKEN", "message": "invalid bearer token"},
+    }
     service.inspect_dead_letter.assert_not_called()
 
 
@@ -192,7 +196,9 @@ def test_rg_dead_letter_retry_route_rejects_invalid_bearer_under_full_middleware
         )
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "invalid bearer token"}
+    assert response.json() == {
+        "detail": {"code": "INVALID_BEARER_TOKEN", "message": "invalid bearer token"},
+    }
     service.retry_dead_letter.assert_not_called()
 
 
@@ -213,7 +219,9 @@ def test_rg_dead_letter_retry_route_stops_at_auth_boundary_before_service_except
         )
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "invalid bearer token"}
+    assert response.json() == {
+        "detail": {"code": "INVALID_BEARER_TOKEN", "message": "invalid bearer token"},
+    }
     service.retry_dead_letter.assert_not_called()
 
 

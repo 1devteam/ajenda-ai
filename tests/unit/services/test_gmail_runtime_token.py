@@ -12,7 +12,7 @@ from backend.services.credentials.gmail_runtime_token import (
     resolve_gmail_credential_secret,
     serialize_gmail_oauth_secret,
 )
-from backend.services.tools.google_oauth_cli import GoogleOAuthTokenBundle
+from backend.services.tools.google_oauth_cli import GoogleOAuthClientConfig, GoogleOAuthTokenBundle
 
 
 def test_plain_bearer_secret_passes_through() -> None:
@@ -24,6 +24,8 @@ def test_plain_bearer_secret_passes_through() -> None:
 def test_is_gmail_oauth_secret_detects_json_bundle() -> None:
     payload = json.dumps({"access_token": "a", "refresh_token": "r"})
     assert is_gmail_oauth_secret(payload) is True
+    assert is_gmail_oauth_secret(json.dumps({"provider_kind": "gmail", "access_token": "a"})) is True
+    assert is_gmail_oauth_secret(json.dumps({"provider_kind": "linkedin", "access_token": "a"})) is False
     assert is_gmail_oauth_secret("bearer-only") is False
 
 
@@ -49,7 +51,11 @@ def test_expired_oauth_secret_refreshes_and_returns_updated_secret() -> None:
     ):
         with patch(
             "backend.services.credentials.gmail_runtime_token.resolve_google_oauth_client_config",
-            return_value=object(),
+            return_value=GoogleOAuthClientConfig(
+                client_id="client-id",
+                client_secret="client-secret",
+                redirect_uri="http://localhost:5173/credentials/gmail/callback",
+            ),
         ):
             resolution = resolve_gmail_credential_secret(secret, auto_refresh=True)
 
@@ -73,4 +79,6 @@ def test_serialize_round_trip() -> None:
         token_type="Bearer",
     )
     serialized = serialize_gmail_oauth_secret(bundle=bundle)
-    assert json.loads(serialized)["access_token"] == "access"
+    payload = json.loads(serialized)
+    assert payload["access_token"] == "access"
+    assert payload["provider_kind"] == "gmail"

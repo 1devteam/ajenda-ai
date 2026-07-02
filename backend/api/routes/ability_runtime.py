@@ -24,6 +24,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, Mission
 from backend.queue.base import QueueAdapter
+from backend.repositories.mission_repository import MissionRepository
 from backend.services.abilities.role_contracts import RoleName
 from backend.services.autonomy.disclaimer_catalog import (
     AutonomyPolicyError,
@@ -32,7 +33,6 @@ from backend.services.autonomy.disclaimer_catalog import (
     parse_autonomy_acknowledgment,
     validate_autonomy_acknowledgment,
 )
-from backend.repositories.mission_repository import MissionRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
@@ -311,7 +311,9 @@ def _resolve_launch_authority(
 
         principal_id = _principal_subject_id(request)
         if principal_id is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing authentication")
+            from backend.api.errors import authentication_required_http
+
+            raise authentication_required_http()
         if acknowledgment.principal_id != principal_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -685,20 +687,9 @@ def launch_task(
             quota.check_and_record_mission_creation(tenant_id)
         quota.check_and_record_task_creation(tenant_id)
     except QuotaExceededError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "code": "QUOTA_EXCEEDED",
-                "field": exc.field,
-                "limit": exc.limit,
-                "current": exc.current,
-                "plan": exc.plan,
-                "message": (
-                    f"You have reached the {exc.field} limit ({exc.limit}) "
-                    f"for the {exc.plan!r} plan. Upgrade to continue."
-                ),
-            },
-        ) from exc
+        from backend.api.errors import quota_exceeded_http
+
+        raise quota_exceeded_http(exc) from exc
 
     capability, adapter = _ensure_runtime_authority(
         db=db,

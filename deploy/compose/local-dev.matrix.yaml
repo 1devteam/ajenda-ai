@@ -1,0 +1,92 @@
+# =============================================================================
+# Ajenda AI — Local customer UI origin matrix
+# =============================================================================
+# Two supported local profiles. Pick one and keep browser URL, API env vars,
+# and external OAuth callback registrations aligned.
+#
+# Apply a profile to deploy/compose/.env.prod:
+#   bash scripts/dev/sync-local-env.sh --profile vite
+#   bash scripts/dev/sync-local-env.sh --profile compose
+# =============================================================================
+
+version: 1
+
+profiles:
+  vite:
+    label: Vite dev server (hot reload)
+    customer_ui_port: 5173
+    customer_ui_origin: http://localhost:5173
+    api_url: http://localhost:8000
+    description: >
+      Frontend via `cd frontend && npm run dev` (port 5173). API/worker/db/redis
+      from compose or host uvicorn. Vite proxies /v1 to the API.
+    env:
+      AJENDA_CORS_ALLOWED_ORIGINS: http://localhost:5173
+      AJENDA_SIGNUP_VERIFY_URL_BASE: http://localhost:5173/verify-email
+      AJENDA_OIDC_REDIRECT_URI_ALLOWLIST: http://localhost:5173/auth/callback
+      AJENDA_GMAIL_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/gmail/callback
+      AJENDA_LINKEDIN_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/linkedin/callback
+      AJENDA_SALESFORCE_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/salesforce/callback
+      AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/google-calendar/callback
+      AJENDA_GITHUB_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/github/callback
+    external_callbacks:
+      google_cloud:
+        console_url: https://console.cloud.google.com/apis/credentials
+        javascript_origins:
+          - http://localhost:5173
+        redirect_uris:
+          - http://localhost:5173/auth/callback
+          - http://localhost:5173/credentials/gmail/callback
+          - http://localhost:5173/credentials/google-calendar/callback
+      salesforce:
+        console_hint: Connected App → OAuth settings → Callback URL
+        callback_urls:
+          - http://localhost:5173/credentials/salesforce/callback
+      linkedin:
+        console_hint: LinkedIn Developer Portal → Auth → Redirect URLs
+        redirect_urls:
+          - http://localhost:5173/credentials/linkedin/callback
+      github:
+        console_hint: GitHub OAuth App → Authorization callback URL
+        callback_urls:
+          - http://localhost:5173/credentials/github/callback
+
+  compose:
+    label: Docker Compose prod-like stack (nginx frontend)
+    customer_ui_port: 8080
+    customer_ui_origin: http://localhost:8080
+    api_url: http://localhost:8000
+    description: >
+      Full stack via `docker compose --env-file deploy/compose/.env.prod
+      -f deploy/compose/docker-compose.prod.yml up -d --build`. Customer UI on
+      port 8080; API exposed on 8000.
+    env:
+      AJENDA_CORS_ALLOWED_ORIGINS: http://localhost:8080
+      AJENDA_SIGNUP_VERIFY_URL_BASE: http://localhost:8080/verify-email
+      AJENDA_OIDC_REDIRECT_URI_ALLOWLIST: http://localhost:8080/auth/callback
+      AJENDA_GMAIL_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/gmail/callback
+      AJENDA_LINKEDIN_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/linkedin/callback
+      AJENDA_SALESFORCE_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/salesforce/callback
+      AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/google-calendar/callback
+      AJENDA_GITHUB_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/github/callback
+    external_callbacks:
+      google_cloud:
+        console_url: https://console.cloud.google.com/apis/credentials
+        javascript_origins:
+          - http://localhost:8080
+        redirect_uris:
+          - http://localhost:8080/auth/callback
+          - http://localhost:8080/credentials/gmail/callback
+          - http://localhost:8080/credentials/google-calendar/callback
+      salesforce:
+        console_hint: Connected App → OAuth settings → Callback URL
+        callback_urls:
+          - http://localhost:8080/credentials/salesforce/callback
+      linkedin:
+        console_hint: LinkedIn Developer Portal → Auth → Redirect URLs
+        redirect_urls:
+          - http://localhost:8080/credentials/linkedin/callback
+      github:
+        console_hint: GitHub OAuth App → Authorization callback URL
+        callback_urls:
+          - http://localhost:8080/credentials/github/callback

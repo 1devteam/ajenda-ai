@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import uuid as _uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from backend.api.errors import quota_exceeded_http
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
 from backend.services.workforce_provisioner import WorkforceProvisioner
@@ -45,20 +46,7 @@ def provision_workforce(
             agents_requested=agents_requested,
         )
     except QuotaExceededError as exc:
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "code": "QUOTA_EXCEEDED",
-                "field": exc.field,
-                "limit": exc.limit,
-                "current": exc.current,
-                "plan": exc.plan,
-                "message": (
-                    f"You have reached the {exc.field} limit ({exc.limit}) "
-                    f"for the {exc.plan!r} plan. Upgrade to continue."
-                ),
-            },
-        ) from exc
+        raise quota_exceeded_http(exc) from exc
 
     provisioner = WorkforceProvisioner(db)
     fleet = provisioner.provision_fleet(

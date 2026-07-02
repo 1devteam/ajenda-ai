@@ -9,9 +9,9 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 
 from backend.db.tenant_session import activate_tenant_session
+from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
-from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
 from backend.services.business_profile_record_sync import sync_profile_to_internal_records
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation

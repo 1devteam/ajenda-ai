@@ -22,6 +22,7 @@ class AuthLoginAbuseLimits:
     start_ip_per_hour: int = 30
     callback_ip_per_hour: int = 30
     callback_email_per_hour: int = 20
+    refresh_ip_per_hour: int = 60
 
 
 class AuthLoginAbuseGuard:
@@ -67,6 +68,16 @@ class AuthLoginAbuseGuard:
         )
         if count >= self._limits.callback_email_per_hour:
             raise AuthLoginRateLimitedError(dimension="email", route=self.ROUTE_CALLBACK)
+
+    def check_refresh_ip(self, *, client_ip_hash: str, now: datetime | None = None) -> None:
+        since = SignupAttemptLogRepository.window_start(hours=1, now=now)
+        count = self._repo.count_for_ip(
+            client_ip_hash=client_ip_hash,
+            route=self.ROUTE_REFRESH,
+            since=since,
+        )
+        if count >= self._limits.refresh_ip_per_hour:
+            raise AuthLoginRateLimitedError(dimension="ip", route=self.ROUTE_REFRESH)
 
     def record(
         self,

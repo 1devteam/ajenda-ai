@@ -63,7 +63,10 @@ def _signing_key(settings: Settings) -> bytes:
     if not secret:
         secret = str(settings.runtime_secret_encryption_key or "").strip()
     if not secret:
-        secret = "ajenda-test-oauth-state-signing-key"
+        if settings.env in ("test", "development"):
+            secret = "ajenda-test-oauth-state-signing-key"
+        else:
+            raise OAuthStateError("oauth state signing secret is not configured")
     return secret.encode("utf-8")
 
 

@@ -9,7 +9,8 @@ import {
   listAutonomyDisclaimers,
   listProviderCredentials,
 } from "../api/client";
-import { loadSession, sessionToRuntimeConfig } from "../auth/session";
+import { useAuth } from "../auth/AuthProvider";
+import PageErrorAlert from "../components/PageErrorAlert";
 import { MISSION_ABILITY_PRESETS, type MissionAbilityPreset } from "../config/missionAbilities";
 import type {
   AbilityTaskQueuedResponse,
@@ -52,16 +53,12 @@ const TIER3_ACTIONS: Array<{
 export default function TasksPage() {
   const [searchParams] = useSearchParams();
   const missionId = searchParams.get("mission_id")?.trim() ?? "";
-  const session = loadSession();
-  const config = useMemo(
-    () => (session ? sessionToRuntimeConfig(session) : null),
-    [session?.tenantId, session?.apiKey, session?.accessToken],
-  );
+  const { session } = useAuth();
   const [activeTaskId, setActiveTaskId] = useState("");
   const [taskStatus, setTaskStatus] = useState<AbilityTaskStatusResponse | null>(null);
   const [lastQueued, setLastQueued] = useState<AbilityTaskQueuedResponse | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [autonomyMode, setAutonomyMode] = useState<"off" | "pilot" | "enforce">("off");
   const [disclaimers, setDisclaimers] = useState<AutonomyDisclaimer[]>([]);
   const [principalId, setPrincipalId] = useState("");
@@ -79,14 +76,14 @@ export default function TasksPage() {
     : null;
 
   useEffect(() => {
-    if (!config || !session) {
+    if (!session) {
       return;
     }
     let cancelled = false;
     async function loadAutonomyContext() {
       try {
         const [disclaimerResponse, account, credentialResponse] = await Promise.all([
-          listAutonomyDisclaimers(config!),
+          listAutonomyDisclaimers(session!),
           getAccountMe(session!),
           listProviderCredentials(session!),
         ]);
@@ -107,9 +104,10 @@ export default function TasksPage() {
               )?.credential_id ?? "",
           });
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setAutonomyMode("off");
+          setError(err);
         }
       }
     }
@@ -117,25 +115,25 @@ export default function TasksPage() {
     return () => {
       cancelled = true;
     };
-  }, [config, session]);
+  }, [session]);
 
   useEffect(() => {
-    if (!activeTaskId || !config) {
+    if (!activeTaskId || !session) {
       return;
     }
 
     let cancelled = false;
 
     async function poll() {
-      if (!config) return;
+      if (!session) return;
       try {
-        const status = await getTaskStatus(config, activeTaskId);
+        const status = await getTaskStatus(session, activeTaskId);
         if (!cancelled) {
           setTaskStatus(status);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
         }
       }
     }
@@ -149,7 +147,7 @@ export default function TasksPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeTaskId, config]);
+  }, [activeTaskId, session]);
 
   function credentialForPreset(preset: MissionAbilityPreset) {
     if (!preset.provider) {
@@ -166,7 +164,7 @@ export default function TasksPage() {
   }
 
   async function handleMissionAbility(preset: MissionAbilityPreset) {
-    if (!config || !missionId) {
+    if (!session || !missionId) {
       return;
     }
     if (preset.requiresCredential) {
@@ -178,7 +176,7 @@ export default function TasksPage() {
       setLoading(`Launching ${preset.action}`);
       setError("");
       try {
-        const queued = await launchTask(config, {
+        const queued = await launchTask(session, {
           action: preset.action,
           input: preset.input,
           mission_id: missionId,
@@ -193,7 +191,7 @@ export default function TasksPage() {
         setLastQueued(queued);
         setActiveTaskId(queued.task_id);
       } catch (err) {
-        setError(failureText(err));
+        setError(err);
       } finally {
         setLoading(null);
       }
@@ -203,7 +201,7 @@ export default function TasksPage() {
     setLoading(`Launching ${preset.action}`);
     setError("");
     try {
-      const queued = await launchTask(config, {
+      const queued = await launchTask(session, {
         action: preset.action,
         input: preset.input,
         mission_id: missionId,
@@ -212,7 +210,7 @@ export default function TasksPage() {
       setLastQueued(queued);
       setActiveTaskId(queued.task_id);
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(null);
     }
@@ -229,13 +227,13 @@ export default function TasksPage() {
   }
 
   async function handleDraftWithDisclaimer() {
-    if (!config || !draftDisclaimer || !principalId) {
+    if (!session || !draftDisclaimer || !principalId) {
       return;
     }
     setLoading("Launching email draft");
     setError("");
     try {
-      const queued = await launchTask(config, {
+      const queued = await launchTask(session, {
         action: "gtm.email_draft",
         mission_id: missionId || undefined,
         input: {
@@ -256,7 +254,7 @@ export default function TasksPage() {
       setLastQueued(queued);
       setActiveTaskId(queued.task_id);
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(null);
       setShowDisclaimer(false);
@@ -265,7 +263,7 @@ export default function TasksPage() {
 
   async function handleTier3WithDisclaimer() {
     const selectedCredentialId = pendingTier3 ? tier3Credentials[pendingTier3] : "";
-    if (!config || !pendingTier3 || !pendingDisclaimer || !principalId || !selectedCredentialId) {
+    if (!session || !pendingTier3 || !pendingDisclaimer || !principalId || !selectedCredentialId) {
       return;
     }
     const spec = TIER3_ACTIONS.find((item) => item.action === pendingTier3);
@@ -290,7 +288,7 @@ export default function TasksPage() {
             };
 
       const queued = await launchTask(
-        config,
+        session,
         {
           action: pendingTier3,
           mission_id: missionId || undefined,
@@ -317,7 +315,7 @@ export default function TasksPage() {
       setLastQueued(queued);
       setActiveTaskId(queued.task_id);
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(null);
       setShowDisclaimer(false);
@@ -342,15 +340,15 @@ export default function TasksPage() {
   }
 
   async function handleProof(proof: (typeof PROOF_BUTTONS)[number]["key"]) {
-    if (!config) return;
+    if (!session) return;
     setLoading(`Launching ${proof}`);
     setError("");
     try {
-      const queued = await launchProof(config, proof);
+      const queued = await launchProof(session, proof);
       setLastQueued(queued);
       setActiveTaskId(queued.task_id);
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(null);
     }
@@ -390,7 +388,7 @@ export default function TasksPage() {
                 key={preset.action}
                 type="button"
                 onClick={() => void handleMissionAbility(preset)}
-                disabled={!config || loading !== null}
+                disabled={!session || loading !== null}
               >
                 <strong>{preset.title}</strong>
                 <span>{preset.description}</span>
@@ -409,7 +407,7 @@ export default function TasksPage() {
               key={proof.key}
               type="button"
               onClick={() => void handleProof(proof.key)}
-              disabled={!config || loading !== null}
+              disabled={!session || loading !== null}
             >
               <strong>{proof.title}</strong>
               <span>{proof.description}</span>
@@ -430,7 +428,7 @@ export default function TasksPage() {
             <button
               type="button"
               className="primary-button"
-              disabled={!config || loading !== null || !principalId}
+              disabled={!session || loading !== null || !principalId}
               onClick={() => {
                 setPendingTier3(null);
                 setShowDisclaimer(true);
@@ -470,7 +468,7 @@ export default function TasksPage() {
                   <button
                     type="button"
                     className="ghost-button"
-                    disabled={!config || loading !== null || options.length === 0 || !principalId}
+                    disabled={!session || loading !== null || options.length === 0 || !principalId}
                     onClick={() => openTier3Disclaimer(item.action)}
                   >
                     Launch with disclaimer
@@ -493,17 +491,17 @@ export default function TasksPage() {
           <button
             type="button"
             onClick={async () => {
-              if (!config || !activeTaskId) return;
+              if (!session || !activeTaskId) return;
               setLoading("Refreshing task");
               try {
-                setTaskStatus(await getTaskStatus(config, activeTaskId));
+                setTaskStatus(await getTaskStatus(session, activeTaskId));
               } catch (err) {
-                setError(failureText(err));
+                setError(err);
               } finally {
                 setLoading(null);
               }
             }}
-            disabled={!config || !activeTaskId || loading !== null}
+            disabled={!session || !activeTaskId || loading !== null}
           >
             Refresh
           </button>
@@ -540,9 +538,7 @@ export default function TasksPage() {
 
       {loading ? <div className="toast">Working: {loading}</div> : null}
       {error ? (
-        <div className="inline-error">
-          <pre>{error}</pre>
-        </div>
+        <PageErrorAlert error={error} />
       ) : null}
 
       {(pendingDisclaimer ?? draftDisclaimer) ? (

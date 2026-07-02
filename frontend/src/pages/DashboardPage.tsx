@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { getAccountMe, getAccountPlan, getAccountUsage } from "../api/client";
-import { loadSession, saveSession } from "../auth/session";
+import { getAccountMe, getAccountPlan, getAccountUsage, listProviderCredentials } from "../api/client";
+import { useAuth } from "../auth/AuthProvider";
+import { saveSession } from "../auth/session";
 import type { AccountMeResponse, AccountPlanResponse, AccountUsageResponse } from "../types";
-import { failureText } from "../utils/errors";
+import PageErrorAlert from "../components/PageErrorAlert";
 import { readWizardCompletedAt } from "../utils/standaloneWizard";
 
 function formatLimit(current: number, limit: number): string {
@@ -22,12 +23,19 @@ function usagePercent(current: number, limit: number): number | null {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const session = loadSession();
+  const { session } = useAuth();
   const [me, setMe] = useState<AccountMeResponse | null>(null);
   const [plan, setPlan] = useState<AccountPlanResponse | null>(null);
   const [usage, setUsage] = useState<AccountUsageResponse | null>(null);
-  const [error, setError] = useState("");
+  const [credentialCount, setCredentialCount] = useState<number | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const wizardDone = session ? readWizardCompletedAt(session.tenantId) !== null : false;
+
+  const emailVerified =
+    me?.membership?.status === "active" || me?.tenant.status === "active" || session?.authMode === "oidc";
+  const signedIn = session !== null;
+  const credentialsConnected = credentialCount !== null && credentialCount > 0;
+  const showOnboardingChecklist = signedIn && (!emailVerified || !credentialsConnected);
 
   useEffect(() => {
     if (!session) {
@@ -41,15 +49,17 @@ export default function DashboardPage() {
         return;
       }
       try {
-        const [meResponse, planResponse, usageResponse] = await Promise.all([
+        const [meResponse, planResponse, usageResponse, credentialsResponse] = await Promise.all([
           getAccountMe(session),
           getAccountPlan(session),
           getAccountUsage(session),
+          listProviderCredentials(session),
         ]);
         if (!cancelled) {
           setMe(meResponse);
           setPlan(planResponse);
           setUsage(usageResponse);
+          setCredentialCount(credentialsResponse.credentials.length);
           if (session.plan !== meResponse.tenant.plan || session.slug !== meResponse.tenant.slug) {
             saveSession({
               ...session,
@@ -61,7 +71,7 @@ export default function DashboardPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
         }
       }
     }
@@ -70,7 +80,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [session?.tenantId, session?.apiKey]);
+  }, [session?.tenantId, session?.apiKey, session?.accessToken]);
 
   return (
     <main className="page-shell">
@@ -91,6 +101,39 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
+
+      {showOnboardingChecklist ? (
+        <section className="notice-banner">
+          <strong>Finish onboarding</strong>
+          <ul className="onboarding-checklist">
+            {!emailVerified ? (
+              <li>
+                <span>Verify your email</span>
+                <Link className="primary-link" to="/verify-email">
+                  Open verify page
+                </Link>
+              </li>
+            ) : (
+              <li className="done">✓ Email verified</li>
+            )}
+            <li className={signedIn ? "done" : undefined}>
+              {signedIn ? "✓ Signed in" : <Link to="/signin">Sign in</Link>}
+            </li>
+            <li className={credentialsConnected ? "done" : undefined}>
+              {credentialsConnected ? (
+                "✓ Provider credentials connected"
+              ) : (
+                <>
+                  <span>Connect provider credentials</span>
+                  <Link className="primary-link" to="/credentials">
+                    Open credentials
+                  </Link>
+                </>
+              )}
+            </li>
+          </ul>
+        </section>
+      ) : null}
 
       {usage && usagePercent(usage.usage.api_calls_count ?? 0, usage.limits.api_calls_per_month ?? -1) !== null
         ? (() => {
@@ -194,11 +237,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {error ? (
-        <div className="inline-error">
-          <pre>{error}</pre>
-        </div>
-      ) : null}
+      <PageErrorAlert error={error} />
     </main>
   );
 }

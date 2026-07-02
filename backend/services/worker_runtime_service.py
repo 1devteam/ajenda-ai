@@ -43,6 +43,7 @@ _TERMINAL_TASK_STATES: frozenset[str] = frozenset(
         ExecutionTaskState.FAILED.value,
         ExecutionTaskState.CANCELLED.value,
         ExecutionTaskState.DEAD_LETTERED.value,
+        ExecutionTaskState.BLOCKED.value,
     }
 )
 

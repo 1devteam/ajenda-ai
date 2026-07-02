@@ -73,6 +73,47 @@ def test_github_repo_read_uses_api_with_runtime_credential() -> None:
     assert authority.request.call_args.kwargs["headers"]["Authorization"] == "Bearer github-token"
 
 
+def test_github_repo_read_fail_closed_when_response_body_truncated() -> None:
+    registry = ActionRegistry()
+    register_github_actions(registry)
+    handler = registry.get("github.repo_read").handler
+    context = _context()
+    context.runtime_credentials = {
+        "github.repo_read": {
+            "secret_value": "github-token",
+            "trusted_destination_hosts": ["api.github.com"],
+        }
+    }
+    destination = VettedNetworkDestination(
+        original_url="https://api.github.com/repos/ajenda/ajenda-ai",
+        connect_url="https://1.2.3.4/repos/ajenda/ajenda-ai",
+        pinned_ip=__import__("ipaddress").ip_address("1.2.3.4"),
+        sni_hostname="api.github.com",
+        host_header="api.github.com",
+    )
+    response = NetworkEgressResponse(
+        status_code=200,
+        headers={},
+        body_text='{"id":42,"full_name":"ajenda/ajenda-ai"',
+        body_truncated=True,
+    )
+    authority = MagicMock()
+    authority.request.return_value = (destination, response)
+
+    with patch(
+        "backend.services.tools.github_actions.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        try:
+            handler(
+                ToolInvocation(action="github.repo_read", input={"owner": "ajenda", "repo": "ajenda-ai"}),
+                context,
+            )
+            raise AssertionError("expected ValueError")
+        except ValueError as exc:
+            assert "truncated" in str(exc)
+
+
 def test_github_repo_read_fail_closed_on_credentialed_api_error() -> None:
     registry = ActionRegistry()
     register_github_actions(registry)

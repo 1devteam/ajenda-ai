@@ -152,10 +152,7 @@ def test_register_salesforce_read_requires_instance_host(session_factory) -> Non
 
 def test_register_salesforce_read_derives_instance_host_from_json_secret(session_factory) -> None:
     tenant_id = str(uuid.uuid4())
-    secret = (
-        '{"provider_kind":"salesforce","access_token":"sf-access",'
-        '"instance_url":"https://acme.my.salesforce.com"}'
-    )
+    secret = '{"provider_kind":"salesforce","access_token":"sf-access","instance_url":"https://acme.my.salesforce.com"}'
     with session_factory() as session:
         service = _service(session)
         result = service.register(

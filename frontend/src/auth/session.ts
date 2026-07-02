@@ -1,6 +1,9 @@
 import type { CustomerSession, RuntimeConfig } from "../types";
 
-const SESSION_KEY = "ajenda.customer.session.v1";
+export const SESSION_STORAGE_KEY = "ajenda.customer.session.v1";
+export const SESSION_CHANGED_EVENT = "ajenda:session-changed";
+
+const SESSION_KEY = SESSION_STORAGE_KEY;
 
 export function getApiBaseUrl(): string {
   return (import.meta.env.VITE_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
@@ -36,6 +39,12 @@ function normalizeSession(parsed: Record<string, unknown>): CustomerSession | nu
           ? parsed.expiresAt
           : typeof parsed.expires_at === "string"
             ? parsed.expires_at
+            : undefined,
+      refreshExpiresAt:
+        typeof parsed.refreshExpiresAt === "string"
+          ? parsed.refreshExpiresAt
+          : typeof parsed.refresh_expires_at === "string"
+            ? parsed.refresh_expires_at
             : undefined,
       email: typeof parsed.email === "string" ? parsed.email : undefined,
       orgName: typeof parsed.orgName === "string" ? parsed.orgName : undefined,
@@ -85,12 +94,18 @@ export function requireSession(): CustomerSession {
   return session;
 }
 
+function notifySessionChanged(): void {
+  window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
+}
+
 export function saveSession(session: CustomerSession): void {
   window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  notifySessionChanged();
 }
 
 export function clearSession(): void {
   window.sessionStorage.removeItem(SESSION_KEY);
+  notifySessionChanged();
 }
 
 export function sessionToRuntimeConfig(session: CustomerSession): RuntimeConfig {
@@ -120,30 +135,25 @@ export function parseApiKeyHeader(value: string): { keyId: string; apiKey: strin
   };
 }
 
-const SESSION_REFRESH_BUFFER_MS = 60_000;
-
-export function isSessionNearExpiry(session: CustomerSession): boolean {
-  if (session.authMode !== "oidc" || !session.expiresAt) {
-    return false;
-  }
-  const expiresMs = new Date(session.expiresAt).getTime();
-  if (Number.isNaN(expiresMs)) {
-    return false;
-  }
-  return Date.now() >= expiresMs - SESSION_REFRESH_BUFFER_MS;
-}
+export { shouldRefreshAccessToken as isSessionNearExpiry } from "./sessionLifecycle";
 
 export function sessionFromOidcResponse(response: {
   access_token: string;
   refresh_token: string;
   expires_in: number;
+  refresh_expires_in?: number;
   tenant_id: string;
   email: string;
   org_name: string;
   slug: string;
   plan: string;
 }): CustomerSession {
-  const expiresAt = new Date(Date.now() + response.expires_in * 1000).toISOString();
+  const now = Date.now();
+  const expiresAt = new Date(now + response.expires_in * 1000).toISOString();
+  const refreshExpiresAt =
+    typeof response.refresh_expires_in === "number" && response.refresh_expires_in > 0
+      ? new Date(now + response.refresh_expires_in * 1000).toISOString()
+      : undefined;
   return {
     authMode: "oidc",
     tenantId: response.tenant_id,
@@ -151,6 +161,7 @@ export function sessionFromOidcResponse(response: {
     accessToken: response.access_token,
     refreshToken: response.refresh_token,
     expiresAt,
+    refreshExpiresAt,
     email: response.email,
     orgName: response.org_name,
     slug: response.slug,

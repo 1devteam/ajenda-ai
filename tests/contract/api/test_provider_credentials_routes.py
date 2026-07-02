@@ -110,15 +110,16 @@ def test_gmail_oauth_connect_registers_credential(
     mock_exchange: MagicMock,
     mock_service_cls: MagicMock,
 ) -> None:
-    from backend.services.credentials.gmail_oauth_connect import GmailOAuthStateClaims
+    from backend.services.credentials.oauth_state import OAuthStateClaims
 
     client, tenant_id = _build_client()
-    mock_verify.return_value = GmailOAuthStateClaims(
+    mock_verify.return_value = OAuthStateClaims(
         tenant_id=str(tenant_id),
         credential_id="gmail-email",
         actor_id="human:test@example.com",
         nonce="nonce",
         issued_at=1_700_000_000,
+        provider="gmail",
     )
     mock_exchange.return_value = '{"access_token":"oauth-access","refresh_token":"oauth-refresh"}'
     summary = ProviderCredentialSummary(

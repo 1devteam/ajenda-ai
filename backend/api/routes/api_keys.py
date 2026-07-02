@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from backend.api.errors import authentication_required_http, quota_exceeded_http
 from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
@@ -30,7 +31,7 @@ def create_api_key(
 ) -> dict[str, object]:
     principal = getattr(request.state, "principal", None)
     if principal is None:
-        raise HTTPException(status_code=401, detail="missing authentication")
+        raise authentication_required_http()
     settings = get_settings()
     AuthorizationService.from_settings(
         settings,
@@ -49,19 +50,7 @@ def create_api_key(
             current_key_count=current_key_count,
         )
     except QuotaExceededError as exc:
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "code": "QUOTA_EXCEEDED",
-                "field": exc.field,
-                "limit": exc.limit,
-                "current": exc.current,
-                "plan": exc.plan,
-                "message": (
-                    f"You have reached the API key limit ({exc.limit}) for the {exc.plan!r} plan. Upgrade to continue."
-                ),
-            },
-        ) from exc
+        raise quota_exceeded_http(exc) from exc
 
     plaintext, record = service.create_key(tenant_id=str(tenant_id), scopes=tuple(body.scopes))
     return {
@@ -81,7 +70,7 @@ def revoke_api_key(
 ) -> dict[str, str]:
     principal = getattr(request.state, "principal", None)
     if principal is None:
-        raise HTTPException(status_code=401, detail="missing authentication")
+        raise authentication_required_http()
     settings = get_settings()
     AuthorizationService.from_settings(
         settings,

@@ -299,7 +299,7 @@ def test_post_v1_missions_mission_id_queue_contract_quota_exceeded_counts_only_l
     ):
         response = client.post(f"/v1/missions/{mission_id}/queue")
 
-    assert response.status_code == 429
+    assert response.status_code == 402
     assert response.json() == {
         "detail": {
             "code": "QUOTA_EXCEEDED",
@@ -659,7 +659,7 @@ def test_post_v1_missions_mission_id_runtime_queue_admission_contract_quota_deni
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
-    assert response.status_code == 429
+    assert response.status_code == 402
     quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
     coordinator.queue_task.assert_not_called()
 

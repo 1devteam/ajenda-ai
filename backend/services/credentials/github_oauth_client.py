@@ -40,9 +40,7 @@ def resolve_github_oauth_client_config(*, redirect_uri: str) -> GitHubOAuthClien
     client_id = os.environ.get("AJENDA_GITHUB_CLIENT_ID", "").strip()
     client_secret = os.environ.get("AJENDA_GITHUB_CLIENT_SECRET", "").strip()
     if not client_id or not client_secret:
-        raise GitHubOAuthClientError(
-            "Set AJENDA_GITHUB_CLIENT_ID and AJENDA_GITHUB_CLIENT_SECRET for GitHub OAuth"
-        )
+        raise GitHubOAuthClientError("Set AJENDA_GITHUB_CLIENT_ID and AJENDA_GITHUB_CLIENT_SECRET for GitHub OAuth")
     normalized_redirect = redirect_uri.strip()
     if not normalized_redirect:
         raise GitHubOAuthClientError("GitHub OAuth redirect_uri is required")

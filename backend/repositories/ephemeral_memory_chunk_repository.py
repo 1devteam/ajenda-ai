@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.domain.ephemeral_memory_chunk import EphemeralMemoryChunk
@@ -110,13 +110,9 @@ class EphemeralMemoryChunkRepository:
             score = cosine_similarity(query_embedding, [float(item) for item in embedding])
             scored.append((score, row))
         scored.sort(key=lambda item: item[0], reverse=True)
-        return [
-            self._to_dict(row, score=score, search_mode="vector")
-            for score, row in scored[:limit]
-            if score > 0.0
-        ]
+        return [self._to_dict(row, score=score, search_mode="vector") for score, row in scored[:limit] if score > 0.0]
 
-    def _apply_active_filters(self, stmt, *, mission_id: str | None):
+    def _apply_active_filters(self, stmt: Any, *, mission_id: str | None) -> Any:
         now = datetime.now(UTC)
         stmt = stmt.where(or_(EphemeralMemoryChunk.expires_at.is_(None), EphemeralMemoryChunk.expires_at > now))
         if mission_id:
@@ -126,8 +122,10 @@ class EphemeralMemoryChunkRepository:
         return stmt
 
     @staticmethod
-    def _to_dict(row: EphemeralMemoryChunk, *, score: float | None = None, search_mode: str | None = None) -> dict[str, Any]:
-        payload = {
+    def _to_dict(
+        row: EphemeralMemoryChunk, *, score: float | None = None, search_mode: str | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "id": row.id,
             "tenant_id": row.tenant_id,
             "mission_id": row.mission_id,

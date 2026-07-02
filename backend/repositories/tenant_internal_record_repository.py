@@ -7,8 +7,8 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from backend.domain.tenant_internal_record import TenantInternalRecord
 from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
+from backend.domain.tenant_internal_record import TenantInternalRecord
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.services.tools.record_types import SUPPORTED_RECORD_TYPES
 

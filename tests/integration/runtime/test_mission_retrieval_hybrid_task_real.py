@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
 from backend.db.tenant_session import activate_tenant_session
+from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
@@ -24,7 +25,6 @@ from backend.domain.mission import (
 )
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
-from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID
 from backend.repositories.ephemeral_memory_chunk_repository import EphemeralMemoryChunkRepository
 from backend.services.ajenda_demo_fixtures import seed_ajenda_live_demo
 from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
@@ -101,7 +101,12 @@ def test_mission_materializes_queues_and_executes_retrieval_hybrid_task(
     setup = session_factory()
     try:
         setup.add(
-            Tenant(id=tenant_id, name="Mission Retrieval Tenant", slug=f"mission-retrieval-{tenant_id.hex[:8]}", plan="free")
+            Tenant(
+                id=tenant_id,
+                name="Mission Retrieval Tenant",
+                slug=f"mission-retrieval-{tenant_id.hex[:8]}",
+                plan="free",
+            )
         )
         mission = Mission(
             tenant_id=tenant_id_str,
@@ -137,18 +142,18 @@ def test_mission_materializes_queues_and_executes_retrieval_hybrid_task(
             **mission.metadata_json,
             MISSION_TASK_GRAPH_METADATA_KEY: task_graph,
             MISSION_GRAPH_MATERIALIZATION_METADATA_KEY: {
-            "schema_version": 1,
-            "mission_id": str(mission_id),
-            "materialization_status": "validated",
-            "materialization_version": 1,
-            "capability_selection_provenance": [
-                {
-                    "node_key": _NODE_KEY,
-                    "capability_name": "bridge_retrieval_hybrid_search",
-                    "selection_reason": "Mission bridge authority for retrieval.hybrid_search.",
-                }
-            ],
-            "graph_reference": graph_ref,
+                "schema_version": 1,
+                "mission_id": str(mission_id),
+                "materialization_status": "validated",
+                "materialization_version": 1,
+                "capability_selection_provenance": [
+                    {
+                        "node_key": _NODE_KEY,
+                        "capability_name": "bridge_retrieval_hybrid_search",
+                        "selection_reason": "Mission bridge authority for retrieval.hybrid_search.",
+                    }
+                ],
+                "graph_reference": graph_ref,
             },
         }
         materialization_ref = {
@@ -162,43 +167,43 @@ def test_mission_materializes_queues_and_executes_retrieval_hybrid_task(
         mission.metadata_json = {
             **mission.metadata_json,
             MISSION_RUNTIME_ADMISSION_METADATA_KEY: {
-            "schema_version": 1,
-            "mission_id": str(mission_id),
-            "admission_status": "admitted",
-            "admission_version": 1,
-            "admitted_by": "integration-test",
-            "admitted_at": now,
-            "updated_at": now,
-            "graph_reference": graph_ref,
-            "materialization_reference": materialization_ref,
-            "selected_nodes": [
-                {
-                    "node_key": _NODE_KEY,
-                    "runtime_task_type": "tool.invoke",
-                    "capability_id": capability_id,
-                    "adapter_id": adapter_id,
-                    "graph_node_reference": {"key": _NODE_KEY, "name": "Hybrid memory retrieval"},
-                    "materialization_selection_reference": {
+                "schema_version": 1,
+                "mission_id": str(mission_id),
+                "admission_status": "admitted",
+                "admission_version": 1,
+                "admitted_by": "integration-test",
+                "admitted_at": now,
+                "updated_at": now,
+                "graph_reference": graph_ref,
+                "materialization_reference": materialization_ref,
+                "selected_nodes": [
+                    {
                         "node_key": _NODE_KEY,
-                        "capability_name": "bridge_retrieval_hybrid_search",
-                        "selection_reason": "Mission bridge authority for retrieval.hybrid_search.",
-                    },
-                    "operator_notes": "Execute governed hybrid retrieval.",
-                }
-            ],
-            "validation_result": {
-                "validation_status": "valid",
-                "summary": "Ready for runtime task materialization.",
-                "checks": [],
-                "gaps": [],
-            },
-            "execution_task_records": [],
-            "runtime_authority": {
-                "creates_execution_tasks": False,
-                "enqueues_work": False,
-                "dispatches_workers": False,
-                "requires_explicit_queue_admission_for_execution": True,
-            },
+                        "runtime_task_type": "tool.invoke",
+                        "capability_id": capability_id,
+                        "adapter_id": adapter_id,
+                        "graph_node_reference": {"key": _NODE_KEY, "name": "Hybrid memory retrieval"},
+                        "materialization_selection_reference": {
+                            "node_key": _NODE_KEY,
+                            "capability_name": "bridge_retrieval_hybrid_search",
+                            "selection_reason": "Mission bridge authority for retrieval.hybrid_search.",
+                        },
+                        "operator_notes": "Execute governed hybrid retrieval.",
+                    }
+                ],
+                "validation_result": {
+                    "validation_status": "valid",
+                    "summary": "Ready for runtime task materialization.",
+                    "checks": [],
+                    "gaps": [],
+                },
+                "execution_task_records": [],
+                "runtime_authority": {
+                    "creates_execution_tasks": False,
+                    "enqueues_work": False,
+                    "dispatches_workers": False,
+                    "requires_explicit_queue_admission_for_execution": True,
+                },
             },
         }
         flag_modified(mission, "metadata_json")

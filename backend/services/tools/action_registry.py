@@ -237,9 +237,9 @@ def build_default_action_registry() -> ActionRegistry:
     from backend.services.tools.http_actions import register_http_actions
     from backend.services.tools.linkedin_actions import register_linkedin_actions
     from backend.services.tools.provider_read_actions import register_provider_read_actions
-    from backend.services.tools.salesforce_actions import register_salesforce_actions
     from backend.services.tools.retrieval_actions import register_retrieval_actions
     from backend.services.tools.sales_actions import register_sales_actions
+    from backend.services.tools.salesforce_actions import register_salesforce_actions
     from backend.services.tools.standalone_actions import register_standalone_actions
     from backend.services.tools.webhook_actions import register_webhook_actions
 

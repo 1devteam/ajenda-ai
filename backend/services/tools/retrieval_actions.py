@@ -102,7 +102,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
                 tenant_id=context.tenant_id,
             )
             for contract in contracts:
-                summary = {
+                contract_summary = {
                     "id": str(contract.id),
                     "strategy": contract.retrieval_strategy,
                     "reason": contract.retrieval_reason,
@@ -111,7 +111,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
                     "provenance_metadata": contract.provenance_metadata,
                     "status": contract.retrieval_status,
                 }
-                contract_summaries.append(summary)
+                contract_summaries.append(contract_summary)
                 for ref in contract.returned_memory_references or contract.memory_references or []:
                     if isinstance(ref, dict) and ref.get("memory_id"):
                         contract_memory_hits.append(
@@ -167,7 +167,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
             "source": business_context.source,
         }
     if contract_summaries:
-        provenance["retrieval_contract_ids"] = [summary["id"] for summary in contract_summaries]
+        provenance["retrieval_contract_ids"] = [contract["id"] for contract in contract_summaries]
         provenance["governance_contract_count"] = len(contract_summaries)
 
     output = {
@@ -182,8 +182,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
     }
     inspected = [str(item.get("id")) for item in memories if isinstance(item, dict) and item.get("id")]
     summary = (
-        f"Hybrid retrieval found {len(memories)} governed memory hit(s) "
-        f"across {', '.join(provenance['search_modes'])}."
+        f"Hybrid retrieval found {len(memories)} governed memory hit(s) across {', '.join(provenance['search_modes'])}."
     )
     return ActionResult(
         action="retrieval.hybrid_search",

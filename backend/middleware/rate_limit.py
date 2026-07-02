@@ -32,13 +32,12 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from prometheus_client import Counter
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
-
-from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from backend.app.config import Settings, get_settings
 from backend.rate_limit.limiter import RateLimiter, RateLimitKey, RoutePolicy
@@ -218,22 +217,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         session.execute(text(f"SET LOCAL lock_timeout = '{_QUOTA_LOCK_TIMEOUT_MS}ms'"))
 
     def _quota_exceeded_response(self, exc: QuotaExceededError) -> JSONResponse:
-        return JSONResponse(
-            status_code=402,
-            content={
-                "code": "QUOTA_EXCEEDED",
-                "field": exc.field,
-                "limit": exc.limit,
-                "current": exc.current,
-                "plan": exc.plan,
-                "message": (
-                    f"You have reached the {exc.field} limit ({exc.limit}) "
-                    f"for the {exc.plan!r} plan. Upgrade to continue."
-                ),
-            },
-        )
+        from backend.api.errors import quota_exceeded_json
+
+        return quota_exceeded_json(exc)
 
     def _enforce_api_call_quota_admission(self, request: Request, tenant_id: str) -> JSONResponse | None:
+        from backend.api.errors import QUOTA_CHECK_UNAVAILABLE_CODE, api_json_response
+
         try:
             database_runtime = getattr(request.app.state, "database_runtime", None)
             if database_runtime is None:
@@ -253,10 +243,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return self._quota_exceeded_response(exc)
             except Exception:
                 session.rollback()
+                logger.exception("api_call_quota_check_failed", extra={"tenant_id": tenant_id})
+                return api_json_response(
+                    status_code=503,
+                    code=QUOTA_CHECK_UNAVAILABLE_CODE,
+                    message="Quota enforcement is temporarily unavailable. Please retry.",
+                )
             finally:
                 session.close()
         except Exception:
-            return None
+            logger.exception("api_call_quota_admission_failed", extra={"tenant_id": tenant_id})
+            return api_json_response(
+                status_code=503,
+                code=QUOTA_CHECK_UNAVAILABLE_CODE,
+                message="Quota enforcement is temporarily unavailable. Please retry.",
+            )
         return None
 
     def _record_api_call_usage(self, request: Request, tenant_id: str) -> None:

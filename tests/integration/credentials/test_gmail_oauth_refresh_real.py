@@ -117,3 +117,38 @@ def test_expired_gmail_oauth_secret_refreshes_via_httpx_and_persists_ciphertext(
     persisted = protector.decrypt_secret(row.secret_ciphertext)
     assert persisted != original_secret
     assert json.loads(persisted)["access_token"] == "fresh-access-token"
+
+
+def test_expired_gmail_oauth_refresh_failure_fails_closed(
+    integration_env: None,
+    pg_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = str(uuid.uuid4())
+    _store_expired_gmail_oauth_credential(pg_session, tenant_id=tenant_id)
+    pg_session.commit()
+
+    monkeypatch.setenv("AJENDA_GOOGLE_CLI_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("AJENDA_GOOGLE_CLI_CLIENT_SECRET", "test-client-secret")
+    from backend.app.config import get_settings
+
+    get_settings.cache_clear()
+
+    class _FailedResponse:
+        status_code = 400
+        text = "invalid_grant"
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"error": "invalid_grant"}
+
+    fake_client = MagicMock()
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = None
+    fake_client.post.return_value = _FailedResponse()
+
+    monkeypatch.setattr("backend.services.tools.google_oauth_cli.httpx.Client", lambda **kwargs: fake_client)
+
+    repository = SQLAlchemyCredentialRuntimeRepository(session_factory=lambda: pg_session)
+    with pytest.raises(ValueError, match="gmail token refresh failed"):
+        repository.get_visible_for_tenant(tenant_id=tenant_id, credential_id="gmail-email")

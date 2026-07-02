@@ -377,7 +377,7 @@ def test_launch_task_returns_429_when_mission_quota_exceeded() -> None:
         with pytest.raises(HTTPException) as exc_info:
             launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
 
-    assert exc_info.value.status_code == 429
+    assert exc_info.value.status_code == 402
     assert exc_info.value.detail["code"] == "QUOTA_EXCEEDED"
     assert exc_info.value.detail["field"] == "missions_per_month"
     quota_svc.check_and_record_task_creation.assert_not_called()

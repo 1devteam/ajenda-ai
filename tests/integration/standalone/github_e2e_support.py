@@ -8,9 +8,9 @@ DEFAULT_GITHUB_OAUTH_CONFIG_PATH = Path.home() / ".ajenda" / "github-oauth.json"
 
 
 def resolve_github_credential_secret_for_e2e() -> str | None:
-    configured = os.environ.get("AJENDA_E2E_GITHUB_SECRET", "").strip() or os.environ.get(
-        "AJENDA_E2E_GITHUB_TOKEN", ""
-    ).strip()
+    configured = (
+        os.environ.get("AJENDA_E2E_GITHUB_SECRET", "").strip() or os.environ.get("AJENDA_E2E_GITHUB_TOKEN", "").strip()
+    )
     if configured:
         return configured
 

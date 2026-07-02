@@ -14,7 +14,8 @@ import {
   provisionBridgeRuntimeAuthority,
   upsertMissionTaskGraph,
 } from "../api/client";
-import { loadSession, sessionToRuntimeConfig } from "../auth/session";
+import { useAuth } from "../auth/AuthProvider";
+import PageErrorAlert from "../components/PageErrorAlert";
 import type {
   AbilityTaskStatusResponse,
   BridgeRuntimeAuthorityReadResponse,
@@ -74,11 +75,7 @@ function stepStatusFor(
 
 export default function MissionDispatchPage() {
   const { missionId = "" } = useParams();
-  const session = loadSession();
-  const config = useMemo(
-    () => (session ? sessionToRuntimeConfig(session) : null),
-    [session?.tenantId, session?.apiKey, session?.accessToken],
-  );
+  const { session } = useAuth();
 
   const [lifecycle, setLifecycle] = useState<MissionLifecycleReadResponse | null>(null);
   const [readiness, setReadiness] = useState<RuntimeReadinessReadResponse | null>(null);
@@ -87,7 +84,7 @@ export default function MissionDispatchPage() {
   const [authorities, setAuthorities] = useState<BridgeRuntimeAuthorityReadResponse | null>(null);
   const [principalId, setPrincipalId] = useState("mission-dispatch-ui");
   const [loading, setLoading] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
   const [monitoredTaskId, setMonitoredTaskId] = useState("");
   const [taskStatus, setTaskStatus] = useState<AbilityTaskStatusResponse | null>(null);
@@ -96,40 +93,41 @@ export default function MissionDispatchPage() {
   const successCriteria = useMemo(() => intakeSuccessCriteria(lifecycle?.intake ?? null), [lifecycle?.intake]);
 
   const refreshLifecycle = useCallback(async () => {
-    if (!config || !missionId) {
+    if (!session || !missionId) {
       return;
     }
-    const response = await getMissionLifecycle(config, missionId);
+    const response = await getMissionLifecycle(session, missionId);
     setLifecycle(response);
     return response;
-  }, [config, missionId]);
+  }, [session, missionId]);
 
   const refreshReadinessViews = useCallback(async () => {
-    if (!config || !missionId) {
+    if (!session || !missionId) {
       return;
     }
     try {
       const [readinessResponse, dispatchResponse] = await Promise.all([
-        getMissionRuntimeReadiness(config, missionId),
-        getMissionDispatchReadiness(config, missionId),
+        getMissionRuntimeReadiness(session, missionId),
+        getMissionDispatchReadiness(session, missionId),
       ]);
       setReadiness(readinessResponse);
       setDispatchReadiness(dispatchResponse);
-    } catch {
+    } catch (err) {
       setReadiness(null);
       setDispatchReadiness(null);
+      setError(err);
     }
-  }, [config, missionId]);
+  }, [session, missionId]);
 
   useEffect(() => {
-    if (!config || !session) {
+    if (!session) {
       return;
     }
     let cancelled = false;
     async function load() {
       try {
         const [lifecycleResponse, account] = await Promise.all([
-          getMissionLifecycle(config!, missionId),
+          getMissionLifecycle(session!, missionId),
           getAccountMe(session!),
         ]);
         if (!cancelled) {
@@ -139,7 +137,7 @@ export default function MissionDispatchPage() {
         await refreshReadinessViews();
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
         }
       }
     }
@@ -147,22 +145,22 @@ export default function MissionDispatchPage() {
     return () => {
       cancelled = true;
     };
-  }, [config, missionId, refreshReadinessViews, session]);
+  }, [session, missionId, refreshReadinessViews]);
 
   useEffect(() => {
-    if (!config || !monitoredTaskId) {
+    if (!session || !monitoredTaskId) {
       return;
     }
     let cancelled = false;
     async function poll() {
       try {
-        const status = await getTaskStatus(config!, monitoredTaskId);
+        const status = await getTaskStatus(session!, monitoredTaskId);
         if (!cancelled) {
           setTaskStatus(status);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
         }
       }
     }
@@ -172,30 +170,30 @@ export default function MissionDispatchPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [config, monitoredTaskId]);
+  }, [session, monitoredTaskId]);
 
   async function runStep(label: string, fn: () => Promise<void>) {
     setLoading(label);
-    setError("");
+    setError(null);
     setNotice("");
     try {
       await fn();
       await refreshLifecycle();
       await refreshReadinessViews();
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(null);
     }
   }
 
   async function handlePreparePlan() {
-    if (!config || !lifecycle) {
+    if (!session || !lifecycle) {
       return;
     }
     await runStep("Creating plan…", async () => {
       await createMissionPlan(
-        config,
+        session,
         missionId,
         buildMissionPlanPayload(lifecycle.mission.objective, allowedActions, successCriteria),
       );
@@ -204,50 +202,50 @@ export default function MissionDispatchPage() {
   }
 
   async function handlePrepareGraph() {
-    if (!config || allowedActions.length === 0) {
+    if (!session || allowedActions.length === 0) {
       setError("This mission has no allowed_actions to build a task graph from.");
       return;
     }
     await runStep("Building task graph…", async () => {
-      await upsertMissionTaskGraph(config, missionId, buildTaskGraphPayload(allowedActions));
+      await upsertMissionTaskGraph(session, missionId, buildTaskGraphPayload(allowedActions));
       setNotice(`Task graph created with ${allowedActions.length} ability node(s).`);
     });
   }
 
   async function handleMaterializeGraph() {
-    if (!config || allowedActions.length === 0) {
+    if (!session || allowedActions.length === 0) {
       return;
     }
     await runStep("Materializing graph…", async () => {
-      await materializeMissionGraph(config, missionId, buildMaterializationPayload(allowedActions));
+      await materializeMissionGraph(session, missionId, buildMaterializationPayload(allowedActions));
       setNotice("Graph materialization recorded.");
     });
   }
 
   async function handleProvisionAuthority() {
-    if (!config) {
+    if (!session) {
       return;
     }
     await runStep("Provisioning runtime authority…", async () => {
-      const response = await provisionBridgeRuntimeAuthority(config, missionId);
+      const response = await provisionBridgeRuntimeAuthority(session, missionId);
       setAuthorities(response);
       setNotice(`Provisioned authority for ${response.node_authorities.length} node(s).`);
     });
   }
 
   async function handleAdmitRuntime() {
-    if (!config || allowedActions.length === 0) {
+    if (!session || allowedActions.length === 0) {
       return;
     }
     await runStep("Admitting to runtime…", async () => {
       let nodeAuthorities = authorities?.node_authorities ?? [];
       if (nodeAuthorities.length === 0) {
-        const provisioned = await provisionBridgeRuntimeAuthority(config, missionId);
+        const provisioned = await provisionBridgeRuntimeAuthority(session, missionId);
         setAuthorities(provisioned);
         nodeAuthorities = provisioned.node_authorities;
       }
       await admitMissionToRuntime(
-        config,
+        session,
         missionId,
         buildRuntimeAdmissionPayload(allowedActions, principalId, nodeAuthorities),
       );
@@ -256,22 +254,22 @@ export default function MissionDispatchPage() {
   }
 
   async function handleCheckReadiness() {
-    if (!config) {
+    if (!session) {
       return;
     }
     await runStep("Checking readiness…", async () => {
-      const response = await getMissionRuntimeReadiness(config, missionId);
+      const response = await getMissionRuntimeReadiness(session, missionId);
       setReadiness(response);
       setNotice(response.ready ? "Runtime is ready for task materialization." : "Runtime readiness has blockers.");
     });
   }
 
   async function handleMaterializeTasks() {
-    if (!config) {
+    if (!session) {
       return;
     }
     await runStep("Materializing runtime tasks…", async () => {
-      const response = await materializeMissionRuntimeTasks(config, missionId);
+      const response = await materializeMissionRuntimeTasks(session, missionId);
       setTaskMaterialization(response);
       if (response.created_execution_task_ids.length > 0) {
         setMonitoredTaskId(response.created_execution_task_ids[0]);
@@ -281,26 +279,26 @@ export default function MissionDispatchPage() {
   }
 
   async function handleQueueAdmission() {
-    if (!config) {
+    if (!session) {
       return;
     }
     await runStep("Queueing tasks…", async () => {
-      const response = await admitMissionRuntimeQueue(config, missionId);
+      const response = await admitMissionRuntimeQueue(session, missionId);
       setNotice(`Queued ${response.queued_task_ids.length} task(s).`);
     });
   }
 
   async function handleRunPipeline() {
-    if (!config || !lifecycle) {
+    if (!session || !lifecycle) {
       return;
     }
     setLoading("Running full pipeline…");
-    setError("");
+    setError(null);
     setNotice("");
     try {
       if (!lifecycle.completeness.has_plan) {
         await createMissionPlan(
-          config,
+          session,
           missionId,
           buildMissionPlanPayload(lifecycle.mission.objective, allowedActions, successCriteria),
         );
@@ -309,36 +307,36 @@ export default function MissionDispatchPage() {
         throw new Error("Mission has no allowed_actions — add abilities when creating the mission.");
       }
       if (!lifecycle.completeness.has_task_graph) {
-        await upsertMissionTaskGraph(config, missionId, buildTaskGraphPayload(allowedActions));
+        await upsertMissionTaskGraph(session, missionId, buildTaskGraphPayload(allowedActions));
       }
       if (!lifecycle.completeness.has_materialization) {
-        await materializeMissionGraph(config, missionId, buildMaterializationPayload(allowedActions));
+        await materializeMissionGraph(session, missionId, buildMaterializationPayload(allowedActions));
       }
-      const provisioned = await provisionBridgeRuntimeAuthority(config, missionId);
+      const provisioned = await provisionBridgeRuntimeAuthority(session, missionId);
       setAuthorities(provisioned);
       if (!lifecycle.completeness.has_runtime_admission) {
         await admitMissionToRuntime(
-          config,
+          session,
           missionId,
           buildRuntimeAdmissionPayload(allowedActions, principalId, provisioned.node_authorities),
         );
       }
-      const readinessResponse = await getMissionRuntimeReadiness(config, missionId);
+      const readinessResponse = await getMissionRuntimeReadiness(session, missionId);
       setReadiness(readinessResponse);
       if (!readinessResponse.ready) {
         throw new Error("Runtime readiness blocked — review blockers below before materializing tasks.");
       }
-      const materialized = await materializeMissionRuntimeTasks(config, missionId);
+      const materialized = await materializeMissionRuntimeTasks(session, missionId);
       setTaskMaterialization(materialized);
       if (materialized.created_execution_task_ids.length > 0) {
         setMonitoredTaskId(materialized.created_execution_task_ids[0]);
       }
-      await admitMissionRuntimeQueue(config, missionId);
+      await admitMissionRuntimeQueue(session, missionId);
       await refreshLifecycle();
       await refreshReadinessViews();
       setNotice("Pipeline complete — tasks materialized and queued.");
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
       await refreshLifecycle();
       await refreshReadinessViews();
     } finally {
@@ -401,7 +399,7 @@ export default function MissionDispatchPage() {
           <button
             type="button"
             className="primary-button"
-            disabled={!config || loading !== null || allowedActions.length === 0}
+            disabled={!session || loading !== null || allowedActions.length === 0}
             onClick={() => void handleRunPipeline()}
           >
             {loading === "Running full pipeline…" ? "Running…" : "Run full pipeline"}
@@ -427,42 +425,42 @@ export default function MissionDispatchPage() {
                 </div>
                 <div className="dispatch-step-actions">
                   {step.id === "plan" ? (
-                    <button type="button" className="ghost-button" disabled={!config || loading !== null} onClick={() => void handlePreparePlan()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null} onClick={() => void handlePreparePlan()}>
                       {loading === "Creating plan…" ? "Working…" : lifecycle?.completeness.has_plan ? "Recreate plan" : "Create plan"}
                     </button>
                   ) : null}
                   {step.id === "graph" ? (
-                    <button type="button" className="ghost-button" disabled={!config || loading !== null || allowedActions.length === 0} onClick={() => void handlePrepareGraph()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null || allowedActions.length === 0} onClick={() => void handlePrepareGraph()}>
                       {loading === "Building task graph…" ? "Working…" : lifecycle?.completeness.has_task_graph ? "Replace graph" : "Build graph"}
                     </button>
                   ) : null}
                   {step.id === "materialize" ? (
-                    <button type="button" className="ghost-button" disabled={!config || loading !== null || allowedActions.length === 0} onClick={() => void handleMaterializeGraph()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null || allowedActions.length === 0} onClick={() => void handleMaterializeGraph()}>
                       {loading === "Materializing graph…" ? "Working…" : "Materialize"}
                     </button>
                   ) : null}
                   {step.id === "authority" ? (
-                    <button type="button" className="ghost-button" disabled={!config || loading !== null} onClick={() => void handleProvisionAuthority()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null} onClick={() => void handleProvisionAuthority()}>
                       {loading === "Provisioning runtime authority…" ? "Working…" : "Provision authority"}
                     </button>
                   ) : null}
                   {step.id === "admit" ? (
-                    <button type="button" className="ghost-button" disabled={!config || loading !== null || allowedActions.length === 0} onClick={() => void handleAdmitRuntime()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null || allowedActions.length === 0} onClick={() => void handleAdmitRuntime()}>
                       {loading === "Admitting to runtime…" ? "Working…" : "Admit to runtime"}
                     </button>
                   ) : null}
                   {step.id === "readiness" ? (
-                    <button type="button" className="ghost-button" disabled={!config || loading !== null} onClick={() => void handleCheckReadiness()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null} onClick={() => void handleCheckReadiness()}>
                       {loading === "Checking readiness…" ? "Working…" : "Check readiness"}
                     </button>
                   ) : null}
                   {step.id === "tasks" ? (
-                    <button type="button" className="ghost-button" disabled={!config || loading !== null} onClick={() => void handleMaterializeTasks()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null} onClick={() => void handleMaterializeTasks()}>
                       {loading === "Materializing runtime tasks…" ? "Working…" : "Materialize tasks"}
                     </button>
                   ) : null}
                   {step.id === "queue" ? (
-                    <button type="button" className="ghost-button" disabled={!config || loading !== null} onClick={() => void handleQueueAdmission()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null} onClick={() => void handleQueueAdmission()}>
                       {loading === "Queueing tasks…" ? "Working…" : "Queue for workers"}
                     </button>
                   ) : null}
@@ -537,11 +535,7 @@ export default function MissionDispatchPage() {
         </section>
       ) : null}
 
-      {error ? (
-        <div className="inline-error">
-          <pre>{error}</pre>
-        </div>
-      ) : null}
+      <PageErrorAlert error={error} />
     </main>
   );
 }

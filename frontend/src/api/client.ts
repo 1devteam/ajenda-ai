@@ -1,6 +1,12 @@
 import {
+  canRefreshSession,
+  forceSignOut,
+  isAuthenticationFailure,
+  sessionExpiredFailure,
+  shouldRefreshAccessToken,
+} from "../auth/sessionLifecycle";
+import {
   getApiBaseUrl,
-  isSessionNearExpiry,
   saveSession,
   sessionFromOidcResponse,
   sessionToRuntimeConfig,
@@ -152,10 +158,24 @@ async function request<T>(
     headers.set("Idempotency-Key", options.idempotencyKey.trim());
   }
 
-  const response = await fetch(endpoint(getApiBaseUrl(), path), {
-    ...init,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint(getApiBaseUrl(), path), {
+      ...init,
+      headers,
+    });
+  } catch (error) {
+    const failure: ApiFailure = {
+      status: 0,
+      message: "Network error",
+      body: {
+        detail: "Unable to reach the Ajenda API. Check your connection and try again.",
+        code: "NETWORK_ERROR",
+        cause: error instanceof Error ? error.message : String(error),
+      },
+    };
+    throw failure;
+  }
 
   const body = await parseBody(response);
 
@@ -181,15 +201,43 @@ function runtimeOptions(config: RuntimeConfig) {
   };
 }
 
-export async function ensureFreshSession(session: CustomerSession): Promise<CustomerSession> {
-  if (session.authMode !== "oidc" || !session.refreshToken || !isSessionNearExpiry(session)) {
-    return session;
+async function rotateOidcSession(
+  session: CustomerSession,
+  reason: "access_expired" | "refresh_failed" | "auth_rejected",
+): Promise<CustomerSession> {
+  if (!canRefreshSession(session)) {
+    forceSignOut({
+      reason: session.refreshToken ? "refresh_expired" : "access_expired",
+      message: "Your sign-in session expired. Sign in again to continue.",
+    });
+    throw sessionExpiredFailure("Your sign-in session expired. Sign in again to continue.", reason);
   }
 
-  const response = await refreshCustomerSession(session.refreshToken);
-  const refreshed = sessionFromOidcResponse(response);
-  saveSession(refreshed);
-  return refreshed;
+  try {
+    const response = await refreshCustomerSession(session.refreshToken!);
+    const refreshed = sessionFromOidcResponse(response);
+    saveSession(refreshed);
+    return refreshed;
+  } catch (error) {
+    if (isAuthenticationFailure(error)) {
+      forceSignOut({
+        reason: "refresh_failed",
+        message: "Your sign-in session expired. Sign in again to continue.",
+      });
+      throw sessionExpiredFailure("Your sign-in session expired. Sign in again to continue.", "refresh_failed");
+    }
+    throw error;
+  }
+}
+
+export async function ensureFreshSession(session: CustomerSession): Promise<CustomerSession> {
+  if (session.authMode !== "oidc") {
+    return session;
+  }
+  if (!shouldRefreshAccessToken(session)) {
+    return session;
+  }
+  return rotateOidcSession(session, "access_expired");
 }
 
 async function withFreshSession<T>(
@@ -198,6 +246,69 @@ async function withFreshSession<T>(
 ): Promise<T> {
   const fresh = await ensureFreshSession(session);
   return fn(fresh);
+}
+
+type AuthedCaller = CustomerSession | RuntimeConfig;
+
+function isRuntimeConfig(caller: AuthedCaller): caller is RuntimeConfig {
+  return "apiBaseUrl" in caller;
+}
+
+async function executeAuthedRequest<T>(
+  session: CustomerSession,
+  fn: (config: RuntimeConfig) => Promise<T>,
+  options: { allowRefreshRetry: boolean },
+): Promise<T> {
+  const run = async (active: CustomerSession) => fn(sessionToRuntimeConfig(active));
+
+  try {
+    const fresh = await ensureFreshSession(session);
+    return await run(fresh);
+  } catch (error) {
+    if (!isAuthenticationFailure(error)) {
+      throw error;
+    }
+
+    if (session.authMode !== "oidc") {
+      forceSignOut({
+        reason: "auth_rejected",
+        message: "Your API key is no longer valid. Sign in again to continue.",
+      });
+      throw sessionExpiredFailure("Your API key is no longer valid. Sign in again to continue.", "auth_rejected");
+    }
+
+    if (!options.allowRefreshRetry) {
+      forceSignOut({
+        reason: "auth_rejected",
+        message: "Your sign-in session expired. Sign in again to continue.",
+      });
+      throw sessionExpiredFailure("Your sign-in session expired. Sign in again to continue.", "auth_rejected");
+    }
+
+    const refreshed = await rotateOidcSession(session, "auth_rejected");
+    try {
+      return await run(refreshed);
+    } catch (retryError) {
+      if (isAuthenticationFailure(retryError)) {
+        forceSignOut({
+          reason: "auth_rejected",
+          message: "Your sign-in session expired. Sign in again to continue.",
+        });
+        throw sessionExpiredFailure("Your sign-in session expired. Sign in again to continue.", "auth_rejected");
+      }
+      throw retryError;
+    }
+  }
+}
+
+async function withAuthedRuntime<T>(
+  caller: AuthedCaller,
+  fn: (config: RuntimeConfig) => Promise<T>,
+): Promise<T> {
+  if (isRuntimeConfig(caller)) {
+    return fn(caller);
+  }
+  return executeAuthedRequest(caller, fn, { allowRefreshRetry: true });
 }
 
 export async function getOidcConfig(): Promise<OidcConfigResponse> {
@@ -505,252 +616,292 @@ export async function connectGitHubOAuth(
   );
 }
 
-function authedRuntimeOptions(config: RuntimeConfig) {
-  return runtimeOptions(config);
-}
-
 export async function listMissions(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   options?: { limit?: number },
 ): Promise<MissionListResponse> {
   const limit = options?.limit ?? 50;
-  return request<MissionListResponse>(`/v1/missions?limit=${limit}`, {}, authedRuntimeOptions(config));
-}
-
-export async function createMission(
-  config: RuntimeConfig,
-  body: MissionCreateRequest,
-): Promise<MissionReadResponse> {
-  return request<MissionReadResponse>(
-    "/v1/missions",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        compliance_category: "operational",
-        jurisdiction: "US-ALL",
-        ...body,
-      }),
-    },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionListResponse>(`/v1/missions?limit=${limit}`, {}, runtimeOptions(config)),
   );
 }
 
-export async function getMission(config: RuntimeConfig, missionId: string): Promise<MissionReadResponse> {
-  return request<MissionReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}`,
-    {},
-    authedRuntimeOptions(config),
+export async function createMission(
+  caller: AuthedCaller,
+  body: MissionCreateRequest,
+): Promise<MissionReadResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionReadResponse>(
+      "/v1/missions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          compliance_category: "operational",
+          jurisdiction: "US-ALL",
+          ...body,
+        }),
+      },
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function getMission(caller: AuthedCaller, missionId: string): Promise<MissionReadResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}`,
+      {},
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function getMissionLifecycle(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
 ): Promise<MissionLifecycleReadResponse> {
-  return request<MissionLifecycleReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/lifecycle`,
-    {},
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionLifecycleReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/lifecycle`,
+      {},
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function createMissionPlan(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
   body: MissionPlanCreateRequest,
 ): Promise<MissionPlanReadResponse> {
-  return request<MissionPlanReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/plan`,
-    { method: "POST", body: JSON.stringify(body) },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionPlanReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/plan`,
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function upsertMissionTaskGraph(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
   body: MissionTaskGraphPayload,
 ): Promise<MissionTaskGraphReadResponse> {
-  return request<MissionTaskGraphReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/task-graph`,
-    { method: "PUT", body: JSON.stringify(body) },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionTaskGraphReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/task-graph`,
+      { method: "PUT", body: JSON.stringify(body) },
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function materializeMissionGraph(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
   body: GraphMaterializationWriteRequest,
 ): Promise<GraphMaterializationReadResponse> {
-  return request<GraphMaterializationReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/materialize-graph`,
-    { method: "POST", body: JSON.stringify(body) },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<GraphMaterializationReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/materialize-graph`,
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function provisionBridgeRuntimeAuthority(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
 ): Promise<BridgeRuntimeAuthorityReadResponse> {
-  return request<BridgeRuntimeAuthorityReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/bridge-runtime-authority`,
-    { method: "POST", body: JSON.stringify({}) },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<BridgeRuntimeAuthorityReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/bridge-runtime-authority`,
+      { method: "POST", body: JSON.stringify({}) },
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function admitMissionToRuntime(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
   body: RuntimeAdmissionWriteRequest,
 ): Promise<RuntimeAdmissionReadResponse> {
-  return request<RuntimeAdmissionReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/runtime-admission`,
-    { method: "POST", body: JSON.stringify(body) },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<RuntimeAdmissionReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/runtime-admission`,
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function getMissionRuntimeReadiness(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
 ): Promise<RuntimeReadinessReadResponse> {
-  return request<RuntimeReadinessReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/runtime-readiness`,
-    {},
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<RuntimeReadinessReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/runtime-readiness`,
+      {},
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function materializeMissionRuntimeTasks(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
 ): Promise<RuntimeTaskMaterializationReadResponse> {
-  return request<RuntimeTaskMaterializationReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/runtime-task-materialization`,
-    { method: "POST", body: JSON.stringify({}) },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<RuntimeTaskMaterializationReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/runtime-task-materialization`,
+      { method: "POST", body: JSON.stringify({}) },
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function admitMissionRuntimeQueue(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
 ): Promise<RuntimeQueueAdmissionResponse> {
-  return request<RuntimeQueueAdmissionResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/runtime-queue-admission`,
-    { method: "POST", body: JSON.stringify({}) },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<RuntimeQueueAdmissionResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/runtime-queue-admission`,
+      { method: "POST", body: JSON.stringify({}) },
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function getMissionDispatchReadiness(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   missionId: string,
 ): Promise<RuntimeDispatchReadinessReadResponse> {
-  return request<RuntimeDispatchReadinessReadResponse>(
-    `/v1/missions/${encodeURIComponent(missionId)}/runtime-dispatch-readiness`,
-    {},
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<RuntimeDispatchReadinessReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/runtime-dispatch-readiness`,
+      {},
+      runtimeOptions(config),
+    ),
   );
 }
 
-export async function listActions(config: RuntimeConfig): Promise<AbilityActionListResponse> {
-  return request<AbilityActionListResponse>("/v1/ability-runtime/actions", {}, authedRuntimeOptions(config));
+export async function listActions(caller: AuthedCaller): Promise<AbilityActionListResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<AbilityActionListResponse>("/v1/ability-runtime/actions", {}, runtimeOptions(config)),
+  );
 }
 
 export async function listAutonomyDisclaimers(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
 ): Promise<AutonomyDisclaimerListResponse> {
-  return request<AutonomyDisclaimerListResponse>(
-    "/v1/ability-runtime/disclaimers",
-    {},
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<AutonomyDisclaimerListResponse>(
+      "/v1/ability-runtime/disclaimers",
+      {},
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function launchTask(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   body: AbilityTaskCreate,
   options?: { idempotencyKey?: string },
 ): Promise<AbilityTaskQueuedResponse> {
   const idempotencyKey = options?.idempotencyKey ?? body.idempotency_key ?? newIdempotencyKey();
-  return request<AbilityTaskQueuedResponse>(
-    "/v1/ability-runtime/tasks",
-    {
-      method: "POST",
-      body: JSON.stringify({ ...body, idempotency_key: body.idempotency_key ?? idempotencyKey }),
-    },
-    { ...authedRuntimeOptions(config), idempotencyKey },
+  return withAuthedRuntime(caller, (config) =>
+    request<AbilityTaskQueuedResponse>(
+      "/v1/ability-runtime/tasks",
+      {
+        method: "POST",
+        body: JSON.stringify({ ...body, idempotency_key: body.idempotency_key ?? idempotencyKey }),
+      },
+      { ...runtimeOptions(config), idempotencyKey },
+    ),
   );
 }
 
 export async function launchProof(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   proof: "calendar-read" | "calendar-create" | "sales-qualify" | "sales-draft-followup",
 ): Promise<AbilityTaskQueuedResponse> {
-  return request<AbilityTaskQueuedResponse>(
-    `/v1/ability-runtime/proofs/${proof}`,
-    {
-      method: "POST",
-      body: JSON.stringify({}),
-    },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<AbilityTaskQueuedResponse>(
+      `/v1/ability-runtime/proofs/${proof}`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function getTaskStatus(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   taskId: string,
 ): Promise<AbilityTaskStatusResponse> {
-  return request<AbilityTaskStatusResponse>(
-    `/v1/ability-runtime/tasks/${taskId}`,
-    {},
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<AbilityTaskStatusResponse>(
+      `/v1/ability-runtime/tasks/${taskId}`,
+      {},
+      runtimeOptions(config),
+    ),
   );
 }
 
 export async function createCheckout(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   plan: "starter" | "pro",
 ): Promise<CheckoutResponse> {
-  return request<CheckoutResponse>(
-    "/v1/billing/checkout",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        plan,
-        success_url: `${window.location.origin}/billing/success`,
-        cancel_url: `${window.location.origin}/billing/cancel`,
-      }),
-    },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<CheckoutResponse>(
+      "/v1/billing/checkout",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          plan,
+          success_url: `${window.location.origin}/billing/success`,
+          cancel_url: `${window.location.origin}/billing/cancel`,
+        }),
+      },
+      runtimeOptions(config),
+    ),
   );
 }
 
-export async function createPortal(config: RuntimeConfig): Promise<PortalResponse> {
+export async function createPortal(caller: AuthedCaller): Promise<PortalResponse> {
   const returnUrl = encodeURIComponent(`${window.location.origin}/billing`);
-  return request<PortalResponse>(
-    `/v1/billing/portal?return_url=${returnUrl}`,
-    { method: "GET" },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<PortalResponse>(
+      `/v1/billing/portal?return_url=${returnUrl}`,
+      { method: "GET" },
+      runtimeOptions(config),
+    ),
   );
 }
 
-export async function getBusinessProfile(config: RuntimeConfig): Promise<BusinessProfileReadResponse> {
-  return request<BusinessProfileReadResponse>("/v1/business-profile", {}, authedRuntimeOptions(config));
+export async function getBusinessProfile(caller: AuthedCaller): Promise<BusinessProfileReadResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<BusinessProfileReadResponse>("/v1/business-profile", {}, runtimeOptions(config)),
+  );
 }
 
 export async function upsertBusinessProfileFact(
-  config: RuntimeConfig,
+  caller: AuthedCaller,
   category: string,
   body: BusinessProfileFactUpsertRequest,
 ): Promise<BusinessProfileReadResponse> {
-  return request<BusinessProfileReadResponse>(
-    `/v1/business-profile/facts/${encodeURIComponent(category)}`,
-    { method: "PUT", body: JSON.stringify(body) },
-    authedRuntimeOptions(config),
+  return withAuthedRuntime(caller, (config) =>
+    request<BusinessProfileReadResponse>(
+      `/v1/business-profile/facts/${encodeURIComponent(category)}`,
+      { method: "PUT", body: JSON.stringify(body) },
+      runtimeOptions(config),
+    ),
   );
 }

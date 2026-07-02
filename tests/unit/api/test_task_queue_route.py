@@ -394,7 +394,7 @@ def test_queue_task_route_returns_structured_429_when_quota_exceeded_for_valid_t
                 queue=queue,
             )
 
-    assert exc_info.value.status_code == 429
+    assert exc_info.value.status_code == 402
     assert exc_info.value.detail == {
         "code": "QUOTA_EXCEEDED",
         "field": "tasks_per_month",

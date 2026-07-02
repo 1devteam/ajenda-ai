@@ -8,7 +8,12 @@ from dataclasses import dataclass
 
 from backend.app.config import Settings, get_settings
 from backend.services.credentials.google_calendar_runtime_token import serialize_google_calendar_oauth_secret
-from backend.services.credentials.oauth_state import OAuthStateError, sign_oauth_state, verify_oauth_state
+from backend.services.credentials.oauth_state import (
+    OAuthStateClaims,
+    OAuthStateError,
+    sign_oauth_state,
+    verify_oauth_state,
+)
 from backend.services.tools.google_calendar_provider import required_google_calendar_scopes
 from backend.services.tools.google_oauth_cli import (
     GoogleOAuthCliError,
@@ -97,7 +102,7 @@ def exchange_google_calendar_oauth_code(*, code: str, state: str, settings: Sett
     return serialize_google_calendar_oauth_secret(bundle=bundle)
 
 
-def verify_google_calendar_oauth_state(state: str, *, settings: Settings | None = None):
+def verify_google_calendar_oauth_state(state: str, *, settings: Settings | None = None) -> OAuthStateClaims:
     try:
         return verify_oauth_state(state, provider=GOOGLE_CALENDAR_OAUTH_PROVIDER, settings=settings)
     except OAuthStateError as exc:

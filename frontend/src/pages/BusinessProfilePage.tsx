@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { getBusinessProfile } from "../api/client";
-import { loadSession, sessionToRuntimeConfig } from "../auth/session";
+import { loadSession } from "../auth/session";
 import {
   BUSINESS_PROFILE_FIELDS,
   STANDALONE_PROCESS_STEPS,
@@ -40,10 +40,6 @@ function valuesFromProfile(profile: BusinessProfileReadResponse | null): FormVal
 
 export default function BusinessProfilePage() {
   const session = loadSession();
-  const config = useMemo(
-    () => (session ? sessionToRuntimeConfig(session) : null),
-    [session?.tenantId, session?.apiKey, session?.accessToken],
-  );
   const [profile, setProfile] = useState<BusinessProfileReadResponse | null>(null);
   const [values, setValues] = useState<FormValues>(() => valuesFromProfile(null));
   const [error, setError] = useState("");
@@ -52,20 +48,20 @@ export default function BusinessProfilePage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!config) {
+    if (!session) {
       setLoading(false);
       return;
     }
 
     let cancelled = false;
     async function load() {
-      if (!config) {
+      if (!session) {
         return;
       }
       setLoading(true);
       setError("");
       try {
-        const response = await getBusinessProfile(config);
+        const response = await getBusinessProfile(session);
         if (!cancelled) {
           setProfile(response);
           setValues(valuesFromProfile(response));
@@ -85,7 +81,7 @@ export default function BusinessProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [config]);
+  }, [session]);
 
   const sections = useMemo(() => {
     const grouped = new Map<BusinessProfileField["section"], BusinessProfileField[]>();
@@ -110,7 +106,7 @@ export default function BusinessProfilePage() {
 
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!config) {
+    if (!session) {
       return;
     }
 
@@ -118,7 +114,7 @@ export default function BusinessProfilePage() {
     setError("");
     setSuccess("");
     try {
-      const latest = await saveBusinessProfileFacts(config, values, "business_profile_page");
+      const latest = await saveBusinessProfileFacts(session, values, "business_profile_page");
       setProfile(latest);
       if (latest) {
         setValues(valuesFromProfile(latest));

@@ -14,7 +14,12 @@ from backend.services.credentials.linkedin_oauth_client import (
     resolve_linkedin_oauth_client_config,
 )
 from backend.services.credentials.linkedin_runtime_token import serialize_linkedin_oauth_secret
-from backend.services.credentials.oauth_state import OAuthStateError, sign_oauth_state, verify_oauth_state
+from backend.services.credentials.oauth_state import (
+    OAuthStateClaims,
+    OAuthStateError,
+    sign_oauth_state,
+    verify_oauth_state,
+)
 
 LINKEDIN_OAUTH_PROVIDER = "linkedin"
 
@@ -82,7 +87,7 @@ def exchange_linkedin_oauth_code(*, code: str, state: str, settings: Settings | 
     return serialize_linkedin_oauth_secret(bundle=bundle)
 
 
-def verify_linkedin_oauth_state(state: str, *, settings: Settings | None = None):
+def verify_linkedin_oauth_state(state: str, *, settings: Settings | None = None) -> OAuthStateClaims:
     try:
         return verify_oauth_state(state, provider=LINKEDIN_OAUTH_PROVIDER, settings=settings)
     except OAuthStateError as exc:

@@ -65,4 +65,6 @@ def test_retrieval_hybrid_search_merges_internal_records_and_ephemeral_chunks(pg
     memory_ids = {str(item.get("id")) for item in result.output["memories"]}
     assert "mem1" not in memory_ids
     assert "mem2" not in memory_ids
-    assert "chunk-roofing" in memory_ids or any("Austin" in str(item.get("content")) for item in result.output["memories"])
+    assert "chunk-roofing" in memory_ids or any(
+        "Austin" in str(item.get("content")) for item in result.output["memories"]
+    )

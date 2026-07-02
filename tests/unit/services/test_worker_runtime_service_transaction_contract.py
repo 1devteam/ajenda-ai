@@ -345,6 +345,48 @@ def test_claim_next_task_reconciles_terminal_queue_artifact_without_claiming() -
     assert audit_event.payload_json["requeue_allowed"] is False
 
 
+def test_claim_next_task_reconciles_blocked_terminal_queue_artifact_without_claiming() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-blocked-claim"
+    worker_id = "worker-blocked-claim"
+    task_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=task_id,
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        fleet_id=None,
+        branch_id=None,
+        status=ExecutionTaskState.BLOCKED.value,
+        metadata_json={},
+    )
+    queue.claim_task.return_value = QueueMessage(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=task.mission_id,
+        fleet_id=None,
+        branch_id=None,
+        payload={},
+        enqueued_at=datetime.now(UTC),
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = task
+    service._leases = MagicMock()
+    service._audit = MagicMock()
+
+    claimed = service.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+
+    assert claimed is None
+    assert task.status == ExecutionTaskState.BLOCKED.value
+    service._leases.add.assert_not_called()
+    queue.complete_task.assert_called_once_with(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
+    audit_event = service._audit.append.call_args.args[0]
+    assert audit_event.action == "terminal_task_queue_claim_reconciled"
+    assert audit_event.payload_json["requeue_allowed"] is False
+
+
 def test_claim_next_task_records_terminal_queue_artifact_cleanup_failure() -> None:
     session = MagicMock()
     queue = MagicMock()

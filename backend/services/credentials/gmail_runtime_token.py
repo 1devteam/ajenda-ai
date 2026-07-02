@@ -15,6 +15,7 @@ from backend.services.tools.google_oauth_cli import (
 )
 
 TOKEN_REFRESH_SKEW_SECONDS = 60
+PROVIDER_KIND = "gmail"
 
 
 class GmailRuntimeTokenError(ValueError):
@@ -35,13 +36,20 @@ def is_gmail_oauth_secret(secret_value: str) -> bool:
         payload = json.loads(stripped)
     except json.JSONDecodeError:
         return False
-    return isinstance(payload, dict) and (
-        isinstance(payload.get("access_token"), str) or isinstance(payload.get("refresh_token"), str)
-    )
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("provider_kind") == PROVIDER_KIND:
+        return True
+    if payload.get("provider_kind") in ("linkedin", "salesforce", "google_calendar", "github"):
+        return False
+    if isinstance(payload.get("instance_url"), str):
+        return False
+    return isinstance(payload.get("access_token"), str) or isinstance(payload.get("refresh_token"), str)
 
 
 def serialize_gmail_oauth_secret(*, bundle: GoogleOAuthTokenBundle) -> str:
     document = {
+        "provider_kind": PROVIDER_KIND,
         "access_token": bundle.access_token,
         "refresh_token": bundle.refresh_token,
         "expires_at": bundle.expires_at,
@@ -55,6 +63,7 @@ def resolve_gmail_credential_secret(
     secret_value: str,
     *,
     auto_refresh: bool = True,
+    redirect_uri: str = "http://localhost:5173/credentials/gmail/callback",
 ) -> GmailRuntimeTokenResolution:
     """Return a bearer token for Gmail API calls.
 
@@ -90,6 +99,11 @@ def resolve_gmail_credential_secret(
 
     try:
         client = resolve_google_oauth_client_config()
+        client = type(client)(
+            client_id=client.client_id,
+            client_secret=client.client_secret,
+            redirect_uri=redirect_uri.strip() or client.redirect_uri,
+        )
     except GoogleOAuthCliError as exc:
         raise GmailRuntimeTokenError(
             "gmail access token expired and Google OAuth client is not configured for refresh"

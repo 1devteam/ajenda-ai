@@ -106,6 +106,7 @@ from backend.services.mission_bridge.worker_start import (
 from backend.services.mission_bridge.worker_start import (
     worker_start_admission_to_read as _worker_start_admission_to_read,
 )
+from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
 from backend.services.mission_executor import MissionExecutor
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
@@ -114,7 +115,6 @@ from backend.services.mission_intake_quality import (
 from backend.services.mission_runtime_projection import (
     supersede_runtime_task_materialization,
 )
-from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
 from backend.services.mission_runtime_queue_admission_service import MissionRuntimeQueueAdmissionService
 from backend.services.mission_runtime_task_materialization_service import MissionRuntimeTaskMaterializationService
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaEnforcementService, QuotaExceededError

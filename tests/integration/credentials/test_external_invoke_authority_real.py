@@ -118,7 +118,7 @@ def test_cross_tenant_credential_reference_denied_at_invoke(
         requires_human_review=False,
     )
 
-    with pytest.raises(Exception, match="credential denied.*not visible"):
+    with pytest.raises(Exception, match=r"credential denied.*not visible"):
         tool_invoke_handler(
             task,
             {

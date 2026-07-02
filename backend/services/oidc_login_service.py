@@ -111,6 +111,7 @@ class OidcLoginService:
                 start_ip_per_hour=settings.auth_login_start_ip_limit_per_hour,
                 callback_ip_per_hour=settings.auth_login_callback_ip_limit_per_hour,
                 callback_email_per_hour=settings.auth_login_callback_email_limit_per_hour,
+                refresh_ip_per_hour=settings.auth_login_refresh_ip_limit_per_hour,
             ),
         )
 
@@ -298,6 +299,7 @@ class OidcLoginService:
 
     def refresh_session(self, *, refresh_token: str, client_ip_hash: str) -> CustomerSessionResult:
         self._assert_enabled()
+        self._abuse.check_refresh_ip(client_ip_hash=client_ip_hash)
         if not refresh_token.strip():
             raise OidcLoginValidationError("refresh_token is required")
 
@@ -339,11 +341,15 @@ class OidcLoginService:
             plan=tenant.plan,
         )
 
-    def revoke_access_token(self, *, access_jti: str) -> None:
+    def revoke_session(self, *, access_jti: str) -> None:
+        """Revoke the full customer session, invalidating access and refresh tokens."""
         record = self._sessions.get_by_access_jti(access_jti)
         if record is None or record.revoked_at is not None:
             return
         self._sessions.revoke(record)
+
+    def revoke_access_token(self, *, access_jti: str) -> None:
+        self.revoke_session(access_jti=access_jti)
 
     def _issue_session(
         self,

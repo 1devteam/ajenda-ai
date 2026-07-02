@@ -1,21 +1,17 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { resendVerification, signup } from "../api/client";
-import { beginOidcRedirect } from "../auth/oidc";
-import OidcProviderButton from "../components/OidcProviderButton";
-import { useOidcConfig } from "../hooks/useOidcConfig";
+import { signup } from "../api/client";
+import VerificationHelpPanel from "../components/VerificationHelpPanel";
 import { failureText } from "../utils/errors";
 
 export default function SignupPage() {
   const navigate = useNavigate();
-  const { config, enabled: oidcEnabled } = useOidcConfig();
   const [orgName, setOrgName] = useState("");
   const [email, setEmail] = useState("");
   const [slug, setSlug] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
-  const [verifyToken, setVerifyToken] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -29,39 +25,9 @@ export default function SignupPage() {
         slug: slug.trim() || undefined,
       });
       setPendingEmail(response.email);
-      setVerifyToken(response.verification_token ?? null);
     } catch (err) {
       setError(failureText(err));
     } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleResend() {
-    if (!pendingEmail) {
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const response = await resendVerification(pendingEmail);
-      if (response.verification_token) {
-        setVerifyToken(response.verification_token);
-      }
-    } catch (err) {
-      setError(failureText(err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleVerifiedGoogleSignIn() {
-    setLoading(true);
-    setError("");
-    try {
-      await beginOidcRedirect({ returnPath: "/dashboard" });
-    } catch (err) {
-      setError(failureText(err));
       setLoading(false);
     }
   }
@@ -73,43 +39,22 @@ export default function SignupPage() {
           <p className="eyebrow">Verify your email</p>
           <h1>Almost there</h1>
           <p>
-            Account created for <strong>{pendingEmail}</strong>.
+            Account created for <strong>{pendingEmail}</strong>. Verify your email before signing in with
+            Google.
           </p>
-          {verifyToken ? (
-            <div className="callout">
-              <p className="muted">
-                Local staging does not send real email (<code>AJENDA_EMAIL_PROVIDER=noop</code>). Verify
-                your email first, then sign in with Google using the same address.
-              </p>
-              <button
-                type="button"
-                onClick={() => navigate(`/verify-email?token=${encodeURIComponent(verifyToken)}`)}
-              >
-                Verify email now
-              </button>
-            </div>
-          ) : (
-            <p className="muted">
-              Check your inbox for the verification link, or open{" "}
-              <Link to="/verify-email">/verify-email</Link> and paste the token from the email URL.
-            </p>
-          )}
-          {oidcEnabled ? (
-            <div className="form-grid" style={{ marginTop: "1rem" }}>
-              <p className="muted">Already verified? Continue with Google to open your workspace.</p>
-              <OidcProviderButton
-                provider={config.provider}
-                loading={loading}
-                onClick={() => void handleVerifiedGoogleSignIn()}
-                label="Continue with Google after verification"
-              />
-            </div>
-          ) : null}
-          <div className="button-row">
-            <button type="button" className="ghost-button" onClick={() => void handleResend()} disabled={loading}>
-              Resend email
-            </button>
-          </div>
+
+          <VerificationHelpPanel
+            initialEmail={pendingEmail}
+            introText="Resend verification or use the staging token below to finish activation."
+            onVerifyNow={(verifyToken) => {
+              navigate(`/verify-email?email=${encodeURIComponent(pendingEmail)}&token=${encodeURIComponent(verifyToken)}`);
+            }}
+            disabled={loading}
+          />
+
+          <p className="muted">
+            After verification, return to <Link to="/signin">Sign in</Link> and continue with Google.
+          </p>
         </section>
         {error ? (
           <div className="inline-error">

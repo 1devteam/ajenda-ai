@@ -28,6 +28,27 @@ class LinkedInRuntimeTokenResolution:
     updated_secret: str | None = None
 
 
+def _has_explicit_linkedin_shape(payload: dict[str, Any]) -> bool:
+    access_token = payload.get("access_token")
+    refresh_token = payload.get("refresh_token")
+    expires_at = payload.get("expires_at")
+    if not (
+        isinstance(access_token, str)
+        and access_token.strip()
+        and isinstance(refresh_token, str)
+        and refresh_token.strip()
+        and isinstance(expires_at, str)
+        and expires_at.strip()
+    ):
+        return False
+    scopes = payload.get("scopes")
+    if isinstance(scopes, list):
+        scope_text = " ".join(str(item) for item in scopes).lower()
+        if any(marker in scope_text for marker in ("openid", "profile", "email", "w_member")):
+            return True
+    return True
+
+
 def is_linkedin_oauth_secret(secret_value: str) -> bool:
     stripped = secret_value.strip()
     if not stripped.startswith("{"):
@@ -40,9 +61,12 @@ def is_linkedin_oauth_secret(secret_value: str) -> bool:
         return False
     if payload.get("provider_kind") == PROVIDER_KIND:
         return True
-    if payload.get("provider_kind") == "salesforce" or isinstance(payload.get("instance_url"), str):
+    other_provider_kind = payload.get("provider_kind")
+    if isinstance(other_provider_kind, str) and other_provider_kind.strip():
         return False
-    return isinstance(payload.get("access_token"), str) and isinstance(payload.get("refresh_token"), str)
+    if isinstance(payload.get("instance_url"), str):
+        return False
+    return _has_explicit_linkedin_shape(payload)
 
 
 def serialize_linkedin_oauth_secret(*, bundle: LinkedInOAuthTokenBundle) -> str:

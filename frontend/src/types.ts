@@ -20,6 +20,7 @@ export interface CustomerSession {
   accessToken?: string;
   refreshToken?: string;
   expiresAt?: string;
+  refreshExpiresAt?: string;
   email?: string;
   orgName?: string;
   slug?: string;
