@@ -14,7 +14,12 @@ from backend.services.credentials.github_oauth_client import (
     resolve_github_oauth_client_config,
 )
 from backend.services.credentials.github_runtime_token import serialize_github_oauth_secret
-from backend.services.credentials.oauth_state import OAuthStateError, sign_oauth_state, verify_oauth_state
+from backend.services.credentials.oauth_state import (
+    OAuthStateClaims,
+    OAuthStateError,
+    sign_oauth_state,
+    verify_oauth_state,
+)
 
 GITHUB_OAUTH_PROVIDER = "github"
 
@@ -82,7 +87,7 @@ def exchange_github_oauth_code(*, code: str, state: str, settings: Settings | No
     return serialize_github_oauth_secret(bundle=bundle)
 
 
-def verify_github_oauth_state(state: str, *, settings: Settings | None = None):
+def verify_github_oauth_state(state: str, *, settings: Settings | None = None) -> OAuthStateClaims:
     try:
         return verify_oauth_state(state, provider=GITHUB_OAUTH_PROVIDER, settings=settings)
     except OAuthStateError as exc:

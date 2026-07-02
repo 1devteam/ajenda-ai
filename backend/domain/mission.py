@@ -619,7 +619,9 @@ def _normalize_task_graph_node(raw_node: Any, *, allow_legacy_v1: bool = False) 
     raw_output_contract = node.get("output_contract")
     if raw_output_contract is None and allow_legacy_v1:
         raw_output_contract = node.get("expected_output_contract", {})
-    output_contract = _require_task_graph_object(raw_output_contract or {}, field_name="output_contract")
+    if raw_output_contract is None:
+        raw_output_contract = {}
+    output_contract = _require_task_graph_object(raw_output_contract, field_name="output_contract")
     metadata = _require_task_graph_object(node.get("metadata", {}), field_name="node metadata")
     normalized_metadata = _json_safe_contract_copy(metadata, field_name="node metadata")
     if allow_legacy_v1:

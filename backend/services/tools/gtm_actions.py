@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import base64
 import json
-import uuid
 from email.mime.text import MIMEText
 from typing import Any
 from urllib.parse import quote
@@ -18,7 +17,6 @@ from backend.services.credentials.runtime_authority import CredentialRequirement
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
-from backend.services.tools.side_effect_resolvers import credential_reference_external_write
 from backend.services.tools.email_transport import (
     credential_transport_mode,
     parse_smtp_secret,
@@ -38,6 +36,7 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
+from backend.services.tools.side_effect_resolvers import credential_reference_external_write
 
 
 def _get_runtime_credential(
@@ -367,11 +366,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             "emails": emails,
             "real": credentialed_path,
         }
-        summary = (
-            f"Gmail check ({len(emails)} results)"
-            if credentialed_path
-            else "Gmail check (simulated)"
-        )
+        summary = f"Gmail check ({len(emails)} results)" if credentialed_path else "Gmail check (simulated)"
         return ActionResult(
             action=inv.action,
             provider="external_email",
@@ -430,9 +425,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
         provider = "ajenda_brain"
         side_effect = (
-            SideEffectClass.EXTERNAL_WRITE
-            if inv.credential_reference is not None
-            else SideEffectClass.INTERNAL_WRITE
+            SideEffectClass.EXTERNAL_WRITE if inv.credential_reference is not None else SideEffectClass.INTERNAL_WRITE
         )
         summary = (
             "External CRM upsert completed via plugin"

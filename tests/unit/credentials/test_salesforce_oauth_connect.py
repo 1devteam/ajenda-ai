@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from backend.services.credentials.salesforce_oauth_client import (
-    SalesforceOAuthClientConfig,
     salesforce_token_url,
 )
 from backend.services.credentials.salesforce_oauth_connect import (
@@ -65,7 +64,9 @@ def test_exchange_salesforce_oauth_code_returns_instance_host(
     fake_client.__enter__.return_value = fake_client
     fake_client.__exit__.return_value = None
     fake_client.post.return_value = _FakeResponse()
-    monkeypatch.setattr("backend.services.credentials.salesforce_oauth_client.httpx.Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr(
+        "backend.services.credentials.salesforce_oauth_client.httpx.Client", lambda **kwargs: fake_client
+    )
 
     connect_secret = exchange_salesforce_oauth_code(code="auth-code", state=issued.state)
 
@@ -86,5 +87,5 @@ def test_verify_salesforce_oauth_state_rejects_tampered_signature(monkeypatch: p
         actor_id="human:test@example.com",
     )
     tampered = f"{issued.state}x"
-    with pytest.raises(SalesforceOAuthConnectError, match="malformed|signature mismatch"):
+    with pytest.raises(SalesforceOAuthConnectError, match=r"malformed|signature mismatch"):
         verify_salesforce_oauth_state(tampered)

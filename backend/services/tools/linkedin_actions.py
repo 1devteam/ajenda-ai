@@ -74,10 +74,7 @@ def _profile_url(*, profile_id: str | None, fields: tuple[str, ...]) -> str:
     if profile_id and profile_id.strip():
         projection = ",".join(fields)
         encoded_id = quote(profile_id.strip(), safe="")
-        return (
-            f"https://{LINKEDIN_API_HOST}/v2/people/(id:{encoded_id})"
-            f"?projection=({projection})"
-        )
+        return f"https://{LINKEDIN_API_HOST}/v2/people/(id:{encoded_id})?projection=({projection})"
     return f"https://{LINKEDIN_API_HOST}/v2/userinfo"
 
 
@@ -142,11 +139,7 @@ def linkedin_profile_read(invocation: ToolInvocation, context: ActionRuntimeCont
     if status_code is not None:
         output["real_response"] = {"status_code": status_code}
 
-    summary = (
-        "LinkedIn profile read completed via API"
-        if real
-        else "LinkedIn profile read (simulated; no credential)"
-    )
+    summary = "LinkedIn profile read completed via API" if real else "LinkedIn profile read (simulated; no credential)"
     evidence = EvidenceItem(
         evidence_type="action_result",
         evidence_source=f"tool.invoke.{LINKEDIN_PROFILE_READ_ACTION}",

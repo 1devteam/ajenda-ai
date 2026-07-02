@@ -5,6 +5,7 @@ import os
 from datetime import UTC, datetime, timedelta
 
 from backend.services.credentials.gmail_runtime_token import serialize_gmail_oauth_secret
+from backend.services.tools.gmail_provider import required_gmail_scopes
 from backend.services.tools.google_oauth_cli import (
     DEFAULT_GOOGLE_OAUTH_CONFIG_PATH,
     GoogleOAuthCliError,
@@ -12,7 +13,6 @@ from backend.services.tools.google_oauth_cli import (
     load_google_oauth_config,
     resolve_gmail_access_token,
 )
-from backend.services.tools.gmail_provider import required_gmail_scopes
 
 
 def resolve_gmail_access_token_for_e2e() -> str | None:
@@ -43,11 +43,7 @@ def resolve_gmail_credential_secret_for_e2e() -> str | None:
                 expires_at=str(stored["expires_at"]).strip()
                 if isinstance(stored.get("expires_at"), str)
                 else (datetime.now(tz=UTC) + timedelta(hours=1)).isoformat(),
-                scopes=tuple(
-                    str(item)
-                    for item in stored.get("scopes", [])
-                    if isinstance(item, str)
-                )
+                scopes=tuple(str(item) for item in stored.get("scopes", []) if isinstance(item, str))
                 or tuple(required_gmail_scopes()),
                 token_type=str(stored.get("token_type") or "Bearer"),
             )

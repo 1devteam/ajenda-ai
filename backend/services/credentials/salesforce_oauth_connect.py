@@ -7,7 +7,12 @@ import time
 from dataclasses import dataclass
 
 from backend.app.config import Settings, get_settings
-from backend.services.credentials.oauth_state import OAuthStateError, sign_oauth_state, verify_oauth_state
+from backend.services.credentials.oauth_state import (
+    OAuthStateClaims,
+    OAuthStateError,
+    sign_oauth_state,
+    verify_oauth_state,
+)
 from backend.services.credentials.salesforce_oauth_client import (
     SalesforceOAuthError,
     build_salesforce_authorization_url,
@@ -77,7 +82,9 @@ def issue_salesforce_oauth_authorization(
     )
 
 
-def exchange_salesforce_oauth_code(*, code: str, state: str, settings: Settings | None = None) -> SalesforceOAuthConnectSecret:
+def exchange_salesforce_oauth_code(
+    *, code: str, state: str, settings: Settings | None = None
+) -> SalesforceOAuthConnectSecret:
     runtime_settings = settings or get_settings()
     verify_salesforce_oauth_state(state, settings=runtime_settings)
     redirect_uri = resolve_salesforce_product_redirect_uri(settings=runtime_settings)
@@ -93,7 +100,7 @@ def exchange_salesforce_oauth_code(*, code: str, state: str, settings: Settings 
     )
 
 
-def verify_salesforce_oauth_state(state: str, *, settings: Settings | None = None):
+def verify_salesforce_oauth_state(state: str, *, settings: Settings | None = None) -> OAuthStateClaims:
     try:
         return verify_oauth_state(state, provider=SALESFORCE_OAUTH_PROVIDER, settings=settings)
     except OAuthStateError as exc:

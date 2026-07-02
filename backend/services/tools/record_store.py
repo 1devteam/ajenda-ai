@@ -215,7 +215,5 @@ def record_store_limitations(context: ActionRuntimeContext) -> list[str]:
     limitations = ["durable tenant-scoped internal records (Ajenda central brain)"]
     business_context = resolve_business_context(context)
     if business_context.account_record_id:
-        limitations.append(
-            f"business profile projects account record {business_context.account_record_id}"
-        )
+        limitations.append(f"business profile projects account record {business_context.account_record_id}")
     return limitations

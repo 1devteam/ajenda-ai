@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import uuid as _uuid
 
-from backend.api.errors import quota_exceeded_http
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from backend.api.errors import quota_exceeded_http
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
 from backend.services.workforce_provisioner import WorkforceProvisioner

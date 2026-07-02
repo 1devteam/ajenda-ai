@@ -8,7 +8,12 @@ from dataclasses import dataclass
 
 from backend.app.config import Settings, get_settings
 from backend.services.credentials.gmail_runtime_token import serialize_gmail_oauth_secret
-from backend.services.credentials.oauth_state import OAuthStateError, sign_oauth_state, verify_oauth_state
+from backend.services.credentials.oauth_state import (
+    OAuthStateClaims,
+    OAuthStateError,
+    sign_oauth_state,
+    verify_oauth_state,
+)
 from backend.services.tools.google_oauth_cli import (
     GoogleOAuthCliError,
     build_google_authorization_url,
@@ -92,7 +97,7 @@ def exchange_gmail_oauth_code(*, code: str, state: str, settings: Settings | Non
     return serialize_gmail_oauth_secret(bundle=bundle)
 
 
-def verify_gmail_oauth_state(state: str, *, settings: Settings | None = None):
+def verify_gmail_oauth_state(state: str, *, settings: Settings | None = None) -> OAuthStateClaims:
     try:
         return verify_oauth_state(state, provider=GMAIL_OAUTH_PROVIDER, settings=settings)
     except OAuthStateError as exc:

@@ -5,7 +5,6 @@ from typing import Any
 from backend.services.business_context_resolver import default_company_and_domain
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
-from backend.services.tools.side_effect_resolvers import credential_reference_external_read
 from backend.services.tools.record_store import RecordStore, record_store_limitations, resolve_record_store
 from backend.services.tools.schemas import (
     ActionResult,
@@ -20,6 +19,7 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
+from backend.services.tools.side_effect_resolvers import credential_reference_external_read
 
 
 def _provider(context: ActionRuntimeContext) -> RecordStore:
@@ -188,9 +188,7 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
     provider = "ajenda_brain"
     attempted_external = invocation.credential_reference is not None or cred is not None
     side_effect_class = (
-        SideEffectClass.EXTERNAL_READ
-        if invocation.credential_reference is not None
-        else SideEffectClass.INTERNAL_READ
+        SideEffectClass.EXTERNAL_READ if invocation.credential_reference is not None else SideEffectClass.INTERNAL_READ
     )
     external_attempt_failed = bool(attempted_external and search.error)
     research_notes = (

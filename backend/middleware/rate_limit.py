@@ -32,13 +32,12 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from prometheus_client import Counter
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
-
-from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from backend.app.config import Settings, get_settings
 from backend.rate_limit.limiter import RateLimiter, RateLimitKey, RoutePolicy

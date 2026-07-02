@@ -13,16 +13,15 @@ from sqlalchemy.orm import Session
 
 from backend.domain.execution_task import ExecutionTask
 from backend.repositories.provider_runtime_credential_repository import ProviderRuntimeCredentialRepository
-from backend.workers.handlers.tool_invoke import tool_invoke_handler
-from backend.services.credentials.gmail_runtime_token import (
-    GmailRuntimeTokenError,
-    is_gmail_oauth_secret,
-    resolve_gmail_credential_secret,
-)
 from backend.services.credentials.github_runtime_token import (
     GitHubRuntimeTokenError,
     is_github_oauth_secret,
     resolve_github_credential_secret,
+)
+from backend.services.credentials.gmail_runtime_token import (
+    GmailRuntimeTokenError,
+    is_gmail_oauth_secret,
+    resolve_gmail_credential_secret,
 )
 from backend.services.credentials.google_calendar_runtime_token import (
     GoogleCalendarRuntimeTokenError,
@@ -40,6 +39,7 @@ from backend.services.credentials.salesforce_runtime_token import (
     resolve_salesforce_credential_secret,
 )
 from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
+from backend.workers.handlers.tool_invoke import tool_invoke_handler
 from tests.integration.standalone.github_e2e_support import resolve_github_credential_secret_for_e2e
 from tests.integration.standalone.gmail_e2e_support import (
     resolve_gmail_access_token_for_e2e,
@@ -279,16 +279,11 @@ def invoke_live_tool_with_oauth_refresh_retry(
             raise
 
 
-
-
-
 @pytest.fixture
 def linkedin_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
     secret = resolve_linkedin_credential_secret_for_e2e()
     if not secret:
-        pytest.skip(
-            "No LinkedIn credential: set AJENDA_E2E_LINKEDIN_TOKEN or ~/.ajenda/linkedin-oauth.json"
-        )
+        pytest.skip("No LinkedIn credential: set AJENDA_E2E_LINKEDIN_TOKEN or ~/.ajenda/linkedin-oauth.json")
     monkeypatch.setenv("AJENDA_LINKEDIN_CLIENT_ID", os.environ.get("AJENDA_LINKEDIN_CLIENT_ID", ""))
     monkeypatch.setenv("AJENDA_LINKEDIN_CLIENT_SECRET", os.environ.get("AJENDA_LINKEDIN_CLIENT_SECRET", ""))
     from backend.app.config import get_settings

@@ -35,11 +35,11 @@ from starlette.responses import JSONResponse, Response
 
 from backend.api.errors import api_json_response, authentication_required_json
 from backend.auth.jwt_validator import JwtValidationError
-from backend.middleware.public_paths import is_public_path
 from backend.auth.oidc import OidcAuthenticator
 from backend.auth.principal import PrincipalType, UserPrincipal
 from backend.auth.rbac import RbacAuthorizer
 from backend.auth.session_token import SessionTokenService
+from backend.middleware.public_paths import is_public_path
 from backend.repositories.customer_auth_session_repository import CustomerAuthSessionRepository
 from backend.services.api_key_service import ApiKeyService
 

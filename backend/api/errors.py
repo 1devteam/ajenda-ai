@@ -64,8 +64,7 @@ def quota_exceeded_detail(exc: QuotaExceededError) -> dict[str, Any]:
     return structured_detail(
         code=QUOTA_EXCEEDED_CODE,
         message=(
-            f"You have reached the {exc.field} limit ({exc.limit}) "
-            f"for the {exc.plan!r} plan. Upgrade to continue."
+            f"You have reached the {exc.field} limit ({exc.limit}) for the {exc.plan!r} plan. Upgrade to continue."
         ),
         field=exc.field,
         limit=exc.limit,

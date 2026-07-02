@@ -120,10 +120,7 @@ def salesforce_soql_read(invocation: ToolInvocation, context: ActionRuntimeConte
         if not trusted_hosts:
             raise ValueError("salesforce.soql_read credential missing trusted_destination_hosts")
         host = trusted_hosts[0].strip().lower().rstrip(".")
-        query_url = (
-            f"https://{host}/services/data/{payload.api_version}/query"
-            f"?q={quote(payload.soql, safe='')}"
-        )
+        query_url = f"https://{host}/services/data/{payload.api_version}/query?q={quote(payload.soql, safe='')}"
         headers = {"Authorization": f"Bearer {secret}"}
         try:
             _destination, response = get_default_network_egress_authority().request(
@@ -177,7 +174,9 @@ def salesforce_soql_read(invocation: ToolInvocation, context: ActionRuntimeConte
         mission_id=str(context.mission_id) if context.mission_id else None,
         summary=summary,
         structured_payload=output,
-        records_inspected=[str(item.get("Id", "")) for item in result_payload.get("records", []) if isinstance(item, dict)],
+        records_inspected=[
+            str(item.get("Id", "")) for item in result_payload.get("records", []) if isinstance(item, dict)
+        ],
         side_effect_class=SideEffectClass.EXTERNAL_READ,
     )
     return ActionResult(

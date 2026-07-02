@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import uuid as _uuid
 
-from backend.api.errors import authentication_required_http, quota_exceeded_http
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from backend.api.errors import authentication_required_http, quota_exceeded_http
 from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission

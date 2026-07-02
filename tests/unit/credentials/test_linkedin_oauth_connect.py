@@ -6,8 +6,6 @@ import pytest
 
 from backend.services.credentials.linkedin_oauth_client import (
     LINKEDIN_OAUTH_TOKEN_URL,
-    LinkedInOAuthClientConfig,
-    LinkedInOAuthTokenBundle,
 )
 from backend.services.credentials.linkedin_oauth_connect import (
     LinkedInOAuthConnectError,

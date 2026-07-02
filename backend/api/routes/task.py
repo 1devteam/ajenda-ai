@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid as _uuid
 from uuid import UUID
 
-from backend.api.errors import quota_exceeded_http
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from backend.api.errors import quota_exceeded_http
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter

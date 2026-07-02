@@ -24,9 +24,7 @@ def resolve_salesforce_credential_secret_for_e2e() -> str | None:
             sort_keys=True,
         )
 
-    config_path = Path(
-        os.environ.get("AJENDA_E2E_SALESFORCE_CONFIG_PATH", str(DEFAULT_SALESFORCE_OAUTH_CONFIG_PATH))
-    )
+    config_path = Path(os.environ.get("AJENDA_E2E_SALESFORCE_CONFIG_PATH", str(DEFAULT_SALESFORCE_OAUTH_CONFIG_PATH)))
     if not config_path.is_file():
         return None
 

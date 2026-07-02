@@ -15,17 +15,17 @@ from backend.repositories.tenant_repository import (
     TenantNotFoundError,
     TenantSuspendedError,
 )
-from backend.services.credentials.gmail_oauth_connect import (
-    GmailOAuthConnectError,
-    exchange_gmail_oauth_code,
-    issue_gmail_oauth_authorization,
-    verify_gmail_oauth_state,
-)
 from backend.services.credentials.github_oauth_connect import (
     GitHubOAuthConnectError,
     exchange_github_oauth_code,
     issue_github_oauth_authorization,
     verify_github_oauth_state,
+)
+from backend.services.credentials.gmail_oauth_connect import (
+    GmailOAuthConnectError,
+    exchange_gmail_oauth_code,
+    issue_gmail_oauth_authorization,
+    verify_gmail_oauth_state,
 )
 from backend.services.credentials.google_calendar_oauth_connect import (
     GoogleCalendarOAuthConnectError,
@@ -39,16 +39,16 @@ from backend.services.credentials.linkedin_oauth_connect import (
     issue_linkedin_oauth_authorization,
     verify_linkedin_oauth_state,
 )
+from backend.services.credentials.management_service import (
+    ProviderCredentialManagementError,
+    ProviderCredentialManagementService,
+    ProviderCredentialSummary,
+)
 from backend.services.credentials.salesforce_oauth_connect import (
     SalesforceOAuthConnectError,
     exchange_salesforce_oauth_code,
     issue_salesforce_oauth_authorization,
     verify_salesforce_oauth_state,
-)
-from backend.services.credentials.management_service import (
-    ProviderCredentialManagementError,
-    ProviderCredentialManagementService,
-    ProviderCredentialSummary,
 )
 
 router = APIRouter(tags=["account-credentials"])
@@ -277,7 +277,9 @@ def gmail_oauth_connect(
     if claims.tenant_id != str(tenant_id):
         raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
+        raise _oauth_state_claim_mismatch(
+            "OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch"
+        ) from None
     if claims.actor_id != actor_id:
         raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
@@ -384,7 +386,9 @@ def linkedin_oauth_connect(
     if claims.tenant_id != str(tenant_id):
         raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
+        raise _oauth_state_claim_mismatch(
+            "OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch"
+        ) from None
     if claims.actor_id != actor_id:
         raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
@@ -462,7 +466,9 @@ def salesforce_oauth_connect(
     if claims.tenant_id != str(tenant_id):
         raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
+        raise _oauth_state_claim_mismatch(
+            "OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch"
+        ) from None
     if claims.actor_id != actor_id:
         raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
@@ -541,7 +547,9 @@ def google_calendar_oauth_connect(
     if claims.tenant_id != str(tenant_id):
         raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
+        raise _oauth_state_claim_mismatch(
+            "OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch"
+        ) from None
     if claims.actor_id != actor_id:
         raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
@@ -619,7 +627,9 @@ def github_oauth_connect(
     if claims.tenant_id != str(tenant_id):
         raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
     if claims.credential_id != body.credential_id.strip():
-        raise _oauth_state_claim_mismatch("OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch") from None
+        raise _oauth_state_claim_mismatch(
+            "OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch"
+        ) from None
     if claims.actor_id != actor_id:
         raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 

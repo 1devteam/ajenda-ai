@@ -12,9 +12,7 @@ def resolve_linkedin_credential_secret_for_e2e() -> str | None:
     if configured:
         return configured
 
-    config_path = Path(
-        os.environ.get("AJENDA_E2E_LINKEDIN_CONFIG_PATH", str(DEFAULT_LINKEDIN_OAUTH_CONFIG_PATH))
-    )
+    config_path = Path(os.environ.get("AJENDA_E2E_LINKEDIN_CONFIG_PATH", str(DEFAULT_LINKEDIN_OAUTH_CONFIG_PATH)))
     if not config_path.is_file():
         return None
 

@@ -404,7 +404,11 @@ def test_complete_login_returns_multiple_tenant_choices() -> None:
 def test_refresh_session_enforces_ip_rate_limit() -> None:
     service = OidcLoginService(MagicMock(spec=Session), settings=_settings())
     with (
-        patch.object(service._abuse, "check_refresh_ip", side_effect=AuthLoginRateLimitedError(dimension="ip", route="/v1/auth/session/refresh")),
+        patch.object(
+            service._abuse,
+            "check_refresh_ip",
+            side_effect=AuthLoginRateLimitedError(dimension="ip", route="/v1/auth/session/refresh"),
+        ),
         pytest.raises(AuthLoginRateLimitedError),
     ):
         service.refresh_session(refresh_token="refresh-token", client_ip_hash="ip-hash")

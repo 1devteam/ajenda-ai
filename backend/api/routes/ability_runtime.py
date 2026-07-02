@@ -24,6 +24,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, Mission
 from backend.queue.base import QueueAdapter
+from backend.repositories.mission_repository import MissionRepository
 from backend.services.abilities.role_contracts import RoleName
 from backend.services.autonomy.disclaimer_catalog import (
     AutonomyPolicyError,
@@ -32,7 +33,6 @@ from backend.services.autonomy.disclaimer_catalog import (
     parse_autonomy_acknowledgment,
     validate_autonomy_acknowledgment,
 )
-from backend.repositories.mission_repository import MissionRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import (
     FeatureNotAvailableError,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-PluginCategory = Literal["brain", "crm", "email", "calendar", "social", "http", "webhook"]
+PluginCategory = Literal["brain", "crm", "email", "calendar", "social", "http", "webhook", "devtools"]
 PluginMode = Literal["standalone", "plugin", "hybrid"]
 
 

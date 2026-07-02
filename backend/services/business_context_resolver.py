@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -9,8 +10,8 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session as OrmSession
 
 from backend.db.tenant_session import activate_tenant_session
-from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
+from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.services.business_profile_record_sync import read_profile_list, read_profile_text
 from backend.services.tools.schemas import ActionRuntimeContext
 
@@ -72,12 +73,12 @@ def _context_from_facts(facts: dict[str, Any]) -> BusinessContext:
     )
 
 
-def _session_supports_profile_lookup(session_factory: object) -> bool:
+def _session_supports_profile_lookup(session_factory: Callable[[], object]) -> bool:
     session = session_factory()
-    supported = isinstance(session, OrmSession)
-    if supported:
+    if isinstance(session, OrmSession):
         session.close()
-    return supported
+        return True
+    return False
 
 
 def _empty_context() -> BusinessContext:

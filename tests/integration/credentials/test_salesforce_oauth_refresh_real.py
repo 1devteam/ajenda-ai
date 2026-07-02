@@ -90,7 +90,9 @@ def test_expired_salesforce_oauth_secret_refreshes_via_httpx_and_persists_cipher
     fake_client.__exit__.return_value = None
     fake_client.post.return_value = _FakeResponse()
 
-    monkeypatch.setattr("backend.services.credentials.salesforce_oauth_client.httpx.Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr(
+        "backend.services.credentials.salesforce_oauth_client.httpx.Client", lambda **kwargs: fake_client
+    )
 
     repository = SQLAlchemyCredentialRuntimeRepository(session_factory=lambda: pg_session)
     record = repository.get_visible_for_tenant(tenant_id=tenant_id, credential_id="salesforce-read")

@@ -8,35 +8,39 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
+from backend.services.credentials.github_runtime_token import (
+    GitHubRuntimeTokenError,
+    GitHubRuntimeTokenResolution,
+    is_github_oauth_secret,
+    resolve_github_credential_secret,
+)
 from backend.services.credentials.gmail_runtime_token import (
     GmailRuntimeTokenError,
     resolve_gmail_credential_secret,
 )
-from backend.services.credentials.github_runtime_token import (
-    GitHubRuntimeTokenError,
-    is_github_oauth_secret,
-    resolve_github_credential_secret,
-)
 from backend.services.credentials.google_calendar_runtime_token import (
     GoogleCalendarRuntimeTokenError,
+    GoogleCalendarRuntimeTokenResolution,
     is_google_calendar_oauth_secret,
     resolve_google_calendar_credential_secret,
 )
 from backend.services.credentials.linkedin_runtime_token import (
     LinkedInRuntimeTokenError,
+    LinkedInRuntimeTokenResolution,
     is_linkedin_oauth_secret,
     resolve_linkedin_credential_secret,
-)
-from backend.services.credentials.salesforce_runtime_token import (
-    SalesforceRuntimeTokenError,
-    is_salesforce_oauth_secret,
-    resolve_salesforce_credential_secret,
 )
 from backend.services.credentials.management_service import (
     PLATFORM_MASTER_CREDENTIAL_TYPE,
     PLATFORM_MASTER_SENTINEL,
 )
 from backend.services.credentials.runtime_authority import CredentialRecord, CredentialRuntimeRepository
+from backend.services.credentials.salesforce_runtime_token import (
+    SalesforceRuntimeTokenError,
+    SalesforceRuntimeTokenResolution,
+    is_salesforce_oauth_secret,
+    resolve_salesforce_credential_secret,
+)
 from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
 from backend.services.tools.schemas import SideEffectClass
 
@@ -129,6 +133,12 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
     def _resolve_external_read_secret(self, *, row: ProviderRuntimeCredential, decrypted: str, session: Session) -> str:
         settings = get_settings()
         trusted_hosts = _string_items(row.trusted_destination_hosts)
+        resolution: (
+            SalesforceRuntimeTokenResolution
+            | GoogleCalendarRuntimeTokenResolution
+            | GitHubRuntimeTokenResolution
+            | LinkedInRuntimeTokenResolution
+        )
         if is_salesforce_oauth_secret(decrypted) or any(".salesforce.com" in host for host in trusted_hosts):
             try:
                 resolution = resolve_salesforce_credential_secret(

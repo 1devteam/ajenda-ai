@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
-from sqlalchemy import inspect, text
+from sqlalchemy import Table, inspect, text
 from sqlalchemy.engine import Engine
 
 from backend.db.vector_base import VectorBase
-from backend.domain.ephemeral_memory_chunk import EphemeralMemoryChunk  # noqa: F401
+from backend.domain.ephemeral_memory_chunk import EphemeralMemoryChunk
 
 logger = logging.getLogger("ajenda.vector_schema")
 
@@ -15,7 +16,10 @@ def ensure_vector_schema(engine: Engine) -> None:
     """Create vector-plane tables and tenant RLS policies if missing."""
     inspector = inspect(engine)
     if not inspector.has_table("ephemeral_memory_chunks"):
-        VectorBase.metadata.create_all(bind=engine, tables=[EphemeralMemoryChunk.__table__])
+        VectorBase.metadata.create_all(
+            bind=engine,
+            tables=[cast(Table, EphemeralMemoryChunk.__table__)],
+        )
 
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE ephemeral_memory_chunks ENABLE ROW LEVEL SECURITY"))

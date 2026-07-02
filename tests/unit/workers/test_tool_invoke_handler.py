@@ -51,7 +51,9 @@ def test_tool_invoke_handler_success_returns_dispatcher_valid_evidence_output() 
     tenant_id = str(uuid.uuid4())
     task = _task(
         tenant_id=tenant_id,
-        metadata={"tool_invocation": {"action": "record.search", "input": {"record_type": "account", "query": "Ajenda"}}},
+        metadata={
+            "tool_invocation": {"action": "record.search", "input": {"record_type": "account", "query": "Ajenda"}}
+        },
     )
 
     result = tool_invoke_handler(task, _context(tenant_id))
