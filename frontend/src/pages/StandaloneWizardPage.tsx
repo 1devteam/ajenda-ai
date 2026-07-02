@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getBusinessProfile } from "../api/client";
-import { loadSession } from "../auth/session";
+import { useAuth } from "../auth/AuthProvider";
+import PageErrorAlert from "../components/PageErrorAlert";
 import {
   demoValuesFromPlaceholders,
   STANDALONE_WIZARD_STEPS,
@@ -12,7 +13,6 @@ import {
 import { BUSINESS_PROFILE_FIELDS, type BusinessProfileField } from "../config/businessProfileFields";
 import type { BusinessProfileReadResponse } from "../types";
 import { listToInput, readProfileList, readProfileText } from "../utils/businessProfile";
-import { failureText } from "../utils/errors";
 import { saveBusinessProfileFacts } from "../utils/saveBusinessProfileFacts";
 import { markWizardCompleted, readWizardCompletedAt } from "../utils/standaloneWizard";
 
@@ -67,7 +67,7 @@ function renderField(
 
 export default function StandaloneWizardPage() {
   const navigate = useNavigate();
-  const session = loadSession();
+  const { session } = useAuth();
   const tenantId = session?.tenantId ?? "";
 
   const [stepId, setStepId] = useState<WizardStepId>("welcome");
@@ -76,7 +76,7 @@ export default function StandaloneWizardPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
 
   const currentStep = STANDALONE_WIZARD_STEPS[stepIndex(stepId)] ?? STANDALONE_WIZARD_STEPS[0];
   const currentIndex = stepIndex(stepId);
@@ -94,7 +94,7 @@ export default function StandaloneWizardPage() {
         return;
       }
       setLoading(true);
-      setError("");
+      setError(null);
       try {
         const response = await getBusinessProfile(session);
         if (!cancelled) {
@@ -103,7 +103,7 @@ export default function StandaloneWizardPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
         }
       } finally {
         if (!cancelled) {
@@ -116,16 +116,16 @@ export default function StandaloneWizardPage() {
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session?.tenantId, session?.apiKey, session?.accessToken]);
 
   function updateValue(category: string, next: string) {
     setValues((current) => ({ ...current, [category]: next }));
-    setError("");
+    setError(null);
   }
 
   function applyDemoPreset() {
     setValues(demoValuesFromPlaceholders());
-    setError("");
+    setError(null);
   }
 
   function validateStep(step: WizardStepId): string | null {
@@ -149,13 +149,13 @@ export default function StandaloneWizardPage() {
       return;
     }
     setSaving(true);
-    setError("");
+    setError(null);
     try {
       const latest = await saveBusinessProfileFacts(session, values, "standalone_wizard");
       setProfile(latest);
       setSaved(true);
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
       throw err;
     } finally {
       setSaving(false);
@@ -180,7 +180,7 @@ export default function StandaloneWizardPage() {
     const next = STANDALONE_WIZARD_STEPS[currentIndex + 1];
     if (next) {
       setStepId(next.id);
-      setError("");
+      setError(null);
       return;
     }
     finishWizard();
@@ -190,7 +190,7 @@ export default function StandaloneWizardPage() {
     const previous = STANDALONE_WIZARD_STEPS[currentIndex - 1];
     if (previous) {
       setStepId(previous.id);
-      setError("");
+      setError(null);
     }
   }
 
@@ -252,7 +252,7 @@ export default function StandaloneWizardPage() {
           </header>
 
           {loading ? <p className="muted">Loading profile…</p> : null}
-          {error ? <p className="error-banner">{error}</p> : null}
+          <PageErrorAlert error={error} className="error-banner" />
           {saved && stepId !== "welcome" ? (
             <p className="success-banner">
               Profile saved. Internal records sync to <code>profile-account-primary</code> and{" "}

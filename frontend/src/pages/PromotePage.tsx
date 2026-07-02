@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getAccountMe, promoteBootstrapKey } from "../api/client";
+import { useAuth } from "../auth/AuthProvider";
 import { beginOidcRedirect } from "../auth/oidc";
-import { isOperational, loadSession, saveSession } from "../auth/session";
+import { isOperational, saveSession } from "../auth/session";
 import OidcProviderButton from "../components/OidcProviderButton";
-import { useOidcConfig } from "../hooks/useOidcConfig";
+import PageErrorAlert from "../components/PageErrorAlert";
 import { copyToClipboard } from "../utils/clipboard";
-import { failureText } from "../utils/errors";
 
 interface ActivatedCredentials {
   tenantId: string;
@@ -17,26 +17,22 @@ interface ActivatedCredentials {
 
 export default function PromotePage() {
   const navigate = useNavigate();
-  const { config, enabled: oidcEnabled } = useOidcConfig();
-  const [session, setSession] = useState(() => loadSession());
+  const { session, oidcConfig: config, oidcEnabled, refreshSession } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [activated, setActivated] = useState<ActivatedCredentials | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   useEffect(() => {
-    const currentSession = loadSession();
-    setSession(currentSession);
-
-    if (!currentSession) {
+    if (!session) {
       navigate("/signin", { replace: true });
       return;
     }
 
-    if (isOperational(currentSession) && !activated) {
+    if (isOperational(session) && !activated) {
       navigate("/dashboard", { replace: true });
     }
-  }, [activated, navigate]);
+  }, [activated, navigate, session]);
 
   async function handleCopy(field: string, value: string) {
     const ok = await copyToClipboard(value);
@@ -50,29 +46,28 @@ export default function PromotePage() {
 
   async function handleGoogleSignIn() {
     setLoading(true);
-    setError("");
+    setError(null);
     try {
       await beginOidcRedirect({ returnPath: "/dashboard" });
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
       setLoading(false);
     }
   }
 
   async function handlePromote() {
     setLoading(true);
-    setError("");
+    setError(null);
 
-    const currentSession = loadSession();
-    if (!currentSession) {
+    if (!session) {
       navigate("/signin", { replace: true });
       return;
     }
 
     try {
-      const promoted = await promoteBootstrapKey(currentSession);
+      const promoted = await promoteBootstrapKey(session);
       const nextSession = {
-        ...currentSession,
+        ...session,
         authMode: "api_key" as const,
         tenantId: promoted.tenant_id,
         apiKey: promoted.api_key,
@@ -80,6 +75,7 @@ export default function PromotePage() {
         phase: "operational" as const,
       };
       saveSession(nextSession);
+      refreshSession();
 
       let orgName: string | undefined;
       let slug: string | undefined;
@@ -90,15 +86,17 @@ export default function PromotePage() {
         slug = account.tenant.slug;
         saveSession({
           ...nextSession,
-          email: account.membership?.email ?? account.principal.email ?? currentSession.email,
+          email: account.membership?.email ?? account.principal.email ?? session.email,
           orgName,
           slug,
           plan: account.tenant.plan,
         });
+        refreshSession();
       } catch {
         // Account reads are best-effort after promotion.
       }
 
+      refreshSession();
       setActivated({
         tenantId: promoted.tenant_id,
         apiKey: promoted.api_key,
@@ -106,7 +104,7 @@ export default function PromotePage() {
         slug,
       });
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(false);
     }
@@ -218,11 +216,7 @@ export default function PromotePage() {
         </details>
       </section>
 
-      {error ? (
-        <div className="inline-error">
-          <pre>{error}</pre>
-        </div>
-      ) : null}
+      <PageErrorAlert error={error} />
     </main>
   );
 }

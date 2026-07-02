@@ -13,16 +13,6 @@ from backend.main import create_app
 pytestmark = pytest.mark.integration
 
 
-@pytest.fixture
-def read_flow_onboarding(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AJENDA_SIGNUP_ENABLED", "true")
-    monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
-    monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
-    from backend.app.config import get_settings
-
-    get_settings.cache_clear()
-
-
 def _auth_headers(*, tenant_id: str, api_key: str) -> dict[str, str]:
     return {"X-Tenant-Id": tenant_id, "X-Api-Key": api_key}
 
@@ -55,7 +45,7 @@ def _provision_operational_tenant(client: TestClient) -> tuple[str, str]:
 def test_provider_credentials_api_register_linkedin_read(
     integration_env: None,
     pg_engine: object,
-    read_flow_onboarding: None,
+    credential_live_onboarding: None,
 ) -> None:
     with TestClient(create_app()) as client:
         tenant_id, api_key = _provision_operational_tenant(client)
@@ -81,7 +71,7 @@ def test_provider_credentials_api_register_linkedin_read(
 def test_provider_credentials_api_register_salesforce_read_from_json_instance_url(
     integration_env: None,
     pg_engine: object,
-    read_flow_onboarding: None,
+    credential_live_onboarding: None,
 ) -> None:
     secret = json.dumps(
         {
@@ -115,7 +105,7 @@ def test_provider_credentials_api_register_salesforce_read_from_json_instance_ur
 def test_provider_credentials_api_register_google_calendar_read(
     integration_env: None,
     pg_engine: object,
-    read_flow_onboarding: None,
+    credential_live_onboarding: None,
 ) -> None:
     _ = pg_engine
     with TestClient(create_app()) as client:
@@ -141,7 +131,7 @@ def test_provider_credentials_api_register_google_calendar_read(
 def test_provider_credentials_api_register_github_read(
     integration_env: None,
     pg_engine: object,
-    read_flow_onboarding: None,
+    credential_live_onboarding: None,
 ) -> None:
     _ = pg_engine
     with TestClient(create_app()) as client:

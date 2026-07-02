@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { getBusinessProfile } from "../api/client";
-import { loadSession } from "../auth/session";
+import { useAuth } from "../auth/AuthProvider";
+import PageErrorAlert from "../components/PageErrorAlert";
 import {
   BUSINESS_PROFILE_FIELDS,
   STANDALONE_PROCESS_STEPS,
@@ -14,7 +15,6 @@ import {
   readProfileText,
 } from "../utils/businessProfile";
 import { saveBusinessProfileFacts } from "../utils/saveBusinessProfileFacts";
-import { failureText } from "../utils/errors";
 
 type FormValues = Record<string, string>;
 
@@ -39,10 +39,10 @@ function valuesFromProfile(profile: BusinessProfileReadResponse | null): FormVal
 }
 
 export default function BusinessProfilePage() {
-  const session = loadSession();
+  const { session } = useAuth();
   const [profile, setProfile] = useState<BusinessProfileReadResponse | null>(null);
   const [values, setValues] = useState<FormValues>(() => valuesFromProfile(null));
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -59,7 +59,7 @@ export default function BusinessProfilePage() {
         return;
       }
       setLoading(true);
-      setError("");
+      setError(null);
       try {
         const response = await getBusinessProfile(session);
         if (!cancelled) {
@@ -68,7 +68,7 @@ export default function BusinessProfilePage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
         }
       } finally {
         if (!cancelled) {
@@ -81,7 +81,7 @@ export default function BusinessProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session?.tenantId, session?.apiKey, session?.accessToken]);
 
   const sections = useMemo(() => {
     const grouped = new Map<BusinessProfileField["section"], BusinessProfileField[]>();
@@ -111,7 +111,7 @@ export default function BusinessProfilePage() {
     }
 
     setSaving(true);
-    setError("");
+    setError(null);
     setSuccess("");
     try {
       const latest = await saveBusinessProfileFacts(session, values, "business_profile_page");
@@ -121,7 +121,7 @@ export default function BusinessProfilePage() {
       }
       setSuccess("Business profile saved. Standalone missions will use these approved facts.");
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -178,7 +178,7 @@ export default function BusinessProfilePage() {
           </div>
 
           {loading ? <p className="muted">Loading business profile…</p> : null}
-          {error ? <p className="error-banner">{error}</p> : null}
+          <PageErrorAlert error={error} className="error-banner" />
           {success ? <p className="success-banner">{success}</p> : null}
 
           <form className="form-grid standalone-profile-form" onSubmit={handleSave}>

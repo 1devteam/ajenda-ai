@@ -94,6 +94,9 @@ def credential_live_onboarding(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AJENDA_SIGNUP_ENABLED", "true")
     monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
     monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
+    from backend.app.config import get_settings
+
+    get_settings.cache_clear()
 
 
 @pytest.fixture

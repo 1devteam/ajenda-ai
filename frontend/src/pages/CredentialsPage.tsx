@@ -17,7 +17,7 @@ import {
   revokeProviderCredential,
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
-import AuthErrorAlert from "../components/AuthErrorAlert";
+import PageErrorAlert from "../components/PageErrorAlert";
 import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
 
 
@@ -380,7 +380,7 @@ export default function CredentialsPage() {
           tenant and never returned after registration.
         </p>
         {warning ? <p className="notice warning">{warning}</p> : null}
-        {error ? <AuthErrorAlert error={error} className="notice error" /> : null}
+        <PageErrorAlert error={error} className="notice error" />
 
         <div className="credential-tabs">
           {(Object.keys(INTEGRATION_LABELS) as IntegrationKind[]).map((kind) => (

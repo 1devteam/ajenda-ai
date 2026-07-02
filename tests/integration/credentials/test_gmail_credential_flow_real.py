@@ -84,13 +84,10 @@ def _provision_operational_tenant(client: TestClient) -> tuple[str, str]:
 
 
 def test_provider_credentials_api_register_list_revoke_gmail(
-    monkeypatch: pytest.MonkeyPatch,
+    credential_live_onboarding: None,
     integration_env: None,
     pg_engine: object,
 ) -> None:
-    monkeypatch.setenv("AJENDA_SIGNUP_ENABLED", "true")
-    monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
-    monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
     with TestClient(create_app()) as client:
         tenant_id, api_key = _provision_operational_tenant(client)
 

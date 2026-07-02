@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createCheckout, createPortal, getAccountBilling } from "../api/client";
-import { loadSession } from "../auth/session";
+import { useAuth } from "../auth/AuthProvider";
+import PageErrorAlert from "../components/PageErrorAlert";
 import type { AccountBillingResponse } from "../types";
-import { failureText } from "../utils/errors";
 
 export default function BillingPage() {
-  const session = loadSession();
+  const { session } = useAuth();
   const location = useLocation();
   const [billing, setBilling] = useState<AccountBillingResponse | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -39,7 +39,7 @@ export default function BillingPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
         }
       }
     }
@@ -48,18 +48,18 @@ export default function BillingPage() {
     return () => {
       cancelled = true;
     };
-  }, [session?.tenantId, session?.apiKey]);
+  }, [session?.tenantId, session?.apiKey, session?.accessToken]);
 
   async function runAction<T>(label: string, callback: () => Promise<T>): Promise<T | null> {
     if (!session) {
       return null;
     }
     setLoading(label);
-    setError("");
+    setError(null);
     try {
       return await callback();
     } catch (err) {
-      setError(failureText(err));
+      setError(err);
       return null;
     } finally {
       setLoading(null);
@@ -154,11 +154,7 @@ export default function BillingPage() {
 
       {notice ? <div className="notice-banner">{notice}</div> : null}
       {loading ? <div className="toast">Working: {loading}</div> : null}
-      {error ? (
-        <div className="inline-error">
-          <pre>{error}</pre>
-        </div>
-      ) : null}
+      <PageErrorAlert error={error} />
     </main>
   );
 }
