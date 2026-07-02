@@ -1,6 +1,8 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logoutCustomer } from "../api/client";
-import { clearSession, isOperational, loadSession } from "../auth/session";
+import { useAuth } from "../auth/AuthProvider";
+import { clearSession, isOperational } from "../auth/session";
+import { clearSignInNotice } from "../auth/sessionLifecycle";
 
 const CUSTOMER_LINKS = [
   { to: "/dashboard", label: "Dashboard" },
@@ -15,19 +17,19 @@ const CUSTOMER_LINKS = [
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const session = loadSession();
+  const { session } = useAuth();
   const signedIn = session !== null;
   const operational = session !== null && isOperational(session);
 
   async function handleSignOut() {
-    const current = loadSession();
-    if (current?.authMode === "oidc") {
+    if (session?.authMode === "oidc") {
       try {
-        await logoutCustomer(current);
+        await logoutCustomer(session);
       } catch {
         // Local session clear still proceeds on logout API failure.
       }
     }
+    clearSignInNotice();
     clearSession();
     navigate("/signin");
   }

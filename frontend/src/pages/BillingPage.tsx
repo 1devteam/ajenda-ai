@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createCheckout, createPortal, getAccountBilling } from "../api/client";
-import { loadSession, sessionToRuntimeConfig } from "../auth/session";
+import { loadSession } from "../auth/session";
 import type { AccountBillingResponse } from "../types";
 import { failureText } from "../utils/errors";
 
@@ -71,7 +71,7 @@ export default function BillingPage() {
       return;
     }
     const response = await runAction("Creating checkout", () =>
-      createCheckout(sessionToRuntimeConfig(session), "pro"),
+      createCheckout(session, "pro"),
     );
     if (response) {
       window.location.href = response.checkout_url;
@@ -82,7 +82,7 @@ export default function BillingPage() {
     if (!session) {
       return;
     }
-    const response = await runAction("Opening portal", () => createPortal(sessionToRuntimeConfig(session)));
+    const response = await runAction("Opening portal", () => createPortal(session));
     if (response) {
       window.location.href = response.portal_url;
     }

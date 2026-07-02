@@ -1,5 +1,5 @@
-import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getAccountMe } from "../api/client";
 import { beginOidcRedirect } from "../auth/oidc";
 import { parseApiKeyHeader, saveSession } from "../auth/session";
@@ -7,21 +7,47 @@ import OidcProviderButton from "../components/OidcProviderButton";
 import OidcUnavailableNotice from "../components/OidcUnavailableNotice";
 import VerificationHelpPanel from "../components/VerificationHelpPanel";
 import { useAuth } from "../auth/AuthProvider";
+import {
+  clearSignInNotice,
+  defaultSignInNotice,
+  readSignInNotice,
+  resetForcedSignOutGuard,
+  type SessionSignOutReason,
+} from "../auth/sessionLifecycle";
 import { failureText } from "../utils/errors";
+
+function resolveExpiredNotice(searchParams: URLSearchParams): string | null {
+  const stored = readSignInNotice();
+  if (stored?.message) {
+    return stored.message;
+  }
+  const reason = searchParams.get("reason") as SessionSignOutReason | null;
+  if (!reason) {
+    return null;
+  }
+  return defaultSignInNotice(reason);
+}
 
 export default function SignInPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnPath = searchParams.get("return")?.trim() || "/dashboard";
   const { oidcConfig: config, oidcEnabled } = useAuth();
   const [tenantId, setTenantId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const expiredNotice = useMemo(() => resolveExpiredNotice(searchParams), [searchParams]);
+
+  useEffect(() => {
+    resetForcedSignOutGuard();
+  }, []);
 
   async function handleOidcSignIn() {
     setLoading(true);
     setError("");
     try {
-      await beginOidcRedirect({ returnPath: "/dashboard" });
+      await beginOidcRedirect({ returnPath });
     } catch (err) {
       setError(failureText(err));
       setLoading(false);
@@ -64,7 +90,8 @@ export default function SignInPage() {
         slug: account.tenant.slug,
         plan: account.tenant.plan,
       });
-      navigate("/dashboard", { replace: true });
+      clearSignInNotice();
+      navigate(returnPath.startsWith("/") ? returnPath : "/dashboard", { replace: true });
     } catch (err) {
       setError(failureText(err));
     } finally {
@@ -81,6 +108,13 @@ export default function SignInPage() {
           Use Google to access your Ajenda workspace. API keys remain available below for machine and
           automation use.
         </p>
+
+        {expiredNotice ? (
+          <div className="inline-error" role="alert">
+            <strong>Session expired</strong>
+            <pre>{expiredNotice}</pre>
+          </div>
+        ) : null}
 
         {oidcEnabled ? (
           <div className="form-grid">

@@ -283,7 +283,9 @@ def promote_bootstrap_key(
     _require_idempotency_key(request, settings, idempotency_key)
     principal = getattr(request.state, "principal", None)
     if principal is None or not isinstance(principal, MachinePrincipal):
-        raise HTTPException(status_code=401, detail="missing authentication")
+        from backend.api.errors import authentication_required_http
+
+        raise authentication_required_http()
 
     orchestrator = TenantOnboardingOrchestrator(db, settings=settings)
     try:

@@ -156,7 +156,9 @@ def _map_errors(exc: Exception) -> HTTPException:
 def _actor_id(request: Request) -> str:
     principal = getattr(request.state, "principal", None)
     if principal is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing authentication")
+        from backend.api.errors import authentication_required_http
+
+        raise authentication_required_http()
     return str(principal.subject_id)
 
 

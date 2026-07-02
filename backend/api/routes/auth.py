@@ -270,7 +270,9 @@ def logout(
 def who_am_i(request: Request) -> dict[str, object]:
     principal = getattr(request.state, "principal", None)
     if principal is None:
-        raise HTTPException(status_code=401, detail="missing authentication")
+        from backend.api.errors import authentication_required_http
+
+        raise authentication_required_http()
     return {
         "subject_id": principal.subject_id,
         "tenant_id": principal.tenant_id,

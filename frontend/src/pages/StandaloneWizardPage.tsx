@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getBusinessProfile } from "../api/client";
-import { loadSession, sessionToRuntimeConfig } from "../auth/session";
+import { loadSession } from "../auth/session";
 import {
   demoValuesFromPlaceholders,
   STANDALONE_WIZARD_STEPS,
@@ -69,10 +69,6 @@ export default function StandaloneWizardPage() {
   const navigate = useNavigate();
   const session = loadSession();
   const tenantId = session?.tenantId ?? "";
-  const config = useMemo(
-    () => (session ? sessionToRuntimeConfig(session) : null),
-    [session?.tenantId, session?.apiKey, session?.accessToken],
-  );
 
   const [stepId, setStepId] = useState<WizardStepId>("welcome");
   const [values, setValues] = useState<FormValues>({});
@@ -87,20 +83,20 @@ export default function StandaloneWizardPage() {
   const completedAt = tenantId ? readWizardCompletedAt(tenantId) : null;
 
   useEffect(() => {
-    if (!config) {
+    if (!session) {
       setLoading(false);
       return;
     }
 
     let cancelled = false;
     async function load() {
-      if (!config) {
+      if (!session) {
         return;
       }
       setLoading(true);
       setError("");
       try {
-        const response = await getBusinessProfile(config);
+        const response = await getBusinessProfile(session);
         if (!cancelled) {
           setProfile(response);
           setValues(valuesFromProfile(response));
@@ -120,7 +116,7 @@ export default function StandaloneWizardPage() {
     return () => {
       cancelled = true;
     };
-  }, [config]);
+  }, [session]);
 
   function updateValue(category: string, next: string) {
     setValues((current) => ({ ...current, [category]: next }));
@@ -149,13 +145,13 @@ export default function StandaloneWizardPage() {
   }
 
   async function persistProfile() {
-    if (!config) {
+    if (!session) {
       return;
     }
     setSaving(true);
     setError("");
     try {
-      const latest = await saveBusinessProfileFacts(config, values, "standalone_wizard");
+      const latest = await saveBusinessProfileFacts(session, values, "standalone_wizard");
       setProfile(latest);
       setSaved(true);
     } catch (err) {

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createMission, listMissions } from "../api/client";
-import { loadSession, sessionToRuntimeConfig } from "../auth/session";
+import { useAuth } from "../auth/AuthProvider";
+import PageErrorAlert from "../components/PageErrorAlert";
 import { MISSION_ALLOWED_ACTION_OPTIONS } from "../config/missionAbilities";
 import type { MissionIntakeQualityViolation, MissionListItem, MissionReadResponse } from "../types";
-import { failureText } from "../utils/errors";
+
 
 const MISSION_PROMPT_GUIDE = {
   summary:
@@ -39,11 +40,7 @@ function parseQualityViolations(error: unknown): MissionIntakeQualityViolation[]
 }
 
 export default function MissionsPage() {
-  const session = loadSession();
-  const config = useMemo(
-    () => (session ? sessionToRuntimeConfig(session) : null),
-    [session?.tenantId, session?.apiKey, session?.accessToken],
-  );
+  const { session } = useAuth();
   const [objective, setObjective] = useState(DEFAULT_OBJECTIVE);
   const [successCriterion, setSuccessCriterion] = useState(DEFAULT_CRITERION);
   const [scopeLimit, setScopeLimit] = useState("");
@@ -51,27 +48,27 @@ export default function MissionsPage() {
   const [missions, setMissions] = useState<MissionListItem[]>([]);
   const [createdMission, setCreatedMission] = useState<MissionReadResponse | null>(null);
   const [violations, setViolations] = useState<MissionIntakeQualityViolation[]>([]);
-  const [error, setError] = useState("");
-  const [listError, setListError] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  const [listError, setListError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [listLoading, setListLoading] = useState(false);
 
   const refreshMissions = useCallback(async () => {
-    if (!config) {
+    if (!session) {
       setMissions([]);
       return;
     }
     setListLoading(true);
-    setListError("");
+    setListError(null);
     try {
-      const response = await listMissions(config, { limit: 50 });
+      const response = await listMissions(session, { limit: 50 });
       setMissions(response.missions);
     } catch (err) {
-      setListError(failureText(err));
+      setListError(err);
     } finally {
       setListLoading(false);
     }
-  }, [config]);
+  }, [session]);
 
   useEffect(() => {
     void refreshMissions();
@@ -83,7 +80,7 @@ export default function MissionsPage() {
     setScopeLimit(MISSION_PROMPT_GUIDE.exampleScope);
     setAllowedActions([...MISSION_PROMPT_GUIDE.defaultAllowedActions]);
     setViolations([]);
-    setError("");
+    setError(null);
   }
 
   function toggleAllowedAction(action: string) {
@@ -94,17 +91,17 @@ export default function MissionsPage() {
 
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!config) {
+    if (!session) {
       return;
     }
 
     setLoading(true);
-    setError("");
+    setError(null);
     setViolations([]);
     setCreatedMission(null);
 
     try {
-      const mission = await createMission(config, {
+      const mission = await createMission(session, {
         objective: objective.trim(),
         success_criteria: [
           {
@@ -125,7 +122,7 @@ export default function MissionsPage() {
       if (qualityViolations.length > 0) {
         setViolations(qualityViolations);
       }
-      setError(failureText(err));
+      setError(err);
     } finally {
       setLoading(false);
     }
@@ -147,7 +144,7 @@ export default function MissionsPage() {
       <section className="panel">
         <div className="panel-heading-row">
           <h2>Your missions</h2>
-          <button type="button" className="ghost-button" disabled={!config || listLoading} onClick={() => void refreshMissions()}>
+          <button type="button" className="ghost-button" disabled={!session || listLoading} onClick={() => void refreshMissions()}>
             {listLoading ? "Refreshing…" : "Refresh"}
           </button>
         </div>
@@ -184,11 +181,7 @@ export default function MissionsPage() {
             ))}
           </ul>
         )}
-        {listError ? (
-          <div className="inline-error compact-error">
-            <pre>{listError}</pre>
-          </div>
-        ) : null}
+        <PageErrorAlert error={listError} className="inline-error compact-error" />
       </section>
 
       <section className="panel">
@@ -269,7 +262,7 @@ export default function MissionsPage() {
             </div>
           </fieldset>
 
-          <button type="submit" disabled={!config || loading}>
+          <button type="submit" disabled={!session || loading}>
             {loading ? "Creating mission…" : "Create mission"}
           </button>
         </form>
@@ -307,11 +300,7 @@ export default function MissionsPage() {
         </section>
       ) : null}
 
-      {error ? (
-        <div className="inline-error">
-          <pre>{error}</pre>
-        </div>
-      ) : null}
+      <PageErrorAlert error={error} />
     </main>
   );
 }

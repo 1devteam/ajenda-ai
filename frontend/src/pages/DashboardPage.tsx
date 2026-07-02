@@ -4,7 +4,7 @@ import { getAccountMe, getAccountPlan, getAccountUsage, listProviderCredentials 
 import { useAuth } from "../auth/AuthProvider";
 import { saveSession } from "../auth/session";
 import type { AccountMeResponse, AccountPlanResponse, AccountUsageResponse } from "../types";
-import { failureText } from "../utils/errors";
+import PageErrorAlert from "../components/PageErrorAlert";
 import { readWizardCompletedAt } from "../utils/standaloneWizard";
 
 function formatLimit(current: number, limit: number): string {
@@ -28,7 +28,7 @@ export default function DashboardPage() {
   const [plan, setPlan] = useState<AccountPlanResponse | null>(null);
   const [usage, setUsage] = useState<AccountUsageResponse | null>(null);
   const [credentialCount, setCredentialCount] = useState<number | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const wizardDone = session ? readWizardCompletedAt(session.tenantId) !== null : false;
 
   const emailVerified =
@@ -71,7 +71,7 @@ export default function DashboardPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(failureText(err));
+          setError(err);
         }
       }
     }
@@ -237,11 +237,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {error ? (
-        <div className="inline-error">
-          <pre>{error}</pre>
-        </div>
-      ) : null}
+      <PageErrorAlert error={error} />
     </main>
   );
 }

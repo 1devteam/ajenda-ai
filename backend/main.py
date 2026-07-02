@@ -31,7 +31,8 @@ from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -134,6 +135,33 @@ def create_app() -> FastAPI:
 
     # Mount all API routes
     app.include_router(build_api_router())
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        from backend.api.errors import VALIDATION_ERROR_CODE, structured_detail
+
+        _ = request
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": structured_detail(
+                    code=VALIDATION_ERROR_CODE,
+                    message="Request validation failed",
+                    errors=exc.errors(),
+                )
+            },
+        )
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+        _ = request
+        detail = exc.detail
+        if isinstance(detail, dict):
+            return JSONResponse(status_code=exc.status_code, content={"detail": detail})
+        return JSONResponse(status_code=exc.status_code, content={"detail": detail})
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:

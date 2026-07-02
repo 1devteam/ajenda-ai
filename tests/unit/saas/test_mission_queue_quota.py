@@ -280,7 +280,7 @@ class TestMissionQueueRouteQuotaEnforcement:
                     queue=queue,
                 )
 
-        assert exc_info.value.status_code == 429
+        assert exc_info.value.status_code == 402
         detail = exc_info.value.detail
         assert detail["code"] == "QUOTA_EXCEEDED"
         assert detail["field"] == "tasks_per_month"
@@ -455,7 +455,7 @@ class TestMissionQueueRouteQuotaEnforcement:
                     queue=queue,
                 )
 
-        assert exc_info.value.status_code == 429
+        assert exc_info.value.status_code == 402
         assert exc_info.value.detail == {
             "code": "QUOTA_EXCEEDED",
             "field": "tasks_per_month",
@@ -709,7 +709,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
                     queue=MagicMock(),
                 )
 
-        assert exc_info.value.status_code == 429
+        assert exc_info.value.status_code == 402
         quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_uuid, count=1)
         coordinator.queue_task.assert_not_called()
 

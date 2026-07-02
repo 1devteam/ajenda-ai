@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
+import ErrorBoundary from "./components/ErrorBoundary";
 import "./styles.css";
 
 const root = document.getElementById("root");
@@ -12,8 +13,10 @@ if (!root) {
 
 createRoot(root).render(
   <React.StrictMode>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );

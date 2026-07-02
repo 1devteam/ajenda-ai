@@ -5,6 +5,7 @@ import uuid as _uuid
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
+from backend.api.errors import authentication_required_http
 from backend.app.config import get_settings
 from backend.auth.permissions import Permission
 from backend.repositories.audit_event_repository import AuditEventRepository
@@ -21,7 +22,7 @@ def require_route_permission(
     """Enforce route-level RBAC for authenticated tenant-scoped/control-plane calls."""
     principal = getattr(request.state, "principal", None)
     if principal is None:
-        raise HTTPException(status_code=401, detail="missing authentication")
+        raise authentication_required_http()
     try:
         AuthorizationService.from_settings(
             get_settings(),

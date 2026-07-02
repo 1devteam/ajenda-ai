@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid as _uuid
 from uuid import UUID
 
+from backend.api.errors import quota_exceeded_http
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -44,20 +45,7 @@ def queue_task(
     try:
         QuotaEnforcementService(db).check_and_record_task_creation(tenant_id)
     except QuotaExceededError as exc:
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "code": "QUOTA_EXCEEDED",
-                "field": exc.field,
-                "limit": exc.limit,
-                "current": exc.current,
-                "plan": exc.plan,
-                "message": (
-                    f"You have reached the {exc.field} limit ({exc.limit}) "
-                    f"for the {exc.plan!r} plan. Upgrade to continue."
-                ),
-            },
-        ) from exc
+        raise quota_exceeded_http(exc) from exc
 
     try:
         result = ExecutionCoordinator(db, queue).queue_task(tenant_id=tenant_id_str, task_id=task_id)

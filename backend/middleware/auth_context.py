@@ -33,7 +33,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from backend.api.errors import api_json_response, authentication_required_json
 from backend.auth.jwt_validator import JwtValidationError
+from backend.middleware.public_paths import is_public_path
 from backend.auth.oidc import OidcAuthenticator
 from backend.auth.principal import PrincipalType, UserPrincipal
 from backend.auth.rbac import RbacAuthorizer
@@ -103,29 +105,6 @@ def _db_session_context(db_runtime: _DatabaseRuntimeLike) -> Generator[Session, 
             pass
 
 
-# Paths that bypass authentication entirely.
-# Prometheus scraper and health probes must never be blocked.
-_PUBLIC_PATH_PREFIXES = (
-    "/health",
-    "/readiness",
-    "/system/health",
-    "/system/readiness",
-    "/v1/system/health",
-    "/v1/system/readiness",
-    "/observability/metrics",
-    "/v1/observability/metrics",
-    "/v1/billing/webhook/",  # Stripe webhook — signature-verified, no API credentials
-    "/v1/auth/oidc/",
-    "/v1/auth/session/refresh",
-    "/v1/onboarding/signup",
-    "/v1/onboarding/verify-email",
-    "/v1/onboarding/resend-verification",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
-)
-
-
 class AuthContextMiddleware(BaseHTTPMiddleware):
     """Fail-closed authentication middleware with explicit public-route allowlist.
 
@@ -137,7 +116,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         path = request.url.path
-        if any(path.startswith(p) for p in _PUBLIC_PATH_PREFIXES):
+        if is_public_path(path):
             return await call_next(request)
 
         authorization: str | None = request.headers.get("Authorization")
@@ -157,10 +136,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                     )
                 return await self._handle_api_key(request, call_next, tenant_id, api_key_header)
 
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "missing authentication credentials"},
-            )
+            return authentication_required_json()
 
         except Exception:
             logger.exception("unexpected_error_in_auth_middleware")
@@ -192,12 +168,10 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                     "path": request.url.path,
                 },
             )
-            return JSONResponse(
+            return api_json_response(
                 status_code=403,
-                content={
-                    "detail": "Cross-tenant access is not permitted.",
-                    "code": "CROSS_TENANT_REJECTED",
-                },
+                code="CROSS_TENANT_REJECTED",
+                message="Cross-tenant access is not permitted.",
             )
         return None
 
@@ -289,9 +263,10 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 "bearer_auth_failed",
                 extra={"error": str(exc), "session_error": str(session_error) if session_error else None},
             )
-            return JSONResponse(
+            return api_json_response(
                 status_code=401,
-                content={"detail": "invalid bearer token"},
+                code="INVALID_BEARER_TOKEN",
+                message="invalid bearer token",
             )
 
         cross_tenant_error = self._check_cross_tenant(

@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthProvider";
+import SessionWatchdog from "./auth/SessionWatchdog";
 import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import BillingPage from "./pages/BillingPage";
@@ -31,6 +32,7 @@ function HomeRedirect() {
 export default function App() {
   return (
     <BrowserRouter>
+      <SessionWatchdog />
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/" element={<HomeRedirect />} />

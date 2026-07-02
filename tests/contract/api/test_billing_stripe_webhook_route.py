@@ -165,4 +165,4 @@ def test_billing_checkout_still_requires_tenant_header() -> None:
 
     assert response.status_code == 400
     body = response.json()
-    assert body.get("code") == "MISSING_TENANT_ID"
+    assert body["detail"]["code"] == "MISSING_TENANT_ID"

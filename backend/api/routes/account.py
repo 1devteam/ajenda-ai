@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from backend.api.errors import authentication_required_http
 from backend.api.routes._authorization import require_route_permission
 from backend.api.routes.provider_credentials import router as provider_credentials_router
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
@@ -96,7 +97,7 @@ def get_account_me(
     )
     principal = getattr(request.state, "principal", None)
     if principal is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing authentication")
+        raise authentication_required_http()
     try:
         summary = AccountService(db).get_me(tenant_id, principal=principal)
     except (TenantNotFoundError, TenantSuspendedError, TenantDeletedError) as exc:

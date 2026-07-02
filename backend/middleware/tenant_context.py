@@ -33,35 +33,13 @@ import logging
 import uuid as _uuid_module
 from collections.abc import Awaitable, Callable
 
+from backend.api.errors import api_json_response
+from backend.middleware.public_paths import is_public_path
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 logger = logging.getLogger(__name__)
-
-# Paths that do not require X-Tenant-Id. All comparisons use startswith().
-_PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
-    "/health",
-    "/ready",
-    "/readiness",
-    "/system/health",  # infrastructure health probe — no tenant context
-    "/system/readiness",  # infrastructure readiness probe — no tenant context
-    "/v1/system/health",  # versioned infrastructure health probe
-    "/v1/system/readiness",  # versioned infrastructure readiness probe
-    "/metrics",
-    "/observability/metrics",
-    "/v1/observability/metrics",
-    "/v1/admin",
-    "/v1/billing/webhook/",  # Stripe webhook — tenant_id from signed event metadata, not header
-    "/v1/auth/oidc/",
-    "/v1/auth/session/refresh",
-    "/v1/onboarding/signup",
-    "/v1/onboarding/verify-email",
-    "/v1/onboarding/resend-verification",
-    "/docs",
-    "/redoc",
-    "/openapi.json",
-)
 
 
 class TenantContextMiddleware(BaseHTTPMiddleware):
@@ -79,7 +57,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # --- Public paths: skip tenant enforcement ---
-        if any(path.startswith(prefix) for prefix in _PUBLIC_PATH_PREFIXES):
+        if is_public_path(path):
             request.state.tenant_id = None
             request.state.tenant = None
             return await call_next(request)
@@ -87,24 +65,20 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         # --- Require X-Tenant-Id header ---
         tenant_id_str = request.headers.get("X-Tenant-Id")
         if not tenant_id_str:
-            return JSONResponse(
+            return api_json_response(
                 status_code=400,
-                content={
-                    "detail": "X-Tenant-Id header is required for this endpoint.",
-                    "code": "MISSING_TENANT_ID",
-                },
+                code="MISSING_TENANT_ID",
+                message="X-Tenant-Id header is required for this endpoint.",
             )
 
         # --- Validate UUID format ---
         try:
             tenant_uuid = _uuid_module.UUID(tenant_id_str)
         except ValueError:
-            return JSONResponse(
+            return api_json_response(
                 status_code=400,
-                content={
-                    "detail": f"X-Tenant-Id {tenant_id_str!r} is not a valid UUID.",
-                    "code": "INVALID_TENANT_ID_FORMAT",
-                },
+                code="INVALID_TENANT_ID_FORMAT",
+                message=f"X-Tenant-Id {tenant_id_str!r} is not a valid UUID.",
             )
 
         # --- DB validation: tenant exists and is active ---
@@ -119,42 +93,34 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                     tenant = repo.get(tenant_uuid)
 
                     if tenant is None:
-                        return JSONResponse(
+                        return api_json_response(
                             status_code=404,
-                            content={
-                                "detail": "Tenant not found.",
-                                "code": "TENANT_NOT_FOUND",
-                            },
+                            code="TENANT_NOT_FOUND",
+                            message="Tenant not found.",
                         )
                     if tenant.is_deleted():
-                        return JSONResponse(
+                        return api_json_response(
                             status_code=403,
-                            content={
-                                "detail": "This tenant account has been deleted.",
-                                "code": "TENANT_DELETED",
-                            },
+                            code="TENANT_DELETED",
+                            message="This tenant account has been deleted.",
                         )
                     if tenant.is_suspended():
-                        return JSONResponse(
+                        return api_json_response(
                             status_code=403,
-                            content={
-                                "detail": (
-                                    "This tenant account is currently suspended. Contact support to restore access."
-                                ),
-                                "code": "TENANT_SUSPENDED",
-                            },
+                            code="TENANT_SUSPENDED",
+                            message=(
+                                "This tenant account is currently suspended. Contact support to restore access."
+                            ),
                         )
                     request.state.tenant = tenant
                 finally:
                     session.close()
             except Exception:
                 logger.exception("tenant_lookup_failed", extra={"tenant_id": tenant_id_str})
-                return JSONResponse(
+                return api_json_response(
                     status_code=503,
-                    content={
-                        "detail": "Service temporarily unavailable. Please retry.",
-                        "code": "DB_UNAVAILABLE",
-                    },
+                    code="DB_UNAVAILABLE",
+                    message="Service temporarily unavailable. Please retry.",
                 )
         else:
             # No DB runtime (e.g., unit tests) — skip DB check

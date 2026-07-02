@@ -66,8 +66,8 @@ def test_rate_limit_returns_402_on_quota_exceeded_before_handler(monkeypatch) ->
 
     assert response.status_code == 402
     body = response.json()
-    assert body["code"] == "QUOTA_EXCEEDED"
-    assert body["field"] == "api_calls_per_month"
+    assert body["detail"]["code"] == "QUOTA_EXCEEDED"
+    assert body["detail"]["field"] == "api_calls_per_month"
     assert _handler_calls == 0
     quota_svc.record_api_call.assert_not_called()
     session.rollback.assert_called_once()
