@@ -223,6 +223,36 @@ def test_register_salesforce_read_credential(session_factory) -> None:
     assert result.summary.trusted_destination_hosts == ["acme.my.salesforce.com"]
 
 
+def test_register_same_credential_id_updates_existing_secret(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session)
+        first = service.register(
+            tenant_id=tenant_id,
+            credential_id="gmail-email",
+            provider="external_email",
+            integration="gmail",
+            secret_value='{"access_token":"token-a"}',
+            actor_id="user-1",
+        )
+        second = service.register(
+            tenant_id=tenant_id,
+            credential_id="gmail-email",
+            provider="external_email",
+            integration="gmail",
+            secret_value='{"access_token":"token-b"}',
+            actor_id="user-1",
+        )
+        session.commit()
+
+    assert first.summary.credential_id == second.summary.credential_id
+    with session_factory() as session:
+        listed = _service(session).list_credentials(tenant_id=tenant_id)
+    assert len(listed) == 1
+    assert listed[0].enabled is True
+    assert listed[0].revoked is False
+
+
 def test_revoke_and_list_credentials(session_factory) -> None:
     tenant_id = str(uuid.uuid4())
     with session_factory() as session:

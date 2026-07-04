@@ -222,6 +222,71 @@ export interface AutonomyDisclaimerListResponse {
   disclaimers: AutonomyDisclaimer[];
 }
 
+export type BrainMissionReadinessStatus =
+  | "READY"
+  | "BLOCKED"
+  | "NEEDS_PROFILE"
+  | "NEEDS_CREDENTIAL"
+  | "PARTIAL";
+
+export interface BrainMissionReadiness {
+  mission_id: string;
+  mission: string;
+  outcome: string;
+  action: string;
+  tier: string;
+  status: BrainMissionReadinessStatus;
+  note: string;
+}
+
+export interface BrainMissionApiSpec {
+  mission_id: string;
+  mission: string;
+  outcome: string;
+  action: string;
+  tier: string;
+  side_effect_class: string;
+  input: Record<string, unknown>;
+  optional_credential: boolean;
+}
+
+export interface BrainMissionListResponse {
+  schema_version: number;
+  missions: BrainMissionApiSpec[];
+}
+
+export interface BrainCapabilityCheckResponse {
+  schema_version: number;
+  charter_source: "default" | "profile";
+  profile_ready: boolean;
+  summary: {
+    ready: number;
+    partial: number;
+    blocked: number;
+    needs_profile: number;
+    needs_credential: number;
+    total: number;
+  };
+  missions: BrainMissionReadiness[];
+}
+
+export interface ReviewQueueItem {
+  artifact_id: string;
+  artifact_type: string;
+  review_status: string;
+  content: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  mission_id?: string | null;
+  task_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ReviewQueueListResponse {
+  items: ReviewQueueItem[];
+  total: number;
+}
+
 export interface MissionSuccessCriterionInput {
   description: string;
   evidence?: string[];
@@ -520,6 +585,49 @@ export interface BusinessProfileReadResponse {
 export interface BusinessProfileFactUpsertRequest {
   approved_fact: Record<string, unknown>;
   provenance_metadata?: Record<string, unknown>;
+}
+
+export interface CrmRecordItem {
+  id: string;
+  record_type: string;
+  data: Record<string, unknown>;
+}
+
+export interface CrmRecordListResponse {
+  record_type: string;
+  items: CrmRecordItem[];
+  total: number;
+}
+
+export interface CrmTimelineResponse {
+  record_type: string;
+  record_id: string;
+  items: Array<Record<string, unknown>>;
+  total: number;
+}
+
+export interface CrmPipelineStage {
+  stage: string;
+  count: number;
+  opportunities: Array<Record<string, unknown>>;
+}
+
+export interface CrmPipelineResponse {
+  stages: CrmPipelineStage[];
+}
+
+export interface CrmSuggestion {
+  suggestion_id: string;
+  reason: string;
+  mission_action: string;
+  title: string;
+  description: string;
+  related_type: string;
+  related_id: string;
+}
+
+export interface CrmSuggestionsResponse {
+  items: CrmSuggestion[];
 }
 
 export interface ApiFailure {

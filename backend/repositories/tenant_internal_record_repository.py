@@ -57,6 +57,64 @@ class TenantInternalRecordRepository:
                 break
         return matches
 
+    def find_record_id_by_field(
+        self,
+        *,
+        tenant_id: str,
+        record_type: str,
+        field: str,
+        value: str,
+    ) -> str | None:
+        self._validate_record_type(record_type)
+        normalized_value = value.strip().lower()
+        if not normalized_value:
+            return None
+        field_expr = TenantInternalRecord.data_json[field].astext
+        stmt = (
+            select(TenantInternalRecord.record_id)
+            .where(
+                TenantInternalRecord.tenant_id == tenant_id,
+                TenantInternalRecord.record_type == record_type,
+                TenantInternalRecord.deleted.is_(False),
+                field_expr.is_not(None),
+                func.lower(func.trim(field_expr)) == normalized_value,
+            )
+            .limit(1)
+        )
+        return self._session.scalar(stmt)
+
+    def list_activities_for_record(
+        self,
+        *,
+        tenant_id: str,
+        related_type: str,
+        related_id: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        self._validate_record_type("activity")
+        related_type_expr = TenantInternalRecord.data_json["related_type"].astext
+        related_id_expr = TenantInternalRecord.data_json["related_id"].astext
+        occurred_at_expr = TenantInternalRecord.data_json["occurred_at"].astext
+        stmt = (
+            select(TenantInternalRecord)
+            .where(
+                TenantInternalRecord.tenant_id == tenant_id,
+                TenantInternalRecord.record_type == "activity",
+                TenantInternalRecord.deleted.is_(False),
+                related_type_expr == related_type,
+                related_id_expr == related_id,
+            )
+            .order_by(occurred_at_expr.desc().nullslast(), TenantInternalRecord.updated_at.desc())
+            .limit(limit)
+        )
+        rows = list(self._session.scalars(stmt).all())
+        timeline: list[dict[str, Any]] = []
+        for row in rows:
+            record = dict(row.data_json)
+            record.setdefault("id", row.record_id)
+            timeline.append(record)
+        return timeline
+
     def read_record(self, *, tenant_id: str, record_type: str, record_id: str) -> dict[str, Any] | None:
         self._validate_record_type(record_type)
         stmt = select(TenantInternalRecord).where(

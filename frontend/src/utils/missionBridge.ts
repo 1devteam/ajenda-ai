@@ -60,27 +60,19 @@ export function buildTaskGraphPayload(allowedActions: string[]): MissionTaskGrap
     const preset = presetForAction(action);
     const nodeKey = `ability-${slugifyAction(action)}`;
     const capabilityName = bridgeCapabilityName(action);
+    const capabilityReference = {
+      capability_id: null,
+      name: capabilityName,
+      version: "1.0.0",
+      purpose: `Bridge authority for ${action}.`,
+    };
     return {
       node_key: nodeKey,
       key: nodeKey,
-      name: preset?.title ?? action,
       title: preset?.title ?? action,
       description: preset?.description ?? `Invoke ${action} through the governed runtime.`,
-      intended_task_type: "tool.invoke",
-      capability_reference: {
-        capability_id: null,
-        name: capabilityName,
-        version: "1.0.0",
-        purpose: `Bridge authority for ${action}.`,
-      },
-      capability_references: [
-        {
-          capability_id: null,
-          name: capabilityName,
-          version: "1.0.0",
-          purpose: `Bridge authority for ${action}.`,
-        },
-      ],
+      capability_reference: capabilityReference,
+      capability_references: [capabilityReference],
       input_contract: {
         tool_invocation: {
           schema_version: 1,
@@ -88,9 +80,12 @@ export function buildTaskGraphPayload(allowedActions: string[]): MissionTaskGrap
           input: preset?.input ?? {},
         },
       },
-      expected_output_contract: { artifact: `${action}_result` },
-      execution_constraints: { read_only: !preset?.requiresCredential },
-      metadata: { sequence: index + 1, action },
+      output_contract: { artifact: `${action}_result` },
+      metadata: {
+        sequence: index + 1,
+        action,
+        read_only: !preset?.requiresCredential,
+      },
     };
   });
 

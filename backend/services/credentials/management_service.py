@@ -13,6 +13,7 @@ from backend.domain.audit_event import AuditEvent
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.provider_runtime_credential_repository import ProviderRuntimeCredentialRepository
+from backend.services.credentials.platform_master import platform_master_ready_for
 from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
 
 PLATFORM_MASTER_CREDENTIAL_TYPE = "platform_master"
@@ -112,15 +113,26 @@ class ProviderCredentialManagementService:
         normalized_secret: str | None = None
 
         if use_platform_master_key:
-            if not self._settings.hubspot_platform_master_ready:
+            if not platform_master_ready_for(
+                provider=normalized_provider,
+                integration=integration,
+                settings=self._settings,
+            ):
                 raise ProviderCredentialManagementError("platform master key mode is not configured on this deployment")
             credential_type = PLATFORM_MASTER_CREDENTIAL_TYPE
             ciphertext = self._protector.encrypt_secret(PLATFORM_MASTER_SENTINEL)
-            warning = (
-                "WARNING: This credential uses the platform master HubSpot key. "
-                "All tenants sharing this mode depend on operator key rotation and "
-                "centralized blast-radius risk. Prefer per-tenant keys for production."
-            )
+            if normalized_provider == "external_email":
+                warning = (
+                    "WARNING: This credential uses the platform master email SMTP lane. "
+                    "All tenants sharing this mode depend on operator SMTP rotation and "
+                    "centralized blast-radius risk. Prefer per-tenant email credentials for production."
+                )
+            else:
+                warning = (
+                    "WARNING: This credential uses the platform master HubSpot key. "
+                    "All tenants sharing this mode depend on operator key rotation and "
+                    "centralized blast-radius risk. Prefer per-tenant keys for production."
+                )
         else:
             if not secret_value or not secret_value.strip():
                 raise ProviderCredentialManagementError("secret_value is required unless use_platform_master_key=true")
@@ -274,10 +286,16 @@ class ProviderCredentialManagementService:
         uses_platform = row.credential_type == PLATFORM_MASTER_CREDENTIAL_TYPE
         warning = None
         if uses_platform:
-            warning = (
-                "Platform master key mode: shared operator credential with elevated blast radius. "
-                "Rotate AJENDA_HUBSPOT_PLATFORM_MASTER_KEY with care."
-            )
+            if row.provider == "external_email":
+                warning = (
+                    "Platform master email mode: shared operator SMTP credential with elevated blast radius. "
+                    "Rotate AJENDA_EMAIL_PLATFORM_SMTP_SECRET with care."
+                )
+            else:
+                warning = (
+                    "Platform master key mode: shared operator credential with elevated blast radius. "
+                    "Rotate AJENDA_HUBSPOT_PLATFORM_MASTER_KEY with care."
+                )
         return ProviderCredentialSummary(
             credential_id=row.credential_id,
             tenant_id=row.tenant_id,

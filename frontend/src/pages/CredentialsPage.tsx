@@ -134,9 +134,9 @@ export default function CredentialsPage() {
   const { session } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [integration, setIntegration] = useState<IntegrationKind>("hubspot");
+  const [integration, setIntegration] = useState<IntegrationKind>("gmail");
   const [credentials, setCredentials] = useState<ProviderCredentialResponse[]>([]);
-  const [form, setForm] = useState<ProviderCredentialCreateRequest>(HUBSPOT_FORM);
+  const [form, setForm] = useState<ProviderCredentialCreateRequest>(GMAIL_FORM);
   const [warning, setWarning] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState<string | null>(null);
@@ -218,6 +218,13 @@ export default function CredentialsPage() {
       return;
     }
 
+    const oauthDedupeKey = `ajenda.oauth.callback:${location.pathname}:${state}`;
+    if (window.sessionStorage.getItem(oauthDedupeKey)) {
+      navigate("/credentials", { replace: true });
+      return;
+    }
+    window.sessionStorage.setItem(oauthDedupeKey, "in-flight");
+
     let cancelled = false;
     async function finishOAuth(oauthCode: string, oauthState: string) {
       setLoading(callback.loadingLabel);
@@ -229,6 +236,7 @@ export default function CredentialsPage() {
           credential_id: callback.defaultCredentialId,
         });
         if (!cancelled) {
+          window.sessionStorage.setItem(oauthDedupeKey, "done");
           if (response.warning) {
             setWarning(response.warning);
           }
@@ -239,6 +247,7 @@ export default function CredentialsPage() {
         }
       } catch (err) {
         if (!cancelled) {
+          window.sessionStorage.removeItem(oauthDedupeKey);
           setError(err);
           navigate("/credentials", { replace: true });
         }
@@ -371,13 +380,20 @@ export default function CredentialsPage() {
         ? `Connect ${INTEGRATION_LABELS[integration]} (paste)`
         : `Connect ${INTEGRATION_LABELS[integration]}`;
 
+  const platformHubspot = credentials.find(
+    (item) => item.credential_id === "hubspot-crm" && item.uses_platform_master_key && !item.revoked,
+  );
+  const platformAjendaEmail = credentials.find(
+    (item) => item.credential_id === "ajenda-email" && item.uses_platform_master_key && !item.revoked,
+  );
+
   return (
     <main className="page-shell">
       <section className="panel">
-        <h1>Provider credentials</h1>
+        <h1>Plugins (optional)</h1>
         <p>
-          Connect external CRM, email, and read providers for governed runtime actions. Secrets are encrypted per
-          tenant and never returned after registration.
+          Standalone brain missions run without plugins. Connect Gmail, HubSpot, Salesforce, and other adapters only
+          when you need external systems. Secrets are encrypted per tenant and never returned after registration.
         </p>
         {warning ? <p className="notice warning">{warning}</p> : null}
         <PageErrorAlert error={error} className="notice error" />
@@ -404,6 +420,13 @@ export default function CredentialsPage() {
               required
             />
           </label>
+
+          {integration === "hubspot" && platformHubspot ? (
+            <p className="notice success">
+              HubSpot CRM is already included with Ajenda via platform master key ({platformHubspot.credential_id}).
+              Connect your own PAK below only if you want tenant-owned credentials.
+            </p>
+          ) : null}
 
           {integration === "hubspot" ? (
             <>
@@ -432,7 +455,14 @@ export default function CredentialsPage() {
                 Use platform master key (operator-managed; shared blast radius)
               </label>
             </>
-          ) : integration === "gmail" ? (
+          ) : integration === "gmail" && platformAjendaEmail ? (
+            <p className="notice success">
+              Platform email lane is included with Ajenda via ajenda-email ({platformAjendaEmail.credential_id}).
+              Connect your own Gmail below only if you want tenant-owned credentials.
+            </p>
+          ) : null}
+
+          {integration === "gmail" ? (
             <>
               <label>
                 Gmail OAuth bearer or JSON bundle
@@ -579,6 +609,9 @@ export default function CredentialsPage() {
               <li key={item.credential_id} className="credential-card">
                 <div>
                   <strong>{item.credential_id}</strong> · {item.provider} · {item.credential_type}
+                  {item.uses_platform_master_key ? (
+                    <span className="status-pill included">Included with Ajenda</span>
+                  ) : null}
                 </div>
                 <div>hosts: {item.trusted_destination_hosts.join(", ") || "—"}</div>
                 <div>actions: {item.allowed_actions.join(", ") || "—"}</div>

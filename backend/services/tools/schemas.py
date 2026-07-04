@@ -263,6 +263,32 @@ class GtmEmailDraftInput(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class DocumentGenerateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_type: str = Field(min_length=1, max_length=80)
+    topic: str = Field(min_length=1, max_length=240)
+    tone: str = Field(default="professional", max_length=80)
+    recipient: str | None = Field(default=None, max_length=160)
+    recipient_name: str | None = Field(default=None, max_length=160)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentSearchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(default="", max_length=500)
+    artifact_type: str | None = Field(default=None, max_length=80)
+    review_status: str | None = Field(default=None, max_length=40)
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class DocumentReadInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: str = Field(min_length=1, max_length=160)
+
+
 class RetrievalHybridInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -276,8 +302,9 @@ class GtmEmailSendInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     to: str = Field(min_length=1, max_length=160)
-    subject: str = Field(min_length=1, max_length=240)
-    body: str = Field(min_length=1, max_length=5000)
+    subject: str = Field(default="", max_length=240)
+    body: str = Field(default="", max_length=5000)
+    artifact_id: str | None = Field(default=None, max_length=160)
     context: dict[str, Any] = Field(default_factory=dict)
 
 

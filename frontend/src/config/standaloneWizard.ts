@@ -1,6 +1,6 @@
 import { BUSINESS_PROFILE_FIELDS, STANDALONE_PROCESS_STEPS, type BusinessProfileField } from "./businessProfileFields";
 
-export type WizardStepId = "welcome" | "profile" | "market" | "notes" | "brain" | "plugins";
+export type WizardStepId = "welcome" | "profile" | "market" | "notes" | "charter" | "brain" | "plugins";
 
 export type WizardStep = {
   id: WizardStepId;
@@ -49,6 +49,11 @@ export const STANDALONE_WIZARD_STEPS: WizardStep[] = [
     title: "Operating guidance",
     detail: "Standing rules for brain missions. Saving projects facts into searchable internal records.",
     fieldCategories: ["operator_notes"],
+  },
+  {
+    id: "charter",
+    title: "Operating charter",
+    detail: "Declare what Ajenda may prepare, may perform, and must never do. Launch guards enforce this on Tasks.",
   },
   {
     id: "brain",

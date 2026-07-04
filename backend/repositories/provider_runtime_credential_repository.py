@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
@@ -21,6 +22,13 @@ class ProviderRuntimeCredentialRepository:
         )
         return self._session.scalars(stmt).first()
 
+    def _get_any_for_tenant(self, *, tenant_id: str, credential_id: str) -> ProviderRuntimeCredential | None:
+        stmt = select(ProviderRuntimeCredential).where(
+            ProviderRuntimeCredential.tenant_id == tenant_id,
+            ProviderRuntimeCredential.credential_id == credential_id,
+        )
+        return self._session.scalars(stmt).first()
+
     def list_for_tenant(self, *, tenant_id: str) -> list[ProviderRuntimeCredential]:
         stmt = (
             select(ProviderRuntimeCredential)
@@ -34,6 +42,11 @@ class ProviderRuntimeCredentialRepository:
 
     def upsert(self, record: ProviderRuntimeCredential) -> ProviderRuntimeCredential:
         existing = self.get_for_tenant(tenant_id=record.tenant_id, credential_id=record.credential_id)
+        if existing is None:
+            existing = self._get_any_for_tenant(
+                tenant_id=record.tenant_id,
+                credential_id=record.credential_id,
+            )
         now = datetime.now(UTC)
         if existing is None:
             if not record.id:
@@ -41,14 +54,25 @@ class ProviderRuntimeCredentialRepository:
             record.created_at = now
             record.updated_at = now
             self._session.add(record)
-            self._session.flush()
-            self._session.refresh(record)
-            return record
+            try:
+                self._session.flush()
+            except IntegrityError:
+                self._session.rollback()
+                existing = self._get_any_for_tenant(
+                    tenant_id=record.tenant_id,
+                    credential_id=record.credential_id,
+                )
+                if existing is None:
+                    raise
+            else:
+                self._session.refresh(record)
+                return record
 
         existing.provider = record.provider
         existing.credential_type = record.credential_type
         existing.enabled = record.enabled
-        existing.revoked = record.revoked
+        existing.revoked = False
+        existing.deleted = False
         existing.allowed_actions = record.allowed_actions
         existing.allowed_side_effect_classes = record.allowed_side_effect_classes
         existing.trusted_destination_hosts = record.trusted_destination_hosts

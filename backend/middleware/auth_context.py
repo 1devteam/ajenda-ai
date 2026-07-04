@@ -123,27 +123,39 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         api_key_header: str | None = request.headers.get("X-Api-Key")
         tenant_id: str | None = getattr(request.state, "tenant_id", None)
 
-        try:
-            if authorization and authorization.startswith("Bearer "):
-                token = authorization.removeprefix("Bearer ").strip()
-                return await self._handle_bearer(request, call_next, token)
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization.removeprefix("Bearer ").strip()
+            try:
+                auth_response = await self._authenticate_bearer(request, token)
+            except Exception:
+                logger.exception("unexpected_error_in_auth_middleware")
+                return JSONResponse(
+                    status_code=500,
+                    content={"detail": "internal authentication error"},
+                )
+            if auth_response is not None:
+                return auth_response
+            return await call_next(request)
 
-            if api_key_header:
-                if tenant_id is None:
-                    return JSONResponse(
-                        status_code=400,
-                        content={"detail": "X-Tenant-Id header required for API key authentication"},
-                    )
-                return await self._handle_api_key(request, call_next, tenant_id, api_key_header)
+        if api_key_header:
+            if tenant_id is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "X-Tenant-Id header required for API key authentication"},
+                )
+            try:
+                auth_response = await self._authenticate_api_key(request, tenant_id, api_key_header)
+            except Exception:
+                logger.exception("unexpected_error_in_auth_middleware")
+                return JSONResponse(
+                    status_code=500,
+                    content={"detail": "internal authentication error"},
+                )
+            if auth_response is not None:
+                return auth_response
+            return await call_next(request)
 
-            return authentication_required_json()
-
-        except Exception:
-            logger.exception("unexpected_error_in_auth_middleware")
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "internal authentication error"},
-            )
+        return authentication_required_json()
 
     def _check_cross_tenant(
         self,
@@ -175,13 +187,12 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             )
         return None
 
-    async def _handle_api_key(
+    async def _authenticate_api_key(
         self,
         request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
         tenant_id: str,
         api_key_header: str,
-    ) -> Response:
+    ) -> Response | None:
         if "." not in api_key_header:
             return JSONResponse(
                 status_code=401,
@@ -218,14 +229,9 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             return cross_tenant_error
 
         request.state.principal = principal
-        return await call_next(request)
+        return None
 
-    async def _handle_bearer(
-        self,
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-        token: str,
-    ) -> Response:
+    async def _authenticate_bearer(self, request: Request, token: str) -> Response | None:
         settings = getattr(request.app.state, "settings", None)
         session_error: JwtValidationError | None = None
         if settings is not None and _customer_session_auth_ready(settings):
@@ -242,7 +248,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 if cross_tenant_error is not None:
                     return cross_tenant_error
                 request.state.principal = principal
-                return await call_next(request)
+                return None
 
         oidc = getattr(request.app.state, "oidc_authenticator", None)
         if oidc is None:
@@ -277,7 +283,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             return cross_tenant_error
 
         request.state.principal = result.principal
-        return await call_next(request)
+        return None
 
     def _authenticate_customer_session(self, request: Request, *, token: str, settings: object) -> UserPrincipal:
         from datetime import UTC, datetime

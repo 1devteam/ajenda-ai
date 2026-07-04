@@ -10,7 +10,8 @@ const CUSTOMER_LINKS = [
   { to: "/business", label: "Business info" },
   { to: "/missions", label: "Missions" },
   { to: "/tasks", label: "Tasks" },
-  { to: "/credentials", label: "Credentials" },
+  { to: "/records", label: "Records" },
+  { to: "/credentials", label: "Plugins (optional)" },
   { to: "/billing", label: "Billing" },
 ] as const;
 

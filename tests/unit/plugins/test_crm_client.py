@@ -35,9 +35,20 @@ def test_crm_search_uses_internal_brain_without_credential() -> None:
     assert result.source == "ajenda_brain"
 
 
-def test_crm_upsert_writes_internal_record_without_credential() -> None:
+@patch("backend.services.light_crm.workflow.complete_internal_crm_upsert")
+def test_crm_upsert_writes_internal_record_without_credential(mock_complete: MagicMock) -> None:
+    session = MagicMock()
+    mock_complete.return_value = {"id": "contact-1", "email": "buyer@example.com", "name": "Buyer"}
+    context = ActionRuntimeContext(
+        tenant_id="tenant-1",
+        task_id=__import__("uuid").uuid4(),
+        mission_id=__import__("uuid").uuid4(),
+        worker_id="worker-1",
+        lease_id="lease-1",
+        session_factory=lambda: session,
+    )
     result = StandardCrmClient().upsert(
-        context=_context(),
+        context=context,
         record_type="lead",
         data={"email": "buyer@example.com", "name": "Buyer"},
         credential=None,
@@ -45,7 +56,8 @@ def test_crm_upsert_writes_internal_record_without_credential() -> None:
     assert result.real is True
     assert result.status == "upserted_internal"
     assert result.source == "ajenda_brain"
-    assert result.record_id
+    assert result.record_id == "contact-1"
+    mock_complete.assert_called_once()
 
 
 def test_crm_search_calls_external_adapter_with_credential() -> None:

@@ -155,6 +155,30 @@ class Settings(BaseSettings):
         default=None,
         alias="AJENDA_HUBSPOT_PLATFORM_MASTER_KEY",
     )
+    hubspot_platform_master_auto_provision: bool = Field(
+        default=True,
+        alias="AJENDA_HUBSPOT_PLATFORM_MASTER_AUTO_PROVISION",
+    )
+
+    # --- LLM drafting (Phase 2 prepare) ---
+    llm_api_key: str | None = Field(default=None, alias="AJENDA_LLM_API_KEY")
+    llm_base_url: str = Field(default="https://api.openai.com/v1", alias="AJENDA_LLM_BASE_URL")
+    llm_model: str = Field(default="gpt-4o-mini", alias="AJENDA_LLM_MODEL")
+    llm_timeout_seconds: float = Field(default=30.0, alias="AJENDA_LLM_TIMEOUT_SECONDS")
+
+    # --- Platform email lane (Phase 3 perform) ---
+    email_platform_master_key_enabled: bool = Field(
+        default=False,
+        alias="AJENDA_EMAIL_PLATFORM_MASTER_KEY_ENABLED",
+    )
+    email_platform_smtp_secret: str | None = Field(
+        default=None,
+        alias="AJENDA_EMAIL_PLATFORM_SMTP_SECRET",
+    )
+    email_platform_master_auto_provision: bool = Field(
+        default=True,
+        alias="AJENDA_EMAIL_PLATFORM_MASTER_AUTO_PROVISION",
+    )
     network_egress_allow_private_destinations: bool = Field(
         default=False,
         alias="AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS",
@@ -307,6 +331,30 @@ class Settings(BaseSettings):
             and str(self.hubspot_platform_master_key).strip()
         )
 
+    @property
+    def llm_ready(self) -> bool:
+        return bool(self.llm_api_key and str(self.llm_api_key).strip())
+
+    @property
+    def email_platform_master_ready(self) -> bool:
+        if not self.email_platform_master_key_enabled:
+            return False
+        secret = self.email_platform_smtp_secret
+        if secret is None or not str(secret).strip():
+            return False
+        try:
+            import json
+
+            payload = json.loads(str(secret).strip())
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(payload, dict):
+            return False
+        host = str(payload.get("host", "")).strip()
+        password = str(payload.get("password", "")).strip()
+        user = str(payload.get("user", payload.get("username", ""))).strip()
+        return bool(host and password and user)
+
     def validate_runtime_contract(self) -> None:
         """Validate production/runtime safety configuration.
 
@@ -398,6 +446,15 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "AJENDA_HUBSPOT_PLATFORM_MASTER_KEY is required when "
                     "AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED=true in production"
+                )
+            if self.email_platform_master_key_enabled and not self.email_platform_master_ready:
+                raise ValueError(
+                    "AJENDA_EMAIL_PLATFORM_SMTP_SECRET is required when "
+                    "AJENDA_EMAIL_PLATFORM_MASTER_KEY_ENABLED=true in production"
+                )
+            if self.llm_timeout_seconds <= 0:
+                raise ValueError(
+                    f"AJENDA_LLM_TIMEOUT_SECONDS must be a positive number, got {self.llm_timeout_seconds}"
                 )
             if self.network_egress_allow_private_destinations:
                 raise ValueError("AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS is forbidden in production")

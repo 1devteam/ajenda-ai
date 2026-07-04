@@ -14,6 +14,8 @@ from urllib.parse import quote
 
 from backend.services.business_context_resolver import default_company_and_domain
 from backend.services.credentials.runtime_authority import CredentialRequirement
+from backend.services.document_artifacts import read_artifact, update_review_status
+from backend.services.draft_generation import generate_and_persist_draft
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
@@ -191,35 +193,101 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
     def email_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         inp = GtmEmailDraftInput.model_validate(inv.input)
-        draft = {
-            "to": inp.recipient,
-            "subject": f"Re: {inp.topic}",
-            "body": f"Hi,\n\nFollowing up on {inp.topic} in {inp.tone} tone.\nContext: {inp.context}\n\nBest, Ajenda AI",
-        }
+        draft = generate_and_persist_draft(
+            ctx,
+            artifact_type="pitch_email",
+            topic=inp.topic,
+            tone=inp.tone,
+            recipient=inp.recipient,
+            extra_context=inp.context,
+        )
+        mode = draft.get("generation_mode", "template")
+        summary = f"Drafted email ({mode})"
         return ActionResult(
             action=inv.action,
             provider="local_gtm",
             side_effect_class=SideEffectClass.NONE,
             output=draft,
-            evidence=[_make_evidence(inv.action, "local_gtm", ctx, "email draft", draft)],
-            summary="Drafted email (local proof)",
+            evidence=[_make_evidence(inv.action, "local_gtm", ctx, summary, draft)],
+            summary=summary,
         )
+
+    def _resolve_send_content(
+        inv: ToolInvocation,
+        ctx: ActionRuntimeContext,
+        inp: GtmEmailSendInput,
+    ) -> tuple[str, str, str, str | None]:
+        artifact_id = inp.artifact_id or str(inp.context.get("artifact_id", "") or "").strip() or None
+        to = inp.to
+        subject = inp.subject or str(inp.context.get("subject", "") or "")
+        body_text = inp.body or str(inp.context.get("body", "") or "")
+
+        if artifact_id and ctx.session_factory is not None:
+            session = ctx.session_factory()
+            try:
+                artifact = read_artifact(session, tenant_id=ctx.tenant_id, artifact_id=artifact_id)
+            finally:
+                session.close()
+            if artifact is not None:
+                content = artifact.get("content")
+                if isinstance(content, dict):
+                    body_text = str(content.get("body") or content.get("draft") or body_text)
+                    subject = str(content.get("subject") or subject)
+                    to = str(content.get("to") or to)
+                review_status = str(artifact.get("review_status") or "")
+                if review_status not in {"approved", "sent"}:
+                    raise ValueError(f"artifact {artifact_id} is not approved for send (status={review_status})")
+        if not subject.strip():
+            raise ValueError("subject is required for gtm.email_send")
+        if not body_text.strip():
+            raise ValueError("body is required for gtm.email_send")
+        return to, subject.strip(), body_text.strip(), artifact_id
 
     def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         inp = GtmEmailSendInput.model_validate(inv.input)
+        try:
+            to, subject, body_text, artifact_id = _resolve_send_content(inv, ctx, inp)
+        except ValueError as exc:
+            sent = {
+                "to": inp.to,
+                "subject": inp.subject,
+                "body": inp.body,
+                "status": "error",
+                "real": False,
+                "error": str(exc),
+                "context": inp.context,
+            }
+            return ActionResult(
+                action=inv.action,
+                provider="external_email",
+                side_effect_class=SideEffectClass.EXTERNAL_SEND,
+                output=sent,
+                evidence=[
+                    _make_evidence(
+                        inv.action,
+                        "external_email",
+                        ctx,
+                        "External email blocked by artifact review gate",
+                        sent,
+                        side_effect_class=SideEffectClass.EXTERNAL_SEND,
+                    )
+                ],
+                summary="External email blocked by artifact review gate",
+            )
+
         gmail_cred = _get_runtime_credential(
             ctx,
             action=inv.action,
             aliases=("gtm.email_send", "external_email"),
         )
-        body_text = inp.body or str(inp.context.get("body", ""))
 
         sent: dict[str, Any] = {
-            "to": inp.to,
-            "subject": inp.subject,
+            "to": to,
+            "subject": subject,
             "body": body_text,
             "status": "simulated",
             "context": inp.context,
+            "artifact_id": artifact_id,
             "real": False,
             "reason": "no_runtime_credential",
         }
@@ -232,8 +300,8 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     smtp_config = parse_smtp_secret(secret)
                     smtp_result = send_via_smtp(
                         config=smtp_config,
-                        to=inp.to,
-                        subject=inp.subject,
+                        to=to,
+                        subject=subject,
                         body=body_text,
                     )
                     sent["provider"] = smtp_result.provider
@@ -253,7 +321,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                         method="POST",
                         url=send_url,
                         headers=headers,
-                        json_body=_gmail_api_send_payload(to=inp.to, subject=inp.subject, body=body_text),
+                        json_body=_gmail_api_send_payload(to=to, subject=subject, body=body_text),
                         allowed_hosts=list(trusted_hosts),
                         action_name=inv.action,
                         timeout_seconds=10.0,
@@ -281,6 +349,36 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             sent,
             reason="runtime_credential_missing_or_send_not_executed",
         )
+
+        if ctx.session_factory is not None and (
+            (sent.get("real") and artifact_id) or sent.get("status") in {"sent", "simulated"}
+        ):
+            from backend.services.light_crm.workflow import on_email_sent
+
+            session = ctx.session_factory()
+            try:
+                if sent.get("real") and artifact_id:
+                    update_review_status(
+                        session,
+                        tenant_id=ctx.tenant_id,
+                        artifact_id=artifact_id,
+                        review_status="sent",
+                        actor="system:gtm.email_send",
+                    )
+                if sent.get("status") in {"sent", "simulated"}:
+                    on_email_sent(
+                        session=session,
+                        tenant_id=ctx.tenant_id,
+                        to=to,
+                        subject=subject,
+                        artifact_id=artifact_id,
+                        sent_real=bool(sent.get("real")),
+                        mission_id=str(ctx.mission_id) if ctx.mission_id else None,
+                        task_id=str(ctx.task_id) if ctx.task_id else None,
+                    )
+                session.commit()
+            finally:
+                session.close()
 
         return ActionResult(
             action=inv.action,

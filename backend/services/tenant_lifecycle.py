@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from backend.app.config import Settings, get_settings
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.governance_event import GovernanceEvent
 from backend.domain.provision_source import ProvisionSource
@@ -32,6 +33,7 @@ from backend.repositories.tenant_repository import (
     TenantNotFoundError,
     TenantRepository,
 )
+from backend.services.credentials.management_service import ProviderCredentialManagementService
 
 _SELF_SERVE_ALLOWED_PLANS = frozenset({"free"})
 
@@ -52,8 +54,9 @@ class TenantLifecycleService:
     orchestrator only. Must never be invoked from tenant-scoped API routes.
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, settings: Settings | None = None) -> None:
         self._session = session
+        self._settings = settings or get_settings()
         self._tenants = TenantRepository(session)
 
     def provision(
@@ -83,6 +86,15 @@ class TenantLifecycleService:
 
         tenant = self._tenants.create(name=name, slug=slug, plan=normalized_plan)
         self._session.flush()
+
+        self._auto_provision_platform_hubspot_credential(
+            tenant_id=tenant.id,
+            actor=actor,
+        )
+        self._auto_provision_platform_email_credential(
+            tenant_id=tenant.id,
+            actor=actor,
+        )
 
         event_type, decision = self._provision_event_metadata(
             source=source,
@@ -207,6 +219,50 @@ class TenantLifecycleService:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _auto_provision_platform_hubspot_credential(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        actor: str,
+    ) -> None:
+        """Register hubspot-crm with the platform master key when operator mode is on."""
+        if not self._settings.hubspot_platform_master_auto_provision:
+            return
+        if not self._settings.hubspot_platform_master_ready:
+            return
+
+        activate_tenant_session(self._session, str(tenant_id))
+        ProviderCredentialManagementService(self._session, settings=self._settings).register(
+            tenant_id=str(tenant_id),
+            credential_id="hubspot-crm",
+            provider="external_crm",
+            integration="hubspot",
+            use_platform_master_key=True,
+            actor_id=f"system:{actor}",
+        )
+
+    def _auto_provision_platform_email_credential(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        actor: str,
+    ) -> None:
+        """Register ajenda-email with the platform SMTP lane when operator mode is on."""
+        if not self._settings.email_platform_master_auto_provision:
+            return
+        if not self._settings.email_platform_master_ready:
+            return
+
+        activate_tenant_session(self._session, str(tenant_id))
+        ProviderCredentialManagementService(self._session, settings=self._settings).register(
+            tenant_id=str(tenant_id),
+            credential_id="ajenda-email",
+            provider="external_email",
+            integration="smtp",
+            use_platform_master_key=True,
+            actor_id=f"system:{actor}",
+        )
 
     @staticmethod
     def _validate_plan_for_source(plan: str, *, source: ProvisionSource) -> None:

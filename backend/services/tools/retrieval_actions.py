@@ -67,7 +67,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
     memory_store = resolve_memory_chunk_store(context)
 
     internal_hits: list[dict[str, Any]] = []
-    for record_type in ("account", "contact", "opportunity"):
+    for record_type in ("account", "contact", "opportunity", "document"):
         internal_hits.extend(
             record_store.search_records(
                 tenant_id=context.tenant_id,

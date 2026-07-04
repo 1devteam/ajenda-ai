@@ -442,6 +442,28 @@ PY
 
 log "gtm proof result: $gtm_proof_json"
 
+log "running brain capstone slice (draft → approve → CRM; send optional)"
+capstone_proof_json="$(
+  compose exec -T \
+    -e AJENDA_PROOF_WORKER_TENANT_ID="$proof_tenant_id" \
+    -e AJENDA_BRAIN_CAPSTONE_SEND="${AJENDA_BRAIN_CAPSTONE_SEND:-}" \
+    api python deploy/scripts/brain-capstone-runtime-proof.py
+)"
+log "brain capstone proof result: $capstone_proof_json"
+python - <<'PY' "$capstone_proof_json"
+from __future__ import annotations
+
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+if not payload.get("ok"):
+    raise SystemExit(f"brain capstone proof failed: {payload}")
+artifact_id = payload.get("artifact_id")
+if not artifact_id:
+    raise SystemExit("brain capstone proof missing artifact_id")
+PY
+
 if [[ "${AJENDA_PROOF_PLUGIN_LANE_ENABLED:-}" == "1" ]]; then
   log "running optional env-gated plugin runtime lane"
   export AJENDA_PROOF_API_BASE_URL="$API_BASE_URL"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { getAccountMe, getAccountPlan, getAccountUsage, listProviderCredentials } from "../api/client";
+import { getAccountMe, getAccountPlan, getAccountUsage } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { saveSession } from "../auth/session";
 import type { AccountMeResponse, AccountPlanResponse, AccountUsageResponse } from "../types";
@@ -27,15 +27,13 @@ export default function DashboardPage() {
   const [me, setMe] = useState<AccountMeResponse | null>(null);
   const [plan, setPlan] = useState<AccountPlanResponse | null>(null);
   const [usage, setUsage] = useState<AccountUsageResponse | null>(null);
-  const [credentialCount, setCredentialCount] = useState<number | null>(null);
   const [error, setError] = useState<unknown>(null);
   const wizardDone = session ? readWizardCompletedAt(session.tenantId) !== null : false;
 
   const emailVerified =
     me?.membership?.status === "active" || me?.tenant.status === "active" || session?.authMode === "oidc";
   const signedIn = session !== null;
-  const credentialsConnected = credentialCount !== null && credentialCount > 0;
-  const showOnboardingChecklist = signedIn && (!emailVerified || !credentialsConnected);
+  const showOnboardingChecklist = signedIn && !emailVerified;
 
   useEffect(() => {
     if (!session) {
@@ -49,17 +47,15 @@ export default function DashboardPage() {
         return;
       }
       try {
-        const [meResponse, planResponse, usageResponse, credentialsResponse] = await Promise.all([
+        const [meResponse, planResponse, usageResponse] = await Promise.all([
           getAccountMe(session),
           getAccountPlan(session),
           getAccountUsage(session),
-          listProviderCredentials(session),
         ]);
         if (!cancelled) {
           setMe(meResponse);
           setPlan(planResponse);
           setUsage(usageResponse);
-          setCredentialCount(credentialsResponse.credentials.length);
           if (session.plan !== meResponse.tenant.plan || session.slug !== meResponse.tenant.slug) {
             saveSession({
               ...session,
@@ -118,18 +114,6 @@ export default function DashboardPage() {
             )}
             <li className={signedIn ? "done" : undefined}>
               {signedIn ? "✓ Signed in" : <Link to="/signin">Sign in</Link>}
-            </li>
-            <li className={credentialsConnected ? "done" : undefined}>
-              {credentialsConnected ? (
-                "✓ Provider credentials connected"
-              ) : (
-                <>
-                  <span>Connect provider credentials</span>
-                  <Link className="primary-link" to="/credentials">
-                    Open credentials
-                  </Link>
-                </>
-              )}
             </li>
           </ul>
         </section>

@@ -34,6 +34,10 @@ from backend.services.credentials.management_service import (
     PLATFORM_MASTER_CREDENTIAL_TYPE,
     PLATFORM_MASTER_SENTINEL,
 )
+from backend.services.credentials.platform_master import (
+    PlatformMasterNotConfiguredError,
+    resolve_platform_master_secret,
+)
 from backend.services.credentials.runtime_authority import CredentialRecord, CredentialRuntimeRepository
 from backend.services.credentials.salesforce_runtime_token import (
     SalesforceRuntimeTokenError,
@@ -98,21 +102,23 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
 
     def _resolve_secret_value(self, row: ProviderRuntimeCredential, *, session: Session) -> str:
         if row.credential_type == PLATFORM_MASTER_CREDENTIAL_TYPE:
-            settings = get_settings()
-            if not settings.hubspot_platform_master_ready:
-                raise ValueError("platform master HubSpot key is not configured")
-            return str(settings.hubspot_platform_master_key).strip()
+            return self._resolve_platform_master(row)
         decrypted = self._secret_protector.decrypt_secret(row.secret_ciphertext)
         if decrypted == PLATFORM_MASTER_SENTINEL:
-            settings = get_settings()
-            if not settings.hubspot_platform_master_ready:
-                raise ValueError("platform master HubSpot key is not configured")
-            return str(settings.hubspot_platform_master_key).strip()
+            return self._resolve_platform_master(row)
         if row.provider == "external_email" and row.credential_type == "api_key":
             return self._resolve_gmail_secret(row=row, decrypted=decrypted, session=session)
         if row.provider == "external_read_provider" and row.credential_type == "api_key":
             return self._resolve_external_read_secret(row=row, decrypted=decrypted, session=session)
         return decrypted
+
+    @staticmethod
+    def _resolve_platform_master(row: ProviderRuntimeCredential) -> str:
+        integration = "smtp" if row.provider == "external_email" else "hubspot"
+        try:
+            return resolve_platform_master_secret(provider=row.provider, integration=integration)
+        except PlatformMasterNotConfiguredError as exc:
+            raise ValueError(str(exc)) from exc
 
     def _resolve_gmail_secret(self, *, row: ProviderRuntimeCredential, decrypted: str, session: Session) -> str:
         settings = get_settings()

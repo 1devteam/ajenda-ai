@@ -354,12 +354,22 @@ def sales_recommend_next_action(invocation: ToolInvocation, context: ActionRunti
 
 def sales_draft_followup(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = FollowupDraftInput.model_validate(invocation.input)
-    message = f"Hi {payload.recipient_name}, following up on {payload.topic}. Would you be open to discussing practical next steps?"
-    output = {"draft": message, "tone": payload.tone}
-    summary = "Drafted local follow-up message without sending it."
+    from backend.services.draft_generation import generate_and_persist_draft
+
+    output = generate_and_persist_draft(
+        context,
+        artifact_type="follow_up",
+        topic=payload.topic,
+        tone=payload.tone,
+        recipient_name=payload.recipient_name,
+        extra_context=payload.context,
+    )
+    mode = output.get("generation_mode", "template")
+    summary = f"Drafted follow-up message ({mode}) without sending it."
     return ActionResult(
         action="sales.draft_followup",
         provider="local_sales",
+        side_effect_class=SideEffectClass.NONE,
         output=output,
         evidence=[
             _evidence(
@@ -368,11 +378,11 @@ def sales_draft_followup(invocation: ToolInvocation, context: ActionRuntimeConte
                 provider="local_sales",
                 summary=summary,
                 payload=output,
-                confidence=0.74,
+                confidence=0.8 if mode == "llm" else 0.74,
             )
         ],
         summary=summary,
-        confidence=0.74,
+        confidence=0.8 if mode == "llm" else 0.74,
     )
 
 

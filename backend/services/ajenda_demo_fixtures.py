@@ -130,4 +130,7 @@ def seed_ajenda_live_demo(*, session: Session, tenant_id: str) -> list[str]:
                 data=payload,
             )
             synced.append(record_id)
+    from backend.services.clerical_library import seed_clerical_library
+
+    synced.extend(seed_clerical_library(session=session, tenant_id=tenant_id))
     return synced

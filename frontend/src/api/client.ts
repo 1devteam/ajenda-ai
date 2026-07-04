@@ -15,6 +15,15 @@ import { newIdempotencyKey } from "../utils/errors";
 import type {
   AbilityActionListResponse,
   AutonomyDisclaimerListResponse,
+  BrainCapabilityCheckResponse,
+  BrainMissionListResponse,
+  CrmPipelineResponse,
+  CrmRecordItem,
+  CrmRecordListResponse,
+  CrmSuggestionsResponse,
+  CrmTimelineResponse,
+  ReviewQueueListResponse,
+  ReviewQueueItem,
   AbilityTaskCreate,
   AbilityTaskQueuedResponse,
   AbilityTaskStatusResponse,
@@ -808,6 +817,62 @@ export async function listAutonomyDisclaimers(
   );
 }
 
+export async function getBrainCapabilityCheck(
+  caller: AuthedCaller,
+): Promise<BrainCapabilityCheckResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<BrainCapabilityCheckResponse>(
+      "/v1/ability-runtime/brain-capability-check",
+      {},
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function listBrainMissions(caller: AuthedCaller): Promise<BrainMissionListResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<BrainMissionListResponse>("/v1/ability-runtime/brain-missions", {}, runtimeOptions(config)),
+  );
+}
+
+export async function listReviewQueue(
+  caller: AuthedCaller,
+  options?: { status?: "pending" | "approved" | "rejected" | "sent"; limit?: number },
+): Promise<ReviewQueueListResponse> {
+  const params = new URLSearchParams();
+  if (options?.status) {
+    params.set("status", options.status);
+  }
+  if (options?.limit) {
+    params.set("limit", String(options.limit));
+  }
+  const query = params.toString();
+  return withAuthedRuntime(caller, (config) =>
+    request<ReviewQueueListResponse>(
+      `/v1/review-queue${query ? `?${query}` : ""}`,
+      {},
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function approveReviewQueueItem(
+  caller: AuthedCaller,
+  artifactId: string,
+  note?: string,
+): Promise<ReviewQueueItem> {
+  return withAuthedRuntime(caller, (config) =>
+    request<ReviewQueueItem>(
+      `/v1/review-queue/${encodeURIComponent(artifactId)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ note: note ?? null }),
+      },
+      runtimeOptions(config),
+    ),
+  );
+}
+
 export async function launchTask(
   caller: AuthedCaller,
   body: AbilityTaskCreate,
@@ -903,5 +968,73 @@ export async function upsertBusinessProfileFact(
       { method: "PUT", body: JSON.stringify(body) },
       runtimeOptions(config),
     ),
+  );
+}
+
+export async function listCrmRecords(
+  caller: AuthedCaller,
+  options: {
+    recordType: "account" | "contact" | "opportunity" | "activity" | "task";
+    query?: string;
+    stage?: string;
+    accountId?: string;
+    limit?: number;
+  },
+): Promise<CrmRecordListResponse> {
+  const params = new URLSearchParams({ record_type: options.recordType });
+  if (options.query) {
+    params.set("query", options.query);
+  }
+  if (options.stage) {
+    params.set("stage", options.stage);
+  }
+  if (options.accountId) {
+    params.set("account_id", options.accountId);
+  }
+  if (options.limit) {
+    params.set("limit", String(options.limit));
+  }
+  return withAuthedRuntime(caller, (config) =>
+    request<CrmRecordListResponse>(`/v1/crm/records?${params}`, {}, runtimeOptions(config)),
+  );
+}
+
+export async function getCrmRecord(
+  caller: AuthedCaller,
+  recordType: string,
+  recordId: string,
+): Promise<CrmRecordItem> {
+  return withAuthedRuntime(caller, (config) =>
+    request<CrmRecordItem>(
+      `/v1/crm/records/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}`,
+      {},
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function getCrmTimeline(
+  caller: AuthedCaller,
+  recordType: string,
+  recordId: string,
+): Promise<CrmTimelineResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<CrmTimelineResponse>(
+      `/v1/crm/records/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}/timeline`,
+      {},
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function getCrmPipeline(caller: AuthedCaller): Promise<CrmPipelineResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<CrmPipelineResponse>("/v1/crm/pipeline", {}, runtimeOptions(config)),
+  );
+}
+
+export async function listCrmSuggestions(caller: AuthedCaller): Promise<CrmSuggestionsResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<CrmSuggestionsResponse>("/v1/crm/suggestions", {}, runtimeOptions(config)),
   );
 }

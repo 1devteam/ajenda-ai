@@ -57,6 +57,7 @@ from backend.api.routes.capability import router as capability_router
 from backend.api.routes.capability_adapter import router as capability_adapter_router
 from backend.api.routes.evidence import router as evidence_router
 from backend.api.routes.health import router as health_router
+from backend.api.routes.light_crm import router as light_crm_router
 from backend.api.routes.mission import router as mission_router
 from backend.api.routes.mission_brief import router as mission_brief_router
 from backend.api.routes.observability import router as observability_router
@@ -64,6 +65,7 @@ from backend.api.routes.operations import router as operations_router
 from backend.api.routes.outcome_review import router as outcome_review_router
 from backend.api.routes.plugins import router as plugins_router
 from backend.api.routes.retrieval_contract import router as retrieval_contract_router
+from backend.api.routes.review_queue import router as review_queue_router
 from backend.api.routes.runtime import router as runtime_router
 from backend.api.routes.system import router as system_router
 from backend.api.routes.task import router as task_router
@@ -101,6 +103,8 @@ def build_api_router() -> APIRouter:
     v1.include_router(outcome_review_router)  # /v1/outcome-reviews/*
     v1.include_router(retrieval_contract_router)  # /v1/retrieval-contracts/*
     v1.include_router(mission_brief_router)  # /v1/mission-brief/*
+    v1.include_router(review_queue_router)  # /v1/review-queue/*
+    v1.include_router(light_crm_router)  # /v1/crm/*
     v1.include_router(mission_router)  # /v1/missions/*
     v1.include_router(task_router)  # /v1/tasks/*
     v1.include_router(workforce_router)  # /v1/workforces/*

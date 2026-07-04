@@ -13,7 +13,13 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[2]
 
-PROVIDER_REGISTRATIONS: dict[str, dict[str, str]] = {
+PROVIDER_REGISTRATIONS: dict[str, dict[str, str | bool]] = {
+    "hubspot": {
+        "credential_id": "hubspot-crm",
+        "provider": "external_crm",
+        "integration": "hubspot",
+        "use_platform_master_key": True,
+    },
     "salesforce": {
         "credential_id": "salesforce-read",
         "provider": "external_read_provider",
@@ -67,12 +73,56 @@ def _load_secret_value(path: Path) -> str:
     return text
 
 
+def _normalize_secret_for_provider(*, provider: str, secret_value: str) -> str:
+    """Convert provider-local OAuth file shapes into runtime credential JSON."""
+    if provider != "gmail":
+        return secret_value
+
+    from backend.services.credentials.gmail_runtime_token import (
+        is_gmail_oauth_secret,
+        serialize_gmail_oauth_secret,
+    )
+
+    if is_gmail_oauth_secret(secret_value):
+        return secret_value
+
+    try:
+        import yaml  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise ValueError("PyYAML is required to bridge Gmail YAML OAuth files") from exc
+
+    try:
+        payload = yaml.safe_load(secret_value)
+    except yaml.YAMLError as exc:
+        raise ValueError("Gmail OAuth YAML is invalid") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Gmail OAuth YAML must be a mapping")
+
+    access_token = payload.get("access_token")
+    if not isinstance(access_token, str) or not access_token.strip():
+        raise ValueError("Gmail OAuth file missing access_token")
+
+    from backend.services.tools.google_oauth_cli import GoogleOAuthTokenBundle
+
+    scopes = payload.get("scopes") or []
+    if not isinstance(scopes, list):
+        scopes = []
+    bundle = GoogleOAuthTokenBundle(
+        access_token=access_token.strip(),
+        refresh_token=str(payload.get("refresh_token") or "").strip(),
+        expires_at=str(payload.get("expires_at") or "").strip(),
+        scopes=tuple(str(item) for item in scopes if str(item).strip()),
+        token_type=str(payload.get("token_type") or "Bearer"),
+    )
+    return serialize_gmail_oauth_secret(bundle=bundle)
+
+
 def _register_provider_credential(
     *,
     provider: str,
     tenant_id: str,
     api_key: str,
-    oauth_json: Path,
+    oauth_json: Path | None,
     base_url: str,
     credential_id: str | None,
 ) -> dict[str, Any]:
@@ -80,15 +130,26 @@ def _register_provider_credential(
         supported = ", ".join(sorted(PROVIDER_REGISTRATIONS))
         raise ValueError(f"unsupported provider {provider!r}; supported: {supported}")
 
-    secret_value = _load_secret_value(oauth_json)
     registration = dict(PROVIDER_REGISTRATIONS[provider])
     if credential_id:
         registration["credential_id"] = credential_id.strip()
 
-    payload = {
-        **registration,
-        "secret_value": secret_value,
+    use_platform_master_key = bool(registration.pop("use_platform_master_key", False))
+    payload: dict[str, Any] = {
+        key: value
+        for key, value in registration.items()
+        if isinstance(value, str)
     }
+    if use_platform_master_key:
+        payload["use_platform_master_key"] = True
+    else:
+        if oauth_json is None:
+            raise ValueError(f"--oauth-json is required for provider {provider!r}")
+        secret_value = _normalize_secret_for_provider(
+            provider=provider,
+            secret_value=_load_secret_value(oauth_json),
+        )
+        payload["secret_value"] = secret_value
     url = f"{base_url.rstrip('/')}/v1/account/provider-credentials"
     headers = {
         "X-Tenant-Id": tenant_id.strip(),
@@ -148,13 +209,16 @@ def main() -> int:
         print(f"unsupported command: {args.command}", file=sys.stderr)
         return 2
 
-    oauth_path = args.oauth_json or DEFAULT_OAUTH_PATHS[args.provider]
+    registration = PROVIDER_REGISTRATIONS[args.provider]
+    oauth_path = args.oauth_json
+    if oauth_path is None and not registration.get("use_platform_master_key"):
+        oauth_path = DEFAULT_OAUTH_PATHS[args.provider]
     try:
         body = _register_provider_credential(
             provider=args.provider,
             tenant_id=args.tenant_id,
             api_key=args.api_key,
-            oauth_json=oauth_path.expanduser(),
+            oauth_json=oauth_path.expanduser() if oauth_path is not None else None,
             base_url=args.base_url,
             credential_id=args.credential_id,
         )

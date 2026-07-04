@@ -24,6 +24,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, Mission
 from backend.queue.base import QueueAdapter
+from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.abilities.role_contracts import RoleName
 from backend.services.autonomy.disclaimer_catalog import (
@@ -33,7 +34,15 @@ from backend.services.autonomy.disclaimer_catalog import (
     parse_autonomy_acknowledgment,
     validate_autonomy_acknowledgment,
 )
+from backend.services.brain_capability_check import build_brain_capability_report
+from backend.services.brain_mission_catalog import BRAIN_MISSIONS
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.operating_charter import (
+    OperatingCharterViolation,
+    assert_action_allowed,
+    charter_requires_human_review_for_launch,
+    load_operating_charter,
+)
 from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
     QuotaEnforcementService,
@@ -579,6 +588,39 @@ def list_actions(
     return AbilityActionListResponse(actions=actions)
 
 
+@router.get("/brain-missions")
+def list_brain_missions(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> dict[str, Any]:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.EXECUTION_VIEW,
+        tenant_id=tenant_id,
+    )
+    return {
+        "schema_version": 1,
+        "missions": list(BRAIN_MISSIONS),
+    }
+
+
+@router.get("/brain-capability-check")
+def brain_capability_check(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> dict[str, Any]:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.EXECUTION_VIEW,
+        tenant_id=tenant_id,
+    )
+    return build_brain_capability_report(session=db, tenant_id=str(tenant_id)).to_api()
+
+
 @router.get("/disclaimers")
 def list_disclaimers(
     request: Request,
@@ -618,6 +660,17 @@ def launch_task(
     action = _action_definition(action_name)
     side_effect_class = action.side_effect_class
 
+    profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
+    approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
+    charter = load_operating_charter(approved_facts=approved_facts)
+    try:
+        assert_action_allowed(action_name=action_name, side_effect_class=side_effect_class, charter=charter)
+    except OperatingCharterViolation as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": exc.code, "message": exc.message, "action": exc.action},
+        ) from exc
+
     # Defense-in-depth quota and feature gate for ability-runtime launched tasks.
     quota = QuotaEnforcementService(db)
     quota.check_tenant_active(tenant_id)
@@ -646,6 +699,15 @@ def launch_task(
             ) from exc
 
     launch_authority = _resolve_launch_authority(request=request, body=body, action_name=action_name)
+    if not launch_authority.requires_human_review and charter_requires_human_review_for_launch(
+        charter=charter, side_effect_class=side_effect_class
+    ):
+        launch_authority = _LaunchAuthority(
+            approved_by=launch_authority.approved_by,
+            approval_reason=launch_authority.approval_reason,
+            requires_human_review=True,
+            autonomy_acknowledgment=launch_authority.autonomy_acknowledgment,
+        )
 
     # PR9 pilot harness: explicit side_effect_authorization + guardian role enforcement
     # for high-risk GTM EXTERNAL actions (email_send, crm_upsert, social_publish).

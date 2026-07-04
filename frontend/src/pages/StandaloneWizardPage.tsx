@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { getBusinessProfile } from "../api/client";
+import { getBusinessProfile, upsertBusinessProfileFact } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
 import {
@@ -11,6 +11,18 @@ import {
   type WizardStepId,
 } from "../config/standaloneWizard";
 import { BUSINESS_PROFILE_FIELDS, type BusinessProfileField } from "../config/businessProfileFields";
+import {
+  charterFromProfile,
+  charterToFact,
+  DEFAULT_OPERATING_CHARTER,
+  NEVER_DO_OPTIONS,
+  PERFORM_ACTION_OPTIONS,
+  PREPARE_ACTION_OPTIONS,
+  applyMayPerformToggle,
+  applyNeverDoToggle,
+  toggleActionList,
+  type OperatingCharter,
+} from "../config/operatingCharter";
 import type { BusinessProfileReadResponse } from "../types";
 import { listToInput, readProfileList, readProfileText } from "../utils/businessProfile";
 import { saveBusinessProfileFacts } from "../utils/saveBusinessProfileFacts";
@@ -76,6 +88,8 @@ export default function StandaloneWizardPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [charterSaved, setCharterSaved] = useState(false);
+  const [charter, setCharter] = useState<OperatingCharter>(DEFAULT_OPERATING_CHARTER);
   const [error, setError] = useState<unknown>(null);
 
   const currentStep = STANDALONE_WIZARD_STEPS[stepIndex(stepId)] ?? STANDALONE_WIZARD_STEPS[0];
@@ -100,6 +114,7 @@ export default function StandaloneWizardPage() {
         if (!cancelled) {
           setProfile(response);
           setValues(valuesFromProfile(response));
+          setCharter(charterFromProfile(response.approved_facts ?? {}));
         }
       } catch (err) {
         if (!cancelled) {
@@ -162,6 +177,27 @@ export default function StandaloneWizardPage() {
     }
   }
 
+  async function persistCharter() {
+    if (!session) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const latest = await upsertBusinessProfileFact(session, "operating_charter", {
+        approved_fact: charterToFact(charter),
+        provenance_metadata: { source: "standalone_wizard" },
+      });
+      setProfile(latest);
+      setCharterSaved(true);
+    } catch (err) {
+      setError(err);
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function goNext() {
     const validationError = validateStep(stepId);
     if (validationError) {
@@ -172,6 +208,14 @@ export default function StandaloneWizardPage() {
     if (stepId === "notes" && !saved) {
       try {
         await persistProfile();
+      } catch {
+        return;
+      }
+    }
+
+    if (stepId === "charter" && !charterSaved) {
+      try {
+        await persistCharter();
       } catch {
         return;
       }
@@ -283,6 +327,111 @@ export default function StandaloneWizardPage() {
             </div>
           ) : null}
 
+          {stepId === "charter" ? (
+            <div className="standalone-field-grid wizard-field-grid charter-grid">
+              <fieldset className="span-2">
+                <legend>May prepare (read / draft)</legend>
+                <div className="checkbox-grid">
+                  {PREPARE_ACTION_OPTIONS.map((option) => (
+                    <label key={option.action} className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={charter.may_prepare.includes(option.action)}
+                        onChange={(event) =>
+                          setCharter((current) => ({
+                            ...current,
+                            may_prepare: toggleActionList(
+                              current.may_prepare,
+                              option.action,
+                              event.target.checked,
+                            ),
+                          }))
+                        }
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="span-2">
+                <legend>May perform (internal / external writes)</legend>
+                <div className="checkbox-grid">
+                  {PERFORM_ACTION_OPTIONS.map((option) => (
+                    <label key={option.action} className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={charter.may_perform.includes(option.action)}
+                        onChange={(event) =>
+                          setCharter((current) =>
+                            applyMayPerformToggle(current, option.action, event.target.checked),
+                          )
+                        }
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="span-2">
+                <legend>Never do</legend>
+                <div className="checkbox-grid">
+                  {NEVER_DO_OPTIONS.map((option) => (
+                    <label key={option.action} className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={charter.never_do.includes(option.action)}
+                        onChange={(event) =>
+                          setCharter((current) =>
+                            applyNeverDoToggle(current, option.action, event.target.checked),
+                          )
+                        }
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <label>
+                <span>Approval mode</span>
+                <select
+                  value={charter.approval_mode}
+                  onChange={(event) =>
+                    setCharter((current) => ({
+                      ...current,
+                      approval_mode: event.target.value as OperatingCharter["approval_mode"],
+                    }))
+                  }
+                >
+                  <option value="notify_before_external">Notify before external perform</option>
+                  <option value="always_notify">Always notify operator</option>
+                  <option value="none">No extra notifications</option>
+                </select>
+              </label>
+              <label>
+                <span>Escalation email</span>
+                <input
+                  type="email"
+                  value={charter.escalation_email ?? ""}
+                  placeholder="ops@yourcompany.com"
+                  onChange={(event) =>
+                    setCharter((current) => ({ ...current, escalation_email: event.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                <span>Escalation phone</span>
+                <input
+                  type="text"
+                  value={charter.escalation_phone ?? ""}
+                  placeholder="+1 512 555 0100"
+                  onChange={(event) =>
+                    setCharter((current) => ({ ...current, escalation_phone: event.target.value }))
+                  }
+                />
+              </label>
+            </div>
+          ) : null}
+
           {stepId === "brain" ? (
             <div className="callout wizard-callout">
               <p>
@@ -322,7 +471,13 @@ export default function StandaloneWizardPage() {
               </button>
             ) : (
               <button type="button" onClick={() => void goNext()} disabled={saving || loading}>
-                {saving ? "Saving…" : stepId === "notes" && !saved ? "Save & continue" : "Continue"}
+                {saving
+                  ? "Saving…"
+                  : stepId === "notes" && !saved
+                    ? "Save & continue"
+                    : stepId === "charter" && !charterSaved
+                      ? "Save charter & continue"
+                      : "Continue"}
               </button>
             )}
           </footer>

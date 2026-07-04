@@ -22,6 +22,7 @@ from backend.api.routes.ability_runtime import (
 from backend.domain.enums import MissionState
 from backend.domain.mission import MISSION_INTAKE_METADATA_KEY
 from backend.services.execution_coordinator import CoordinationResult
+from backend.services.operating_charter import default_operating_charter
 from backend.services.quota_enforcement import QuotaExceededError
 from backend.services.tools.runtime_authority import ToolRuntimeAuthority
 from backend.services.tools.schemas import CredentialReference, SideEffectClass
@@ -44,6 +45,20 @@ def _authorized_request(*, roles: tuple[str, ...] = ("operator",)) -> MagicMock:
         permissions=frozenset(),
     )
     return request
+
+
+def _charter_allowing_email_send():
+    base = default_operating_charter()
+    return type(base)(
+        schema_version=base.schema_version,
+        may_prepare=base.may_prepare,
+        may_perform=(*base.may_perform, "gtm.email_send"),
+        never_do=tuple(item for item in base.never_do if item != "gtm.email_send"),
+        approval_mode=base.approval_mode,
+        escalation_email=base.escalation_email,
+        escalation_phone=base.escalation_phone,
+        source=base.source,
+    )
 
 
 def _high_risk_gtm_body(*, idempotency_key: str | None = "idem-123") -> AbilityTaskCreate:
@@ -190,7 +205,13 @@ def test_launch_task_high_risk_gtm_requires_idempotency_key() -> None:
 
     quota_svc = MagicMock()
 
-    with patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc):
+    with (
+        patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch(
+            "backend.api.routes.ability_runtime.load_operating_charter",
+            return_value=_charter_allowing_email_send(),
+        ),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
 
@@ -208,7 +229,13 @@ def test_launch_task_high_risk_gtm_rejects_blank_idempotency_key() -> None:
 
     quota_svc = MagicMock()
 
-    with patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc):
+    with (
+        patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch(
+            "backend.api.routes.ability_runtime.load_operating_charter",
+            return_value=_charter_allowing_email_send(),
+        ),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
 

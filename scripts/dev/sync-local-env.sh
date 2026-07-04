@@ -28,6 +28,8 @@ Environment:
   AJENDA_RUNTIME_ENV_FILE  Target env file (default: deploy/compose/.env.prod)
 
 After syncing, prints external OAuth callback URLs to register in Google Cloud and Salesforce.
+For console links and env-var checklist (no secrets printed):
+  bash scripts/dev/credentials-setup-guide.sh --profile vite
 USAGE
 }
 
@@ -223,3 +225,10 @@ else
       docker compose --env-file $ENV_FILE -f $ROOT_DIR/deploy/compose/docker-compose.prod.yml up -d --build
 EOF
 fi
+
+cat <<EOF
+  - Credential console links + env checklist:
+      bash $ROOT_DIR/scripts/dev/credentials-setup-guide.sh --profile $PROFILE
+  - Sync master secrets into this env file (edit ~/.ajenda/runtime-secrets.env once):
+      bash $ROOT_DIR/scripts/dev/sync-local-secrets.sh --bootstrap --recreate-api
+EOF

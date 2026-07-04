@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.contracts import STANDARD_CRM_CONTRACT, CrmContractPaths
-from backend.services.tools.record_store import RecordStore, resolve_record_store
+from backend.services.tools.record_store import resolve_record_store
 from backend.services.tools.schemas import ActionRuntimeContext, RuntimeCredentialMaterial, ToolInvocation
 
 
@@ -267,15 +267,25 @@ class StandardCrmClient:
                     error=str(exc),
                 )
 
-        store: RecordStore = resolve_record_store(context)
         normalized_type = _normalize_record_type(record_type)
-        record_id = data.get("id") if isinstance(data.get("id"), str) else None
-        saved = store.write_record(
-            tenant_id=context.tenant_id,
-            record_type=normalized_type,
-            record_id=record_id,
-            data=data,
-        )
+        if context.session_factory is not None:
+            from backend.services.light_crm.workflow import complete_internal_crm_upsert
+
+            session = context.session_factory()
+            try:
+                saved = complete_internal_crm_upsert(
+                    session=session,
+                    tenant_id=context.tenant_id,
+                    record_type=normalized_type,
+                    data=data,
+                    mission_id=str(context.mission_id) if context.mission_id else None,
+                    task_id=str(context.task_id) if context.task_id else None,
+                    commit=True,
+                )
+            finally:
+                session.close()
+        else:
+            raise ValueError("gtm.crm_upsert internal write requires session_factory for governed CRM workflow hooks")
         return CrmUpsertResult(
             record_type=normalized_type,
             record_id=str(saved.get("id", "")),

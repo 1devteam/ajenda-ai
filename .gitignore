@@ -96,6 +96,7 @@ alembic/versions/__pycache__/
 
 # Node / frontend artifacts
 node_modules/
+frontend/tsconfig.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

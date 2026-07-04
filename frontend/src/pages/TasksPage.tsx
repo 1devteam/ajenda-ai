@@ -1,54 +1,48 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import DisclaimerModal from "../components/DisclaimerModal";
 import {
   getAccountMe,
+  approveReviewQueueItem,
+  getBrainCapabilityCheck,
   getTaskStatus,
   launchProof,
   launchTask,
   listAutonomyDisclaimers,
+  listBrainMissions,
   listProviderCredentials,
+  listReviewQueue,
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
+import BrainMissionsPanel from "../components/tasks/BrainMissionsPanel";
+import ReviewQueuePanel from "../components/tasks/ReviewQueuePanel";
+import TaskMonitor from "../components/tasks/TaskMonitor";
+import Tier3AutonomyPanel, {
+  TIER3_ACTIONS,
+  type Tier3Action,
+} from "../components/tasks/Tier3AutonomyPanel";
+import { mapBrainMissionsFromApi } from "../config/brainMissionCatalog";
+import {
+  BRAIN_MISSION_TEMPLATES,
+  type BrainMissionCapstoneStep,
+  type BrainMissionTemplate,
+} from "../config/brainMissionTemplates";
 import { MISSION_ABILITY_PRESETS, type MissionAbilityPreset } from "../config/missionAbilities";
 import type {
   AbilityTaskQueuedResponse,
   AbilityTaskStatusResponse,
   AutonomyDisclaimer,
+  BrainCapabilityCheckResponse,
   ProviderCredentialResponse,
+  ReviewQueueItem,
 } from "../types";
-import { failureText, newIdempotencyKey, pretty } from "../utils/errors";
+import { newIdempotencyKey } from "../utils/errors";
 
 const PROOF_BUTTONS = [
   { key: "calendar-read" as const, title: "Calendar Read", description: "Read-only calendar proof." },
   { key: "sales-qualify" as const, title: "Sales Qualify", description: "Qualify a sample roofing lead." },
 ] as const;
-
-type Tier3Action = "gtm.email_send" | "gtm.crm_upsert";
-
-const TIER3_ACTIONS: Array<{
-  action: Tier3Action;
-  title: string;
-  description: string;
-  provider: string;
-  credentialType: string;
-}> = [
-  {
-    action: "gtm.email_send",
-    title: "Send email",
-    description: "Tier 3 external send through connected Gmail.",
-    provider: "external_email",
-    credentialType: "api_key",
-  },
-  {
-    action: "gtm.crm_upsert",
-    title: "CRM upsert",
-    description: "Tier 3 external write through connected HubSpot CRM.",
-    provider: "external_crm",
-    credentialType: "api_key",
-  },
-];
 
 export default function TasksPage() {
   const [searchParams] = useSearchParams();
@@ -69,6 +63,13 @@ export default function TasksPage() {
   });
   const [pendingTier3, setPendingTier3] = useState<Tier3Action | null>(null);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [capabilityReport, setCapabilityReport] = useState<BrainCapabilityCheckResponse | null>(null);
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueueItem[]>([]);
+  const [activeCapstone, setActiveCapstone] = useState<BrainMissionTemplate | null>(null);
+  const [approvedArtifacts, setApprovedArtifacts] = useState<ReviewQueueItem[]>([]);
+  const [selectedSendArtifactId, setSelectedSendArtifactId] = useState("");
+  const [brainMissionTemplates, setBrainMissionTemplates] =
+    useState<BrainMissionTemplate[]>(BRAIN_MISSION_TEMPLATES);
 
   const draftDisclaimer = disclaimers.find((item) => item.actions.includes("gtm.email_draft")) ?? null;
   const pendingDisclaimer = pendingTier3
@@ -118,6 +119,29 @@ export default function TasksPage() {
   }, [session]);
 
   useEffect(() => {
+    if (!session) {
+      return;
+    }
+    let cancelled = false;
+    async function loadBrainMissions() {
+      try {
+        const response = await listBrainMissions(session!);
+        if (!cancelled && response.missions.length > 0) {
+          setBrainMissionTemplates(mapBrainMissionsFromApi(response.missions));
+        }
+      } catch {
+        if (!cancelled) {
+          setBrainMissionTemplates(BRAIN_MISSION_TEMPLATES);
+        }
+      }
+    }
+    void loadBrainMissions();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  useEffect(() => {
     if (!activeTaskId || !session) {
       return;
     }
@@ -149,18 +173,31 @@ export default function TasksPage() {
     };
   }, [activeTaskId, session]);
 
-  function credentialForPreset(preset: MissionAbilityPreset) {
-    if (!preset.provider) {
-      return "";
-    }
+  function credentialForAction(action: string, provider?: string) {
     return (
       credentials.find(
         (item) =>
-          item.provider === preset.provider &&
-          item.allowed_actions.includes(preset.action) &&
+          (!provider || item.provider === provider) &&
+          item.allowed_actions.includes(action) &&
           !item.revoked,
-      )?.credential_id ?? ""
+      ) ?? null
     );
+  }
+
+  function credentialForPreset(preset: MissionAbilityPreset) {
+    if (!preset.provider) {
+      return null;
+    }
+    return credentialForAction(preset.action, preset.provider);
+  }
+
+  function credentialReference(credential: ProviderCredentialResponse) {
+    return {
+      schema_version: 1 as const,
+      credential_id: credential.credential_id,
+      provider: credential.provider,
+      credential_type: credential.credential_type,
+    };
   }
 
   async function handleMissionAbility(preset: MissionAbilityPreset) {
@@ -168,8 +205,8 @@ export default function TasksPage() {
       return;
     }
     if (preset.requiresCredential) {
-      const credentialId = credentialForPreset(preset);
-      if (!credentialId) {
+      const credential = credentialForPreset(preset);
+      if (!credential) {
         setError(`Connect a credential for ${preset.action} on the Credentials page first.`);
         return;
       }
@@ -181,12 +218,7 @@ export default function TasksPage() {
           input: preset.input,
           mission_id: missionId,
           idempotency_key: newIdempotencyKey(),
-          credential_reference: {
-            schema_version: 1,
-            credential_id: credentialId,
-            provider: preset.provider!,
-            credential_type: preset.credentialType ?? "api_key",
-          },
+          credential_reference: credentialReference(credential),
         });
         setLastQueued(queued);
         setActiveTaskId(queued.task_id);
@@ -240,7 +272,7 @@ export default function TasksPage() {
           recipient: "prospect@example.com",
           topic: "Ajenda follow-up",
           tone: "professional",
-          context: "Product runtime disclaimer path",
+          context: { source: "tasks-ui", goal: "Product runtime disclaimer path" },
         },
         autonomy_acknowledgment: {
           schema_version: 1,
@@ -279,8 +311,9 @@ export default function TasksPage() {
         pendingTier3 === "gtm.email_send"
           ? {
               to: "prospect@example.com",
-              subject: "Ajenda autonomy send proof",
-              body: "Tier 3 informed autonomy launch from Tasks UI.",
+              subject: selectedSendArtifactId ? "" : "Ajenda autonomy send proof",
+              body: selectedSendArtifactId ? "" : "Tier 3 informed autonomy launch from Tasks UI.",
+              ...(selectedSendArtifactId ? { artifact_id: selectedSendArtifactId } : {}),
             }
           : {
               record_type: "contact",
@@ -294,12 +327,13 @@ export default function TasksPage() {
           mission_id: missionId || undefined,
           input,
           idempotency_key: idempotencyKey,
-          credential_reference: {
-            schema_version: 1,
-            credential_id: selectedCredentialId,
-            provider: spec.provider,
-            credential_type: spec.credentialType,
-          },
+          credential_reference: (() => {
+            const credential = credentials.find((item) => item.credential_id === selectedCredentialId);
+            if (!credential) {
+              throw new Error("Selected credential not found.");
+            }
+            return credentialReference(credential);
+          })(),
           autonomy_acknowledgment: {
             schema_version: 1,
             disclaimer_id: pendingDisclaimer.disclaimer_id,
@@ -337,6 +371,127 @@ export default function TasksPage() {
     }
     setPendingTier3(action);
     setShowDisclaimer(true);
+  }
+
+  async function handleBrainMission(template: BrainMissionTemplate) {
+    if (!session) {
+      return;
+    }
+    if (template.capstone) {
+      setActiveCapstone(template);
+      void handleRefreshReviewQueue();
+      return;
+    }
+    setLoading(`Launching ${template.action}`);
+    setError("");
+    try {
+      const optionalCredential =
+        template.requiresCredential && template.provider
+          ? credentialForAction(template.action, template.provider)
+          : null;
+      const queued = await launchTask(session, {
+        action: template.action,
+        input: template.input,
+        mission_id: missionId || undefined,
+        idempotency_key: newIdempotencyKey(),
+        ...(optionalCredential ? { credential_reference: credentialReference(optionalCredential) } : {}),
+      });
+      setLastQueued(queued);
+      setActiveTaskId(queued.task_id);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleCapabilityCheck() {
+    if (!session) {
+      return;
+    }
+    setLoading("Running brain capability check");
+    setError("");
+    try {
+      setCapabilityReport(await getBrainCapabilityCheck(session));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleRefreshReviewQueue() {
+    if (!session) {
+      return;
+    }
+    setLoading("Loading review queue");
+    setError("");
+    try {
+      const [pending, approved] = await Promise.all([
+        listReviewQueue(session, { status: "pending", limit: 10 }),
+        listReviewQueue(session, { status: "approved", limit: 10 }),
+      ]);
+      setReviewQueue(pending.items);
+      setApprovedArtifacts(approved.items);
+      if (!selectedSendArtifactId && approved.items[0]?.artifact_id) {
+        setSelectedSendArtifactId(approved.items[0].artifact_id);
+      }
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleCapstoneStep(step: BrainMissionCapstoneStep) {
+    if (!session || !step) {
+      return;
+    }
+    if (step.action === "review_queue") {
+      await handleRefreshReviewQueue();
+      return;
+    }
+    setLoading(`Capstone step ${step.step}: ${step.label}`);
+    setError("");
+    try {
+      const optionalCredential =
+        step.requiresCredential && step.provider
+          ? credentialForAction(step.action, step.provider)
+          : null;
+      const stepInput =
+        step.action === "gtm.email_send" && selectedSendArtifactId
+          ? { ...step.input, artifact_id: selectedSendArtifactId, subject: "", body: "" }
+          : step.input;
+      const queued = await launchTask(session, {
+        action: step.action,
+        input: stepInput,
+        mission_id: missionId || undefined,
+        idempotency_key: newIdempotencyKey(),
+        ...(optionalCredential ? { credential_reference: credentialReference(optionalCredential) } : {}),
+      });
+      setLastQueued(queued);
+      setActiveTaskId(queued.task_id);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleApproveDraft(artifactId: string) {
+    if (!session) {
+      return;
+    }
+    setLoading(`Approving ${artifactId}`);
+    setError("");
+    try {
+      await approveReviewQueueItem(session, artifactId);
+      setReviewQueue((current) => current.filter((item) => item.artifact_id !== artifactId));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(null);
+    }
   }
 
   async function handleProof(proof: (typeof PROOF_BUTTONS)[number]["key"]) {
@@ -398,6 +553,32 @@ export default function TasksPage() {
         </section>
       ) : null}
 
+      {!missionId ? (
+        <section className="panel">
+          <BrainMissionsPanel
+            templates={brainMissionTemplates}
+            sessionReady={Boolean(session)}
+            loading={loading !== null}
+            capabilityReport={capabilityReport}
+            onLaunch={(template) => void handleBrainMission(template)}
+            onCapabilityCheck={() => void handleCapabilityCheck()}
+          />
+          <ReviewQueuePanel
+            reviewQueue={reviewQueue}
+            approvedArtifacts={approvedArtifacts}
+            activeCapstone={activeCapstone}
+            selectedSendArtifactId={selectedSendArtifactId}
+            sessionReady={Boolean(session)}
+            loading={loading !== null}
+            onRefresh={() => void handleRefreshReviewQueue()}
+            onApprove={(artifactId) => void handleApproveDraft(artifactId)}
+            onCapstoneStep={(step) => void handleCapstoneStep(step)}
+            onCloseCapstone={() => setActiveCapstone(null)}
+            onSelectSendArtifact={setSelectedSendArtifactId}
+          />
+        </section>
+      ) : null}
+
       <section className="panel">
         <h2>Proof launchers</h2>
         <div className="card-grid two-up">
@@ -416,125 +597,49 @@ export default function TasksPage() {
         </div>
       </section>
 
-      {autonomyMode !== "off" ? (
-        <section className="panel">
-          <h2>Informed autonomy</h2>
-          <p>
-            Autonomy mode is <strong>{autonomyMode}</strong>. Disclaimers are recorded in audit when you launch governed
-            actions. Principal: <code>{principalId || "loading…"}</code>
-          </p>
+      <Tier3AutonomyPanel
+        autonomyMode={autonomyMode}
+        principalId={principalId}
+        credentials={credentials}
+        tier3Credentials={tier3Credentials}
+        approvedArtifactIds={approvedArtifacts}
+        selectedSendArtifactId={selectedSendArtifactId}
+        sessionReady={Boolean(session)}
+        loading={loading !== null}
+        hasDraftDisclaimer={Boolean(draftDisclaimer)}
+        onDraftDisclaimer={() => {
+          setPendingTier3(null);
+          setShowDisclaimer(true);
+        }}
+        onTier3CredentialChange={(action, credentialId) =>
+          setTier3Credentials((current) => ({
+            ...current,
+            [action]: credentialId,
+          }))
+        }
+        onOpenTier3Disclaimer={openTier3Disclaimer}
+        onSelectSendArtifact={setSelectedSendArtifactId}
+      />
 
-          {draftDisclaimer ? (
-            <button
-              type="button"
-              className="primary-button"
-              disabled={!session || loading !== null || !principalId}
-              onClick={() => {
-                setPendingTier3(null);
-                setShowDisclaimer(true);
-              }}
-            >
-              Draft email (Tier 1)
-            </button>
-          ) : null}
-
-          <div className="card-grid two-up tier3-grid">
-            {TIER3_ACTIONS.map((item) => {
-              const options = credentialOptionsFor(item.action);
-              return (
-                <div className="proof-card static-card" key={item.action}>
-                  <strong>{item.title}</strong>
-                  <span>{item.description}</span>
-                  <label>
-                    Credential
-                    <select
-                      value={tier3Credentials[item.action]}
-                      disabled={options.length === 0 || loading !== null}
-                      onChange={(event) =>
-                        setTier3Credentials((current) => ({
-                          ...current,
-                          [item.action]: event.target.value,
-                        }))
-                      }
-                    >
-                      {options.length === 0 ? <option value="">No credential connected</option> : null}
-                      {options.map((credential) => (
-                        <option key={credential.credential_id} value={credential.credential_id}>
-                          {credential.credential_id}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    disabled={!session || loading !== null || options.length === 0 || !principalId}
-                    onClick={() => openTier3Disclaimer(item.action)}
-                  >
-                    Launch with disclaimer
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="panel">
-        <h2>Task monitor</h2>
-        <div className="task-input-row">
-          <input
-            value={activeTaskId}
-            onChange={(event) => setActiveTaskId(event.target.value)}
-            placeholder="Task ID"
-          />
-          <button
-            type="button"
-            onClick={async () => {
-              if (!session || !activeTaskId) return;
-              setLoading("Refreshing task");
-              try {
-                setTaskStatus(await getTaskStatus(session, activeTaskId));
-              } catch (err) {
-                setError(err);
-              } finally {
-                setLoading(null);
-              }
-            }}
-            disabled={!session || !activeTaskId || loading !== null}
-          >
-            Refresh
-          </button>
-        </div>
-
-        {lastQueued ? (
-          <div className="queued">
-            Last queued: <strong>{lastQueued.action}</strong> · {lastQueued.task_id}
-          </div>
-        ) : null}
-
-        {taskStatus ? (
-          <div className="result-grid">
-            <div>
-              <h3>Status</h3>
-              <pre>
-                {pretty({
-                  task_id: taskStatus.task_id,
-                  mission_id: taskStatus.mission_id,
-                  action: taskStatus.action,
-                  status: taskStatus.status,
-                })}
-              </pre>
-            </div>
-            <div>
-              <h3>Evidence</h3>
-              <pre>{pretty(taskStatus.evidence)}</pre>
-            </div>
-          </div>
-        ) : (
-          <p className="muted">Launch a proof to start monitoring.</p>
-        )}
-      </section>
+      <TaskMonitor
+        activeTaskId={activeTaskId}
+        lastQueued={lastQueued}
+        taskStatus={taskStatus}
+        sessionReady={Boolean(session)}
+        loading={loading !== null}
+        onTaskIdChange={setActiveTaskId}
+        onRefresh={async () => {
+          if (!session || !activeTaskId) return;
+          setLoading("Refreshing task");
+          try {
+            setTaskStatus(await getTaskStatus(session, activeTaskId));
+          } catch (err) {
+            setError(err);
+          } finally {
+            setLoading(null);
+          }
+        }}
+      />
 
       {loading ? <div className="toast">Working: {loading}</div> : null}
       {error ? (

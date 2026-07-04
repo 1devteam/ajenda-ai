@@ -338,17 +338,29 @@ def test_gtm_email_send_propagates_idempotency_key_to_provider() -> None:
     assert result.output["idempotency_key"] == "idem-gmail-1"
 
 
-def test_gtm_crm_upsert_simulated_without_credential() -> None:
+@patch("backend.services.light_crm.workflow.complete_internal_crm_upsert")
+def test_gtm_crm_upsert_simulated_without_credential(mock_complete: MagicMock) -> None:
+    session = MagicMock()
+    mock_complete.return_value = {"id": "contact-1", "email": "lead@example.com"}
+    context = ActionRuntimeContext(
+        tenant_id=str(uuid.uuid4()),
+        task_id=uuid.uuid4(),
+        mission_id=uuid.uuid4(),
+        worker_id="worker",
+        lease_id=str(uuid.uuid4()),
+        session_factory=lambda: session,
+    )
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(
         ToolInvocation(
             action="gtm.crm_upsert",
             input={"record_type": "lead", "data": {"email": "lead@example.com"}},
         ),
-        _context(),
+        context,
     )
 
     assert result.output.get("real") is True
     assert result.output["status"] == "upserted_internal"
     assert result.output["source"] == "ajenda_brain"
     assert result.side_effect_class.value == "internal_write"
+    mock_complete.assert_called_once()

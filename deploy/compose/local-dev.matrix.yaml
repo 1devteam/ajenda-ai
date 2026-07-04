@@ -11,6 +11,110 @@
 
 version: 1
 
+# Where to obtain credentials and which env vars to set.
+# Run: bash scripts/dev/credentials-setup-guide.sh --profile vite
+# Master local secrets: ~/.ajenda/runtime-secrets.env
+# Sync into services: bash scripts/dev/sync-local-secrets.sh --bootstrap --recreate-api
+runtime_secrets:
+  master_file: ~/.ajenda/runtime-secrets.env
+  example_file: scripts/dev/runtime-secrets.env.example
+  sync_script: scripts/dev/sync-local-secrets.sh
+credential_sources:
+  google:
+    label: Google (OIDC sign-in, Gmail, Calendar)
+    required_for_local: true
+    env_file: deploy/compose/.env.prod
+    console:
+      credentials: https://console.cloud.google.com/apis/credentials
+      consent_screen: https://console.cloud.google.com/apis/credentials/consent
+      gmail_api: https://console.cloud.google.com/apis/library/gmail.googleapis.com
+      calendar_api: https://console.cloud.google.com/apis/library/calendar-json.googleapis.com
+    env_vars:
+      - AJENDA_OIDC_CLIENT_ID
+      - AJENDA_OIDC_CLIENT_SECRET
+      - AJENDA_SESSION_SIGNING_SECRET
+    cli_env_file: ~/.ajenda/google-cli.env
+    cli_env_vars:
+      - AJENDA_GOOGLE_CLI_CLIENT_ID
+      - AJENDA_GOOGLE_CLI_CLIENT_SECRET
+    notes: >
+      One Web OAuth client covers sign-in and Credentials UI. Add profile redirect URIs
+      from this guide. For CLI/E2E tokens: bash scripts/google/create_cli_oauth_client.sh
+  salesforce:
+    label: Salesforce (Credentials UI)
+    required_for_local: false
+    env_file: deploy/compose/.env.prod
+    console:
+      connected_apps: https://login.salesforce.com/lightning/setup/ConnectedApplication/home
+      developer: https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_oauth_and_connected_apps.htm
+    env_vars:
+      - AJENDA_SALESFORCE_CLIENT_ID
+      - AJENDA_SALESFORCE_CLIENT_SECRET
+    notes: Create a Connected App with OAuth; paste Consumer Key/Secret into .env.prod.
+  hubspot:
+    label: HubSpot CRM (platform master key — shared Ajenda portal)
+    required_for_local: false
+    env_file: deploy/compose/.env.prod
+    console:
+      private_apps: https://developers.hubspot.com/docs/apps/legacy-apps/private-apps/overview
+      create_token: https://app.hubspot.com/private-apps
+    env_vars:
+      - AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED
+      - AJENDA_HUBSPOT_PLATFORM_MASTER_KEY
+      - AJENDA_HUBSPOT_PLATFORM_MASTER_AUTO_PROVISION
+    e2e_env_file: ~/.ajenda/e2e.env
+    e2e_env_vars:
+      - AJENDA_E2E_HUBSPOT_PAK
+    notes: >
+      Operator sets one PAK in runtime secrets; all tenants get hubspot-crm auto-provisioned
+      (no per-user HubSpot login). Per-tenant PAK remains optional via Credentials UI.
+      Bootstrap copies AJENDA_E2E_HUBSPOT_PAK into AJENDA_HUBSPOT_PLATFORM_MASTER_KEY.
+  stripe:
+    label: Stripe (billing checkout)
+    required_for_local: false
+    env_file: deploy/compose/.env.prod
+    console:
+      api_keys: https://dashboard.stripe.com/test/apikeys
+      webhooks: https://dashboard.stripe.com/test/webhooks
+      products: https://dashboard.stripe.com/test/products
+    env_vars:
+      - STRIPE_SECRET_KEY
+      - STRIPE_PUBLISHABLE_KEY
+      - STRIPE_WEBHOOK_SECRET
+      - STRIPE_PRICE_STARTER
+      - STRIPE_PRICE_PRO
+    notes: Run deploy/scripts/stripe-staging-bootstrap.sh to seed test prices locally.
+  resend:
+    label: Resend (signup verification email)
+    required_for_local: false
+    env_file: deploy/compose/.env.prod
+    console:
+      api_keys: https://resend.com/api-keys
+    env_vars:
+      - AJENDA_RESEND_API_KEY
+    notes: Local dev uses AJENDA_EMAIL_PROVIDER=noop; Resend only needed for staging/prod email.
+  encryption:
+    label: Fernet encryption (webhook + runtime secrets at rest)
+    required_for_local: false
+    env_file: deploy/compose/.env.prod
+    console: {}
+    env_vars:
+      - AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY
+      - AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY
+    generate_cmd: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    notes: Required before storing provider credentials in production-like staging.
+  github:
+    label: GitHub (Credentials UI — optional)
+    required_for_local: false
+    enabled: false
+    env_file: deploy/compose/.env.prod
+    console:
+      oauth_apps: https://github.com/settings/developers
+    env_vars:
+      - AJENDA_GITHUB_CLIENT_ID
+      - AJENDA_GITHUB_CLIENT_SECRET
+    notes: Not in active use; skip unless enabling GitHub in Credentials UI.
+
 profiles:
   vite:
     label: Vite dev server (hot reload)

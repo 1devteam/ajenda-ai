@@ -17,11 +17,22 @@ export const MISSION_ALLOWED_ACTION_OPTIONS = [
   { action: "gtm.email_check", label: "Check inbox" },
   { action: "gtm.email_send", label: "Send email" },
   { action: "gtm.crm_upsert", label: "CRM upsert" },
+  { action: "document.generate", label: "Generate document artifact" },
+  { action: "document.search", label: "Search clerical library" },
+  { action: "document.read", label: "Read document artifact" },
   { action: "linkedin.profile_read", label: "LinkedIn profile read" },
   { action: "salesforce.soql_read", label: "Salesforce SOQL read" },
   { action: "google_calendar.events_read", label: "Google Calendar read" },
   { action: "github.repo_read", label: "GitHub repo read" },
   { action: "retrieval.hybrid_search", label: "Hybrid memory retrieval" },
+] as const;
+
+/** Ordered actions for the M11 capstone outreach bundle in Mission Dispatch. */
+export const CAPSTONE_OUTREACH_ACTIONS = [
+  "sales.research",
+  "gtm.email_draft",
+  "gtm.email_send",
+  "gtm.crm_upsert",
 ] as const;
 
 export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
@@ -40,21 +51,19 @@ export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
   {
     action: "gtm.email_draft",
     title: "Draft greeting email",
-    description: "Draft a personalized greeting email for a prospect.",
+    description: "Draft a personalized greeting email and persist to the review queue.",
     input: {
-      to: "prospect@example.com",
-      subject: "Quick introduction",
-      body: "Draft a warm greeting email for a new roofing lead.",
+      recipient: "prospect@example.com",
+      topic: "Quick introduction",
+      tone: "professional",
+      context: { goal: "Warm greeting for a new roofing lead." },
     },
   },
   {
     action: "sales.research",
     title: "Sales research",
-    description: "Research a lead with Ajenda brain and optional CRM context.",
+    description: "Research a lead with Ajenda brain; connect CRM for enriched external context.",
     input: { lead: { company: "HubSpot", domain: "hubspot.com" } },
-    provider: "external_crm",
-    credentialType: "api_key",
-    requiresCredential: true,
   },
   {
     action: "crm.research",
@@ -73,6 +82,56 @@ export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
     provider: "external_email",
     credentialType: "api_key",
     requiresCredential: true,
+  },
+  {
+    action: "gtm.email_send",
+    title: "Send approved email",
+    description: "Send an approved draft artifact via ajenda-email or Gmail.",
+    input: {
+      to: "prospect@example.com",
+      artifact_id: "pitch_email-<artifact-id>",
+      context: { capstone: true },
+    },
+    provider: "external_email",
+    credentialType: "api_key",
+    requiresCredential: true,
+  },
+  {
+    action: "gtm.crm_upsert",
+    title: "CRM upsert",
+    description: "Log or update a contact in the internal pipeline or platform HubSpot.",
+    input: {
+      record_type: "contact",
+      data: {
+        email: "jordan.lee@example.com",
+        firstname: "Jordan",
+        lastname: "Lee",
+        company: "Example Co",
+      },
+    },
+  },
+  {
+    action: "document.generate",
+    title: "Generate document",
+    description: "Generate a governed document artifact (ROI brief, pitch email, etc.).",
+    input: {
+      artifact_type: "roi_brief",
+      topic: "Ajenda clerical worker pilot ROI",
+      tone: "professional",
+      context: { audience: "VP Operations" },
+    },
+  },
+  {
+    action: "document.search",
+    title: "Search clerical library",
+    description: "Find governed document artifacts in the tenant clerical library.",
+    input: { query: "Ajenda capability ROI", artifact_type: "roi_brief", limit: 5 },
+  },
+  {
+    action: "document.read",
+    title: "Read document artifact",
+    description: "Read a specific document artifact by ID from the clerical library.",
+    input: { artifact_id: "roi_brief-ajenda-pilot" },
   },
   {
     action: "linkedin.profile_read",
@@ -117,3 +176,7 @@ export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
     input: { query: "approved outreach playbook", limit: 5 },
   },
 ];
+
+export const CAPSTONE_OUTREACH_PRESETS: MissionAbilityPreset[] = CAPSTONE_OUTREACH_ACTIONS.map(
+  (action) => MISSION_ABILITY_PRESETS.find((preset) => preset.action === action)!,
+);
