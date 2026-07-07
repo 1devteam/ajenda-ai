@@ -219,10 +219,11 @@ def generate_and_persist_draft(
 
     session_factory = ctx.session_factory
     if session_factory is None:
-        content["artifact_id"] = None
-        content["provider"] = llm_result.provider
-        content["model"] = llm_result.model
-        return content
+        payload: dict[str, Any] = dict(content)
+        payload["artifact_id"] = None
+        payload["provider"] = llm_result.provider
+        payload["model"] = llm_result.model
+        return payload
 
     session = session_factory()
     try:
