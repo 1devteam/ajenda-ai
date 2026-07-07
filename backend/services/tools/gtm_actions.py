@@ -248,7 +248,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
         try:
             to, subject, body_text, artifact_id = _resolve_send_content(inv, ctx, inp)
         except ValueError as exc:
-            sent = {
+            blocked_output = {
                 "to": inp.to,
                 "subject": inp.subject,
                 "body": inp.body,
@@ -261,14 +261,14 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 action=inv.action,
                 provider="external_email",
                 side_effect_class=SideEffectClass.EXTERNAL_SEND,
-                output=sent,
+                output=blocked_output,
                 evidence=[
                     _make_evidence(
                         inv.action,
                         "external_email",
                         ctx,
                         "External email blocked by artifact review gate",
-                        sent,
+                        blocked_output,
                         side_effect_class=SideEffectClass.EXTERNAL_SEND,
                     )
                 ],
