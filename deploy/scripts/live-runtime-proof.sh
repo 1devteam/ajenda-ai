@@ -113,6 +113,14 @@ if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then
   fail "compose env file not found: $COMPOSE_ENV_FILE"
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HUBSPOT_CERT_SCRIPT="$SCRIPT_DIR/../compose/hubspot-crm-ingress/generate-certs.sh"
+if [[ ! -f "$HUBSPOT_CERT_SCRIPT" ]]; then
+  fail "HubSpot ingress cert script not found: $HUBSPOT_CERT_SCRIPT"
+fi
+log "ensuring HubSpot CRM ingress TLS certs exist for compose build"
+bash "$HUBSPOT_CERT_SCRIPT"
+
 log "validating compose configuration"
 compose config --quiet
 
