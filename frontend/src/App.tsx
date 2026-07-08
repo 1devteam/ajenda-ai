@@ -3,6 +3,7 @@ import { useAuth } from "./auth/AuthProvider";
 import SessionWatchdog from "./auth/SessionWatchdog";
 import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
+import ApprovalsPage from "./pages/ApprovalsPage";
 import BillingPage from "./pages/BillingPage";
 import DashboardPage from "./pages/DashboardPage";
 import DevConsolePage from "./pages/DevConsolePage";
@@ -17,6 +18,7 @@ import RecordsPage from "./pages/RecordsPage";
 import CredentialsPage from "./pages/CredentialsPage";
 import BusinessProfilePage from "./pages/BusinessProfilePage";
 import StandaloneWizardPage from "./pages/StandaloneWizardPage";
+import SettingsPage from "./pages/SettingsPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 
 function HomeRedirect() {
@@ -49,13 +51,19 @@ export default function App() {
             <Route path="/setup" element={<StandaloneWizardPage />} />
             <Route path="/business" element={<BusinessProfilePage />} />
             <Route path="/missions" element={<MissionsPage />} />
+            <Route path="/launch" element={<MissionsPage />} />
             <Route path="/missions/:missionId" element={<MissionDispatchPage />} />
             <Route path="/billing" element={<BillingPage />} />
             <Route path="/billing/success" element={<BillingPage />} />
             <Route path="/billing/cancel" element={<BillingPage />} />
             <Route path="/tasks" element={<TasksPage />} />
+            <Route path="/active-work" element={<TasksPage />} />
+            <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/records" element={<RecordsPage />} />
+            <Route path="/results" element={<RecordsPage />} />
             <Route path="/credentials" element={<CredentialsPage />} />
+            <Route path="/connections" element={<CredentialsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="/credentials/gmail/callback" element={<CredentialsPage />} />
             <Route path="/credentials/linkedin/callback" element={<CredentialsPage />} />
             <Route path="/credentials/salesforce/callback" element={<CredentialsPage />} />

@@ -18,6 +18,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
+import PageHeader from "../components/ui/PageHeader";
 import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
 
 
@@ -388,13 +389,13 @@ export default function CredentialsPage() {
   );
 
   return (
-    <main className="page-shell">
+    <main>
+      <PageHeader
+        eyebrow="Connections"
+        title="Integrations and credentials"
+        lead="Connect external tools when you need them. Ajenda brain missions run standalone without plugins."
+      />
       <section className="panel">
-        <h1>Plugins (optional)</h1>
-        <p>
-          Standalone brain missions run without plugins. Connect Gmail, HubSpot, Salesforce, and other adapters only
-          when you need external systems. Secrets are encrypted per tenant and never returned after registration.
-        </p>
         {warning ? <p className="notice warning">{warning}</p> : null}
         <PageErrorAlert error={error} className="notice error" />
 

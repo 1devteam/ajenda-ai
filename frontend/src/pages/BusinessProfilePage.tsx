@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { getBusinessProfile } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
+import PageHeader from "../components/ui/PageHeader";
 import {
   BUSINESS_PROFILE_FIELDS,
   STANDALONE_PROCESS_STEPS,
@@ -46,6 +47,7 @@ export default function BusinessProfilePage() {
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<"profile" | "goals" | "knowledge" | "preferences">("profile");
 
   useEffect(() => {
     if (!session) {
@@ -127,26 +129,40 @@ export default function BusinessProfilePage() {
     }
   }
 
+  const tabSections: Record<typeof activeTab, BusinessProfileField["section"][]> = {
+    profile: ["identity", "contact"],
+    goals: ["market"],
+    knowledge: ["market", "notes"],
+    preferences: ["notes"],
+  };
+
   return (
-    <main className="page-shell">
-      <section className="hero compact-hero">
-        <div>
-          <p className="eyebrow">Standalone process</p>
-          <h1>Business information</h1>
-          <p>
-            Configure the Ajenda central brain with your business name, contacts, and market context.
-            These approved facts prefill mission briefs and internal standalone workflows without
-            requiring external CRM plugins.
-          </p>
-        </div>
-        <div className="status-card">
-          <span className={`status-dot ${completeness >= 75 ? "ok" : ""}`} />
-          <div>
-            <strong>{completeness}% ready</strong>
-            <small>{profile?.status === "missing" ? "No profile saved yet" : "Approved facts on file"}</small>
-          </div>
-        </div>
-      </section>
+    <main>
+      <PageHeader
+        eyebrow="Business memory"
+        title="Approved business context"
+        lead={`${completeness}% profile ready — facts Ajenda reuses across missions, retrieval, and outreach.`}
+      />
+
+      <div className="cc-tabs">
+        {(
+          [
+            ["profile", "Profile"],
+            ["goals", "Goals"],
+            ["knowledge", "Knowledge"],
+            ["preferences", "Preferences"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`cc-tab${activeTab === id ? " active" : ""}`}
+            onClick={() => setActiveTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       <section className="standalone-info-layout">
         <aside className="panel standalone-process-panel">
@@ -182,7 +198,9 @@ export default function BusinessProfilePage() {
           {success ? <p className="success-banner">{success}</p> : null}
 
           <form className="form-grid standalone-profile-form" onSubmit={handleSave}>
-            {Array.from(sections.entries()).map(([section, fields]) => (
+            {Array.from(sections.entries())
+              .filter(([section]) => tabSections[activeTab].includes(section))
+              .map(([section, fields]) => (
               <fieldset key={section} className="standalone-fieldset">
                 <legend>{SECTION_LABELS[section]}</legend>
                 <div className="standalone-field-grid">

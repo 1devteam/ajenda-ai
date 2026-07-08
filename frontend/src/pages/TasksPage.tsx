@@ -15,6 +15,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
+import PageHeader from "../components/ui/PageHeader";
 import BrainMissionsPanel from "../components/tasks/BrainMissionsPanel";
 import ReviewQueuePanel from "../components/tasks/ReviewQueuePanel";
 import TaskMonitor from "../components/tasks/TaskMonitor";
@@ -510,16 +511,17 @@ export default function TasksPage() {
   }
 
   return (
-    <main className="page-shell">
-      <section className="hero compact-hero">
-        <div>
-          <p className="eyebrow">Runtime tasks</p>
-          <h1>{missionId ? "Launch mission abilities" : "Launch worker proofs"}</h1>
-          <p>
-            Queue ability-runtime tasks and monitor status, lineage, and evidence from your tenant session.
-          </p>
-        </div>
-      </section>
+    <main>
+      <PageHeader
+        eyebrow="Active work"
+        title={missionId ? "Mission work in progress" : "Active work"}
+        lead="Monitor work Ajenda is running, inspect evidence, and launch governed abilities from your workspace."
+        actions={
+          <Link className="ghost-link" to="/approvals">
+            Open approvals
+          </Link>
+        }
+      />
 
       {missionId ? (
         <section className="panel">

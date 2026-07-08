@@ -8,6 +8,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
+import PageHeader from "../components/ui/PageHeader";
 import type {
   CrmPipelineResponse,
   CrmRecordItem,
@@ -127,18 +128,17 @@ export default function RecordsPage() {
   );
 
   return (
-    <main className="page-shell">
-      <header className="page-header">
-        <div>
-          <h1>Records</h1>
-          <p className="page-lead">
-            Ajenda light CRM — contacts, companies, deals, and mission-driven activity timelines.
-          </p>
-        </div>
-        <Link className="button secondary" to="/tasks">
-          Run missions
-        </Link>
-      </header>
+    <main>
+      <PageHeader
+        eyebrow="Results / evidence"
+        title="Outcomes and governed records"
+        lead="Contacts, deals, timelines, and evidence Ajenda produced while executing your missions."
+        actions={
+          <Link className="ghost-link" to="/missions">
+            Launch mission
+          </Link>
+        }
+      />
 
       <PageErrorAlert error={error} />
 

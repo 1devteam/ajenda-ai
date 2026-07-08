@@ -3,7 +3,9 @@ import { Link } from "react-router-dom";
 import { createMission, listMissions } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
+import PageHeader from "../components/ui/PageHeader";
 import { MISSION_ALLOWED_ACTION_OPTIONS } from "../config/missionAbilities";
+import { LAUNCH_MISSION_TEMPLATES } from "../config/launchMissionTemplates";
 import type { MissionIntakeQualityViolation, MissionListItem, MissionReadResponse } from "../types";
 
 
@@ -52,6 +54,7 @@ export default function MissionsPage() {
   const [listError, setListError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [listLoading, setListLoading] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("custom");
 
   const refreshMissions = useCallback(async () => {
     if (!session) {
@@ -79,6 +82,21 @@ export default function MissionsPage() {
     setSuccessCriterion(MISSION_PROMPT_GUIDE.exampleCriterion);
     setScopeLimit(MISSION_PROMPT_GUIDE.exampleScope);
     setAllowedActions([...MISSION_PROMPT_GUIDE.defaultAllowedActions]);
+    setSelectedTemplateId("custom");
+    setViolations([]);
+    setError(null);
+  }
+
+  function applyTemplate(templateId: string) {
+    const template = LAUNCH_MISSION_TEMPLATES.find((item) => item.id === templateId);
+    if (!template) {
+      return;
+    }
+    setSelectedTemplateId(templateId);
+    setObjective(template.objective);
+    setSuccessCriterion(template.successCriterion);
+    setScopeLimit(template.scopeLimit);
+    setAllowedActions([...template.allowedActions]);
     setViolations([]);
     setError(null);
   }
@@ -129,15 +147,27 @@ export default function MissionsPage() {
   }
 
   return (
-    <main className="page-shell narrow">
-      <section className="hero compact-hero">
-        <div>
-          <p className="eyebrow">Missions</p>
-          <h1>Start with an outcome</h1>
-          <p>
-            Missions turn business goals into governed work. Vague prompts are rejected — be specific about what should
-            happen and how you will measure success.
-          </p>
+    <main>
+      <PageHeader
+        eyebrow="Launch mission"
+        title="Describe what you want Ajenda to accomplish"
+        lead="Ajenda will break your goal into governed steps, execute work through your connections, and return evidence for review."
+      />
+
+      <section className="panel">
+        <h2>Start from a template</h2>
+        <div className="cc-template-grid">
+          {LAUNCH_MISSION_TEMPLATES.map((template) => (
+            <button
+              key={template.id}
+              type="button"
+              className={`cc-template-card${selectedTemplateId === template.id ? " selected" : ""}`}
+              onClick={() => applyTemplate(template.id)}
+            >
+              <h3>{template.title}</h3>
+              <p>{template.description}</p>
+            </button>
+          ))}
         </div>
       </section>
 
@@ -208,12 +238,12 @@ export default function MissionsPage() {
 
         <form className="form-grid mission-create-form" onSubmit={(event) => void handleCreate(event)}>
           <label>
-            Mission objective
+            Your goal
             <textarea
               className="mission-textarea"
               value={objective}
               onChange={(event) => setObjective(event.target.value)}
-              placeholder={MISSION_PROMPT_GUIDE.exampleObjective}
+              placeholder="Describe what you want Ajenda to accomplish."
               rows={4}
               required
             />
@@ -262,7 +292,7 @@ export default function MissionsPage() {
             </div>
           </fieldset>
 
-          <button type="submit" disabled={!session || loading}>
+          <button type="submit" className="primary-button" disabled={!session || loading}>
             {loading ? "Creating mission…" : "Create mission"}
           </button>
         </form>

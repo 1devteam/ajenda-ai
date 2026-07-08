@@ -3,10 +3,14 @@ import { Link, useLocation } from "react-router-dom";
 import { createCheckout, createPortal, getAccountBilling } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
+import PageHeader from "../components/ui/PageHeader";
+import StatCard from "../components/ui/StatCard";
+import { useWorkspaceSummary } from "../hooks/useWorkspaceSummary";
 import type { AccountBillingResponse } from "../types";
 
 export default function BillingPage() {
   const { session } = useAuth();
+  const { usage, plan } = useWorkspaceSummary(session);
   const location = useLocation();
   const [billing, setBilling] = useState<AccountBillingResponse | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
@@ -92,23 +96,24 @@ export default function BillingPage() {
   const onPro = currentPlan === "pro" || currentPlan === "enterprise";
 
   return (
-    <main className="page-shell">
-      <section className="hero compact-hero">
-        <div>
-          <p className="eyebrow">Billing</p>
-          <h1>Subscription &amp; invoices</h1>
-          <p>
-            Self-serve checkout upgrades to <strong>Pro</strong>, which unlocks AI task execution and GTM
-            abilities. Starter is webhook-only and is assigned by sales or admin — not sold here.
-          </p>
-        </div>
-        <div className="status-card">
-          <span className={`status-dot ${billing?.has_billing_account ? "ok" : ""}`} />
-          <div>
-            <strong>{billing?.has_billing_account ? "Stripe linked" : "No Stripe customer"}</strong>
-            <small>Current plan {currentPlan}</small>
-          </div>
-        </div>
+    <main>
+      <PageHeader
+        eyebrow="Billing"
+        title="Plan and usage"
+        lead="Manage your subscription, invoices, and workspace limits."
+      />
+
+      <section className="cc-stat-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+        <StatCard
+          label="Current plan"
+          value={plan?.display_name ?? currentPlan}
+          hint={billing?.has_billing_account ? "Stripe linked" : "No billing account yet"}
+        />
+        <StatCard
+          label="Usage this month"
+          value={usage?.usage.api_calls_count ?? 0}
+          hint={`API calls of ${usage?.limits.api_calls_per_month ?? "∞"}`}
+        />
       </section>
 
       <section className="grid two">

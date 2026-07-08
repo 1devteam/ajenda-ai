@@ -4,6 +4,7 @@ import App from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./styles.css";
+import "./styles/command-center.css";
 
 const root = document.getElementById("root");
 

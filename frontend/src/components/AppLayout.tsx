@@ -3,17 +3,16 @@ import { logoutCustomer } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { clearSession, isOperational } from "../auth/session";
 import { clearSignInNotice } from "../auth/sessionLifecycle";
+import AppShell from "./shell/AppShell";
 
-const CUSTOMER_LINKS = [
-  { to: "/dashboard", label: "Dashboard" },
-  { to: "/setup", label: "Setup wizard" },
-  { to: "/business", label: "Business info" },
-  { to: "/missions", label: "Missions" },
-  { to: "/tasks", label: "Tasks" },
-  { to: "/records", label: "Records" },
-  { to: "/credentials", label: "Plugins (optional)" },
-  { to: "/billing", label: "Billing" },
-] as const;
+const PUBLIC_PATHS = new Set([
+  "/signin",
+  "/signup",
+  "/verify-email",
+  "/auth/callback",
+  "/promote",
+  "/dev",
+]);
 
 export default function AppLayout() {
   const location = useLocation();
@@ -21,6 +20,7 @@ export default function AppLayout() {
   const { session } = useAuth();
   const signedIn = session !== null;
   const operational = session !== null && isOperational(session);
+  const useCommandShell = signedIn && operational && !PUBLIC_PATHS.has(location.pathname);
 
   async function handleSignOut() {
     if (session?.authMode === "oidc") {
@@ -35,27 +35,25 @@ export default function AppLayout() {
     navigate("/signin");
   }
 
+  if (useCommandShell) {
+    return (
+      <AppShell
+        orgName={session?.orgName}
+        plan={session?.plan}
+        onSignOut={() => void handleSignOut()}
+      >
+        <Outlet />
+      </AppShell>
+    );
+  }
+
   return (
     <div className="customer-shell">
-      <header className="app-nav">
+      <header className="app-nav cc-public-nav">
         <div className="brand">
-          <Link to={signedIn ? "/dashboard" : "/signin"}>Ajenda AI</Link>
+          <Link to={signedIn ? "/dashboard" : "/signin"}>ajenda-ai</Link>
           <span className="brand-tag">Customer</span>
         </div>
-
-        {signedIn ? (
-          <nav className="nav-links">
-            {CUSTOMER_LINKS.map((link) => (
-              <Link
-                key={link.to}
-                to={link.to}
-                className={location.pathname.startsWith(link.to) ? "active" : undefined}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-        ) : null}
 
         <div className="nav-actions">
           {signedIn ? (
@@ -65,7 +63,7 @@ export default function AppLayout() {
                 {session.plan ? ` · ${session.plan}` : ""}
                 {operational ? "" : " · bootstrap"}
               </span>
-              <button type="button" className="ghost-button" onClick={handleSignOut}>
+              <button type="button" className="ghost-button" onClick={() => void handleSignOut()}>
                 Sign out
               </button>
             </>
@@ -82,12 +80,9 @@ export default function AppLayout() {
         </div>
       </header>
 
-      <Outlet />
-
-      <footer className="app-footer">
-        <span>Self-serve onboarding, billing, and runtime tasks.</span>
-        <Link to="/dev">Runtime dev console</Link>
-      </footer>
+      <div className="cc-public-wrap">
+        <Outlet />
+      </div>
     </div>
   );
 }
