@@ -42,7 +42,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - PostgreSQL RLS with tenant session activation
 - OIDC/JWT and API-key auth; cross-tenant rejection
 - Customer auth sessions + OIDC login intents (migration `0032`)
-- Public routes: health, Stripe webhook, onboarding signup/verify/resend
+- Public routes: health/readiness probes, Stripe webhook, onboarding signup/verify/resend; recovery (`POST /v1/operations/recovery`) requires tenant auth + `RUNTIME_OPERATE`
 
 ### 2.3 SaaS and commercial
 

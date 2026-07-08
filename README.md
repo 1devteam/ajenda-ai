@@ -221,9 +221,10 @@ Current contract distinction:
 
 Current implementation note:
 
-- current `main` has the stable route surfaces above
-- dependency-readiness precision is an active hardening target; follow-up work should keep health lightweight while making readiness explicitly reflect database plus configured queue readiness with sanitized failure responses
-- this README update identifies the follow-up contract; it does not implement or prove readiness dependency behavior by itself
+- health probes stay lightweight liveness checks (`/health`, deprecated `/v1/system/health`)
+- readiness probes delegate to `ReadinessEvaluatorService`, which pings configured database and queue dependencies and returns `503` with sanitized reasons (`DATABASE_UNAVAILABLE`, `QUEUE_UNAVAILABLE`, `DEPENDENCY_UNAVAILABLE`) when either dependency is unavailable
+- readiness payloads expose `dependencies.database.status` and `dependencies.queue.status`; missing optional dependencies report `skipped`
+- proof: `tests/unit/services/test_readiness_evaluator_service.py`, `tests/contract/api/test_health_route.py`, matrix rows CP-06 and CP-07
 
 ### API versioning
 
@@ -609,17 +610,27 @@ Start here when working on product direction and current runtime behavior.
 
 ---
 
-## Known follow-up contract audits
+## Contract audit status
 
-The following areas are intentionally identified for follow-up review rather than silently assumed complete:
+**Last audited:** July 7, 2026 (`main`, Alembic head `0033_tenant_internal_records`)
 
-- readiness dependency precision: keep health lightweight while making readiness explicitly reflect database and configured queue dependency truth with sanitized failure responses
-- approved-contract replay audit: for each inventory row, compare README/docs claims against code, migrations, routes, services, repositories, tests, and live/runtime proof surfaces; classify the row as runtime-enforced, schema-enforced, metadata-only, read-only, declaration-only, partial, future-boundary, or drift
-- mission-to-runtime bridge replay: verify every materialization, admission, readiness, preview, worker-claim, worker-start, and worker-run bridge remains bounded to its documented authority and has not collapsed multiple authority stages into one implicit execution path
-- capability and adapter enforcement boundary audit: verify declaration contracts remain separate from runtime handler binding until an explicit binding layer exists
-- evidence/outcome/retrieval lifecycle audit: verify proof, review, and recall records remain governance contracts and do not mutate runtime execution state
-- webhook reliability contract replay: verify endpoint, delivery, signing-secret encryption, replay, and reliability summary behavior remain aligned
-- SaaS/quota admission replay: verify plan limits and quota accounting still gate admission paths consistently
-- mission approval/admission semantics: classify which approval/admission fields are enforced gates and which are advisory metadata
-- validation matrix freshness: keep release-gating rows aligned with protected control-plane routes, current proof scripts, current artifact semantics, and current test evidence; known stale public-route wording around recovery must be refreshed before using the matrix as executable prompt context
-- project state report freshness: keep `docs/PROJECT_STATE_REPORT.md` aligned with migration head, CI proof posture, and deployment surfaces on each release cycle
+The July 2026 contract replay closed the README follow-up audit list. Authority classes below map to `docs/contracts/authority-ledger.v1.yaml` (`declarative`, `read_model`, `governed_mutation`, `runtime_authoritative`). `python scripts/validation/contract_drift_check.py` passes on `main`.
+
+| Audit area | Status | Finding |
+|---|---|---|
+| Readiness dependency precision | Closed | `ReadinessEvaluatorService` pings DB + queue, fails closed with sanitized `503` reasons; health stays lightweight. Matrix: CP-06, CP-07. |
+| Approved-contract replay | Closed | README inventory rows reconcile to 53 authority-ledger entries with required proof paths; route families align with `backend/api/router.py`. |
+| Mission-to-runtime bridge replay | Closed | Staged bridge endpoints remain bounded per ledger (`runtime_admission_readiness_preview_contracts` through `worker_run_admission_mutation_contract`). Contract tests cover each stage; matrix EX-26–EX-31. |
+| Capability/adapter enforcement boundary | Closed | Registry and adapter routes are `declarative` only; runtime execution binds through `ToolRuntimeAuthority` / `ActionRegistry`, not declaration CRUD. |
+| Evidence/outcome/retrieval lifecycle | Closed | Routes persist governance records (`declarative`); they do not enqueue work or mutate execution tasks/leases. |
+| Webhook reliability replay | Closed | Endpoint CRUD, encrypted signing secrets, delivery records, replay, and dispatch align with `webhook_contract` proofs. |
+| SaaS/quota admission replay | Closed | `QuotaEnforcementService` and rate-limit middleware gate API usage; queue/mission/API-key admission paths have contract and unit coverage. |
+| Mission approval/admission semantics | Classified | **Enforced gates:** `PolicyGuardian` → `pending_review` at queue admission; `requires_human_review` on tasks; ability-runtime launch authority; `side_effect_authorization` for external actions; informed-autonomy disclaimer (ADR-0005). **Advisory metadata:** `mission.approval_required` (stored and surfaced in Mission Brief, not enforced at queue admission); `capability.approval_requirements` (declaration validation); `outcome_review.human_approval_required` (review metadata). |
+| Validation matrix freshness | Closed | AT-05 refreshed: public probes are `/health`, `/readiness`, `/v1/system/health`, `/v1/system/readiness` only; `POST /v1/operations/recovery` requires tenant auth + `RUNTIME_OPERATE` (FR-06, `test_recovery_public_contract.py`). |
+| Project state report freshness | Current | `docs/PROJECT_STATE_REPORT.md` dated July 7, 2026; refresh on each release cycle per `docs/policies/DOCS_FRESHNESS_POLICY.md`. |
+
+Remaining platform gaps (outside this audit closure):
+
+- wire `mission.approval_required` as an optional runtime gate if product requires mission-level approval before queue admission
+- opt-in plugin-lane live proof (HubSpot/Gmail/Salesforce) in staging with real tokens
+- promote informed-autonomy matrix rows (AU-*) from `deferred` when `AJENDA_AUTONOMY_DISCLAIMER_MODE` is enabled in staging
