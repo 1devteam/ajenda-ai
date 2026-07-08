@@ -1,11 +1,13 @@
 # Ajenda AI Product Vertical Slice Build Contract
 
+> **Historical document.** Last accurate snapshot: 2026-06-21. Customer frontend, migrations `0031`–`0033`, central brain mode, HubSpot ingress, and CI live runtime proof on `main` post-date this contract. For current truth use [`README.md`](../../README.md), [`PROJECT_STATE_REPORT.md`](../PROJECT_STATE_REPORT.md), and [`SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md).
+
 **Last verified:** 2026-06-21 (`main` @ `6a14e40`)  
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md)
 
 ## Purpose
 
-This document tracks the product vertical slice: what exists in code vs what a paying stranger still needs.
+This document tracked the product vertical slice during early commercial build-out. It is retained for history.
 
 ## Source-of-truth rule
 
@@ -13,13 +15,13 @@ Implementation + tests win over this document. When in doubt, read `frontend/src
 
 ---
 
-## Confirmed current state
+## Confirmed current state (historical snapshot — June 2026)
 
 ### Repository
 
 - Branch: `main`
-- Alembic head: `0030_signup_abuse_tables`
-- Frontend: **present** — Runtime Ability Console (dev tool, not customer product)
+- Alembic head at time of writing: `0030_signup_abuse_tables` (current head: `0033_tenant_internal_records`)
+- Frontend at time of writing: Runtime Ability Console only (current: full customer product UI)
 
 ### Backend routes on `/v1`
 

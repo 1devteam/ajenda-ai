@@ -1,5 +1,8 @@
 # Live Runtime Proof Release Gate
 
+**Status:** Active  
+**Last reviewed:** July 7, 2026
+
 ## Purpose
 
 `deploy/scripts/live-runtime-proof.sh` is the prod-like runtime proof for Ajenda AI. It complements the live runtime validation matrix by exercising the deployed Docker Compose stack and proving that the API, worker, database, Redis queue, Prometheus, and observability surfaces operate together.
@@ -38,7 +41,13 @@ Default Prometheus base URL:
 http://localhost:9090
 ```
 
-Manual GitHub Actions workflow:
+CI workflow (automatic on `main` push):
+
+```text
+.github/workflows/ci.yml  →  job: live-runtime-proof
+```
+
+Manual GitHub Actions workflow (operator opt-in):
 
 ```text
 .github/workflows/live-runtime-proof.yml
@@ -51,6 +60,20 @@ Manual GitHub Actions workflow:
 The release gate is a proof surface for the subsystem lanes defined in `docs/product/mission-runtime-architecture-map.md`; it is not an alternate authority registry. A successful live proof may satisfy only the specific lane contracts it exercises, such as dependency readiness, real queue-backed worker execution, lineage/audit evidence, and observability metrics. It must not be cited as proof that unrelated lanes are complete unless the script, tests, and artifacts exercise those lanes directly.
 
 When future work changes tenant/auth, mission intake/planning, task graph, materialization, queue admission, queue adapter state, lease lifecycle, worker dispatcher execution, tool/action runtime, evidence/audit, declarative governance, or validation behavior, the release gate must either add matching proof or explicitly defer that proof to named targeted tests and validation artifacts.
+
+## HubSpot ingress TLS prerequisite
+
+The prod-like Compose stack builds `hubspot-crm-ingress`, whose Dockerfile copies `deploy/compose/hubspot-crm-ingress/certs`. Those files are gitignored (`server.crt`, `server.key`) and are not present in CI checkouts.
+
+Before `compose config` / `compose up --build`, the script runs:
+
+```text
+deploy/compose/hubspot-crm-ingress/generate-certs.sh
+```
+
+This generates self-signed TLS material for local/CI proof. Operators running HubSpot ingress locally outside the proof script should run the same generator first.
+
+---
 
 ## Required environment
 
@@ -88,9 +111,26 @@ When `AJENDA_PROOF_PLUGIN_LANE_ENABLED=1`, `live-runtime-proof.sh` delegates to 
 
 ---
 
+## CI workflow behavior (`main` push)
+
+The primary release gate runs automatically in `.github/workflows/ci.yml` after `integration-tests`, `migration-safety`, and `docker-build` succeed on pushes to `main`.
+
+| Step | Behavior |
+|---|---|
+| Checkout | uses merged `main` commit |
+| Write prod-like Compose environment | generates `deploy/compose/.env.prod` with staging-mode settings and a fresh worker tenant UUID (not committed) |
+| Run live runtime proof | executes `deploy/scripts/live-runtime-proof.sh` |
+| Stop compose stack | `docker compose down -v --remove-orphans` (always, even on failure) |
+
+This job is promotion-blocking for `main`. PR branches do not run the full Compose proof unless an operator dispatches the manual workflow below.
+
+Default CI env overrides include `AJENDA_PROOF_TIMEOUT_SECONDS=120` and `AJENDA_PROOF_POLL_SECONDS=2`.
+
+---
+
 ## Manual workflow behavior
 
-The manual workflow is intentionally opt-in.
+The manual workflow remains available for operator-driven reruns and diagnostics.
 
 It is triggered by `workflow_dispatch` and has two modes:
 
@@ -98,8 +138,6 @@ It is triggered by `workflow_dispatch` and has two modes:
 |---|---|
 | `run_live_proof=false` | run static shell syntax validation only |
 | `run_live_proof=true` | run static shell syntax validation, write a generated prod-like Compose environment, execute the full live proof, capture diagnostics, and tear down the stack |
-
-The workflow does not run on every PR or push. This prevents a Docker Compose live proof from becoming an accidental default CI requirement while still making the proof available from GitHub Actions when an operator explicitly asks for it.
 
 The full workflow run writes `deploy/compose/.env.prod` inside the temporary GitHub Actions workspace with staging-mode runtime settings and a generated worker tenant UUID. It does not commit that file.
 
@@ -114,32 +152,13 @@ artifacts/live-runtime-proof/compose-logs.txt
 
 ## Recent validated evidence
 
-The following GitHub Actions evidence was captured after the manual workflow was merged to `main` at commit `051271b6d511c0f42d973a5eeea23c51c1bb64c7`.
+| Workflow | Run | Commit | Result | Notes |
+|---|---|---|---|---|
+| CI — Pull Request Gate | #1041 | `efe332b` | success | `main` push; Live Runtime Proof passed after HubSpot ingress cert auto-generation (#338) |
+| Live Runtime Proof (manual) | #3 | `ed3c665` | success | Prometheus scrape-health check included |
+| Live Runtime Proof (manual) | #2 | `051271b` | success | First full GitHub-hosted Compose proof |
 
-| Workflow run | Mode | Commit | Result | Duration | Artifact evidence |
-|---|---|---|---|---|---|
-| Live Runtime Proof #1 | `run_live_proof=false` static validation | `051271b` | success | 12s | none expected |
-| Live Runtime Proof #2 | `run_live_proof=true` full Compose proof | `051271b` | success | 1m 46s | one diagnostics artifact present |
-
-The full proof run completed both workflow jobs successfully:
-
-- `Static Proof Validation`
-- `Full Live Runtime Proof`
-
-This evidence proves the manual dispatch path, static shell validation path, and full GitHub-hosted Compose proof path for the current workflow version.
-
-The following evidence was captured after Prometheus scrape-health proof was merged to `main` at commit `ed3c665a0b614a4e1c8f1c05b607a441b85fe145`.
-
-| Workflow run | Mode | Commit | Result | Duration | Artifact evidence |
-|---|---|---|---|---|---|
-| Live Runtime Proof #3 | `run_live_proof=true` full Compose proof with Prometheus scrape-health check | `ed3c665` | success | 1m 36s | one diagnostics artifact present |
-
-The full proof run completed both workflow jobs successfully:
-
-- `Static Proof Validation`
-- `Full Live Runtime Proof`
-
-This evidence proves the GitHub-hosted Compose path with Prometheus readiness and `ajenda-api` scrape-target health included.
+CI run #1041 exercised the default proof path on `main`: echo worker proof, GTM `lead_enrich`, brain capstone slice, and skipped plugin lane (no live provider tokens). HubSpot ingress image build succeeded after `generate-certs.sh` ran inside the proof script.
 
 ---
 
@@ -279,6 +298,46 @@ Forbidden result:
 
 - stale Redis lease key remains after worker completion and lease release
 
+### 9. GTM tool.invoke proof (`gtm.lead_enrich`)
+
+After the core echo proof succeeds, the script queues a second real task on the same proof tenant using `task_type=tool.invoke` and action `gtm.lead_enrich`.
+
+Required result:
+
+- task reaches `completed` within the proof timeout
+
+Forbidden result:
+
+- task remains queued, claimed, or running past the proof timeout
+- task reaches `failed` or `dead_lettered` during the success-path proof
+
+This lane exercises the governed tool runtime path without live external provider tokens.
+
+### 10. Brain capstone slice
+
+The script runs `deploy/scripts/brain-capstone-runtime-proof.py` inside the API container for the proof tenant.
+
+Required result:
+
+- JSON payload reports `ok: true`
+- payload includes a non-empty `artifact_id`
+
+Optional env:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AJENDA_BRAIN_CAPSTONE_SEND` | unset | When set with email credentials, also exercises optional send lane |
+
+Forbidden result:
+
+- capstone script reports `ok: false` or missing `artifact_id`
+
+### 11. Optional plugin lane (not default CI)
+
+When `AJENDA_PROOF_PLUGIN_LANE_ENABLED=1` and live provider tokens are supplied, the script delegates to `deploy/scripts/plugin-runtime-proof.sh` after the core proof lanes succeed.
+
+This lane is **not** part of the default `main` CI gate unless explicitly enabled and credentialed.
+
 ---
 
 ## Release-gate interpretation
@@ -291,12 +350,13 @@ live runtime proof passed
 
 A passing run means the prod-like stack proved the following together:
 
+- HubSpot ingress TLS certs exist before compose build (generated when missing)
 - API probes are reachable
 - versioned system probes are reachable
 - Postgres is ready
 - Redis is ready
 - queue admission works through the runtime coordinator
-- worker execution completes real queued work
+- worker execution completes real queued echo work
 - worker lease authority reaches released state
 - task output lineage is written
 - worker completion audit is written
@@ -305,8 +365,10 @@ A passing run means the prod-like stack proved the following together:
 - Prometheus is ready
 - Prometheus reports the configured `ajenda-api` scrape target as healthy
 - Redis lease cleanup succeeds
+- GTM `gtm.lead_enrich` tool.invoke task completes
+- brain capstone slice returns `ok: true` with `artifact_id`
 
-Any script failure is promotion-blocking for the environment being proven.
+Any script failure is promotion-blocking for the environment being proven (including the automatic `main` CI job).
 
 ---
 

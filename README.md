@@ -68,7 +68,15 @@ See [`docs/product/plugin-architecture.md`](docs/product/plugin-architecture.md)
 
 ### HubSpot CRM integration (optional plugin)
 
-1. **Start stack with adapter + TLS ingress**
+1. **Generate ingress TLS certs (first run / fresh clone)**
+
+   ```bash
+   bash deploy/compose/hubspot-crm-ingress/generate-certs.sh
+   ```
+
+   Certs are gitignored. `deploy/scripts/live-runtime-proof.sh` runs this automatically before compose build in CI.
+
+2. **Start stack with adapter + TLS ingress**
 
    ```bash
    docker compose up -d hubspot-crm-adapter hubspot-crm-ingress api worker
@@ -77,23 +85,23 @@ See [`docs/product/plugin-architecture.md`](docs/product/plugin-architecture.md)
    - Adapter health: `http://127.0.0.1:8088/health`
    - TLS ingress (worker target): `https://hubspot-crm-ingress:443` (Compose maps `8443:443`)
 
-2. **Register credentials (UI or API)**
+3. **Register credentials (UI or API)**
 
    - UI: sign in → **Credentials** → paste HubSpot personal access key
    - API: `POST /v1/account/provider-credentials` with `provider=external_crm`, `integration=hubspot`
 
-3. **Launch governed CRM actions**
+4. **Launch governed CRM actions**
 
    - `crm.research` / `sales.research` → adapter `GET /v1/search`
    - `gtm.crm_upsert` → adapter `POST /v1/upsert`
 
-4. **Platform master key mode (operator only)**
+5. **Platform master key mode (operator only)**
 
    - Set `AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED=true` and `AJENDA_HUBSPOT_PLATFORM_MASTER_KEY`
    - Tenants may register with `use_platform_master_key=true` (UI checkbox)
    - **Warning:** shared blast radius — prefer per-tenant keys in production
 
-5. **Production hostname**
+6. **Production hostname**
 
    - Set `AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST=crm-adapter.ajenda.example.com`
    - K8s ingress routes `crm-adapter.ajenda.example.com` → `hubspot-crm-adapter` service (TLS required; private egress bypass is forbidden in production)
@@ -151,6 +159,8 @@ Architecture governance for authority boundaries, schema compatibility, and read
 - `docs/architecture/ADR-0002-schema-evolution-strategy.md`
 - `docs/architecture/ADR-0003-readiness-semantics-doctrine.md`
 - `docs/architecture/ADR-0004-worker-tenancy-strategy.md`
+- `docs/architecture/ADR-0005-informed-autonomy-gate-policy.md`
+- `docs/architecture/ADR-0006-external-platform-integration-doctrine.md`
 
 These ADRs are accepted doctrines and should be updated alongside implementation/tests when authority semantics, schema contracts, or readiness behavior changes.
 
@@ -344,7 +354,9 @@ The executable proof script is:
 
 - `deploy/scripts/live-runtime-proof.sh`
 
-This proof validates a running Compose stack, root and versioned health/readiness probes, real queue-backed worker completion, released lease state, task output lineage, worker completion audit evidence, live Prometheus metrics at `/v1/observability/metrics`, Prometheus scrape-target health, and Redis lease cleanup.
+This proof validates a running Compose stack (including HubSpot ingress TLS cert generation when missing), root and versioned health/readiness probes, real queue-backed worker completion, released lease state, task output lineage, worker completion audit evidence, live Prometheus metrics at `/v1/observability/metrics`, Prometheus scrape-target health, Redis lease cleanup, GTM `gtm.lead_enrich`, and the brain capstone slice.
+
+On every push to `main`, `.github/workflows/ci.yml` runs this proof after integration tests and docker build succeed. Operators can also dispatch `.github/workflows/live-runtime-proof.yml` manually.
 
 ### Paid customer loop staging proof
 
@@ -506,7 +518,8 @@ Recent milestones:
 - **Mission plans (Phase 4):** durable `mission_plans` table is canonical; `PUT /plan` writes table only; legacy metadata read-only + `0031` backfill migration; `allow_legacy_v1` opt-in on mission create (default false)
 - **Worker tenancy (Phase 5):** `AJENDA_WORKER_TENANT_MODE=multi` round-robin across active tenants (ADR-0004); production deploy defaults updated
 - **Paid customer product:** account APIs, customer frontend (router + pages), Compose/K8s frontend deploy, GHCR frontend image CI, E2E integration test + staging curl proof
-- **Alembic head:** `0031_backfill_mission_plans`
+- **Alembic head:** `0033_tenant_internal_records`
+- **Live proof CI:** `main` push runs Live Runtime Proof after integration + docker build (see `docs/validation/live-runtime-proof-release-gate.md`)
 
 ---
 
@@ -515,12 +528,15 @@ Recent milestones:
 Before opening a PR, run at minimum:
 
 ```bash
-ruff check .
-ruff format --check .
-python -m pytest -m "not integration"
+ruff check backend/ tests/ scripts/validation/
+ruff format --check backend/ tests/ scripts/validation/
+mypy backend/
+python scripts/validation/contract_drift_check.py
+python scripts/validation/migration_seed_contract_check.py
+python -m pytest tests/unit/ tests/contract/ tests/deployment/ -m "not integration"
 ```
 
-Run integration and validation flows when your change affects runtime behavior, queueing, recovery, isolation, release-gating, or validation semantics.
+Run integration tests, migration round-trip checks, and live runtime proof when your change affects runtime behavior, queueing, recovery, isolation, release-gating, compose deploy, or validation semantics.
 
 ---
 
@@ -559,8 +575,10 @@ Run integration and validation flows when your change affects runtime behavior, 
 | 0029 | API key bootstrap fields |
 | 0030 | signup abuse tables |
 | 0031 | backfill mission_plans from legacy mission metadata |
+| 0032 | OIDC login intents and customer auth sessions |
+| 0033 | tenant_internal_records for Ajenda standalone brain mode |
 
-**Alembic head:** `0031_backfill_mission_plans`
+**Alembic head:** `0033_tenant_internal_records`
 
 ---
 
@@ -602,4 +620,4 @@ The following areas are intentionally identified for follow-up review rather tha
 - SaaS/quota admission replay: verify plan limits and quota accounting still gate admission paths consistently
 - mission approval/admission semantics: classify which approval/admission fields are enforced gates and which are advisory metadata
 - validation matrix freshness: keep release-gating rows aligned with protected control-plane routes, current proof scripts, current artifact semantics, and current test evidence; known stale public-route wording around recovery must be refreshed before using the matrix as executable prompt context
-- project state report freshness: reconcile older deployment-surface wording, including any Terraform/ECS references, with the current repository snapshot before using that document as authoritative prompt context
+- project state report freshness: keep `docs/PROJECT_STATE_REPORT.md` aligned with migration head, CI proof posture, and deployment surfaces on each release cycle

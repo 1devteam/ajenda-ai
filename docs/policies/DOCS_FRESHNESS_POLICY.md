@@ -3,7 +3,7 @@
 **Status:** Active  
 **Effective date:** May 23, 2026  
 **Owner:** Architecture + Runtime Governance
-**Last reviewed:** June 21, 2026
+**Last reviewed:** July 7, 2026
 **Source-of-truth precedence:** Implementation/tests/runtime proof > PROJECT_SPEC.md > architecture docs
 
 ---

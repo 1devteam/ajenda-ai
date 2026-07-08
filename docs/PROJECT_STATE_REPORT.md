@@ -1,8 +1,8 @@
 # Ajenda AI — Project State Report
 
-**Date:** June 22, 2026  
+**Date:** July 7, 2026  
 **Branch:** `main`  
-**Alembic head:** `0031_backfill_mission_plans`  
+**Alembic head:** `0033_tenant_internal_records`  
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
 
 This report reflects implementation-backed truth on `main`. For visual flows, see the Mermaid diagrams in `SYSTEM_ARCHITECTURE.md`.
@@ -16,7 +16,8 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 | Backend platform | Strong | Runtime, isolation, queue/lease, recovery, governance |
 | SaaS APIs | Strong | Onboarding, account self-service, Stripe billing with RBAC |
 | Customer product | Staging-ready | Frontend + verify page + E2E proof on Compose |
-| Deploy | Compose + K8s | API, worker, **frontend**; GHCR images including `-frontend` |
+| Deploy | Compose + K8s | API, worker, **frontend**, HubSpot ingress (optional); GHCR images |
+| Live runtime proof | Green on `main` CI | Compose proof on every `main` push; HubSpot cert auto-generation |
 | Production launch | Ready to configure | Startup guards + hostname contract; operator replaces `ajenda.example.com` and live secrets |
 
 **Overall launch readiness for strangers:** staging-proofable locally; production cutover checklist in [`ops/runbooks/paid-customer-loop-staging.md`](../ops/runbooks/paid-customer-loop-staging.md) §5.
@@ -33,12 +34,14 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Ability runtime API (`/v1/ability-runtime/*`) with plan feature gates
 - GTM actions behind `gtm` feature (pro/enterprise)
 - Multi-tenant workers (`AJENDA_WORKER_TENANT_MODE=multi`, ADR-0004)
+- Live runtime proof on `main`: echo task, `gtm.lead_enrich`, brain capstone slice
 
 ### 2.2 Tenant isolation and auth
 
 - `TenantContextMiddleware` + `AuthContextMiddleware`
 - PostgreSQL RLS with tenant session activation
 - OIDC/JWT and API-key auth; cross-tenant rejection
+- Customer auth sessions + OIDC login intents (migration `0032`)
 - Public routes: health, Stripe webhook, onboarding signup/verify/resend
 
 ### 2.3 SaaS and commercial
@@ -47,32 +50,43 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Quota and feature enforcement (`QuotaEnforcementService`)
 - Self-serve onboarding: signup → verify → bootstrap key → promote
 - Account APIs: `/v1/account/me`, `/plan`, `/usage`, `/billing`
+- Provider credentials: `/v1/account/provider-credentials` (+ OAuth flows per provider)
 - Billing RBAC: checkout/portal require `billing:manage`; account reads use `account:read`
 - Stripe: checkout, portal, webhook with `stripe_webhook_events` dedup
 - Plans: free, starter, pro, enterprise (`0006` seed; `0026` ability_runtime on pro+)
 
-### 2.4 Customer frontend
+### 2.4 Ajenda central brain + optional plugins
+
+- Standalone mode: `tenant_internal_records` (migration `0033`) for internal CRM/contact storage
+- Plugin discovery: `GET /v1/plugins`
+- HubSpot CRM optional plugin with TLS ingress in Compose/K8s prod stack
+- Gmail/SMTP email plugins; credential resolver + fail-closed simulated paths when creds absent
+
+### 2.5 Customer frontend
 
 - React 19 + Vite + `react-router-dom`
-- Routes: `/signup`, `/verify-email`, `/promote`, `/dashboard`, `/billing`, `/tasks`, `/dev`
+- Routes: `/signup`, `/verify-email`, `/promote`, `/dashboard`, `/billing`, `/tasks`, `/credentials`, `/dev`
 - Session storage for bootstrap vs operational API keys
 - Compose: customer UI on **:8080** (nginx proxies `/v1` to API)
 - K8s: `ajenda-frontend` deployment + ingress paths; image `ghcr.io/<org>/<repo>-frontend:<version>`
 
-### 2.5 Data model (recent)
+### 2.6 Data model (recent)
 
 - `tenant_members` — owner email, verification state
 - `api_key_records` — purpose, expires_at, roles_json (bootstrap support)
 - `signup_attempt_log` — abuse tracking
 - `stripe_customer_id` on tenants
 - `mission_plans` — canonical plan storage; `0031` backfill from legacy metadata
+- `customer_auth_sessions`, OIDC login intents — migration `0032`
+- `tenant_internal_records` — migration `0033`
 
-### 2.6 Tests
+### 2.7 Tests and proof
 
 - ~1600+ non-integration tests passing
 - SaaS integration: onboarding, Stripe webhook, lifecycle, tenant members
 - **Paid customer E2E:** `tests/integration/saas/test_paid_customer_loop_real.py`
 - Staging HTTP proof: `deploy/scripts/paid-customer-loop-staging-proof.sh`
+- **CI Live Runtime Proof:** `.github/workflows/ci.yml` on `main` push (run #1041 @ `efe332b` passed)
 
 ---
 
@@ -83,6 +97,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 | Operator replaces placeholder domain | `ajenda.example.com` in manifests must become the real production host |
 | Live secrets in K8s/Compose prod | Resend + Stripe live keys are template placeholders until deploy |
 | Stranger-ready on prod hostnames | Staging proof uses localhost + exposed verification token |
+| Plugin lane in default CI | Live HubSpot/Gmail/Salesforce proof requires opt-in env + tokens |
 
 ---
 
@@ -90,7 +105,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 
 | Target | Present in repo | Notes |
 |--------|-----------------|-------|
-| Docker Compose prod | yes | api, worker, **frontend**, db, redis, migrate, prometheus, otel |
+| Docker Compose prod | yes | api, worker, **frontend**, db, redis, migrate, prometheus, otel, hubspot ingress |
 | Kubernetes | yes | api, worker, **frontend**, ingress (`/v1` → API, `/` → frontend) |
 | GHCR release CI | yes | api, worker, migrate, **frontend** images on merge to `main` |
 | Terraform/AWS (`infra/`) | yes | VPC, RDS, Redis, ECS + **frontend** ALB path routing |
@@ -116,6 +131,7 @@ Compose templates: `deploy/compose/.env.prod.example`, `deploy/compose/.env.stag
 | `PROJECT_SPEC.md` | Canonical specification |
 | `README.md` | Repository entry point |
 | `docs/SAAS_ARCHITECTURE.md` | SaaS enforcement detail |
+| `docs/validation/live-runtime-proof-release-gate.md` | Live proof + CI release gate |
 | `ops/runbooks/paid-customer-loop-staging.md` | Staging customer-loop runbook |
 | `docs/deployment/STAGING_PROOF.md` | Runtime + customer-loop staging proof |
 | `docs/deployment/production-env-contract.md` | Required production variables |

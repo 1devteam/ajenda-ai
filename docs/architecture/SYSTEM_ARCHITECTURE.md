@@ -1,7 +1,7 @@
 # Ajenda AI — System Architecture (Code-Aligned)
 
 **Status:** Active  
-**Last verified against `main`:** 2026-06-22  
+**Last verified against `main`:** 2026-07-07  
 **Source of truth:** implementation files, migrations, tests — not aspirational product docs.
 
 This document is the canonical visual and narrative map of what exists in the repository today. When docs conflict with code, code wins.
@@ -264,7 +264,7 @@ Root (unversioned): `/health`, `/readiness`
 
 ## 9. Database migrations (Alembic head)
 
-**Head revision:** `0031_backfill_mission_plans`
+**Head revision:** `0033_tenant_internal_records`
 
 | Rev | Description |
 |-----|-------------|
@@ -279,6 +279,8 @@ Root (unversioned): `/health`, `/readiness`
 | 0029 | api_key bootstrap fields (purpose, expires_at, roles_json) |
 | 0030 | signup_attempt_log + abuse tables |
 | 0031 | backfill mission_plans from legacy mission metadata |
+| 0032 | OIDC login intents + customer auth sessions |
+| 0033 | tenant_internal_records (Ajenda standalone brain mode) |
 
 ---
 
@@ -306,6 +308,8 @@ Root (unversioned): `/health`, `/readiness`
 | SaaS lifecycle | integration (`test_tenant_lifecycle_real.py`) |
 | Runtime / queue | extensive integration under `tests/integration/runtime/` |
 | Paid customer E2E | `test_paid_customer_loop_real.py`, `paid-customer-loop-staging-proof.sh` |
+| Live runtime proof (CI) | `.github/workflows/ci.yml` on `main` push → `deploy/scripts/live-runtime-proof.sh` |
+| Brain / internal CRM | migration `0033`, `tenant_internal_records`, brain capstone proof script |
 
 ---
 
@@ -313,7 +317,7 @@ Root (unversioned): `/health`, `/readiness`
 
 | Target | Ships | Does not ship |
 |--------|-------|---------------|
-| `deploy/compose/docker-compose.prod.yml` | api, worker, **frontend**, migrate, db, redis, prometheus, otel | per-tenant dedicated worker pools |
+| `deploy/compose/docker-compose.prod.yml` | api, worker, **frontend**, migrate, db, redis, prometheus, otel, hubspot-crm-ingress (optional plugin TLS) | per-tenant dedicated worker pools |
 | `deploy/k8s/*` | api, worker, **frontend**, ingress (`/v1` → API, `/` → frontend) | — |
 | `infra/` (Terraform/AWS) | VPC, RDS, Redis, ECS patterns | customer frontend module |
 

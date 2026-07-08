@@ -2,6 +2,14 @@
 
 <!-- One paragraph describing what this PR does and why. -->
 
+## Docs Impact
+
+<!-- Required when runtime behavior, schema contracts, release gates, or policy docs change. -->
+
+- [ ] Tier-1 docs updated in this PR (or linked follow-up PR): `README.md`, `PROJECT_SPEC.md`, `docs/architecture/SYSTEM_ARCHITECTURE.md`, `docs/validation/*`, `docs/PROJECT_STATE_REPORT.md`
+- [ ] Docs reviewed but unchanged (list paths):
+- [ ] Docs deferred (reason + follow-up issue/PR):
+
 ## Type of Change
 
 - [ ] Bug fix (non-breaking change that fixes an issue)

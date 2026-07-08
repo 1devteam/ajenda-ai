@@ -1,6 +1,6 @@
 # Ajenda AI — Documentation Index
 
-**Last aligned with `main`:** 2026-06-22
+**Last aligned with `main`:** 2026-07-07
 
 When docs conflict with code, **code + tests win**. Start with the canonical set below.
 
@@ -75,5 +75,6 @@ These dated documents are retained for history. They may describe plans or state
 | [`REMEDIATION_EXECUTION_PLAN_2026-05-23.md`](REMEDIATION_EXECUTION_PLAN_2026-05-23.md) | Historical — May 2026 |
 | [`remediation/commercial_phase1.md`](remediation/commercial_phase1.md) | Superseded by implementation |
 | [`remediation/phase1_commercial_complete.md`](remediation/phase1_commercial_complete.md) | Superseded — see SYSTEM_ARCHITECTURE |
+| [`product/PRODUCT_VERTICAL_SLICE_BUILD_CONTRACT.md`](product/PRODUCT_VERTICAL_SLICE_BUILD_CONTRACT.md) | Historical — predates customer frontend, migrations 0032–0033, and CI live proof |
 
-For current commercial/onboarding status, use [`architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md) §3–6.
+For current commercial/onboarding status, use [`architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md) §3–6 and [`PROJECT_STATE_REPORT.md`](PROJECT_STATE_REPORT.md).
