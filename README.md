@@ -249,6 +249,8 @@ Current implementation note:
   - `/v1/tasks/*`
   - `/v1/workforces/*`
   - `/v1/plugins/*`
+  - `/v1/crm/*`
+  - `/v1/review-queue/*`
   - `/v1/branches/*`
   - `/v1/runtime/*`
   - `/v1/operations/*`

@@ -245,6 +245,8 @@ Onboarding routes use IP-keyed rate limits and body-hash idempotency when `AJEND
 | `/v1/account/*` | tenant | Self-service me, plan, usage, billing status |
 | `/v1/billing/*` | tenant / public webhook | Stripe checkout, portal, webhook |
 | `/v1/ability-runtime/*` | tenant | Product-facing task launcher |
+| `/v1/crm/*` | tenant | Light CRM over `tenant_internal_records` (pipeline, records, suggestions) |
+| `/v1/review-queue/*` | tenant | Draft/artifact review approve/reject queue |
 | `/v1/api-keys/*` | tenant | Key lifecycle |
 | `/v1/missions/*`, `/v1/tasks/*` | tenant | Mission/task queue authority |
 | `/v1/workforce/*`, `/v1/branches/*` | tenant | Fleet and branch management |

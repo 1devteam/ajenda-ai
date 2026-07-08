@@ -159,6 +159,49 @@ authority_entries:
       - tests/contract/api/test_plugins_routes.py
       - tests/unit/plugins/test_plugin_registry.py
 
+  - id: light_crm_contract
+    area: tenant light CRM API (internal records)
+    source_of_truth:
+      - backend/api/routes/light_crm.py
+      - backend/services/light_crm/records.py
+      - backend/services/light_crm/workflow.py
+    route_scope:
+      - /v1/crm/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_internal_crm_read_and_write
+    allowed_side_effects:
+      - list and read tenant internal CRM records, pipeline, timeline, and workflow suggestions
+      - upsert tenant internal CRM records backed by tenant_internal_records
+    forbidden_side_effects:
+      - bypass tenant envelope or EXECUTION_VIEW/MISSION_MANAGE route permissions
+      - mutate cross-tenant CRM state
+      - dispatch queue-backed runtime work directly from CRM routes
+    required_proofs:
+      - tests/unit/api/test_light_crm_routes.py
+      - tests/unit/services/test_light_crm.py
+
+  - id: review_queue_contract
+    area: artifact review queue
+    source_of_truth:
+      - backend/api/routes/review_queue.py
+      - backend/services/document_artifacts.py
+      - backend/services/light_crm/workflow.py
+    route_scope:
+      - /v1/review-queue/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_review_decision_mutation
+    allowed_side_effects:
+      - list and read pending review artifacts for the tenant
+      - approve or reject artifacts under OUTCOME_REVIEW_MANAGE permission
+      - run draft-approved workflow hooks on approval
+    forbidden_side_effects:
+      - bypass tenant envelope or review permissions
+      - mutate cross-tenant review state
+      - enqueue queue-backed runtime work directly from review routes
+    required_proofs:
+      - tests/unit/api/test_review_queue_routes.py
+      - tests/unit/services/test_document_artifacts.py
+
   - id: mission_intake_contract
     area: mission intake
     source_of_truth:
