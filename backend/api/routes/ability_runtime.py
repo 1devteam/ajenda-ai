@@ -218,7 +218,7 @@ def _assert_action_allowed_for_mission(*, mission: Mission, action_name: str) ->
     permitted_names = {definition.name, *definition.aliases}
     if not permitted_names.intersection(allowed_actions):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "code": "MISSION_ACTION_NOT_ALLOWED",
                 "message": f"Action {action_name!r} is outside this mission's allowed_actions scope.",
