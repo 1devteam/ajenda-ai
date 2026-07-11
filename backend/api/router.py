@@ -34,6 +34,7 @@ Route inventory under /v1/:
   /v1/admin/*         — Platform admin control plane
   /v1/onboarding/*    — Self-serve tenant signup and verification
   /v1/plugins/*       — Plugin discovery and standard contracts
+  /v1/vertical-ops/*  — Vertical mission templates (ADR-0007)
 
 Routes at root (/):
   /health             — Liveness probe (no auth required)
@@ -69,6 +70,7 @@ from backend.api.routes.review_queue import router as review_queue_router
 from backend.api.routes.runtime import router as runtime_router
 from backend.api.routes.system import router as system_router
 from backend.api.routes.task import router as task_router
+from backend.api.routes.vertical_ops import router as vertical_ops_router
 from backend.api.routes.webhooks import router as webhooks_router
 from backend.api.routes.workforce import router as workforce_router
 
@@ -95,6 +97,7 @@ def build_api_router() -> APIRouter:
     v1 = APIRouter(prefix="/v1")
     v1.include_router(auth_router)  # /v1/auth/*
     v1.include_router(ability_runtime_router)  # /v1/ability-runtime/*
+    v1.include_router(vertical_ops_router)  # /v1/vertical-ops/*
     v1.include_router(api_keys_router)  # /v1/api-keys/*
     v1.include_router(capability_router)  # /v1/capabilities/*
     v1.include_router(capability_adapter_router)  # /v1/capability-adapters/*
