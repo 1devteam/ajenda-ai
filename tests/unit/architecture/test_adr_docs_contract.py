@@ -15,6 +15,7 @@ EXPECTED_ADR_LINKS = {
     "ADR-0001": "./ADR-0001-authority-classification-doctrine.md",
     "ADR-0002": "./ADR-0002-schema-evolution-strategy.md",
     "ADR-0003": "./ADR-0003-readiness-semantics-doctrine.md",
+    "ADR-0007": "./ADR-0007-governed-vertical-role-catalog.md",
 }
 
 

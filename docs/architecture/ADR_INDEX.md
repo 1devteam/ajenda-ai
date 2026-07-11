@@ -27,6 +27,7 @@ All ADRs in this folder should be treated as policy-level architecture guidance 
 | [ADR-0004](./ADR-0004-worker-tenancy-strategy.md) | Worker Tenancy Strategy | Accepted | 2026-06-21 | Single-tenant vs multi-tenant worker queue polling |
 | [ADR-0005](./ADR-0005-informed-autonomy-gate-policy.md) | Informed Autonomy Gate Policy | Accepted (policy) | 2026-06-23 | Replace misplaced gates with tiered disclaimers for tool/ability phases |
 | [ADR-0006](./ADR-0006-external-platform-integration-doctrine.md) | External Platform Integration Doctrine | Accepted | 2026-06-27 | PluginContract vs provider modules, OAuth refresh, side-effect tiers, hybrid CRM, expansion gate |
+| [ADR-0007](./ADR-0007-governed-vertical-role-catalog.md) | Governed Vertical Role Catalog on the Ability Spine | Proposed | 2026-07-10 | Vertical roles as declarative catalogs on mission/ability spine; Phase B runtime templates + Phase C plan-only fail-closed queue |
 
 ---
 
