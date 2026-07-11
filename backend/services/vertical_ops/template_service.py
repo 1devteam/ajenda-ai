@@ -16,6 +16,7 @@ Forbidden:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -139,8 +140,8 @@ class VerticalOpsTemplateService:
         objective: str | None = None,
         approved_by: str = "vertical-ops-template",
         approval_reason: str = "Vertical ops template application.",
-        idempotency_keys: dict[str, str] | None = None,
-        credential_references: dict[str, CredentialReference | dict[str, Any]] | None = None,
+        idempotency_keys: Mapping[str, str] | None = None,
+        credential_references: Mapping[str, CredentialReference | dict[str, Any]] | None = None,
         jurisdiction: str | None = None,
     ) -> VerticalTemplateBundle:
         template = get_vertical_mission_template(template_id)
@@ -338,7 +339,7 @@ class VerticalOpsTemplateService:
         approved_by: str = "vertical-ops-template",
         approval_reason: str = "Vertical ops Phase B template application.",
         idempotency_keys: dict[str, str] | None = None,
-        credential_references: dict[str, CredentialReference | dict[str, Any]] | None = None,
+        credential_references: Mapping[str, CredentialReference | dict[str, Any]] | None = None,
         jurisdiction: str | None = None,
         create_runtime_authority: bool = True,
     ) -> VerticalTemplateApplyResult:
@@ -512,7 +513,7 @@ class VerticalOpsTemplateService:
         approved_by: str = "vertical-ops-template",
         approval_reason: str = "Vertical ops Phase B template application.",
         idempotency_keys: dict[str, str] | None = None,
-        credential_references: dict[str, CredentialReference | dict[str, Any]] | None = None,
+        credential_references: Mapping[str, CredentialReference | dict[str, Any]] | None = None,
         jurisdiction: str | None = None,
         create_runtime_authority: bool = True,
     ) -> tuple[VerticalTemplateApplyResult, VerticalTemplateQueueResult]:
@@ -552,8 +553,8 @@ class VerticalOpsTemplateService:
         step_inputs: dict[str, dict[str, Any]],
         approved_by: str,
         approval_reason: str,
-        idempotency_keys: dict[str, str],
-        credential_references: dict[str, CredentialReference | dict[str, Any]],
+        idempotency_keys: Mapping[str, str],
+        credential_references: Mapping[str, CredentialReference | dict[str, Any]],
         jurisdiction: str,
     ) -> PlannedVerticalTaskSpec:
         role = get_vertical_role(template.role_key)
