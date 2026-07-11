@@ -76,13 +76,20 @@ def test_phase_b_steps_are_runtime_bound_and_manifested() -> None:
 
 def test_build_bundle_default_research_is_draft_safe() -> None:
     service = VerticalOpsTemplateService()
-    bundle = service.build_bundle(template_id="vertical.research.v1")
+    with pytest.raises(ValueError, match=r"invalid step_inputs|query"):
+        service.build_bundle(template_id="vertical.research.v1")
+
+    bundle = service.build_bundle(
+        template_id="vertical.research.v1",
+        step_inputs={"research-internal": {"query": "Acme competitors"}},
+    )
 
     assert bundle.grants_execution_authority is False
     assert len(bundle.planned_tasks) == 1
     assert bundle.planned_tasks[0].action_name == "web.research"
     assert bundle.planned_tasks[0].metadata_json["task_type"] == "tool.invoke"
     assert bundle.planned_tasks[0].metadata_json["tool_invocation"]["action"] == "web.research"
+    assert bundle.planned_tasks[0].metadata_json["tool_invocation"]["input"]["query"] == "Acme competitors"
     assert bundle.planned_tasks[0].metadata_json["vertical_role_key"] == "vertical.research"
     normalize_mission_task_graph_contract_metadata(bundle.task_graph)
     assert bundle.plan_contract["schema_version"] == 1
@@ -145,6 +152,20 @@ def test_social_template_requires_idempotency_credentials_and_marks_human_review
             template_id="vertical.social.v1",
             idempotency_keys={"social-publish": "social-idem-1"},
         )
+    with pytest.raises(ValueError, match="non-empty idempotency_keys"):
+        service.build_bundle(
+            template_id="vertical.social.v1",
+            idempotency_keys={"social-publish": "   "},
+            credential_references={"social-publish": _social_credential()},
+            step_inputs={"social-publish": {"content": "hello world", "platform": "x"}},
+        )
+    with pytest.raises(ValueError, match=r"invalid step_inputs|content"):
+        service.build_bundle(
+            template_id="vertical.social.v1",
+            idempotency_keys={"social-publish": "social-idem-1"},
+            credential_references={"social-publish": _social_credential()},
+            step_inputs={"social-publish": {}},
+        )
 
     bundle = service.build_bundle(
         template_id="vertical.social.v1",
@@ -165,10 +186,11 @@ def test_research_external_read_requires_credentials_before_materialization() ->
             template_id="vertical.research.v1",
             selected_step_keys=("research-internal", "research-external-read"),
             step_inputs={
+                "research-internal": {"query": "Acme competitors"},
                 "research-external-read": {
                     "url": "https://example.com",
                     "method": "GET",
-                }
+                },
             },
         )
     bundle = service.build_bundle(
@@ -182,10 +204,11 @@ def test_research_external_read_requires_credentials_before_materialization() ->
             }
         },
         step_inputs={
+            "research-internal": {"query": "Acme competitors"},
             "research-external-read": {
                 "url": "https://example.com",
                 "method": "GET",
-            }
+            },
         },
     )
     assert [task.action_name for task in bundle.planned_tasks] == [
@@ -237,6 +260,7 @@ def test_apply_to_mission_creates_planned_tasks_without_enqueue() -> None:
         session=session,
         mission=mission,
         template_id="vertical.research.v1",
+        step_inputs={"research-internal": {"query": "Acme competitors"}},
         create_runtime_authority=False,
     )
 
@@ -266,6 +290,11 @@ def test_queue_planned_tasks_uses_execution_coordinator_only() -> None:
     task_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())
 
+    planned_task = MagicMock()
+    planned_task.id = task_id
+    planned_task.tenant_id = tenant_id
+    planned_task.status = ExecutionTaskState.PLANNED.value
+
     coordinator = MagicMock()
     coordinator.queue_task.return_value = CoordinationResult(
         ok=True,
@@ -273,12 +302,16 @@ def test_queue_planned_tasks_uses_execution_coordinator_only() -> None:
         state=ExecutionTaskState.QUEUED.value,
         reason=None,
     )
+    task_repo = MagicMock()
+    task_repo.get.return_value = planned_task
 
     import backend.services.vertical_ops.template_service as module
 
-    original = module.ExecutionCoordinator
+    original_coord = module.ExecutionCoordinator
+    original_repo = module.ExecutionTaskRepository
     coordinator_cls = MagicMock(return_value=coordinator)
     module.ExecutionCoordinator = coordinator_cls  # type: ignore[misc,assignment]
+    module.ExecutionTaskRepository = MagicMock(return_value=task_repo)  # type: ignore[misc,assignment]
     try:
         result = service.queue_planned_tasks(
             session=session,
@@ -287,13 +320,71 @@ def test_queue_planned_tasks_uses_execution_coordinator_only() -> None:
             task_ids=(task_id,),
         )
     finally:
-        module.ExecutionCoordinator = original  # type: ignore[misc]
+        module.ExecutionCoordinator = original_coord  # type: ignore[misc]
+        module.ExecutionTaskRepository = original_repo  # type: ignore[misc]
 
     coordinator_cls.assert_called_once_with(session, queue)
     coordinator.queue_task.assert_called_once_with(tenant_id=tenant_id, task_id=task_id)
     assert result.queued_task_ids == (task_id,)
     assert result.blocked_task_ids == ()
     assert result.authority_class == "runtime_authoritative"
+
+
+def test_queue_planned_tasks_treats_already_queued_without_reenqueue() -> None:
+    service = VerticalOpsTemplateService()
+    session = MagicMock()
+    queue = MagicMock()
+    planned_id = uuid.uuid4()
+    queued_id = uuid.uuid4()
+    running_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+
+    def _task(task_id: uuid.UUID, status: str) -> MagicMock:
+        task = MagicMock()
+        task.id = task_id
+        task.tenant_id = tenant_id
+        task.status = status
+        return task
+
+    by_id = {
+        planned_id: _task(planned_id, ExecutionTaskState.PLANNED.value),
+        queued_id: _task(queued_id, ExecutionTaskState.QUEUED.value),
+        running_id: _task(running_id, ExecutionTaskState.RUNNING.value),
+    }
+    task_repo = MagicMock()
+    task_repo.get.side_effect = lambda task_id: by_id.get(task_id)
+
+    coordinator = MagicMock()
+    coordinator.queue_task.return_value = CoordinationResult(
+        ok=True,
+        task_id=planned_id,
+        state=ExecutionTaskState.QUEUED.value,
+        reason=None,
+    )
+
+    import backend.services.vertical_ops.template_service as module
+
+    original_coord = module.ExecutionCoordinator
+    original_repo = module.ExecutionTaskRepository
+    module.ExecutionCoordinator = MagicMock(return_value=coordinator)  # type: ignore[misc,assignment]
+    module.ExecutionTaskRepository = MagicMock(return_value=task_repo)  # type: ignore[misc,assignment]
+    try:
+        result = service.queue_planned_tasks(
+            session=session,
+            queue=queue,
+            tenant_id=tenant_id,
+            task_ids=(queued_id, planned_id, running_id),
+        )
+    finally:
+        module.ExecutionCoordinator = original_coord  # type: ignore[misc]
+        module.ExecutionTaskRepository = original_repo  # type: ignore[misc]
+
+    coordinator.queue_task.assert_called_once_with(tenant_id=tenant_id, task_id=planned_id)
+    assert set(result.queued_task_ids) == {queued_id, planned_id}
+    assert result.blocked_task_ids == (running_id,)
+    already = next(item for item in result.results if item.task_id == queued_id)
+    assert already.ok is True
+    assert already.reason == "already_queued"
 
 
 def test_apply_and_queue_blocks_policy_denial() -> None:
@@ -331,16 +422,30 @@ def test_apply_and_queue_blocks_policy_denial() -> None:
 
     original = module.ExecutionCoordinator
     module.ExecutionCoordinator = MagicMock(return_value=coordinator)  # type: ignore[misc,assignment]
+    planned_task = MagicMock()
+    planned_task.tenant_id = mission.tenant_id
+    planned_task.status = ExecutionTaskState.PLANNED.value
+    task_repo = MagicMock()
+
+    def _repo_get(task_id: uuid.UUID) -> MagicMock:
+        planned_task.id = task_id
+        return planned_task
+
+    task_repo.get.side_effect = _repo_get
+    original_repo = module.ExecutionTaskRepository
+    module.ExecutionTaskRepository = MagicMock(return_value=task_repo)  # type: ignore[misc,assignment]
     try:
         applied, queued = service.apply_and_queue(
             session=session,
             queue=queue,
             mission=mission,
             template_id="vertical.research.v1",
+            step_inputs={"research-internal": {"query": "Acme competitors"}},
             create_runtime_authority=False,
         )
     finally:
         module.ExecutionCoordinator = original  # type: ignore[misc]
+        module.ExecutionTaskRepository = original_repo  # type: ignore[misc]
 
     assert len(applied.created_task_ids) == 1
     assert queued.queued_task_ids == ()

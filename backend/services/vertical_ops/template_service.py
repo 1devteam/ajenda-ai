@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from backend.domain.capability import Capability
@@ -35,10 +36,12 @@ from backend.domain.mission import (
     build_mission_task_graph_contract_metadata,
 )
 from backend.queue.base import QueueAdapter
+from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
 from backend.services.abilities.manifest import AbilityRiskLevel
 from backend.services.abilities.vertical_role_catalog import RoleBindingStatus, get_vertical_role
 from backend.services.execution_coordinator import CoordinationResult, ExecutionCoordinator
+from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import CredentialReference, SideEffectClass
 from backend.services.vertical_ops.plan_templates import (
     VerticalMissionTemplate,
@@ -167,9 +170,12 @@ class VerticalOpsTemplateService:
                     SideEffectClass.EXTERNAL_SEND,
                     SideEffectClass.EXTERNAL_PUBLISH,
                 }:
-                    key = idempotency_keys.get(step.step_key) or idempotency_keys.get(step.action_name)
+                    raw_key = idempotency_keys.get(step.step_key) or idempotency_keys.get(step.action_name)
+                    key = raw_key.strip() if isinstance(raw_key, str) else ""
                     if not key:
-                        raise ValueError(f"step {step.step_key} ({step.action_name}) requires idempotency_keys entry")
+                        raise ValueError(
+                            f"step {step.step_key} ({step.action_name}) requires non-empty idempotency_keys entry"
+                        )
                     # External mutating actions also require credentials at admission.
                     if not has_credential:
                         raise ValueError(
@@ -475,7 +481,13 @@ class VerticalOpsTemplateService:
         task_ids: tuple[uuid.UUID, ...] | list[uuid.UUID],
         template_id: str | None = None,
     ) -> VerticalTemplateQueueResult:
-        """Admit planned tasks through the existing ExecutionCoordinator only."""
+        """Admit planned tasks through the existing ExecutionCoordinator only.
+
+        Prevalidates all IDs before any enqueue (mission-admission style):
+        - planned → admit candidates
+        - queued → already admitted (no re-enqueue)
+        - missing/other states → blocked with controlled reason
+        """
 
         if not tenant_id.strip():
             raise ValueError("tenant_id is required")
@@ -484,11 +496,51 @@ class VerticalOpsTemplateService:
         if template_id is not None:
             self.ensure_runtime_queue_allowed(template_id=template_id)
 
-        coordinator = ExecutionCoordinator(session, queue)
+        task_repo = ExecutionTaskRepository(session)
+        to_queue: list[uuid.UUID] = []
         results: list[CoordinationResult] = []
         queued: list[uuid.UUID] = []
         blocked: list[uuid.UUID] = []
+
         for task_id in task_ids:
+            task = task_repo.get(task_id)
+            if task is None or task.tenant_id != tenant_id:
+                results.append(
+                    CoordinationResult(
+                        ok=False,
+                        task_id=task_id,
+                        state="missing",
+                        reason="task_not_found_for_tenant",
+                    )
+                )
+                blocked.append(task_id)
+                continue
+            if task.status == ExecutionTaskState.QUEUED.value:
+                results.append(
+                    CoordinationResult(
+                        ok=True,
+                        task_id=task_id,
+                        state=task.status,
+                        reason="already_queued",
+                    )
+                )
+                queued.append(task_id)
+                continue
+            if task.status != ExecutionTaskState.PLANNED.value:
+                results.append(
+                    CoordinationResult(
+                        ok=False,
+                        task_id=task_id,
+                        state=task.status,
+                        reason=f"task_not_queueable_status:{task.status}",
+                    )
+                )
+                blocked.append(task_id)
+                continue
+            to_queue.append(task_id)
+
+        coordinator = ExecutionCoordinator(session, queue)
+        for task_id in to_queue:
             result = coordinator.queue_task(tenant_id=tenant_id, task_id=task_id)
             results.append(result)
             if result.ok:
@@ -565,6 +617,11 @@ class VerticalOpsTemplateService:
         manifest = ABILITY_MANIFESTS_BY_ACTION[step.action_name]
         side_effect = manifest.side_effect_class
         input_payload = dict(step_inputs.get(step.step_key) or step_inputs.get(step.action_name) or {})
+        input_payload = self._validate_step_input(
+            action_name=step.action_name,
+            step_key=step.step_key,
+            input_payload=input_payload,
+        )
 
         tool_invocation: dict[str, Any] = {
             "schema_version": 1,
@@ -572,9 +629,10 @@ class VerticalOpsTemplateService:
             "input": input_payload,
             "provider": manifest.provider,
         }
-        idem_key = idempotency_keys.get(step.step_key) or idempotency_keys.get(step.action_name)
+        raw_idem = idempotency_keys.get(step.step_key) or idempotency_keys.get(step.action_name)
+        idem_key = raw_idem.strip() if isinstance(raw_idem, str) else ""
         if idem_key:
-            tool_invocation["idempotency_key"] = idem_key.strip()
+            tool_invocation["idempotency_key"] = idem_key
 
         cred = credential_references.get(step.step_key) or credential_references.get(step.action_name)
         credential_payload: dict[str, Any] | None = None
@@ -635,6 +693,30 @@ class VerticalOpsTemplateService:
             metadata_json=metadata_json,
             dependency_step_keys=step.depends_on,
         )
+
+    def _validate_step_input(
+        self,
+        *,
+        action_name: str,
+        step_key: str,
+        input_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Fail closed on invalid action input before task materialization/admission."""
+        try:
+            definition = get_default_action_registry().get(action_name)
+        except ValueError as exc:
+            raise ValueError(f"step {step_key} ({action_name}) is not a registered action") from exc
+        if definition.input_model is None:
+            return input_payload
+        try:
+            validated = definition.input_model.model_validate(input_payload)
+        except ValidationError as exc:
+            raise ValueError(
+                f"step {step_key} ({action_name}) has invalid step_inputs: {exc.errors()[0]['msg']}"
+            ) from exc
+        if hasattr(validated, "model_dump"):
+            return validated.model_dump(mode="json")
+        return input_payload
 
     def _ensure_runtime_authority(
         self,
