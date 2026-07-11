@@ -230,6 +230,106 @@ def test_social_queue_requires_credential_reference() -> None:
     assert "credential_references" in response.json()["detail"]
 
 
+def test_queue_rejects_task_ids_outside_applied_template_set() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    allowed_task_id = uuid.uuid4()
+    foreign_task_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    mission = Mission(
+        tenant_id=str(tenant_id),
+        objective="research",
+        status="planned",
+        metadata_json={
+            "vertical_ops_template": {
+                "template_id": "vertical.research.v1",
+                "allows_runtime_queue": True,
+                "created_task_ids": [str(allowed_task_id)],
+                "selected_step_keys": ["research-internal"],
+            }
+        },
+    )
+    mission.id = mission_id
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    with (
+        patch.object(vertical_ops_module, "require_route_permission"),
+        patch.object(vertical_ops_module, "MissionRepository", return_value=repo),
+    ):
+        response = client.post(
+            f"/v1/vertical-ops/missions/{mission_id}/queue",
+            json={"task_ids": [str(foreign_task_id)]},
+            headers={"X-Tenant-Id": str(tenant_id)},
+        )
+
+    assert response.status_code == 400
+    assert "created_task_ids" in response.json()["detail"]
+
+
+def test_queue_accepts_subset_of_applied_template_task_ids() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task_a = uuid.uuid4()
+    task_b = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    mission = Mission(
+        tenant_id=str(tenant_id),
+        objective="research",
+        status="planned",
+        metadata_json={
+            "vertical_ops_template": {
+                "template_id": "vertical.research.v1",
+                "allows_runtime_queue": True,
+                "created_task_ids": [str(task_a), str(task_b)],
+                "selected_step_keys": ["research-internal"],
+            }
+        },
+    )
+    mission.id = mission_id
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    queued = VerticalTemplateQueueResult(
+        results=(
+            CoordinationResult(
+                ok=True,
+                task_id=task_a,
+                state=ExecutionTaskState.QUEUED.value,
+                reason=None,
+            ),
+        ),
+        queued_task_ids=(task_a,),
+        blocked_task_ids=(),
+    )
+
+    with (
+        patch.object(vertical_ops_module, "require_route_permission"),
+        patch.object(vertical_ops_module, "MissionRepository", return_value=repo),
+        patch.object(
+            vertical_ops_module.VerticalOpsTemplateService,
+            "queue_planned_tasks",
+            return_value=queued,
+        ) as queue_planned,
+    ):
+        response = client.post(
+            f"/v1/vertical-ops/missions/{mission_id}/queue",
+            json={"task_ids": [str(task_a)]},
+            headers={"X-Tenant-Id": str(tenant_id)},
+        )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["created_task_ids"] == [str(task_a)]
+    assert body["queued"] is True
+    queue_planned.assert_called_once()
+    assert queue_planned.call_args.kwargs["task_ids"] == (task_a,)
+
+
 def test_social_queue_requires_privileged_role() -> None:
     tenant_id = uuid.uuid4()
     app = _build_app(tenant_id, roles=("member",))

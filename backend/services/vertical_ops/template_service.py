@@ -152,20 +152,16 @@ class VerticalOpsTemplateService:
         credential_references = credential_references or {}
         resolved_jurisdiction = (jurisdiction or role.default_jurisdiction).strip()
 
-        # Runtime-queueable steps require idempotency for external mutations.
-        # Phase C plan-only templates skip this — they never enqueue.
+        # Runtime-queueable steps fail closed on missing credentials/idempotency
+        # before any ExecutionTask is created or admitted. Phase C plan-only
+        # templates skip this — they never enqueue.
         if template.allows_runtime_queue:
             for step in steps:
                 binding = template.resolve_binding(step.action_name)
                 side_effect = template_step_side_effect(step.action_name, role_key=template.role_key)
-                if binding.credential_required or side_effect in {
-                    SideEffectClass.EXTERNAL_WRITE,
-                    SideEffectClass.EXTERNAL_SEND,
-                    SideEffectClass.EXTERNAL_PUBLISH,
-                }:
-                    if step.step_key not in credential_references and step.action_name not in credential_references:
-                        # Soft at bundle build; API high-risk gates enforce credentials on queue.
-                        pass
+                has_credential = step.step_key in credential_references or step.action_name in credential_references
+                if binding.credential_required and not has_credential:
+                    raise ValueError(f"step {step.step_key} ({step.action_name}) requires credential_references entry")
                 if side_effect in {
                     SideEffectClass.EXTERNAL_WRITE,
                     SideEffectClass.EXTERNAL_SEND,
@@ -174,6 +170,11 @@ class VerticalOpsTemplateService:
                     key = idempotency_keys.get(step.step_key) or idempotency_keys.get(step.action_name)
                     if not key:
                         raise ValueError(f"step {step.step_key} ({step.action_name}) requires idempotency_keys entry")
+                    # External mutating actions also require credentials at admission.
+                    if not has_credential:
+                        raise ValueError(
+                            f"step {step.step_key} ({step.action_name}) requires credential_references entry"
+                        )
 
         step_key_to_sequence = {step.step_key: index for index, step in enumerate(steps, start=1)}
         planned_steps: list[dict[str, Any]] = []

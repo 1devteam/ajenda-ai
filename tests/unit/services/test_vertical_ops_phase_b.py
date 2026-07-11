@@ -89,18 +89,42 @@ def test_build_bundle_default_research_is_draft_safe() -> None:
     assert bundle.plan_contract["planned_steps"][0]["sequence"] == 1
 
 
-def test_email_template_send_requires_idempotency_key() -> None:
+def _email_send_credential() -> dict[str, object]:
+    return {
+        "credential_id": "cred-email-1",
+        "provider": "external_email",
+        "credential_type": "api_key",
+    }
+
+
+def _social_credential() -> dict[str, object]:
+    return {
+        "credential_id": "cred-social-1",
+        "provider": "external_social",
+        "credential_type": "api_key",
+    }
+
+
+def test_email_template_send_requires_idempotency_and_credentials() -> None:
     service = VerticalOpsTemplateService()
     with pytest.raises(ValueError, match="idempotency_keys"):
         service.build_bundle(
             template_id="vertical.email.v1",
             selected_step_keys=("email-draft", "email-send"),
+            credential_references={"email-send": _email_send_credential()},
+        )
+    with pytest.raises(ValueError, match="credential_references"):
+        service.build_bundle(
+            template_id="vertical.email.v1",
+            selected_step_keys=("email-draft", "email-send"),
+            idempotency_keys={"email-send": "email-idem-1"},
         )
 
     bundle = service.build_bundle(
         template_id="vertical.email.v1",
         selected_step_keys=("email-draft", "email-send"),
         idempotency_keys={"email-send": "email-idem-1"},
+        credential_references={"email-send": _email_send_credential()},
         step_inputs={"email-send": {"to": "a@example.com", "subject": "Hi", "body": "Hello"}},
     )
     assert [task.action_name for task in bundle.planned_tasks] == ["gtm.email_draft", "gtm.email_send"]
@@ -109,22 +133,65 @@ def test_email_template_send_requires_idempotency_key() -> None:
     assert send.metadata_json["tool_invocation"]["idempotency_key"] == "email-idem-1"
     assert "side_effect_authorization" in send.metadata_json["execution_constraints"]
     assert send.compliance_category == "consumer_interaction"
+    assert send.metadata_json["credential_reference"]["credential_id"] == "cred-email-1"
 
 
-def test_social_template_requires_idempotency_and_marks_human_review() -> None:
+def test_social_template_requires_idempotency_credentials_and_marks_human_review() -> None:
     service = VerticalOpsTemplateService()
-    with pytest.raises(ValueError, match="idempotency_keys"):
+    with pytest.raises(ValueError, match=r"credential_references|idempotency_keys"):
         service.build_bundle(template_id="vertical.social.v1")
+    with pytest.raises(ValueError, match="credential_references"):
+        service.build_bundle(
+            template_id="vertical.social.v1",
+            idempotency_keys={"social-publish": "social-idem-1"},
+        )
 
     bundle = service.build_bundle(
         template_id="vertical.social.v1",
         idempotency_keys={"social-publish": "social-idem-1"},
+        credential_references={"social-publish": _social_credential()},
         step_inputs={"social-publish": {"content": "hello world", "platform": "x"}},
     )
     task = bundle.planned_tasks[0]
     assert task.action_name == "gtm.social_publish"
     assert task.requires_human_review is True
     assert task.metadata_json["side_effect_class"] == "external_publish"
+
+
+def test_research_external_read_requires_credentials_before_materialization() -> None:
+    service = VerticalOpsTemplateService()
+    with pytest.raises(ValueError, match="credential_references"):
+        service.build_bundle(
+            template_id="vertical.research.v1",
+            selected_step_keys=("research-internal", "research-external-read"),
+            step_inputs={
+                "research-external-read": {
+                    "url": "https://example.com",
+                    "method": "GET",
+                }
+            },
+        )
+    bundle = service.build_bundle(
+        template_id="vertical.research.v1",
+        selected_step_keys=("research-internal", "research-external-read"),
+        credential_references={
+            "research-external-read": {
+                "credential_id": "cred-read-1",
+                "provider": "external_read_provider",
+                "credential_type": "api_key",
+            }
+        },
+        step_inputs={
+            "research-external-read": {
+                "url": "https://example.com",
+                "method": "GET",
+            }
+        },
+    )
+    assert [task.action_name for task in bundle.planned_tasks] == [
+        "web.research",
+        "provider.external_read",
+    ]
 
 
 def test_selected_step_fails_closed_without_dependency() -> None:

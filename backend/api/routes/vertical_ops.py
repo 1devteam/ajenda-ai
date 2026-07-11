@@ -249,6 +249,7 @@ def _enforce_quota_and_features(
 
 
 def _enforce_high_risk_queue_gates(*, request: Request, actions: list[str], body: VerticalTemplateApplyRequest) -> None:
+    """Role gate for high-risk actions. Credential presence is enforced by the service."""
     high_risk = [action for action in actions if action in _HIGH_RISK_QUEUE_ACTIONS]
     if not high_risk:
         return
@@ -260,22 +261,57 @@ def _enforce_high_risk_queue_gates(*, request: Request, actions: list[str], body
                 f"role. Actions: {', '.join(high_risk)}"
             ),
         )
-    step_or_action_keys = set(body.credential_references)
-    for action in high_risk:
-        if action == "gtm.email_send" and not (
-            "email-send" in step_or_action_keys or "gtm.email_send" in step_or_action_keys
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="gtm.email_send requires credential_references for step email-send",
-            )
-        if action == "gtm.social_publish" and not (
-            "social-publish" in step_or_action_keys or "gtm.social_publish" in step_or_action_keys
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="gtm.social_publish requires credential_references for step social-publish",
-            )
+
+
+def _parse_stored_created_task_ids(template_meta: dict[str, Any]) -> tuple[uuid.UUID, ...]:
+    stored = template_meta.get("created_task_ids") or []
+    if not isinstance(stored, list) or not stored:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="no created_task_ids on vertical template application",
+        )
+    try:
+        return tuple(uuid.UUID(str(item)) for item in stored)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid created_task_ids on vertical template application",
+        ) from exc
+
+
+def _resolve_queue_task_ids(
+    *,
+    body_task_ids: list[uuid.UUID] | None,
+    template_meta: dict[str, Any],
+) -> tuple[uuid.UUID, ...]:
+    """Restrict queue admission to the applied template task set only."""
+    allowed = _parse_stored_created_task_ids(template_meta)
+    if body_task_ids is None:
+        return allowed
+    requested = tuple(body_task_ids)
+    if not requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="task_ids must be non-empty when provided",
+        )
+    allowed_set = set(allowed)
+    unknown = [str(task_id) for task_id in requested if task_id not in allowed_set]
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "task_ids must be a subset of vertical_ops_template.created_task_ids; "
+                f"unknown ids: {', '.join(unknown)}"
+            ),
+        )
+    # Preserve caller order, de-dupe while validating membership.
+    seen: set[uuid.UUID] = set()
+    ordered: list[uuid.UUID] = []
+    for task_id in requested:
+        if task_id not in seen:
+            seen.add(task_id)
+            ordered.append(task_id)
+    return tuple(ordered)
 
 
 def _credential_refs_as_dict(
@@ -624,23 +660,7 @@ def queue_applied_template_tasks(
             detail=f"template {template_id!r} is plan-only; runtime queue is disabled",
         )
 
-    raw_ids = body.task_ids
-    if raw_ids is None:
-        stored = template_meta.get("created_task_ids") or []
-        if not isinstance(stored, list) or not stored:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="no created_task_ids on vertical template application",
-            )
-        try:
-            task_ids = tuple(uuid.UUID(str(item)) for item in stored)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="invalid created_task_ids on vertical template application",
-            ) from exc
-    else:
-        task_ids = tuple(raw_ids)
+    task_ids = _resolve_queue_task_ids(body_task_ids=body.task_ids, template_meta=template_meta)
 
     # High-risk gate based on selected template steps currently applied.
     selected = template_meta.get("selected_step_keys")
