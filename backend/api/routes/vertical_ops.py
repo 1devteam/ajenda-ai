@@ -23,15 +23,23 @@ from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.permissions import Permission
+from backend.domain.compliance import is_supported_jurisdiction
 from backend.domain.mission import Mission
 from backend.queue.base import QueueAdapter
+from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.abilities.role_contracts import RoleName
+from backend.services.operating_charter import (
+    OperatingCharterViolation,
+    assert_action_allowed,
+    load_operating_charter,
+)
 from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
     QuotaEnforcementService,
     QuotaExceededError,
 )
+from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import CredentialReference
 from backend.services.vertical_ops.plan_templates import (
     get_vertical_mission_template,
@@ -108,7 +116,7 @@ class VerticalTemplateApplyRequest(BaseModel):
     )
     idempotency_keys: dict[str, str] = Field(default_factory=dict)
     credential_references: dict[str, CredentialReference] = Field(default_factory=dict)
-    jurisdiction: str | None = Field(default=None, max_length=32)
+    jurisdiction: str | None = Field(default=None, max_length=64)
     queue: bool = False
 
     @field_validator("template_id", "approved_by", "approval_reason")
@@ -117,6 +125,18 @@ class VerticalTemplateApplyRequest(BaseModel):
         stripped = value.strip()
         if not stripped:
             raise ValueError("field must be non-empty")
+        return stripped
+
+    @field_validator("jurisdiction")
+    @classmethod
+    def validate_jurisdiction(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("jurisdiction must be non-empty when provided")
+        if not is_supported_jurisdiction(stripped):
+            raise ValueError("unsupported jurisdiction")
         return stripped
 
 
@@ -261,6 +281,33 @@ def _enforce_high_risk_queue_gates(*, request: Request, actions: list[str], body
                 f"role. Actions: {', '.join(high_risk)}"
             ),
         )
+
+
+def _enforce_operating_charter(*, db: Session, tenant_id: uuid.UUID | str, actions: list[str]) -> None:
+    """Match ability-runtime: fail closed on never_do / prepare/perform charter gates."""
+    if not actions:
+        return
+    profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
+    approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
+    charter = load_operating_charter(approved_facts=approved_facts)
+    registry = get_default_action_registry()
+    for action_name in actions:
+        try:
+            definition = registry.get(action_name)
+        except ValueError:
+            # Catalog-only / deferred actions have no runtime handler; charter is N/A.
+            continue
+        try:
+            assert_action_allowed(
+                action_name=definition.name,
+                side_effect_class=definition.side_effect_class,
+                charter=charter,
+            )
+        except OperatingCharterViolation as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": exc.code, "message": exc.message, "action": exc.action},
+            ) from exc
 
 
 def _parse_stored_created_task_ids(template_meta: dict[str, Any]) -> tuple[uuid.UUID, ...]:
@@ -436,6 +483,10 @@ def create_mission_from_template(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    # Charter gates apply whenever runtime-bound tasks will be materialized or queued.
+    if bundle.allows_runtime_queue:
+        _enforce_operating_charter(db=db, tenant_id=tenant_id, actions=actions)
+
     _enforce_quota_and_features(
         db=db,
         tenant_id=tenant_id,
@@ -564,6 +615,9 @@ def apply_template_to_mission(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    if bundle.allows_runtime_queue:
+        _enforce_operating_charter(db=db, tenant_id=tenant_id, actions=actions)
+
     _enforce_quota_and_features(
         db=db,
         tenant_id=tenant_id,
@@ -662,13 +716,15 @@ def queue_applied_template_tasks(
 
     task_ids = _resolve_queue_task_ids(body_task_ids=body.task_ids, template_meta=template_meta)
 
-    # High-risk gate based on selected template steps currently applied.
+    # High-risk + charter gates based on selected template steps currently applied.
     selected = template_meta.get("selected_step_keys")
     selected_keys = list(selected) if isinstance(selected, list) else None
     try:
         actions = _selected_actions(template_id, selected_keys)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    _enforce_operating_charter(db=db, tenant_id=tenant_id, actions=actions)
 
     # Synthetic body for credential checks is not available on re-queue; enforce role only.
     high_risk = [action for action in actions if action in _HIGH_RISK_QUEUE_ACTIONS]

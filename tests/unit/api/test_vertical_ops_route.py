@@ -95,6 +95,61 @@ def test_phase_c_queue_rejected_by_api() -> None:
     assert "plan-only" in response.json()["detail"]
 
 
+def test_invalid_jurisdiction_rejected() -> None:
+    tenant_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch.object(vertical_ops_module, "require_route_permission"):
+        response = client.post(
+            "/v1/vertical-ops/missions",
+            json={
+                "template_id": "vertical.research.v1",
+                "queue": False,
+                "jurisdiction": "colorado",
+                "step_inputs": {"research-internal": {"query": "Acme"}},
+            },
+            headers={"X-Tenant-Id": str(tenant_id)},
+        )
+
+    assert response.status_code == 422
+
+
+def test_charter_blocks_default_never_do_social_publish() -> None:
+    tenant_id = uuid.uuid4()
+    app = _build_app(tenant_id, roles=("tenant_admin",))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with (
+        patch.object(vertical_ops_module, "require_route_permission"),
+        patch.object(vertical_ops_module, "_enforce_quota_and_features"),
+        patch.object(vertical_ops_module, "BusinessProfileRepository") as profile_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        response = client.post(
+            "/v1/vertical-ops/missions",
+            json={
+                "template_id": "vertical.social.v1",
+                "queue": True,
+                "idempotency_keys": {"social-publish": "idem-1"},
+                "credential_references": {
+                    "social-publish": {
+                        "credential_id": "cred-1",
+                        "provider": "external_social",
+                        "credential_type": "api_key",
+                    }
+                },
+                "step_inputs": {"social-publish": {"content": "hello world"}},
+            },
+            headers={"X-Tenant-Id": str(tenant_id)},
+        )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["code"] == "CHARTER_NEVER_DO"
+    assert detail["action"] == "gtm.social_publish"
+
+
 def test_get_unknown_template_404() -> None:
     tenant_id = uuid.uuid4()
     app = _build_app(tenant_id)
