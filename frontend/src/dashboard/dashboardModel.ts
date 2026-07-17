@@ -25,28 +25,43 @@ export type ChecklistStep = {
   done: boolean;
 };
 
-const RUNNING_ALIASES = new Set(["running", "in_progress", "executing", "active"]);
-const PLANNED_ALIASES = new Set(["planned", "queued", "pending", "draft", "ready"]);
-const COMPLETED_ALIASES = new Set(["completed", "succeeded", "success", "done"]);
-const FAILED_ALIASES = new Set(["failed", "error", "cancelled", "canceled", "dead_letter"]);
+/**
+ * Map backend `MissionState` values onto the four dashboard buckets.
+ * Source of truth: backend/domain/enums.py MissionState.
+ *
+ * - planned: non-terminal work not currently executing (includes approved/queued/paused)
+ * - running: actively executing
+ * - completed / failed: terminal outcomes
+ * - cancelled / archived: terminal but not failures — excluded from failed counts
+ */
+const RUNNING_STATES = new Set(["running"]);
+const PLANNED_STATES = new Set(["planned", "approved", "queued", "paused"]);
+const COMPLETED_STATES = new Set(["completed"]);
+const FAILED_STATES = new Set(["failed"]);
+/** Terminal states that must not inflate Failed metrics. */
+const NON_FAILURE_TERMINAL = new Set(["cancelled", "canceled", "archived"]);
 
 export function bucketMissionStatus(status: string): MissionStatusBucket | "other" {
   const normalized = status.trim().toLowerCase();
-  if (RUNNING_ALIASES.has(normalized)) {
+  if (RUNNING_STATES.has(normalized)) {
     return "running";
   }
-  if (PLANNED_ALIASES.has(normalized)) {
+  if (PLANNED_STATES.has(normalized)) {
     return "planned";
   }
-  if (COMPLETED_ALIASES.has(normalized)) {
+  if (COMPLETED_STATES.has(normalized)) {
     return "completed";
   }
-  if (FAILED_ALIASES.has(normalized)) {
+  if (FAILED_STATES.has(normalized)) {
     return "failed";
+  }
+  if (NON_FAILURE_TERMINAL.has(normalized)) {
+    return "other";
   }
   return "other";
 }
 
+/** Active = non-terminal missions still on the operator radar. */
 export function isActiveMission(mission: MissionListItem): boolean {
   const bucket = bucketMissionStatus(mission.status);
   return bucket === "planned" || bucket === "running";

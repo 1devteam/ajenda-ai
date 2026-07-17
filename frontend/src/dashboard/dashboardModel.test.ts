@@ -4,6 +4,7 @@ import {
   bucketMissionStatus,
   buildOnboardingChecklist,
   countStatusBreakdown,
+  isActiveMission,
   resolveAttentionBanner,
   resolvePrimaryAction,
   usagePercent,
@@ -29,21 +30,50 @@ describe("dashboardModel", () => {
       mission("running"),
       mission("completed"),
       mission("failed"),
-      mission("in_progress"),
+      mission("approved"),
+      mission("paused"),
     ]);
     expect(breakdown).toEqual({
-      planned: 1,
-      running: 2,
+      planned: 3,
+      running: 1,
       completed: 1,
       failed: 1,
     });
   });
 
-  it("maps known aliases", () => {
+  it("maps MissionState values onto dashboard buckets", () => {
     expect(bucketMissionStatus("queued")).toBe("planned");
-    expect(bucketMissionStatus("executing")).toBe("running");
-    expect(bucketMissionStatus("succeeded")).toBe("completed");
-    expect(bucketMissionStatus("dead_letter")).toBe("failed");
+    expect(bucketMissionStatus("approved")).toBe("planned");
+    expect(bucketMissionStatus("paused")).toBe("planned");
+    expect(bucketMissionStatus("running")).toBe("running");
+    expect(bucketMissionStatus("completed")).toBe("completed");
+    expect(bucketMissionStatus("failed")).toBe("failed");
+  });
+
+  it("keeps approved and paused missions in active work", () => {
+    expect(isActiveMission(mission("approved"))).toBe(true);
+    expect(isActiveMission(mission("paused"))).toBe(true);
+    expect(isActiveMission(mission("queued"))).toBe(true);
+    expect(isActiveMission(mission("completed"))).toBe(false);
+    expect(isActiveMission(mission("cancelled"))).toBe(false);
+  });
+
+  it("does not count cancelled or archived as failed", () => {
+    expect(bucketMissionStatus("cancelled")).toBe("other");
+    expect(bucketMissionStatus("canceled")).toBe("other");
+    expect(bucketMissionStatus("archived")).toBe("other");
+    const breakdown = countStatusBreakdown([
+      mission("failed"),
+      mission("cancelled"),
+      mission("archived"),
+    ]);
+    expect(breakdown.failed).toBe(1);
+    expect(breakdown).toEqual({
+      planned: 0,
+      running: 0,
+      completed: 0,
+      failed: 1,
+    });
   });
 
   it("prioritizes approvals for primary action", () => {

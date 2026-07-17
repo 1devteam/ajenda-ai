@@ -8,17 +8,25 @@ type StatusBadgeProps = {
 const STATUS_STYLES: Record<string, string> = {
   running: "bg-semantic-info/15 text-semantic-info border-semantic-info/30",
   planned: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30",
+  approved: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30",
+  queued: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30",
+  paused: "bg-semantic-warning/15 text-semantic-warning border-semantic-warning/30",
   completed: "bg-semantic-success/15 text-semantic-success border-semantic-success/30",
   failed: "bg-crimson/15 text-crimson-bright border-crimson/30",
+  cancelled: "bg-os-surface-elevated text-zinc-400 border-os-border",
+  canceled: "bg-os-surface-elevated text-zinc-400 border-os-border",
+  archived: "bg-os-surface-elevated text-zinc-400 border-os-border",
   pending: "bg-semantic-warning/15 text-semantic-warning border-semantic-warning/30",
   other: "bg-os-surface-elevated text-zinc-400 border-os-border",
 };
 
 export default function StatusBadge({ status, label }: StatusBadgeProps) {
   const normalized = status.toLowerCase();
-  const bucket =
-    normalized === "pending" ? "pending" : bucketMissionStatus(status);
-  const style = STATUS_STYLES[bucket] ?? STATUS_STYLES.other;
+  // Prefer exact MissionState / review labels for badge color; fall back to bucket.
+  const style =
+    STATUS_STYLES[normalized] ??
+    STATUS_STYLES[bucketMissionStatus(status)] ??
+    STATUS_STYLES.other;
 
   return (
     <span
