@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Menu } from "lucide-react";
 import { useAuth } from "../../auth/AuthProvider";
-import SidebarNav from "./SidebarNav";
+import CommandCenterSidebar from "./CommandCenterSidebar";
+import Button from "../primitives/Button";
 
 type AppShellProps = {
   children: ReactNode;
@@ -21,52 +22,38 @@ export default function AppShell({
   onSignOut,
 }: AppShellProps) {
   const { session } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const online = tenantStatus === "active";
 
   return (
-    <div className="cc-shell">
-      <aside className={`cc-sidebar${sidebarOpen ? " open" : ""}`}>
-        <div className="cc-sidebar-brand">
-          <Link to="/dashboard" onClick={() => setSidebarOpen(false)}>
-            ajenda-ai
-          </Link>
-          <span>Autonomous business OS</span>
-        </div>
+    <div className="ajenda-os flex min-h-screen bg-os-bg">
+      <CommandCenterSidebar
+        orgName={orgName ?? session?.orgName}
+        plan={plan ?? session?.plan}
+        email={email ?? session?.email}
+        tenantOnline={online}
+        mobileOpen={mobileOpen}
+        onNavigate={() => setMobileOpen(false)}
+        onMobileClose={() => setMobileOpen(false)}
+        onSignOut={onSignOut}
+      />
 
-        <SidebarNav onNavigate={() => setSidebarOpen(false)} />
-
-        <div className="cc-sidebar-footer">
-          <div className="cc-user-card">
-            <strong>{orgName ?? session?.orgName ?? "Workspace"}</strong>
-            <small>
-              {email ?? session?.tenantId.slice(0, 8)}
-              {plan ? ` · ${plan}` : ""}
-            </small>
-          </div>
-          <div className="cc-system-status">
-            <span className={`status-dot ${online ? "ok" : ""}`} />
-            {online ? "System online" : "Setup in progress"}
-          </div>
-          <button type="button" className="ghost-button" onClick={onSignOut}>
-            Sign out
-          </button>
-        </div>
-      </aside>
-
-      <div className="cc-main">
-        <header className="cc-topbar">
-          <button
-            type="button"
-            className="cc-mobile-menu-btn"
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-os-border bg-os-surface/95 px-4 backdrop-blur lg:hidden">
+          <Button
+            variant="ghost"
+            className="min-h-10 min-w-10 px-2"
             aria-label="Open navigation"
-            onClick={() => setSidebarOpen((open) => !open)}
+            onClick={() => setMobileOpen(true)}
           >
-            ☰
-          </button>
-          <strong>ajenda-ai</strong>
+            <Menu className="h-5 w-5" />
+          </Button>
+          <span className="font-display text-base font-semibold">
+            <span className="text-crimson">ajenda</span>-ai
+          </span>
         </header>
-        <div className="cc-main-inner">{children}</div>
+
+        <main className="flex-1 px-4 py-5 @md:px-6 @lg:px-8 @lg:py-8">{children}</main>
       </div>
     </div>
   );

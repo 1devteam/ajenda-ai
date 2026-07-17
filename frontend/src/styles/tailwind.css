@@ -1,0 +1,30 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Sans:wght@500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  .ajenda-os {
+    @apply bg-os-bg text-zinc-100 antialiased;
+    font-family: "DM Sans", system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .cc-panel {
+    @apply rounded-panel border border-os-border bg-os-surface shadow-panel;
+  }
+
+  .cc-panel-elevated {
+    @apply rounded-panel border border-os-border bg-os-surface-elevated shadow-panel;
+  }
+
+  .cc-focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-info/60 focus-visible:ring-offset-2 focus-visible:ring-offset-os-bg;
+  }
+
+  .cc-skeleton {
+    @apply animate-pulse rounded-md bg-os-surface-elevated;
+  }
+}

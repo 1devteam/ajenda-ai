@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
 import ErrorBoundary from "./components/ErrorBoundary";
+import "./styles/tailwind.css";
 import "./styles.css";
 import "./styles/command-center.css";
 
