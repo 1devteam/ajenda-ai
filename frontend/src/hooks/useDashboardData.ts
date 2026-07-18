@@ -44,35 +44,61 @@ export function useDashboardData(session: CustomerSession | null): DashboardData
     setError(null);
 
     async function load() {
-      try {
-        const [missionResponse, reviewResponse, credentialsResponse] = await Promise.all([
-          listMissions(session!, { limit: 50 }),
-          listReviewQueue(session!, { status: "pending", limit: 50 }),
-          listProviderCredentials(session!),
-        ]);
-        if (cancelled) {
-          return;
-        }
-        const activeCreds = credentialsResponse.credentials.filter(
+      // Core dashboard panels must not fail if credentials:read is missing.
+      // Connections are optional checklist signal only.
+      const [missionsResult, reviewResult, credentialsResult] = await Promise.allSettled([
+        listMissions(session!, { limit: 50 }),
+        listReviewQueue(session!, { status: "pending", limit: 50 }),
+        listProviderCredentials(session!),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      const coreErrors: string[] = [];
+
+      if (missionsResult.status === "fulfilled") {
+        setMissions(missionsResult.value.missions);
+      } else {
+        setMissions([]);
+        coreErrors.push(failureText(missionsResult.reason));
+      }
+
+      if (reviewResult.status === "fulfilled") {
+        setApprovalItems(reviewResult.value.items);
+        setPendingApprovals(reviewResult.value.total);
+      } else {
+        setApprovalItems([]);
+        setPendingApprovals(0);
+        coreErrors.push(failureText(reviewResult.reason));
+      }
+
+      if (credentialsResult.status === "fulfilled") {
+        const activeCreds = credentialsResult.value.credentials.filter(
           (credential) => credential.enabled && !credential.revoked,
         );
-        setMissions(missionResponse.missions);
-        setApprovalItems(reviewResponse.items);
-        setPendingApprovals(reviewResponse.total);
         setHasConnections(activeCreds.length > 0);
-        setLiveMessage(
-          `Dashboard updated. ${missionResponse.missions.length} missions, ${reviewResponse.total} approvals waiting.`,
-        );
-      } catch (err) {
-        if (!cancelled) {
-          setError(failureText(err));
-          setLiveMessage("Dashboard data failed to load.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+      } else {
+        // No connections permission → treat as incomplete checklist step, not page error.
+        setHasConnections(false);
       }
+
+      if (coreErrors.length > 0) {
+        setError(coreErrors[0] ?? "Dashboard data failed to load.");
+        setLiveMessage("Dashboard data failed to load.");
+      } else {
+        setError(null);
+        const missionCount =
+          missionsResult.status === "fulfilled" ? missionsResult.value.missions.length : 0;
+        const approvalCount =
+          reviewResult.status === "fulfilled" ? reviewResult.value.total : 0;
+        setLiveMessage(
+          `Dashboard updated. ${missionCount} missions, ${approvalCount} approvals waiting.`,
+        );
+      }
+
+      setLoading(false);
     }
 
     void load();
