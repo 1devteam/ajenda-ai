@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /setup
+Disallow: /business
+Disallow: /missions
+Disallow: /approvals
+Disallow: /active-work
+Disallow: /tasks
+Disallow: /records
+Disallow: /results
+Disallow: /credentials
+Disallow: /connections
+Disallow: /settings
+Disallow: /billing
+
+Sitemap: https://ajenda-ai.com/sitemap.xml

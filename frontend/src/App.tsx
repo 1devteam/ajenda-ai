@@ -1,7 +1,7 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { useAuth } from "./auth/AuthProvider";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import SessionWatchdog from "./auth/SessionWatchdog";
 import AppLayout from "./components/AppLayout";
+import PublicSiteLayout from "./components/marketing/PublicSiteLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ApprovalsPage from "./pages/ApprovalsPage";
 import BillingPage from "./pages/BillingPage";
@@ -20,25 +20,29 @@ import BusinessProfilePage from "./pages/BusinessProfilePage";
 import StandaloneWizardPage from "./pages/StandaloneWizardPage";
 import SettingsPage from "./pages/SettingsPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
-
-function HomeRedirect() {
-  const { session } = useAuth();
-  if (!session) {
-    return <Navigate to="/signin" replace />;
-  }
-  if (session.phase === "bootstrap") {
-    return <Navigate to="/promote" replace />;
-  }
-  return <Navigate to="/dashboard" replace />;
-}
+import HomePage from "./pages/marketing/HomePage";
+import ProductPage from "./pages/marketing/ProductPage";
+import PricingPage from "./pages/marketing/PricingPage";
+import SecurityPage from "./pages/marketing/SecurityPage";
+import PrivacyPage from "./pages/marketing/PrivacyPage";
+import TermsPage from "./pages/marketing/TermsPage";
+import NotFoundPage from "./pages/marketing/NotFoundPage";
+import { PUBLIC_SITE_ROUTES } from "./config/marketingRoutes";
 
 export default function App() {
   return (
     <BrowserRouter>
       <SessionWatchdog />
       <Routes>
+        <Route element={<PublicSiteLayout />}>
+          <Route index element={<HomePage />} />
+          <Route path={PUBLIC_SITE_ROUTES.product.path} element={<ProductPage />} />
+          <Route path={PUBLIC_SITE_ROUTES.pricing.path} element={<PricingPage />} />
+          <Route path={PUBLIC_SITE_ROUTES.security.path} element={<SecurityPage />} />
+          <Route path={PUBLIC_SITE_ROUTES.privacy.path} element={<PrivacyPage />} />
+          <Route path={PUBLIC_SITE_ROUTES.terms.path} element={<TermsPage />} />
+        </Route>
         <Route element={<AppLayout />}>
-          <Route path="/" element={<HomeRedirect />} />
           <Route path="/signin" element={<SignInPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/signup" element={<SignupPage />} />
@@ -72,6 +76,7 @@ export default function App() {
           </Route>
           <Route path="/dev" element={<DevConsolePage />} />
         </Route>
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   );
