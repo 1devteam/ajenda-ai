@@ -251,11 +251,11 @@ export default function StandaloneWizardPage() {
     <main className="page-shell narrow">
       <section className="hero compact-hero">
         <div>
-          <p className="eyebrow">Standalone setup</p>
-          <h1>Brain setup wizard</h1>
+          <p className="eyebrow">Setup</p>
+          <h1>Business setup for ajenda-ai</h1>
           <p>
-            Walk through business profile, internal records, and optional plugins. Layout may evolve,
-            but each step already saves real tenant-owned facts.
+            Walk through business profile, internal records, and optional plugins. Each step saves
+            real tenant-owned facts you can edit later.
           </p>
         </div>
         {completedAt ? (

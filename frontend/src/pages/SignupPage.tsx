@@ -69,10 +69,12 @@ export default function SignupPage() {
     <main className="page-shell narrow">
       <section className="panel auth-panel">
         <p className="eyebrow">Get started</p>
-        <h1>Create your workspace</h1>
-        <p>
-          Create your workspace with a work email. After verification, sign in with Google using the same
-          address. API keys remain available for automation.
+        <h1>
+          Create your <span className="brand-inline">ajenda-ai</span> workspace
+        </h1>
+        <p className="auth-lead">
+          Start with a work email. After verification, sign in with Google using the same address. API
+          keys remain available for automation.
         </p>
 
         <form className="form-grid" onSubmit={(event) => void handleSubmit(event)}>

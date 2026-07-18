@@ -1,36 +1,42 @@
-/* Ajenda command center — dark executive theme (crimson accent) */
+/* Ajenda command center — cool ops console (steel accent; danger red sparingly) */
 
 :root {
-  --cc-bg: #050505;
-  --cc-surface: #111111;
-  --cc-surface-elevated: #1a1a1a;
-  --cc-border: rgba(255, 255, 255, 0.08);
-  --cc-border-strong: rgba(255, 255, 255, 0.14);
-  --cc-primary: #c41e3a;
-  --cc-primary-hover: #e02545;
-  --cc-primary-glow: rgba(196, 30, 58, 0.35);
+  --cc-bg: #0b0d11;
+  --cc-surface: #12151b;
+  --cc-surface-elevated: #1a1e27;
+  --cc-border: rgba(148, 163, 184, 0.14);
+  --cc-border-strong: rgba(148, 163, 184, 0.28);
+  --cc-primary: #e8edf5;
+  --cc-primary-hover: #ffffff;
+  --cc-primary-fg: #0b0d11;
+  --cc-accent: #7dd3fc;
+  --cc-accent-muted: rgba(125, 211, 252, 0.14);
+  --cc-danger: #dc2626;
+  --cc-danger-soft: rgba(220, 38, 38, 0.14);
   --cc-success: #22c55e;
   --cc-warning: #f59e0b;
-  --cc-info: #67e8f9;
-  --cc-text: #f5f5f5;
-  --cc-text-muted: #9ca3af;
+  --cc-info: #7dd3fc;
+  --cc-text: #eef2f7;
+  --cc-text-muted: #94a3b8;
   --cc-sidebar-width: 260px;
   --cc-radius: 14px;
   --cc-radius-sm: 10px;
-  --cc-font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --cc-font-display: "Instrument Sans", "DM Sans", system-ui, sans-serif;
 }
 
 body {
   background:
-    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(196, 30, 58, 0.12), transparent 50%),
-    radial-gradient(ellipse 60% 40% at 90% 0%, rgba(196, 30, 58, 0.06), transparent 45%),
+    radial-gradient(ellipse 70% 45% at 12% -8%, rgba(56, 189, 248, 0.08), transparent 52%),
+    radial-gradient(ellipse 55% 40% at 92% 0%, rgba(99, 102, 241, 0.06), transparent 48%),
     var(--cc-bg) !important;
   color: var(--cc-text);
 }
 
 button {
-  border-color: rgba(196, 30, 58, 0.45) !important;
-  background: linear-gradient(135deg, var(--cc-primary), #8b1528) !important;
+  border: 1px solid var(--cc-border-strong) !important;
+  background: var(--cc-primary) !important;
+  color: var(--cc-primary-fg) !important;
+  box-shadow: none !important;
 }
 
 button.ghost-button,
@@ -42,12 +48,19 @@ button.ghost-button,
 
 button.primary-button,
 .primary-button {
-  background: linear-gradient(135deg, var(--cc-primary), #9b1830) !important;
-  box-shadow: 0 0 24px var(--cc-primary-glow);
+  background: var(--cc-primary) !important;
+  color: var(--cc-primary-fg) !important;
+  border-color: transparent !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+button.primary-button:hover:not(:disabled),
+.primary-button:hover:not(:disabled) {
+  background: var(--cc-primary-hover) !important;
 }
 
 .eyebrow {
-  color: var(--cc-primary) !important;
+  color: var(--cc-accent) !important;
 }
 
 .panel,
@@ -131,9 +144,8 @@ button.primary-button,
 
 .cc-nav-link.active {
   color: var(--cc-text);
-  background: rgba(196, 30, 58, 0.14);
-  border-color: rgba(196, 30, 58, 0.35);
-  box-shadow: 0 0 20px rgba(196, 30, 58, 0.12);
+  background: var(--cc-accent-muted);
+  border-color: rgba(125, 211, 252, 0.35);
 }
 
 .cc-nav-icon {
@@ -310,7 +322,7 @@ button.primary-button,
 
 .cc-badge-danger,
 .cc-badge-review {
-  background: rgba(196, 30, 58, 0.2);
+  background: var(--cc-danger-soft);
   color: #fca5a5;
 }
 
@@ -340,8 +352,8 @@ button.primary-button,
 }
 
 .cc-flow-step.active {
-  border-color: rgba(196, 30, 58, 0.5);
-  box-shadow: 0 0 16px var(--cc-primary-glow);
+  border-color: rgba(125, 211, 252, 0.45);
+  box-shadow: 0 0 16px rgba(125, 211, 252, 0.12);
 }
 
 .cc-flow-step strong {
@@ -378,8 +390,8 @@ button.primary-button,
 
 .cc-template-card:hover,
 .cc-template-card.selected {
-  border-color: rgba(196, 30, 58, 0.55);
-  box-shadow: 0 0 20px var(--cc-primary-glow);
+  border-color: rgba(125, 211, 252, 0.45);
+  box-shadow: 0 0 16px rgba(125, 211, 252, 0.1);
 }
 
 .cc-template-card h3 {
@@ -435,8 +447,8 @@ button.primary-button,
 }
 
 .cc-list-item.selected {
-  background: rgba(196, 30, 58, 0.12) !important;
-  border-left: 3px solid var(--cc-primary);
+  background: var(--cc-accent-muted) !important;
+  border-left: 3px solid var(--cc-accent);
 }
 
 /* Integration grid */
@@ -477,9 +489,9 @@ button.primary-button,
 }
 
 .cc-tab.active {
-  border-color: rgba(196, 30, 58, 0.5) !important;
+  border-color: rgba(125, 211, 252, 0.45) !important;
   color: var(--cc-text) !important;
-  background: rgba(196, 30, 58, 0.12) !important;
+  background: var(--cc-accent-muted) !important;
 }
 
 /* Empty / loading */
@@ -530,7 +542,7 @@ a.mission-card {
 }
 
 a.mission-card:hover {
-  border-color: rgba(196, 30, 58, 0.45);
+  border-color: rgba(125, 211, 252, 0.35);
 }
 
 .page-header {

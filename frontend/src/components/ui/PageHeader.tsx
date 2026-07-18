@@ -12,7 +12,7 @@ export default function PageHeader({ eyebrow, title, lead, actions }: PageHeader
     <header className="mb-6 flex flex-col gap-4 @lg:mb-8 @lg:flex-row @lg:items-end @lg:justify-between">
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-crimson">{eyebrow}</p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-accent">{eyebrow}</p>
         ) : null}
         <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight text-zinc-50 @md:text-3xl">
           {title}

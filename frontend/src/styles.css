@@ -440,9 +440,9 @@ pre {
 }
 
 .primary-link {
-  border: 1px solid rgba(125, 211, 252, 0.35);
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.9), rgba(79, 70, 229, 0.9));
-  color: white;
+  border: 1px solid transparent;
+  background: #e8edf5;
+  color: #0b0d11;
   text-decoration: none;
   border-radius: 0.8rem;
   padding: 0.55rem 0.9rem;
@@ -470,15 +470,81 @@ pre {
   font-size: clamp(1.8rem, 4vw, 3rem);
 }
 
+.auth-panel {
+  padding: 1.75rem 1.5rem 1.5rem;
+  display: grid;
+  gap: 1.15rem;
+}
+
 .auth-panel h1 {
   margin: 0;
-  font-size: clamp(1.8rem, 4vw, 2.6rem);
-  letter-spacing: -0.05em;
+  font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #f1f5f9;
+}
+
+.auth-panel .brand-inline {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #f8fafc;
+}
+
+.auth-lead {
+  margin: 0;
+  color: #94a3b8;
+  line-height: 1.6;
+  font-size: 0.98rem;
+}
+
+.auth-primary-actions {
+  margin-top: 0.25rem;
+}
+
+.auth-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.auth-footer {
+  margin: 0.25rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .form-grid {
   display: grid;
-  gap: 1rem;
+  gap: 1.1rem;
+}
+
+.form-grid label {
+  gap: 0.5rem;
+}
+
+.staging-signin {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.85rem;
+  padding: 0.65rem 0.9rem;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.staging-signin summary {
+  cursor: pointer;
+  color: #cbd5e1;
+  font-weight: 600;
+  font-size: 0.92rem;
+  padding: 0.25rem 0;
+}
+
+.staging-signin[open] summary {
+  margin-bottom: 0.85rem;
+  color: #e2e8f0;
+}
+
+.staging-signin .form-grid {
+  margin-top: 0.15rem;
 }
 
 .callout {
@@ -605,37 +671,39 @@ pre {
 }
 
 .wizard-shell {
-  padding: 1.25rem;
+  padding: 1.5rem 1.5rem 1.35rem;
   display: grid;
-  gap: 1.25rem;
+  gap: 1.5rem;
 }
 
 .wizard-stepper {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.65rem;
 }
 
 .wizard-step {
   display: grid;
-  gap: 0.2rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 0.75rem;
+  gap: 0.3rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.85rem;
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(15, 23, 42, 0.45);
   color: #94a3b8;
   text-align: left;
   cursor: pointer;
+  min-height: 3.5rem;
 }
 
 .wizard-step.active {
-  border-color: rgba(56, 189, 248, 0.55);
+  border-color: rgba(125, 211, 252, 0.5);
   color: #e2e8f0;
-  background: rgba(14, 116, 144, 0.18);
+  background: rgba(14, 116, 144, 0.16);
 }
 
 .wizard-step.done {
   color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.28);
 }
 
 .wizard-step:disabled {
@@ -644,56 +712,132 @@ pre {
 }
 
 .wizard-step-index {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #38bdf8;
+  color: #7dd3fc;
 }
 
 .wizard-step-title {
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   font-weight: 600;
+  line-height: 1.25;
 }
 
 .wizard-body {
   display: grid;
-  gap: 1rem;
+  gap: 1.35rem;
+}
+
+.wizard-panel-header {
+  display: grid;
+  gap: 0.4rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .wizard-panel-header h2 {
-  margin: 0 0 0.35rem;
+  margin: 0;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
 }
 
 .wizard-panel-header p {
   margin: 0;
+  line-height: 1.55;
 }
 
 .wizard-field-grid {
-  margin-top: 0.25rem;
+  margin-top: 0;
+  gap: 1.15rem 1.25rem;
+}
+
+.wizard-field-grid label {
+  gap: 0.4rem;
+}
+
+.wizard-field-grid label span {
+  line-height: 1.3;
+}
+
+.wizard-field-grid label small {
+  margin-bottom: 0.1rem;
+  line-height: 1.4;
 }
 
 .wizard-welcome,
 .wizard-callout {
   display: grid;
-  gap: 0.85rem;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.wizard-welcome p,
+.wizard-callout p {
+  margin: 0;
+  line-height: 1.6;
+  color: #e2e8f0;
 }
 
 .wizard-checklist {
   margin: 0;
-  padding-left: 1.1rem;
+  padding-left: 1.2rem;
   color: #e2e8f0;
+  display: grid;
+  gap: 0.45rem;
+  line-height: 1.45;
 }
 
 .wizard-actions {
   display: flex;
   justify-content: space-between;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
+  align-items: center;
+  gap: 0.85rem;
+  margin-top: 0.35rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .wizard-footnote {
   display: block;
+  margin-top: 0.15rem;
+  line-height: 1.45;
+}
+
+.charter-grid fieldset {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.charter-grid fieldset legend {
+  padding: 0 0.35rem;
+}
+
+.checkbox-grid {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  font-weight: 500;
+  color: #e2e8f0;
+  line-height: 1.4;
+}
+
+.checkbox-row input {
+  width: auto;
+  margin-top: 0.2rem;
+  flex-shrink: 0;
 }
 
 @media (max-width: 960px) {
@@ -705,8 +849,27 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .wizard-shell {
+    padding: 1.15rem;
+    gap: 1.2rem;
+  }
+
   .wizard-stepper {
     grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .wizard-body {
+    gap: 1.15rem;
+  }
+
+  .wizard-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .wizard-actions button {
+    width: 100%;
   }
 }
 

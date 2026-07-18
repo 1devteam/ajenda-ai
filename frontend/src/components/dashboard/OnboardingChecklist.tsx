@@ -31,7 +31,7 @@ export default function OnboardingChecklist({ steps }: OnboardingChecklistProps)
                 step.done
                   ? "border-semantic-success/20 bg-semantic-success/5 text-zinc-400"
                   : next?.id === step.id
-                    ? "border-crimson/40 bg-crimson/5 text-zinc-100"
+                    ? "border-brand-accent/40 bg-brand-accent/5 text-zinc-100"
                     : "border-os-border bg-os-bg/40 text-zinc-200 hover:border-zinc-600"
               }`}
             >

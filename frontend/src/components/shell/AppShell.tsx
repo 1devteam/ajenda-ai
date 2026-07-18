@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Menu } from "lucide-react";
 import { useAuth } from "../../auth/AuthProvider";
+import BrandMark from "../BrandMark";
 import CommandCenterSidebar from "./CommandCenterSidebar";
 import Button from "../primitives/Button";
 
@@ -48,9 +49,7 @@ export default function AppShell({
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <span className="font-display text-base font-semibold">
-            <span className="text-crimson">ajenda</span>-ai
-          </span>
+          <BrandMark to="/dashboard" compact />
         </header>
 
         <main className="flex-1 px-4 py-5 @md:px-6 @lg:px-8 @lg:py-8">{children}</main>

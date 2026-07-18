@@ -87,7 +87,7 @@ export default function MissionFlow({
                 emphasize
                   ? "border-crimson/40 bg-crimson/10"
                   : running
-                    ? "border-semantic-info/30 bg-semantic-info/5"
+                    ? "border-brand-accent/30 bg-brand-accent/5"
                     : "border-os-border bg-os-bg/50"
               }`}
             >
