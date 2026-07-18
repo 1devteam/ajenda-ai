@@ -311,7 +311,7 @@ export default function StandaloneWizardPage() {
                 yours, or keep the demo to explore standalone missions immediately.
               </p>
               <div className="action-row">
-                <button type="button" onClick={applyDemoPreset}>
+                <button type="button" className="primary-button" onClick={applyDemoPreset}>
                   Use Ajenda AI demo
                 </button>
                 <Link className="ghost-link" to="/business">
@@ -466,11 +466,16 @@ export default function StandaloneWizardPage() {
               Back
             </button>
             {stepId === "plugins" ? (
-              <button type="button" onClick={finishWizard} disabled={saving}>
+              <button type="button" className="primary-button" onClick={finishWizard} disabled={saving}>
                 Finish setup
               </button>
             ) : (
-              <button type="button" onClick={() => void goNext()} disabled={saving || loading}>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => void goNext()}
+                disabled={saving || loading}
+              >
                 {saving
                   ? "Saving…"
                   : stepId === "notes" && !saved

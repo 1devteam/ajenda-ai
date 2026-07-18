@@ -28,10 +28,12 @@ select {
   font: inherit;
 }
 
-button {
-  border: 1px solid rgba(125, 211, 252, 0.35);
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.9), rgba(79, 70, 229, 0.9));
-  color: white;
+/* Legacy unclassed buttons only — skip utility-class components (e.g. Button.tsx). */
+button:not([class]),
+button.primary-button {
+  border: 1px solid transparent;
+  background: #e8edf5;
+  color: #0b0d11;
   border-radius: 0.8rem;
   padding: 0.75rem 1rem;
   cursor: pointer;

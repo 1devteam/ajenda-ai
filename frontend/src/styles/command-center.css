@@ -32,25 +32,24 @@ body {
   color: var(--cc-text);
 }
 
-button {
-  border: 1px solid var(--cc-border-strong) !important;
-  background: var(--cc-primary) !important;
-  color: var(--cc-primary-fg) !important;
-  box-shadow: none !important;
-}
-
+/*
+ * Do not style bare `button` with !important — that overrides Tailwind Button
+ * variants (danger/subtle/ghost) used in dashboard chrome.
+ * Scope legacy styles to explicit primary/ghost classes only.
+ */
 button.ghost-button,
 .ghost-button {
   background: transparent !important;
   border: 1px solid var(--cc-border-strong) !important;
   color: var(--cc-text) !important;
+  box-shadow: none !important;
 }
 
 button.primary-button,
 .primary-button {
   background: var(--cc-primary) !important;
   color: var(--cc-primary-fg) !important;
-  border-color: transparent !important;
+  border: 1px solid transparent !important;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
 }
 
