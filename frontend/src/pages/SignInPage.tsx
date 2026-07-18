@@ -103,9 +103,11 @@ export default function SignInPage() {
     <main className="page-shell narrow">
       <section className="panel auth-panel">
         <p className="eyebrow">Welcome back</p>
-        <h1>Sign in</h1>
-        <p>
-          Use Google to access your Ajenda workspace. API keys remain available below for machine and
+        <h1>
+          Sign in to <span className="brand-inline">ajenda-ai</span>
+        </h1>
+        <p className="auth-lead">
+          Use Google to access your workspace. API keys remain available below for machine and
           automation use.
         </p>
 
@@ -117,16 +119,15 @@ export default function SignInPage() {
         ) : null}
 
         {oidcEnabled ? (
-          <div className="form-grid">
+          <div className="form-grid auth-primary-actions">
             <OidcProviderButton
               provider={config.provider}
               loading={loading}
               onClick={() => void handleOidcSignIn()}
             />
-            <p className="muted">
-              Your Google email must match the address you used to create and verify your Ajenda account.
-              Use <strong>{window.location.origin}</strong> consistently (not 127.0.0.1) when signing in
-              locally.
+            <p className="muted auth-hint">
+              Your Google email must match the address you used to create and verify your account.
+              Use <strong>{window.location.origin}</strong> consistently when signing in locally.
             </p>
           </div>
         ) : (
@@ -137,7 +138,7 @@ export default function SignInPage() {
           <summary>Email not verified yet?</summary>
           <VerificationHelpPanel
             introText={
-              "Google sign-in requires a verified Ajenda account. Resend verification, then finish at /verify-email."
+              "Google sign-in requires a verified account. Resend verification, then finish at /verify-email."
             }
             onVerifyNow={(verifyToken) => {
               navigate(`/verify-email?token=${encodeURIComponent(verifyToken)}`);
@@ -176,7 +177,7 @@ export default function SignInPage() {
           </form>
         </details>
 
-        <p className="muted">
+        <p className="muted auth-footer">
           New here? <Link to="/signup">Create an account</Link>
         </p>
       </section>

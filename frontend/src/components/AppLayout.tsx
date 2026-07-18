@@ -3,6 +3,7 @@ import { logoutCustomer } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { clearSession, isOperational } from "../auth/session";
 import { clearSignInNotice } from "../auth/sessionLifecycle";
+import BrandMark from "./BrandMark";
 import AppShell from "./shell/AppShell";
 
 const PUBLIC_PATHS = new Set([
@@ -51,7 +52,7 @@ export default function AppLayout() {
     <div className="customer-shell">
       <header className="app-nav cc-public-nav">
         <div className="brand">
-          <Link to={signedIn ? "/dashboard" : "/signin"}>ajenda-ai</Link>
+          <BrandMark to={signedIn ? "/dashboard" : "/signin"} />
           <span className="brand-tag">Customer</span>
         </div>
 

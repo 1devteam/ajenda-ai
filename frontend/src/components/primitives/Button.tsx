@@ -9,7 +9,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    "bg-gradient-to-br from-crimson to-crimson-bright text-white shadow-[0_0_16px_rgba(179,18,43,0.2)] hover:brightness-110",
+    "bg-brand text-os-bg border border-transparent hover:bg-white shadow-none",
   ghost:
     "border border-os-border bg-transparent text-zinc-200 hover:border-zinc-500 hover:bg-os-surface-elevated",
   subtle:

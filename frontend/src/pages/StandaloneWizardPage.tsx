@@ -251,11 +251,11 @@ export default function StandaloneWizardPage() {
     <main className="page-shell narrow">
       <section className="hero compact-hero">
         <div>
-          <p className="eyebrow">Standalone setup</p>
-          <h1>Brain setup wizard</h1>
+          <p className="eyebrow">Setup</p>
+          <h1>Business setup for ajenda-ai</h1>
           <p>
-            Walk through business profile, internal records, and optional plugins. Layout may evolve,
-            but each step already saves real tenant-owned facts.
+            Walk through business profile, internal records, and optional plugins. Each step saves
+            real tenant-owned facts you can edit later.
           </p>
         </div>
         {completedAt ? (
@@ -311,7 +311,7 @@ export default function StandaloneWizardPage() {
                 yours, or keep the demo to explore standalone missions immediately.
               </p>
               <div className="action-row">
-                <button type="button" onClick={applyDemoPreset}>
+                <button type="button" className="primary-button" onClick={applyDemoPreset}>
                   Use Ajenda AI demo
                 </button>
                 <Link className="ghost-link" to="/business">
@@ -466,11 +466,16 @@ export default function StandaloneWizardPage() {
               Back
             </button>
             {stepId === "plugins" ? (
-              <button type="button" onClick={finishWizard} disabled={saving}>
+              <button type="button" className="primary-button" onClick={finishWizard} disabled={saving}>
                 Finish setup
               </button>
             ) : (
-              <button type="button" onClick={() => void goNext()} disabled={saving || loading}>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => void goNext()}
+                disabled={saving || loading}
+              >
                 {saving
                   ? "Saving…"
                   : stepId === "notes" && !saved

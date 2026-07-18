@@ -131,7 +131,7 @@ export default function DashboardPage() {
 
       <PageHeader
         eyebrow="Command center"
-        title={me?.tenant.name ? `Welcome back, ${me.tenant.name}` : "Your command center"}
+        title={me?.tenant.name ? `Welcome back, ${me.tenant.name}` : "Welcome back to ajenda-ai"}
         lead="See what needs you, what is running, and launch the next mission."
         actions={
           <Button variant="primary" onClick={() => navigate(primaryAction.to)}>

@@ -5,18 +5,24 @@ export default {
     extend: {
       colors: {
         os: {
-          bg: "#111315",
-          surface: "#181820",
-          "surface-elevated": "#22222C",
-          border: "#2E343B",
+          bg: "#0b0d11",
+          surface: "#12151b",
+          "surface-elevated": "#1a1e27",
+          border: "#2a3140",
         },
+        brand: {
+          DEFAULT: "#e8edf5",
+          muted: "#94a3b8",
+          accent: "#7dd3fc",
+        },
+        /* Keep for danger / blocking only — not general chrome */
         crimson: {
-          DEFAULT: "#B3122B",
-          bright: "#D91728",
+          DEFAULT: "#dc2626",
+          bright: "#ef4444",
         },
         semantic: {
           success: "#22C55E",
-          info: "#38BDF8",
+          info: "#7DD3FC",
           warning: "#F59E0B",
         },
       },

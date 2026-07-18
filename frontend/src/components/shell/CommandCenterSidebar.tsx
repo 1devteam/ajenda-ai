@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, LogOut, Settings, CreditCard, Menu } from "lucide-react";
 import { COMMAND_CENTER_NAV, isNavItemActive } from "../../config/nav";
+import BrandMark from "../BrandMark";
 import Button from "../primitives/Button";
 
 type CommandCenterSidebarProps = {
@@ -58,26 +59,13 @@ export default function CommandCenterSidebar({
       >
         {!collapsed ? (
           <div className="min-w-0">
-            <Link
-              to="/dashboard"
-              onClick={onNavigate}
-              className="font-display text-lg font-semibold tracking-tight text-zinc-100"
-            >
-              <span className="text-crimson">ajenda</span>-ai
-            </Link>
+            <BrandMark to="/dashboard" onClick={onNavigate} />
             <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
               Command center
             </p>
           </div>
         ) : (
-          <Link
-            to="/dashboard"
-            onClick={onNavigate}
-            className="font-display text-lg font-bold text-crimson"
-            aria-label="Ajenda AI home"
-          >
-            A
-          </Link>
+          <BrandMark to="/dashboard" onClick={onNavigate} compact aria-label="ajenda-ai home" />
         )}
         <button
           type="button"
@@ -106,7 +94,7 @@ export default function CommandCenterSidebar({
               }`}
             >
               {active ? (
-                <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r bg-crimson" aria-hidden />
+                <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r bg-brand-accent" aria-hidden />
               ) : null}
               <Icon className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
               {!collapsed ? <span className="truncate">{item.label}</span> : null}
