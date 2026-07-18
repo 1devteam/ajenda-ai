@@ -1,252 +1,220 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { listMissions, listProviderCredentials, listReviewQueue } from "../api/client";
+import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
 import PageHeader from "../components/ui/PageHeader";
-import StatCard from "../components/ui/StatCard";
 import MissionFlow from "../components/ui/MissionFlow";
-import MissionCard from "../components/ui/MissionCard";
-import LoadingState from "../components/ui/LoadingState";
+import Button from "../components/primitives/Button";
+import Card from "../components/primitives/Card";
+import MetricsRow, { type MetricItem } from "../components/dashboard/MetricsRow";
+import ActiveWorkPanel from "../components/dashboard/ActiveWorkPanel";
+import ApprovalsPanel from "../components/dashboard/ApprovalsPanel";
+import AttentionBanner from "../components/dashboard/AttentionBanner";
+import OnboardingChecklist from "../components/dashboard/OnboardingChecklist";
+import LiveRegion from "../components/states/LiveRegion";
 import { useWorkspaceSummary } from "../hooks/useWorkspaceSummary";
+import { useDashboardData } from "../hooks/useDashboardData";
 import { readWizardCompletedAt } from "../utils/standaloneWizard";
-import type { MissionListItem } from "../types";
-
-function usagePercent(current: number, limit: number): number | null {
-  if (limit < 0 || limit === 0) {
-    return null;
-  }
-  return Math.round((current / limit) * 100);
-}
+import {
+  buildOnboardingChecklist,
+  checklistIncomplete,
+  countCompletedToday,
+  countStatusBreakdown,
+  isActiveMission,
+  resolveAttentionBanner,
+  resolvePrimaryAction,
+  successRateLabel,
+  usagePercent,
+} from "../dashboard/dashboardModel";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
-  const { me, plan, usage, error, loading } = useWorkspaceSummary(session);
-  const [missions, setMissions] = useState<MissionListItem[]>([]);
-  const [pendingApprovals, setPendingApprovals] = useState(0);
-  const [connectedTools, setConnectedTools] = useState<string[]>([]);
-  const [dataLoading, setDataLoading] = useState(true);
+  const { me, plan, usage, error, loading: summaryLoading } = useWorkspaceSummary(session);
+  const {
+    missions,
+    approvalItems,
+    pendingApprovals,
+    hasConnections,
+    loading: dataLoading,
+    error: dataError,
+    liveMessage,
+    reload,
+  } = useDashboardData(session);
 
   const wizardDone = session ? readWizardCompletedAt(session.tenantId) !== null : false;
   const emailVerified =
-    me?.membership?.status === "active" || me?.tenant.status === "active" || session?.authMode === "oidc";
+    me?.membership?.status === "active" ||
+    me?.tenant.status === "active" ||
+    session?.authMode === "oidc";
 
-  useEffect(() => {
-    if (!session) {
-      return;
+  const breakdown = useMemo(() => countStatusBreakdown(missions), [missions]);
+  const activeMissions = useMemo(() => missions.filter(isActiveMission).length, [missions]);
+  const completedToday = useMemo(() => countCompletedToday(missions), [missions]);
+  const successRate = useMemo(() => successRateLabel(missions), [missions]);
+
+  const quotaPct = useMemo(() => {
+    if (!usage) {
+      return null;
     }
-    let cancelled = false;
-    async function load() {
-      if (!session) {
-        return;
-      }
-      setDataLoading(true);
-      try {
-        const [missionResponse, reviewResponse, credentialResponse] = await Promise.all([
-          listMissions(session, { limit: 50 }),
-          listReviewQueue(session, { status: "pending", limit: 50 }),
-          listProviderCredentials(session),
-        ]);
-        if (!cancelled) {
-          setMissions(missionResponse.missions);
-          setPendingApprovals(reviewResponse.total);
-          setConnectedTools(
-            credentialResponse.credentials
-              .filter((item) => item.enabled && !item.revoked)
-              .map((item) => item.credential_id),
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setDataLoading(false);
-        }
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.tenantId, session?.apiKey, session?.accessToken]);
+    return usagePercent(usage.usage.api_calls_count ?? 0, usage.limits.api_calls_per_month ?? -1);
+  }, [usage]);
 
-  const flowSteps = useMemo(() => {
-    const planned = missions.filter((m) => m.status === "planned").length;
-    const running = missions.filter((m) => m.status === "running").length;
-    const completed = missions.filter((m) => m.status === "completed").length;
-    const other = missions.length - planned - running - completed;
-    return [
-      { id: "goal", label: "Goal defined", count: planned + other },
-      { id: "planning", label: "Planning complete", count: planned },
-      { id: "queued", label: "Queued work", count: running },
-      { id: "executing", label: "Executing", count: running },
-      { id: "evidence", label: "Verifying evidence", count: pendingApprovals },
-      { id: "completed", label: "Completed results", count: completed },
-    ];
-  }, [missions, pendingApprovals]);
+  const primaryAction = useMemo(
+    () =>
+      resolvePrimaryAction({
+        pendingApprovals,
+        wizardDone,
+        emailVerified: Boolean(emailVerified),
+      }),
+    [pendingApprovals, wizardDone, emailVerified],
+  );
 
-  const activeMissions = missions.filter((m) => m.status === "running" || m.status === "planned").length;
-  const completedToday = missions.filter((m) => {
-    if (m.status !== "completed") {
-      return false;
-    }
-    const updated = new Date(m.updated_at);
-    const now = new Date();
-    return updated.toDateString() === now.toDateString();
-  }).length;
-  const successRate =
-    missions.length === 0
-      ? "—"
-      : `${Math.round((missions.filter((m) => m.status === "completed").length / missions.length) * 100)}%`;
+  const banner = useMemo(
+    () =>
+      resolveAttentionBanner({
+        quotaPct,
+        wizardDone,
+        emailVerified: Boolean(emailVerified),
+      }),
+    [quotaPct, wizardDone, emailVerified],
+  );
 
-  const recentResults = missions.slice(0, 5);
+  const checklist = useMemo(
+    () =>
+      buildOnboardingChecklist({
+        wizardDone,
+        hasConnections,
+        hasLaunchedMission: missions.length > 0,
+      }),
+    [wizardDone, hasConnections, missions.length],
+  );
+
+  const showChecklist = checklistIncomplete(checklist);
+
+  const metrics: MetricItem[] = [
+    {
+      id: "active",
+      label: "Active missions",
+      value: activeMissions,
+      hint: "Planned or running",
+      to: "/active-work",
+    },
+    {
+      id: "approvals",
+      label: "Approvals waiting",
+      value: pendingApprovals,
+      hint: pendingApprovals > 0 ? "Needs your review" : "Queue clear",
+      to: "/approvals",
+    },
+    {
+      id: "outcomes",
+      label: "Completed today",
+      value: completedToday,
+      hint: "Recent outcomes",
+      to: "/results",
+    },
+    {
+      id: "success",
+      label: "Success rate",
+      value: successRate,
+      hint: `${missions.length} total missions`,
+      to: "/results",
+    },
+  ];
+
+  const loading = summaryLoading || dataLoading;
 
   return (
-    <main>
+    <div className="@container mx-auto max-w-7xl">
+      <LiveRegion message={liveMessage} />
+
       <PageHeader
         eyebrow="Command center"
         title={me?.tenant.name ? `Welcome back, ${me.tenant.name}` : "Your command center"}
-        lead="Ajenda breaks goals into governed steps, executes work through your connections, and returns evidence you can trust."
+        lead="See what needs you, what is running, and launch the next mission."
         actions={
-          <button type="button" className="primary-button" onClick={() => navigate("/missions")}>
-            Launch mission
-          </button>
+          <Button variant="primary" onClick={() => navigate(primaryAction.to)}>
+            {primaryAction.label}
+          </Button>
         }
       />
 
-      {!emailVerified ? (
-        <section className="notice-banner">
-          <strong>Finish onboarding</strong>
-          <Link className="primary-link" to="/verify-email">
-            Verify your email
-          </Link>
-        </section>
-      ) : null}
+      {banner ? <AttentionBanner banner={banner} /> : null}
 
-      {usage && usagePercent(usage.usage.api_calls_count ?? 0, usage.limits.api_calls_per_month ?? -1) !== null
-        ? (() => {
-            const pct = usagePercent(usage.usage.api_calls_count ?? 0, usage.limits.api_calls_per_month ?? -1)!;
-            if (pct < 80) {
-              return null;
-            }
-            return (
-              <section className="notice-banner quota-warning">
-                <strong>API usage at {pct}%</strong>
-                <button type="button" className="ghost-button" onClick={() => navigate("/billing")}>
-                  Open billing
-                </button>
-              </section>
-            );
-          })()
-        : null}
+      {showChecklist ? <OnboardingChecklist steps={checklist} /> : null}
 
-      {loading || dataLoading ? <LoadingState label="Loading command center..." /> : null}
+      <section className="mb-6 space-y-6 @lg:mb-8">
+        <MetricsRow
+          metrics={metrics}
+          loading={loading}
+          error={dataError}
+          onRetry={reload}
+        />
 
-      <section className="cc-stat-grid">
-        <StatCard label="Active missions" value={activeMissions} hint="Planned or in progress" />
-        <StatCard label="Waiting for approval" value={pendingApprovals} hint="Review before send" />
-        <StatCard label="Completed today" value={completedToday} hint="Finished outcomes" />
-        <StatCard label="Success rate" value={successRate} hint={`${missions.length} total missions`} />
-      </section>
-
-      <section className="panel" style={{ marginBottom: "1rem" }}>
-        <h2>Mission flow</h2>
-        <p className="muted">Where work sits across your governed pipeline.</p>
-        <MissionFlow steps={flowSteps} activeStepId={activeFlowStep(flowSteps)} />
-      </section>
-
-      <section className="grid two">
-        <div className="panel">
-          <div className="panel-heading-row">
-            <h2>Recent results</h2>
-            <Link className="ghost-link" to="/results">
-              View all
-            </Link>
-          </div>
-          {recentResults.length === 0 ? (
-            <p className="muted">No missions yet. Launch your first mission to see outcomes here.</p>
-          ) : (
-            <div className="action-list">
-              {recentResults.map((mission) => (
-                <MissionCard
-                  key={mission.mission_id}
-                  missionId={mission.mission_id}
-                  title={mission.objective}
-                  status={mission.status}
-                  meta={new Date(mission.updated_at).toLocaleString()}
-                />
-              ))}
+        <Card elevated className="@container">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-display text-lg font-semibold text-zinc-100">Mission status</h2>
+              <p className="mt-1 text-sm text-zinc-500">
+                Planned, running, completed, and failed — from live mission data.
+              </p>
             </div>
-          )}
-        </div>
-
-        <div className="panel">
-          <h2>Connected tools</h2>
-          <p className="muted">Plugins and credentials available to this workspace.</p>
-          <div className="cc-connected-tools">
-            {connectedTools.length === 0 ? (
-              <span className="cc-tool-chip">Ajenda brain (standalone)</span>
-            ) : (
-              connectedTools.map((tool) => (
-                <span key={tool} className="cc-tool-chip connected">
-                  {tool}
-                </span>
-              ))
-            )}
+            <button
+              type="button"
+              className="cc-focus-ring text-sm font-medium text-semantic-info hover:underline"
+              onClick={() => navigate("/results")}
+            >
+              View recent outcomes
+            </button>
           </div>
-          <div className="action-list" style={{ marginTop: "1rem" }}>
-            <Link className="action-link" to="/connections">
-              Manage connections
-            </Link>
-            <Link className="action-link" to="/approvals">
-              Open approvals ({pendingApprovals})
-            </Link>
-          </div>
-        </div>
-      </section>
+          <MissionFlow
+            breakdown={breakdown}
+            loading={dataLoading}
+            error={dataError}
+            onRetry={reload}
+          />
+        </Card>
 
-      {!wizardDone ? (
-        <section className="notice-banner">
-          <strong>Complete business memory setup</strong>
-          <Link className="primary-link" to="/setup">
-            Open setup wizard
-          </Link>
-        </section>
-      ) : null}
-
-      <section className="grid two">
-        <div className="panel">
-          <h2>Plan</h2>
-          <p>
-            <strong>{plan?.display_name ?? me?.tenant.plan ?? "..."}</strong>
-          </p>
-          <p className="muted">{plan?.features_enabled.length ?? 0} capabilities enabled</p>
+        <div className="grid grid-cols-1 gap-4 @lg:grid-cols-2 @lg:gap-6">
+          <ActiveWorkPanel
+            missions={missions}
+            loading={dataLoading}
+            error={dataError}
+            onRetry={reload}
+            onLaunch={() => navigate("/missions")}
+          />
+          <ApprovalsPanel
+            items={approvalItems}
+            total={pendingApprovals}
+            loading={dataLoading}
+            error={dataError}
+            onRetry={reload}
+          />
         </div>
-        <div className="panel">
-          <h2>Usage this month</h2>
-          <p>
-            API calls:{" "}
-            <strong>
+
+        <div className="grid grid-cols-1 gap-4 @md:grid-cols-2 @md:gap-6">
+          <Card elevated>
+            <h2 className="font-display text-base font-semibold text-zinc-100">Plan</h2>
+            <p className="mt-2 text-lg font-medium text-zinc-50">
+              {plan?.display_name ?? me?.tenant.plan ?? "…"}
+            </p>
+            <p className="mt-1 text-sm text-zinc-500">
+              {plan?.features_enabled.length ?? 0} capabilities enabled
+            </p>
+          </Card>
+          <Card elevated>
+            <h2 className="font-display text-base font-semibold text-zinc-100">Usage this month</h2>
+            <p className="mt-2 text-lg font-medium text-zinc-50">
               {usage
-                ? `${usage.usage.api_calls_count ?? 0} / ${usage.limits.api_calls_per_month ?? "∞"}`
-                : "..."}
-            </strong>
-          </p>
+                ? `${usage.usage.api_calls_count ?? 0} / ${usage.limits.api_calls_per_month ?? "∞"} API calls`
+                : "…"}
+            </p>
+          </Card>
         </div>
       </section>
 
       <PageErrorAlert error={error} />
-    </main>
+    </div>
   );
-}
-
-function activeFlowStep(steps: { id: string; count: number }[]): string | undefined {
-  const executing = steps.find((s) => s.id === "executing");
-  if (executing && executing.count > 0) {
-    return "executing";
-  }
-  const evidence = steps.find((s) => s.id === "evidence");
-  if (evidence && evidence.count > 0) {
-    return "evidence";
-  }
-  return undefined;
 }
