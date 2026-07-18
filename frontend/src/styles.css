@@ -1475,3 +1475,136 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+/* Human-first sign-in experience */
+.auth-page-shell {
+  display: grid;
+  place-items: center;
+  padding-top: clamp(2rem, 8vh, 5rem);
+}
+
+.auth-panel-clean {
+  position: relative;
+  width: 100%;
+  max-width: 34rem;
+  overflow: hidden;
+  gap: 1.4rem;
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.1), transparent 34%),
+    rgba(10, 14, 20, 0.96);
+  border-color: rgba(125, 211, 252, 0.18);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+}
+
+.auth-brand {
+  width: fit-content;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  text-decoration: none;
+}
+
+.auth-heading {
+  display: grid;
+  gap: 0.65rem;
+  text-align: center;
+}
+
+.auth-heading .eyebrow {
+  margin: 0;
+}
+
+.auth-heading h1 {
+  font-size: clamp(1.8rem, 5vw, 2.45rem);
+}
+
+.auth-heading .auth-lead {
+  max-width: 29rem;
+  margin-inline: auto;
+}
+
+.auth-panel-clean .auth-primary-actions {
+  gap: 0.75rem;
+}
+
+.auth-panel-clean .oidc-button {
+  min-height: 3.25rem;
+  border-radius: 0.9rem;
+}
+
+.auth-panel-clean .auth-hint {
+  text-align: center;
+}
+
+.auth-account-prompt {
+  margin: -0.15rem 0 0;
+  color: #94a3b8;
+  text-align: center;
+  font-size: 0.92rem;
+}
+
+.auth-account-prompt a,
+.auth-legal a {
+  color: #7dd3fc;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.auth-account-prompt a:hover,
+.auth-legal a:hover {
+  text-decoration: underline;
+}
+
+.auth-more-options {
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  padding-top: 1rem;
+}
+
+.auth-more-options > summary {
+  cursor: pointer;
+  color: #94a3b8;
+  text-align: center;
+  font-size: 0.87rem;
+  font-weight: 650;
+  list-style-position: inside;
+}
+
+.auth-more-options[open] > summary {
+  color: #cbd5e1;
+}
+
+.auth-more-content {
+  display: grid;
+  gap: 1.5rem;
+  margin-top: 1.25rem;
+}
+
+.auth-option-section {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.auth-option-section + .auth-option-section {
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  padding-top: 1.25rem;
+}
+
+.auth-option-section h2 {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 1rem;
+}
+
+.auth-option-section p {
+  margin: 0;
+}
+
+.auth-legal {
+  margin: 0;
+  text-align: center;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+

@@ -100,16 +100,19 @@ export default function SignInPage() {
   }
 
   return (
-    <main className="page-shell narrow">
-      <section className="panel auth-panel">
-        <p className="eyebrow">Welcome back</p>
-        <h1>
-          Sign in to <span className="brand-inline">ajenda-ai</span>
-        </h1>
-        <p className="auth-lead">
-          Use Google to access your workspace. API keys remain available below for machine and
-          automation use.
-        </p>
+    <main className="page-shell narrow auth-page-shell">
+      <section className="panel auth-panel auth-panel-clean">
+        <Link className="auth-brand" to="/" aria-label="Ajenda AI home">
+          ajenda-ai
+        </Link>
+
+        <header className="auth-heading">
+          <p className="eyebrow">Welcome back</p>
+          <h1>Sign in to your workspace</h1>
+          <p className="auth-lead">
+            Continue with the Google account connected to Ajenda AI.
+          </p>
+        </header>
 
         {expiredNotice ? (
           <div className="inline-error" role="alert">
@@ -126,59 +129,67 @@ export default function SignInPage() {
               onClick={() => void handleOidcSignIn()}
             />
             <p className="muted auth-hint">
-              Your Google email must match the address you used to create and verify your account.
-              Use <strong>{window.location.origin}</strong> consistently when signing in locally.
+              Use the same Google account you used when creating your workspace.
             </p>
           </div>
         ) : (
           <OidcUnavailableNotice />
         )}
 
-        <details className="staging-signin">
-          <summary>Email not verified yet?</summary>
-          <VerificationHelpPanel
-            introText={
-              "Google sign-in requires a verified account. Resend verification, then finish at /verify-email."
-            }
-            onVerifyNow={(verifyToken) => {
-              navigate(`/verify-email?token=${encodeURIComponent(verifyToken)}`);
-            }}
-            disabled={loading}
-          />
+        <p className="auth-account-prompt">
+          New to Ajenda AI? <Link to="/signup">Create an account</Link>
+        </p>
+
+        <details className="auth-more-options">
+          <summary>More sign-in options</summary>
+          <div className="auth-more-content">
+            <section className="auth-option-section">
+              <h2>Account verification</h2>
+              <VerificationHelpPanel
+                introText="Resend your verification email or finish verifying an existing account."
+                onVerifyNow={(verifyToken) => {
+                  navigate(`/verify-email?token=${encodeURIComponent(verifyToken)}`);
+                }}
+                disabled={loading}
+              />
+            </section>
+
+            <section className="auth-option-section">
+              <h2>Developer access</h2>
+              <p className="muted">Use an API key for machine and automation access.</p>
+              <form className="form-grid" onSubmit={(event) => void handleApiKeySubmit(event)}>
+                <label>
+                  Tenant ID
+                  <input
+                    value={tenantId}
+                    onChange={(event) => setTenantId(event.target.value)}
+                    placeholder="Tenant ID"
+                    required
+                    spellCheck={false}
+                  />
+                </label>
+                <label>
+                  API key
+                  <input
+                    value={apiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder="key_id.secret"
+                    required
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                </label>
+                <button type="submit" className="ghost-button" disabled={loading}>
+                  {loading ? "Signing in..." : "Sign in with API key"}
+                </button>
+              </form>
+            </section>
+          </div>
         </details>
 
-        <details className="staging-signin">
-          <summary>Machine sign-in (API key)</summary>
-          <form className="form-grid" onSubmit={(event) => void handleApiKeySubmit(event)}>
-            <label>
-              Tenant ID
-              <input
-                value={tenantId}
-                onChange={(event) => setTenantId(event.target.value)}
-                placeholder="26f72911-6433-4ef4-bdcd-cc7609f9c254"
-                required
-                spellCheck={false}
-              />
-            </label>
-            <label>
-              API key
-              <input
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="abcdefghijklmnopqrst.key_secret_part"
-                required
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-            <button type="submit" className="ghost-button" disabled={loading}>
-              {loading ? "Signing in..." : "Sign in with API key"}
-            </button>
-          </form>
-        </details>
-
-        <p className="muted auth-footer">
-          New here? <Link to="/signup">Create an account</Link>
+        <p className="muted auth-legal">
+          By continuing, you agree to our <Link to="/terms">Terms</Link> and{" "}
+          <Link to="/privacy">Privacy Policy</Link>.
         </p>
       </section>
 
