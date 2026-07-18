@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import "./styles/tailwind.css";
 import "./styles.css";
 import "./styles/command-center.css";
+import "./styles/marketing.css";
 
 const root = document.getElementById("root");
 
