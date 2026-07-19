@@ -98,6 +98,36 @@ def test_provider_type_action_and_side_effect_compatibility_fail_closed() -> Non
         _resolve(_authority(_record(allowed_side_effect_classes=(SideEffectClass.EXTERNAL_SEND,))))
 
 
+def test_allowed_credential_types_accepts_smtp_and_platform_master() -> None:
+    requirement = CredentialRequirement(
+        provider="external_email",
+        credential_type="api_key",
+        allowed_credential_types=("api_key", "smtp", "platform_master"),
+        allowed_side_effect_classes=(SideEffectClass.EXTERNAL_SEND,),
+    )
+    for cred_type in ("smtp", "platform_master", "api_key"):
+        resolved = _resolve(
+            _authority(
+                _record(
+                    provider="external_email",
+                    credential_type=cred_type,
+                    allowed_actions=("gtm.email_send",),
+                    allowed_side_effect_classes=(SideEffectClass.EXTERNAL_SEND,),
+                )
+            ),
+            action_name="gtm.email_send",
+            provider="external_email",
+            side_effect_class=SideEffectClass.EXTERNAL_SEND,
+            requirement=requirement,
+            metadata_reference=_reference(
+                provider="external_email",
+                credential_type=cred_type,
+            ),
+        )
+        assert resolved is not None
+        assert resolved.reference.credential_type == cred_type
+
+
 def test_missing_required_reference_fails_closed_but_optional_reference_is_absent() -> None:
     with pytest.raises(CredentialRuntimeAuthorityError, match="credential_reference is required"):
         _resolve(_authority(_record()), metadata_reference=None)

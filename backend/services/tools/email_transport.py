@@ -70,6 +70,13 @@ def send_via_smtp(*, config: SmtpConfig, to: str, subject: str, body: str) -> Em
 def credential_transport_mode(
     material: Any,
 ) -> str:
+    """Select email transport for resolved runtime credential material.
+
+    ``external_email`` platform-master secrets are SMTP JSON (see
+    ``SQLAlchemyCredentialRuntimeRepository._resolve_platform_master``), so
+    ``platform_master`` must use SMTP rather than the Gmail Bearer path.
+    """
+
     if material is None:
         return "none"
     credential_type = None
@@ -79,7 +86,11 @@ def credential_transport_mode(
         if credential_type is None and isinstance(reference, dict):
             credential_type = reference.get("credential_type")
     else:
-        credential_type = material.reference.credential_type
-    if credential_type == "smtp":
+        reference = getattr(material, "reference", None)
+        if reference is not None:
+            credential_type = getattr(reference, "credential_type", None)
+        if credential_type is None:
+            credential_type = getattr(material, "credential_type", None)
+    if credential_type in {"smtp", "platform_master"}:
         return "smtp"
     return "gmail_api"

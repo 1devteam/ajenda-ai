@@ -578,6 +578,8 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             credential_requirement=CredentialRequirement(
                 provider="external_email",
                 credential_type="api_key",
+                # Gmail API bearer (api_key) or SMTP JSON (smtp / platform_master email master).
+                allowed_credential_types=("api_key", "smtp", "platform_master"),
                 allowed_side_effect_classes=(SideEffectClass.EXTERNAL_SEND,),
             ),
         )
