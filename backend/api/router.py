@@ -20,6 +20,7 @@ Route inventory under /v1/:
   /v1/outcome-reviews/* — Outcome review contracts
   /v1/retrieval-contracts/* — Retrieval and recall contracts
   /v1/mission-brief/* — Mission Brief read-model drafts
+  /v1/missions/compose — Mission composition proposals (ADR-0008)
   /v1/missions/*      — Mission queuing and management
   /v1/tasks/*         — Task queuing and state management
   /v1/workforces/*    — Workforce fleet management
@@ -61,6 +62,7 @@ from backend.api.routes.health import router as health_router
 from backend.api.routes.light_crm import router as light_crm_router
 from backend.api.routes.mission import router as mission_router
 from backend.api.routes.mission_brief import router as mission_brief_router
+from backend.api.routes.mission_composition import router as mission_composition_router
 from backend.api.routes.observability import router as observability_router
 from backend.api.routes.operations import router as operations_router
 from backend.api.routes.outcome_review import router as outcome_review_router
@@ -108,6 +110,9 @@ def build_api_router() -> APIRouter:
     v1.include_router(mission_brief_router)  # /v1/mission-brief/*
     v1.include_router(review_queue_router)  # /v1/review-queue/*
     v1.include_router(light_crm_router)  # /v1/crm/*
+    # Composition routes share /v1/missions prefix; mount before mission_router so
+    # static paths like /compose are not captured by /{mission_id}.
+    v1.include_router(mission_composition_router)  # /v1/missions/compose, /proposals/*
     v1.include_router(mission_router)  # /v1/missions/*
     v1.include_router(task_router)  # /v1/tasks/*
     v1.include_router(workforce_router)  # /v1/workforces/*
