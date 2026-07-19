@@ -12,7 +12,8 @@ export const TIER3_ACTIONS: Array<{
   {
     action: "gtm.email_send",
     title: "Send email",
-    description: "Tier 3 external send via Gmail plugin or platform ajenda-email lane.",
+    description:
+      "Tier 3 external send via Gmail OAuth, tenant SMTP (any host), or platform ajenda-email.",
     provider: "external_email",
     credentialType: "api_key",
   },

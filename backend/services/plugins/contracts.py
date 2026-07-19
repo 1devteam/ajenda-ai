@@ -118,7 +118,10 @@ BUILTIN_PLUGIN_CONTRACTS: tuple[PluginContract, ...] = (
         category="email",
         provider="external_email",
         mode="plugin",
-        description="Send email via tenant SMTP credentials (host, port, user, password JSON).",
+        description=(
+            "Send email via tenant SMTP (any standards-compliant host: Workspace app password, "
+            "M365, SES, SendGrid, Mailgun, Postmark, etc.). JSON secret: host, port, user, password."
+        ),
         credential_provider="external_email",
         credential_types=("smtp",),
         integration_types=("smtp",),
