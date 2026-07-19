@@ -79,3 +79,12 @@ Ability rollout may require a non-secret `credential_reference`, but the referen
 ### Webhook dispatch idempotency
 
 `webhook.dispatch` requires an event id and dispatch attempt metadata so retries can be correlated without silently duplicating sends. Recipient-side readback remains deferred to provider-specific verification and this contract does not activate durable third-party webhook clients beyond the existing governed dispatch path.
+
+### gtm.email_send idempotency
+
+<a id="gtm-email-send-idempotency"></a>
+
+`gtm.email_send` is an `external_send` ability and requires `idempotency_required=true`.
+
+- **Gmail API transport** (`api_key` OAuth bearer): the invocation `idempotency_key` is forwarded as the outbound `Idempotency-Key` header on the Gmail `messages.send` request. Successful real sends echo the key in the action output.
+- **SMTP / platform_master transport**: the provider has no Idempotency-Key semantics. Before `sendmail`, the handler claims `(tenant_id, action, idempotency_key)` in `email_send_idempotency_receipts`. A completed claim is replayed without a second delivery; an in-flight claim fails closed; a failed pre-send path releases the claim so a later retry may re-claim. Missing `idempotency_key` or missing `session_factory` rejects the real SMTP send.

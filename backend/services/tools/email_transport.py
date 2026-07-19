@@ -50,12 +50,25 @@ def parse_smtp_secret(secret_value: str) -> SmtpConfig:
     )
 
 
-def send_via_smtp(*, config: SmtpConfig, to: str, subject: str, body: str) -> EmailSendOutcome:
+def send_via_smtp(
+    *,
+    config: SmtpConfig,
+    to: str,
+    subject: str,
+    body: str,
+    message_id: str | None = None,
+) -> EmailSendOutcome:
     message = MIMEText(body or " ")
     sender = config.from_address or config.username
     message["From"] = sender
     message["To"] = to
     message["Subject"] = subject
+    # Optional correlation id (does not replace durable claim-before-send).
+    if message_id and message_id.strip():
+        mid = message_id.strip()
+        if not mid.startswith("<"):
+            mid = f"<{mid}@ajenda.idempotency>"
+        message["Message-ID"] = mid
     try:
         with smtplib.SMTP(config.host, config.port, timeout=10) as client:
             if config.use_tls:
