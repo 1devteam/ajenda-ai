@@ -451,6 +451,15 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             finally:
                 session.close()
 
+        if sent.get("real"):
+            transport_label = {
+                "gmail_api": "Gmail API",
+                "smtp": "SMTP",
+            }.get(str(sent.get("provider") or ""), "external email")
+            send_summary = f"External email sent via {transport_label}"
+        else:
+            send_summary = "External email not sent (simulated; no outbound effect)"
+
         return ActionResult(
             action=inv.action,
             provider="external_email",
@@ -461,16 +470,12 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     inv.action,
                     "external_email",
                     ctx,
-                    "External email sent via Gmail"
-                    if sent.get("real")
-                    else "External email not sent (simulated; no outbound effect)",
+                    send_summary,
                     sent,
                     side_effect_class=SideEffectClass.EXTERNAL_SEND,
                 )
             ],
-            summary="External email sent via Gmail"
-            if sent.get("real")
-            else "External email not sent (simulated; no outbound effect)",
+            summary=send_summary,
         )
 
     def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:

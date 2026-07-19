@@ -43,7 +43,7 @@ No bypass via direct HTTP clients, task metadata secrets, or handler-local socke
 - Google Calendar read OAuth refresh is **in scope** via `google_calendar_runtime_token` / `google_oauth_cli` at repository read time.
 - GitHub read OAuth refresh is **in scope** via `github_runtime_token` / `github_oauth_client` at repository read time.
 - Credentialed external paths **fail closed** on provider errors (no simulated success). Example: `gtm.email_check` raises on Gmail API failure when a credential is present.
-- SMTP remains a scoped alternate transport for `gtm.email_send` when credential transport mode permits; HTTPS Gmail API is the default real path.
+- Email **send** is multi-provider: Gmail API (`api_key`), tenant SMTP (`smtp`), or platform master SMTP (`platform_master`). Transport is selected by `credential_transport_mode`. SMTP paths require durable claim-before-send (`email_send_idempotency_receipts`). Inbox **read** (`gtm.email_check`) remains Gmail API–only.
 
 ### 4. Side-effect taxonomy
 
