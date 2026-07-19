@@ -15,6 +15,7 @@ from backend.services.mission_composition.contracts import (
     PlannedStepPreview,
 )
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
+from backend.services.tools.schemas import SideEffectClass
 
 
 def _slug(action: str) -> str:
@@ -105,11 +106,51 @@ def compile_job_assignments(selections: list[AbilitySelection]) -> list[JobAssig
     return assignments
 
 
-def compile_task_graph_preview(steps: list[PlannedStepPreview]) -> dict[str, Any]:
+def _side_effect_has_effect(side_effect_class: str) -> bool:
+    try:
+        return SideEffectClass(side_effect_class).has_side_effect
+    except ValueError:
+        return side_effect_class in {
+            "internal_write",
+            "external_write",
+            "external_send",
+            "external_publish",
+        }
+
+
+def compile_task_graph_preview(
+    steps: list[PlannedStepPreview],
+    *,
+    selections: list[AbilitySelection] | None = None,
+    approved_by: str = "mission_composition_engine",
+) -> dict[str, Any]:
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
+    side_effect_by_action = {
+        item.action_name: item.side_effect_class for item in (selections or []) if item.action_name
+    }
     for step in steps:
         capability_name = f"composition_{step.action_name.replace('.', '_')}"
+        input_contract: dict[str, Any] = {
+            "tool_invocation": {
+                "schema_version": 1,
+                "action": step.action_name,
+                "input": dict(step.tool_input),
+            }
+        }
+        if isinstance(step.credential_reference, dict):
+            input_contract["credential_reference"] = dict(step.credential_reference)
+        side_effect = side_effect_by_action.get(step.action_name, "")
+        if _side_effect_has_effect(side_effect):
+            # Required by ToolRuntimeAuthority for side-effecting tool.invoke tasks.
+            input_contract["execution_constraints"] = {
+                "side_effect_authorization": {
+                    "schema_version": 1,
+                    "allowed_actions": [step.action_name],
+                    "reason": "mission_composition_engine",
+                    "approved_by": approved_by,
+                }
+            }
         nodes.append(
             {
                 "node_key": step.step_key,
@@ -122,18 +163,7 @@ def compile_task_graph_preview(steps: list[PlannedStepPreview]) -> dict[str, Any
                     "version": "1.0.0",
                     "purpose": f"Composition-selected ability {step.action_name}.",
                 },
-                "input_contract": {
-                    "tool_invocation": {
-                        "schema_version": 1,
-                        "action": step.action_name,
-                        "input": dict(step.tool_input),
-                    },
-                    **(
-                        {"credential_reference": dict(step.credential_reference)}
-                        if isinstance(step.credential_reference, dict)
-                        else {}
-                    ),
-                },
+                "input_contract": input_contract,
                 "output_contract": {"artifact": step.output_contract},
                 "metadata": {
                     "sequence": step.sequence,

@@ -165,13 +165,59 @@ def test_credential_reference_is_copied_into_graph_input_contract() -> None:
     )
     intent = interpret_instruction("Send a follow-up email to a prospect.")
     steps = compile_planned_steps([selection], intent=intent)
-    graph = compile_task_graph_preview(steps)
+    graph = compile_task_graph_preview(steps, selections=[selection], approved_by="tester")
     node = graph["nodes"][0]
     cred = node["input_contract"].get("credential_reference")
     assert cred is not None
     assert cred["credential_id"] == "gmail-email"
     assert cred["provider"] == "external_email"
     assert cred["credential_type"] == "api_key"
+    auth = node["input_contract"]["execution_constraints"]["side_effect_authorization"]
+    assert auth["allowed_actions"] == ["gtm.email_send"]
+    assert auth["approved_by"] == "tester"
+
+
+def test_confirm_rejects_unready_proposal() -> None:
+    from unittest.mock import MagicMock
+
+    from backend.services.mission_composition.service import MissionCompositionError
+
+    compose_service = MissionCompositionService(db=None)
+    record = compose_service.compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction="Research roofing companies in Austin and send personalized introductions to three prospects.",
+    )
+    # Force unready state as API clients might still POST a stale composition body.
+    record = record.model_copy(update={"ready_to_start": False})
+    service = MissionCompositionService(db=MagicMock())
+    try:
+        service.confirm(
+            tenant_id="11111111-1111-1111-1111-111111111111",
+            proposal_id=record.proposal_id,
+            composition=record,
+        )
+        raise AssertionError("expected PROPOSAL_NOT_READY")
+    except MissionCompositionError as exc:
+        assert exc.code == "PROPOSAL_NOT_READY"
+
+
+def test_connected_sets_maps_provider_without_integration_attr() -> None:
+    from types import SimpleNamespace
+
+    from backend.services.mission_composition.service import _integrations_for_credential
+
+    gmail = SimpleNamespace(
+        provider="external_email",
+        credential_id="ajenda-email",
+        trusted_destination_hosts=["gmail.googleapis.com"],
+    )
+    assert "gmail" in _integrations_for_credential(gmail)
+    hubspot = SimpleNamespace(
+        provider="external_crm",
+        credential_id="tenant-crm-key",
+        trusted_destination_hosts=["api.hubapi.com"],
+    )
+    assert "hubspot" in _integrations_for_credential(hubspot)
 
 
 def test_compose_service_roofing_ready_without_db() -> None:

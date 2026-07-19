@@ -77,6 +77,38 @@ def _profile_context(profile: Any) -> dict[str, Any]:
     return context
 
 
+def _integrations_for_credential(record: object) -> set[str]:
+    """Map persisted credential rows to integration tokens used by the resolver."""
+
+    found: set[str] = set()
+    provider = str(getattr(record, "provider", "") or "").strip().lower()
+    credential_id = str(getattr(record, "credential_id", "") or "").strip().lower()
+    hosts_raw = getattr(record, "trusted_destination_hosts", None) or []
+    hosts = {str(host).strip().lower() for host in hosts_raw if str(host).strip()}
+
+    if provider == "external_email" or "gmail" in credential_id or "gmail.googleapis.com" in hosts:
+        found.add("gmail")
+    if provider == "external_email" and ("smtp" in credential_id or credential_id.endswith("-email")):
+        found.add("smtp")
+        found.add("gmail")
+    if provider == "external_crm" or "hubspot" in credential_id or "hubapi.com" in " ".join(hosts):
+        found.add("hubspot")
+    if "google-calendar" in credential_id or "calendar" in credential_id or "www.googleapis.com" in hosts:
+        found.add("google_calendar")
+    if "salesforce" in credential_id or any("salesforce.com" in host for host in hosts):
+        found.add("salesforce")
+    if "linkedin" in credential_id or "api.linkedin.com" in hosts:
+        found.add("linkedin")
+    if "github" in credential_id or "api.github.com" in hosts:
+        found.add("github")
+
+    # Explicit integration attr if present on future schemas / projections.
+    integration = getattr(record, "integration", None)
+    if isinstance(integration, str) and integration.strip():
+        found.add(integration.strip().lower())
+    return found
+
+
 def _connected_sets(db: Session | None, tenant_id: str) -> tuple[set[str], set[str]]:
     if db is None:
         return set(), set()
@@ -89,10 +121,10 @@ def _connected_sets(db: Session | None, tenant_id: str) -> tuple[set[str], set[s
     for record in records:
         if getattr(record, "revoked", False) or getattr(record, "deleted", False):
             continue
+        if getattr(record, "enabled", True) is False:
+            continue
         credential_ids.add(str(record.credential_id))
-        integration = getattr(record, "integration", None)
-        if isinstance(integration, str) and integration.strip():
-            integrations.add(integration.strip().lower())
+        integrations |= _integrations_for_credential(record)
     return credential_ids, integrations
 
 
@@ -133,7 +165,11 @@ class MissionCompositionService:
         )
         planned_steps = compile_planned_steps(selections, intent=intent)
         job_assignments = compile_job_assignments(selections)
-        task_graph_preview = compile_task_graph_preview(planned_steps)
+        task_graph_preview = compile_task_graph_preview(
+            planned_steps,
+            selections=selections,
+            approved_by="mission_composition_engine",
+        )
         allowed_actions = [
             item.action_name for item in selections if item.selection_status == "selected" and item.readiness == "ready"
         ]
@@ -220,6 +256,14 @@ class MissionCompositionService:
             raise MissionCompositionError(
                 code="NO_RUNTIME_ACTIONS",
                 message="composition has no runtime-ready allowed_actions",
+            )
+        if not record.ready_to_start:
+            raise MissionCompositionError(
+                code="PROPOSAL_NOT_READY",
+                message=(
+                    "composition is not ready_to_start; resolve missing connections, "
+                    "charter blocks, or required jobs before confirm"
+                ),
             )
 
         success_criteria = [
@@ -339,7 +383,11 @@ class MissionCompositionService:
             metadata_json=plan_metadata,
         )
 
-        graph = compile_task_graph_preview(record.planned_steps)
+        graph = compile_task_graph_preview(
+            record.planned_steps,
+            selections=list(record.ability_selections),
+            approved_by=actor_id or "mission_composition_confirm",
+        )
         graph_metadata = build_mission_task_graph_contract_metadata(
             nodes=graph.get("nodes") if isinstance(graph.get("nodes"), list) else [],
             edges=graph.get("edges") if isinstance(graph.get("edges"), list) else [],
