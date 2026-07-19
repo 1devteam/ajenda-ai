@@ -22,7 +22,14 @@ import PageHeader from "../components/ui/PageHeader";
 import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
 
 
-type IntegrationKind = "hubspot" | "gmail" | "linkedin" | "salesforce" | "google_calendar" | "github";
+type IntegrationKind =
+  | "hubspot"
+  | "gmail"
+  | "smtp"
+  | "linkedin"
+  | "salesforce"
+  | "google_calendar"
+  | "github";
 
 const HUBSPOT_FORM: ProviderCredentialCreateRequest = {
   credential_id: "hubspot-crm",
@@ -39,6 +46,54 @@ const GMAIL_FORM: ProviderCredentialCreateRequest = {
   secret_value: "",
   use_platform_master_key: false,
 };
+
+const SMTP_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "smtp-email",
+  provider: "external_email",
+  integration: "smtp",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
+type SmtpFormFields = {
+  host: string;
+  port: string;
+  user: string;
+  password: string;
+  from: string;
+  use_tls: boolean;
+};
+
+const EMPTY_SMTP_FIELDS: SmtpFormFields = {
+  host: "",
+  port: "587",
+  user: "",
+  password: "",
+  from: "",
+  use_tls: true,
+};
+
+function buildSmtpSecretJson(fields: SmtpFormFields): string {
+  const host = fields.host.trim();
+  const user = fields.user.trim();
+  const password = fields.password;
+  const port = Number.parseInt(fields.port.trim() || "587", 10);
+  if (!host || !user || !password) {
+    return "";
+  }
+  const payload: Record<string, unknown> = {
+    host,
+    port: Number.isFinite(port) ? port : 587,
+    user,
+    password,
+    use_tls: fields.use_tls,
+  };
+  const from = fields.from.trim();
+  if (from) {
+    payload.from = from;
+  }
+  return JSON.stringify(payload);
+}
 
 const LINKEDIN_FORM: ProviderCredentialCreateRequest = {
   credential_id: "linkedin-read",
@@ -75,6 +130,7 @@ const GITHUB_FORM: ProviderCredentialCreateRequest = {
 const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateRequest> = {
   hubspot: HUBSPOT_FORM,
   gmail: GMAIL_FORM,
+  smtp: SMTP_FORM,
   linkedin: LINKEDIN_FORM,
   salesforce: SALESFORCE_FORM,
   google_calendar: GOOGLE_CALENDAR_FORM,
@@ -83,12 +139,24 @@ const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateReque
 
 const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
   hubspot: "HubSpot CRM",
-  gmail: "Gmail",
+  gmail: "Gmail (Google)",
+  smtp: "Email (SMTP)",
   linkedin: "LinkedIn",
   salesforce: "Salesforce",
   google_calendar: "Google Calendar",
   github: "GitHub",
 };
+
+/** Display order: email options grouped, then CRM/read providers. */
+const INTEGRATION_ORDER: IntegrationKind[] = [
+  "gmail",
+  "smtp",
+  "hubspot",
+  "salesforce",
+  "google_calendar",
+  "linkedin",
+  "github",
+];
 
 const OAUTH_CALLBACKS: Record<
   string,
@@ -138,6 +206,7 @@ export default function CredentialsPage() {
   const [integration, setIntegration] = useState<IntegrationKind>("gmail");
   const [credentials, setCredentials] = useState<ProviderCredentialResponse[]>([]);
   const [form, setForm] = useState<ProviderCredentialCreateRequest>(GMAIL_FORM);
+  const [smtpFields, setSmtpFields] = useState<SmtpFormFields>(EMPTY_SMTP_FIELDS);
   const [warning, setWarning] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState<string | null>(null);
@@ -147,6 +216,9 @@ export default function CredentialsPage() {
     setForm({ ...FORM_BY_INTEGRATION[integration] });
     if (integration !== "salesforce") {
       setSalesforceInstanceHost("");
+    }
+    if (integration !== "smtp") {
+      setSmtpFields(EMPTY_SMTP_FIELDS);
     }
   }, [integration]);
 
@@ -283,6 +355,17 @@ export default function CredentialsPage() {
     setWarning("");
     try {
       const payload: ProviderCredentialCreateRequest = { ...form };
+      if (integration === "smtp") {
+        const secret = buildSmtpSecretJson(smtpFields);
+        if (!secret) {
+          setError(new Error("SMTP requires host, user/username, and password."));
+          setLoading(null);
+          return;
+        }
+        payload.secret_value = secret;
+        payload.integration = "smtp";
+        payload.provider = "external_email";
+      }
       if (integration === "salesforce") {
         const derivedHost = parseSalesforceInstanceHost(form.secret_value ?? "");
         const host = (salesforceInstanceHost || derivedHost).trim();
@@ -295,6 +378,9 @@ export default function CredentialsPage() {
         setWarning(response.warning);
       }
       setForm({ ...FORM_BY_INTEGRATION[integration] });
+      if (integration === "smtp") {
+        setSmtpFields(EMPTY_SMTP_FIELDS);
+      }
       await refreshList();
     } catch (err) {
       setError(err);
@@ -377,9 +463,11 @@ export default function CredentialsPage() {
   const submitLabel =
     integration === "hubspot"
       ? "Connect HubSpot CRM"
-      : supportsOAuth
-        ? `Connect ${INTEGRATION_LABELS[integration]} (paste)`
-        : `Connect ${INTEGRATION_LABELS[integration]}`;
+      : integration === "smtp"
+        ? "Connect SMTP email"
+        : supportsOAuth
+          ? `Connect ${INTEGRATION_LABELS[integration]} (paste)`
+          : `Connect ${INTEGRATION_LABELS[integration]}`;
 
   const platformHubspot = credentials.find(
     (item) => item.credential_id === "hubspot-crm" && item.uses_platform_master_key && !item.revoked,
@@ -393,14 +481,14 @@ export default function CredentialsPage() {
       <PageHeader
         eyebrow="Connections"
         title="Integrations and credentials"
-        lead="Connect external tools when you need them. Ajenda brain missions run standalone without plugins."
+        lead="Connect external tools when you need them. Email send supports Gmail OAuth, tenant SMTP (any provider), or Ajenda platform email. Inbox read is Gmail-only today."
       />
       <section className="panel">
         {warning ? <p className="notice warning">{warning}</p> : null}
         <PageErrorAlert error={error} className="notice error" />
 
         <div className="credential-tabs">
-          {(Object.keys(INTEGRATION_LABELS) as IntegrationKind[]).map((kind) => (
+          {INTEGRATION_ORDER.map((kind) => (
             <button
               key={kind}
               type="button"
@@ -456,15 +544,19 @@ export default function CredentialsPage() {
                 Use platform master key (operator-managed; shared blast radius)
               </label>
             </>
-          ) : integration === "gmail" && platformAjendaEmail ? (
+          ) : (integration === "gmail" || integration === "smtp") && platformAjendaEmail ? (
             <p className="notice success">
-              Platform email lane is included with Ajenda via ajenda-email ({platformAjendaEmail.credential_id}).
-              Connect your own Gmail below only if you want tenant-owned credentials.
+              Platform email lane is included with Ajenda via ajenda-email ({platformAjendaEmail.credential_id},
+              SMTP). Connect Gmail OAuth or your own SMTP below only if you want tenant-owned send credentials.
             </p>
           ) : null}
 
           {integration === "gmail" ? (
             <>
+              <p className="muted">
+                Gmail covers <strong>send</strong> and <strong>inbox read</strong> via Google OAuth. For non-Google
+                mailboxes, use the Email (SMTP) tab for send only.
+              </p>
               <label>
                 Gmail OAuth bearer or JSON bundle
                 <textarea
@@ -485,6 +577,67 @@ export default function CredentialsPage() {
               >
                 Connect Gmail with Google
               </button>
+            </>
+          ) : integration === "smtp" ? (
+            <>
+              <p className="muted">
+                SMTP works with Google Workspace app passwords, Microsoft 365, Amazon SES, SendGrid, Mailgun,
+                Postmark, and any standard SMTP host. Powers <strong>gtm.email_send</strong> only — not inbox
+                read.
+              </p>
+              <label>
+                SMTP host
+                <input
+                  value={smtpFields.host}
+                  onChange={(event) => setSmtpFields({ ...smtpFields, host: event.target.value })}
+                  placeholder="smtp.example.com"
+                  required
+                />
+              </label>
+              <label>
+                Port
+                <input
+                  value={smtpFields.port}
+                  onChange={(event) => setSmtpFields({ ...smtpFields, port: event.target.value })}
+                  placeholder="587"
+                  inputMode="numeric"
+                />
+              </label>
+              <label>
+                Username
+                <input
+                  value={smtpFields.user}
+                  onChange={(event) => setSmtpFields({ ...smtpFields, user: event.target.value })}
+                  placeholder="sender@example.com"
+                  required
+                />
+              </label>
+              <label>
+                Password / app password
+                <input
+                  type="password"
+                  value={smtpFields.password}
+                  onChange={(event) => setSmtpFields({ ...smtpFields, password: event.target.value })}
+                  placeholder="App password or SMTP secret"
+                  required
+                />
+              </label>
+              <label>
+                From address (optional)
+                <input
+                  value={smtpFields.from}
+                  onChange={(event) => setSmtpFields({ ...smtpFields, from: event.target.value })}
+                  placeholder="Defaults to username when empty"
+                />
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={smtpFields.use_tls}
+                  onChange={(event) => setSmtpFields({ ...smtpFields, use_tls: event.target.checked })}
+                />
+                Use STARTTLS (recommended on port 587)
+              </label>
             </>
           ) : integration === "linkedin" ? (
             <>
@@ -570,7 +723,7 @@ export default function CredentialsPage() {
                 Connect Google Calendar with OAuth
               </button>
             </>
-          ) : (
+          ) : integration === "github" ? (
             <>
               <label>
                 GitHub OAuth bearer, PAT, or JSON bundle
@@ -592,7 +745,7 @@ export default function CredentialsPage() {
                 Connect GitHub with OAuth
               </button>
             </>
-          )}
+          ) : null}
 
           <button type="submit" className="primary-button" disabled={loading !== null}>
             {loading ?? submitLabel}

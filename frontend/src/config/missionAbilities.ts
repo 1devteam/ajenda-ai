@@ -77,7 +77,7 @@ export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
   {
     action: "gtm.email_check",
     title: "Check inbox",
-    description: "Read recent inbox messages through connected Gmail.",
+    description: "Read recent inbox messages through connected Gmail (inbox is Gmail API only today).",
     input: { query: "in:inbox", limit: 3 },
     provider: "external_email",
     credentialType: "api_key",
@@ -86,7 +86,8 @@ export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
   {
     action: "gtm.email_send",
     title: "Send approved email",
-    description: "Send an approved draft artifact via ajenda-email or Gmail.",
+    description:
+      "Send an approved draft via Gmail OAuth, tenant SMTP (any provider), or Ajenda platform email.",
     input: {
       to: "prospect@example.com",
       artifact_id: "pitch_email-<artifact-id>",

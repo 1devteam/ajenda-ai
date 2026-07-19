@@ -179,7 +179,7 @@ export default function BusinessProfilePage() {
           </ol>
           <div className="callout standalone-callout">
             <p>
-              Plugins like HubSpot and Gmail are optional. With a complete business profile, Ajenda
+              Plugins like HubSpot, Gmail, and SMTP email are optional. With a complete business profile, Ajenda
               can run missions using internal records, hybrid retrieval, and web research.
             </p>
             <Link to="/setup">Run setup wizard</Link>
