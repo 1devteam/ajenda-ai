@@ -19,6 +19,11 @@ from backend.services.draft_generation import generate_and_persist_draft
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.email_send_idempotency import (
+    claim_smtp_send,
+    complete_smtp_send,
+    release_smtp_send,
+)
 from backend.services.tools.email_transport import (
     credential_transport_mode,
     parse_smtp_secret,
@@ -297,18 +302,84 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             transport = credential_transport_mode(gmail_cred)
             try:
                 if transport == "smtp":
-                    smtp_config = parse_smtp_secret(secret)
-                    smtp_result = send_via_smtp(
-                        config=smtp_config,
-                        to=to,
-                        subject=subject,
-                        body=body_text,
+                    # SMTP has no provider-side Idempotency-Key. Claim durably
+                    # before sendmail so worker retries cannot double-deliver.
+                    claim = claim_smtp_send(
+                        session_factory=ctx.session_factory,
+                        tenant_id=ctx.tenant_id,
+                        action=inv.action,
+                        idempotency_key=inv.idempotency_key,
                     )
-                    sent["provider"] = smtp_result.provider
-                    sent["status"] = smtp_result.status
-                    sent["real"] = smtp_result.real
-                    if smtp_result.error:
-                        sent["error"] = smtp_result.error
+                    if claim.decision == "replayed":
+                        cached = dict(claim.cached_output or {})
+                        sent.update(cached)
+                        sent["idempotency_key"] = claim.idempotency_key
+                        sent["idempotency_replayed"] = True
+                        sent.setdefault("provider", "smtp")
+                        sent.setdefault("status", "sent")
+                        sent.setdefault("real", True)
+                    elif claim.decision in {"rejected", "in_flight"}:
+                        sent["provider"] = "smtp"
+                        sent["status"] = "error"
+                        sent["real"] = False
+                        sent["error"] = claim.error or "smtp send blocked by idempotency gate"
+                        if claim.idempotency_key:
+                            sent["idempotency_key"] = claim.idempotency_key
+                    else:
+                        assert claim.idempotency_key is not None
+                        claim_key = claim.idempotency_key
+                        try:
+                            smtp_config = parse_smtp_secret(secret)
+                            smtp_result = send_via_smtp(
+                                config=smtp_config,
+                                to=to,
+                                subject=subject,
+                                body=body_text,
+                                message_id=claim_key,
+                            )
+                            sent["provider"] = smtp_result.provider
+                            sent["status"] = smtp_result.status
+                            sent["real"] = smtp_result.real
+                            if smtp_result.error:
+                                sent["error"] = smtp_result.error
+                            if smtp_result.real:
+                                sent["idempotency_key"] = claim_key
+                                complete_smtp_send(
+                                    session_factory=ctx.session_factory,
+                                    tenant_id=ctx.tenant_id,
+                                    action=inv.action,
+                                    idempotency_key=claim_key,
+                                    result_payload={
+                                        "to": to,
+                                        "subject": subject,
+                                        "body": body_text,
+                                        "status": smtp_result.status,
+                                        "real": True,
+                                        "provider": smtp_result.provider,
+                                        "idempotency_key": claim_key,
+                                        "context": inp.context,
+                                        "artifact_id": artifact_id,
+                                    },
+                                )
+                            else:
+                                release_smtp_send(
+                                    session_factory=ctx.session_factory,
+                                    tenant_id=ctx.tenant_id,
+                                    action=inv.action,
+                                    idempotency_key=claim_key,
+                                    error_detail=smtp_result.error,
+                                )
+                        except Exception as send_exc:
+                            # Pre-send / transport failure after claim: release so retry can re-claim.
+                            # Post-send crash before complete stays "claiming" (fail closed, no double send).
+                            release_smtp_send(
+                                session_factory=ctx.session_factory,
+                                tenant_id=ctx.tenant_id,
+                                action=inv.action,
+                                idempotency_key=claim_key,
+                                error_detail=str(send_exc),
+                            )
+                            raise
                 else:
                     user = _gmail_user(gmail_cred)
                     trusted_hosts = _trusted_hosts(gmail_cred, default=("gmail.googleapis.com",))
