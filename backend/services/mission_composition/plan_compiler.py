@@ -130,7 +130,9 @@ def compile_task_graph_preview(
         item.action_name: item.side_effect_class for item in (selections or []) if item.action_name
     }
     for step in steps:
-        capability_name = f"composition_{step.action_name.replace('.', '_')}"
+        # Same naming as mission_bridge_runtime_authority so confirm → execute
+        # provisions against the graph without renaming nodes.
+        capability_name = f"bridge_{step.action_name.replace('.', '_')}"
         input_contract: dict[str, Any] = {
             "tool_invocation": {
                 "schema_version": 1,

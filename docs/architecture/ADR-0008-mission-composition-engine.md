@@ -52,21 +52,38 @@ Language → MissionIntent (candidate)
 
 Accounting jobs may appear as `catalog_only` structural entries. No fabricated QuickBooks/Xero runtime handlers until provider proof exists.
 
+## Product shell (phase complete)
+
+Everyday **Missions** UI stands on this engine:
+
+1. **Few templates** — starters that only fill the query box (never lock skills).
+2. **Executable-mission tip** — outcome, scope, hard limits, optional connections.
+3. **Query box** — plain-language request; compose classifies and plans.
+4. **Plan review** — outcome steps only; no skill/ability pickers.
+5. **Start mission** — confirm creates intake + plan + task graph; execution continues on the mission execution page.
+
+Doctrine: **all governed skills remain available to Ajenda** for classification and planning. Users never assemble a toolkit. Charter, missing connections, and catalog-only maturity still fail closed at selection/execution time.
+
+Task-graph capability references use the same `bridge_*` naming as runtime authority provisioning so confirm → execute does not rename nodes.
+
 ## Consequences
 
 ### Positive
 
-- Conversational missions become possible without weakening runtime governance.
+- Conversational / mission-based product is possible without weakening runtime governance.
 - One composition record ties jobs, verticals, abilities, and graph preview.
 - Live provider integrations remain behind credential readiness.
+- Skill checkboxes are removed from the mission path (legacy Tasks remains advanced-only).
 
 ### Tradeoffs
 
 - In-process proposal store is not multi-worker durable; confirm accepts full composition body.
 - Intent interpreter v1 is deterministic (not free-form LLM).
+- Full auto-queue on confirm remains deferred — queue admission stays the runtime authority.
 
 ## Verification
 
 - Unit: intent, job routing, capability resolver, plan/graph compiler, roofing flagship.
 - Contract: compose creates no runtime state; confirm creates intake/plan/graph only.
+- Frontend: Missions page = templates + tip + query; no ability selectors.
 - Future: live e2e plain language → queue admission → worker evidence.

@@ -515,11 +515,16 @@ export default function TasksPage() {
       <PageHeader
         eyebrow="Active work"
         title={missionId ? "Mission work in progress" : "Active work"}
-        lead="Monitor work Ajenda is running, inspect evidence, and launch governed abilities from your workspace."
+        lead="Monitor work Ajenda is running and inspect evidence. Request new missions from Missions — do not assemble skills here."
         actions={
-          <Link className="ghost-link" to="/approvals">
-            Open approvals
-          </Link>
+          <>
+            <Link className="ghost-link" to="/missions">
+              Request a mission
+            </Link>
+            <Link className="ghost-link" to="/approvals">
+              Open approvals
+            </Link>
+          </>
         }
       />
 
@@ -533,11 +538,11 @@ export default function TasksPage() {
               </Link>
             </div>
             <p className="muted">
-              Tasks launched here attach to mission <code>{missionId}</code> and must stay inside its allowed
-              abilities.
+              Tasks here attach to mission <code>{missionId}</code>. Skills were chosen by the composition engine —
+              not by a user toolkit. Prefer mission execution over manual ability launch.
             </p>
           </div>
-          <h2>Mission abilities</h2>
+          <h2>Advanced: manual ability launch</h2>
           <div className="card-grid two-up">
             {MISSION_ABILITY_PRESETS.map((preset) => (
               <button
