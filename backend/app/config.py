@@ -94,8 +94,16 @@ class Settings(BaseSettings):
     oidc_client_secret: str = Field(default="", alias="AJENDA_OIDC_CLIENT_SECRET")
     oidc_id_token_audience: str = Field(default="", alias="AJENDA_OIDC_ID_TOKEN_AUDIENCE")
     oidc_scopes: str = Field(default="openid email profile", alias="AJENDA_OIDC_SCOPES")
+    # Must exactly match the browser origin + /auth/callback used by the SPA
+    # (frontend uses window.location.origin). Dev defaults cover Vite (:5173)
+    # and compose nginx (:8080); production must set the public HTTPS URL(s).
     oidc_redirect_uri_allowlist: str = Field(
-        default="http://localhost:8080/auth/callback",
+        default=(
+            "http://localhost:5173/auth/callback,"
+            "http://127.0.0.1:5173/auth/callback,"
+            "http://localhost:8080/auth/callback,"
+            "http://127.0.0.1:8080/auth/callback"
+        ),
         alias="AJENDA_OIDC_REDIRECT_URI_ALLOWLIST",
     )
     oidc_login_intent_ttl_minutes: int = Field(default=10, alias="AJENDA_OIDC_LOGIN_INTENT_TTL_MINUTES")

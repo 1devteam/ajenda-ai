@@ -109,7 +109,8 @@ upsert_env AJENDA_OIDC_CLIENT_ID "$CLIENT_ID"
 upsert_env AJENDA_OIDC_CLIENT_SECRET "$CLIENT_SECRET"
 upsert_env AJENDA_OIDC_ID_TOKEN_AUDIENCE "$CLIENT_ID"
 upsert_env AJENDA_OIDC_LOGIN_ENABLED "true"
-upsert_env AJENDA_OIDC_REDIRECT_URI_ALLOWLIST "http://localhost:8080/auth/callback,http://127.0.0.1:8080/auth/callback"
+upsert_env AJENDA_OIDC_REDIRECT_URI_ALLOWLIST \
+  "http://localhost:5173/auth/callback,http://127.0.0.1:5173/auth/callback,http://localhost:8080/auth/callback,http://127.0.0.1:8080/auth/callback"
 upsert_env AJENDA_SESSION_SIGNING_SECRET "$SESSION_SECRET"
 
 cp "$ENV_FILE" "$SYNC_TARGET"
