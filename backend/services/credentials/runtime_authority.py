@@ -23,6 +23,12 @@ class CredentialRequirement:
     provider: str
     credential_type: str
     allowed_side_effect_classes: tuple[SideEffectClass, ...] = field(default_factory=tuple)
+    # Optional multi-type allowlist. When empty, only ``credential_type`` is accepted.
+    allowed_credential_types: tuple[str, ...] = field(default_factory=tuple)
+
+    def accepts_credential_type(self, credential_type: str) -> bool:
+        allowed = self.allowed_credential_types or (self.credential_type,)
+        return credential_type in allowed
 
 
 class CredentialRecord(BaseModel):
@@ -108,7 +114,9 @@ class CredentialRuntimeAuthority:
             raise CredentialRuntimeAuthorityError("credential_reference is required")
         reference = CredentialReference.model_validate(raw_reference)
         if requirement is not None:
-            if reference.provider != requirement.provider or reference.credential_type != requirement.credential_type:
+            if reference.provider != requirement.provider or not requirement.accepts_credential_type(
+                reference.credential_type
+            ):
                 raise CredentialRuntimeAuthorityError(
                     "credential_reference is not compatible with action provider/type"
                 )

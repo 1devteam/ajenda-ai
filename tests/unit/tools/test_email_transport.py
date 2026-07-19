@@ -1,10 +1,30 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from backend.services.tools.email_transport import SmtpConfig, parse_smtp_secret, send_via_smtp
+from backend.services.tools.email_transport import (
+    SmtpConfig,
+    credential_transport_mode,
+    parse_smtp_secret,
+    send_via_smtp,
+)
+
+
+def test_credential_transport_mode_routes_smtp_and_platform_master_to_smtp() -> None:
+    assert credential_transport_mode(None) == "none"
+    assert credential_transport_mode(SimpleNamespace(reference=SimpleNamespace(credential_type="smtp"))) == "smtp"
+    assert (
+        credential_transport_mode(SimpleNamespace(reference=SimpleNamespace(credential_type="platform_master")))
+        == "smtp"
+    )
+    assert (
+        credential_transport_mode(SimpleNamespace(reference=SimpleNamespace(credential_type="api_key"))) == "gmail_api"
+    )
+    assert credential_transport_mode({"credential_type": "platform_master"}) == "smtp"
+    assert credential_transport_mode({"reference": {"credential_type": "smtp"}}) == "smtp"
 
 
 def test_parse_smtp_secret_requires_json_fields() -> None:
