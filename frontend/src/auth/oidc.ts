@@ -16,6 +16,36 @@ export function oidcRedirectUri(): string {
   return `${window.location.origin}/auth/callback`;
 }
 
+/**
+ * Google / OIDC redirect URIs are exact-match. Vite advertises every NIC as a
+ * "Network" URL, but only origins registered in AJENDA_OIDC_REDIRECT_URI_ALLOWLIST
+ * and Google Cloud Console work. Local dev defaults cover localhost/127.0.0.1 only.
+ */
+export function isOidcDevOriginAllowedByDefault(origin: string = window.location.origin): boolean {
+  try {
+    const url = new URL(origin);
+    const host = url.hostname;
+    const port = url.port || (url.protocol === "https:" ? "443" : "80");
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      return false;
+    }
+    return port === "5173" || port === "8080" || port === "80" || port === "443";
+  } catch {
+    return false;
+  }
+}
+
+export function oidcOriginWarning(origin: string = window.location.origin): string | null {
+  if (isOidcDevOriginAllowedByDefault(origin)) {
+    return null;
+  }
+  return (
+    `You opened the app at ${origin}. Google sign-in only works from an origin registered ` +
+    `exactly in AJENDA_OIDC_REDIRECT_URI_ALLOWLIST and Google Cloud Console (redirect = origin + /auth/callback). ` +
+    `Vite's "Network" addresses (172.x / 10.x) are not registered. Use http://localhost:5173 for local Google login.`
+  );
+}
+
 export function providerLabel(provider: string): string {
   if (provider === "google") {
     return "Google";

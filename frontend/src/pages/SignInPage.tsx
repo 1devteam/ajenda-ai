@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getAccountMe } from "../api/client";
-import { beginOidcRedirect } from "../auth/oidc";
+import { beginOidcRedirect, oidcOriginWarning, oidcRedirectUri } from "../auth/oidc";
 import { parseApiKeyHeader, saveSession } from "../auth/session";
 import OidcProviderButton from "../components/OidcProviderButton";
 import OidcUnavailableNotice from "../components/OidcUnavailableNotice";
@@ -38,6 +38,7 @@ export default function SignInPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const expiredNotice = useMemo(() => resolveExpiredNotice(searchParams), [searchParams]);
+  const originWarning = useMemo(() => oidcOriginWarning(), []);
 
   useEffect(() => {
     resetForcedSignOutGuard();
@@ -47,6 +48,13 @@ export default function SignInPage() {
     setLoading(true);
     setError("");
     try {
+      // Fail loud in the UI when origin is a Vite docker/LAN IP — Google will not accept it.
+      const warning = oidcOriginWarning();
+      if (warning) {
+        setError(`${warning}\n\nWould send redirect_uri=${oidcRedirectUri()}`);
+        setLoading(false);
+        return;
+      }
       await beginOidcRedirect({ returnPath });
     } catch (err) {
       setError(failureText(err));
@@ -123,13 +131,19 @@ export default function SignInPage() {
 
         {oidcEnabled ? (
           <div className="form-grid auth-primary-actions">
+            {originWarning ? (
+              <div className="callout" role="status">
+                <p className="muted">{originWarning}</p>
+              </div>
+            ) : null}
             <OidcProviderButton
               provider={config.provider}
               loading={loading}
               onClick={() => void handleOidcSignIn()}
             />
             <p className="muted auth-hint">
-              Use the same Google account you used when creating your workspace.
+              Use the same Google account you used when creating your workspace. Local Google login: open{" "}
+              <code>http://localhost:5173</code> only — not Vite Network IPs.
             </p>
           </div>
         ) : (
