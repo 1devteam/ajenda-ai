@@ -149,16 +149,20 @@ def _connection_status(
     *,
     connected_credential_ids: set[str],
     connected_integrations: set[str],
-) -> tuple[bool, dict[str, str] | None]:
+    preferred_credential_by_integration: dict[str, str] | None = None,
+) -> tuple[bool, dict[str, str] | None, str | None]:
+    """Return (connected, catalog_hint, matched_credential_id)."""
+
+    preferred_credential_by_integration = preferred_credential_by_integration or {}
     hint = _CONNECTION_HINTS.get(action_name)
     if hint is None:
-        return True, None
+        return True, None, None
     if hint["credential_id"] in connected_credential_ids:
-        return True, hint
+        return True, hint, hint["credential_id"]
     if hint["integration"] in connected_integrations:
-        return True, hint
-    # Optional CRM research can proceed without connection via brain/web paths.
-    return False, hint
+        matched = preferred_credential_by_integration.get(hint["integration"])
+        return True, hint, matched
+    return False, hint, None
 
 
 def evaluate_action_candidate(
@@ -169,6 +173,7 @@ def evaluate_action_candidate(
     connected_credential_ids: set[str],
     connected_integrations: set[str],
     forbid_actions: set[str],
+    preferred_credential_by_integration: dict[str, str] | None = None,
 ) -> AbilitySelection:
     registry = get_default_action_registry()
     manifest = ABILITY_MANIFESTS_BY_ACTION.get(action_name)
@@ -241,10 +246,11 @@ def evaluate_action_candidate(
             side_effect_class=side_effect.value,
         )
 
-    connected, hint = _connection_status(
+    connected, hint, matched_credential_id = _connection_status(
         action_name,
         connected_credential_ids=connected_credential_ids,
         connected_integrations=connected_integrations,
+        preferred_credential_by_integration=preferred_credential_by_integration,
     )
     if job.credential_policy == "required" and not connected:
         return AbilitySelection(
@@ -275,6 +281,15 @@ def evaluate_action_candidate(
             connection_provider=hint["integration"],
         )
 
+    credential_reference = None
+    if hint and connected and matched_credential_id:
+        credential_reference = {
+            "schema_version": 1,
+            "credential_id": matched_credential_id,
+            "provider": hint["provider"],
+            "credential_type": "api_key",
+        }
+
     return AbilitySelection(
         job_key=job.job_key,
         ability_id=manifest.ability_id,
@@ -286,16 +301,7 @@ def evaluate_action_candidate(
         side_effect_class=side_effect.value,
         requires_connection=bool(hint),
         connection_provider=hint["integration"] if hint else None,
-        credential_reference=(
-            {
-                "schema_version": 1,
-                "credential_id": hint["credential_id"],
-                "provider": hint["provider"],
-                "credential_type": "api_key",
-            }
-            if hint and connected
-            else None
-        ),
+        credential_reference=credential_reference,
     )
 
 
@@ -306,12 +312,14 @@ def resolve_jobs(
     charter: OperatingCharter | None = None,
     connected_credential_ids: set[str] | None = None,
     connected_integrations: set[str] | None = None,
+    preferred_credential_by_integration: dict[str, str] | None = None,
 ) -> tuple[list[AbilitySelection], list[dict[str, Any]]]:
     """Select one primary ability per job and collect missing connections."""
 
     charter = charter or default_operating_charter()
     connected_credential_ids = connected_credential_ids or set()
     connected_integrations = connected_integrations or set()
+    preferred_credential_by_integration = preferred_credential_by_integration or {}
     forbid_actions = {item.strip() for item in intent.forbidden_outcomes if item.strip()}
     # Treat gtm.email_send as forbidden when "send messages" constraint present.
     if any("do not send" in c.lower() for c in intent.constraints):
@@ -333,6 +341,7 @@ def resolve_jobs(
                 connected_credential_ids=connected_credential_ids,
                 connected_integrations=connected_integrations,
                 forbid_actions=forbid_actions,
+                preferred_credential_by_integration=preferred_credential_by_integration,
             )
             for action_name in ordered
         ]

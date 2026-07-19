@@ -109,23 +109,41 @@ def _integrations_for_credential(record: object) -> set[str]:
     return found
 
 
-def _connected_sets(db: Session | None, tenant_id: str) -> tuple[set[str], set[str]]:
+def _connected_sets(db: Session | None, tenant_id: str) -> tuple[set[str], set[str], dict[str, str]]:
+    """Return credential ids, integrations, and preferred credential_id per integration."""
+
     if db is None:
-        return set(), set()
+        return set(), set(), {}
     try:
         records = ProviderRuntimeCredentialRepository(db).list_for_tenant(tenant_id=tenant_id)
     except Exception:
-        return set(), set()
+        return set(), set(), {}
     credential_ids: set[str] = set()
     integrations: set[str] = set()
+    preferred_by_integration: dict[str, str] = {}
     for record in records:
         if getattr(record, "revoked", False) or getattr(record, "deleted", False):
             continue
         if getattr(record, "enabled", True) is False:
             continue
-        credential_ids.add(str(record.credential_id))
-        integrations |= _integrations_for_credential(record)
-    return credential_ids, integrations
+        cred_id = str(record.credential_id)
+        credential_ids.add(cred_id)
+        for integ in _integrations_for_credential(record):
+            integrations.add(integ)
+            # Prefer first enabled match; exact catalog ids win if present later.
+            preferred_by_integration.setdefault(integ, cred_id)
+    # Prefer catalog-standard ids when the tenant actually has them.
+    for catalog_id, integ in (
+        ("gmail-email", "gmail"),
+        ("hubspot-crm", "hubspot"),
+        ("google-calendar-read", "google_calendar"),
+        ("salesforce-read", "salesforce"),
+        ("linkedin-read", "linkedin"),
+        ("github-read", "github"),
+    ):
+        if catalog_id in credential_ids and integ in preferred_by_integration:
+            preferred_by_integration[integ] = catalog_id
+    return credential_ids, integrations, preferred_by_integration
 
 
 def _load_charter(db: Session | None, tenant_id: str) -> Any:
@@ -153,7 +171,7 @@ class MissionCompositionService:
             profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
         intent = interpret_instruction(instruction, profile_context=_profile_context(profile))
         charter = _load_charter(self._db, tenant_id)
-        connected_ids, connected_integrations = _connected_sets(self._db, tenant_id)
+        connected_ids, connected_integrations, preferred_creds = _connected_sets(self._db, tenant_id)
 
         jobs = route_jobs_for_intent(intent)
         selections, missing = resolve_jobs(
@@ -162,6 +180,7 @@ class MissionCompositionService:
             charter=charter,
             connected_credential_ids=connected_ids,
             connected_integrations=connected_integrations,
+            preferred_credential_by_integration=preferred_creds,
         )
         planned_steps = compile_planned_steps(selections, intent=intent)
         job_assignments = compile_job_assignments(selections)
@@ -231,26 +250,40 @@ class MissionCompositionService:
         if self._db is None:
             raise MissionCompositionError(code="DB_REQUIRED", message="database session is required for confirm")
 
-        record: MissionCompositionRecord | None = None
+        # Never trust client-supplied ability selections / ready flags. Resolve the
+        # instruction, then re-run server-side composition (charter + credentials).
+        instruction: str | None = None
+        client_proposal_id = proposal_id
         if composition is not None:
             if isinstance(composition, MissionCompositionRecord):
-                record = composition
+                instruction = composition.instruction
+                client_proposal_id = composition.proposal_id or proposal_id
             elif isinstance(composition, dict):
-                record = MissionCompositionRecord.model_validate(composition)
+                raw_instruction = composition.get("instruction")
+                if isinstance(raw_instruction, str) and raw_instruction.strip():
+                    instruction = raw_instruction.strip()
+                raw_pid = composition.get("proposal_id")
+                if isinstance(raw_pid, str) and raw_pid.strip():
+                    client_proposal_id = raw_pid.strip()
             else:
                 raise MissionCompositionError(code="INVALID_COMPOSITION", message="composition must be a full record")
-        elif proposal_id:
-            record = get_proposal(tenant_id=tenant_id, proposal_id=proposal_id)
-            if record is None:
-                raise MissionCompositionError(
-                    code="PROPOSAL_NOT_FOUND",
-                    message="proposal_id not found for tenant; pass composition body or recompose",
-                )
-        else:
+
+        if instruction is None and proposal_id:
+            cached = get_proposal(tenant_id=tenant_id, proposal_id=proposal_id)
+            if cached is not None:
+                instruction = cached.instruction
+                client_proposal_id = cached.proposal_id
+
+        if not instruction:
             raise MissionCompositionError(
                 code="PROPOSAL_REQUIRED",
-                message="proposal_id or composition is required",
+                message="proposal_id or composition.instruction is required",
             )
+
+        record = self.compose(tenant_id=tenant_id, instruction=instruction)
+        if client_proposal_id:
+            record = record.model_copy(update={"proposal_id": client_proposal_id})
+            put_proposal(tenant_id=tenant_id, record=record)
 
         if not record.allowed_actions:
             raise MissionCompositionError(
