@@ -30,6 +30,8 @@ import type {
   BridgeRuntimeAuthorityReadResponse,
   GraphMaterializationReadResponse,
   GraphMaterializationWriteRequest,
+  MissionComposeConfirmResponse,
+  MissionComposeResponse,
   MissionCreateRequest,
   MissionLifecycleReadResponse,
   MissionListResponse,
@@ -649,6 +651,36 @@ export async function createMission(
           jurisdiction: "US-ALL",
           ...body,
         }),
+      },
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function composeMission(
+  caller: AuthedCaller,
+  body: { instruction: string },
+): Promise<MissionComposeResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionComposeResponse>(
+      "/v1/missions/compose",
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function confirmMissionComposition(
+  caller: AuthedCaller,
+  proposalId: string,
+  body?: { composition?: Record<string, unknown> },
+): Promise<MissionComposeConfirmResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionComposeConfirmResponse>(
+      `/v1/missions/proposals/${encodeURIComponent(proposalId)}/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify(body ?? {}),
       },
       runtimeOptions(config),
     ),
