@@ -301,6 +301,64 @@ export interface MissionCreateRequest {
   jurisdiction?: string;
 }
 
+/** Mission Composition Engine (ADR-0008) — everyday launch path. */
+export interface MissionComposeRequest {
+  instruction: string;
+}
+
+export interface MissionComposeResponse {
+  proposal_id: string;
+  instruction: string;
+  mission_brief: {
+    objective: string;
+    success_criteria: Array<{ description: string; measurable?: boolean }>;
+    constraints: string[];
+    approval_preference?: string;
+    target_entities?: Array<Record<string, unknown>>;
+  };
+  assigned_verticals: string[];
+  jobs: Array<Record<string, unknown>>;
+  selected_abilities: Array<{
+    job_key: string;
+    action_name: string;
+    selection_status: string;
+    selection_reason: string;
+    readiness: string;
+    vertical_role?: string;
+  }>;
+  forbidden_actions: string[];
+  allowed_actions: string[];
+  allowed_actions_provenance: Record<string, unknown>;
+  missing_connections: Array<Record<string, unknown>>;
+  approval_gates: string[];
+  planned_steps: Array<{
+    step_key: string;
+    sequence: number;
+    title: string;
+    action_name: string;
+    depends_on: string[];
+  }>;
+  task_graph_preview: Record<string, unknown>;
+  clarifications: Array<{ field: string; question: string; reason: string }>;
+  ready_to_start: boolean;
+  composition: Record<string, unknown>;
+  grants_execution_authority: boolean;
+  authority_class: string;
+}
+
+export interface MissionComposeConfirmResponse {
+  mission_id: string;
+  proposal_id: string;
+  plan_id: string;
+  allowed_actions: string[];
+  forbidden_actions: string[];
+  task_graph: Record<string, unknown>;
+  ready_to_start: boolean;
+  runtime_queued: boolean;
+  grants_execution_authority: boolean;
+  next_steps: string[];
+}
+
 export interface MissionIntakeQualityViolation {
   field: string;
   code: string;

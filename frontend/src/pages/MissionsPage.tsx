@@ -1,60 +1,53 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { createMission, listMissions } from "../api/client";
+import {
+  composeMission,
+  confirmMissionComposition,
+  listMissions,
+} from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
 import PageHeader from "../components/ui/PageHeader";
-import { MISSION_ALLOWED_ACTION_OPTIONS } from "../config/missionAbilities";
 import { LAUNCH_MISSION_TEMPLATES } from "../config/launchMissionTemplates";
-import type { MissionIntakeQualityViolation, MissionListItem, MissionReadResponse } from "../types";
+import type {
+  MissionComposeConfirmResponse,
+  MissionComposeResponse,
+  MissionListItem,
+} from "../types";
 
+const EXAMPLE_INSTRUCTION =
+  "Research roofing companies in Austin, identify three strong prospects, draft personalized introductions, and bring them to me before anything is sent.";
 
-const MISSION_PROMPT_GUIDE = {
-  summary:
-    "Describe a concrete business outcome in plain language. Include who, what, and how you will know it worked.",
-  exampleObjective:
-    "Find three qualified roofing leads in Austin and draft personalized greeting emails for each prospect.",
-  exampleCriterion:
-    "Three leads are documented with company name, contact email, and qualification notes ready for outreach.",
-  rejectedExamples: ["do something", "help me", "be successful", "make it work"],
-  exampleScope: "Austin metro roofing segment, three leads, greeting-email deliverables",
-  defaultAllowedActions: ["gtm.lead_enrich", "gtm.email_draft", "crm.research", "gtm.email_check"],
-};
-
-const DEFAULT_OBJECTIVE = "";
-const DEFAULT_CRITERION = "";
-
-function parseQualityViolations(error: unknown): MissionIntakeQualityViolation[] {
-  const maybe = error as { body?: { detail?: unknown } };
-  const detail = maybe.body?.detail;
-  if (typeof detail !== "object" || detail === null) {
-    return [];
-  }
-  if (
-    "code" in detail &&
-    detail.code === "MISSION_INTAKE_QUALITY_DENIED" &&
-    "violations" in detail &&
-    Array.isArray(detail.violations)
-  ) {
-    return detail.violations as MissionIntakeQualityViolation[];
-  }
-  return [];
+function humanizeAction(action: string): string {
+  const labels: Record<string, string> = {
+    "web.research": "Web research",
+    "web.search": "Web search",
+    "sales.research": "Sales research",
+    "sales.qualify": "Qualify prospects",
+    "sales.score_lead": "Score leads",
+    "gtm.lead_enrich": "Enrich contacts",
+    "gtm.email_draft": "Draft introductions",
+    "gtm.email_send": "Send email",
+    "crm.research": "CRM research",
+    "google_calendar.events_read": "Read calendar",
+    "record.search": "Search records",
+    "retrieval.hybrid_search": "Search memory",
+  };
+  return labels[action] ?? action;
 }
 
 export default function MissionsPage() {
   const { session } = useAuth();
-  const [objective, setObjective] = useState(DEFAULT_OBJECTIVE);
-  const [successCriterion, setSuccessCriterion] = useState(DEFAULT_CRITERION);
-  const [scopeLimit, setScopeLimit] = useState("");
-  const [allowedActions, setAllowedActions] = useState<string[]>(MISSION_PROMPT_GUIDE.defaultAllowedActions);
+  const [instruction, setInstruction] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("custom");
+  const [proposal, setProposal] = useState<MissionComposeResponse | null>(null);
+  const [confirmed, setConfirmed] = useState<MissionComposeConfirmResponse | null>(null);
   const [missions, setMissions] = useState<MissionListItem[]>([]);
-  const [createdMission, setCreatedMission] = useState<MissionReadResponse | null>(null);
-  const [violations, setViolations] = useState<MissionIntakeQualityViolation[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [listError, setListError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [listLoading, setListLoading] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("custom");
 
   const refreshMissions = useCallback(async () => {
     if (!session) {
@@ -77,85 +70,79 @@ export default function MissionsPage() {
     void refreshMissions();
   }, [refreshMissions]);
 
-  function applyExample() {
-    setObjective(MISSION_PROMPT_GUIDE.exampleObjective);
-    setSuccessCriterion(MISSION_PROMPT_GUIDE.exampleCriterion);
-    setScopeLimit(MISSION_PROMPT_GUIDE.exampleScope);
-    setAllowedActions([...MISSION_PROMPT_GUIDE.defaultAllowedActions]);
-    setSelectedTemplateId("custom");
-    setViolations([]);
-    setError(null);
-  }
-
   function applyTemplate(templateId: string) {
     const template = LAUNCH_MISSION_TEMPLATES.find((item) => item.id === templateId);
     if (!template) {
       return;
     }
     setSelectedTemplateId(templateId);
-    setObjective(template.objective);
-    setSuccessCriterion(template.successCriterion);
-    setScopeLimit(template.scopeLimit);
-    setAllowedActions([...template.allowedActions]);
-    setViolations([]);
+    setInstruction(template.instruction);
+    setProposal(null);
+    setConfirmed(null);
     setError(null);
   }
 
-  function toggleAllowedAction(action: string) {
-    setAllowedActions((current) =>
-      current.includes(action) ? current.filter((item) => item !== action) : [...current, action],
-    );
-  }
-
-  async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
+  async function handleCompose(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session) {
+      return;
+    }
+    const text = instruction.trim();
+    if (!text) {
       return;
     }
 
     setLoading(true);
     setError(null);
-    setViolations([]);
-    setCreatedMission(null);
-
+    setProposal(null);
+    setConfirmed(null);
     try {
-      const mission = await createMission(session, {
-        objective: objective.trim(),
-        success_criteria: [
-          {
-            description: successCriterion.trim(),
-            evidence: ["lead research summary", "draft email artifacts"],
-          },
-        ],
-        scope_limits: scopeLimit.trim() ? [scopeLimit.trim()] : [],
-        allowed_actions: allowedActions,
-      });
-      setCreatedMission(mission);
-      await refreshMissions();
-      setObjective("");
-      setSuccessCriterion("");
-      setScopeLimit("");
+      const result = await composeMission(session, { instruction: text });
+      setProposal(result);
     } catch (err) {
-      const qualityViolations = parseQualityViolations(err);
-      if (qualityViolations.length > 0) {
-        setViolations(qualityViolations);
-      }
       setError(err);
     } finally {
       setLoading(false);
     }
   }
 
+  async function handleConfirm() {
+    if (!session || !proposal) {
+      return;
+    }
+    setConfirming(true);
+    setError(null);
+    try {
+      const result = await confirmMissionComposition(session, proposal.proposal_id, {
+        composition: proposal.composition,
+      });
+      setConfirmed(result);
+      setProposal(null);
+      setInstruction("");
+      await refreshMissions();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  const readySelections =
+    proposal?.selected_abilities.filter(
+      (item) => item.selection_status === "selected" && item.readiness === "ready",
+    ) ?? [];
+
   return (
     <main>
       <PageHeader
         eyebrow="Launch mission"
-        title="Describe what you want Ajenda to accomplish"
-        lead="Ajenda will break your goal into governed steps, execute work through your connections, and return evidence for review."
+        title="Tell Ajenda what to accomplish"
+        lead="Describe the outcome in plain language. Ajenda chooses the work, the abilities, and the order — you review the plan, then start. You do not pick tools."
       />
 
       <section className="panel">
-        <h2>Start from a template</h2>
+        <h2>Suggestions</h2>
+        <p className="muted">Optional starters. They fill the mission box — they do not lock abilities.</p>
         <div className="cc-template-grid">
           {LAUNCH_MISSION_TEMPLATES.map((template) => (
             <button
@@ -172,14 +159,184 @@ export default function MissionsPage() {
       </section>
 
       <section className="panel">
+        <form className="form-grid mission-create-form" onSubmit={(event) => void handleCompose(event)}>
+          <label>
+            What should Ajenda do?
+            <textarea
+              className="mission-textarea"
+              value={instruction}
+              onChange={(event) => {
+                setInstruction(event.target.value);
+                setProposal(null);
+                setConfirmed(null);
+              }}
+              placeholder={EXAMPLE_INSTRUCTION}
+              rows={5}
+              required
+            />
+            <span className="field-hint">
+              Include who, what, and any hard limits (for example “draft only — do not send”). Ajenda builds the
+              plan and only uses abilities that fit that instruction and your operating charter.
+            </span>
+          </label>
+
+          <div className="mission-card-actions">
+            <button type="submit" className="primary-button" disabled={!session || loading || !instruction.trim()}>
+              {loading ? "Planning…" : "Plan mission"}
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setInstruction(EXAMPLE_INSTRUCTION);
+                setSelectedTemplateId("roofing-example");
+                setProposal(null);
+                setConfirmed(null);
+              }}
+            >
+              Use Austin roofing example
+            </button>
+          </div>
+        </form>
+      </section>
+
+      {proposal ? (
+        <section className="panel">
+          <h2>Ajenda’s plan</h2>
+          <p className="mission-card-objective">{proposal.mission_brief.objective}</p>
+
+          {proposal.mission_brief.success_criteria.length > 0 ? (
+            <div className="mission-card-meta">
+              <strong>Success looks like</strong>
+              <ul>
+                {proposal.mission_brief.success_criteria.map((item) => (
+                  <li key={item.description}>{item.description}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {proposal.mission_brief.constraints.length > 0 ? (
+            <p className="mission-card-meta">
+              <strong>Limits:</strong> {proposal.mission_brief.constraints.join("; ")}
+            </p>
+          ) : null}
+
+          <div className="mission-card-meta">
+            <strong>Work Ajenda will run</strong>
+            <ol>
+              {proposal.planned_steps.map((step) => (
+                <li key={step.step_key}>
+                  {step.title}
+                  <span className="muted"> — {humanizeAction(step.action_name)}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {readySelections.length > 0 ? (
+            <p className="field-hint">
+              Abilities are selected automatically from Ajenda’s governed catalog for this outcome. Everyday
+              operators do not choose tools; the runtime envelope is set by this plan.
+            </p>
+          ) : null}
+
+          {proposal.missing_connections.length > 0 ? (
+            <div className="callout">
+              <strong>Connections that would improve this mission</strong>
+              <ul>
+                {proposal.missing_connections.map((item) => (
+                  <li key={`${String(item.provider)}-${String(item.action)}`}>
+                    {String(item.provider ?? "connection")}: {String(item.message ?? "not connected")}
+                  </li>
+                ))}
+              </ul>
+              <p className="muted">
+                Missing connections are reported — Ajenda will not fake success.{" "}
+                <Link to="/credentials">Manage connections</Link>
+              </p>
+            </div>
+          ) : null}
+
+          {proposal.clarifications.length > 0 ? (
+            <div className="callout">
+              <strong>Clarifications that would help</strong>
+              <ul>
+                {proposal.clarifications.map((item) => (
+                  <li key={`${item.field}-${item.question}`}>{item.question}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {proposal.forbidden_actions.includes("gtm.email_send") ? (
+            <p className="muted">
+              <strong>Send is off</strong> for this mission. Drafts stay in review until you explicitly allow
+              sending in a later mission or charter change.
+            </p>
+          ) : null}
+
+          <div className="mission-card-actions">
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!session || confirming || !proposal.ready_to_start}
+              onClick={() => void handleConfirm()}
+            >
+              {confirming ? "Creating mission…" : "Start mission"}
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={loading}
+              onClick={() => {
+                setProposal(null);
+              }}
+            >
+              Revise instruction
+            </button>
+          </div>
+          {!proposal.ready_to_start ? (
+            <p className="field-hint">
+              This plan is not ready yet — add missing connections or clarify the instruction, then plan again.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {confirmed ? (
+        <section className="panel success-panel">
+          <h2>Mission ready</h2>
+          <p>
+            Mission <code>{confirmed.mission_id}</code> is created with plan and task graph. Runtime work still
+            starts only through the governed dispatch path — nothing was auto-sent or auto-queued outside that
+            ladder.
+          </p>
+          <div className="mission-card-actions">
+            <Link className="action-link" to={`/missions/${confirmed.mission_id}`}>
+              Open mission
+            </Link>
+            <Link className="ghost-link" to="/missions">
+              Back to list
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
+      <section className="panel">
         <div className="panel-heading-row">
           <h2>Your missions</h2>
-          <button type="button" className="ghost-button" disabled={!session || listLoading} onClick={() => void refreshMissions()}>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={!session || listLoading}
+            onClick={() => void refreshMissions()}
+          >
             {listLoading ? "Refreshing…" : "Refresh"}
           </button>
         </div>
         {missions.length === 0 ? (
-          <p className="muted">No missions yet. Create your first outcome below.</p>
+          <p className="muted">No missions yet. Describe an outcome above.</p>
         ) : (
           <ul className="mission-list">
             {missions.map((mission) => (
@@ -196,15 +353,12 @@ export default function MissionsPage() {
                 ) : null}
                 {mission.allowed_actions.length > 0 ? (
                   <p className="mission-card-meta">
-                    <strong>Abilities:</strong> {mission.allowed_actions.join(", ")}
+                    <strong>Ajenda’s plan:</strong> {mission.allowed_actions.map(humanizeAction).join(" → ")}
                   </p>
                 ) : null}
                 <div className="mission-card-actions">
                   <Link className="action-link" to={`/missions/${mission.mission_id}`}>
-                    Open dispatch
-                  </Link>
-                  <Link className="ghost-link" to={`/tasks?mission_id=${mission.mission_id}`}>
-                    Launch abilities
+                    Open mission
                   </Link>
                 </div>
               </li>
@@ -213,122 +367,6 @@ export default function MissionsPage() {
         )}
         <PageErrorAlert error={listError} className="inline-error compact-error" />
       </section>
-
-      <section className="panel">
-        <div className="callout mission-example-callout">
-          <strong>Acceptable mission example</strong>
-          <p className="muted">{MISSION_PROMPT_GUIDE.summary}</p>
-          <dl className="mission-example-list">
-            <div>
-              <dt>Objective</dt>
-              <dd>{MISSION_PROMPT_GUIDE.exampleObjective}</dd>
-            </div>
-            <div>
-              <dt>Success criterion</dt>
-              <dd>{MISSION_PROMPT_GUIDE.exampleCriterion}</dd>
-            </div>
-          </dl>
-          <p className="field-hint">
-            Avoid vague prompts like {MISSION_PROMPT_GUIDE.rejectedExamples.map((item) => `"${item}"`).join(", ")}.
-          </p>
-          <button type="button" className="ghost-button" onClick={applyExample}>
-            Use this example
-          </button>
-        </div>
-
-        <form className="form-grid mission-create-form" onSubmit={(event) => void handleCreate(event)}>
-          <label>
-            Your goal
-            <textarea
-              className="mission-textarea"
-              value={objective}
-              onChange={(event) => setObjective(event.target.value)}
-              placeholder="Describe what you want Ajenda to accomplish."
-              rows={4}
-              required
-            />
-            <span className="field-hint">State the outcome Ajenda should accomplish — not a question or placeholder.</span>
-          </label>
-
-          <label>
-            Success criterion
-            <textarea
-              className="mission-textarea"
-              value={successCriterion}
-              onChange={(event) => setSuccessCriterion(event.target.value)}
-              placeholder={MISSION_PROMPT_GUIDE.exampleCriterion}
-              rows={3}
-              required
-            />
-            <span className="field-hint">
-              Describe how you will verify completion — counts, deliverables, or documented evidence.
-            </span>
-          </label>
-
-          <label>
-            Scope limit
-            <input
-              value={scopeLimit}
-              onChange={(event) => setScopeLimit(event.target.value)}
-              placeholder={MISSION_PROMPT_GUIDE.exampleScope}
-            />
-            <span className="field-hint">Bound the mission with region, segment, timeframe, or audience.</span>
-          </label>
-
-          <fieldset className="ability-scope-fieldset">
-            <legend>Allowed abilities for this mission</legend>
-            <div className="ability-scope-grid">
-              {MISSION_ALLOWED_ACTION_OPTIONS.map((item) => (
-                <label className="ability-scope-option" key={item.action}>
-                  <input
-                    type="checkbox"
-                    checked={allowedActions.includes(item.action)}
-                    onChange={() => toggleAllowedAction(item.action)}
-                  />
-                  <span>{item.label}</span>
-                  <small>{item.action}</small>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          <button type="submit" className="primary-button" disabled={!session || loading}>
-            {loading ? "Creating mission…" : "Create mission"}
-          </button>
-        </form>
-      </section>
-
-      {violations.length > 0 ? (
-        <section className="panel">
-          <h2>Fix these before resubmitting</h2>
-          <ul className="violation-list">
-            {violations.map((item) => (
-              <li key={`${item.field}-${item.code}`}>
-                <strong>{item.field}</strong>
-                <span>{item.reason}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {createdMission ? (
-        <section className="panel success-panel">
-          <h2>Mission created</h2>
-          <p>
-            <code>{createdMission.mission_id}</code> is <strong>{createdMission.status}</strong> and ready for
-            mission-scoped abilities.
-          </p>
-          <div className="mission-card-actions">
-            <Link className="action-link" to={`/missions/${createdMission.mission_id}`}>
-              Open mission dispatch
-            </Link>
-            <Link className="ghost-link" to={`/tasks?mission_id=${createdMission.mission_id}`}>
-              Launch abilities directly
-            </Link>
-          </div>
-        </section>
-      ) : null}
 
       <PageErrorAlert error={error} />
     </main>
