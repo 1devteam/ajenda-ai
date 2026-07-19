@@ -485,7 +485,14 @@ class OidcLoginService:
             raise OidcLoginValidationError("redirect_uri must use https in production")
         allowed = self._settings.oidc_redirect_uri_allowlist_set
         if allowed and normalized not in allowed:
-            raise OidcLoginValidationError("redirect_uri is not allowed")
+            # Exact match only (scheme, host, port, path). Common failures:
+            # localhost vs 127.0.0.1, :5173 (Vite) vs :8080 (compose), trailing slash.
+            raise OidcLoginValidationError(
+                "redirect_uri is not allowed "
+                f"(received={normalized!r}; "
+                "set AJENDA_OIDC_REDIRECT_URI_ALLOWLIST to include this exact URL, "
+                "and register the same URI on the OIDC provider / Google Cloud Console)"
+            )
 
     @staticmethod
     def _validate_code_challenge(code_challenge: str) -> None:
