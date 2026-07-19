@@ -71,6 +71,9 @@ def compile_planned_steps(
             output_contract=produced,
             input_bindings=input_bindings,
             tool_input=tool_input,
+            credential_reference=(
+                dict(selection.credential_reference) if isinstance(selection.credential_reference, dict) else None
+            ),
         )
         steps.append(step)
         step_by_job[selection.job_key] = step
@@ -124,7 +127,12 @@ def compile_task_graph_preview(steps: list[PlannedStepPreview]) -> dict[str, Any
                         "schema_version": 1,
                         "action": step.action_name,
                         "input": dict(step.tool_input),
-                    }
+                    },
+                    **(
+                        {"credential_reference": dict(step.credential_reference)}
+                        if isinstance(step.credential_reference, dict)
+                        else {}
+                    ),
                 },
                 "output_contract": {"artifact": step.output_contract},
                 "metadata": {

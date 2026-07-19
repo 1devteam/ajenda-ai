@@ -161,6 +161,7 @@ class PlannedStepPreview(BaseModel):
     output_contract: str = Field(min_length=1, max_length=240)
     input_bindings: list[dict[str, str]] = Field(default_factory=list, max_length=20)
     tool_input: dict[str, Any] = Field(default_factory=dict)
+    credential_reference: dict[str, Any] | None = None
 
 
 class AllowedActionsProvenance(BaseModel):

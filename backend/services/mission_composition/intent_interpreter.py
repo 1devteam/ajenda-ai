@@ -60,6 +60,14 @@ _ENRICH_PATTERNS = (
     r"contact details",
     r"find emails",
 )
+_CALENDAR_PATTERNS = (
+    r"\bcalendar\b",
+    r"calendar briefing",
+    r"read calendar",
+    r"upcoming (?:calendar )?commitments",
+    r"meeting prep",
+    r"meeting brief",
+)
 _COUNT_PATTERN = re.compile(r"\b(\d+|three|two|four|five|ten)\b", re.IGNORECASE)
 _WORD_COUNTS = {
     "two": 2,
@@ -68,9 +76,26 @@ _WORD_COUNTS = {
     "five": 5,
     "ten": 10,
 }
+# Capture "{industry} companies in {location}" without swallowing leading verbs or trailing clauses.
 _INDUSTRY_LOCATION = re.compile(
-    r"(?P<industry>[A-Za-z][A-Za-z\s\-/]{2,40}?)\s+companies\s+in\s+(?P<location>[A-Za-z][A-Za-z\s,.]{1,40})",
+    r"(?:^|[\s,;:])(?P<industry>[A-Za-z][A-Za-z\-/]{1,40}(?:\s+[A-Za-z][A-Za-z\-/]{1,40}){0,3})"
+    r"\s+companies\s+in\s+(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
+    r"(?=$|[\s,;.:]|\band\b)",
     re.IGNORECASE,
+)
+_LEADING_VERB_WORDS = frozenset(
+    {
+        "research",
+        "find",
+        "discover",
+        "identify",
+        "search",
+        "locate",
+        "analyze",
+        "study",
+        "review",
+        "target",
+    }
 )
 
 
@@ -92,8 +117,13 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     match = _INDUSTRY_LOCATION.search(text)
     if match is None:
         return []
-    industry = match.group("industry").strip()
-    location = match.group("location").strip().rstrip(".")
+    industry_tokens = [token for token in match.group("industry").strip().split() if token]
+    while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
+        industry_tokens.pop(0)
+    industry = " ".join(industry_tokens).strip(" ,.;:")
+    location = match.group("location").strip(" ,.;:")
+    if not industry or not location:
+        return []
     return [
         TargetEntity(
             type="company",
@@ -129,6 +159,7 @@ def interpret_instruction(
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_research = _contains_any(lower, _RESEARCH_PATTERNS)
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS) or (wants_draft and wants_qualify)
+    wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
 
     if wants_research:
         outcomes.append("research prospects")
@@ -140,6 +171,8 @@ def interpret_instruction(
         outcomes.append("draft introductions")
     if wants_send:
         outcomes.append("send emails")
+    if wants_calendar:
+        outcomes.append("calendar briefing")
 
     if no_send or (wants_draft and not wants_send):
         constraints.append("Do not send messages")

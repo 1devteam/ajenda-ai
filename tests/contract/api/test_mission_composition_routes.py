@@ -127,7 +127,13 @@ def test_confirm_creates_mission_plan_graph_not_queue() -> None:
     assert body["plan_id"] == str(plan_id)
     assert body["runtime_queued"] is False
     assert body["grants_execution_authority"] is False
-    assert "runtime-queue-admission" in " ".join(body["next_steps"])
+    next_steps = " ".join(body["next_steps"])
+    assert "runtime-admission" in next_steps
+    assert "runtime-task-materialization" in next_steps
+    assert "runtime-queue-admission" in next_steps
+    assert body["next_steps"].index(
+        next(step for step in body["next_steps"] if "runtime-admission" in step and "queue" not in step)
+    ) < body["next_steps"].index(next(step for step in body["next_steps"] if "runtime-task-materialization" in step))
     assert "gtm.email_send" not in body["allowed_actions"]
     assert MISSION_TASK_GRAPH_METADATA_KEY in body["task_graph"] or body["task_graph"].get("nodes") is not None
 

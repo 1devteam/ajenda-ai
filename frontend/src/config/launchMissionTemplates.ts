@@ -47,7 +47,7 @@ export const LAUNCH_MISSION_TEMPLATES: LaunchMissionTemplate[] = [
     title: "Scheduling",
     description: "Calendar-aware meeting prep from connected calendar and records.",
     instruction:
-      "Review upcoming calendar commitments and prepare briefing context for the next client meetings. Do not send messages.",
+      "Provide a calendar briefing: read calendar for upcoming commitments and prepare briefing context for the next client meetings. Do not send messages.",
   },
   {
     id: "custom",

@@ -372,7 +372,8 @@ class MissionCompositionService:
             "runtime_queued": False,
             "grants_execution_authority": False,
             "next_steps": [
-                "POST /v1/missions/{mission_id}/materialize-graph (optional provenance)",
+                "POST /v1/missions/{mission_id}/materialize-graph",
+                "POST /v1/missions/{mission_id}/runtime-admission",
                 "POST /v1/missions/{mission_id}/runtime-task-materialization",
                 "POST /v1/missions/{mission_id}/runtime-queue-admission",
             ],

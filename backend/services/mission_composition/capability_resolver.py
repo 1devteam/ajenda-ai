@@ -291,6 +291,7 @@ def evaluate_action_candidate(
                 "schema_version": 1,
                 "credential_id": hint["credential_id"],
                 "provider": hint["provider"],
+                "credential_type": "api_key",
             }
             if hint and connected
             else None

@@ -33,9 +33,11 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     assert "gtm.email_send" in intent.forbidden_outcomes
     assert intent.target_entities
     assert intent.target_entities[0].location
-    assert "austin" in intent.target_entities[0].location.lower()
+    assert intent.target_entities[0].location.lower() == "austin"
     assert intent.target_entities[0].industry
-    assert "roofing" in intent.target_entities[0].industry.lower()
+    assert intent.target_entities[0].industry.lower() == "roofing"
+    assert "research" not in intent.target_entities[0].industry.lower()
+    assert "identify" not in intent.target_entities[0].location.lower()
 
 
 def test_interpreter_does_not_invent_actions() -> None:
@@ -131,6 +133,45 @@ def test_send_without_gmail_is_not_ready() -> None:
     assert "gtm.email_send" not in record.allowed_actions or record.ready_to_start is False
     if any(item.job_key == "email.deliver_outreach" for item in record.ability_selections):
         assert record.ready_to_start is False
+
+
+def test_calendar_briefing_instruction_routes_to_calendar_job() -> None:
+    intent = interpret_instruction(
+        "Provide a calendar briefing: read calendar for upcoming commitments and prepare meeting briefs."
+    )
+    assert "calendar briefing" in intent.requested_outcomes
+    jobs = route_jobs_for_intent(intent)
+    assert any(job.job_key == "ops.calendar_briefing" for job in jobs)
+
+
+def test_credential_reference_is_copied_into_graph_input_contract() -> None:
+    from backend.services.mission_composition.contracts import AbilitySelection
+
+    selection = AbilitySelection(
+        job_key="email.deliver_outreach",
+        ability_id="gtm-email-send",
+        action_name="gtm.email_send",
+        selection_status="selected",
+        selection_reason="connected gmail",
+        readiness="ready",
+        vertical_role="vertical.email",
+        side_effect_class="external_send",
+        credential_reference={
+            "schema_version": 1,
+            "credential_id": "gmail-email",
+            "provider": "external_email",
+            "credential_type": "api_key",
+        },
+    )
+    intent = interpret_instruction("Send a follow-up email to a prospect.")
+    steps = compile_planned_steps([selection], intent=intent)
+    graph = compile_task_graph_preview(steps)
+    node = graph["nodes"][0]
+    cred = node["input_contract"].get("credential_reference")
+    assert cred is not None
+    assert cred["credential_id"] == "gmail-email"
+    assert cred["provider"] == "external_email"
+    assert cred["credential_type"] == "api_key"
 
 
 def test_compose_service_roofing_ready_without_db() -> None:
