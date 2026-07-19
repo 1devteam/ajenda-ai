@@ -273,26 +273,27 @@ def test_confirm_ignores_client_forged_allowed_actions() -> None:
     assert result["mission_id"] == str(mid)
 
 
-def test_matched_credential_id_not_hardcoded_hint() -> None:
+def test_matched_credential_id_and_type_preserved() -> None:
     from backend.services.mission_composition.capability_resolver import evaluate_action_candidate
     from backend.services.mission_composition.job_catalog import get_business_job
     from backend.services.operating_charter import dogfood_operating_charter
 
     job = get_business_job("email.deliver_outreach")
-    selection = evaluate_action_candidate(
-        job=job,
-        action_name="gtm.email_send",
-        charter=dogfood_operating_charter(),
-        connected_credential_ids={"ajenda-email"},
-        connected_integrations={"gmail"},
-        forbid_actions=set(),
-        preferred_credential_by_integration={"gmail": ("ajenda-email", "platform_master")},
-        credential_type_by_id={"ajenda-email": "platform_master"},
-    )
-    assert selection.readiness == "ready"
-    assert selection.credential_reference is not None
-    assert selection.credential_reference["credential_id"] == "ajenda-email"
-    assert selection.credential_reference["credential_type"] == "platform_master"
+    for cred_type in ("platform_master", "smtp", "api_key"):
+        selection = evaluate_action_candidate(
+            job=job,
+            action_name="gtm.email_send",
+            charter=dogfood_operating_charter(),
+            connected_credential_ids={"ajenda-email"},
+            connected_integrations={"gmail"},
+            forbid_actions=set(),
+            preferred_credential_by_integration={"gmail": ("ajenda-email", cred_type)},
+            credential_type_by_id={"ajenda-email": cred_type},
+        )
+        assert selection.readiness == "ready", cred_type
+        assert selection.credential_reference is not None
+        assert selection.credential_reference["credential_id"] == "ajenda-email"
+        assert selection.credential_reference["credential_type"] == cred_type
 
 
 def test_confirm_proposal_id_miss_returns_not_found() -> None:

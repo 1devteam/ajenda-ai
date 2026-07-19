@@ -291,11 +291,34 @@ def evaluate_action_candidate(
 
     credential_reference = None
     if hint and connected and matched_credential_id:
+        credential_type = matched_credential_type or "api_key"
+        # Align with ActionDefinition.credential_requirement when present.
+        try:
+            action_def = registry.get(action_name)
+            requirement = getattr(action_def, "credential_requirement", None)
+            if requirement is not None and hasattr(requirement, "accepts_credential_type"):
+                if not requirement.accepts_credential_type(credential_type):
+                    return AbilitySelection(
+                        job_key=job.job_key,
+                        ability_id=manifest.ability_id,
+                        action_name=action_name,
+                        selection_status="rejected",
+                        selection_reason=(
+                            f"Connected credential type {credential_type!r} is not accepted by action {action_name!r}."
+                        ),
+                        readiness="unavailable",
+                        vertical_role=job.vertical_role,
+                        side_effect_class=side_effect.value,
+                        requires_connection=True,
+                        connection_provider=hint["integration"],
+                    )
+        except ValueError:
+            pass
         credential_reference = {
             "schema_version": 1,
             "credential_id": matched_credential_id,
             "provider": hint["provider"],
-            "credential_type": matched_credential_type or "api_key",
+            "credential_type": credential_type,
         }
 
     return AbilitySelection(
