@@ -155,8 +155,7 @@ def _assess_mission(
                 tier=spec["tier"],
                 status="NEEDS_CREDENTIAL",
                 note=(
-                    "Connect Gmail OAuth, tenant SMTP (any host), or the ajenda-email "
-                    "platform lane for external send."
+                    "Connect Gmail OAuth, tenant SMTP (any host), or the ajenda-email platform lane for external send."
                 ),
             )
         if not get_settings().llm_ready:
