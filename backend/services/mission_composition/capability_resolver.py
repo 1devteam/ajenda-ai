@@ -149,20 +149,26 @@ def _connection_status(
     *,
     connected_credential_ids: set[str],
     connected_integrations: set[str],
-    preferred_credential_by_integration: dict[str, str] | None = None,
-) -> tuple[bool, dict[str, str] | None, str | None]:
-    """Return (connected, catalog_hint, matched_credential_id)."""
+    preferred_credential_by_integration: dict[str, tuple[str, str]] | None = None,
+    credential_type_by_id: dict[str, str] | None = None,
+) -> tuple[bool, dict[str, str] | None, str | None, str | None]:
+    """Return (connected, catalog_hint, matched_credential_id, matched_credential_type)."""
 
     preferred_credential_by_integration = preferred_credential_by_integration or {}
+    credential_type_by_id = credential_type_by_id or {}
     hint = _CONNECTION_HINTS.get(action_name)
     if hint is None:
-        return True, None, None
+        return True, None, None, None
     if hint["credential_id"] in connected_credential_ids:
-        return True, hint, hint["credential_id"]
+        cred_type = credential_type_by_id.get(hint["credential_id"], "api_key")
+        return True, hint, hint["credential_id"], cred_type
     if hint["integration"] in connected_integrations:
         matched = preferred_credential_by_integration.get(hint["integration"])
-        return True, hint, matched
-    return False, hint, None
+        if matched is None:
+            return True, hint, None, None
+        matched_id, matched_type = matched
+        return True, hint, matched_id, matched_type
+    return False, hint, None, None
 
 
 def evaluate_action_candidate(
@@ -173,7 +179,8 @@ def evaluate_action_candidate(
     connected_credential_ids: set[str],
     connected_integrations: set[str],
     forbid_actions: set[str],
-    preferred_credential_by_integration: dict[str, str] | None = None,
+    preferred_credential_by_integration: dict[str, tuple[str, str]] | None = None,
+    credential_type_by_id: dict[str, str] | None = None,
 ) -> AbilitySelection:
     registry = get_default_action_registry()
     manifest = ABILITY_MANIFESTS_BY_ACTION.get(action_name)
@@ -246,11 +253,12 @@ def evaluate_action_candidate(
             side_effect_class=side_effect.value,
         )
 
-    connected, hint, matched_credential_id = _connection_status(
+    connected, hint, matched_credential_id, matched_credential_type = _connection_status(
         action_name,
         connected_credential_ids=connected_credential_ids,
         connected_integrations=connected_integrations,
         preferred_credential_by_integration=preferred_credential_by_integration,
+        credential_type_by_id=credential_type_by_id,
     )
     if job.credential_policy == "required" and not connected:
         return AbilitySelection(
@@ -287,7 +295,7 @@ def evaluate_action_candidate(
             "schema_version": 1,
             "credential_id": matched_credential_id,
             "provider": hint["provider"],
-            "credential_type": "api_key",
+            "credential_type": matched_credential_type or "api_key",
         }
 
     return AbilitySelection(
@@ -312,7 +320,8 @@ def resolve_jobs(
     charter: OperatingCharter | None = None,
     connected_credential_ids: set[str] | None = None,
     connected_integrations: set[str] | None = None,
-    preferred_credential_by_integration: dict[str, str] | None = None,
+    preferred_credential_by_integration: dict[str, tuple[str, str]] | None = None,
+    credential_type_by_id: dict[str, str] | None = None,
 ) -> tuple[list[AbilitySelection], list[dict[str, Any]]]:
     """Select one primary ability per job and collect missing connections."""
 
@@ -320,6 +329,7 @@ def resolve_jobs(
     connected_credential_ids = connected_credential_ids or set()
     connected_integrations = connected_integrations or set()
     preferred_credential_by_integration = preferred_credential_by_integration or {}
+    credential_type_by_id = credential_type_by_id or {}
     forbid_actions = {item.strip() for item in intent.forbidden_outcomes if item.strip()}
     # Treat gtm.email_send as forbidden when "send messages" constraint present.
     if any("do not send" in c.lower() for c in intent.constraints):
@@ -342,6 +352,7 @@ def resolve_jobs(
                 connected_integrations=connected_integrations,
                 forbid_actions=forbid_actions,
                 preferred_credential_by_integration=preferred_credential_by_integration,
+                credential_type_by_id=credential_type_by_id,
             )
             for action_name in ordered
         ]
