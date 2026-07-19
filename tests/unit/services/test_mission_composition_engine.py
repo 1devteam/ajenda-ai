@@ -286,11 +286,32 @@ def test_matched_credential_id_not_hardcoded_hint() -> None:
         connected_credential_ids={"ajenda-email"},
         connected_integrations={"gmail"},
         forbid_actions=set(),
-        preferred_credential_by_integration={"gmail": "ajenda-email"},
+        preferred_credential_by_integration={"gmail": ("ajenda-email", "platform_master")},
+        credential_type_by_id={"ajenda-email": "platform_master"},
     )
     assert selection.readiness == "ready"
     assert selection.credential_reference is not None
     assert selection.credential_reference["credential_id"] == "ajenda-email"
+    assert selection.credential_reference["credential_type"] == "platform_master"
+
+
+def test_confirm_proposal_id_miss_returns_not_found() -> None:
+    from unittest.mock import MagicMock
+
+    from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
+    from backend.services.mission_composition.service import MissionCompositionError
+
+    clear_proposals_for_tests()
+    service = MissionCompositionService(db=MagicMock())
+    try:
+        service.confirm(
+            tenant_id="11111111-1111-1111-1111-111111111111",
+            proposal_id="missing-proposal-id",
+            composition=None,
+        )
+        raise AssertionError("expected PROPOSAL_NOT_FOUND")
+    except MissionCompositionError as exc:
+        assert exc.code == "PROPOSAL_NOT_FOUND"
 
 
 def test_connected_sets_maps_provider_without_integration_attr() -> None:

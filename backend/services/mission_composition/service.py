@@ -109,30 +109,33 @@ def _integrations_for_credential(record: object) -> set[str]:
     return found
 
 
-def _connected_sets(db: Session | None, tenant_id: str) -> tuple[set[str], set[str], dict[str, str]]:
-    """Return credential ids, integrations, and preferred credential_id per integration."""
+def _connected_sets(
+    db: Session | None, tenant_id: str
+) -> tuple[set[str], set[str], dict[str, tuple[str, str]], dict[str, str]]:
+    """Return credential ids, integrations, preferred (id, type) per integration, type by id."""
 
     if db is None:
-        return set(), set(), {}
+        return set(), set(), {}, {}
     try:
         records = ProviderRuntimeCredentialRepository(db).list_for_tenant(tenant_id=tenant_id)
     except Exception:
-        return set(), set(), {}
+        return set(), set(), {}, {}
     credential_ids: set[str] = set()
     integrations: set[str] = set()
-    preferred_by_integration: dict[str, str] = {}
+    preferred_by_integration: dict[str, tuple[str, str]] = {}
+    type_by_credential_id: dict[str, str] = {}
     for record in records:
         if getattr(record, "revoked", False) or getattr(record, "deleted", False):
             continue
         if getattr(record, "enabled", True) is False:
             continue
         cred_id = str(record.credential_id)
+        cred_type = str(getattr(record, "credential_type", "") or "api_key").strip() or "api_key"
         credential_ids.add(cred_id)
+        type_by_credential_id[cred_id] = cred_type
         for integ in _integrations_for_credential(record):
             integrations.add(integ)
-            # Prefer first enabled match; exact catalog ids win if present later.
-            preferred_by_integration.setdefault(integ, cred_id)
-    # Prefer catalog-standard ids when the tenant actually has them.
+            preferred_by_integration.setdefault(integ, (cred_id, cred_type))
     for catalog_id, integ in (
         ("gmail-email", "gmail"),
         ("hubspot-crm", "hubspot"),
@@ -141,9 +144,9 @@ def _connected_sets(db: Session | None, tenant_id: str) -> tuple[set[str], set[s
         ("linkedin-read", "linkedin"),
         ("github-read", "github"),
     ):
-        if catalog_id in credential_ids and integ in preferred_by_integration:
-            preferred_by_integration[integ] = catalog_id
-    return credential_ids, integrations, preferred_by_integration
+        if catalog_id in type_by_credential_id and integ in preferred_by_integration:
+            preferred_by_integration[integ] = (catalog_id, type_by_credential_id[catalog_id])
+    return credential_ids, integrations, preferred_by_integration, type_by_credential_id
 
 
 def _load_charter(db: Session | None, tenant_id: str) -> Any:
@@ -171,7 +174,7 @@ class MissionCompositionService:
             profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
         intent = interpret_instruction(instruction, profile_context=_profile_context(profile))
         charter = _load_charter(self._db, tenant_id)
-        connected_ids, connected_integrations, preferred_creds = _connected_sets(self._db, tenant_id)
+        connected_ids, connected_integrations, preferred_creds, type_by_id = _connected_sets(self._db, tenant_id)
 
         jobs = route_jobs_for_intent(intent)
         selections, missing = resolve_jobs(
@@ -181,6 +184,7 @@ class MissionCompositionService:
             connected_credential_ids=connected_ids,
             connected_integrations=connected_integrations,
             preferred_credential_by_integration=preferred_creds,
+            credential_type_by_id=type_by_id,
         )
         planned_steps = compile_planned_steps(selections, intent=intent)
         job_assignments = compile_job_assignments(selections)
@@ -270,11 +274,20 @@ class MissionCompositionService:
 
         if instruction is None and proposal_id:
             cached = get_proposal(tenant_id=tenant_id, proposal_id=proposal_id)
-            if cached is not None:
-                instruction = cached.instruction
-                client_proposal_id = cached.proposal_id
+            if cached is None:
+                raise MissionCompositionError(
+                    code="PROPOSAL_NOT_FOUND",
+                    message="proposal_id not found for tenant; recompose or pass composition.instruction",
+                )
+            instruction = cached.instruction
+            client_proposal_id = cached.proposal_id
 
         if not instruction:
+            if proposal_id:
+                raise MissionCompositionError(
+                    code="PROPOSAL_NOT_FOUND",
+                    message="proposal_id not found for tenant; recompose or pass composition.instruction",
+                )
             raise MissionCompositionError(
                 code="PROPOSAL_REQUIRED",
                 message="proposal_id or composition.instruction is required",
