@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   composeMission,
   confirmMissionComposition,
@@ -15,31 +15,14 @@ import type {
   MissionListItem,
 } from "../types";
 
-const EXAMPLE_INSTRUCTION =
+const PLACEHOLDER =
   "Research roofing companies in Austin, identify three strong prospects, draft personalized introductions, and bring them to me before anything is sent.";
-
-function humanizeAction(action: string): string {
-  const labels: Record<string, string> = {
-    "web.research": "Web research",
-    "web.search": "Web search",
-    "sales.research": "Sales research",
-    "sales.qualify": "Qualify prospects",
-    "sales.score_lead": "Score leads",
-    "gtm.lead_enrich": "Enrich contacts",
-    "gtm.email_draft": "Draft introductions",
-    "gtm.email_send": "Send email",
-    "crm.research": "CRM research",
-    "google_calendar.events_read": "Read calendar",
-    "record.search": "Search records",
-    "retrieval.hybrid_search": "Search memory",
-  };
-  return labels[action] ?? action;
-}
 
 export default function MissionsPage() {
   const { session } = useAuth();
+  const navigate = useNavigate();
   const [instruction, setInstruction] = useState("");
-  const [selectedTemplateId, setSelectedTemplateId] = useState("custom");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [proposal, setProposal] = useState<MissionComposeResponse | null>(null);
   const [confirmed, setConfirmed] = useState<MissionComposeConfirmResponse | null>(null);
   const [missions, setMissions] = useState<MissionListItem[]>([]);
@@ -119,7 +102,10 @@ export default function MissionsPage() {
       setConfirmed(result);
       setProposal(null);
       setInstruction("");
+      setSelectedTemplateId(null);
       await refreshMissions();
+      // Composition creates plan + graph; execution continues on the mission page.
+      navigate(`/missions/${result.mission_id}`);
     } catch (err) {
       setError(err);
     } finally {
@@ -127,22 +113,17 @@ export default function MissionsPage() {
     }
   }
 
-  const readySelections =
-    proposal?.selected_abilities.filter(
-      (item) => item.selection_status === "selected" && item.readiness === "ready",
-    ) ?? [];
-
   return (
     <main>
       <PageHeader
-        eyebrow="Launch mission"
-        title="Tell Ajenda what to accomplish"
-        lead="Describe the outcome in plain language. Ajenda chooses the work, the abilities, and the order — you review the plan, then start. You do not pick tools."
+        eyebrow="Missions"
+        title="Request a mission"
+        lead="You describe the outcome. Ajenda classifies the work, chooses skills from its full catalog, plans the order, and executes under your charter. You never pick tools."
       />
 
       <section className="panel">
-        <h2>Suggestions</h2>
-        <p className="muted">Optional starters. They fill the mission box — they do not lock abilities.</p>
+        <h2>Templates</h2>
+        <p className="muted">Optional starters. They only fill the request box — they do not choose skills.</p>
         <div className="cc-template-grid">
           {LAUNCH_MISSION_TEMPLATES.map((template) => (
             <button
@@ -158,43 +139,52 @@ export default function MissionsPage() {
         </div>
       </section>
 
+      <section className="panel callout">
+        <h2>What makes a mission executable</h2>
+        <ul>
+          <li>
+            <strong>Outcome</strong> — what success looks like (who, market, deliverable).
+          </li>
+          <li>
+            <strong>Scope</strong> — industry, place, or count when it matters (e.g. “three prospects in Austin”).
+          </li>
+          <li>
+            <strong>Hard limits</strong> — especially send vs draft (e.g. “bring them to me before anything is
+            sent”).
+          </li>
+          <li>
+            <strong>Connections</strong> — optional; Ajenda reports missing links and will not fake success.{" "}
+            <Link to="/credentials">Manage connections</Link>
+          </li>
+        </ul>
+        <p className="muted">
+          Skills are always available to Ajenda. Your operating charter still blocks forbidden actions (for example
+          send-by-default stays off until you opt in).
+        </p>
+      </section>
+
       <section className="panel">
         <form className="form-grid mission-create-form" onSubmit={(event) => void handleCompose(event)}>
           <label>
-            What should Ajenda do?
+            Mission request
             <textarea
               className="mission-textarea"
               value={instruction}
               onChange={(event) => {
                 setInstruction(event.target.value);
+                setSelectedTemplateId(null);
                 setProposal(null);
                 setConfirmed(null);
               }}
-              placeholder={EXAMPLE_INSTRUCTION}
+              placeholder={PLACEHOLDER}
               rows={5}
               required
             />
-            <span className="field-hint">
-              Include who, what, and any hard limits (for example “draft only — do not send”). Ajenda builds the
-              plan and only uses abilities that fit that instruction and your operating charter.
-            </span>
           </label>
 
           <div className="mission-card-actions">
             <button type="submit" className="primary-button" disabled={!session || loading || !instruction.trim()}>
               {loading ? "Planning…" : "Plan mission"}
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => {
-                setInstruction(EXAMPLE_INSTRUCTION);
-                setSelectedTemplateId("roofing-example");
-                setProposal(null);
-                setConfirmed(null);
-              }}
-            >
-              Use Austin roofing example
             </button>
           </div>
         </form>
@@ -226,20 +216,14 @@ export default function MissionsPage() {
             <strong>Work Ajenda will run</strong>
             <ol>
               {proposal.planned_steps.map((step) => (
-                <li key={step.step_key}>
-                  {step.title}
-                  <span className="muted"> — {humanizeAction(step.action_name)}</span>
-                </li>
+                <li key={step.step_key}>{step.title}</li>
               ))}
             </ol>
-          </div>
-
-          {readySelections.length > 0 ? (
             <p className="field-hint">
-              Abilities are selected automatically from Ajenda’s governed catalog for this outcome. Everyday
-              operators do not choose tools; the runtime envelope is set by this plan.
+              Ajenda selected these steps from its full skill catalog for this outcome. You do not configure skills
+              here.
             </p>
-          ) : null}
+          </div>
 
           {proposal.missing_connections.length > 0 ? (
             <div className="callout">
@@ -260,7 +244,7 @@ export default function MissionsPage() {
 
           {proposal.clarifications.length > 0 ? (
             <div className="callout">
-              <strong>Clarifications that would help</strong>
+              <strong>Clarify to improve the plan</strong>
               <ul>
                 {proposal.clarifications.map((item) => (
                   <li key={`${item.field}-${item.question}`}>{item.question}</li>
@@ -271,8 +255,7 @@ export default function MissionsPage() {
 
           {proposal.forbidden_actions.includes("gtm.email_send") ? (
             <p className="muted">
-              <strong>Send is off</strong> for this mission. Drafts stay in review until you explicitly allow
-              sending in a later mission or charter change.
+              <strong>Send is off</strong> for this mission (charter). Drafts stay in review until you allow sending.
             </p>
           ) : null}
 
@@ -283,7 +266,7 @@ export default function MissionsPage() {
               disabled={!session || confirming || !proposal.ready_to_start}
               onClick={() => void handleConfirm()}
             >
-              {confirming ? "Creating mission…" : "Start mission"}
+              {confirming ? "Starting…" : "Start mission"}
             </button>
             <button
               type="button"
@@ -293,12 +276,12 @@ export default function MissionsPage() {
                 setProposal(null);
               }}
             >
-              Revise instruction
+              Revise request
             </button>
           </div>
           {!proposal.ready_to_start ? (
             <p className="field-hint">
-              This plan is not ready yet — add missing connections or clarify the instruction, then plan again.
+              Not ready yet — resolve connections or clarify the request, then plan again.
             </p>
           ) : null}
         </section>
@@ -306,20 +289,13 @@ export default function MissionsPage() {
 
       {confirmed ? (
         <section className="panel success-panel">
-          <h2>Mission ready</h2>
+          <h2>Mission created</h2>
           <p>
-            Mission <code>{confirmed.mission_id}</code> is created with plan and task graph. Runtime work still
-            starts only through the governed dispatch path — nothing was auto-sent or auto-queued outside that
-            ladder.
+            Mission <code>{confirmed.mission_id}</code> is ready. Opening execution…
           </p>
-          <div className="mission-card-actions">
-            <Link className="action-link" to={`/missions/${confirmed.mission_id}`}>
-              Open mission
-            </Link>
-            <Link className="ghost-link" to="/missions">
-              Back to list
-            </Link>
-          </div>
+          <Link className="action-link" to={`/missions/${confirmed.mission_id}`}>
+            Continue to execution
+          </Link>
         </section>
       ) : null}
 
@@ -336,7 +312,7 @@ export default function MissionsPage() {
           </button>
         </div>
         {missions.length === 0 ? (
-          <p className="muted">No missions yet. Describe an outcome above.</p>
+          <p className="muted">No missions yet. Use a template or write a request above.</p>
         ) : (
           <ul className="mission-list">
             {missions.map((mission) => (
@@ -349,11 +325,6 @@ export default function MissionsPage() {
                 {mission.scope_limits.length > 0 ? (
                   <p className="mission-card-meta">
                     <strong>Scope:</strong> {mission.scope_limits.join("; ")}
-                  </p>
-                ) : null}
-                {mission.allowed_actions.length > 0 ? (
-                  <p className="mission-card-meta">
-                    <strong>Ajenda’s plan:</strong> {mission.allowed_actions.map(humanizeAction).join(" → ")}
                   </p>
                 ) : null}
                 <div className="mission-card-actions">

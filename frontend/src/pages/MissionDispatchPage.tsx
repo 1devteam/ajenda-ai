@@ -304,7 +304,9 @@ export default function MissionDispatchPage() {
         );
       }
       if (allowedActions.length === 0) {
-        throw new Error("Mission has no allowed_actions — add abilities when creating the mission.");
+        throw new Error(
+          "Mission has no composed plan. Return to Missions and request an outcome so Ajenda can plan the work.",
+        );
       }
       if (!lifecycle.completeness.has_task_graph) {
         await upsertMissionTaskGraph(session, missionId, buildTaskGraphPayload(allowedActions));
@@ -357,19 +359,16 @@ export default function MissionDispatchPage() {
     <main className="page-shell">
       <section className="hero compact-hero">
         <div>
-          <p className="eyebrow">Mission dispatch</p>
+          <p className="eyebrow">Mission execution</p>
           <h1>{lifecycle?.mission.objective ?? "Loading mission…"}</h1>
           <p>
-            Prepare the mission graph, admit it to the governed runtime, materialize planned tasks, and queue them for
-            worker execution — without bypassing Ajenda&apos;s authority boundaries.
+            Ajenda already chose the work for this mission. Run the governed pipeline to materialize tasks and queue
+            workers — without picking skills or bypassing authority boundaries.
           </p>
         </div>
         <div className="hero-actions">
           <Link className="ghost-link" to="/missions">
             All missions
-          </Link>
-          <Link className="action-link" to={`/tasks?mission_id=${missionId}`}>
-            Launch abilities directly
           </Link>
         </div>
       </section>
@@ -385,24 +384,27 @@ export default function MissionDispatchPage() {
           </p>
           {allowedActions.length > 0 ? (
             <p className="mission-card-meta">
-              <strong>Allowed abilities:</strong> {allowedActions.join(", ")}
+              <strong>Ajenda planned {allowedActions.length} step(s)</strong> for this outcome (composition engine —
+              not user-selected skills).
             </p>
           ) : (
-            <p className="muted">No allowed_actions on this mission — dispatch graph cannot be auto-generated.</p>
+            <p className="muted">
+              This mission has no composed plan yet. Request a mission from the missions page so Ajenda can plan it.
+            </p>
           )}
         </section>
       ) : null}
 
       <section className="panel">
         <div className="panel-heading-row">
-          <h2>Dispatch pipeline</h2>
+          <h2>Execution pipeline</h2>
           <button
             type="button"
             className="primary-button"
             disabled={!session || loading !== null || allowedActions.length === 0}
             onClick={() => void handleRunPipeline()}
           >
-            {loading === "Running full pipeline…" ? "Running…" : "Run full pipeline"}
+            {loading === "Running full pipeline…" ? "Running…" : "Start execution"}
           </button>
         </div>
 
