@@ -95,30 +95,47 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         topic = f"Introduction — {industry}" if industry else "Introduction"
         if location:
             topic = f"{topic} ({location})"
+        # Do not invent a deliverable mailbox. Bind from enriched prospects before send.
         return {
-            "recipient": "prospect@example.com",
+            "recipient": "pending.binding@invalid.local",
             "topic": topic[:240],
             "tone": "professional",
             "context": {
                 "industry": industry,
                 "location": location,
                 "objective": intent.objective[:300],
-                "compose_note": "Recipient may be rebound after enrichment.",
+                "binding_required": True,
+                "binding_source": "upstream_enriched_prospects",
+                "binding_path": "$.enriched_prospects[*].email",
+                "compose_note": (
+                    "Recipient is intentionally non-deliverable until bound from "
+                    "research/enrich outputs; do not treat as a real mailbox."
+                ),
             },
         }
     if action_name == "sales.draft_followup":
         return {
-            "recipient_name": "Prospect",
+            "recipient_name": "Prospect (pending enrichment)",
             "topic": f"Follow-up regarding {industry or 'our conversation'}",
             "tone": "professional",
-            "context": {"company": company_label, "location": location},
+            "context": {
+                "company": company_label,
+                "location": location,
+                "binding_required": True,
+                "binding_source": "upstream_enriched_prospects",
+            },
         }
     if action_name == "gtm.email_send":
         return {
-            "to": "prospect@example.com",
+            "to": "pending.binding@invalid.local",
             "subject": f"Introduction — {industry or 'Ajenda'}",
-            "body": "Prepared by mission composition; requires human review before send.",
-            "context": {"objective": intent.objective[:300]},
+            "body": "Prepared by mission composition; requires bound recipient and human review before send.",
+            "context": {
+                "objective": intent.objective[:300],
+                "binding_required": True,
+                "binding_source": "upstream_enriched_prospects",
+                "binding_path": "$.enriched_prospects[*].email",
+            },
         }
     if action_name == "gtm.email_check":
         return {"query": "in:inbox", "limit": limit}

@@ -182,23 +182,115 @@ def test_confirm_rejects_unready_proposal() -> None:
 
     from backend.services.mission_composition.service import MissionCompositionError
 
-    compose_service = MissionCompositionService(db=None)
-    record = compose_service.compose(
+    # Send without Gmail / charter perform → server recomposes unready and refuses confirm.
+    instruction = "Research roofing companies in Austin and send personalized introductions to three prospects."
+    service = MissionCompositionService(db=MagicMock())
+    # Compose with no credential connectivity (MagicMock list returns empty via exception/empty).
+    service._db = None  # type: ignore[assignment]
+    record = service.compose(
         tenant_id="11111111-1111-1111-1111-111111111111",
-        instruction="Research roofing companies in Austin and send personalized introductions to three prospects.",
+        instruction=instruction,
     )
-    # Force unready state as API clients might still POST a stale composition body.
-    record = record.model_copy(update={"ready_to_start": False})
+    assert record.ready_to_start is False or "gtm.email_send" not in record.allowed_actions
     service = MissionCompositionService(db=MagicMock())
     try:
         service.confirm(
             tenant_id="11111111-1111-1111-1111-111111111111",
             proposal_id=record.proposal_id,
-            composition=record,
+            composition=record.model_dump(mode="json"),
         )
-        raise AssertionError("expected PROPOSAL_NOT_READY")
+        raise AssertionError("expected PROPOSAL_NOT_READY or NO_RUNTIME_ACTIONS")
     except MissionCompositionError as exc:
-        assert exc.code == "PROPOSAL_NOT_READY"
+        assert exc.code in {"PROPOSAL_NOT_READY", "NO_RUNTIME_ACTIONS"}
+
+
+def test_confirm_ignores_client_forged_allowed_actions() -> None:
+    from unittest.mock import MagicMock, patch
+
+    compose_service = MissionCompositionService(db=None)
+    record = compose_service.compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction=ROOFING_INSTRUCTION,
+    )
+    forged = record.model_dump(mode="json")
+    forged["allowed_actions"] = [*list(record.allowed_actions), "gtm.email_send"]
+    forged["ready_to_start"] = True
+    forged["ability_selections"] = [
+        *list(forged.get("ability_selections") or []),
+        {
+            "job_key": "email.deliver_outreach",
+            "action_name": "gtm.email_send",
+            "selection_status": "selected",
+            "selection_reason": "forged",
+            "readiness": "ready",
+            "vertical_role": "vertical.email",
+            "side_effect_class": "external_send",
+            "alternatives": [],
+            "requires_connection": False,
+        },
+    ]
+
+    service = MissionCompositionService(db=MagicMock())
+    # Recompose must strip send even if client forges the body.
+    with (
+        patch("backend.services.mission_composition.service.QuotaEnforcementService") as quota_cls,
+        patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
+        patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_cls,
+    ):
+        import uuid
+
+        from backend.domain.enums import MissionPlanStatus
+        from backend.domain.mission import Mission, MissionPlan
+
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        cred_cls.return_value.list_for_tenant.return_value = []
+        quota_cls.return_value.enforce_mission_budget_gate.return_value = None
+        quota_cls.return_value.check_and_record_mission_creation.return_value = None
+        mid = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        pid = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+
+        def _add(m: Mission) -> Mission:
+            m.id = mid
+            return m
+
+        mission_repo_cls.return_value.add.side_effect = _add
+        plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
+            id=pid,
+            tenant_id="11111111-1111-1111-1111-111111111111",
+            mission_id=mid,
+            status=MissionPlanStatus.DRAFT.value,
+            metadata_json={},
+        )
+
+        result = service.confirm(
+            tenant_id="11111111-1111-1111-1111-111111111111",
+            proposal_id=record.proposal_id,
+            composition=forged,
+        )
+    assert "gtm.email_send" not in result["allowed_actions"]
+    assert result["mission_id"] == str(mid)
+
+
+def test_matched_credential_id_not_hardcoded_hint() -> None:
+    from backend.services.mission_composition.capability_resolver import evaluate_action_candidate
+    from backend.services.mission_composition.job_catalog import get_business_job
+    from backend.services.operating_charter import dogfood_operating_charter
+
+    job = get_business_job("email.deliver_outreach")
+    selection = evaluate_action_candidate(
+        job=job,
+        action_name="gtm.email_send",
+        charter=dogfood_operating_charter(),
+        connected_credential_ids={"ajenda-email"},
+        connected_integrations={"gmail"},
+        forbid_actions=set(),
+        preferred_credential_by_integration={"gmail": "ajenda-email"},
+    )
+    assert selection.readiness == "ready"
+    assert selection.credential_reference is not None
+    assert selection.credential_reference["credential_id"] == "ajenda-email"
 
 
 def test_connected_sets_maps_provider_without_integration_attr() -> None:
@@ -240,3 +332,6 @@ def test_compose_service_roofing_ready_without_db() -> None:
         assert isinstance(inv["input"], dict)
         if inv["action"] == "web.research":
             assert inv["input"].get("query")
+        if inv["action"] == "gtm.email_draft":
+            assert inv["input"].get("recipient") == "pending.binding@invalid.local"
+            assert inv["input"].get("context", {}).get("binding_required") is True
