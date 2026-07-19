@@ -240,7 +240,7 @@ def test_start_login_rejects_disallowed_redirect_uri() -> None:
     )
     with pytest.raises(OidcLoginValidationError, match="redirect_uri is not allowed"):
         service.start_login(
-            redirect_uri="https://evil.example/auth/callback",  # noqa: S106 — intentional disallowed URI
+            redirect_uri="https://evil.example/auth/callback",
             code_challenge=challenge,
             client_ip_hash="ip-hash",
         )
