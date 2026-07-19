@@ -13,7 +13,7 @@ def test_onboarding_migrations_have_single_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0033_tenant_internal_records"]
+    assert heads == ["0034_email_send_idempotency"]
     assert len(heads[0]) <= 32
 
 
