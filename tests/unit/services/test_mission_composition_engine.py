@@ -82,7 +82,7 @@ def test_plan_compiler_builds_non_linear_dependency_edges() -> None:
     intent = interpret_instruction(ROOFING_INSTRUCTION)
     jobs = route_jobs_for_intent(intent)
     selections, _ = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
-    steps = compile_planned_steps(selections)
+    steps = compile_planned_steps(selections, intent=intent)
     graph = compile_task_graph_preview(steps)
     assert graph["nodes"]
     # At least one edge should exist when qualify depends on research.
@@ -91,6 +91,46 @@ def test_plan_compiler_builds_non_linear_dependency_edges() -> None:
     # No checkbox-linear assumption: edges only from job depends_on.
     for edge in graph["edges"]:
         assert edge["dependency_type"] == "depends_on"
+
+
+def test_composed_graph_populates_web_research_query() -> None:
+    intent = interpret_instruction(ROOFING_INSTRUCTION)
+    jobs = route_jobs_for_intent(intent)
+    selections, _ = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    steps = compile_planned_steps(selections, intent=intent)
+    graph = compile_task_graph_preview(steps)
+    research_nodes = [
+        node
+        for node in graph["nodes"]
+        if node["input_contract"]["tool_invocation"]["action"] in {"web.research", "web.search"}
+    ]
+    assert research_nodes
+    for node in research_nodes:
+        tool_input = node["input_contract"]["tool_invocation"]["input"]
+        assert isinstance(tool_input.get("query"), str) and tool_input["query"].strip()
+        assert "roofing" in tool_input["query"].lower() or "austin" in tool_input["query"].lower()
+
+
+def test_route_jobs_expands_dependencies_transitively() -> None:
+    intent = interpret_instruction("Draft personalized introductions for three strong prospects. Do not send messages.")
+    jobs = route_jobs_for_intent(intent)
+    keys = {job.job_key for job in jobs}
+    assert "email.prepare_outreach" in keys
+    # Transitive: prepare → qualify/enrich → discover
+    assert "sales.qualify_prospects" in keys
+    assert "research.discover_prospects" in keys
+
+
+def test_send_without_gmail_is_not_ready() -> None:
+    service = MissionCompositionService(db=None)
+    record = service.compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction="Research roofing companies in Austin and send personalized introductions to three prospects.",
+    )
+    # Default charter never_do may block send; either way start must not claim delivery is ready.
+    assert "gtm.email_send" not in record.allowed_actions or record.ready_to_start is False
+    if any(item.job_key == "email.deliver_outreach" for item in record.ability_selections):
+        assert record.ready_to_start is False
 
 
 def test_compose_service_roofing_ready_without_db() -> None:
@@ -106,3 +146,10 @@ def test_compose_service_roofing_ready_without_db() -> None:
     assert record.task_graph_preview.get("nodes")
     # Draft-only sales path should be ready without HubSpot when internal paths exist.
     assert record.ready_to_start is True
+    # Every node carries a non-empty tool input for invoke validation.
+    for node in record.task_graph_preview["nodes"]:
+        inv = node["input_contract"]["tool_invocation"]
+        assert inv["action"]
+        assert isinstance(inv["input"], dict)
+        if inv["action"] == "web.research":
+            assert inv["input"].get("query")

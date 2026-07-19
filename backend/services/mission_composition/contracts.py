@@ -160,6 +160,7 @@ class PlannedStepPreview(BaseModel):
     depends_on: list[str] = Field(default_factory=list, max_length=20)
     output_contract: str = Field(min_length=1, max_length=240)
     input_bindings: list[dict[str, str]] = Field(default_factory=list, max_length=20)
+    tool_input: dict[str, Any] = Field(default_factory=dict)
 
 
 class AllowedActionsProvenance(BaseModel):

@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.contracts import (
     AbilitySelection,
     JobAssignment,
+    MissionIntent,
     PlannedStepPreview,
 )
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
@@ -19,7 +21,11 @@ def _slug(action: str) -> str:
     return action.replace(".", "-")
 
 
-def compile_planned_steps(selections: list[AbilitySelection]) -> list[PlannedStepPreview]:
+def compile_planned_steps(
+    selections: list[AbilitySelection],
+    *,
+    intent: MissionIntent | None = None,
+) -> list[PlannedStepPreview]:
     """Build dependency-aware planned steps from ready selected abilities."""
 
     ready = [item for item in selections if item.selection_status == "selected" and item.readiness == "ready"]
@@ -50,6 +56,10 @@ def compile_planned_steps(selections: list[AbilitySelection]) -> list[PlannedSte
                     }
                 )
 
+        tool_input: dict[str, Any] = {}
+        if intent is not None:
+            tool_input = build_action_input(action_name=selection.action_name, intent=intent)
+
         step = PlannedStepPreview(
             step_key=f"ability-{_slug(selection.action_name)}",
             sequence=index,
@@ -60,6 +70,7 @@ def compile_planned_steps(selections: list[AbilitySelection]) -> list[PlannedSte
             depends_on=depends_on,
             output_contract=produced,
             input_bindings=input_bindings,
+            tool_input=tool_input,
         )
         steps.append(step)
         step_by_job[selection.job_key] = step
@@ -77,7 +88,6 @@ def compile_job_assignments(selections: list[AbilitySelection]) -> list[JobAssig
         if selection.job_key in seen:
             continue
         if selection.selection_status != "selected" or selection.readiness != "ready":
-            # Still surface rejected jobs for transparency? Only ready jobs for assignments.
             continue
         job = BUSINESS_JOBS_BY_KEY.get(selection.job_key)
         assignments.append(
@@ -113,7 +123,7 @@ def compile_task_graph_preview(steps: list[PlannedStepPreview]) -> dict[str, Any
                     "tool_invocation": {
                         "schema_version": 1,
                         "action": step.action_name,
-                        "input": {},
+                        "input": dict(step.tool_input),
                     }
                 },
                 "output_contract": {"artifact": step.output_contract},
@@ -172,6 +182,7 @@ def compile_plan_payload(
                     "job_key": step.job_key,
                     "selected_by": "mission_composition_engine",
                     "input_bindings": step.input_bindings,
+                    "tool_input": step.tool_input,
                 },
             }
         )

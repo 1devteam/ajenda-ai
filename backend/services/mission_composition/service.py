@@ -131,7 +131,7 @@ class MissionCompositionService:
             connected_credential_ids=connected_ids,
             connected_integrations=connected_integrations,
         )
-        planned_steps = compile_planned_steps(selections)
+        planned_steps = compile_planned_steps(selections, intent=intent)
         job_assignments = compile_job_assignments(selections)
         task_graph_preview = compile_task_graph_preview(planned_steps)
         allowed_actions = [
@@ -151,15 +151,13 @@ class MissionCompositionService:
         if intent.approval_preference:
             approval_gates.append(intent.approval_preference)
 
-        ready_to_start = (
-            bool(allowed_actions)
-            and not intent.ambiguity
-            and all(item.readiness != "charter_blocked" for item in selections if item.selection_status == "selected")
-        )
-        # connection_required on optional alternatives does not block ready_to_start;
-        # missing required connections that removed all actions does.
-        if not allowed_actions:
-            ready_to_start = False
+        ready_job_keys = {
+            item.job_key for item in selections if item.selection_status == "selected" and item.readiness == "ready"
+        }
+        # Every runtime-bound job on the composed path must have a ready ability.
+        # Required connection_required jobs (e.g. send without Gmail) keep ready_to_start false.
+        required_jobs_ready = all(job.job_key in ready_job_keys for job in jobs if job.maturity == "runtime_bound")
+        ready_to_start = bool(allowed_actions) and required_jobs_ready and not intent.ambiguity
 
         record = MissionCompositionRecord(
             schema_version=COMPOSITION_SCHEMA_VERSION,

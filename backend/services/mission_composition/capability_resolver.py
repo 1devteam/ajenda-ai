@@ -92,9 +92,11 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
                 selected.append(job)
                 selected_keys.add(job.job_key)
 
-    # Always expand required upstream dependencies for selected jobs.
+    # Expand required upstream dependencies transitively (fixed-point).
     expanded = list(selected)
-    for job in selected:
+    pending = list(selected)
+    while pending:
+        job = pending.pop()
         for dep_key in job.depends_on_jobs:
             if dep_key in selected_keys:
                 continue
@@ -103,6 +105,7 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
                 continue
             expanded.append(dep)
             selected_keys.add(dep_key)
+            pending.append(dep)
 
     # Stable topological-ish order: dependencies first by catalog order.
     catalog_order = {job.job_key: index for index, job in enumerate(list_business_jobs())}
