@@ -103,6 +103,6 @@ export const STANDALONE_PROCESS_STEPS = [
   },
   {
     title: "Optional plugins",
-    detail: "Connect Gmail, HubSpot, and other adapters only when you need external systems.",
+    detail: "Connect Gmail, SMTP email, HubSpot, and other adapters only when you need external systems.",
   },
 ] as const;

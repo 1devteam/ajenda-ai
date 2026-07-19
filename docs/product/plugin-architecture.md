@@ -53,14 +53,18 @@ Register credentials via `POST /v1/account/provider-credentials` with
 Brain actions (`sales.research`, `gtm.crm_upsert`) accept `external_crm` credentials through
 the plugin credential bridge even though their canonical provider is `ajenda_brain`.
 
-## Gmail plugin
+## Email plugins (multi-provider)
+
+### Gmail plugin
 
 Plugin id: `gmail-email`
 
 Register with `provider=external_email`, `integration=gmail`, `credential_type=api_key`.
-Secret is an OAuth bearer token. Actions: `gtm.email_send`, `gtm.email_check`.
+Secret is an OAuth bearer token or JSON token bundle. Actions: `gtm.email_send`, `gtm.email_check`.
 
-## SMTP plugin
+Product UI: **Connections → Gmail (Google)**.
+
+### SMTP plugin (any mail host)
 
 Plugin id: `smtp-email`
 
@@ -78,7 +82,15 @@ Secret is JSON:
 }
 ```
 
-Action: `gtm.email_send` only.
+Action: `gtm.email_send` only (not inbox read). Compatible with Google app passwords, Microsoft 365,
+Amazon SES, SendGrid, Mailgun, Postmark, and other SMTP endpoints.
+
+Product UI: **Connections → Email (SMTP)** builds this JSON from form fields.
+
+### Platform master email
+
+Operator-managed `platform_master` credential (`ajenda-email`) also routes send through SMTP JSON.
+Tenants may use it without connecting their own mailbox; blast radius is shared.
 
 ## Governed HTTP
 

@@ -170,7 +170,8 @@ export const BRAIN_MISSION_TEMPLATES: BrainMissionTemplate[] = [
         step: 4,
         label: "Send approved draft",
         action: "gtm.email_send",
-        description: "Send using ajenda-email or Gmail with artifact_id from the approved draft.",
+        description:
+          "Send using Gmail, SMTP, or ajenda-email platform credential with artifact_id from the approved draft.",
         input: {
           to: "ops@northwind-logistics.example",
           context: { capstone: true },

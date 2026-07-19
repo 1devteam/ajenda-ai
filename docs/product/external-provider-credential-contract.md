@@ -51,15 +51,36 @@ When `integration=hubspot` and `provider=external_crm`:
 - `allowed_side_effect_classes`: `external_read`, `external_write`
 - `trusted_destination_hosts`: `AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST` (TLS ingress hostname)
 
-## Gmail integration defaults
+## Email providers (`external_email`)
 
-When `provider=external_email`:
+Ajenda supports more than Gmail for **send**. Inbox **read** remains Gmail API–centric today.
+
+| Integration | Credential type | Send (`gtm.email_send`) | Inbox (`gtm.email_check`) | Secret shape |
+|---|---|---|---|---|
+| `gmail` | `api_key` | Yes (Gmail API) | Yes | OAuth bearer or JSON token bundle |
+| `smtp` | `smtp` | Yes (SMTP) | No | JSON: `host`, `port`, `user`/`username`, `password`, optional `from`, `use_tls` |
+| platform master | `platform_master` | Yes (SMTP JSON from operator config) | No | Operator-managed `AJENDA_EMAIL_PLATFORM_*` |
+
+### Gmail integration defaults
+
+When `provider=external_email` and `integration=gmail` (or default Gmail path):
 
 - `allowed_actions`: `gtm.email_send`, `gtm.email_check`
 - `allowed_side_effect_classes`: `external_read`, `external_send`
 - `trusted_destination_hosts`: `gmail.googleapis.com`
 - OAuth secrets are stored as JSON (`access_token`, `refresh_token`, `expires_at`); refresh occurs before invoke when expired
 - Credentialed `gtm.email_check` fails closed on Gmail API errors (no simulated inbox fallback)
+
+### SMTP integration defaults
+
+When `provider=external_email` and `integration=smtp`:
+
+- `allowed_actions`: `gtm.email_send` (send only)
+- `allowed_side_effect_classes`: `external_send`
+- Credential type: `smtp`
+- Secret is JSON validated at register time (`host`, user/username, `password` required)
+- Runtime transport is SMTP (`credential_transport_mode` → `smtp`); durable claim-before-send applies when migration `0034` is applied
+- Works with any standards-compliant SMTP host (Workspace app password, M365, SES, SendGrid, Mailgun, Postmark, etc.)
 
 Direct HubSpot reads may alternatively use `provider=external_read_provider` with
 `trusted_destination_hosts=["api.hubapi.com"]` and action `provider.external_read`.
@@ -123,7 +144,9 @@ When `integration=salesforce` and `provider=external_read_provider`:
 ## Initial provider targets
 
 - HubSpot CRM (via adapter + `external_crm`)
-- Gmail (`external_email`)
+- Gmail (`external_email` + `integration=gmail`) — send + inbox
+- SMTP email (`external_email` + `integration=smtp`) — send only, multi-provider
+- Platform master email (`platform_master` SMTP) — operator-managed send lane
 - LinkedIn read (`external_read_provider` + `integration=linkedin`)
 - Salesforce read (`external_read_provider` + `integration=salesforce`)
 - Google Calendar read (`external_read_provider` + `integration=google_calendar`)
