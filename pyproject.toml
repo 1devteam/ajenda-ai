@@ -13,7 +13,7 @@ dependencies = [
   # _IncludedRouter placeholders to route-inventory contract tests. Keep the
   # application on the proven route-flattening contract until bootstrap code is
   # explicitly adapted and contract-tested for the newer behavior.
-  "fastapi>=0.115,<0.136",
+  "fastapi>=0.115,<0.140",
   "uvicorn[standard]>=0.30,<1.0",
   "sqlalchemy>=2.0,<3.0",
   "alembic>=1.13,<2.0",
