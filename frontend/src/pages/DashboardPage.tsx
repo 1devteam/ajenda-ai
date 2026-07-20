@@ -3,12 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
 import PageHeader from "../components/ui/PageHeader";
-import MissionFlow from "../components/ui/MissionFlow";
 import Button from "../components/primitives/Button";
 import Card from "../components/primitives/Card";
 import MetricsRow, { type MetricItem } from "../components/dashboard/MetricsRow";
 import ActiveWorkPanel from "../components/dashboard/ActiveWorkPanel";
-import ApprovalsPanel from "../components/dashboard/ApprovalsPanel";
 import AttentionBanner from "../components/dashboard/AttentionBanner";
 import OnboardingChecklist from "../components/dashboard/OnboardingChecklist";
 import LiveRegion from "../components/states/LiveRegion";
@@ -19,7 +17,6 @@ import {
   buildOnboardingChecklist,
   checklistIncomplete,
   countCompletedToday,
-  countStatusBreakdown,
   isActiveMission,
   resolveAttentionBanner,
   resolvePrimaryAction,
@@ -33,7 +30,6 @@ export default function DashboardPage() {
   const { me, plan, usage, error, loading: summaryLoading } = useWorkspaceSummary(session);
   const {
     missions,
-    approvalItems,
     pendingApprovals,
     hasConnections,
     loading: dataLoading,
@@ -48,7 +44,6 @@ export default function DashboardPage() {
     me?.tenant.status === "active" ||
     session?.authMode === "oidc";
 
-  const breakdown = useMemo(() => countStatusBreakdown(missions), [missions]);
   const activeMissions = useMemo(() => missions.filter(isActiveMission).length, [missions]);
   const completedToday = useMemo(() => countCompletedToday(missions), [missions]);
   const successRate = useMemo(() => successRateLabel(missions), [missions]);
@@ -132,13 +127,18 @@ export default function DashboardPage() {
       <PageHeader
         eyebrow="Command center"
         title={me?.tenant.name ? `Welcome back, ${me.tenant.name}` : "Welcome back to ajenda-ai"}
-        lead="See what needs you, what is running, and launch the next mission."
-        actions={
-          <Button variant="primary" onClick={() => navigate(primaryAction.to)}>
-            {primaryAction.label}
-          </Button>
-        }
+        lead="A clear view of work in motion, decisions waiting, and outcomes delivered."
       />
+
+      <section className="cc-next-action" aria-label="Next best action">
+        <div>
+          <p>Next best action</p>
+          <strong>{primaryAction.label}</strong>
+        </div>
+        <Button variant="primary" onClick={() => navigate(primaryAction.to)}>
+          Open
+        </Button>
+      </section>
 
       {banner ? <AttentionBanner banner={banner} /> : null}
 
@@ -152,30 +152,6 @@ export default function DashboardPage() {
           onRetry={reload}
         />
 
-        <Card elevated className="@container">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="font-display text-lg font-semibold text-zinc-100">Mission status</h2>
-              <p className="mt-1 text-sm text-zinc-500">
-                Planned, running, completed, and failed — from live mission data.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="cc-focus-ring text-sm font-medium text-semantic-info hover:underline"
-              onClick={() => navigate("/results")}
-            >
-              View recent outcomes
-            </button>
-          </div>
-          <MissionFlow
-            breakdown={breakdown}
-            loading={dataLoading}
-            error={dataError}
-            onRetry={reload}
-          />
-        </Card>
-
         <div className="grid grid-cols-1 gap-4 @lg:grid-cols-2 @lg:gap-6">
           <ActiveWorkPanel
             missions={missions}
@@ -184,13 +160,17 @@ export default function DashboardPage() {
             onRetry={reload}
             onLaunch={() => navigate("/missions")}
           />
-          <ApprovalsPanel
-            items={approvalItems}
-            total={pendingApprovals}
-            loading={dataLoading}
-            error={dataError}
-            onRetry={reload}
-          />
+          <Card elevated className="cc-tips-panel">
+            <p className="cc-section-kicker">Ajenda tips</p>
+            <h2 className="font-display text-lg font-semibold text-zinc-100">Keep missions outcome-first</h2>
+            <p>Include the market, the result you want, and anything Ajenda must not do.</p>
+            <ul>
+              <li>Say “draft” when you want review before sending.</li>
+              <li>Use Connections only to link business accounts.</li>
+              <li>Completed work and evidence live together in Results.</li>
+            </ul>
+            <Button variant="ghost" onClick={() => navigate("/missions")}>Plan a mission</Button>
+          </Card>
         </div>
 
         <div className="grid grid-cols-1 gap-4 @md:grid-cols-2 @md:gap-6">
