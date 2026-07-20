@@ -912,7 +912,10 @@ class MissionLifecycleRead(BaseModel):
     memory_promotions: MissionLifecycleMemoryPromotionSummary
     retrieval_contracts: MissionLifecycleRetrievalContractSummary
     completeness: MissionLifecycleCompleteness
+    # Runtime ladder only (plan → admit). Empty means execution path is ready/done.
     missing_next_steps: list[str]
+    # Optional product close-out (evidence review, outcome, memory, retrieval) — not pipeline failure.
+    optional_closeout_steps: list[str] = Field(default_factory=list)
 
 
 class MissionTimelineEvent(BaseModel):
@@ -1422,6 +1425,7 @@ def _mission_lifecycle_to_read(
         has_memory_promotions=has_memory_promotions,
         has_retrieval_contracts=bool(retrieval_contracts),
     )
+    # Runtime execution ladder only — these block "ready to run workers".
     missing_next_steps: list[str] = []
     if not completeness.has_plan:
         missing_next_steps.append("create_mission_plan")
@@ -1431,14 +1435,17 @@ def _mission_lifecycle_to_read(
         missing_next_steps.append("materialize_task_graph")
     if not completeness.has_runtime_admission:
         missing_next_steps.append("admit_graph_to_runtime")
+
+    # Optional close-out — mission product after workers, not pipeline incompleteness.
+    optional_closeout_steps: list[str] = []
     if not completeness.has_evidence:
-        missing_next_steps.append("attach_evidence")
+        optional_closeout_steps.append("attach_evidence")
     if not completeness.has_outcome_review:
-        missing_next_steps.append("create_outcome_review")
+        optional_closeout_steps.append("create_outcome_review")
     if not completeness.has_memory_promotions:
-        missing_next_steps.append("review_memory_promotion")
+        optional_closeout_steps.append("review_memory_promotion")
     if not completeness.has_retrieval_contracts:
-        missing_next_steps.append("create_retrieval_contract")
+        optional_closeout_steps.append("create_retrieval_contract")
 
     return MissionLifecycleRead(
         mission=MissionLifecycleMissionSummary(
@@ -1503,6 +1510,7 @@ def _mission_lifecycle_to_read(
         ),
         completeness=completeness,
         missing_next_steps=missing_next_steps,
+        optional_closeout_steps=optional_closeout_steps,
     )
 
 

@@ -28,6 +28,11 @@ class Settings(BaseSettings):
         default="development",
         alias="AJENDA_ENV",
     )
+    # Local/staging mission iteration only. Never honor in production.
+    dev_bypass_api_call_quota: bool = Field(
+        default=False,
+        alias="AJENDA_DEV_BYPASS_API_CALL_QUOTA",
+    )
     log_level: str = Field(default="INFO", alias="AJENDA_LOG_LEVEL")
     log_json: bool = Field(default=False, alias="AJENDA_LOG_JSON")
     host: str = Field(default="0.0.0.0", alias="AJENDA_HOST")
@@ -314,6 +319,13 @@ class Settings(BaseSettings):
             and str(self.oidc_issuer).strip()
             and str(self.session_signing_secret).strip()
         )
+
+    @property
+    def api_call_quota_bypassed(self) -> bool:
+        """True when monthly API-call quota must not block local/staging mission iteration."""
+        if self.env == "production":
+            return False
+        return bool(self.dev_bypass_api_call_quota)
 
     @property
     def customer_session_auth_ready(self) -> bool:

@@ -307,6 +307,9 @@ class QuotaEnforcementService:
         Intended for admission checks before request handlers run. Does not
         increment usage; pair with :meth:`record_api_call` after success.
         """
+        if get_settings().api_call_quota_bypassed:
+            return
+
         tenant = self._tenants.get_active(tenant_id)
         plan = self._tenants.get_plan(tenant.plan)
         if plan is None:
