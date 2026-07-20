@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   admitMissionRuntimeQueue,
   admitMissionToRuntime,
@@ -75,7 +75,9 @@ function stepStatusFor(
 
 export default function MissionDispatchPage() {
   const { missionId = "" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
+  const autoExecuteStarted = useRef(false);
 
   const [lifecycle, setLifecycle] = useState<MissionLifecycleReadResponse | null>(null);
   const [readiness, setReadiness] = useState<RuntimeReadinessReadResponse | null>(null);
@@ -289,45 +291,61 @@ export default function MissionDispatchPage() {
   }
 
   async function handleRunPipeline() {
-    if (!session || !lifecycle) {
+    if (!session) {
       return;
     }
     setLoading("Running full pipeline…");
     setError(null);
     setNotice("");
     try {
-      if (!lifecycle.completeness.has_plan) {
-        await createMissionPlan(
-          session,
-          missionId,
-          buildMissionPlanPayload(lifecycle.mission.objective, allowedActions, successCriteria),
-        );
+      let current = await refreshLifecycle();
+      if (!current) {
+        throw new Error("Could not load mission lifecycle.");
       }
-      if (allowedActions.length === 0) {
+      const actions = intakeAllowedActions(current.intake ?? null);
+      const criteria = intakeSuccessCriteria(current.intake ?? null);
+      if (actions.length === 0) {
         throw new Error(
           "Mission has no composed plan. Return to Missions and request an outcome so Ajenda can plan the work.",
         );
       }
-      if (!lifecycle.completeness.has_task_graph) {
-        await upsertMissionTaskGraph(session, missionId, buildTaskGraphPayload(allowedActions));
+
+      // Composition confirm usually already wrote plan + graph — only fill gaps.
+      if (!current.completeness.has_plan) {
+        await createMissionPlan(
+          session,
+          missionId,
+          buildMissionPlanPayload(current.mission.objective, actions, criteria),
+        );
+        current = (await refreshLifecycle()) ?? current;
       }
-      if (!lifecycle.completeness.has_materialization) {
-        await materializeMissionGraph(session, missionId, buildMaterializationPayload(allowedActions));
+      if (!current.completeness.has_task_graph) {
+        await upsertMissionTaskGraph(session, missionId, buildTaskGraphPayload(actions));
+        current = (await refreshLifecycle()) ?? current;
       }
+      if (!current.completeness.has_materialization) {
+        await materializeMissionGraph(session, missionId, buildMaterializationPayload(actions));
+        current = (await refreshLifecycle()) ?? current;
+      }
+
       const provisioned = await provisionBridgeRuntimeAuthority(session, missionId);
       setAuthorities(provisioned);
-      if (!lifecycle.completeness.has_runtime_admission) {
+
+      if (!current.completeness.has_runtime_admission) {
         await admitMissionToRuntime(
           session,
           missionId,
-          buildRuntimeAdmissionPayload(allowedActions, principalId, provisioned.node_authorities),
+          buildRuntimeAdmissionPayload(actions, principalId, provisioned.node_authorities),
         );
+        current = (await refreshLifecycle()) ?? current;
       }
+
       const readinessResponse = await getMissionRuntimeReadiness(session, missionId);
       setReadiness(readinessResponse);
       if (!readinessResponse.ready) {
         throw new Error("Runtime readiness blocked — review blockers below before materializing tasks.");
       }
+
       const materialized = await materializeMissionRuntimeTasks(session, missionId);
       setTaskMaterialization(materialized);
       if (materialized.created_execution_task_ids.length > 0) {
@@ -336,7 +354,7 @@ export default function MissionDispatchPage() {
       await admitMissionRuntimeQueue(session, missionId);
       await refreshLifecycle();
       await refreshReadinessViews();
-      setNotice("Pipeline complete — tasks materialized and queued.");
+      setNotice("Mission is live — tasks materialized and queued for workers.");
     } catch (err) {
       setError(err);
       await refreshLifecycle();
@@ -345,6 +363,34 @@ export default function MissionDispatchPage() {
       setLoading(null);
     }
   }
+
+  // Auto-run remaining ladder when arriving from composition "Start mission" (?execute=1).
+  useEffect(() => {
+    if (!session || !lifecycle || !missionId) {
+      return;
+    }
+    if (searchParams.get("execute") !== "1") {
+      return;
+    }
+    if (autoExecuteStarted.current || loading !== null) {
+      return;
+    }
+    if (allowedActions.length === 0) {
+      return;
+    }
+    autoExecuteStarted.current = true;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("execute");
+        return next;
+      },
+      { replace: true },
+    );
+    void handleRunPipeline();
+    // Intentionally once per mission load with execute=1.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-start handoff
+  }, [session, lifecycle, missionId, searchParams, allowedActions.length, loading]);
 
   if (!missionId) {
     return (
@@ -362,8 +408,8 @@ export default function MissionDispatchPage() {
           <p className="eyebrow">Mission execution</p>
           <h1>{lifecycle?.mission.objective ?? "Loading mission…"}</h1>
           <p>
-            Ajenda already chose the work for this mission. Run the governed pipeline to materialize tasks and queue
-            workers — without picking skills or bypassing authority boundaries.
+            Ajenda already chose the work for this mission. Start execution to materialize tasks and queue workers —
+            without picking skills. Composition missions usually already have a plan and task graph.
           </p>
         </div>
         <div className="hero-actions">

@@ -70,10 +70,14 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         lead["location"] = location
 
     if action_name == "web.research":
+        # Prefer full objective query when available so location/count survive parsing.
+        research_query = intent.objective.strip()[:400] if intent.objective.strip() else query
         return {
-            "query": query,
+            "query": research_query,
             "company": industry,
-            "fetch_public_page": True,
+            # Do not fetch tenant business-profile domain as if it were the research target.
+            # Public page fetch only when a concrete candidate domain is later bound.
+            "fetch_public_page": False,
             "limit": limit,
         }
     if action_name == "web.search":

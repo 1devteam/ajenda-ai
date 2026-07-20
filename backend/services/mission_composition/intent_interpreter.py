@@ -54,6 +54,17 @@ _RESEARCH_PATTERNS = (
     r"\bdiscover\b",
     r"companies in",
     r"prospects",
+    r"competitors?",
+    r"competors?",  # common misspelling
+)
+# Stop location capture before trailing mission verbs / qualifiers.
+_LOCATION_TRAILING_STOP = re.compile(
+    r"\s+\b(?:"
+    r"identify|find|discover|and|with|for|to|that|who|which|"
+    r"strong|best|top|draft|enrich|qualify|send|prepare|"
+    r"prospects?|competitors?|competors?|leads?"
+    r")\b",
+    re.IGNORECASE,
 )
 _ENRICH_PATTERNS = (
     r"\benrich\b",
@@ -122,6 +133,12 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
         industry_tokens.pop(0)
     industry = " ".join(industry_tokens).strip(" ,.;:")
     location = match.group("location").strip(" ,.;:")
+    # "companies in Fayetteville AR identify three…" must not swallow verbs into location.
+    stop = _LOCATION_TRAILING_STOP.search(f" {location}")
+    if stop is not None:
+        # stop matched with a leading space on the padded string; map back to location.
+        cut = max(0, stop.start() - 1)
+        location = location[:cut].strip(" ,.;:")
     if not industry or not location:
         return []
     return [

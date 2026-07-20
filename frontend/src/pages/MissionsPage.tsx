@@ -104,8 +104,8 @@ export default function MissionsPage() {
       setInstruction("");
       setSelectedTemplateId(null);
       await refreshMissions();
-      // Composition creates plan + graph; execution continues on the mission page.
-      navigate(`/missions/${result.mission_id}`);
+      // Composition creates plan + graph; open execution and auto-run remaining ladder.
+      navigate(`/missions/${result.mission_id}?execute=1`);
     } catch (err) {
       setError(err);
     } finally {
