@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, LogOut, Settings, CreditCard, Menu } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, LogOut, Settings, CreditCard, Menu } from "lucide-react";
 import { COMMAND_CENTER_NAV, isNavItemActive } from "../../config/nav";
 import BrandMark from "../BrandMark";
 import Button from "../primitives/Button";
@@ -30,6 +30,7 @@ export default function CommandCenterSidebar({
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [missionsOpen, setMissionsOpen] = useState(location.pathname.startsWith("/missions"));
   const accountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,9 +82,10 @@ export default function CommandCenterSidebar({
         {COMMAND_CENTER_NAV.map((item) => {
           const active = isNavItemActive(location.pathname, item);
           const Icon = item.icon;
+          const isMissions = item.to === "/missions";
           return (
+            <div key={item.to}>
             <Link
-              key={item.to}
               to={item.to}
               onClick={onNavigate}
               title={collapsed ? item.label : undefined}
@@ -98,7 +100,38 @@ export default function CommandCenterSidebar({
               ) : null}
               <Icon className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
               {!collapsed ? <span className="truncate">{item.label}</span> : null}
+              {isMissions && !collapsed ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="ml-auto rounded p-1 text-zinc-500 hover:text-zinc-200"
+                  aria-label="Toggle mission navigation"
+                  aria-expanded={missionsOpen}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setMissionsOpen((open) => !open);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setMissionsOpen((open) => !open);
+                    }
+                  }}
+                >
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${missionsOpen ? "rotate-180" : ""}`} />
+                </span>
+              ) : null}
             </Link>
+            {isMissions && missionsOpen && !collapsed ? (
+              <div className="cc-nav-children">
+                <Link to="/missions" onClick={onNavigate}>New mission</Link>
+                <Link to="/missions#running" onClick={onNavigate}>Running</Link>
+                <Link to="/missions#staged" onClick={onNavigate}>Staged</Link>
+                <Link to="/missions#history" onClick={onNavigate}>History</Link>
+              </div>
+            ) : null}
+            </div>
           );
         })}
       </nav>
