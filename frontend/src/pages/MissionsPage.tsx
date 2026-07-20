@@ -8,7 +8,6 @@ import {
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
 import PageHeader from "../components/ui/PageHeader";
-import { LAUNCH_MISSION_TEMPLATES } from "../config/launchMissionTemplates";
 import type {
   MissionComposeConfirmResponse,
   MissionComposeResponse,
@@ -22,7 +21,6 @@ export default function MissionsPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const [instruction, setInstruction] = useState("");
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [proposal, setProposal] = useState<MissionComposeResponse | null>(null);
   const [confirmed, setConfirmed] = useState<MissionComposeConfirmResponse | null>(null);
   const [missions, setMissions] = useState<MissionListItem[]>([]);
@@ -52,18 +50,6 @@ export default function MissionsPage() {
   useEffect(() => {
     void refreshMissions();
   }, [refreshMissions]);
-
-  function applyTemplate(templateId: string) {
-    const template = LAUNCH_MISSION_TEMPLATES.find((item) => item.id === templateId);
-    if (!template) {
-      return;
-    }
-    setSelectedTemplateId(templateId);
-    setInstruction(template.instruction);
-    setProposal(null);
-    setConfirmed(null);
-    setError(null);
-  }
 
   async function handleCompose(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -102,7 +88,6 @@ export default function MissionsPage() {
       setConfirmed(result);
       setProposal(null);
       setInstruction("");
-      setSelectedTemplateId(null);
       await refreshMissions();
       // Composition creates plan + graph; open execution and auto-run remaining ladder.
       navigate(`/missions/${result.mission_id}?execute=1`);
@@ -117,82 +102,50 @@ export default function MissionsPage() {
     <main>
       <PageHeader
         eyebrow="Missions"
-        title="Request a mission"
-        lead="You describe the outcome. Ajenda classifies the work, chooses skills from its full catalog, plans the order, and executes under your charter. You never pick tools."
+        title="Plan a mission"
+        lead="Describe what you want Ajenda to accomplish. Be clear about the outcome, who or what it involves, and what the finished work should contain."
       />
 
-      <section className="panel">
-        <h2>Templates</h2>
-        <p className="muted">Optional starters. They only fill the request box — they do not choose skills.</p>
-        <div className="cc-template-grid">
-          {LAUNCH_MISSION_TEMPLATES.map((template) => (
-            <button
-              key={template.id}
-              type="button"
-              className={`cc-template-card${selectedTemplateId === template.id ? " selected" : ""}`}
-              onClick={() => applyTemplate(template.id)}
-            >
-              <h3>{template.title}</h3>
-              <p>{template.description}</p>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel callout">
-        <h2>What makes a mission executable</h2>
-        <ul>
-          <li>
-            <strong>Outcome</strong> — what success looks like (who, market, deliverable).
-          </li>
-          <li>
-            <strong>Scope</strong> — industry, place, or count when it matters (e.g. “three prospects in Austin”).
-          </li>
-          <li>
-            <strong>Hard limits</strong> — especially send vs draft (e.g. “bring them to me before anything is
-            sent”).
-          </li>
-          <li>
-            <strong>Connections</strong> — optional; Ajenda reports missing links and will not fake success.{" "}
-            <Link to="/credentials">Manage connections</Link>
-          </li>
-        </ul>
-        <p className="muted">
-          Skills are always available to Ajenda. Your operating charter still blocks forbidden actions (for example
-          send-by-default stays off until you opt in).
-        </p>
-      </section>
-
-      <section className="panel">
+      <section className={`cc-mission-workspace${proposal ? " has-brief" : ""}`}>
+        <div className="cc-mission-conversation">
+          <div className="cc-conversation-intro">
+            <span className="cc-ai-mark">A</span>
+            <div>
+              <strong>What should we accomplish?</strong>
+              <p>Tell me naturally. I’ll turn it into a governed plan and ask one focused question if anything important is missing.</p>
+            </div>
+          </div>
         <form className="form-grid mission-create-form" onSubmit={(event) => void handleCompose(event)}>
           <label>
-            Mission request
+            <span className="sr-only">Mission request</span>
             <textarea
               className="mission-textarea"
               value={instruction}
               onChange={(event) => {
                 setInstruction(event.target.value);
-                setSelectedTemplateId(null);
                 setProposal(null);
                 setConfirmed(null);
               }}
               placeholder={PLACEHOLDER}
-              rows={5}
+              rows={4}
               required
             />
           </label>
 
-          <div className="mission-card-actions">
+          <div className="cc-composer-actions">
+            <span>Enter the details Ajenda needs to define success.</span>
             <button type="submit" className="primary-button" disabled={!session || loading || !instruction.trim()}>
               {loading ? "Planning…" : "Plan mission"}
             </button>
           </div>
         </form>
-      </section>
+        <PageErrorAlert error={error} />
+        </div>
 
       {proposal ? (
-        <section className="panel">
-          <h2>Ajenda’s plan</h2>
+        <aside className="cc-mission-brief">
+          <p className="cc-section-kicker">Mission brief</p>
+          <h2>{proposal.clarifications.length > 0 ? "Needs clarity" : "Ready to review"}</h2>
           <p className="mission-card-objective">{proposal.mission_brief.objective}</p>
 
           {proposal.mission_brief.success_criteria.length > 0 ? (
@@ -243,13 +196,14 @@ export default function MissionsPage() {
           ) : null}
 
           {proposal.clarifications.length > 0 ? (
-            <div className="callout">
-              <strong>Clarify to improve the plan</strong>
+            <div className="cc-clarification">
+              <strong>One more detail</strong>
               <ul>
                 {proposal.clarifications.map((item) => (
                   <li key={`${item.field}-${item.question}`}>{item.question}</li>
                 ))}
               </ul>
+              <p>Answer in the same box on the left, then plan again.</p>
             </div>
           ) : null}
 
@@ -284,8 +238,9 @@ export default function MissionsPage() {
               Not ready yet — resolve connections or clarify the request, then plan again.
             </p>
           ) : null}
-        </section>
+        </aside>
       ) : null}
+      </section>
 
       {confirmed ? (
         <section className="panel success-panel">
@@ -299,9 +254,12 @@ export default function MissionsPage() {
         </section>
       ) : null}
 
-      <section className="panel">
+      <section className="cc-mission-index" id="running">
         <div className="panel-heading-row">
-          <h2>Your missions</h2>
+          <div>
+            <p className="cc-section-kicker">Mission activity</p>
+            <h2>Recent missions</h2>
+          </div>
           <button
             type="button"
             className="ghost-button"
@@ -318,7 +276,7 @@ export default function MissionsPage() {
             {missions.map((mission) => (
               <li className="mission-card" key={mission.mission_id}>
                 <div className="mission-card-header">
-                  <span className={`status-pill status-${mission.status}`}>{mission.status}</span>
+                  <span id={mission.status === "planned" ? "staged" : mission.status === "completed" ? "history" : undefined} className={`status-pill status-${mission.status}`}>{mission.status === "planned" ? "staged" : mission.status}</span>
                   <time dateTime={mission.created_at}>{new Date(mission.created_at).toLocaleString()}</time>
                 </div>
                 <p className="mission-card-objective">{mission.objective}</p>
@@ -339,7 +297,6 @@ export default function MissionsPage() {
         <PageErrorAlert error={listError} className="inline-error compact-error" />
       </section>
 
-      <PageErrorAlert error={error} />
     </main>
   );
 }
