@@ -40,6 +40,17 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     assert "identify" not in intent.target_entities[0].location.lower()
 
 
+def test_interpreter_stops_location_before_trailing_verbs() -> None:
+    intent = interpret_instruction(
+        "research roofing companies in fayetteville AR identify three strong competors"
+    )
+    assert intent.target_entities
+    assert intent.target_entities[0].industry.lower() == "roofing"
+    assert intent.target_entities[0].location.lower() == "fayetteville ar"
+    assert "identify" not in intent.target_entities[0].location.lower()
+    assert "research prospects" in intent.requested_outcomes
+
+
 def test_interpreter_does_not_invent_actions() -> None:
     intent = interpret_instruction(ROOFING_INSTRUCTION)
     # Intent has outcomes and constraints only — no action names except forbidden send token.
