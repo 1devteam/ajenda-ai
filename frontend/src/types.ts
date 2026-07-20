@@ -510,7 +510,10 @@ export interface MissionLifecycleReadResponse {
   materialization: Record<string, unknown> | null;
   runtime_admission: Record<string, unknown> | null;
   completeness: MissionLifecycleCompleteness;
+  /** Runtime ladder gaps only (plan → admit). */
   missing_next_steps: string[];
+  /** Optional product close-out after workers — not pipeline failure. */
+  optional_closeout_steps?: string[];
 }
 
 export interface RuntimeReadinessItem {

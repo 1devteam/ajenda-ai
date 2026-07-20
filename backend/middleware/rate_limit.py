@@ -185,7 +185,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # PR5: enforce api_calls quota before handlers run so over-limit tenants
         # cannot mutate state or queue work before admission is denied.
-        if tenant_id and tenant_id != "anonymous":
+        # Non-production may bypass via AJENDA_DEV_BYPASS_API_CALL_QUOTA for mission iteration.
+        if tenant_id and tenant_id != "anonymous" and not settings.api_call_quota_bypassed:
             quota_response = self._enforce_api_call_quota_admission(request, tenant_id)
             if quota_response is not None:
                 return quota_response

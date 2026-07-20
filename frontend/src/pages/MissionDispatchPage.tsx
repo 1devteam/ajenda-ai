@@ -521,9 +521,27 @@ export default function MissionDispatchPage() {
 
       {lifecycle && lifecycle.missing_next_steps.length > 0 ? (
         <section className="panel">
-          <h2>Missing next steps</h2>
+          <h2>Runtime gaps</h2>
+          <p className="muted">These block worker execution until resolved.</p>
           <ul className="violation-list">
             {lifecycle.missing_next_steps.map((item) => (
+              <li key={item}>
+                <code>{item}</code>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {lifecycle && (lifecycle.optional_closeout_steps?.length ?? 0) > 0 ? (
+        <section className="panel">
+          <h2>Optional mission close-out</h2>
+          <p className="muted">
+            Execution can already be complete. These are product follow-ups (review, memory, retrieval) — not
+            pipeline failures.
+          </p>
+          <ul className="violation-list">
+            {(lifecycle.optional_closeout_steps ?? []).map((item) => (
               <li key={item}>
                 <code>{item}</code>
               </li>
