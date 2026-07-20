@@ -1590,7 +1590,8 @@ def test_mission_lifecycle_returns_contract_metadata_and_related_summaries_witho
         "has_memory_promotions": False,
         "has_retrieval_contracts": True,
     }
-    assert body["missing_next_steps"] == ["review_memory_promotion"]
+    assert body["missing_next_steps"] == []
+    assert body["optional_closeout_steps"] == ["review_memory_promotion"]
     mission_repo.get_for_tenant.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
     evidence_repo.list_for_mission.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
     outcome_repo.list_for_mission.assert_called_once_with(mission_id=mission_id, tenant_id=str(tenant_id))
@@ -1703,6 +1704,8 @@ def test_mission_lifecycle_reports_missing_next_steps_when_layers_are_absent() -
         "create_task_graph",
         "materialize_task_graph",
         "admit_graph_to_runtime",
+    ]
+    assert body["optional_closeout_steps"] == [
         "attach_evidence",
         "create_outcome_review",
         "review_memory_promotion",
