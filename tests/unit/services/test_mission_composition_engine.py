@@ -41,9 +41,7 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
 
 
 def test_interpreter_stops_location_before_trailing_verbs() -> None:
-    intent = interpret_instruction(
-        "research roofing companies in fayetteville AR identify three strong competors"
-    )
+    intent = interpret_instruction("research roofing companies in fayetteville AR identify three strong competors")
     assert intent.target_entities
     assert intent.target_entities[0].industry.lower() == "roofing"
     assert intent.target_entities[0].location.lower() == "fayetteville ar"
