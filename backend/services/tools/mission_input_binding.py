@@ -454,11 +454,14 @@ def _is_deliverable_recipient(value: Any) -> bool:
     if not local or not domain:
         return False
     # Composition / local-proof placeholders — never treat as external-send recipients.
+    # Reject exact reserved labels (ops@test) and dotted suffixes (ops@foo.test).
     if domain == "invalid.local" or domain.endswith(".invalid.local"):
         return False
-    if domain == "example.com" or domain.endswith(".example") or domain == "example":
+    if domain in {"example", "example.com"} or domain.endswith(".example"):
         return False
-    if domain.endswith(".test") or domain.endswith(".localhost") or domain.endswith(".local"):
+    if domain in {"test", "local", "localhost"} or domain.endswith(
+        (".test", ".local", ".localhost")
+    ):
         return False
     return True
 
