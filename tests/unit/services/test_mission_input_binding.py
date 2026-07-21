@@ -304,6 +304,34 @@ def test_email_send_fails_closed_on_placeholder_draft_recipient() -> None:
         )
 
 
+def test_email_send_rejects_reserved_example_tld_recipient() -> None:
+    from backend.services.tools.mission_input_binding import InputBindingError
+
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    draft, send = _email_send_task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        draft_output={
+            "introduction_drafts": [
+                {
+                    "recipient": "ops@northwind-logistics.example",
+                    "recipient_bound": True,
+                    "subject": "Hello",
+                    "body": "Body",
+                    "artifact_id": "pitch_email-ex",
+                }
+            ],
+        },
+    )
+    with pytest.raises(InputBindingError, match=r"gtm\.email_send|recipient|introduction_drafts"):
+        apply_input_bindings(
+            tool_input=send.metadata_json["tool_invocation"]["input"],
+            task=send,
+            mission_tasks=[draft, send],
+        )
+
+
 def test_email_send_binds_when_draft_has_deliverable_recipient() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())

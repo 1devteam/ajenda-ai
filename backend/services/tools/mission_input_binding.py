@@ -447,13 +447,18 @@ def _is_deliverable_recipient(value: Any) -> bool:
     """True when value looks like a real mailbox (not composition placeholder)."""
     if not isinstance(value, str):
         return False
-    email = value.strip()
+    email = value.strip().lower()
     if not email or "@" not in email:
         return False
-    if email.endswith("@invalid.local"):
+    local, _, domain = email.rpartition("@")
+    if not local or not domain:
         return False
-    if email.endswith("@example.com"):
-        # Historical local-proof placeholders — not deliverable production recipients.
+    # Composition / local-proof placeholders — never treat as external-send recipients.
+    if domain == "invalid.local" or domain.endswith(".invalid.local"):
+        return False
+    if domain == "example.com" or domain.endswith(".example") or domain == "example":
+        return False
+    if domain.endswith(".test") or domain.endswith(".localhost") or domain.endswith(".local"):
         return False
     return True
 
