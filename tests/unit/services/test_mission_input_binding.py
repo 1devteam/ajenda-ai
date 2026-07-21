@@ -226,29 +226,19 @@ def test_merge_keeps_enriched_contacts_when_qualify_also_binds() -> None:
     assert bound["prospects"][0]["score"] == 70
 
 
-def test_email_send_binds_introduction_drafts_without_prospects_gate() -> None:
-    mission_id = uuid.uuid4()
-    tenant_id = str(uuid.uuid4())
+def _email_send_task(
+    *,
+    mission_id: uuid.UUID,
+    tenant_id: str,
+    draft_output: dict,
+    binding_required: bool = True,
+) -> tuple[ExecutionTask, ExecutionTask]:
     draft = _task(
         node_key="ability-gtm-email_draft",
         status=ExecutionTaskState.COMPLETED.value,
         mission_id=mission_id,
         tenant_id=tenant_id,
-        output={
-            "introduction_drafts": [
-                {
-                    "recipient": "pending.binding@invalid.local",
-                    "subject": "Hello Acme",
-                    "body": "Personalized draft body for Acme.",
-                    "artifact_id": "pitch_email-abc",
-                    "company": "Acme",
-                }
-            ],
-            "to": "pending.binding@invalid.local",
-            "subject": "Hello Acme",
-            "body": "Personalized draft body for Acme.",
-            "artifact_id": "pitch_email-abc",
-        },
+        output=draft_output,
     )
     send = ExecutionTask(
         id=uuid.uuid4(),
@@ -268,7 +258,7 @@ def test_email_send_binds_introduction_drafts_without_prospects_gate() -> None:
                     "subject": "Introduction — Ajenda",
                     "body": "Prepared by mission composition; requires bound recipient and human review before send.",
                     "context": {
-                        "binding_required": True,
+                        "binding_required": binding_required,
                         "binding_source": "upstream_enriched_prospects",
                     },
                 },
@@ -282,15 +272,67 @@ def test_email_send_binds_introduction_drafts_without_prospects_gate() -> None:
             ],
         },
     )
+    return draft, send
+
+
+def test_email_send_fails_closed_on_placeholder_draft_recipient() -> None:
+    from backend.services.tools.mission_input_binding import InputBindingError
+
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    draft, send = _email_send_task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        draft_output={
+            "introduction_drafts": [
+                {
+                    "recipient": "pending.binding@invalid.local",
+                    "recipient_bound": False,
+                    "subject": "Hello Acme",
+                    "body": "Personalized draft body for Acme.",
+                    "artifact_id": "pitch_email-abc",
+                    "company": "Acme",
+                }
+            ],
+        },
+    )
+    with pytest.raises(InputBindingError, match=r"introduction_drafts|gtm\.email_send|recipient"):
+        apply_input_bindings(
+            tool_input=send.metadata_json["tool_invocation"]["input"],
+            task=send,
+            mission_tasks=[draft, send],
+        )
+
+
+def test_email_send_binds_when_draft_has_deliverable_recipient() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    draft, send = _email_send_task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        draft_output={
+            "introduction_drafts": [
+                {
+                    "recipient": "ops@acme-roofing.com",
+                    "recipient_bound": True,
+                    "subject": "Hello Acme",
+                    "body": "Personalized draft body for Acme.",
+                    "artifact_id": "pitch_email-abc",
+                    "company": "Acme",
+                }
+            ],
+        },
+    )
     bound, audit = apply_input_bindings(
         tool_input=send.metadata_json["tool_invocation"]["input"],
         task=send,
         mission_tasks=[draft, send],
     )
+    assert bound["to"] == "ops@acme-roofing.com"
     assert bound["subject"] == "Hello Acme"
     assert "Personalized draft body" in bound["body"]
     assert bound["artifact_id"] == "pitch_email-abc"
-    assert bound["context"]["bound_from_introduction_drafts"] is True
+    assert bound["context"]["recipient_bound"] is True
     assert audit["action"] == "gtm.email_send"
 
 
