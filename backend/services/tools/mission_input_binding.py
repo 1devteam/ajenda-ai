@@ -388,8 +388,12 @@ def apply_input_bindings(
             }
         )
 
-    # Specialize email_draft / send from bound prospects
+    # Specialize email_draft / send from bound prospects and/or introduction drafts.
+    action_name = _action_name_from_metadata(metadata)
     bound = _specialize_outreach_input(bound)
+    if action_name == "gtm.email_send":
+        bound = _specialize_email_send_input(bound)
+
     context = bound.get("context") if isinstance(bound.get("context"), dict) else {}
     binding_required = bool(context.get("binding_required")) or bool(bound.get("binding_required"))
 
@@ -397,26 +401,38 @@ def apply_input_bindings(
         "bindings_applied": applied,
         "binding_required": binding_required,
         "prospect_count": len(bound.get("prospects") or []) if isinstance(bound.get("prospects"), list) else 0,
+        "action": action_name,
     }
 
     if binding_required and action_needs_prospect_world(metadata):
-        prospects = bound.get("prospects")
-        if not isinstance(prospects, list) or not prospects:
-            # Still allow draft with market context if industry/location present — not empty theater.
-            if not (context.get("industry") or context.get("location") or bound.get("company")):
+        if action_name == "gtm.email_send":
+            if not _email_send_has_world_state(bound):
                 raise InputBindingError(
-                    "binding_required but no upstream prospects were available for this ability"
+                    "binding_required but no introduction_drafts or enriched prospects "
+                    "were available for gtm.email_send"
                 )
-        audit["primary_prospect"] = _primary_prospect(bound)
+        else:
+            prospects = bound.get("prospects")
+            if not isinstance(prospects, list) or not prospects:
+                # Still allow draft with market context if industry/location present.
+                if not (context.get("industry") or context.get("location") or bound.get("company")):
+                    raise InputBindingError(
+                        "binding_required but no upstream prospects were available for this ability"
+                    )
+            audit["primary_prospect"] = _primary_prospect(bound)
 
     return bound, audit
 
 
-def action_needs_prospect_world(metadata: dict[str, Any]) -> bool:
+def _action_name_from_metadata(metadata: dict[str, Any]) -> str | None:
     tool_inv = metadata.get("tool_invocation")
-    if not isinstance(tool_inv, dict):
-        return False
-    action = tool_inv.get("action")
+    if isinstance(tool_inv, dict) and isinstance(tool_inv.get("action"), str):
+        return tool_inv["action"]
+    return None
+
+
+def action_needs_prospect_world(metadata: dict[str, Any]) -> bool:
+    action = _action_name_from_metadata(metadata)
     return action in {
         "sales.qualify",
         "sales.score_lead",
@@ -425,6 +441,82 @@ def action_needs_prospect_world(metadata: dict[str, Any]) -> bool:
         "gtm.email_send",
         "sales.draft_followup",
     }
+
+
+def _email_send_has_world_state(bound: dict[str, Any]) -> bool:
+    """Send is satisfied by draft artifacts and/or enriched contacts, not only prospects[]."""
+    context = bound.get("context") if isinstance(bound.get("context"), dict) else {}
+    drafts = context.get("introduction_drafts")
+    if isinstance(drafts, list) and any(isinstance(item, dict) for item in drafts):
+        return True
+    enriched = context.get("enriched_prospects")
+    if isinstance(enriched, list) and any(isinstance(item, dict) for item in enriched):
+        return True
+    prospects = bound.get("prospects")
+    if isinstance(prospects, list) and prospects:
+        return True
+    to = str(bound.get("to") or "")
+    if to and not to.endswith("@invalid.local"):
+        return True
+    if bound.get("artifact_id"):
+        return True
+    return False
+
+
+def _specialize_email_send_input(bound: dict[str, Any]) -> dict[str, Any]:
+    """Map introduction_drafts / enriched_prospects from context onto GtmEmailSendInput fields."""
+    result = deepcopy(bound)
+    context = result.get("context") if isinstance(result.get("context"), dict) else {}
+    context = dict(context)
+
+    drafts = context.get("introduction_drafts")
+    if isinstance(drafts, list):
+        for draft in drafts:
+            if not isinstance(draft, dict):
+                continue
+            recipient = str(draft.get("recipient") or draft.get("to") or "").strip()
+            if recipient and (
+                not result.get("to") or str(result.get("to") or "").endswith("@invalid.local")
+            ):
+                # Keep invalid placeholders only when draft also used one.
+                result["to"] = recipient
+            if draft.get("subject") and not str(result.get("subject") or "").strip():
+                result["subject"] = str(draft["subject"])[:240]
+            elif draft.get("subject") and str(result.get("subject") or "").startswith("Introduction"):
+                result["subject"] = str(draft["subject"])[:240]
+            if draft.get("body") and (
+                "requires bound recipient" in str(result.get("body") or "")
+                or not str(result.get("body") or "").strip()
+            ):
+                result["body"] = str(draft["body"])[:5000]
+            if draft.get("artifact_id") and not result.get("artifact_id"):
+                result["artifact_id"] = str(draft["artifact_id"])[:160]
+            context["bound_from_introduction_drafts"] = True
+            break
+
+    enriched = context.get("enriched_prospects")
+    if isinstance(enriched, list):
+        for prospect in enriched:
+            if not isinstance(prospect, dict):
+                continue
+            contacts = prospect.get("contacts") if isinstance(prospect.get("contacts"), list) else []
+            for contact in contacts:
+                if not isinstance(contact, dict) or not contact.get("email"):
+                    continue
+                if contact.get("simulated") or contact.get("real") is False:
+                    continue
+                email = str(contact["email"]).strip()
+                if email and (
+                    not result.get("to") or str(result.get("to") or "").endswith("@invalid.local")
+                ):
+                    result["to"] = email
+                    context["recipient_bound"] = True
+                    context["recipient_source"] = "enriched_prospects"
+                break
+            break
+
+    result["context"] = context
+    return result
 
 
 def _primary_prospect(bound: dict[str, Any]) -> dict[str, Any] | None:
