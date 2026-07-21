@@ -226,6 +226,74 @@ def test_merge_keeps_enriched_contacts_when_qualify_also_binds() -> None:
     assert bound["prospects"][0]["score"] == 70
 
 
+def test_email_send_binds_introduction_drafts_without_prospects_gate() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    draft = _task(
+        node_key="ability-gtm-email_draft",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={
+            "introduction_drafts": [
+                {
+                    "recipient": "pending.binding@invalid.local",
+                    "subject": "Hello Acme",
+                    "body": "Personalized draft body for Acme.",
+                    "artifact_id": "pitch_email-abc",
+                    "company": "Acme",
+                }
+            ],
+            "to": "pending.binding@invalid.local",
+            "subject": "Hello Acme",
+            "body": "Personalized draft body for Acme.",
+            "artifact_id": "pitch_email-abc",
+        },
+    )
+    send = ExecutionTask(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        title="send",
+        description="test",
+        status=ExecutionTaskState.RUNNING.value,
+        metadata_json={
+            "graph_node_key": "ability-gtm-email_send",
+            "dependency_keys": ["ability-gtm-email_draft"],
+            "tool_invocation": {
+                "schema_version": 1,
+                "action": "gtm.email_send",
+                "input": {
+                    "to": "pending.binding@invalid.local",
+                    "subject": "Introduction — Ajenda",
+                    "body": "Prepared by mission composition; requires bound recipient and human review before send.",
+                    "context": {
+                        "binding_required": True,
+                        "binding_source": "upstream_enriched_prospects",
+                    },
+                },
+            },
+            "input_bindings": [
+                {
+                    "from_step": "ability-gtm-email_draft",
+                    "output_path": "$.introduction_drafts",
+                    "input_path": "$.input.context.introduction_drafts",
+                }
+            ],
+        },
+    )
+    bound, audit = apply_input_bindings(
+        tool_input=send.metadata_json["tool_invocation"]["input"],
+        task=send,
+        mission_tasks=[draft, send],
+    )
+    assert bound["subject"] == "Hello Acme"
+    assert "Personalized draft body" in bound["body"]
+    assert bound["artifact_id"] == "pitch_email-abc"
+    assert bound["context"]["bound_from_introduction_drafts"] is True
+    assert audit["action"] == "gtm.email_send"
+
+
 def test_bind_raises_dependency_not_ready() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())
