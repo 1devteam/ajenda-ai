@@ -209,7 +209,11 @@ export default function MissionDispatchPage() {
       return;
     }
     await runStep("Building task graph…", async () => {
-      await upsertMissionTaskGraph(session, missionId, buildTaskGraphPayload(allowedActions));
+      await upsertMissionTaskGraph(
+        session,
+        missionId,
+        buildTaskGraphPayload(allowedActions, lifecycle?.mission.objective ?? ""),
+      );
       setNotice(`Task graph created with ${allowedActions.length} ability node(s).`);
     });
   }
@@ -320,7 +324,11 @@ export default function MissionDispatchPage() {
         current = (await refreshLifecycle()) ?? current;
       }
       if (!current.completeness.has_task_graph) {
-        await upsertMissionTaskGraph(session, missionId, buildTaskGraphPayload(actions));
+        await upsertMissionTaskGraph(
+          session,
+          missionId,
+          buildTaskGraphPayload(actions, current.mission.objective ?? ""),
+        );
         current = (await refreshLifecycle()) ?? current;
       }
       if (!current.completeness.has_materialization) {
