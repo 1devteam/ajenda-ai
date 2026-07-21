@@ -19,19 +19,33 @@ def _company_line(context: BusinessContext) -> str:
     return context.business_name or context.company or "our team"
 
 
-def _template_pitch_email(*, recipient: str, topic: str, tone: str, biz: BusinessContext) -> dict[str, str]:
+def _template_pitch_email(
+    *,
+    recipient: str,
+    topic: str,
+    tone: str,
+    biz: BusinessContext,
+    prospect_company: str | None = None,
+) -> dict[str, str]:
     company = _company_line(biz)
     products = _products_line(biz)
+    prospect = (prospect_company or "").strip()
+    greeting = f"Hi {prospect} team," if prospect else "Hi,"
+    focus = (
+        f"I noticed {prospect} and wanted to share how {company} helps similar teams with {products}."
+        if prospect
+        else f"I'm reaching out from {company} regarding {topic}. We help teams with {products}."
+    )
     body = (
-        f"Hi,\n\n"
-        f"I'm reaching out from {company} regarding {topic}. "
-        f"We help teams with {products}.\n\n"
+        f"{greeting}\n\n"
+        f"{focus}\n\n"
         f"Would you be open to a short conversation to explore fit?\n\n"
         f"Best,\n{company}"
     )
+    subject_company = prospect or company
     return {
         "to": recipient,
-        "subject": f"{topic} — {company}",
+        "subject": f"{topic} — {subject_company}"[:240],
         "body": body,
         "tone": tone,
         "generation_mode": "template",
@@ -102,9 +116,21 @@ def _llm_user_prompt(
     if biz.operator_notes:
         lines.append(f"Operator notes: {biz.operator_notes}")
     if extra_context:
+        prospect_company = extra_context.get("prospect_company")
+        if prospect_company:
+            lines.append(f"Prospect company (primary audience): {prospect_company}")
+        prospect_domain = extra_context.get("prospect_domain")
+        if prospect_domain:
+            lines.append(f"Prospect domain: {prospect_domain}")
+        signals = extra_context.get("upstream_signals")
+        if signals:
+            lines.append(f"Research signals: {signals}")
         lines.append(f"Mission context: {extra_context}")
     if artifact_type == "pitch_email":
-        lines.append("Return JSON with keys: subject, body.")
+        lines.append(
+            "Write to the prospect company when provided — not a generic industry pitch. "
+            "Use the sender business context for who is writing. Return JSON with keys: subject, body."
+        )
     elif artifact_type == "follow_up":
         lines.append("Return plain-text follow-up message body only.")
     else:
@@ -197,6 +223,7 @@ def generate_and_persist_draft(
             topic=topic,
             tone=tone,
             biz=biz,
+            prospect_company=str(context.get("prospect_company") or "") or None,
         )
     elif normalized_type == "follow_up":
         content = _template_follow_up(

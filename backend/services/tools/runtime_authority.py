@@ -15,6 +15,11 @@ from backend.services.tools.capability_validation import (
     CapabilityActionValidationError,
     validate_capability_action_authority,
 )
+from backend.services.tools.mission_input_binding import (
+    DependencyNotReadyError,
+    InputBindingError,
+    bind_tool_invocation_for_task,
+)
 from backend.services.tools.schemas import (
     ActionRuntimeContext,
     CredentialReference,
@@ -35,6 +40,9 @@ class ToolRuntimeAuthority:
     validates the task-scoped tool invocation, concrete action authority, and
     side-effect envelope before delegating to ``ActionRegistry``. Dispatcher and
     ``WorkerRuntimeService`` remain the only completion/failure owners.
+
+    Before invoke, lease-scoped mission input binding rebinds upstream ability
+    outputs into tool_invocation.input when dependency_keys / input_bindings exist.
     """
 
     def __init__(
@@ -47,6 +55,29 @@ class ToolRuntimeAuthority:
         self._credential_authority = credential_authority or CredentialRuntimeAuthority()
 
     def execute(self, *, task: ExecutionTask, context: Mapping[str, Any]) -> dict[str, Any]:
+        binding_audit: dict[str, Any] = {}
+        try:
+            rebound_invocation, binding_audit = bind_tool_invocation_for_task(
+                task=task,
+                session_factory=context["session_factory"],
+            )
+            # Persist rebound input on the in-memory task for this invoke.
+            # WorkerRuntimeService.complete mirrors handler output separately.
+            if (
+                isinstance(task.metadata_json, dict)
+                and rebound_invocation
+                and not binding_audit.get("skipped")
+            ):
+                task.metadata_json = {
+                    **task.metadata_json,
+                    "tool_invocation": rebound_invocation,
+                    "input_binding_audit": binding_audit,
+                }
+        except DependencyNotReadyError:
+            raise
+        except InputBindingError as exc:
+            raise ToolRuntimeAuthorityError(f"tool.invoke input binding failed: {exc}") from exc
+
         invocation, action, effective_side_effect_class = self.authorize(task=task, context=context)
         runtime_credentials = {}
         resolved_credential = self._resolve_runtime_credential(
@@ -87,6 +118,7 @@ class ToolRuntimeAuthority:
             "summary": result.summary,
             "confidence": result.confidence,
             "limitations": result.limitations,
+            "input_binding_audit": binding_audit,
             "runtime_context": {
                 "tenant_id": task.tenant_id,
                 "task_id": str(task.id),

@@ -23,6 +23,7 @@ from backend.repositories.outcome_review_repository import OutcomeReviewReposito
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.transitions import transition_lease, transition_task
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
+from backend.services.tools.mission_input_binding import pending_dependency_keys
 
 logger = logging.getLogger("ajenda.worker_runtime_service")
 
@@ -97,6 +98,43 @@ class WorkerRuntimeService:
             )
             task.metadata_json = {**task.metadata_json, "worker_lease_id": str(lease.id)}
             self._session.flush()
+
+            # Ability graph: do not start work until dependency_keys are completed.
+            if task.mission_id is not None:
+                mission_tasks = self._tasks.list_for_mission(mission_id=task.mission_id)
+                pending = pending_dependency_keys(task=task, mission_tasks=mission_tasks)
+                if pending:
+                    logger.info(
+                        "claim_deferred_dependencies",
+                        extra={
+                            "task_id": str(task.id),
+                            "pending_keys": pending,
+                            "worker_id": worker_id,
+                        },
+                    )
+                    self._transition_lease_to_released(lease)
+                    transition_task(task, ExecutionTaskState.QUEUED)
+                    task.metadata_json = {
+                        **(task.metadata_json if isinstance(task.metadata_json, dict) else {}),
+                        "dependency_deferral": {
+                            "pending_keys": pending,
+                            "deferred_at": datetime.now(UTC).isoformat(),
+                        },
+                    }
+                    # Drop worker_lease_id so a later claim creates a fresh lease.
+                    meta = dict(task.metadata_json)
+                    meta.pop("worker_lease_id", None)
+                    task.metadata_json = meta
+                    self._session.flush()
+                    savepoint.commit()
+                    self._session.commit()
+                    self._queue.release_lease(
+                        tenant_id=tenant_id,
+                        task_id=task.id,
+                        worker_id=worker_id,
+                    )
+                    return None
+
             savepoint.commit()
             self._session.commit()
         except Exception as exc:

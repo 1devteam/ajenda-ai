@@ -177,6 +177,8 @@ def build_runtime_task_preview_items(*, mission_id: UUID, readiness: Any) -> lis
         execution_constraints: dict[str, Any] = (
             deepcopy(raw_execution_constraints) if isinstance(raw_execution_constraints, dict) else {}
         )
+        node_metadata = graph_node.get("metadata") if isinstance(graph_node.get("metadata"), dict) else {}
+        input_bindings = node_metadata.get("input_bindings") if isinstance(node_metadata, dict) else None
         payload_preview = {
             "mission_id": mission_id,
             "graph_node_key": node_key,
@@ -188,6 +190,8 @@ def build_runtime_task_preview_items(*, mission_id: UUID, readiness: Any) -> lis
             "input_contract": input_contract,
             "expected_output_contract": expected_output_contract,
             "execution_constraints": execution_constraints,
+            # Ability world-state bindings for lease-scoped ToolRuntimeAuthority rebind.
+            "input_bindings": deepcopy(input_bindings) if isinstance(input_bindings, list) else [],
         }
         preview_items.append(
             {
@@ -233,8 +237,10 @@ def build_execution_task_payload(preview_item: Any) -> dict[str, Any]:
         "capability_reference": deepcopy(item.get("capability_reference")),
         "adapter_reference": deepcopy(item.get("adapter_reference")),
         "dependency_keys": deepcopy(item.get("dependency_keys") or []),
+        "input_bindings": deepcopy(payload_preview.get("input_bindings") or item.get("input_bindings") or []),
         "materialization_selection_reference": deepcopy(item.get("materialization_selection_reference")),
         "preview_task_key": item.get("preview_task_key"),
+        "graph_node_key": item.get("graph_node_key") or payload_preview.get("graph_node_key"),
     }
     if runtime_task_type == "tool.invoke":
         input_contract = payload.get("input_contract")
