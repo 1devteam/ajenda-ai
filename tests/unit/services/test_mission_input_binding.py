@@ -160,6 +160,72 @@ def test_bind_fails_closed_when_required_and_empty() -> None:
     assert "binding_required" in str(excinfo.value).lower() or "no upstream" in str(excinfo.value).lower()
 
 
+def test_merge_keeps_enriched_contacts_when_qualify_also_binds() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    qualify = _task(
+        node_key="ability-sales-qualify",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={
+            "qualified_prospects": [
+                {"prospect_id": "p1", "company": "Acme", "score": 70, "qualified": True}
+            ]
+        },
+    )
+    enrich = _task(
+        node_key="ability-gtm-lead_enrich",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={
+            "enriched_prospects": [
+                {
+                    "prospect_id": "p1",
+                    "company": "Acme",
+                    "domain": "acme.example",
+                    "contacts": [{"email": "a@acme.example", "simulated": True}],
+                }
+            ]
+        },
+    )
+    draft = _task(
+        node_key="ability-gtm-email_draft",
+        status=ExecutionTaskState.RUNNING.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=["ability-sales-qualify", "ability-gtm-lead_enrich"],
+        tool_input={
+            "recipient": "pending.binding@invalid.local",
+            "topic": "Introduction",
+            "prospects": [],
+            "context": {"binding_required": True, "industry": "saas"},
+        },
+        input_bindings=[
+            {
+                "from_step": "ability-gtm-lead_enrich",
+                "output_path": "$.enriched_prospects",
+                "input_path": "$.input.prospects",
+            },
+            {
+                "from_step": "ability-sales-qualify",
+                "output_path": "$.qualified_prospects",
+                "input_path": "$.input.prospects",
+            },
+        ],
+    )
+    bound, _audit = apply_input_bindings(
+        tool_input=draft.metadata_json["tool_invocation"]["input"],
+        task=draft,
+        mission_tasks=[qualify, enrich, draft],
+    )
+    assert len(bound["prospects"]) == 1
+    assert bound["prospects"][0]["company"] == "Acme"
+    assert bound["prospects"][0]["contacts"][0]["email"] == "a@acme.example"
+    assert bound["prospects"][0]["score"] == 70
+
+
 def test_bind_raises_dependency_not_ready() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())

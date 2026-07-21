@@ -22,6 +22,29 @@ def _slug(action: str) -> str:
     return action.replace(".", "-")
 
 
+def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
+    """Map upstream job products onto fields the downstream input model accepts.
+
+    Returns None when the binding should be omitted (e.g. introduction_drafts → gtm.email_send
+    cannot land on a forbidden ``prospects`` field).
+    """
+    if action_name in {
+        "sales.qualify",
+        "sales.score_lead",
+        "gtm.lead_enrich",
+        "gtm.email_draft",
+        "sales.draft_followup",
+    }:
+        return "$.input.prospects"
+    if action_name == "gtm.email_send":
+        # GtmEmailSendInput forbids extras; carry draft/world-state only under context.
+        if output_name in {"introduction_drafts", "enriched_prospects", "qualified_prospects", "prospect_candidates"}:
+            return f"$.input.context.{output_name}"
+        return "$.input.context.upstream"
+    # Default: keep world-state under context for unknown actions with forbid-extra schemas.
+    return f"$.input.context.{output_name}"
+
+
 def compile_planned_steps(
     selections: list[AbilitySelection],
     *,
@@ -48,13 +71,15 @@ def compile_planned_steps(
                 output_name = (
                     dep_job_spec.produced_outputs[0] if dep_job_spec and dep_job_spec.produced_outputs else "result"
                 )
+                input_path = _binding_input_path(action_name=selection.action_name, output_name=output_name)
+                if input_path is None:
+                    continue
                 input_bindings.append(
                     {
                         "from_step": dep_step.step_key,
                         "output_path": f"$.{output_name}",
                         "to_step": f"ability-{_slug(selection.action_name)}",
-                        # Bind world-state lists into tool input.prospects (not wholesale input replace).
-                        "input_path": "$.input.prospects",
+                        "input_path": input_path,
                     }
                 )
 

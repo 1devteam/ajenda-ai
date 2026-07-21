@@ -140,24 +140,39 @@ def _json_path_get(payload: dict[str, Any], path: str) -> Any:
     return current
 
 
-def _set_input_path(tool_input: dict[str, Any], path: str, value: Any) -> None:
-    """Set value at $.input… path into tool_input dict (paths relative to input root)."""
+def _input_path_keys(path: str) -> list[str]:
     raw = path.strip()
     if raw in {"$", "$.input", "input"}:
-        if isinstance(value, dict):
-            tool_input.clear()
-            tool_input.update(value)
-        return
-    # Normalize to keys under tool input
+        return []
     if raw.startswith("$.input."):
-        keys = [k for k in raw[len("$.input.") :].split(".") if k]
-    elif raw.startswith("$."):
+        return [k for k in raw[len("$.input.") :].split(".") if k]
+    if raw.startswith("$."):
         keys = [k for k in raw[2:].split(".") if k]
         if keys and keys[0] == "input":
             keys = keys[1:]
-    else:
-        keys = [k for k in raw.split(".") if k]
+        return keys
+    return [k for k in raw.split(".") if k]
+
+
+def _get_input_path(tool_input: dict[str, Any], path: str) -> Any:
+    keys = _input_path_keys(path)
     if not keys:
+        return tool_input
+    current: Any = tool_input
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _set_input_path(tool_input: dict[str, Any], path: str, value: Any) -> None:
+    """Set value at $.input… path into tool_input dict (paths relative to input root)."""
+    keys = _input_path_keys(path)
+    if not keys:
+        if isinstance(value, dict):
+            tool_input.clear()
+            tool_input.update(value)
         return
     cursor: dict[str, Any] = tool_input
     for key in keys[:-1]:
@@ -272,6 +287,61 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
     return specs
 
 
+def _prospect_merge_key(item: dict[str, Any]) -> str:
+    return str(
+        item.get("prospect_id")
+        or item.get("id")
+        or item.get("domain")
+        or item.get("company")
+        or item.get("name")
+        or ""
+    ).strip().lower()
+
+
+def _prospect_richness(item: dict[str, Any]) -> int:
+    score = 0
+    if item.get("contacts"):
+        score += 4
+    if item.get("email"):
+        score += 3
+    if item.get("domain"):
+        score += 2
+    if item.get("signals") or item.get("reasons"):
+        score += 1
+    if item.get("score") is not None:
+        score += 1
+    return score
+
+
+def _merge_prospect_lists(left: list[Any], right: list[Any]) -> list[dict[str, Any]]:
+    """Merge two prospect lists, preferring richer records for the same identity."""
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for source in (left, right):
+        for item in source:
+            if not isinstance(item, dict):
+                continue
+            key = _prospect_merge_key(item) or f"anon:{len(order)}"
+            if key not in merged:
+                merged[key] = dict(item)
+                order.append(key)
+                continue
+            current = merged[key]
+            if _prospect_richness(item) >= _prospect_richness(current):
+                combined = dict(current)
+                combined.update(item)
+                # Preserve contacts from the richer side when the winner lacks them.
+                if not combined.get("contacts") and current.get("contacts"):
+                    combined["contacts"] = current["contacts"]
+                merged[key] = combined
+            else:
+                # Keep richer current; fill missing fields from weaker side.
+                for field, value in item.items():
+                    if field not in current or current.get(field) in (None, "", [], {}):
+                        current[field] = value
+    return [merged[key] for key in order]
+
+
 def apply_input_bindings(
     *,
     tool_input: dict[str, Any],
@@ -302,6 +372,11 @@ def apply_input_bindings(
         value = _json_path_get(handler_output_for_task(upstream), output_path)
         if value is None:
             continue
+        existing = _get_input_path(bound, input_path)
+        # When multiple deps target the same list path (e.g. enrich + qualify → prospects),
+        # merge by prospect identity and prefer records that carry contacts.
+        if isinstance(value, list) and isinstance(existing, list):
+            value = _merge_prospect_lists(existing, value)
         _set_input_path(bound, input_path, value)
         applied.append(
             {

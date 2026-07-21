@@ -14,10 +14,20 @@ from backend.domain.mission import MISSION_TASK_GRAPH_METADATA_KEY
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
 from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.mission_repository import MissionRepository
-from backend.services.tools.action_registry import get_default_action_registry
-from backend.services.tools.schemas import SideEffectClass
+from backend.services.tools.action_registry import ActionDefinition, get_default_action_registry
+from backend.services.tools.schemas import SideEffectClass, ToolInvocation
 
 _BRIDGE_CAPABILITY_VERSION = "1.0.0"
+
+_SIDE_EFFECT_RANK = {
+    SideEffectClass.NONE: 0,
+    SideEffectClass.INTERNAL_READ: 1,
+    SideEffectClass.EXTERNAL_READ: 2,
+    SideEffectClass.INTERNAL_WRITE: 3,
+    SideEffectClass.EXTERNAL_WRITE: 4,
+    SideEffectClass.EXTERNAL_SEND: 5,
+    SideEffectClass.EXTERNAL_PUBLISH: 6,
+}
 
 
 def _bridge_capability_name(action_name: str) -> str:
@@ -59,12 +69,62 @@ def _action_from_graph_node(node: dict[str, Any]) -> str | None:
     return None
 
 
+def _tool_input_from_graph_node(node: dict[str, Any]) -> dict[str, Any]:
+    input_contract = node.get("input_contract")
+    if not isinstance(input_contract, dict):
+        return {}
+    tool_invocation = input_contract.get("tool_invocation")
+    if isinstance(tool_invocation, dict) and isinstance(tool_invocation.get("input"), dict):
+        return dict(tool_invocation["input"])
+    return {}
+
+
+def _effective_side_effect_for_bridge(
+    *,
+    definition: ActionDefinition,
+    action_name: str,
+    tool_input: dict[str, Any],
+) -> SideEffectClass:
+    """Resolve the strongest side-effect this bridge adapter must authorize.
+
+    Resolver-backed actions (e.g. web.research with include_public_search) elevate
+    at invoke time; bridge provisioning must use the composed input, not only the
+    action default, or capability validation rejects the task.
+    """
+    try:
+        invocation = ToolInvocation(action=action_name, input=tool_input or {})
+        resolved = definition.side_effect_for(invocation)
+    except Exception:
+        resolved = definition.side_effect_class
+    # Prefer the stronger of default vs resolved so adapters remain valid for both modes.
+    if _SIDE_EFFECT_RANK.get(resolved, 0) >= _SIDE_EFFECT_RANK.get(definition.side_effect_class, 0):
+        return resolved
+    return definition.side_effect_class
+
+
+def _classification_rank(classification: str) -> int:
+    mapping = {
+        "none": 0,
+        "read_only": 1,
+        "external_read": 2,
+        "non_idempotent_write": 3,
+        "idempotent_write": 3,
+        "internal_side_effect": 3,
+        "external_write": 4,
+        "external_send": 5,
+        "external_publish": 6,
+        "external_side_effect": 2,
+    }
+    return mapping.get(classification, 0)
+
+
 def _ensure_bridge_authority(
     *,
     db: Session,
     tenant_id: str,
     action_name: str,
     approved_by: str,
+    tool_input: dict[str, Any] | None = None,
 ) -> tuple[Capability, CapabilityAdapter]:
     registry = get_default_action_registry()
     try:
@@ -72,7 +132,12 @@ def _ensure_bridge_authority(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"unknown action for bridge authority: {action_name}") from exc
 
-    side_effect_class = definition.side_effect_class
+    side_effect_class = _effective_side_effect_for_bridge(
+        definition=definition,
+        action_name=action_name,
+        tool_input=tool_input or {},
+    )
+    required_classification = _adapter_side_effect_classification(side_effect_class)
     capability_name = _bridge_capability_name(action_name)
     capability_repo = CapabilityRepository(db)
     adapter_repo = CapabilityAdapterRepository(db)
@@ -89,6 +154,23 @@ def _ensure_bridge_authority(
             tenant_id=tenant_id,
         )
         if existing_adapter is not None:
+            # Upgrade stale bridge adapters that were provisioned before resolver elevation.
+            current = str(existing_adapter.side_effect_classification or "")
+            if _classification_rank(required_classification) > _classification_rank(current):
+                existing_adapter.side_effect_classification = required_classification
+                if _requires_runtime_authority(side_effect_class):
+                    existing_adapter.approval_requirements = {
+                        "required": side_effect_class.value
+                        in {
+                            SideEffectClass.EXTERNAL_WRITE.value,
+                            SideEffectClass.EXTERNAL_SEND.value,
+                            SideEffectClass.EXTERNAL_PUBLISH.value,
+                        },
+                        "generated_by": "mission-bridge",
+                        "approved_by": approved_by,
+                    }
+                db.add(existing_adapter)
+                db.flush()
             return existing_capability, existing_adapter
 
     approval_required = side_effect_class.value in {
@@ -116,7 +198,7 @@ def _ensure_bridge_authority(
         output_schema_hints={},
         required_permissions=[],
         required_tools=[action_name],
-        risk_level="medium" if side_effect_class.has_side_effect else "low",
+        risk_level="medium" if _requires_runtime_authority(side_effect_class) else "low",
         approval_requirements=approval_requirements,
         evidence_expectations=[f"{action_name} evidence"],
         execution_constraints={},
@@ -144,7 +226,7 @@ def _ensure_bridge_authority(
         evidence_expectations=[f"{action_name} evidence"],
         timeout_retry_hints={},
         idempotency_expectations={},
-        side_effect_classification=_adapter_side_effect_classification(side_effect_class),
+        side_effect_classification=required_classification,
         enabled=True,
         schema_version=1,
     )
@@ -189,6 +271,7 @@ def provision_bridge_runtime_authority(
             tenant_id=tenant_id_str,
             action_name=action_name,
             approved_by=admitted_by,
+            tool_input=_tool_input_from_graph_node(node),
         )
         node_authorities.append(
             {
