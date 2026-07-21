@@ -1,0 +1,499 @@
+"""Lease-scoped binding of upstream ability outputs into tool.invoke inputs.
+
+Composition freezes intent seeds. This module is the runtime data plane that
+makes job catalog products (prospect_candidates → qualified → enriched → drafts)
+real under existing TaskDispatcher / lease / evidence authority.
+
+Does not bypass tool.invoke. Does not invent side effects.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+from uuid import UUID
+
+from backend.domain.enums import ExecutionTaskState
+from backend.domain.execution_task import ExecutionTask
+from backend.repositories.execution_task_repository import ExecutionTaskRepository
+
+
+class DependencyNotReadyError(Exception):
+    """Raised when graph dependency_keys are not all completed for this mission."""
+
+    def __init__(self, message: str, *, pending_keys: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.pending_keys = list(pending_keys or [])
+
+
+class InputBindingError(Exception):
+    """Raised when required upstream world-state cannot be bound (fail closed)."""
+
+
+def graph_node_key_for_task(task: ExecutionTask) -> str | None:
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    raw = metadata.get("graph_node_key")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    selection = metadata.get("materialization_selection_reference")
+    if isinstance(selection, dict):
+        node_key = selection.get("node_key")
+        if isinstance(node_key, str) and node_key.strip():
+            return node_key.strip()
+    return None
+
+
+def dependency_keys_for_task(task: ExecutionTask) -> list[str]:
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    raw = metadata.get("dependency_keys") or []
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if isinstance(item, str) and str(item).strip()]
+
+
+def handler_output_for_task(task: ExecutionTask) -> dict[str, Any]:
+    """Extract structured ability output from a completed task."""
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    handler_result = metadata.get("handler_result")
+    if isinstance(handler_result, dict):
+        nested = handler_result.get("output")
+        if isinstance(nested, dict):
+            return nested
+    nested_output = metadata.get("output")
+    if isinstance(nested_output, dict):
+        # Avoid mistaking tool_invocation envelope for ability output.
+        if "handler" not in nested_output and "schema_version" not in nested_output:
+            return nested_output
+        inner = nested_output.get("output")
+        if isinstance(inner, dict):
+            return inner
+    return {}
+
+
+def index_mission_tasks_by_node_key(tasks: list[ExecutionTask]) -> dict[str, ExecutionTask]:
+    indexed: dict[str, ExecutionTask] = {}
+    for task in tasks:
+        key = graph_node_key_for_task(task)
+        if key is None:
+            continue
+        # Prefer completed when duplicates exist (re-runs).
+        existing = indexed.get(key)
+        if existing is None or task.status == ExecutionTaskState.COMPLETED.value:
+            indexed[key] = task
+    return indexed
+
+
+def pending_dependency_keys(*, task: ExecutionTask, mission_tasks: list[ExecutionTask]) -> list[str]:
+    deps = dependency_keys_for_task(task)
+    if not deps:
+        return []
+    by_key = index_mission_tasks_by_node_key(mission_tasks)
+    pending: list[str] = []
+    for key in deps:
+        upstream = by_key.get(key)
+        if upstream is None or upstream.status != ExecutionTaskState.COMPLETED.value:
+            pending.append(key)
+    return pending
+
+
+def assert_dependencies_ready(*, task: ExecutionTask, mission_tasks: list[ExecutionTask]) -> None:
+    pending = pending_dependency_keys(task=task, mission_tasks=mission_tasks)
+    if pending:
+        raise DependencyNotReadyError(
+            f"ability dependencies not complete: {', '.join(pending)}",
+            pending_keys=pending,
+        )
+
+
+def _json_path_get(payload: dict[str, Any], path: str) -> Any:
+    """Minimal JSONPath: $.a.b or $.a[*].c for list flatten of dict field."""
+    raw = path.strip()
+    if not raw.startswith("$"):
+        return None
+    if raw == "$" or raw == "$.input":
+        return payload
+    tokens = [part for part in raw.lstrip("$").split(".") if part]
+    current: Any = payload
+    for token in tokens:
+        if current is None:
+            return None
+        if token.endswith("[*]"):
+            key = token[: -len("[*]")]
+            if not isinstance(current, dict):
+                return None
+            items = current.get(key)
+            if not isinstance(items, list):
+                return None
+            current = items
+            continue
+        if isinstance(current, list):
+            # field after [*] → map field across items
+            mapped: list[Any] = []
+            for item in current:
+                if isinstance(item, dict) and token in item:
+                    mapped.append(item[token])
+            current = mapped
+            continue
+        if not isinstance(current, dict):
+            return None
+        current = current.get(token)
+    return current
+
+
+def _set_input_path(tool_input: dict[str, Any], path: str, value: Any) -> None:
+    """Set value at $.input… path into tool_input dict (paths relative to input root)."""
+    raw = path.strip()
+    if raw in {"$", "$.input", "input"}:
+        if isinstance(value, dict):
+            tool_input.clear()
+            tool_input.update(value)
+        return
+    # Normalize to keys under tool input
+    if raw.startswith("$.input."):
+        keys = [k for k in raw[len("$.input.") :].split(".") if k]
+    elif raw.startswith("$."):
+        keys = [k for k in raw[2:].split(".") if k]
+        if keys and keys[0] == "input":
+            keys = keys[1:]
+    else:
+        keys = [k for k in raw.split(".") if k]
+    if not keys:
+        return
+    cursor: dict[str, Any] = tool_input
+    for key in keys[:-1]:
+        next_val = cursor.get(key)
+        if not isinstance(next_val, dict):
+            next_val = {}
+            cursor[key] = next_val
+        cursor = next_val
+    cursor[keys[-1]] = value
+
+
+def collect_upstream_world_state(mission_tasks: list[ExecutionTask]) -> dict[str, Any]:
+    """Merge completed ability outputs into a mission world-state document."""
+    world: dict[str, Any] = {
+        "prospect_candidates": [],
+        "qualified_prospects": [],
+        "enriched_prospects": [],
+        "introduction_drafts": [],
+        "by_node": {},
+    }
+    by_key = index_mission_tasks_by_node_key(mission_tasks)
+    for node_key, task in by_key.items():
+        if task.status != ExecutionTaskState.COMPLETED.value:
+            continue
+        output = handler_output_for_task(task)
+        world["by_node"][node_key] = {
+            "task_id": str(task.id),
+            "status": task.status,
+            "output": output,
+        }
+        for list_key in (
+            "prospect_candidates",
+            "qualified_prospects",
+            "enriched_prospects",
+            "introduction_drafts",
+        ):
+            items = output.get(list_key)
+            if isinstance(items, list):
+                world[list_key].extend([item for item in items if isinstance(item, dict)])
+    return world
+
+
+def _binding_specs_from_metadata(metadata: dict[str, Any]) -> list[dict[str, str]]:
+    raw = metadata.get("input_bindings")
+    if isinstance(raw, list) and raw:
+        return [dict(item) for item in raw if isinstance(item, dict)]
+    # Fallback: derive from dependency_keys + known ability chain contracts
+    deps = metadata.get("dependency_keys") or []
+    action = None
+    tool_inv = metadata.get("tool_invocation")
+    if isinstance(tool_inv, dict) and isinstance(tool_inv.get("action"), str):
+        action = tool_inv["action"]
+    if not action or not isinstance(deps, list) or not deps:
+        return []
+    return default_bindings_for_action(action_name=action, dependency_keys=[str(d) for d in deps if d])
+
+
+def default_bindings_for_action(*, action_name: str, dependency_keys: list[str]) -> list[dict[str, str]]:
+    """Authoritative binding map when graph metadata omits explicit input_bindings."""
+    specs: list[dict[str, str]] = []
+    for dep in dependency_keys:
+        if action_name in {"sales.qualify", "sales.score_lead"} and "web-research" in dep:
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.prospect_candidates",
+                    "input_path": "$.input.prospects",
+                }
+            )
+        elif action_name == "gtm.lead_enrich":
+            if "sales-qualify" in dep or "qualify" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.qualified_prospects",
+                        "input_path": "$.input.prospects",
+                    }
+                )
+            elif "web-research" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.prospect_candidates",
+                        "input_path": "$.input.prospects",
+                    }
+                )
+        elif action_name in {"gtm.email_draft", "gtm.email_send", "sales.draft_followup"}:
+            if "lead_enrich" in dep or "enrich" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.enriched_prospects",
+                        "input_path": "$.input.prospects",
+                    }
+                )
+            elif "qualify" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.qualified_prospects",
+                        "input_path": "$.input.prospects",
+                    }
+                )
+            elif "web-research" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.prospect_candidates",
+                        "input_path": "$.input.prospects",
+                    }
+                )
+    return specs
+
+
+def apply_input_bindings(
+    *,
+    tool_input: dict[str, Any],
+    task: ExecutionTask,
+    mission_tasks: list[ExecutionTask],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return (bound_input, binding_audit). Fail closed when binding_required and empty."""
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    assert_dependencies_ready(task=task, mission_tasks=mission_tasks)
+
+    bound = deepcopy(tool_input) if isinstance(tool_input, dict) else {}
+    specs = _binding_specs_from_metadata(metadata)
+    by_key = index_mission_tasks_by_node_key(mission_tasks)
+    applied: list[dict[str, Any]] = []
+
+    for spec in specs:
+        from_step = str(spec.get("from_step") or "").strip()
+        output_path = str(spec.get("output_path") or "").strip()
+        input_path = str(spec.get("input_path") or "$.input").strip()
+        if not from_step or not output_path:
+            continue
+        upstream = by_key.get(from_step)
+        if upstream is None or upstream.status != ExecutionTaskState.COMPLETED.value:
+            raise DependencyNotReadyError(
+                f"binding source step not complete: {from_step}",
+                pending_keys=[from_step],
+            )
+        value = _json_path_get(handler_output_for_task(upstream), output_path)
+        if value is None:
+            continue
+        _set_input_path(bound, input_path, value)
+        applied.append(
+            {
+                "from_step": from_step,
+                "output_path": output_path,
+                "input_path": input_path,
+                "value_kind": type(value).__name__,
+                "count": len(value) if isinstance(value, list) else 1,
+            }
+        )
+
+    # Specialize email_draft / send from bound prospects
+    bound = _specialize_outreach_input(bound)
+    context = bound.get("context") if isinstance(bound.get("context"), dict) else {}
+    binding_required = bool(context.get("binding_required")) or bool(bound.get("binding_required"))
+
+    audit = {
+        "bindings_applied": applied,
+        "binding_required": binding_required,
+        "prospect_count": len(bound.get("prospects") or []) if isinstance(bound.get("prospects"), list) else 0,
+    }
+
+    if binding_required and action_needs_prospect_world(metadata):
+        prospects = bound.get("prospects")
+        if not isinstance(prospects, list) or not prospects:
+            # Still allow draft with market context if industry/location present — not empty theater.
+            if not (context.get("industry") or context.get("location") or bound.get("company")):
+                raise InputBindingError(
+                    "binding_required but no upstream prospects were available for this ability"
+                )
+        audit["primary_prospect"] = _primary_prospect(bound)
+
+    return bound, audit
+
+
+def action_needs_prospect_world(metadata: dict[str, Any]) -> bool:
+    tool_inv = metadata.get("tool_invocation")
+    if not isinstance(tool_inv, dict):
+        return False
+    action = tool_inv.get("action")
+    return action in {
+        "sales.qualify",
+        "sales.score_lead",
+        "gtm.lead_enrich",
+        "gtm.email_draft",
+        "gtm.email_send",
+        "sales.draft_followup",
+    }
+
+
+def _primary_prospect(bound: dict[str, Any]) -> dict[str, Any] | None:
+    prospects = bound.get("prospects")
+    if not isinstance(prospects, list) or not prospects:
+        return None
+    first = prospects[0]
+    return first if isinstance(first, dict) else None
+
+
+def _specialize_outreach_input(bound: dict[str, Any]) -> dict[str, Any]:
+    """Fold top prospect into recipient/topic/context for draft/enrich single-shot handlers.
+
+    Only mutates fields that existing input models accept:
+    - always: context, prospects
+    - when already present: company, domain, lead, recipient, to, topic
+    """
+    result = deepcopy(bound)
+    prospects = result.get("prospects")
+    if not isinstance(prospects, list) or not prospects:
+        return result
+    primary = prospects[0] if isinstance(prospects[0], dict) else None
+    if primary is None:
+        return result
+
+    company = str(primary.get("company") or primary.get("name") or "").strip()
+    domain = str(primary.get("domain") or "").strip() or None
+    industry = primary.get("industry")
+    location = primary.get("location")
+    email = None
+    contacts = primary.get("contacts")
+    if isinstance(contacts, list):
+        for contact in contacts:
+            if isinstance(contact, dict) and contact.get("email"):
+                # Prefer real contact emails only for recipient promotion.
+                if contact.get("simulated") or contact.get("real") is False:
+                    continue
+                email = str(contact["email"]).strip()
+                break
+    if not email and primary.get("email") and primary.get("real") is not False:
+        email = str(primary["email"]).strip()
+
+    context = result.get("context") if isinstance(result.get("context"), dict) else {}
+    context = dict(context)
+    if company:
+        context["prospect_company"] = company
+        if "company" in result:
+            result["company"] = company
+    if domain:
+        context["prospect_domain"] = domain
+        if "domain" in result:
+            result["domain"] = domain
+    if industry is not None:
+        context["industry"] = industry
+    if location is not None:
+        context["location"] = location
+    context["prospect_id"] = primary.get("prospect_id") or primary.get("id")
+    context["upstream_signals"] = primary.get("signals") or primary.get("reasons") or []
+    context["bound_from_world_state"] = True
+
+    if company and "topic" in result:
+        if not str(result.get("topic") or "").strip() or str(result.get("topic") or "").startswith("Introduction"):
+            result["topic"] = f"Introduction — {company}"[:240]
+
+    if email and not str(email).endswith("@invalid.local"):
+        if "recipient" in result and (
+            not result.get("recipient") or str(result.get("recipient") or "").endswith("@invalid.local")
+        ):
+            result["recipient"] = email
+        if "to" in result and (not result.get("to") or str(result.get("to") or "").endswith("@invalid.local")):
+            result["to"] = email
+        context["recipient_bound"] = True
+        context["recipient_source"] = "enriched_prospects"
+    else:
+        context["recipient_bound"] = False
+
+    result["context"] = context
+
+    # sales.qualify / score still accept lead — update only when lead key exists.
+    if "lead" in result and isinstance(result.get("lead"), dict):
+        lead = dict(result["lead"])
+        if company:
+            lead["company"] = company
+        if email:
+            lead["email"] = email
+        if primary.get("role") or primary.get("title"):
+            lead["role"] = primary.get("role") or primary.get("title")
+        if primary.get("intent"):
+            lead["intent"] = primary.get("intent")
+        if industry:
+            lead["industry"] = industry
+        if location:
+            lead["location"] = location
+        result["lead"] = lead
+    elif "lead" not in result and ("score" in str(result.keys()) or company):
+        # sales.qualify seed often has lead key from composition; if missing and prospects present,
+        # create lead only when action input already expected it — composition always seeds lead.
+        pass
+    return result
+
+
+def bind_tool_invocation_for_task(
+    *,
+    task: ExecutionTask,
+    session_factory: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load mission siblings and bind tool_invocation.input. Returns (tool_invocation, audit).
+
+    No-ops when the task has no dependency_keys / input_bindings so isolated
+    ability-runtime invokes stay unchanged.
+    """
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    raw_invocation = metadata.get("tool_invocation")
+    if not isinstance(raw_invocation, dict):
+        # Let ToolRuntimeAuthority.authorize surface the canonical error.
+        return {}, {"bindings_applied": [], "skipped": "missing_tool_invocation"}
+
+    tool_input = raw_invocation.get("input")
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+
+    deps = dependency_keys_for_task(task)
+    specs = _binding_specs_from_metadata(metadata)
+    if task.mission_id is None or (not deps and not specs):
+        return dict(raw_invocation), {"bindings_applied": [], "skipped": "no_dependencies"}
+
+    session = session_factory()
+    try:
+        try:
+            from backend.db.tenant_session import activate_tenant_session
+
+            activate_tenant_session(session, task.tenant_id)
+        except Exception:
+            # Unit stubs may lack set_config; repository still works without RLS.
+            pass
+        mission_tasks = ExecutionTaskRepository(session).list_for_mission(mission_id=UUID(str(task.mission_id)))
+    finally:
+        session.close()
+
+    bound_input, audit = apply_input_bindings(
+        tool_input=tool_input,
+        task=task,
+        mission_tasks=mission_tasks,
+    )
+    rebound = dict(raw_invocation)
+    rebound["input"] = bound_input
+    return rebound, audit

@@ -53,7 +53,8 @@ def compile_planned_steps(
                         "from_step": dep_step.step_key,
                         "output_path": f"$.{output_name}",
                         "to_step": f"ability-{_slug(selection.action_name)}",
-                        "input_path": "$.input",
+                        # Bind world-state lists into tool input.prospects (not wholesale input replace).
+                        "input_path": "$.input.prospects",
                     }
                 )
 
@@ -143,8 +144,13 @@ def compile_task_graph_preview(
         if isinstance(step.credential_reference, dict):
             input_contract["credential_reference"] = dict(step.credential_reference)
         side_effect = side_effect_by_action.get(step.action_name, "")
-        if _side_effect_has_effect(side_effect):
-            # Required by ToolRuntimeAuthority for side-effecting tool.invoke tasks.
+        needs_side_effect_auth = _side_effect_has_effect(side_effect) or (
+            # Public search elevates web.research to EXTERNAL_READ at invoke time.
+            step.action_name == "web.research"
+            and bool(step.tool_input.get("include_public_search"))
+        )
+        if needs_side_effect_auth:
+            # Required by ToolRuntimeAuthority for side-effecting / external tool.invoke tasks.
             input_contract["execution_constraints"] = {
                 "side_effect_authorization": {
                     "schema_version": 1,
@@ -153,6 +159,7 @@ def compile_task_graph_preview(
                     "approved_by": approved_by,
                 }
             }
+            # Materialize execution_constraints on payload root as well via input_contract.
         nodes.append(
             {
                 "node_key": step.step_key,
@@ -172,6 +179,9 @@ def compile_task_graph_preview(
                     "action": step.action_name,
                     "job_key": step.job_key,
                     "selected_by": "mission_composition_engine",
+                    # Runtime binder (ToolRuntimeAuthority) consumes these under lease.
+                    "input_bindings": list(step.input_bindings),
+                    "output_contract": step.output_contract,
                 },
             }
         )

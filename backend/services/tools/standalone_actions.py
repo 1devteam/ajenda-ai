@@ -6,7 +6,7 @@ import json
 from typing import Any
 from urllib.parse import quote
 
-from backend.services.business_context_resolver import default_company_and_domain, resolve_business_context
+from backend.services.business_context_resolver import resolve_business_context
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
@@ -200,33 +200,75 @@ def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds:
         }
 
 
+def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) -> dict[str, Any]:
+    data = record.get("data") if isinstance(record.get("data"), dict) else record
+    name = (
+        str(data.get("name") or data.get("company") or data.get("title") or record.get("title") or "").strip()
+        or "Unknown company"
+    )
+    domain = data.get("domain") or data.get("website") or record.get("domain")
+    domain_str = str(domain).strip() if domain else None
+    return {
+        "prospect_id": str(record.get("id") or f"{source}:{name}")[:80],
+        "company": name[:160],
+        "domain": domain_str[:160] if domain_str else None,
+        "signals": [str(data.get("summary") or data.get("snippet") or query)[:240]],
+        "source": source,
+        "real": True,
+        "industry": data.get("industry"),
+        "location": data.get("location") or data.get("city"),
+    }
+
+
+def _prospect_from_web_result(item: dict[str, Any], *, index: int) -> dict[str, Any]:
+    title = str(item.get("title") or item.get("Text") or f"Result {index + 1}").strip()[:160]
+    snippet = str(item.get("snippet") or item.get("Text") or "").strip()[:240]
+    url = str(item.get("url") or item.get("FirstURL") or "").strip()
+    domain = None
+    if url.startswith("http"):
+        try:
+            from urllib.parse import urlparse
+
+            domain = urlparse(url).netloc.removeprefix("www.")[:160] or None
+        except Exception:
+            domain = None
+    company = title.split(" - ")[0].split(" | ")[0].strip()[:160] or title
+    return {
+        "prospect_id": f"web:{index}:{company}"[:80],
+        "company": company,
+        "domain": domain,
+        "signals": [s for s in [snippet, url] if s],
+        "source": "public_search",
+        "real": bool(item.get("real", True)),
+        "url": url or None,
+    }
+
+
 def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebResearchInput.model_validate(invocation.input)
     store = resolve_record_store(context)
-    company, domain = default_company_and_domain(
-        context=context,
-        company=payload.company,
-        domain=payload.domain,
-    )
-    if not company:
-        company = payload.query
+    # Prefer explicit company from input; do not silently replace market research
+    # with the tenant's own business profile domain.
+    company = (payload.company or "").strip() or None
+    domain = (payload.domain or "").strip() or None
+    search_company = company or payload.query
 
     internal_matches: list[dict[str, Any]] = []
-    if company:
+    if search_company:
         internal_matches.extend(
             store.search_records(
                 tenant_id=context.tenant_id,
                 record_type="account",
-                query=company,
+                query=search_company,
                 limit=payload.limit,
             )
         )
-    if domain or company:
+    if domain or search_company:
         internal_matches.extend(
             store.search_records(
                 tenant_id=context.tenant_id,
                 record_type="contact",
-                query=domain or company,
+                query=domain or search_company,
                 limit=payload.limit,
             )
         )
@@ -241,41 +283,89 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
 
     crm_search = default_crm_client().search(
         context=context,
-        company=company,
+        company=search_company,
         domain=domain,
         credential=None,
         invocation=invocation,
         action_name="web.research",
     )
 
+    web_results: list[dict[str, Any]] = []
+    search_error: str | None = None
+    public_search_real = False
+    side_effect = SideEffectClass.INTERNAL_READ
+    if payload.include_public_search:
+        side_effect = SideEffectClass.EXTERNAL_READ
+        search_bundle = _fetch_duckduckgo_instant_answer(
+            query=payload.query,
+            limit=payload.limit,
+            timeout_seconds=payload.timeout_seconds,
+        )
+        raw_results = search_bundle.get("results") or []
+        if isinstance(raw_results, list):
+            web_results = [item for item in raw_results if isinstance(item, dict)]
+        public_search_real = bool(search_bundle.get("real"))
+        err = search_bundle.get("error")
+        search_error = str(err) if err else None
+
+    prospect_candidates: list[dict[str, Any]] = []
+    seen_companies: set[str] = set()
+    for record in internal_matches + list(crm_search.results or []):
+        if not isinstance(record, dict):
+            continue
+        prospect = _prospect_from_record(record, source="internal_record", query=payload.query)
+        key = prospect["company"].lower()
+        if key in seen_companies:
+            continue
+        seen_companies.add(key)
+        prospect_candidates.append(prospect)
+        if len(prospect_candidates) >= payload.limit:
+            break
+    if len(prospect_candidates) < payload.limit:
+        for index, item in enumerate(web_results):
+            prospect = _prospect_from_web_result(item, index=index)
+            key = prospect["company"].lower()
+            if key in seen_companies:
+                continue
+            seen_companies.add(key)
+            prospect_candidates.append(prospect)
+            if len(prospect_candidates) >= payload.limit:
+                break
+
     business_context = resolve_business_context(context)
     output = {
         "query": payload.query,
         "company": company,
         "domain": domain,
+        "prospect_candidates": prospect_candidates,
+        "prospect_count": len(prospect_candidates),
         "internal_records": internal_matches[: payload.limit],
         "internal_count": len(internal_matches),
         "crm_brain_matches": crm_search.results[: payload.limit],
+        "web_results": web_results[: payload.limit],
+        "web_result_count": len(web_results),
         "web_snippet": web_snippet,
+        "include_public_search": payload.include_public_search,
+        "public_search_real": public_search_real,
+        "search_error": search_error,
         "business_context_source": business_context.source,
         "source": "ajenda_brain",
-        "real": True,
+        "real": bool(prospect_candidates) and all(p.get("real") for p in prospect_candidates),
         "plugin_required": False,
     }
     inspected = [
         str(record.get("id"))
-        for record in internal_matches + crm_search.results
+        for record in internal_matches + list(crm_search.results or [])
         if isinstance(record, dict) and record.get("id")
     ]
     summary = (
-        f"Web research for '{payload.query}' found {len(internal_matches)} internal record(s)"
-        + (" and fetched a public page snippet" if web_snippet else "")
-        + "."
+        f"Web research for '{payload.query}' produced {len(prospect_candidates)} prospect candidate(s)"
+        f" ({len(internal_matches)} internal, {len(web_results)} public)."
     )
     return ActionResult(
         action="web.research",
         provider="ajenda_brain",
-        side_effect_class=SideEffectClass.INTERNAL_READ,
+        side_effect_class=side_effect,
         output=output,
         evidence=[
             _evidence(
@@ -285,11 +375,12 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 summary=summary,
                 payload=output,
                 inspected=inspected,
+                side_effect_class=side_effect,
             )
         ],
         records_inspected=inspected,
         summary=summary,
-        confidence=0.88 if web_snippet and web_snippet.get("real") else 0.82,
+        confidence=0.88 if prospect_candidates else 0.55,
     )
 
 
@@ -352,6 +443,12 @@ def web_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> Act
     )
 
 
+def _web_research_side_effect(invocation: ToolInvocation) -> SideEffectClass:
+    if bool(invocation.input.get("include_public_search")):
+        return SideEffectClass.EXTERNAL_READ
+    return SideEffectClass.INTERNAL_READ
+
+
 def register_standalone_actions(registry: ActionRegistry) -> None:
     registry.register(
         ActionDefinition(
@@ -360,6 +457,7 @@ def register_standalone_actions(registry: ActionRegistry) -> None:
             provider="ajenda_brain",
             input_model=WebResearchInput,
             side_effect_class=SideEffectClass.INTERNAL_READ,
+            side_effect_resolver=_web_research_side_effect,
         )
     )
     registry.register(

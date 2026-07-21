@@ -171,43 +171,143 @@ def _make_evidence(
 def register_gtm_actions(registry: ActionRegistry) -> None:
     def lead_enrich_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         merged_input = dict(inv.input)
-        company, domain = default_company_and_domain(
-            context=ctx,
-            company=str(merged_input.get("company", "") or ""),
-            domain=str(merged_input.get("domain", "") or "") or None,
-        )
-        if company:
-            merged_input["company"] = company
-        if domain:
-            merged_input["domain"] = domain
+        prospects_in = [p for p in (merged_input.get("prospects") or []) if isinstance(p, dict)]
+        company_seed = str(merged_input.get("company", "") or "").strip()
+        domain_seed = str(merged_input.get("domain", "") or "").strip() or None
+
+        # Prefer bound prospects; do not overwrite prospect company with tenant profile.
+        if not company_seed and prospects_in:
+            company_seed = str(prospects_in[0].get("company") or "").strip()
+            domain_seed = domain_seed or (
+                str(prospects_in[0].get("domain") or "").strip() or None
+            )
+        if not company_seed:
+            company_seed, domain_seed = default_company_and_domain(
+                context=ctx,
+                company=company_seed,
+                domain=domain_seed,
+            )
+        if company_seed:
+            merged_input["company"] = company_seed
+        if domain_seed:
+            merged_input["domain"] = domain_seed
         inp = GtmLeadEnrichInput.model_validate(merged_input)
+
+        source_prospects = prospects_in or [
+            {
+                "prospect_id": f"enrich:{inp.company}",
+                "company": inp.company,
+                "domain": inp.domain or domain_seed,
+            }
+        ]
+        enriched_prospects: list[dict[str, Any]] = []
+        for index, prospect in enumerate(source_prospects):
+            company = str(prospect.get("company") or inp.company or f"prospect-{index + 1}")[:160]
+            domain = str(prospect.get("domain") or inp.domain or domain_seed or "").strip() or None
+            # Local enrich is simulated contactability — never claim real mailbox discovery.
+            contacts: list[dict[str, Any]] = []
+            if domain:
+                contacts.append(
+                    {
+                        "email": f"contact@{domain}",
+                        "role": str(prospect.get("role") or "Owner"),
+                        "real": False,
+                        "simulated": True,
+                        "source": "local_gtm_heuristic",
+                    }
+                )
+            enriched_prospects.append(
+                {
+                    **{k: v for k, v in prospect.items() if k not in {"contacts"}},
+                    "prospect_id": str(prospect.get("prospect_id") or f"enrich:{index}:{company}")[:80],
+                    "company": company,
+                    "domain": domain,
+                    "contacts": contacts,
+                    "enrichment_real": False,
+                    "enrichment_mode": "local_simulated",
+                    "context": inp.context,
+                }
+            )
+
+        primary = enriched_prospects[0]
         enriched = {
-            "company": inp.company,
-            "domain": inp.domain or domain or "example.com",
-            "contacts": [{"email": "found@example.com", "role": "Owner"}],
+            "company": primary["company"],
+            "domain": primary.get("domain"),
+            "contacts": primary.get("contacts") or [],
             "context": inp.context,
+            "enriched_prospects": enriched_prospects,
+            "prospect_count": len(enriched_prospects),
+            "real": False,
+            "simulated": True,
         }
         return ActionResult(
             action=inv.action,
             provider="local_gtm",
             side_effect_class=SideEffectClass.NONE,
             output=enriched,
-            evidence=[_make_evidence(inv.action, "local_gtm", ctx, "lead enriched", enriched)],
-            summary="Enriched lead data (local proof)",
+            evidence=[_make_evidence(inv.action, "local_gtm", ctx, "lead enriched (simulated contacts)", enriched)],
+            summary=f"Enriched {len(enriched_prospects)} prospect(s) with simulated local contacts",
         )
 
     def email_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         inp = GtmEmailDraftInput.model_validate(inv.input)
+        context = dict(inp.context)
+        prospects = [p for p in inp.prospects if isinstance(p, dict)]
+        recipient = inp.recipient
+        topic = inp.topic
+        if prospects:
+            primary = prospects[0]
+            company = str(primary.get("company") or context.get("prospect_company") or "").strip()
+            if company:
+                context["prospect_company"] = company
+            if primary.get("domain"):
+                context["prospect_domain"] = primary.get("domain")
+            if primary.get("signals"):
+                context["upstream_signals"] = primary.get("signals")
+            if primary.get("reasons"):
+                context["qualification_reasons"] = primary.get("reasons")
+            if primary.get("score") is not None:
+                context["qualification_score"] = primary.get("score")
+            contacts = primary.get("contacts") if isinstance(primary.get("contacts"), list) else []
+            for contact in contacts:
+                if not isinstance(contact, dict) or not contact.get("email"):
+                    continue
+                bound_email = str(contact["email"]).strip()
+                simulated = bool(contact.get("simulated") or contact.get("real") is False)
+                context["contact_email_simulated"] = simulated
+                # Only promote real contact emails into the draft recipient.
+                if not simulated and (not recipient or str(recipient).endswith("@invalid.local")):
+                    recipient = bound_email
+                    context["recipient_bound"] = True
+                break
+            if company and (not topic or topic.startswith("Introduction")):
+                topic = f"Introduction — {company}"[:240]
+        else:
+            company = str(context.get("prospect_company") or "").strip()
+
         draft = generate_and_persist_draft(
             ctx,
             artifact_type="pitch_email",
-            topic=inp.topic,
+            topic=topic,
             tone=inp.tone,
-            recipient=inp.recipient,
-            extra_context=inp.context,
+            recipient=recipient,
+            extra_context=context,
         )
+        draft["prospects"] = prospects
+        draft["introduction_drafts"] = [
+            {
+                "prospect_id": (prospects[0].get("prospect_id") if prospects else None),
+                "company": context.get("prospect_company"),
+                "recipient": draft.get("to"),
+                "subject": draft.get("subject"),
+                "artifact_id": draft.get("artifact_id"),
+                "recipient_bound": bool(context.get("recipient_bound")),
+            }
+        ]
         mode = draft.get("generation_mode", "template")
         summary = f"Drafted email ({mode})"
+        if context.get("prospect_company"):
+            summary = f"Drafted email for {context['prospect_company']} ({mode})"
         return ActionResult(
             action=inv.action,
             provider="local_gtm",

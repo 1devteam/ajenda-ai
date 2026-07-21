@@ -76,8 +76,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             "query": research_query,
             "company": industry,
             # Do not fetch tenant business-profile domain as if it were the research target.
-            # Public page fetch only when a concrete candidate domain is later bound.
             "fetch_public_page": False,
+            # Prospect discovery needs public signals when tenant CRM is empty.
+            "include_public_search": True,
             "limit": limit,
         }
     if action_name == "web.search":
@@ -85,35 +86,50 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name in {"sales.research", "crm.research"}:
         return {"lead": lead}
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:
-        return {"lead": lead}
-    if action_name == "gtm.lead_enrich":
         return {
-            "company": company_label,
+            "lead": lead,
+            # Empty until runtime binder fills from web.research prospect_candidates.
+            "prospects": [],
             "context": {
                 "industry": industry,
                 "location": location,
                 "objective": intent.objective[:300],
+                "binding_required": True,
+                "binding_source": "upstream_prospect_candidates",
+            },
+        }
+    if action_name == "gtm.lead_enrich":
+        return {
+            "company": company_label,
+            "prospects": [],
+            "context": {
+                "industry": industry,
+                "location": location,
+                "objective": intent.objective[:300],
+                "binding_required": True,
+                "binding_source": "upstream_qualified_prospects",
             },
         }
     if action_name == "gtm.email_draft":
         topic = f"Introduction — {industry}" if industry else "Introduction"
         if location:
             topic = f"{topic} ({location})"
-        # Do not invent a deliverable mailbox. Bind from enriched prospects before send.
+        # Do not invent a deliverable mailbox. Runtime binder supplies company + optional email.
         return {
             "recipient": "pending.binding@invalid.local",
             "topic": topic[:240],
             "tone": "professional",
+            "prospects": [],
             "context": {
                 "industry": industry,
                 "location": location,
                 "objective": intent.objective[:300],
                 "binding_required": True,
                 "binding_source": "upstream_enriched_prospects",
-                "binding_path": "$.enriched_prospects[*].email",
+                "binding_path": "$.enriched_prospects",
                 "compose_note": (
-                    "Recipient is intentionally non-deliverable until bound from "
-                    "research/enrich outputs; do not treat as a real mailbox."
+                    "Recipient stays non-deliverable until enrich yields a real contact email. "
+                    "Draft content must still use bound prospect company/signals."
                 ),
             },
         }

@@ -156,6 +156,8 @@ class SalesLeadInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lead: dict[str, Any] = Field(default_factory=dict)
+    # Mission world-state: bound upstream prospect_candidates / qualified list.
+    prospects: list[dict[str, Any]] = Field(default_factory=list)
     account_id: str | None = Field(default=None, max_length=160)
     contact_id: str | None = Field(default=None, max_length=160)
     context: dict[str, Any] = Field(default_factory=dict)
@@ -249,8 +251,10 @@ def side_effect_authorized(metadata: Mapping[str, Any], action: str) -> bool:
 class GtmLeadEnrichInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    company: str = Field(min_length=1, max_length=160)
+    company: str = Field(default="", max_length=160)
     domain: str | None = Field(default=None, max_length=160)
+    # Mission world-state: bound qualified/prospect candidates.
+    prospects: list[dict[str, Any]] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -260,6 +264,8 @@ class GtmEmailDraftInput(BaseModel):
     recipient: str = Field(default="lead@example.com", max_length=160)
     topic: str = Field(default="follow up", max_length=240)
     tone: str = Field(default="professional", max_length=80)
+    # Mission world-state: bound enriched/qualified prospects for draft content.
+    prospects: list[dict[str, Any]] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -338,6 +344,8 @@ class WebResearchInput(BaseModel):
     company: str | None = Field(default=None, max_length=160)
     domain: str | None = Field(default=None, max_length=160)
     fetch_public_page: bool = False
+    # When true, governed public search (DDG) runs — elevates side-effect to EXTERNAL_READ.
+    include_public_search: bool = False
     limit: int = Field(default=5, ge=1, le=20)
     timeout_seconds: float = Field(default=5.0, ge=0.5, le=10.0)
 

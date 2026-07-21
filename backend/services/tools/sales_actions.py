@@ -250,31 +250,96 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
     )
 
 
-def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
-    payload = SalesLeadInput.model_validate(invocation.input)
-    lead = payload.lead
+def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: str | None) -> dict[str, Any]:
     fit_points = 0
     reasons: list[str] = []
-    if lead.get("company") or payload.account_id:
+    if lead.get("company") or account_id:
         fit_points += 35
         reasons.append("company/account context present")
     if lead.get("role") or lead.get("title"):
         fit_points += 25
         reasons.append("buyer role context present")
-    if lead.get("intent") or payload.context.get("intent"):
+    if lead.get("intent") or context.get("intent"):
         fit_points += 25
         reasons.append("intent signal present")
     if lead.get("email"):
         fit_points += 15
         reasons.append("contactability present")
+    if lead.get("domain") or lead.get("url") or lead.get("signals"):
+        fit_points += 15
+        reasons.append("research signals present")
+    if lead.get("source") == "public_search" or lead.get("source") == "internal_record":
+        fit_points += 10
+        reasons.append("sourced from research world-state")
     score = min(fit_points, 100)
     qualified = score >= 60
-    output = {
+    return {
         "score": score,
         "qualified": qualified,
         "reasons": reasons or ["insufficient local qualification signals"],
     }
-    summary = f"Lead qualification score is {score}; qualified={qualified}."
+
+
+def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = SalesLeadInput.model_validate(invocation.input)
+    prospects_in = [p for p in payload.prospects if isinstance(p, dict)]
+    if not prospects_in and (payload.lead or payload.account_id):
+        prospects_in = [dict(payload.lead)] if payload.lead else [{"account_id": payload.account_id}]
+
+    qualified_prospects: list[dict[str, Any]] = []
+    for index, prospect in enumerate(prospects_in):
+        lead = dict(prospect)
+        if payload.lead and index == 0:
+            # Merge seed lead fields without overwriting bound prospect identity.
+            for key, value in payload.lead.items():
+                lead.setdefault(key, value)
+        result = _qualify_one(lead, context=payload.context, account_id=payload.account_id)
+        company = str(lead.get("company") or lead.get("name") or f"prospect-{index + 1}")[:160]
+        entry = {
+            **{k: v for k, v in lead.items() if k not in {"score", "qualified", "reasons"}},
+            "prospect_id": str(lead.get("prospect_id") or lead.get("id") or f"qualify:{index}:{company}")[:80],
+            "company": company,
+            "score": result["score"],
+            "qualified": result["qualified"],
+            "reasons": result["reasons"],
+        }
+        if result["qualified"] or not prospects_in:
+            qualified_prospects.append(entry)
+        elif result["score"] >= 45:
+            # Keep borderline research-backed companies for enrich depth.
+            qualified_prospects.append(entry)
+
+    if not qualified_prospects and prospects_in:
+        # Always surface top scored prospect so enrich/draft can still bind company.
+        top = max(
+            (
+                {
+                    **p,
+                    **_qualify_one(p, context=payload.context, account_id=payload.account_id),
+                    "company": str(p.get("company") or p.get("name") or "prospect")[:160],
+                    "prospect_id": str(p.get("prospect_id") or p.get("id") or "qualify:top")[:80],
+                }
+                for p in prospects_in
+            ),
+            key=lambda item: int(item.get("score") or 0),
+        )
+        qualified_prospects = [top]
+
+    primary = qualified_prospects[0] if qualified_prospects else _qualify_one(
+        payload.lead, context=payload.context, account_id=payload.account_id
+    )
+    score = int(primary.get("score") or 0)
+    qualified = bool(primary.get("qualified"))
+    output = {
+        "score": score,
+        "qualified": qualified,
+        "reasons": primary.get("reasons") or ["insufficient local qualification signals"],
+        "qualified_prospects": qualified_prospects,
+        "prospect_count": len(qualified_prospects),
+    }
+    summary = (
+        f"Qualified {len(qualified_prospects)} prospect(s); primary score={score}, qualified={qualified}."
+    )
     return ActionResult(
         action="sales.qualify",
         provider="local_sales",
