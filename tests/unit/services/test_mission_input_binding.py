@@ -304,7 +304,17 @@ def test_email_send_fails_closed_on_placeholder_draft_recipient() -> None:
         )
 
 
-def test_email_send_rejects_reserved_example_tld_recipient() -> None:
+@pytest.mark.parametrize(
+    "recipient",
+    [
+        "ops@northwind-logistics.example",
+        "ops@test",
+        "ops@local",
+        "ops@localhost",
+        "ops@foo.test",
+    ],
+)
+def test_email_send_rejects_reserved_placeholder_recipients(recipient: str) -> None:
     from backend.services.tools.mission_input_binding import InputBindingError
 
     mission_id = uuid.uuid4()
@@ -315,7 +325,7 @@ def test_email_send_rejects_reserved_example_tld_recipient() -> None:
         draft_output={
             "introduction_drafts": [
                 {
-                    "recipient": "ops@northwind-logistics.example",
+                    "recipient": recipient,
                     "recipient_bound": True,
                     "subject": "Hello",
                     "body": "Body",
