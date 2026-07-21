@@ -443,28 +443,51 @@ def action_needs_prospect_world(metadata: dict[str, Any]) -> bool:
     }
 
 
+def _is_deliverable_recipient(value: Any) -> bool:
+    """True when value looks like a real mailbox (not composition placeholder)."""
+    if not isinstance(value, str):
+        return False
+    email = value.strip()
+    if not email or "@" not in email:
+        return False
+    if email.endswith("@invalid.local"):
+        return False
+    if email.endswith("@example.com"):
+        # Historical local-proof placeholders — not deliverable production recipients.
+        return False
+    return True
+
+
 def _email_send_has_world_state(bound: dict[str, Any]) -> bool:
-    """Send is satisfied by draft artifacts and/or enriched contacts, not only prospects[]."""
+    """Send requires a deliverable recipient — draft/artifact alone is not enough.
+
+    Fail closed when the only bound recipient is pending.binding@invalid.local or a
+    simulated enrich contact. External-send must not enter the side-effect path on
+    placeholders.
+    """
     context = bound.get("context") if isinstance(bound.get("context"), dict) else {}
+    if context.get("recipient_bound") is True and _is_deliverable_recipient(bound.get("to")):
+        return True
+    if _is_deliverable_recipient(bound.get("to")):
+        return True
+    # Explicit real recipient on a draft entry still counts after specialize.
     drafts = context.get("introduction_drafts")
-    if isinstance(drafts, list) and any(isinstance(item, dict) for item in drafts):
-        return True
-    enriched = context.get("enriched_prospects")
-    if isinstance(enriched, list) and any(isinstance(item, dict) for item in enriched):
-        return True
-    prospects = bound.get("prospects")
-    if isinstance(prospects, list) and prospects:
-        return True
-    to = str(bound.get("to") or "")
-    if to and not to.endswith("@invalid.local"):
-        return True
-    if bound.get("artifact_id"):
-        return True
+    if isinstance(drafts, list):
+        for draft in drafts:
+            if not isinstance(draft, dict):
+                continue
+            if draft.get("recipient_bound") is False:
+                continue
+            if _is_deliverable_recipient(draft.get("recipient") or draft.get("to")):
+                return True
     return False
 
 
 def _specialize_email_send_input(bound: dict[str, Any]) -> dict[str, Any]:
-    """Map introduction_drafts / enriched_prospects from context onto GtmEmailSendInput fields."""
+    """Map introduction_drafts / enriched_prospects from context onto GtmEmailSendInput fields.
+
+    Never promotes placeholder or simulated addresses onto ``to`` as if they were bound.
+    """
     result = deepcopy(bound)
     context = result.get("context") if isinstance(result.get("context"), dict) else {}
     context = dict(context)
@@ -475,14 +498,22 @@ def _specialize_email_send_input(bound: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(draft, dict):
                 continue
             recipient = str(draft.get("recipient") or draft.get("to") or "").strip()
-            if recipient and (
-                not result.get("to") or str(result.get("to") or "").endswith("@invalid.local")
+            if (
+                _is_deliverable_recipient(recipient)
+                and draft.get("recipient_bound") is not False
+                and (
+                    not result.get("to")
+                    or str(result.get("to") or "").endswith("@invalid.local")
+                    or not _is_deliverable_recipient(result.get("to"))
+                )
             ):
-                # Keep invalid placeholders only when draft also used one.
                 result["to"] = recipient
-            if draft.get("subject") and not str(result.get("subject") or "").strip():
-                result["subject"] = str(draft["subject"])[:240]
-            elif draft.get("subject") and str(result.get("subject") or "").startswith("Introduction"):
+                context["recipient_bound"] = True
+                context["recipient_source"] = "introduction_drafts"
+            if draft.get("subject") and (
+                not str(result.get("subject") or "").strip()
+                or str(result.get("subject") or "").startswith("Introduction")
+            ):
                 result["subject"] = str(draft["subject"])[:240]
             if draft.get("body") and (
                 "requires bound recipient" in str(result.get("body") or "")
@@ -506,8 +537,8 @@ def _specialize_email_send_input(bound: dict[str, Any]) -> dict[str, Any]:
                 if contact.get("simulated") or contact.get("real") is False:
                     continue
                 email = str(contact["email"]).strip()
-                if email and (
-                    not result.get("to") or str(result.get("to") or "").endswith("@invalid.local")
+                if _is_deliverable_recipient(email) and (
+                    not result.get("to") or not _is_deliverable_recipient(result.get("to"))
                 ):
                     result["to"] = email
                     context["recipient_bound"] = True
