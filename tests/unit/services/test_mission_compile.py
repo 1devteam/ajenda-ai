@@ -8,7 +8,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.domain.enums import MissionPlanStatus, MissionState
-from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, MISSION_TASK_GRAPH_METADATA_KEY, Mission, MissionPlan
+from backend.domain.mission import (
+    MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
+    MISSION_INTAKE_METADATA_KEY,
+    MISSION_RUNTIME_ADMISSION_METADATA_KEY,
+    MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
+    MISSION_TASK_GRAPH_METADATA_KEY,
+    Mission,
+    MissionPlan,
+)
 from backend.services.mission_composition.service import (
     COMPILER_NAME,
     COMPILER_VERSION,
@@ -17,7 +25,9 @@ from backend.services.mission_composition.service import (
 )
 
 
-def _mission(*, objective: str = "Find three roofing companies in Austin and draft outreach without sending.") -> Mission:
+def _mission(
+    *, objective: str = "Find three roofing companies in Austin and draft outreach without sending."
+) -> Mission:
     mid = uuid.uuid4()
     return Mission(
         id=mid,
@@ -96,9 +106,10 @@ def test_compile_for_mission_uses_server_composition_not_kitchen_sink() -> None:
         auth = constraints.get("side_effect_authorization") if isinstance(constraints, dict) else None
         if isinstance(auth, dict):
             assert auth.get("approved_by") != "mission-dispatch-ui"
-            assert "mission-dispatch" not in str(auth.get("approved_by") or "").lower() or auth.get(
-                "approved_by"
-            ) == "operator-1"
+            assert (
+                "mission-dispatch" not in str(auth.get("approved_by") or "").lower()
+                or auth.get("approved_by") == "operator-1"
+            )
 
 
 def test_compile_persists_graph_and_refreshes_allowed_actions() -> None:
@@ -150,6 +161,81 @@ def test_compile_persists_graph_and_refreshes_allowed_actions() -> None:
         assert mat.get("materialization_status") == "validated"
         assert (mat.get("graph_validation_result") or {}).get("validation_status") == "valid"
         assert (mat.get("graph_validation_result") or {}).get("summary", "").startswith("Server compile")
+
+
+def test_compile_supersedes_runtime_task_materialization_and_cancels_planned_tasks() -> None:
+    """Recompile must not leave old planned ExecutionTasks queueable (Codex P1)."""
+    planned_task_id = uuid.uuid4()
+    mission = _mission()
+    mission.metadata_json[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = {
+        "admission_status": "admitted",
+        "admitted_at": "2026-01-01T00:00:00+00:00",
+    }
+    mission.metadata_json[MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY] = {
+        "materialization_status": "materialized",
+        "created_execution_task_ids": [str(planned_task_id)],
+        "task_count": 1,
+        "materialized_at": "2026-01-01T00:00:00+00:00",
+    }
+    mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY] = {
+        "schema_version": 1,
+        "graph_version": 1,
+        "graph_fingerprint": "sha256:old",
+        "nodes": [],
+        "edges": [],
+        "metadata": {},
+    }
+    tenant_id = mission.tenant_id
+    service = MissionCompositionService(db=MagicMock())
+    cancelled_task = MagicMock()
+    cancelled_task.id = planned_task_id
+
+    with (
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_cls,
+        patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
+        patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
+        patch("backend.services.mission_composition.service.ExecutionTaskRepository") as task_repo_cls,
+    ):
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        cred_cls.return_value.list_for_tenant.return_value = []
+        mission_repo_cls.return_value.get_for_tenant.return_value = mission
+        plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            status=MissionPlanStatus.DRAFT.value,
+            metadata_json={},
+        )
+        task_repo_cls.return_value.cancel_planned_by_ids_for_mission.return_value = [cancelled_task]
+
+        result = service.compile_for_mission(
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            persist=True,
+            actor_id="operator-1",
+        )
+
+        assert result["compile_status"] == "ready"
+        assert result["persisted"] is True
+        task_repo_cls.return_value.cancel_planned_by_ids_for_mission.assert_called_once_with(
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            task_ids=[planned_task_id],
+        )
+        updated = mission_repo_cls.return_value.update_metadata.call_args.kwargs["metadata_json"]
+        admission = updated[MISSION_RUNTIME_ADMISSION_METADATA_KEY]
+        assert admission["admission_status"] == "superseded"
+        assert admission["superseded_reason"] == "mission_recompiled"
+        rtm = updated[MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY]
+        assert rtm["materialization_status"] == "superseded"
+        assert rtm["superseded_reason"] == "mission_recompiled"
+        assert rtm["cancelled_execution_task_ids"] == [str(planned_task_id)]
+        assert rtm["superseded_by_graph_version"] == updated[MISSION_TASK_GRAPH_METADATA_KEY]["graph_version"]
+        assert rtm["superseded_by_graph_fingerprint"] == updated[MISSION_TASK_GRAPH_METADATA_KEY]["graph_fingerprint"]
+        mat = updated[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY]
+        assert mat["materialization_status"] == "validated"
+        assert mat["materialization_source"] == COMPILER_NAME
 
 
 def test_compile_mission_not_found() -> None:
