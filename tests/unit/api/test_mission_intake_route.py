@@ -1941,6 +1941,8 @@ def test_runtime_admission_persists_metadata_without_queueing_or_runtime_calls()
     assert admission["schema_version"] == 1
     assert admission["mission_id"] == str(mission_id)
     assert admission["admission_status"] == "validated"
+    # Authenticated principal remints admitted_by (client body is not authority).
+    assert admission["admitted_by"] == "test-user"
     assert admission["graph_reference"]["graph_version"] == 7
     assert admission["graph_reference"]["graph_fingerprint"] == "sha256:existing-graph"
     assert admission["materialization_reference"]["materialization_version"] == 1
@@ -1967,6 +1969,134 @@ def test_runtime_admission_persists_metadata_without_queueing_or_runtime_calls()
     task_repo_cls.assert_not_called()
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
+
+
+def test_runtime_admission_rejects_forged_ui_admitted_by_and_remints_server_identity() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_runtime_admission_layers(tenant_id=tenant_id, mission_id=mission_id)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    mission_repo.update_metadata.side_effect = _update_metadata
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=capability_id)
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=adapter_id)
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = []
+
+    payload = _valid_runtime_admission_payload(capability_id=capability_id, adapter_id=adapter_id)
+    payload["admitted_by"] = "mission-dispatch-ui"
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository"),
+        patch("backend.api.routes.mission.MissionExecutor"),
+        patch("backend.api.routes.mission.ExecutionCoordinator"),
+    ):
+        response = client.post(f"/v1/missions/{mission_id}/runtime-admission", json=payload)
+
+    assert response.status_code == 200
+    # Forged UI identity is ignored; authenticated principal is reminted.
+    assert response.json()["runtime_admission"]["admitted_by"] == "test-user"
+    assert response.json()["runtime_admission"]["admitted_by"] != "mission-dispatch-ui"
+
+
+def test_runtime_admission_empty_selected_nodes_derives_from_compiled_graph() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_runtime_admission_layers(tenant_id=tenant_id, mission_id=mission_id)
+    # Ensure tool.invoke node exists for bridge provision path.
+    mission.metadata_json[MISSION_TASK_GRAPH_METADATA_KEY]["nodes"] = [
+        {
+            "key": "ability-web-research",
+            "node_key": "ability-web-research",
+            "intended_task_type": "tool.invoke",
+            "capability_references": [],
+            "input_contract": {
+                "tool_invocation": {
+                    "action": "web.research",
+                    "input": {"query": "roofing", "include_public_search": True},
+                }
+            },
+        }
+    ]
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY]["graph_reference"]["node_count"] = 1
+    mission.metadata_json[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY]["capability_selection_provenance"] = [
+        {"node_key": "ability-web-research", "capability_name": "bridge_web_research"}
+    ]
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+
+    def _update_metadata(*, mission, metadata_json):
+        mission.metadata_json = metadata_json
+        return mission
+
+    mission_repo.update_metadata.side_effect = _update_metadata
+    capability_repo = MagicMock()
+    capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=capability_id)
+    adapter_repo = MagicMock()
+    adapter_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=adapter_id)
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = []
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository"),
+        patch("backend.api.routes.mission.MissionExecutor"),
+        patch("backend.api.routes.mission.ExecutionCoordinator"),
+        patch(
+            "backend.api.routes.mission.provision_bridge_runtime_authority",
+            return_value={
+                "mission_id": str(mission_id),
+                "tenant_id": str(tenant_id),
+                "node_authorities": [
+                    {
+                        "node_key": "ability-web-research",
+                        "action": "web.research",
+                        "capability_id": str(capability_id),
+                        "adapter_id": str(adapter_id),
+                        "capability_name": "bridge_web_research",
+                    }
+                ],
+            },
+        ) as provision_mock,
+    ):
+        response = client.post(
+            f"/v1/missions/{mission_id}/runtime-admission",
+            json={"admission_status": "admitted", "auto_provision_authority": True, "selected_nodes": []},
+        )
+
+    assert response.status_code == 200, response.text
+    provision_mock.assert_called_once()
+    admission = response.json()["runtime_admission"]
+    assert admission["admission_status"] == "admitted"
+    assert admission["admitted_by"] == "test-user"
+    assert len(admission["selected_nodes"]) == 1
+    assert admission["selected_nodes"][0]["node_key"] == "ability-web-research"
+    assert admission["selected_nodes"][0]["runtime_task_type"] == "tool.invoke"
+    assert admission["selected_nodes"][0]["capability_id"] == str(capability_id)
+    assert admission["selected_nodes"][0]["adapter_id"] == str(adapter_id)
+    assert any("Server-derived" in note for note in (admission.get("validation_result") or {}).get("gaps", []))
 
 
 def test_runtime_admission_read_uses_tenant_scoped_repository_query() -> None:
