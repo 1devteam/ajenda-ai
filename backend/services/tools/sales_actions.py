@@ -325,8 +325,10 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         )
         qualified_prospects = [top]
 
-    primary = qualified_prospects[0] if qualified_prospects else _qualify_one(
-        payload.lead, context=payload.context, account_id=payload.account_id
+    primary = (
+        qualified_prospects[0]
+        if qualified_prospects
+        else _qualify_one(payload.lead, context=payload.context, account_id=payload.account_id)
     )
     score = int(primary.get("score") or 0)
     qualified = bool(primary.get("qualified"))
@@ -337,9 +339,7 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         "qualified_prospects": qualified_prospects,
         "prospect_count": len(qualified_prospects),
     }
-    summary = (
-        f"Qualified {len(qualified_prospects)} prospect(s); primary score={score}, qualified={qualified}."
-    )
+    summary = f"Qualified {len(qualified_prospects)} prospect(s); primary score={score}, qualified={qualified}."
     return ActionResult(
         action="sales.qualify",
         provider="local_sales",

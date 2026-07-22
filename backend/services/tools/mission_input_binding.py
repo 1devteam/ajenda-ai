@@ -288,14 +288,18 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
 
 
 def _prospect_merge_key(item: dict[str, Any]) -> str:
-    return str(
-        item.get("prospect_id")
-        or item.get("id")
-        or item.get("domain")
-        or item.get("company")
-        or item.get("name")
-        or ""
-    ).strip().lower()
+    return (
+        str(
+            item.get("prospect_id")
+            or item.get("id")
+            or item.get("domain")
+            or item.get("company")
+            or item.get("name")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
 
 
 def _prospect_richness(item: dict[str, Any]) -> int:
@@ -459,9 +463,7 @@ def _is_deliverable_recipient(value: Any) -> bool:
         return False
     if domain in {"example", "example.com"} or domain.endswith(".example"):
         return False
-    if domain in {"test", "local", "localhost"} or domain.endswith(
-        (".test", ".local", ".localhost")
-    ):
+    if domain in {"test", "local", "localhost"} or domain.endswith((".test", ".local", ".localhost")):
         return False
     return True
 
@@ -524,8 +526,7 @@ def _specialize_email_send_input(bound: dict[str, Any]) -> dict[str, Any]:
             ):
                 result["subject"] = str(draft["subject"])[:240]
             if draft.get("body") and (
-                "requires bound recipient" in str(result.get("body") or "")
-                or not str(result.get("body") or "").strip()
+                "requires bound recipient" in str(result.get("body") or "") or not str(result.get("body") or "").strip()
             ):
                 result["body"] = str(draft["body"])[:5000]
             if draft.get("artifact_id") and not result.get("artifact_id"):

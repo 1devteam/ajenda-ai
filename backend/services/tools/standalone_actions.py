@@ -353,8 +353,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         # Operation completed through a legitimate research path (internal and/or public).
         "real": True,
         # Whether returned candidates themselves are real-world entities.
-        "candidates_real": bool(prospect_candidates)
-        and all(bool(p.get("real", True)) for p in prospect_candidates),
+        "candidates_real": bool(prospect_candidates) and all(bool(p.get("real", True)) for p in prospect_candidates),
         "plugin_required": False,
     }
     inspected = [

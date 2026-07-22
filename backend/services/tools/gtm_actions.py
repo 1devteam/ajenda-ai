@@ -178,9 +178,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
         # Prefer bound prospects; do not overwrite prospect company with tenant profile.
         if not company_seed and prospects_in:
             company_seed = str(prospects_in[0].get("company") or "").strip()
-            domain_seed = domain_seed or (
-                str(prospects_in[0].get("domain") or "").strip() or None
-            )
+            domain_seed = domain_seed or (str(prospects_in[0].get("domain") or "").strip() or None)
         if not company_seed:
             company_seed, domain_seed = default_company_and_domain(
                 context=ctx,

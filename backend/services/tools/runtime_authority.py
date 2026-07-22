@@ -63,11 +63,7 @@ class ToolRuntimeAuthority:
             )
             # Persist rebound input on the in-memory task for this invoke.
             # WorkerRuntimeService.complete mirrors handler output separately.
-            if (
-                isinstance(task.metadata_json, dict)
-                and rebound_invocation
-                and not binding_audit.get("skipped")
-            ):
+            if isinstance(task.metadata_json, dict) and rebound_invocation and not binding_audit.get("skipped"):
                 task.metadata_json = {
                     **task.metadata_json,
                     "tool_invocation": rebound_invocation,

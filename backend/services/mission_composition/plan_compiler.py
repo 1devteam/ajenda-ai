@@ -171,8 +171,7 @@ def compile_task_graph_preview(
         side_effect = side_effect_by_action.get(step.action_name, "")
         needs_side_effect_auth = _side_effect_has_effect(side_effect) or (
             # Public search elevates web.research to EXTERNAL_READ at invoke time.
-            step.action_name == "web.research"
-            and bool(step.tool_input.get("include_public_search"))
+            step.action_name == "web.research" and bool(step.tool_input.get("include_public_search"))
         )
         if needs_side_effect_auth:
             # Required by ToolRuntimeAuthority for side-effecting / external tool.invoke tasks.

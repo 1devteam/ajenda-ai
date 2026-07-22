@@ -36,12 +36,7 @@ def _template_pitch_email(
         if prospect
         else f"I'm reaching out from {company} regarding {topic}. We help teams with {products}."
     )
-    body = (
-        f"{greeting}\n\n"
-        f"{focus}\n\n"
-        f"Would you be open to a short conversation to explore fit?\n\n"
-        f"Best,\n{company}"
-    )
+    body = f"{greeting}\n\n{focus}\n\nWould you be open to a short conversation to explore fit?\n\nBest,\n{company}"
     subject_company = prospect or company
     return {
         "to": recipient,
