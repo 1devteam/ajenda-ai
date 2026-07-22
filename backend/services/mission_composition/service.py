@@ -16,6 +16,7 @@ from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_INTAKE_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
+    MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
     Mission,
     build_graph_materialization_metadata,
@@ -25,11 +26,13 @@ from backend.domain.mission import (
     normalize_mission_task_graph_contract_metadata,
 )
 from backend.repositories.business_profile_repository import BusinessProfileRepository
+from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.provider_runtime_credential_repository import (
     ProviderRuntimeCredentialRepository,
 )
+from backend.services.mission_runtime_projection import supersede_runtime_task_materialization
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.contracts import (
     COMPOSITION_SCHEMA_VERSION,
@@ -492,8 +495,10 @@ class MissionCompositionService:
         Re-runs composition from the mission objective (or explicit instruction).
         Does not queue work, create leases, or invoke tools.
 
-        When persist=True, replaces mission task graph + refreshes intake allowed_actions
-        and supersedes stale materialization/admission metadata.
+        When persist=True, replaces mission task graph + refreshes intake allowed_actions,
+        supersedes stale graph admission/materialization metadata, supersedes any active
+        runtime_task_materialization, and cancels planned ExecutionTasks from the prior
+        materialization so queue-admission cannot enqueue stale task IDs.
         """
         if self._db is None:
             raise MissionCompositionError(code="DB_REQUIRED", message="database session is required for compile")
@@ -652,6 +657,37 @@ class MissionCompositionService:
                 superseded_adm["superseded_at"] = now
                 superseded_adm["superseded_reason"] = "mission_recompiled"
                 metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded_adm
+
+            # Supersede prior runtime task materialization and cancel planned tasks so
+            # runtime-queue-admission cannot enqueue stale ExecutionTasks from the old graph.
+            cancelled_task_ids: list[str] = []
+            task_materialization = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+            if isinstance(task_materialization, dict):
+                raw_task_ids = task_materialization.get("created_execution_task_ids")
+                task_ids: list[uuid.UUID] = []
+                if isinstance(raw_task_ids, list):
+                    for raw_task_id in raw_task_ids:
+                        try:
+                            task_ids.append(uuid.UUID(str(raw_task_id)))
+                        except ValueError:
+                            continue
+                if task_ids:
+                    cancelled_tasks = ExecutionTaskRepository(self._db).cancel_planned_by_ids_for_mission(
+                        tenant_id=tenant_id,
+                        mission_id=mission_id,
+                        task_ids=task_ids,
+                    )
+                    cancelled_task_ids = [str(task.id) for task in cancelled_tasks]
+                supersede_runtime_task_materialization(
+                    metadata=metadata,
+                    reason="mission_recompiled",
+                    updated_at=now,
+                    supersession={
+                        "superseded_by_graph_version": graph_version,
+                        "superseded_by_graph_fingerprint": fingerprint,
+                        "cancelled_execution_task_ids": cancelled_task_ids,
+                    },
+                )
 
             # Server-owned materialization (no client validation claims).
             previous_mat = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
