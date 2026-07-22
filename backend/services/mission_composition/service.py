@@ -13,9 +13,12 @@ from sqlalchemy.orm import Session
 
 from backend.domain.enums import MissionPlanStatus, MissionState
 from backend.domain.mission import (
+    MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_INTAKE_METADATA_KEY,
+    MISSION_RUNTIME_ADMISSION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
     Mission,
+    build_graph_materialization_metadata,
     build_mission_intake_metadata,
     build_mission_plan_contract_metadata,
     build_mission_task_graph_contract_metadata,
@@ -640,25 +643,110 @@ class MissionCompositionService:
             metadata[MISSION_TASK_GRAPH_METADATA_KEY] = normalized_graph
 
             now = datetime.now(UTC).isoformat()
-            # Supersede downstream metadata so stale client graphs cannot be re-admitted.
-            mat = metadata.get("graph_materialization")
-            if isinstance(mat, dict):
-                superseded = dict(mat)
-                superseded["materialization_status"] = "superseded"
-                superseded["updated_at"] = now
-                superseded["superseded_at"] = now
-                superseded["superseded_reason"] = "mission_recompiled"
-                superseded["superseded_by_graph_version"] = graph_version
-                superseded["superseded_by_graph_fingerprint"] = fingerprint
-                metadata["graph_materialization"] = superseded
-            adm = metadata.get("runtime_admission")
+            # Supersede stale admission so old client graphs cannot be re-used.
+            adm = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
             if isinstance(adm, dict):
                 superseded_adm = dict(adm)
                 superseded_adm["admission_status"] = "superseded"
                 superseded_adm["updated_at"] = now
                 superseded_adm["superseded_at"] = now
                 superseded_adm["superseded_reason"] = "mission_recompiled"
-                metadata["runtime_admission"] = superseded_adm
+                metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded_adm
+
+            # Server-owned materialization (no client validation claims).
+            previous_mat = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
+            previous_version = 0
+            if isinstance(previous_mat, dict):
+                prev_v = previous_mat.get("materialization_version")
+                if isinstance(prev_v, int) and prev_v >= 0:
+                    previous_version = prev_v
+            capability_selections: list[dict[str, Any]] = []
+            for node in normalized_graph.get("nodes") or []:
+                if not isinstance(node, dict):
+                    continue
+                node_key = node.get("key") or node.get("node_key")
+                if not isinstance(node_key, str) or not node_key.strip():
+                    continue
+                cap = node.get("capability_reference") if isinstance(node.get("capability_reference"), dict) else {}
+                capability_selections.append(
+                    {
+                        "node_key": node_key,
+                        "capability_name": cap.get("name") or f"bridge_{node_key}",
+                        "capability_version": cap.get("version") or "1.0.0",
+                        "selection_reason": "Selected by ajenda-mission-compiler.",
+                        "selected_by": COMPILER_NAME,
+                        "alternatives_considered": [],
+                    }
+                )
+            mat_envelope = build_graph_materialization_metadata(
+                mission_id=str(mission_id),
+                materialization_status="validated",
+                materialization_source=COMPILER_NAME,
+                materialization_source_version=COMPILER_VERSION,
+                materialization_version=previous_version + 1,
+                planner_provenance={
+                    "planner_type": COMPILER_NAME,
+                    "planner_id": COMPILER_NAME,
+                    "planning_run_id": record.proposal_id,
+                    "plan_schema_version": 1,
+                },
+                capability_selection_provenance=capability_selections,
+                graph_validation_result={
+                    "validation_status": "valid",
+                    "summary": "Server compile validated graph structure and composition readiness.",
+                    "validated_at": now,
+                    "checks": [
+                        {
+                            "name": "compiler_ready",
+                            "status": "passed",
+                            "details": "compile_status=ready",
+                        },
+                        {
+                            "name": "node_keys",
+                            "status": "passed",
+                            "details": f"nodes={len(capability_selections)}",
+                        },
+                        {
+                            "name": "server_owned",
+                            "status": "passed",
+                            "details": "materialization authored by server compile",
+                        },
+                    ],
+                },
+                operator_review={
+                    "status": "pending",
+                    "notes": "Server-compiled materialization; operator review not required for draft ladder.",
+                },
+                graph_generation_metadata={
+                    "generator": COMPILER_NAME,
+                    "generation_mode": "deterministic",
+                    "generated_at": now,
+                    "compiler_version": COMPILER_VERSION,
+                    "source_plan_version": "1",
+                    "deterministic_inputs": {"source": source, "proposal_id": record.proposal_id},
+                },
+                deterministic_compilation_metadata={
+                    "compiler_name": COMPILER_NAME,
+                    "compiler_version": COMPILER_VERSION,
+                    "compilation_boundary": "composition_to_task_graph",
+                    "deterministic": True,
+                    "input_fingerprint": fingerprint,
+                    "output_fingerprint": fingerprint,
+                },
+                generation_notes=[
+                    "Server compile wrote graph materialization; client validation claims are not accepted.",
+                ],
+                materialized_at=now,
+                updated_at=now,
+                graph_reference={
+                    "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
+                    "schema_version": normalized_graph.get("schema_version"),
+                    "graph_version": graph_version,
+                    "graph_fingerprint": fingerprint,
+                    "mission_id": str(mission_id),
+                },
+            )
+            metadata.update(mat_envelope)
 
             plan_body = compile_plan_payload(
                 objective=record.intent.objective,

@@ -142,6 +142,14 @@ def test_compile_persists_graph_and_refreshes_allowed_actions() -> None:
         graph_meta = updated[MISSION_TASK_GRAPH_METADATA_KEY]
         assert (graph_meta.get("metadata") or {}).get("generated_by") == "ajenda-mission-compiler"
         assert "graph_fingerprint" in graph_meta
+        from backend.domain.mission import MISSION_GRAPH_MATERIALIZATION_METADATA_KEY
+
+        mat = updated.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
+        assert isinstance(mat, dict)
+        assert mat.get("materialization_source") == "ajenda-mission-compiler"
+        assert mat.get("materialization_status") == "validated"
+        assert (mat.get("graph_validation_result") or {}).get("validation_status") == "valid"
+        assert (mat.get("graph_validation_result") or {}).get("summary", "").startswith("Server compile")
 
 
 def test_compile_mission_not_found() -> None:

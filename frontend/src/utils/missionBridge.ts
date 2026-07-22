@@ -183,6 +183,10 @@ export function buildMissionPlanPayload(
   };
 }
 
+/**
+ * @deprecated Client graph invent is not authority. Use POST /v1/missions/{id}/compile.
+ * Kept temporarily for tests/compat; do not use for runtime admission.
+ */
 export function buildTaskGraphPayload(
   allowedActions: string[],
   objective = "",
