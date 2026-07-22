@@ -722,23 +722,53 @@ class RuntimeAdmissionNodeSelection(BaseModel):
         return _normalize_optional_non_empty_text(value, "runtime admission node fields must be non-empty")
 
 
+_CLIENT_FORGED_ADMISSION_IDENTITIES = frozenset(
+    {
+        "mission-dispatch-ui",
+        "mission_dispatch_ui",
+        "dispatch-ui-v1",
+        "mission-bridge-ui",
+        "mission-dispatch",
+    }
+)
+
+
+def _server_admitted_by(*, request: Request, body_admitted_by: str | None) -> str:
+    """Prefer authenticated principal; never accept browser UI forged identities as authority."""
+    principal = getattr(request.state, "principal", None)
+    if principal is not None:
+        for attr in ("subject_id", "subject", "sub"):
+            value = getattr(principal, attr, None)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    candidate = (body_admitted_by or "").strip()
+    if candidate and candidate.lower() not in _CLIENT_FORGED_ADMISSION_IDENTITIES:
+        return candidate
+    return "server:runtime_admission"
+
+
 class RuntimeAdmissionWrite(BaseModel):
-    """Create/update graph-to-runtime admission metadata without queue authority."""
+    """Create/update graph-to-runtime admission metadata without queue authority.
+
+    When selected_nodes is empty, the server derives selections from the compiled task graph
+    after provisioning bridge capability/adapter authority. Client graph invent is not required.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    admission_status: RuntimeAdmissionStatus = "validated"
-    admitted_by: str = Field(min_length=1, max_length=160)
-    selected_nodes: list[RuntimeAdmissionNodeSelection] = Field(min_length=1, max_length=200)
+    admission_status: RuntimeAdmissionStatus = "admitted"
+    admitted_by: str | None = Field(default=None, max_length=160)
+    selected_nodes: list[RuntimeAdmissionNodeSelection] = Field(default_factory=list, max_length=200)
+    auto_provision_authority: bool = True
     validation_notes: list[str] = Field(default_factory=list, max_length=50)
 
     @field_validator("admitted_by")
     @classmethod
-    def _normalize_admitted_by(cls, value: str) -> str:
+    def _normalize_admitted_by(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         value = value.strip()
-        if not value:
-            raise ValueError("admitted_by is required")
-        return value
+        return value or None
 
     @field_validator("validation_notes")
     @classmethod
@@ -1964,16 +1994,14 @@ def compile_mission(
     )
 
     payload = body or MissionCompileRequest()
-    actor = (
-        request.headers.get("x-ajenda-actor")
-        or request.headers.get("x-user-id")
-        or None
-    )
+    actor = request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or None
     principal = getattr(request.state, "principal", None)
     if principal is not None:
-        subject = getattr(principal, "subject", None) or getattr(principal, "sub", None)
-        if isinstance(subject, str) and subject.strip():
-            actor = subject.strip()
+        for attr in ("subject_id", "subject", "sub"):
+            subject = getattr(principal, attr, None)
+            if isinstance(subject, str) and subject.strip():
+                actor = subject.strip()
+                break
 
     service = MissionCompositionService(db)
     try:
@@ -2148,7 +2176,10 @@ def admit_mission_graph_to_runtime(
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> RuntimeAdmissionRead:
-    """Persist graph-to-runtime admission metadata without queueing or dispatch."""
+    """Persist graph-to-runtime admission metadata without queueing or dispatch.
+
+    Server owns admission identity and can derive selected nodes from the compiled graph.
+    """
     require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     tenant_id_str = str(tenant_id)
     repo = MissionRepository(db)
@@ -2199,6 +2230,63 @@ def admit_mission_graph_to_runtime(
     if rejected_reviews:
         raise HTTPException(status_code=400, detail="rejected outcome review blocks runtime admission")
 
+    admitted_by = _server_admitted_by(request=request, body_admitted_by=body.admitted_by)
+    node_selections = list(body.selected_nodes)
+    if not node_selections:
+        if not body.auto_provision_authority:
+            raise HTTPException(
+                status_code=400,
+                detail="selected_nodes required when auto_provision_authority is false",
+            )
+        provisioned = provision_bridge_runtime_authority(
+            db=db,
+            mission_id=mission_id,
+            tenant_id=tenant_id,
+            admitted_by=admitted_by,
+        )
+        # Graph may have been rewritten with capability ids; re-read mission metadata snapshot.
+        mission = repo.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str) or mission
+        metadata = dict(mission.metadata_json or {})
+        task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY) or task_graph
+        graph_nodes = task_graph.get("nodes") if isinstance(task_graph, dict) else graph_nodes
+        if not isinstance(graph_nodes, list):
+            raise HTTPException(
+                status_code=400, detail="mission task graph nodes are required before runtime admission"
+            )
+        nodes_by_key = {
+            node.get("key"): node for node in graph_nodes if isinstance(node, dict) and isinstance(node.get("key"), str)
+        }
+        authority_by_key = {
+            item["node_key"]: item
+            for item in provisioned.get("node_authorities", [])
+            if isinstance(item, dict) and isinstance(item.get("node_key"), str)
+        }
+        for node_key, authority in authority_by_key.items():
+            if node_key not in nodes_by_key:
+                continue
+            try:
+                capability_id = UUID(str(authority["capability_id"]))
+                adapter_id = UUID(str(authority["adapter_id"]))
+            except (KeyError, ValueError, TypeError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"bridge authority missing capability/adapter for node: {node_key}",
+                ) from exc
+            node_selections.append(
+                RuntimeAdmissionNodeSelection(
+                    node_key=node_key,
+                    runtime_task_type="tool.invoke",
+                    capability_id=capability_id,
+                    adapter_id=adapter_id,
+                    operator_notes="Server-derived admission from compiled graph.",
+                )
+            )
+        if not node_selections:
+            raise HTTPException(
+                status_code=400,
+                detail="no runtime-admissible tool.invoke nodes found on compiled task graph",
+            )
+
     capability_repo = CapabilityRepository(db)
     adapter_repo = CapabilityAdapterRepository(db)
     selections_by_node = {
@@ -2209,7 +2297,7 @@ def admit_mission_graph_to_runtime(
 
     validation_checks: list[dict[str, str]] = []
     selected_nodes: list[dict[str, Any]] = []
-    for selection in body.selected_nodes:
+    for selection in node_selections:
         node = nodes_by_key.get(selection.node_key)
         if node is None:
             raise HTTPException(
@@ -2332,11 +2420,17 @@ def admit_mission_graph_to_runtime(
     previous = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
     previous_version = previous.get("admission_version", 0) if isinstance(previous, dict) else 0
     now = datetime.now(UTC).isoformat()
+    validation_notes = list(body.validation_notes)
+    if not body.selected_nodes:
+        validation_notes = [
+            *validation_notes,
+            "Server-derived selected_nodes from compiled task graph + bridge authority.",
+        ]
     runtime_admission_metadata = build_runtime_admission_metadata(
         mission_id=str(mission_id),
         admission_status=body.admission_status,
         admission_version=previous_version + 1,
-        admitted_by=body.admitted_by,
+        admitted_by=admitted_by,
         admitted_at=(
             previous.get("admitted_at", now)
             if isinstance(previous, dict) and previous.get("admission_status") != "superseded"
@@ -2345,11 +2439,11 @@ def admit_mission_graph_to_runtime(
         updated_at=now,
         graph_reference={
             "metadata_key": MISSION_TASK_GRAPH_METADATA_KEY,
-            "schema_version": task_graph.get("schema_version"),
-            "graph_status": task_graph.get("graph_status"),
+            "schema_version": task_graph.get("schema_version") if isinstance(task_graph, dict) else None,
+            "graph_status": task_graph.get("graph_status") if isinstance(task_graph, dict) else None,
             "graph_version": graph_version,
             "graph_fingerprint": graph_fingerprint,
-            "node_count": len(graph_nodes),
+            "node_count": len(graph_nodes) if isinstance(graph_nodes, list) else 0,
         },
         materialization_reference={
             "metadata_key": MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
@@ -2364,7 +2458,7 @@ def admit_mission_graph_to_runtime(
             "summary": "Runtime admission metadata validated; no runtime work was queued or dispatched.",
             "validated_at": now,
             "checks": validation_checks,
-            "gaps": body.validation_notes,
+            "gaps": validation_notes,
         },
         execution_task_records=[],
         runtime_authority={

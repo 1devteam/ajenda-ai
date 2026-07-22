@@ -462,15 +462,22 @@ export interface GraphMaterializationReadResponse {
 }
 
 export interface RuntimeAdmissionWriteRequest {
-  admission_status: string;
-  admitted_by: string;
-  selected_nodes: Array<{
+  /** Defaults to admitted; server validates. */
+  admission_status?: string;
+  /** Optional; server remints from authenticated principal and rejects UI forged identities. */
+  admitted_by?: string;
+  /**
+   * Optional. Empty/omitted → server derives selected_nodes from compiled graph
+   * after provisioning bridge capability/adapter authority.
+   */
+  selected_nodes?: Array<{
     node_key: string;
     runtime_task_type?: string;
     capability_id?: string;
     adapter_id?: string;
     operator_notes?: string;
   }>;
+  auto_provision_authority?: boolean;
   validation_notes?: string[];
 }
 

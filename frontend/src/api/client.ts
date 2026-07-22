@@ -787,15 +787,24 @@ export async function provisionBridgeRuntimeAuthority(
   );
 }
 
+/** Server-owned runtime admission — empty body derives nodes from compiled graph. */
 export async function admitMissionToRuntime(
   caller: AuthedCaller,
   missionId: string,
-  body: RuntimeAdmissionWriteRequest,
+  body: RuntimeAdmissionWriteRequest = {},
 ): Promise<RuntimeAdmissionReadResponse> {
   return withAuthedRuntime(caller, (config) =>
     request<RuntimeAdmissionReadResponse>(
       `/v1/missions/${encodeURIComponent(missionId)}/runtime-admission`,
-      { method: "POST", body: JSON.stringify(body) },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          admission_status: "admitted",
+          auto_provision_authority: true,
+          selected_nodes: [],
+          ...body,
+        }),
+      },
       runtimeOptions(config),
     ),
   );

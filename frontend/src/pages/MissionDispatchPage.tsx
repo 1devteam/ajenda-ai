@@ -5,7 +5,6 @@ import {
   admitMissionToRuntime,
   compileMission,
   createMissionPlan,
-  getAccountMe,
   getMissionDispatchReadiness,
   getMissionLifecycle,
   getMissionRuntimeReadiness,
@@ -25,7 +24,6 @@ import type {
 } from "../types";
 import {
   buildMissionPlanPayload,
-  buildRuntimeAdmissionPayload,
   intakeAllowedActions,
   intakeSuccessCriteria,
   PIPELINE_STEPS,
@@ -81,7 +79,6 @@ export default function MissionDispatchPage() {
   const [taskMaterialization, setTaskMaterialization] = useState<RuntimeTaskMaterializationReadResponse | null>(null);
   const [dispatchReadiness, setDispatchReadiness] = useState<RuntimeDispatchReadinessReadResponse | null>(null);
   const [authorities, setAuthorities] = useState<BridgeRuntimeAuthorityReadResponse | null>(null);
-  const [principalId, setPrincipalId] = useState("mission-dispatch-ui");
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
@@ -125,13 +122,9 @@ export default function MissionDispatchPage() {
     let cancelled = false;
     async function load() {
       try {
-        const [lifecycleResponse, account] = await Promise.all([
-          getMissionLifecycle(session!, missionId),
-          getAccountMe(session!),
-        ]);
+        const lifecycleResponse = await getMissionLifecycle(session!, missionId);
         if (!cancelled) {
           setLifecycle(lifecycleResponse);
-          setPrincipalId(account.principal.subject_id || "mission-dispatch-ui");
         }
         await refreshReadinessViews();
       } catch (err) {
@@ -263,23 +256,16 @@ export default function MissionDispatchPage() {
       return;
     }
     await runStep("Admitting to runtime…", async () => {
-      const current = (await refreshLifecycle()) ?? lifecycle;
-      const actions = intakeAllowedActions(current?.intake ?? null);
-      if (actions.length === 0) {
-        throw new Error("No server-compiled abilities on mission intake. Run compile first.");
-      }
-      let nodeAuthorities = authorities?.node_authorities ?? [];
-      if (nodeAuthorities.length === 0) {
-        const provisioned = await provisionBridgeRuntimeAuthority(session, missionId);
-        setAuthorities(provisioned);
-        nodeAuthorities = provisioned.node_authorities;
-      }
-      await admitMissionToRuntime(
-        session,
-        missionId,
-        buildRuntimeAdmissionPayload(actions, principalId, nodeAuthorities),
-      );
-      setNotice("Graph admitted to runtime.");
+      // Server derives selected_nodes from compiled graph + bridge authority.
+      // Client does not invent node keys, capability IDs, or admission identity.
+      const response = await admitMissionToRuntime(session, missionId, {
+        admission_status: "admitted",
+        auto_provision_authority: true,
+      });
+      const selected = (response.runtime_admission as { selected_nodes?: unknown[] } | undefined)
+        ?.selected_nodes;
+      const count = Array.isArray(selected) ? selected.length : 0;
+      setNotice(`Graph admitted to runtime (${count} node(s), server-owned).`);
     });
   }
 
@@ -356,17 +342,12 @@ export default function MissionDispatchPage() {
       if (compiledActions.length === 0) {
         throw new Error("Server compile returned no abilities.");
       }
-      // Plan + graph + materialization are server-owned after compile.
-      // Only admit/provision remain as runtime authority steps.
-      const provisioned = await provisionBridgeRuntimeAuthority(session, missionId);
-      setAuthorities(provisioned);
-
+      // Plan + graph + materialization + admission are server-owned after compile.
       if (!current.completeness.has_runtime_admission) {
-        await admitMissionToRuntime(
-          session,
-          missionId,
-          buildRuntimeAdmissionPayload(compiledActions, principalId, provisioned.node_authorities),
-        );
+        await admitMissionToRuntime(session, missionId, {
+          admission_status: "admitted",
+          auto_provision_authority: true,
+        });
         current = (await refreshLifecycle()) ?? current;
       }
 
