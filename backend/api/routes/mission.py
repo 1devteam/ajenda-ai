@@ -1908,6 +1908,93 @@ def read_mission_task_graph(
     return _mission_task_graph_to_read(mission)
 
 
+class MissionCompileRequest(BaseModel):
+    """Client may supply intent only — never a client-built graph."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instruction: str | None = Field(default=None, max_length=8000)
+    persist: bool = True
+    source: str = Field(default="mission_compile", min_length=1, max_length=80)
+
+
+class MissionCompileResponse(BaseModel):
+    """Server-owned compile package for an existing mission."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    compiler: dict[str, Any]
+    mission_id: str
+    proposal_id: str
+    compile_status: str
+    blockers: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
+    plan: dict[str, Any]
+    task_graph: dict[str, Any]
+    binding_manifest: list[dict[str, Any]] = Field(default_factory=list)
+    required_credentials: list[dict[str, Any]] = Field(default_factory=list)
+    required_approvals: list[str] = Field(default_factory=list)
+    side_effect_summary: list[dict[str, Any]] = Field(default_factory=list)
+    validation: dict[str, Any]
+    display: dict[str, Any]
+    persisted: bool
+    grants_execution_authority: bool = False
+    runtime_queued: bool = False
+    next_steps: list[str] = Field(default_factory=list)
+
+
+@router.post("/{mission_id}/compile", response_model=MissionCompileResponse)
+def compile_mission(
+    mission_id: UUID,
+    request: Request,
+    body: MissionCompileRequest | None = None,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MissionCompileResponse:
+    """Compile a server-owned plan/graph for an existing mission.
+
+    Replaces client graph compilers (missionBridge.buildTaskGraphPayload). Does not
+    queue work, claim leases, or invoke tools. When persist=true and compile is ready,
+    writes task graph + refreshes intake allowed_actions and supersedes stale admission.
+    """
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
+    from backend.services.mission_composition.service import (
+        MissionCompositionError,
+        MissionCompositionService,
+    )
+
+    payload = body or MissionCompileRequest()
+    actor = (
+        request.headers.get("x-ajenda-actor")
+        or request.headers.get("x-user-id")
+        or None
+    )
+    principal = getattr(request.state, "principal", None)
+    if principal is not None:
+        subject = getattr(principal, "subject", None) or getattr(principal, "sub", None)
+        if isinstance(subject, str) and subject.strip():
+            actor = subject.strip()
+
+    service = MissionCompositionService(db)
+    try:
+        result = service.compile_for_mission(
+            tenant_id=str(tenant_id),
+            mission_id=mission_id,
+            instruction=payload.instruction,
+            persist=payload.persist,
+            source=payload.source,
+            actor_id=actor,
+        )
+    except MissionCompositionError as exc:
+        status = 400
+        if exc.code == "MISSION_NOT_FOUND":
+            status = 404
+        elif exc.code in {"NO_RUNTIME_ACTIONS", "PROPOSAL_NOT_READY", "INSTRUCTION_REQUIRED"}:
+            status = 422
+        raise HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message}) from exc
+    return MissionCompileResponse.model_validate(result)
+
+
 @router.post("/{mission_id}/materialize-graph", response_model=GraphMaterializationRead)
 def materialize_mission_graph(
     mission_id: UUID,

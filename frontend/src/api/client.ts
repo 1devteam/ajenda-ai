@@ -738,6 +738,28 @@ export async function upsertMissionTaskGraph(
   );
 }
 
+/** Server-owned mission compile — replaces client graph compilers. */
+export async function compileMission(
+  caller: AuthedCaller,
+  missionId: string,
+  body?: { instruction?: string; persist?: boolean; source?: string },
+): Promise<Record<string, unknown>> {
+  return withAuthedRuntime(caller, (config) =>
+    request<Record<string, unknown>>(
+      `/v1/missions/${encodeURIComponent(missionId)}/compile`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          persist: true,
+          source: "mission_dispatch_ui",
+          ...body,
+        }),
+      },
+      runtimeOptions(config),
+    ),
+  );
+}
+
 export async function materializeMissionGraph(
   caller: AuthedCaller,
   missionId: string,

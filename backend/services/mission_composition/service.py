@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from backend.domain.enums import MissionPlanStatus, MissionState
 from backend.domain.mission import (
     MISSION_INTAKE_METADATA_KEY,
+    MISSION_TASK_GRAPH_METADATA_KEY,
     Mission,
     build_mission_intake_metadata,
     build_mission_plan_contract_metadata,
@@ -472,3 +473,336 @@ class MissionCompositionService:
                 "POST /v1/missions/{mission_id}/runtime-queue-admission",
             ],
         }
+
+    def compile_for_mission(
+        self,
+        *,
+        tenant_id: str,
+        mission_id: uuid.UUID,
+        instruction: str | None = None,
+        persist: bool = True,
+        source: str = "mission_compile",
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Compile a server-owned plan/graph for an existing mission.
+
+        Re-runs composition from the mission objective (or explicit instruction).
+        Does not queue work, create leases, or invoke tools.
+
+        When persist=True, replaces mission task graph + refreshes intake allowed_actions
+        and supersedes stale materialization/admission metadata.
+        """
+        if self._db is None:
+            raise MissionCompositionError(code="DB_REQUIRED", message="database session is required for compile")
+
+        mission = MissionRepository(self._db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id)
+        if mission is None:
+            raise MissionCompositionError(code="MISSION_NOT_FOUND", message="mission not found for tenant")
+
+        metadata = dict(mission.metadata_json or {})
+        intake = metadata.get(MISSION_INTAKE_METADATA_KEY)
+        if not isinstance(intake, dict):
+            intake = {}
+
+        instruction_text = (instruction or "").strip()
+        if not instruction_text:
+            context = intake.get("context") if isinstance(intake.get("context"), dict) else {}
+            composition = context.get("composition") if isinstance(context.get("composition"), dict) else {}
+            stored = composition.get("instruction")
+            if isinstance(stored, str) and stored.strip():
+                instruction_text = stored.strip()
+        if not instruction_text:
+            instruction_text = str(mission.objective or "").strip()
+        if not instruction_text:
+            raise MissionCompositionError(
+                code="INSTRUCTION_REQUIRED",
+                message="mission has no objective/instruction to compile",
+            )
+
+        record = self.compose(tenant_id=tenant_id, instruction=instruction_text)
+        approved_by = (actor_id or "").strip() or "server:mission_compile"
+        # Recompile graph with authenticated actor for non-forged SE auth lineage.
+        graph_preview = compile_task_graph_preview(
+            record.planned_steps,
+            selections=list(record.ability_selections),
+            approved_by=approved_by,
+        )
+        binding_manifest = _binding_manifest_from_steps(record.planned_steps)
+        required_credentials = _required_credentials_from_selections(record.ability_selections)
+        side_effect_summary = _side_effect_summary_from_selections(record.ability_selections)
+
+        display_steps = [
+            {
+                "sequence": step.sequence,
+                "step_key": step.step_key,
+                "title": step.title,
+                "action": step.action_name,
+                "job_key": step.job_key,
+                "summary": step.description,
+            }
+            for step in record.planned_steps
+        ]
+
+        compile_status = "ready"
+        blockers: list[dict[str, str]] = []
+        if not record.allowed_actions:
+            compile_status = "blocked"
+            blockers.append({"code": "NO_RUNTIME_ACTIONS", "message": "no runtime-ready abilities selected"})
+        elif not record.ready_to_start:
+            compile_status = "blocked" if not record.clarifications else "needs_clarification"
+            if record.missing_connections:
+                blockers.append(
+                    {
+                        "code": "MISSING_CONNECTIONS",
+                        "message": "required connections missing for one or more jobs",
+                    }
+                )
+            if record.clarifications:
+                blockers.append(
+                    {
+                        "code": "AMBIGUITY",
+                        "message": "instruction needs clarification before ready_to_start",
+                    }
+                )
+            if compile_status == "blocked" and not blockers:
+                blockers.append(
+                    {
+                        "code": "PROPOSAL_NOT_READY",
+                        "message": "composition is not ready_to_start",
+                    }
+                )
+
+        validation_status = "valid" if compile_status == "ready" else "invalid"
+        if compile_status == "needs_clarification":
+            validation_status = "warning"
+
+        graph_metadata = build_mission_task_graph_contract_metadata(
+            nodes=graph_preview.get("nodes") if isinstance(graph_preview.get("nodes"), list) else [],
+            edges=graph_preview.get("edges") if isinstance(graph_preview.get("edges"), list) else [],
+            metadata={
+                "generated_by": "ajenda-mission-compiler",
+                "compiler_name": COMPILER_NAME,
+                "compiler_version": COMPILER_VERSION,
+                "source": source,
+                "proposal_id": record.proposal_id,
+                "operator_notes": "Server-compiled graph; client graph compilers are not authority.",
+            },
+        )
+        normalized_graph = normalize_mission_task_graph_contract_metadata(graph_metadata)
+
+        # Fingerprint + version when persisting (same as mission task-graph route).
+        graph_version = 1
+        if persist and compile_status == "ready":
+            from datetime import UTC, datetime
+
+            existing_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
+            if isinstance(existing_graph, dict):
+                prev = existing_graph.get("graph_version")
+                graph_version = int(prev) + 1 if isinstance(prev, int) and prev >= 1 else 1
+
+            # Stamp identity fields consistent with mission routes.
+            import hashlib
+            import json
+
+            content = {
+                "nodes": normalized_graph.get("nodes"),
+                "edges": normalized_graph.get("edges"),
+                "schema_version": normalized_graph.get("schema_version"),
+            }
+            fingerprint = "sha256:" + hashlib.sha256(
+                json.dumps(content, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+            normalized_graph = {
+                **normalized_graph,
+                "mission_id": str(mission_id),
+                "graph_version": graph_version,
+                "graph_fingerprint": fingerprint,
+            }
+
+            # Refresh intake allowed_actions from server composition (not kitchen-sink catalog).
+            intake_updated = dict(intake)
+            intake_updated["allowed_actions"] = list(record.allowed_actions)
+            intake_updated["forbidden_actions"] = list(record.forbidden_actions)
+            context = dict(intake_updated.get("context") or {}) if isinstance(intake_updated.get("context"), dict) else {}
+            context["composition"] = {
+                "proposal_id": record.proposal_id,
+                "schema_version": record.schema_version,
+                "instruction": record.instruction,
+                "compiled_by": COMPILER_NAME,
+                "compiler_version": COMPILER_VERSION,
+                "source": source,
+                "actor_id": actor_id,
+                "job_assignments": [item.model_dump(mode="json") for item in record.job_assignments],
+                "ability_selections": [item.model_dump(mode="json") for item in record.ability_selections],
+            }
+            intake_updated["context"] = context
+            metadata[MISSION_INTAKE_METADATA_KEY] = intake_updated
+            metadata[MISSION_TASK_GRAPH_METADATA_KEY] = normalized_graph
+
+            now = datetime.now(UTC).isoformat()
+            # Supersede downstream metadata so stale client graphs cannot be re-admitted.
+            mat = metadata.get("graph_materialization")
+            if isinstance(mat, dict):
+                superseded = dict(mat)
+                superseded["materialization_status"] = "superseded"
+                superseded["updated_at"] = now
+                superseded["superseded_at"] = now
+                superseded["superseded_reason"] = "mission_recompiled"
+                superseded["superseded_by_graph_version"] = graph_version
+                superseded["superseded_by_graph_fingerprint"] = fingerprint
+                metadata["graph_materialization"] = superseded
+            adm = metadata.get("runtime_admission")
+            if isinstance(adm, dict):
+                superseded_adm = dict(adm)
+                superseded_adm["admission_status"] = "superseded"
+                superseded_adm["updated_at"] = now
+                superseded_adm["superseded_at"] = now
+                superseded_adm["superseded_reason"] = "mission_recompiled"
+                metadata["runtime_admission"] = superseded_adm
+
+            plan_body = compile_plan_payload(
+                objective=record.intent.objective,
+                steps=record.planned_steps,
+                success_criteria=[item.description for item in record.intent.success_criteria],
+                constraints=list(record.intent.constraints),
+            )
+            plan_metadata = build_mission_plan_contract_metadata(**plan_body)
+            MissionPlanRepository(self._db).create_or_get_active_for_mission(
+                mission=mission,
+                status=MissionPlanStatus.DRAFT.value,
+                metadata_json=plan_metadata,
+            )
+
+            MissionRepository(self._db).update_metadata(mission=mission, metadata_json=metadata)
+            self._db.flush()
+
+        return {
+            "compiler": {
+                "name": COMPILER_NAME,
+                "version": COMPILER_VERSION,
+                "source": source,
+            },
+            "mission_id": str(mission_id),
+            "proposal_id": record.proposal_id,
+            "compile_status": compile_status,
+            "blockers": blockers,
+            "warnings": [
+                {
+                    "code": "CLARIFICATION",
+                    "message": str(getattr(c, "question", None) or getattr(c, "reason", None) or "clarification"),
+                }
+                for c in record.clarifications
+            ],
+            "plan": compile_plan_payload(
+                objective=record.intent.objective,
+                steps=record.planned_steps,
+                success_criteria=[item.description for item in record.intent.success_criteria],
+                constraints=list(record.intent.constraints),
+            ),
+            "task_graph": normalized_graph,
+            "binding_manifest": binding_manifest,
+            "required_credentials": required_credentials,
+            "required_approvals": list(record.approval_gates),
+            "side_effect_summary": side_effect_summary,
+            "validation": {
+                "validation_status": validation_status,
+                "summary": (
+                    "Server composition compile completed."
+                    if compile_status == "ready"
+                    else "Server composition compile is not fully ready."
+                ),
+                "checks": [
+                    {
+                        "name": "allowed_actions_nonempty",
+                        "status": "passed" if record.allowed_actions else "failed",
+                        "details": f"count={len(record.allowed_actions)}",
+                    },
+                    {
+                        "name": "ready_to_start",
+                        "status": "passed" if record.ready_to_start else "failed",
+                        "details": f"ready_to_start={record.ready_to_start}",
+                    },
+                    {
+                        "name": "graph_nodes",
+                        "status": "passed" if (normalized_graph.get("nodes") or []) else "failed",
+                        "details": f"nodes={len(normalized_graph.get('nodes') or [])}",
+                    },
+                ],
+                "validator": "server",
+            },
+            "display": {
+                "steps": display_steps,
+                "allowed_actions": list(record.allowed_actions),
+                "forbidden_actions": list(record.forbidden_actions),
+                "objective": record.intent.objective,
+            },
+            "persisted": bool(persist and compile_status == "ready"),
+            "grants_execution_authority": False,
+            "runtime_queued": False,
+            "next_steps": [
+                "POST /v1/missions/{mission_id}/materialize-graph",
+                "POST /v1/missions/{mission_id}/runtime-admission",
+                "POST /v1/missions/{mission_id}/runtime-task-materialization",
+                "POST /v1/missions/{mission_id}/runtime-queue-admission",
+            ],
+        }
+
+
+COMPILER_NAME = "ajenda-mission-compiler"
+COMPILER_VERSION = "1.0.0"
+
+
+def _binding_manifest_from_steps(steps: list[Any]) -> list[dict[str, Any]]:
+    manifest: list[dict[str, Any]] = []
+    for step in steps:
+        bindings = getattr(step, "input_bindings", None) or []
+        for binding in bindings:
+            if not isinstance(binding, dict):
+                continue
+            manifest.append(
+                {
+                    "to_node": str(binding.get("to_step") or step.step_key),
+                    "from_node": str(binding.get("from_step") or ""),
+                    "output_path": str(binding.get("output_path") or ""),
+                    "input_path": str(binding.get("input_path") or ""),
+                    "required": True,
+                    "action": step.action_name,
+                }
+            )
+    return manifest
+
+
+def _required_credentials_from_selections(selections: list[Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for item in selections:
+        if getattr(item, "selection_status", None) != "selected":
+            continue
+        if not getattr(item, "requires_connection", False) and getattr(item, "readiness", None) == "ready":
+            continue
+        status = "present" if getattr(item, "readiness", None) == "ready" else "missing"
+        provider = None
+        cred = getattr(item, "credential_reference", None)
+        if isinstance(cred, dict):
+            provider = cred.get("provider")
+        out.append(
+            {
+                "action": item.action_name,
+                "readiness": getattr(item, "readiness", None),
+                "provider": provider,
+                "status": status if getattr(item, "requires_connection", False) else "not_required",
+            }
+        )
+    return out
+
+
+def _side_effect_summary_from_selections(selections: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "action": item.action_name,
+            "side_effect_class": item.side_effect_class,
+            "readiness": item.readiness,
+            "selection_status": item.selection_status,
+        }
+        for item in selections
+        if item.selection_status == "selected"
+    ]

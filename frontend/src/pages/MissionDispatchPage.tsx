@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   admitMissionRuntimeQueue,
   admitMissionToRuntime,
+  compileMission,
   createMissionPlan,
   getAccountMe,
   getMissionDispatchReadiness,
@@ -12,7 +13,6 @@ import {
   materializeMissionGraph,
   materializeMissionRuntimeTasks,
   provisionBridgeRuntimeAuthority,
-  upsertMissionTaskGraph,
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
@@ -28,7 +28,6 @@ import {
   buildMaterializationPayload,
   buildMissionPlanPayload,
   buildRuntimeAdmissionPayload,
-  buildTaskGraphPayload,
   intakeAllowedActions,
   intakeSuccessCriteria,
   PIPELINE_STEPS,
@@ -204,17 +203,30 @@ export default function MissionDispatchPage() {
   }
 
   async function handlePrepareGraph() {
-    if (!session || allowedActions.length === 0) {
-      setError("This mission has no allowed_actions to build a task graph from.");
+    if (!session) {
       return;
     }
-    await runStep("Building task graph…", async () => {
-      await upsertMissionTaskGraph(
-        session,
-        missionId,
-        buildTaskGraphPayload(allowedActions, lifecycle?.mission.objective ?? ""),
+    await runStep("Compiling task graph (server)…", async () => {
+      const compiled = await compileMission(session, missionId, {
+        instruction: lifecycle?.mission.objective,
+        persist: true,
+        source: "mission_dispatch_ui",
+      });
+      const status = String(compiled.compile_status ?? "");
+      const display = (compiled.display as { allowed_actions?: string[] } | undefined) ?? {};
+      const actions = display.allowed_actions ?? [];
+      if (status !== "ready") {
+        const blockers = Array.isArray(compiled.blockers) ? compiled.blockers : [];
+        const detail = blockers
+          .map((b) => (typeof b === "object" && b && "message" in b ? String((b as { message: string }).message) : ""))
+          .filter(Boolean)
+          .join("; ");
+        throw new Error(detail || `Server compile is not ready (status=${status || "unknown"}).`);
+      }
+      setNotice(
+        `Server compiled ${actions.length} ability step(s) via ajenda-mission-compiler.`,
       );
-      setNotice(`Task graph created with ${allowedActions.length} ability node(s).`);
+      await refreshLifecycle();
     });
   }
 
@@ -306,33 +318,46 @@ export default function MissionDispatchPage() {
       if (!current) {
         throw new Error("Could not load mission lifecycle.");
       }
-      const actions = intakeAllowedActions(current.intake ?? null);
-      const criteria = intakeSuccessCriteria(current.intake ?? null);
-      if (actions.length === 0) {
-        throw new Error(
-          "Mission has no composed plan. Return to Missions and request an outcome so Ajenda can plan the work.",
-        );
+      // Server compile is the only graph authority for dispatch. Always recompile so
+      // kitchen-sink intake graphs are replaced by composition-selected abilities.
+      if (!current.mission.objective?.trim()) {
+        throw new Error("Mission has no objective to compile.");
       }
+      const compiled = await compileMission(session, missionId, {
+        instruction: current.mission.objective,
+        persist: true,
+        source: "mission_dispatch_ui",
+      });
+      const compileStatus = String(compiled.compile_status ?? "");
+      if (compileStatus !== "ready") {
+        const blockers = Array.isArray(compiled.blockers) ? compiled.blockers : [];
+        const detail = blockers
+          .map((b) => (typeof b === "object" && b && "message" in b ? String((b as { message: string }).message) : ""))
+          .filter(Boolean)
+          .join("; ");
+        throw new Error(detail || `Server compile is not ready (status=${compileStatus || "unknown"}).`);
+      }
+      current = (await refreshLifecycle()) ?? current;
+      const compiledActions =
+        ((compiled.display as { allowed_actions?: string[] } | undefined)?.allowed_actions ??
+          intakeAllowedActions(current.intake ?? null));
+      const compiledCriteria = intakeSuccessCriteria(current.intake ?? null);
 
-      // Composition confirm usually already wrote plan + graph — only fill gaps.
       if (!current.completeness.has_plan) {
         await createMissionPlan(
           session,
           missionId,
-          buildMissionPlanPayload(current.mission.objective, actions, criteria),
+          buildMissionPlanPayload(current.mission.objective, compiledActions, compiledCriteria),
         );
         current = (await refreshLifecycle()) ?? current;
       }
-      if (!current.completeness.has_task_graph) {
-        await upsertMissionTaskGraph(
+      // Graph is already persisted by compile; materialization may still be needed.
+      if (!current.completeness.has_materialization) {
+        await materializeMissionGraph(
           session,
           missionId,
-          buildTaskGraphPayload(actions, current.mission.objective ?? ""),
+          buildMaterializationPayload(compiledActions),
         );
-        current = (await refreshLifecycle()) ?? current;
-      }
-      if (!current.completeness.has_materialization) {
-        await materializeMissionGraph(session, missionId, buildMaterializationPayload(actions));
         current = (await refreshLifecycle()) ?? current;
       }
 
@@ -343,7 +368,7 @@ export default function MissionDispatchPage() {
         await admitMissionToRuntime(
           session,
           missionId,
-          buildRuntimeAdmissionPayload(actions, principalId, provisioned.node_authorities),
+          buildRuntimeAdmissionPayload(compiledActions, principalId, provisioned.node_authorities),
         );
         current = (await refreshLifecycle()) ?? current;
       }
