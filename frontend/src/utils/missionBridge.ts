@@ -215,13 +215,9 @@ export function buildTaskGraphPayload(
       }
     }
 
-    const needsExternalAuth =
-      action === "web.research" ||
-      action === "web.search" ||
-      action === "gtm.email_send" ||
-      Boolean(preset?.requiresCredential);
-
     const toolInput = seedToolInputForAction(action, objective);
+    // Trust boundary: never mint side_effect_authorization in the browser.
+    // Server remints SE auth at task materialization from authenticated context.
     const inputContract: Record<string, unknown> = {
       tool_invocation: {
         schema_version: 1,
@@ -229,16 +225,6 @@ export function buildTaskGraphPayload(
         input: toolInput,
       },
     };
-    if (needsExternalAuth && (action === "web.research" || action === "web.search" || action === "gtm.email_send")) {
-      inputContract.execution_constraints = {
-        side_effect_authorization: {
-          schema_version: 1,
-          allowed_actions: [action],
-          reason: "mission_dispatch_ui",
-          approved_by: "mission-dispatch-ui",
-        },
-      };
-    }
 
     return {
       node_key: nodeKey,
@@ -295,7 +281,8 @@ export function buildMaterializationPayload(
   }));
 
   return {
-    materialization_status: "validated",
+    // Client may only request materialization; server owns validation status.
+    materialization_status: "draft",
     materialization_source: "mission_dispatch_ui",
     materialization_source_version: "1",
     planner_provenance: {
@@ -306,13 +293,9 @@ export function buildMaterializationPayload(
     },
     capability_selection_provenance: selections,
     graph_validation_result: {
-      validation_status: "valid",
-      summary: "Graph generated from mission allowed_actions passed contract validation.",
-      validated_at: now,
-      checks: [
-        { name: "node_keys", status: "passed", details: "All nodes have stable keys." },
-        { name: "tool_invoke_contract", status: "passed", details: "Each node declares tool.invoke input." },
-      ],
+      validation_status: "not_run",
+      summary: "Client requested materialization; server must validate the graph contract.",
+      checks: [],
     },
     operator_review: {
       status: "pending",
@@ -333,7 +316,7 @@ export function buildMaterializationPayload(
       deterministic: true,
     },
     generation_notes: [
-      "Metadata-only materialization from customer dispatch UI with world-state input_bindings.",
+      "Client materialization request only — no client-side validation claims.",
     ],
   };
 }
@@ -376,3 +359,35 @@ export const PIPELINE_STEPS = [
   { id: "tasks", label: "Task materialization", completenessKey: null },
   { id: "queue", label: "Queue admission", completenessKey: null },
 ] as const;
+
+/** Read allowed actions from mission intake metadata (composition or legacy). */
+export function intakeAllowedActions(intake: Record<string, unknown> | null): string[] {
+  if (!intake) {
+    return [];
+  }
+  const raw = intake.allowed_actions;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+/** Read success criteria descriptions from mission intake metadata. */
+export function intakeSuccessCriteria(intake: Record<string, unknown> | null): string[] {
+  if (!intake) {
+    return [];
+  }
+  const raw = intake.success_criteria;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((item) => {
+      if (typeof item === "object" && item !== null && "description" in item) {
+        const description = (item as { description: unknown }).description;
+        return typeof description === "string" ? description.trim() : "";
+      }
+      return "";
+    })
+    .filter((item) => item.length > 0);
+}
