@@ -6,7 +6,7 @@ import json
 from typing import Any
 from urllib.parse import quote
 
-from backend.services.business_context_resolver import resolve_business_context
+from backend.services.business_context_resolver import default_company_and_domain, resolve_business_context
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
@@ -201,7 +201,8 @@ def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds:
 
 
 def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) -> dict[str, Any]:
-    data = record.get("data") if isinstance(record.get("data"), dict) else record
+    raw_data = record.get("data")
+    data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else record
     name = (
         str(data.get("name") or data.get("company") or data.get("title") or record.get("title") or "").strip()
         or "Unknown company"
@@ -247,11 +248,15 @@ def _prospect_from_web_result(item: dict[str, Any], *, index: int) -> dict[str, 
 def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebResearchInput.model_validate(invocation.input)
     store = resolve_record_store(context)
-    # Prefer explicit company from input; do not silently replace market research
-    # with the tenant's own business profile domain.
-    company = (payload.company or "").strip() or None
-    domain = (payload.domain or "").strip() or None
-    search_company = company or payload.query
+    # Explicit input is the research target. Profile company/domain fill output lineage
+    # only — they must not hijack market-research queries into self-company search.
+    explicit_company = (payload.company or "").strip() or None
+    explicit_domain = (payload.domain or "").strip() or None
+    profile_company, profile_domain = default_company_and_domain(context=context)
+    company = explicit_company or (profile_company.strip() or None)
+    domain = explicit_domain or (profile_domain.strip() or None)
+    search_company = explicit_company or payload.query
+    search_domain = explicit_domain
 
     internal_matches: list[dict[str, Any]] = []
     if search_company:
@@ -263,20 +268,20 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 limit=payload.limit,
             )
         )
-    if domain or search_company:
+    if search_domain or search_company:
         internal_matches.extend(
             store.search_records(
                 tenant_id=context.tenant_id,
                 record_type="contact",
-                query=domain or search_company,
+                query=search_domain or search_company,
                 limit=payload.limit,
             )
         )
 
     web_snippet: dict[str, Any] | None = None
-    if payload.fetch_public_page and domain:
+    if payload.fetch_public_page and search_domain:
         web_snippet = _fetch_public_page_snippet(
-            domain=domain,
+            domain=search_domain,
             action_name="web.research",
             timeout_seconds=payload.timeout_seconds,
         )
@@ -284,7 +289,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     crm_search = default_crm_client().search(
         context=context,
         company=search_company,
-        domain=domain,
+        domain=search_domain or "",
         credential=None,
         invocation=invocation,
         action_name="web.research",
@@ -353,8 +358,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         # Operation completed through a legitimate research path (internal and/or public).
         "real": True,
         # Whether returned candidates themselves are real-world entities.
-        "candidates_real": bool(prospect_candidates)
-        and all(bool(p.get("real", True)) for p in prospect_candidates),
+        "candidates_real": bool(prospect_candidates) and all(bool(p.get("real", True)) for p in prospect_candidates),
         "plugin_required": False,
     }
     inspected = [

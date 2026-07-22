@@ -288,14 +288,18 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
 
 
 def _prospect_merge_key(item: dict[str, Any]) -> str:
-    return str(
-        item.get("prospect_id")
-        or item.get("id")
-        or item.get("domain")
-        or item.get("company")
-        or item.get("name")
-        or ""
-    ).strip().lower()
+    return (
+        str(
+            item.get("prospect_id")
+            or item.get("id")
+            or item.get("domain")
+            or item.get("company")
+            or item.get("name")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
 
 
 def _prospect_richness(item: dict[str, Any]) -> int:
@@ -394,7 +398,8 @@ def apply_input_bindings(
     if action_name == "gtm.email_send":
         bound = _specialize_email_send_input(bound)
 
-    context = bound.get("context") if isinstance(bound.get("context"), dict) else {}
+    raw_context = bound.get("context")
+    context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
     binding_required = bool(context.get("binding_required")) or bool(bound.get("binding_required"))
 
     audit = {
@@ -426,8 +431,10 @@ def apply_input_bindings(
 
 def _action_name_from_metadata(metadata: dict[str, Any]) -> str | None:
     tool_inv = metadata.get("tool_invocation")
-    if isinstance(tool_inv, dict) and isinstance(tool_inv.get("action"), str):
-        return tool_inv["action"]
+    if isinstance(tool_inv, dict):
+        action = tool_inv.get("action")
+        if isinstance(action, str):
+            return action
     return None
 
 
@@ -459,9 +466,7 @@ def _is_deliverable_recipient(value: Any) -> bool:
         return False
     if domain in {"example", "example.com"} or domain.endswith(".example"):
         return False
-    if domain in {"test", "local", "localhost"} or domain.endswith(
-        (".test", ".local", ".localhost")
-    ):
+    if domain in {"test", "local", "localhost"} or domain.endswith((".test", ".local", ".localhost")):
         return False
     return True
 
@@ -473,7 +478,8 @@ def _email_send_has_world_state(bound: dict[str, Any]) -> bool:
     simulated enrich contact. External-send must not enter the side-effect path on
     placeholders.
     """
-    context = bound.get("context") if isinstance(bound.get("context"), dict) else {}
+    raw_context = bound.get("context")
+    context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
     if context.get("recipient_bound") is True and _is_deliverable_recipient(bound.get("to")):
         return True
     if _is_deliverable_recipient(bound.get("to")):
@@ -497,8 +503,8 @@ def _specialize_email_send_input(bound: dict[str, Any]) -> dict[str, Any]:
     Never promotes placeholder or simulated addresses onto ``to`` as if they were bound.
     """
     result = deepcopy(bound)
-    context = result.get("context") if isinstance(result.get("context"), dict) else {}
-    context = dict(context)
+    raw_context = result.get("context")
+    context: dict[str, Any] = dict(raw_context) if isinstance(raw_context, dict) else {}
 
     drafts = context.get("introduction_drafts")
     if isinstance(drafts, list):
@@ -524,8 +530,7 @@ def _specialize_email_send_input(bound: dict[str, Any]) -> dict[str, Any]:
             ):
                 result["subject"] = str(draft["subject"])[:240]
             if draft.get("body") and (
-                "requires bound recipient" in str(result.get("body") or "")
-                or not str(result.get("body") or "").strip()
+                "requires bound recipient" in str(result.get("body") or "") or not str(result.get("body") or "").strip()
             ):
                 result["body"] = str(draft["body"])[:5000]
             if draft.get("artifact_id") and not result.get("artifact_id"):
@@ -538,7 +543,8 @@ def _specialize_email_send_input(bound: dict[str, Any]) -> dict[str, Any]:
         for prospect in enriched:
             if not isinstance(prospect, dict):
                 continue
-            contacts = prospect.get("contacts") if isinstance(prospect.get("contacts"), list) else []
+            raw_contacts = prospect.get("contacts")
+            contacts: list[Any] = raw_contacts if isinstance(raw_contacts, list) else []
             for contact in contacts:
                 if not isinstance(contact, dict) or not contact.get("email"):
                     continue
@@ -598,8 +604,8 @@ def _specialize_outreach_input(bound: dict[str, Any]) -> dict[str, Any]:
     if not email and primary.get("email") and primary.get("real") is not False:
         email = str(primary["email"]).strip()
 
-    context = result.get("context") if isinstance(result.get("context"), dict) else {}
-    context = dict(context)
+    raw_context = result.get("context")
+    context: dict[str, Any] = dict(raw_context) if isinstance(raw_context, dict) else {}
     if company:
         context["prospect_company"] = company
         if "company" in result:

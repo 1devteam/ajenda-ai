@@ -27,11 +27,12 @@ jobs:
         run: docker build -t ajenda-ai:scan .
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ajenda-ai:scan
-          format: sarif
-          output: trivy-results.sarif
+          format: table
+          # Secret scanning is covered by gitleaks; keep Trivy on package CVEs.
+          scanners: vuln
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true
@@ -75,7 +76,13 @@ jobs:
         run: python -m pip list
 
       - name: Run pip-audit against application dependency set
-        run: pip-audit -r audit-requirements.txt --desc on
+        # PYSEC-2026-1325 (ecdsa Minerva timing): transitive via python-jose; upstream
+        # documents side-channels as out of scope with no planned fix. Keep visible in
+        # description output via --desc; ignore only this unfixable advisory so the
+        # gate still fails closed on new vulns.
+        run: >
+          pip-audit -r audit-requirements.txt --desc on
+          --ignore-vuln PYSEC-2026-1325
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 3: npm-audit — scan frontend dependency graph for known vulnerabilities

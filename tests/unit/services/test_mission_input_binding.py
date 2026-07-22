@@ -168,11 +168,7 @@ def test_merge_keeps_enriched_contacts_when_qualify_also_binds() -> None:
         status=ExecutionTaskState.COMPLETED.value,
         mission_id=mission_id,
         tenant_id=tenant_id,
-        output={
-            "qualified_prospects": [
-                {"prospect_id": "p1", "company": "Acme", "score": 70, "qualified": True}
-            ]
-        },
+        output={"qualified_prospects": [{"prospect_id": "p1", "company": "Acme", "score": 70, "qualified": True}]},
     )
     enrich = _task(
         node_key="ability-gtm-lead_enrich",

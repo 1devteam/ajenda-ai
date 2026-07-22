@@ -178,9 +178,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
         # Prefer bound prospects; do not overwrite prospect company with tenant profile.
         if not company_seed and prospects_in:
             company_seed = str(prospects_in[0].get("company") or "").strip()
-            domain_seed = domain_seed or (
-                str(prospects_in[0].get("domain") or "").strip() or None
-            )
+            domain_seed = domain_seed or (str(prospects_in[0].get("domain") or "").strip() or None)
         if not company_seed:
             company_seed, domain_seed = default_company_and_domain(
                 context=ctx,
@@ -268,7 +266,8 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 context["qualification_reasons"] = primary.get("reasons")
             if primary.get("score") is not None:
                 context["qualification_score"] = primary.get("score")
-            contacts = primary.get("contacts") if isinstance(primary.get("contacts"), list) else []
+            raw_contacts = primary.get("contacts")
+            contacts: list[Any] = raw_contacts if isinstance(raw_contacts, list) else []
             for contact in contacts:
                 if not isinstance(contact, dict) or not contact.get("email"):
                     continue

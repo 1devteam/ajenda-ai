@@ -2265,8 +2265,8 @@ def admit_mission_graph_to_runtime(
             if node_key not in nodes_by_key:
                 continue
             try:
-                capability_id = UUID(str(authority["capability_id"]))
-                adapter_id = UUID(str(authority["adapter_id"]))
+                provisioned_capability_id = UUID(str(authority["capability_id"]))
+                provisioned_adapter_id = UUID(str(authority["adapter_id"]))
             except (KeyError, ValueError, TypeError) as exc:
                 raise HTTPException(
                     status_code=400,
@@ -2276,8 +2276,8 @@ def admit_mission_graph_to_runtime(
                 RuntimeAdmissionNodeSelection(
                     node_key=node_key,
                     runtime_task_type="tool.invoke",
-                    capability_id=capability_id,
-                    adapter_id=adapter_id,
+                    capability_id=provisioned_capability_id,
+                    adapter_id=provisioned_adapter_id,
                     operator_notes="Server-derived admission from compiled graph.",
                 )
             )
