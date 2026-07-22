@@ -248,13 +248,22 @@ def _prospect_from_web_result(item: dict[str, Any], *, index: int) -> dict[str, 
 def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebResearchInput.model_validate(invocation.input)
     store = resolve_record_store(context)
-    # Explicit input is the research target. Profile company/domain fill output lineage
-    # only — they must not hijack market-research queries into self-company search.
+    # Research targets are only what the caller supplied. Never fill a missing
+    # company/domain half from the tenant profile (e.g. company=Acme must not
+    # get domain=ajenda.ai). Profile values are separate lineage fields.
+    # When neither half is explicit, open-query research may surface profile
+    # company/domain as the tenant context defaults (demo / self-context path).
     explicit_company = (payload.company or "").strip() or None
     explicit_domain = (payload.domain or "").strip() or None
-    profile_company, profile_domain = default_company_and_domain(context=context)
-    company = explicit_company or (profile_company.strip() or None)
-    domain = explicit_domain or (profile_domain.strip() or None)
+    profile_company_raw, profile_domain_raw = default_company_and_domain(context=context)
+    profile_company = (profile_company_raw or "").strip() or None
+    profile_domain = (profile_domain_raw or "").strip() or None
+    if explicit_company is not None or explicit_domain is not None:
+        company = explicit_company
+        domain = explicit_domain
+    else:
+        company = profile_company
+        domain = profile_domain
     search_company = explicit_company or payload.query
     search_domain = explicit_domain
 
@@ -342,6 +351,10 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "query": payload.query,
         "company": company,
         "domain": domain,
+        # Tenant profile lineage — never merged into target company/domain when
+        # the caller supplied only one half of an explicit research target.
+        "profile_company": profile_company,
+        "profile_domain": profile_domain,
         "prospect_candidates": prospect_candidates,
         "prospect_count": len(prospect_candidates),
         "internal_records": internal_matches[: payload.limit],
