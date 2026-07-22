@@ -266,7 +266,8 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 context["qualification_reasons"] = primary.get("reasons")
             if primary.get("score") is not None:
                 context["qualification_score"] = primary.get("score")
-            contacts = primary.get("contacts") if isinstance(primary.get("contacts"), list) else []
+            raw_contacts = primary.get("contacts")
+            contacts: list[Any] = raw_contacts if isinstance(raw_contacts, list) else []
             for contact in contacts:
                 if not isinstance(contact, dict) or not contact.get("email"):
                     continue

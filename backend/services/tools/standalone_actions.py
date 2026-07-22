@@ -201,7 +201,8 @@ def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds:
 
 
 def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) -> dict[str, Any]:
-    data = record.get("data") if isinstance(record.get("data"), dict) else record
+    raw_data = record.get("data")
+    data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else record
     name = (
         str(data.get("name") or data.get("company") or data.get("title") or record.get("title") or "").strip()
         or "Unknown company"
@@ -284,7 +285,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     crm_search = default_crm_client().search(
         context=context,
         company=search_company,
-        domain=domain,
+        domain=domain or "",
         credential=None,
         invocation=invocation,
         action_name="web.research",

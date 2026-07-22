@@ -514,8 +514,10 @@ class MissionCompositionService:
 
         instruction_text = (instruction or "").strip()
         if not instruction_text:
-            context = intake.get("context") if isinstance(intake.get("context"), dict) else {}
-            composition = context.get("composition") if isinstance(context.get("composition"), dict) else {}
+            raw_context = intake.get("context")
+            context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
+            raw_composition = context.get("composition")
+            composition: dict[str, Any] = raw_composition if isinstance(raw_composition, dict) else {}
             stored = composition.get("instruction")
             if isinstance(stored, str) and stored.strip():
                 instruction_text = stored.strip()
@@ -705,7 +707,8 @@ class MissionCompositionService:
                 node_key = node.get("key") or node.get("node_key")
                 if not isinstance(node_key, str) or not node_key.strip():
                     continue
-                cap = node.get("capability_reference") if isinstance(node.get("capability_reference"), dict) else {}
+                raw_cap = node.get("capability_reference")
+                cap: dict[str, Any] = raw_cap if isinstance(raw_cap, dict) else {}
                 capability_selections.append(
                     {
                         "node_key": node_key,
