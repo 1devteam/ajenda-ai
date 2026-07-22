@@ -25,7 +25,9 @@ from backend.services.mission_composition.service import (
 )
 
 
-def _mission(*, objective: str = "Find three roofing companies in Austin and draft outreach without sending.") -> Mission:
+def _mission(
+    *, objective: str = "Find three roofing companies in Austin and draft outreach without sending."
+) -> Mission:
     mid = uuid.uuid4()
     return Mission(
         id=mid,
@@ -104,9 +106,10 @@ def test_compile_for_mission_uses_server_composition_not_kitchen_sink() -> None:
         auth = constraints.get("side_effect_authorization") if isinstance(constraints, dict) else None
         if isinstance(auth, dict):
             assert auth.get("approved_by") != "mission-dispatch-ui"
-            assert "mission-dispatch" not in str(auth.get("approved_by") or "").lower() or auth.get(
-                "approved_by"
-            ) == "operator-1"
+            assert (
+                "mission-dispatch" not in str(auth.get("approved_by") or "").lower()
+                or auth.get("approved_by") == "operator-1"
+            )
 
 
 def test_compile_persists_graph_and_refreshes_allowed_actions() -> None:

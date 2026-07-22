@@ -32,7 +32,6 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.provider_runtime_credential_repository import (
     ProviderRuntimeCredentialRepository,
 )
-from backend.services.mission_runtime_projection import supersede_runtime_task_materialization
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.contracts import (
     COMPOSITION_SCHEMA_VERSION,
@@ -53,6 +52,7 @@ from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
     validate_mission_intake_prompt,
 )
+from backend.services.mission_runtime_projection import supersede_runtime_task_materialization
 from backend.services.operating_charter import default_operating_charter, load_operating_charter
 from backend.services.quota_enforcement import (
     BudgetGateDeniedError,
@@ -617,9 +617,9 @@ class MissionCompositionService:
                 "edges": normalized_graph.get("edges"),
                 "schema_version": normalized_graph.get("schema_version"),
             }
-            fingerprint = "sha256:" + hashlib.sha256(
-                json.dumps(content, sort_keys=True, default=str).encode("utf-8")
-            ).hexdigest()
+            fingerprint = (
+                "sha256:" + hashlib.sha256(json.dumps(content, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+            )
             normalized_graph = {
                 **normalized_graph,
                 "mission_id": str(mission_id),
@@ -631,7 +631,9 @@ class MissionCompositionService:
             intake_updated = dict(intake)
             intake_updated["allowed_actions"] = list(record.allowed_actions)
             intake_updated["forbidden_actions"] = list(record.forbidden_actions)
-            context = dict(intake_updated.get("context") or {}) if isinstance(intake_updated.get("context"), dict) else {}
+            context = (
+                dict(intake_updated.get("context") or {}) if isinstance(intake_updated.get("context"), dict) else {}
+            )
             context["composition"] = {
                 "proposal_id": record.proposal_id,
                 "schema_version": record.schema_version,
