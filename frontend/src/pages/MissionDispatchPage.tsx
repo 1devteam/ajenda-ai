@@ -10,7 +10,6 @@ import {
   getMissionLifecycle,
   getMissionRuntimeReadiness,
   getTaskStatus,
-  materializeMissionGraph,
   materializeMissionRuntimeTasks,
   provisionBridgeRuntimeAuthority,
 } from "../api/client";
@@ -25,7 +24,6 @@ import type {
   RuntimeTaskMaterializationReadResponse,
 } from "../types";
 import {
-  buildMaterializationPayload,
   buildMissionPlanPayload,
   buildRuntimeAdmissionPayload,
   intakeAllowedActions,
@@ -231,12 +229,21 @@ export default function MissionDispatchPage() {
   }
 
   async function handleMaterializeGraph() {
-    if (!session || allowedActions.length === 0) {
+    if (!session) {
       return;
     }
-    await runStep("Materializing graph…", async () => {
-      await materializeMissionGraph(session, missionId, buildMaterializationPayload(allowedActions));
-      setNotice("Graph materialization recorded.");
+    await runStep("Recompiling + materializing (server)…", async () => {
+      // Server compile now owns graph materialization metadata.
+      const compiled = await compileMission(session, missionId, {
+        instruction: lifecycle?.mission.objective,
+        persist: true,
+        source: "mission_dispatch_ui",
+      });
+      if (String(compiled.compile_status ?? "") !== "ready") {
+        throw new Error("Server compile is not ready for materialization.");
+      }
+      setNotice("Server compile wrote graph materialization.");
+      await refreshLifecycle();
     });
   }
 
@@ -252,10 +259,15 @@ export default function MissionDispatchPage() {
   }
 
   async function handleAdmitRuntime() {
-    if (!session || allowedActions.length === 0) {
+    if (!session) {
       return;
     }
     await runStep("Admitting to runtime…", async () => {
+      const current = (await refreshLifecycle()) ?? lifecycle;
+      const actions = intakeAllowedActions(current?.intake ?? null);
+      if (actions.length === 0) {
+        throw new Error("No server-compiled abilities on mission intake. Run compile first.");
+      }
       let nodeAuthorities = authorities?.node_authorities ?? [];
       if (nodeAuthorities.length === 0) {
         const provisioned = await provisionBridgeRuntimeAuthority(session, missionId);
@@ -265,7 +277,7 @@ export default function MissionDispatchPage() {
       await admitMissionToRuntime(
         session,
         missionId,
-        buildRuntimeAdmissionPayload(allowedActions, principalId, nodeAuthorities),
+        buildRuntimeAdmissionPayload(actions, principalId, nodeAuthorities),
       );
       setNotice("Graph admitted to runtime.");
     });
@@ -339,28 +351,13 @@ export default function MissionDispatchPage() {
       }
       current = (await refreshLifecycle()) ?? current;
       const compiledActions =
-        ((compiled.display as { allowed_actions?: string[] } | undefined)?.allowed_actions ??
-          intakeAllowedActions(current.intake ?? null));
-      const compiledCriteria = intakeSuccessCriteria(current.intake ?? null);
-
-      if (!current.completeness.has_plan) {
-        await createMissionPlan(
-          session,
-          missionId,
-          buildMissionPlanPayload(current.mission.objective, compiledActions, compiledCriteria),
-        );
-        current = (await refreshLifecycle()) ?? current;
+        (compiled.display as { allowed_actions?: string[] } | undefined)?.allowed_actions ??
+        intakeAllowedActions(current.intake ?? null);
+      if (compiledActions.length === 0) {
+        throw new Error("Server compile returned no abilities.");
       }
-      // Graph is already persisted by compile; materialization may still be needed.
-      if (!current.completeness.has_materialization) {
-        await materializeMissionGraph(
-          session,
-          missionId,
-          buildMaterializationPayload(compiledActions),
-        );
-        current = (await refreshLifecycle()) ?? current;
-      }
-
+      // Plan + graph + materialization are server-owned after compile.
+      // Only admit/provision remain as runtime authority steps.
       const provisioned = await provisionBridgeRuntimeAuthority(session, missionId);
       setAuthorities(provisioned);
 
