@@ -223,7 +223,51 @@ def build_runtime_task_preview_items(*, mission_id: UUID, readiness: Any) -> lis
     return preview_items
 
 
-def build_execution_task_payload(preview_item: Any) -> dict[str, Any]:
+def _server_mint_side_effect_authorization(
+    *,
+    action_name: str,
+    existing_constraints: dict[str, Any] | None,
+    approved_by: str = "server:runtime_task_materialization",
+) -> dict[str, Any] | None:
+    """Strip client-forged SE auth and mint server authorization when the action needs it."""
+    from backend.services.tools.action_registry import get_default_action_registry
+    from backend.services.tools.schemas import is_client_forged_side_effect_approver
+
+    constraints = dict(existing_constraints) if isinstance(existing_constraints, dict) else {}
+    raw_auth = constraints.get("side_effect_authorization")
+    if isinstance(raw_auth, dict):
+        approved_by_existing = str(raw_auth.get("approved_by") or "")
+        if is_client_forged_side_effect_approver(approved_by_existing):
+            constraints.pop("side_effect_authorization", None)
+        # Keep non-forged (composition / operator) authorization as-is.
+        elif action_name in (raw_auth.get("allowed_actions") or []):
+            return constraints or None
+
+    try:
+        definition = get_default_action_registry().get(action_name)
+    except ValueError:
+        return constraints or None
+
+    needs_auth = definition.side_effect_class.has_side_effect
+    # Resolver-elevated external_read does not require SE envelope today, but
+    # side-effecting write/send classes do.
+    if not needs_auth:
+        return constraints or None
+
+    constraints["side_effect_authorization"] = {
+        "schema_version": 1,
+        "allowed_actions": [action_name],
+        "reason": "server_runtime_task_materialization",
+        "approved_by": approved_by,
+    }
+    return constraints
+
+
+def build_execution_task_payload(
+    preview_item: Any,
+    *,
+    approved_by: str = "server:runtime_task_materialization",
+) -> dict[str, Any]:
     """Build the persisted ExecutionTask metadata payload from a preview item envelope."""
     if hasattr(preview_item, "model_dump"):
         item = preview_item.model_dump(mode="json")
@@ -248,8 +292,27 @@ def build_execution_task_payload(preview_item: Any) -> dict[str, Any]:
             tool_invocation = input_contract.get("tool_invocation")
             if isinstance(tool_invocation, dict):
                 payload["tool_invocation"] = deepcopy(tool_invocation)
+            action_name = ""
+            if isinstance(tool_invocation, dict) and isinstance(tool_invocation.get("action"), str):
+                action_name = tool_invocation["action"].strip()
             execution_constraints = input_contract.get("execution_constraints")
-            if isinstance(execution_constraints, dict) and "execution_constraints" not in payload:
+            if not isinstance(execution_constraints, dict):
+                execution_constraints = payload.get("execution_constraints")
+            if not isinstance(execution_constraints, dict):
+                execution_constraints = {}
+            if action_name:
+                mint = _server_mint_side_effect_authorization(
+                    action_name=action_name,
+                    existing_constraints=dict(execution_constraints),
+                    approved_by=approved_by,
+                )
+                if mint:
+                    payload["execution_constraints"] = mint
+                    # Keep input_contract copy coherent for evidence/debug.
+                    input_contract = dict(input_contract)
+                    input_contract["execution_constraints"] = mint
+                    payload["input_contract"] = input_contract
+            elif isinstance(execution_constraints, dict) and "execution_constraints" not in payload:
                 payload["execution_constraints"] = deepcopy(execution_constraints)
             credential_reference = input_contract.get("credential_reference")
             if isinstance(credential_reference, dict) and "credential_reference" not in payload:

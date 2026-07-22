@@ -236,6 +236,27 @@ class SideEffectAuthorization(BaseModel):
     approved_by: str = Field(min_length=1, max_length=160)
 
 
+# Browser / unauthenticated client strings must never authorize side effects.
+_CLIENT_FORGED_SIDE_EFFECT_APPROVERS = frozenset(
+    {
+        "mission-dispatch-ui",
+        "mission_dispatch_ui",
+        "dispatch-ui-v1",
+        "mission-dispatch-ui-compiler",
+    }
+)
+
+
+def is_client_forged_side_effect_approver(approved_by: str) -> bool:
+    normalized = approved_by.strip().lower()
+    if normalized in _CLIENT_FORGED_SIDE_EFFECT_APPROVERS:
+        return True
+    # Any approver that is clearly a UI client label, not an authenticated principal.
+    if normalized.startswith("mission-dispatch") or normalized.startswith("mission_dispatch"):
+        return True
+    return False
+
+
 def side_effect_authorized(metadata: Mapping[str, Any], action: str) -> bool:
     raw_constraints = metadata.get("execution_constraints")
     if not isinstance(raw_constraints, Mapping):
@@ -244,6 +265,8 @@ def side_effect_authorized(metadata: Mapping[str, Any], action: str) -> bool:
     if not isinstance(raw_auth, Mapping):
         return False
     authorization = SideEffectAuthorization.model_validate(dict(raw_auth))
+    if is_client_forged_side_effect_approver(authorization.approved_by):
+        return False
     return action in authorization.allowed_actions
 
 

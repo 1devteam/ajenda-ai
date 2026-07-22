@@ -1780,6 +1780,35 @@ def _write_mission_task_graph(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # Strip browser-forged side_effect_authorization before persistence.
+    # Server remints SE auth at ExecutionTask materialization when required.
+    from backend.services.tools.schemas import is_client_forged_side_effect_approver
+
+    sanitized_nodes: list[Any] = []
+    for node in normalized_graph.get("nodes") or []:
+        if not isinstance(node, dict):
+            sanitized_nodes.append(node)
+            continue
+        node_copy = dict(node)
+        input_contract = node_copy.get("input_contract")
+        if isinstance(input_contract, dict):
+            input_contract = dict(input_contract)
+            constraints = input_contract.get("execution_constraints")
+            if isinstance(constraints, dict):
+                constraints = dict(constraints)
+                raw_auth = constraints.get("side_effect_authorization")
+                if isinstance(raw_auth, dict) and is_client_forged_side_effect_approver(
+                    str(raw_auth.get("approved_by") or "")
+                ):
+                    constraints.pop("side_effect_authorization", None)
+                    if constraints:
+                        input_contract["execution_constraints"] = constraints
+                    else:
+                        input_contract.pop("execution_constraints", None)
+            node_copy["input_contract"] = input_contract
+        sanitized_nodes.append(node_copy)
+    normalized_graph = {**normalized_graph, "nodes": sanitized_nodes}
+
     existing_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
     if existing_graph is not None:
         try:
@@ -1925,9 +1954,35 @@ def materialize_mission_graph(
     previous = metadata.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY)
     previous_version = previous.get("materialization_version", 0) if isinstance(previous, dict) else 0
     now = datetime.now(UTC).isoformat()
+
+    # Trust boundary: client may not self-certify graph validation as "valid".
+    # Accept structural node-key checks server-side; never store client-forged validity.
+    materialization_status = body.materialization_status
+    validation = body.graph_validation_result.model_dump(mode="json", exclude_none=True)
+    client_sources = {"mission_dispatch_ui", "mission-dispatch-ui", "dispatch-ui-v1"}
+    source = body.materialization_source.strip().lower()
+    if source in client_sources or source.startswith("mission_dispatch") or source.startswith("mission-dispatch"):
+        if materialization_status == "validated":
+            materialization_status = "draft"
+        if validation.get("validation_status") == "valid":
+            validation = {
+                "validation_status": "not_run",
+                "summary": (
+                    "Client claimed validation was discarded; "
+                    "server structural node-key checks ran at materialize-graph."
+                ),
+                "checks": [
+                    {
+                        "name": "node_keys",
+                        "status": "passed",
+                        "details": "Server verified node keys are unique non-empty strings.",
+                    }
+                ],
+            }
+
     materialization_metadata = build_graph_materialization_metadata(
         mission_id=str(mission_id),
-        materialization_status=body.materialization_status,
+        materialization_status=materialization_status,
         materialization_source=body.materialization_source,
         materialization_source_version=body.materialization_source_version,
         materialization_version=previous_version + 1,
@@ -1935,7 +1990,7 @@ def materialize_mission_graph(
         capability_selection_provenance=[
             selection.model_dump(mode="json", exclude_none=True) for selection in body.capability_selection_provenance
         ],
-        graph_validation_result=body.graph_validation_result.model_dump(mode="json", exclude_none=True),
+        graph_validation_result=validation,
         operator_review=body.operator_review.model_dump(mode="json", exclude_none=True),
         graph_generation_metadata=body.graph_generation_metadata.model_dump(mode="json", exclude_none=True),
         deterministic_compilation_metadata=body.deterministic_compilation_metadata.model_dump(
