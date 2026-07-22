@@ -26,8 +26,17 @@ jobs:
       - name: Build image for scanning
         run: docker build -t ajenda-ai:scan .
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+      - name: Run Trivy vulnerability scanner (table)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ajenda-ai:scan
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          ignore-unfixed: true
+
+      - name: Run Trivy vulnerability scanner (gate)
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ajenda-ai:scan
           format: sarif
