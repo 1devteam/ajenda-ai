@@ -68,6 +68,8 @@ READ_SAFE_ACTIONS: set[str] = {
     "retrieval.hybrid_search",
     "web.research",
     "web.search",
+    "web.page_read",
+    "web.browser_session",
     "crm.research",
     "crm.read",
 }
@@ -81,6 +83,7 @@ INTERNAL_WRITE_ACTIONS: set[str] = {
 
 EXTERNAL_ACTIONS: set[str] = {
     "http.request",
+    "web.open_write",
     "provider.external_read",
     "linkedin.profile_read",
     "salesforce.soql_read",

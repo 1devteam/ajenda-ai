@@ -144,6 +144,49 @@ def test_open_write_idempotency_replays_without_second_network_call(monkeypatch)
     assert authority.request.call_count == 1
 
 
+def test_open_write_fingerprint_mismatch_on_key_reuse(monkeypatch) -> None:
+    monkeypatch.setenv("AJENDA_OPEN_WRITE_ENABLED", "true")
+    from backend.app import config as config_mod
+
+    if hasattr(config_mod.get_settings, "cache_clear"):
+        config_mod.get_settings.cache_clear()
+    reset_open_write_rate_limiter_for_tests()
+
+    destination = VettedNetworkDestination(
+        original_url="https://example.com/form",
+        connect_url="https://1.2.3.4/form",
+        pinned_ip=__import__("ipaddress").ip_address("1.2.3.4"),
+        sni_hostname="example.com",
+        host_header="example.com",
+    )
+    response = NetworkEgressResponse(status_code=200, headers={}, body_text="ok", body_truncated=False)
+    authority = MagicMock()
+    authority.request.return_value = (destination, response)
+
+    with patch(
+        "backend.services.internet.open_write.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        first = execute_open_write(
+            tenant_id="t-fp",
+            url="https://example.com/form",
+            method="POST",
+            idempotency_key="shared-key-0001",
+            json_body={"n": 1},
+        )
+        second = execute_open_write(
+            tenant_id="t-fp",
+            url="https://example.com/form",
+            method="POST",
+            idempotency_key="shared-key-0001",
+            json_body={"n": 2},
+        )
+    assert first.real is True
+    assert second.real is False
+    assert second.idempotency_decision == "fingerprint_mismatch"
+    assert authority.request.call_count == 1
+
+
 def test_open_write_rejects_credentialed_url(monkeypatch) -> None:
     monkeypatch.setenv("AJENDA_OPEN_WRITE_ENABLED", "true")
     from backend.app import config as config_mod

@@ -368,9 +368,9 @@ export default function CredentialsPage() {
         navigate("/credentials", { replace: true });
       } catch (err) {
         window.sessionStorage.removeItem(oauthDedupeKey);
-        if (!cancelled) {
-          setError(err);
-        }
+        // Always surface the error — Strict Mode cleanup sets cancelled=true and used
+        // to swallow failures from the only in-flight exchange.
+        setError(err);
         navigate("/credentials", { replace: true });
       } finally {
         oauthCallbackInFlight.delete(oauthDedupeKey);

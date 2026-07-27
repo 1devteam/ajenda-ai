@@ -84,6 +84,7 @@ export const PERFORM_ACTION_OPTIONS = [
   { action: "sales.log_activity", label: "Log sales activity" },
   { action: "sales.create_followup_task", label: "Create follow-up task" },
   { action: "calendar.create_event", label: "Create calendar event" },
+  { action: "web.open_write", label: "Public web open write (POST/PUT/PATCH)" },
 ] as const;
 
 export const NEVER_DO_OPTIONS = [

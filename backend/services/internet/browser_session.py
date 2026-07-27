@@ -115,6 +115,7 @@ def run_browser_session(
                     context.route("**/*", _route_handler)
                     page = context.new_page()
                     response = page.goto(page_url, wait_until=wait_until, timeout=timeout_ms)
+                    final_url = (page.url or page_url).strip() or page_url
                     title = (page.title() or "").strip()[:240] or None
                     text_preview = None
                     if extract_text:
@@ -125,7 +126,7 @@ def run_browser_session(
                             text_preview = None
                     status_code = response.status if response is not None else None
                     return PageSnapshot(
-                        url=page_url,
+                        url=final_url,
                         real=True,
                         status_code=status_code,
                         title=title,
@@ -140,8 +141,13 @@ def run_browser_session(
                             "wait_until": wait_until,
                             "ephemeral_context": True,
                             "request_vetting": "network_egress_per_request",
+                            "requested_url": page_url,
+                            "final_url": final_url,
                             "blocked_request_count": len(blocked),
                             "blocked_samples": blocked[:5],
+                            # Chromium still resolves hosts after vet; DNS pin of every
+                            # subresource is a follow-up (route.fulfill via egress).
+                            "dns_pin": "vet_only",
                         },
                     )
                 finally:

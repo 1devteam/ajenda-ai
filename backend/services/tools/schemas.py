@@ -449,4 +449,11 @@ class WebOpenWriteInput(BaseModel):
     def reject_raw_auth_headers_open_write(cls, value: dict[str, str]) -> dict[str, str]:
         if contains_sensitive_key(value):
             raise ValueError("web.open_write headers must not include raw credential material")
+        # Cookie/session are credential carriers even when key names pass fragment checks.
+        for key in value:
+            normalized = key.strip().lower().replace("_", "-")
+            if normalized in {"cookie", "set-cookie", "authorization", "proxy-authorization"}:
+                raise ValueError(f"web.open_write headers must not include {key!r}")
+            if "session" in normalized or "cookie" in normalized:
+                raise ValueError(f"web.open_write headers must not include credential-like header {key!r}")
         return value

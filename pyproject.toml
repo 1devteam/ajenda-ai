@@ -94,5 +94,5 @@ strict = true
 warn_unused_configs = true
 packages = ["backend"]
 [[tool.mypy.overrides]]
-module = ["jose", "jose.*"]
+module = ["jose", "jose.*", "playwright", "playwright.*", "duckduckgo_search", "duckduckgo_search.*", "ddgs", "ddgs.*"]
 ignore_missing_imports = true

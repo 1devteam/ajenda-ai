@@ -6,6 +6,8 @@ idempotency required (claim-before-send), NetworkEgressAuthority only.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -114,7 +116,12 @@ def reset_open_write_rate_limiter_for_tests() -> None:
 
 
 def evaluate_open_write_rate_limit(*, tenant_id: str) -> RateLimitDecision:
-    """Tenant-wide quota — do not key by worker_id."""
+    """Tenant-wide quota — do not key by worker_id.
+
+    Note: this is process-local. Multi-replica workers need a shared backend
+    (Redis) for hard cluster-wide caps; claim-before-send still prevents
+    duplicate mutations across workers when session_factory is wired.
+    """
 
     key = RateLimitKey(
         tenant_id=tenant_id,
@@ -122,6 +129,25 @@ def evaluate_open_write_rate_limit(*, tenant_id: str) -> RateLimitDecision:
         route=OPEN_WRITE_ACTION,
     )
     return _get_limiter().evaluate(key)
+
+
+def _request_fingerprint(
+    *,
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    json_body: dict[str, Any] | None,
+    body_text: str | None,
+) -> str:
+    payload = {
+        "method": method,
+        "url": url,
+        "headers": {k.lower(): headers[k] for k in sorted(headers, key=str.lower)},
+        "json_body": json_body,
+        "body_text": body_text,
+    }
+    raw = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _claim_memory(*, tenant_id: str, idempotency_key: str) -> tuple[str, dict[str, Any] | None]:
@@ -282,20 +308,25 @@ def execute_open_write(
             rate_limit_remaining=None,
         )
 
-    decision = evaluate_open_write_rate_limit(tenant_id=tenant_id)
-    if not decision.allowed:
-        return OpenWriteResult(
-            real=False,
-            url=safe_url,
-            method=normalized_method,
-            status_code=None,
-            body_text=None,
-            body_truncated=False,
-            error=f"open_write rate limit exceeded; retry_after_seconds={decision.retry_after_seconds}",
-            rate_limit_remaining=0,
-        )
+    request_headers = dict(headers or {})
+    request_headers.setdefault("User-Agent", "AjendaInternet/1.0 (+open_write)")
+    request_headers["X-Ajenda-Idempotency-Key"] = key[:200]
+    content: bytes | None = None
+    json_payload = json_body
+    if body_text is not None and json_body is None:
+        content = body_text.encode("utf-8")
+        request_headers.setdefault("Content-Type", "text/plain; charset=utf-8")
+
+    request_fingerprint = _request_fingerprint(
+        method=normalized_method,
+        url=safe_url,
+        headers=request_headers,
+        json_body=json_payload,
+        body_text=body_text if json_payload is None else None,
+    )
 
     backend = "durable" if session_factory is not None else "memory"
+    # Claim first so successful replays never burn / fail on quota.
     if session_factory is not None:
         claim_status, cached = _claim_durable(
             session_factory=session_factory,
@@ -307,6 +338,20 @@ def execute_open_write(
 
     if claim_status == "replayed":
         cached = cached or {}
+        prior_fp = cached.get("request_fingerprint")
+        if isinstance(prior_fp, str) and prior_fp and prior_fp != request_fingerprint:
+            return OpenWriteResult(
+                real=False,
+                url=safe_url,
+                method=normalized_method,
+                status_code=None,
+                body_text=None,
+                body_truncated=False,
+                error="idempotency_key already used for a different open_write request",
+                rate_limit_remaining=None,
+                idempotency_decision="fingerprint_mismatch",
+                idempotency_backend=backend,
+            )
         return OpenWriteResult(
             real=bool(cached.get("real", True)),
             url=str(cached.get("url") or safe_url),
@@ -314,8 +359,8 @@ def execute_open_write(
             status_code=cached.get("status_code") if isinstance(cached.get("status_code"), int) else None,
             body_text=str(cached["body_text"]) if isinstance(cached.get("body_text"), str) else None,
             body_truncated=bool(cached.get("body_truncated", False)),
-            error=None,
-            rate_limit_remaining=decision.remaining,
+            error=str(cached["error"]) if isinstance(cached.get("error"), str) else None,
+            rate_limit_remaining=None,
             idempotency_decision="replayed",
             idempotency_backend=backend,
         )
@@ -328,19 +373,38 @@ def execute_open_write(
             body_text=None,
             body_truncated=False,
             error="open_write already claimed for this idempotency_key and is not yet finalized",
-            rate_limit_remaining=decision.remaining,
+            rate_limit_remaining=None,
             idempotency_decision="in_flight",
             idempotency_backend=backend,
         )
 
-    request_headers = dict(headers or {})
-    request_headers.setdefault("User-Agent", "AjendaInternet/1.0 (+open_write)")
-    request_headers["X-Ajenda-Idempotency-Key"] = key[:200]
-    content: bytes | None = None
-    json_payload = json_body
-    if body_text is not None and json_body is None:
-        content = body_text.encode("utf-8")
-        request_headers.setdefault("Content-Type", "text/plain; charset=utf-8")
+    decision = evaluate_open_write_rate_limit(tenant_id=tenant_id)
+    if not decision.allowed:
+        # Release unused claim so a later hour can retry the same key.
+        if session_factory is not None:
+            try:
+                _release_durable(
+                    session_factory=session_factory,
+                    tenant_id=tenant_id,
+                    idempotency_key=key,
+                    error_detail="rate_limited",
+                )
+            except Exception:
+                pass
+        else:
+            _release_memory(tenant_id=tenant_id, idempotency_key=key)
+        return OpenWriteResult(
+            real=False,
+            url=safe_url,
+            method=normalized_method,
+            status_code=None,
+            body_text=None,
+            body_truncated=False,
+            error=f"open_write rate limit exceeded; retry_after_seconds={decision.retry_after_seconds}",
+            rate_limit_remaining=0,
+            idempotency_decision="released",
+            idempotency_backend=backend,
+        )
 
     try:
         _dest, response = get_default_network_egress_authority().request(
@@ -366,6 +430,7 @@ def execute_open_write(
             idempotency_backend=backend,
         )
         payload = result.as_dict()
+        payload["request_fingerprint"] = request_fingerprint
         if session_factory is not None:
             _complete_durable(
                 session_factory=session_factory,
@@ -377,20 +442,10 @@ def execute_open_write(
             _complete_memory(tenant_id=tenant_id, idempotency_key=key, payload=payload)
         return result
     except Exception as exc:
+        # Ambiguous network outcomes must not re-send: finalize the claim as a
+        # failed result so retries replay instead of mutating again.
         err = str(exc)
-        if session_factory is not None:
-            try:
-                _release_durable(
-                    session_factory=session_factory,
-                    tenant_id=tenant_id,
-                    idempotency_key=key,
-                    error_detail=err,
-                )
-            except Exception:
-                pass
-        else:
-            _release_memory(tenant_id=tenant_id, idempotency_key=key)
-        return OpenWriteResult(
+        result = OpenWriteResult(
             real=False,
             url=safe_url,
             method=normalized_method,
@@ -399,9 +454,24 @@ def execute_open_write(
             body_truncated=False,
             error=err,
             rate_limit_remaining=decision.remaining,
-            idempotency_decision="released",
+            idempotency_decision="failed_finalized",
             idempotency_backend=backend,
         )
+        payload = result.as_dict()
+        payload["request_fingerprint"] = request_fingerprint
+        try:
+            if session_factory is not None:
+                _complete_durable(
+                    session_factory=session_factory,
+                    tenant_id=tenant_id,
+                    idempotency_key=key,
+                    payload=payload,
+                )
+            else:
+                _complete_memory(tenant_id=tenant_id, idempotency_key=key, payload=payload)
+        except Exception:
+            pass
+        return result
 
 
 __all__ = [
