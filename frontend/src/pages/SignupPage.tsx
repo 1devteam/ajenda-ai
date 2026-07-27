@@ -73,8 +73,9 @@ export default function SignupPage() {
           Create your <span className="brand-inline">ajenda-ai</span> workspace
         </h1>
         <p className="auth-lead">
-          Start with a work email. After verification, sign in with Google using the same address. API
-          keys remain available for automation.
+          Create your workspace with a work email, verify it, then sign in with Google (identity only —
+          openid/email/profile). Gmail, Calendar, and Contacts are connected later under Connections with
+          separate OAuth buttons. API keys remain available for automation.
         </p>
 
         <form className="form-grid" onSubmit={(event) => void handleSubmit(event)}>
@@ -112,7 +113,7 @@ export default function SignupPage() {
         </form>
 
         <p className="muted">
-          Already have an account? <Link to="/signin">Sign in</Link>
+          Already have an account? <Link to="/signin">Sign in with Google</Link>
         </p>
         <p className="muted">
           Still verifying? <Link to="/verify-email">Enter verification token</Link>

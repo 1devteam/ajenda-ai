@@ -425,6 +425,80 @@ def test_github_oauth_connect_registers_credential(
     assert "oauth-access" not in response.text
 
 
+@patch("backend.api.routes.provider_credentials.issue_google_contacts_oauth_authorization")
+def test_google_contacts_oauth_authorize_url_returns_signed_state(mock_issue: MagicMock) -> None:
+    from backend.services.credentials.google_contacts_oauth_connect import GoogleContactsOAuthAuthorizeResult
+
+    mock_issue.return_value = GoogleContactsOAuthAuthorizeResult(
+        authorization_url="https://accounts.google.com/o/oauth2/v2/auth?scope=contacts.readonly",
+        state="signed-state-token",
+        redirect_uri="http://localhost:5173/credentials/google-contacts/callback",
+    )
+    client, _tenant_id = _build_client()
+    response = client.get("/v1/account/provider-credentials/google-contacts/oauth/authorize-url")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["authorization_url"].startswith("https://accounts.google.com/")
+    assert body["state"] == "signed-state-token"
+    assert body["redirect_uri"].endswith("/credentials/google-contacts/callback")
+
+
+@patch("backend.api.routes.provider_credentials.ProviderCredentialManagementService")
+@patch("backend.api.routes.provider_credentials.exchange_google_contacts_oauth_code")
+@patch("backend.api.routes.provider_credentials.verify_google_contacts_oauth_state")
+def test_google_contacts_oauth_connect_registers_credential(
+    mock_verify: MagicMock,
+    mock_exchange: MagicMock,
+    mock_service_cls: MagicMock,
+) -> None:
+    from backend.services.credentials.oauth_state import OAuthStateClaims
+
+    client, tenant_id = _build_client()
+    mock_verify.return_value = OAuthStateClaims(
+        tenant_id=str(tenant_id),
+        credential_id="google-contacts-read",
+        actor_id="human:test@example.com",
+        nonce="nonce",
+        issued_at=1_700_000_000,
+        provider="google_contacts",
+    )
+    mock_exchange.return_value = (
+        '{"provider_kind":"google_contacts","access_token":"oauth-access","refresh_token":"oauth-refresh"}'
+    )
+    summary = ProviderCredentialSummary(
+        credential_id="google-contacts-read",
+        tenant_id=str(tenant_id),
+        provider="external_read_provider",
+        credential_type="api_key",
+        enabled=True,
+        revoked=False,
+        allowed_actions=["provider.external_read"],
+        allowed_side_effect_classes=["external_read"],
+        trusted_destination_hosts=["people.googleapis.com", "www.googleapis.com"],
+        uses_platform_master_key=False,
+        platform_master_warning=None,
+        created_at="2026-06-25T00:00:00+00:00",
+        updated_at="2026-06-25T00:00:00+00:00",
+    )
+    mock_service_cls.return_value.register.return_value = ProviderCredentialCreateResult(
+        summary=summary,
+        secret_returned_once=False,
+        warning=None,
+    )
+
+    response = client.post(
+        "/v1/account/provider-credentials/google-contacts/oauth/connect",
+        json={
+            "code": "auth-code",
+            "state": "signed-state-token",
+            "credential_id": "google-contacts-read",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["credential"]["credential_id"] == "google-contacts-read"
+    assert "oauth-access" not in response.text
+
+
 @patch("backend.api.routes.provider_credentials.ProviderCredentialManagementService")
 def test_viewer_cannot_create_provider_credential(mock_service_cls: MagicMock) -> None:
     client, _tenant_id = _build_client(roles=("viewer",))

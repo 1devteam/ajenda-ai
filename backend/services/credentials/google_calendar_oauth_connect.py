@@ -79,6 +79,8 @@ def issue_google_calendar_oauth_authorization(
             client=client,
             state=state,
             scopes=required_google_calendar_scopes(write=False),
+            # Connector OAuth is separate from identity login — always re-consent + account pick.
+            pick_account=True,
         ),
         state=state,
         redirect_uri=redirect_uri,

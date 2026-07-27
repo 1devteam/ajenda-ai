@@ -33,6 +33,12 @@ from backend.services.credentials.google_calendar_oauth_connect import (
     issue_google_calendar_oauth_authorization,
     verify_google_calendar_oauth_state,
 )
+from backend.services.credentials.google_contacts_oauth_connect import (
+    GoogleContactsOAuthConnectError,
+    exchange_google_contacts_oauth_code,
+    issue_google_contacts_oauth_authorization,
+    verify_google_contacts_oauth_state,
+)
 from backend.services.credentials.linkedin_oauth_connect import (
     LinkedInOAuthConnectError,
     exchange_linkedin_oauth_code,
@@ -60,7 +66,15 @@ class ProviderCredentialCreateRequest(BaseModel):
     credential_id: str = Field(min_length=1, max_length=160)
     provider: str = Field(min_length=1, max_length=120)
     integration: Literal[
-        "hubspot", "gmail", "smtp", "linkedin", "salesforce", "google_calendar", "github", "generic"
+        "hubspot",
+        "gmail",
+        "smtp",
+        "linkedin",
+        "salesforce",
+        "google_calendar",
+        "google_contacts",
+        "github",
+        "generic",
     ] = "hubspot"
     secret_value: str | None = Field(default=None, max_length=4000)
     use_platform_master_key: bool = False
@@ -310,7 +324,7 @@ def _oauth_connect_response(
     actor_id: str,
     credential_id: str,
     provider: str,
-    integration: Literal["linkedin", "salesforce", "google_calendar", "github"],
+    integration: Literal["linkedin", "salesforce", "google_calendar", "google_contacts", "github"],
     secret_value: str,
     trusted_destination_hosts: list[str] | None = None,
 ) -> ProviderCredentialCreateResponse:
@@ -565,6 +579,86 @@ def google_calendar_oauth_connect(
             secret_value=secret_value,
         )
     except GoogleCalendarOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    except ProviderCredentialManagementError as exc:
+        raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc
+
+
+@router.get(
+    "/provider-credentials/google-contacts/oauth/authorize-url",
+    response_model=GmailOAuthAuthorizeUrlResponse,
+)
+def google_contacts_oauth_authorize_url(
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    credential_id: str = "google-contacts-read",
+) -> GmailOAuthAuthorizeUrlResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        result = issue_google_contacts_oauth_authorization(
+            tenant_id=str(tenant_id),
+            credential_id=credential_id,
+            actor_id=actor_id,
+        )
+    except GoogleContactsOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    return GmailOAuthAuthorizeUrlResponse(
+        authorization_url=result.authorization_url,
+        state=result.state,
+        redirect_uri=result.redirect_uri,
+    )
+
+
+@router.post(
+    "/provider-credentials/google-contacts/oauth/connect",
+    response_model=ProviderCredentialCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def google_contacts_oauth_connect(
+    body: OAuthConnectRequest,
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> ProviderCredentialCreateResponse:
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    actor_id = _actor_id(request)
+    try:
+        claims = verify_google_contacts_oauth_state(body.state)
+    except GoogleContactsOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    if claims.tenant_id != str(tenant_id):
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
+    if claims.credential_id != body.credential_id.strip():
+        raise _oauth_state_claim_mismatch(
+            "OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch"
+        ) from None
+    if claims.actor_id != actor_id:
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
+
+    try:
+        secret_value = exchange_google_contacts_oauth_code(code=body.code, state=body.state)
+        return _oauth_connect_response(
+            service=ProviderCredentialManagementService(db),
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            credential_id=body.credential_id,
+            provider="external_read_provider",
+            integration="google_contacts",
+            secret_value=secret_value,
+        )
+    except GoogleContactsOAuthConnectError as exc:
         raise _oauth_connect_http_error(exc) from exc
     except ProviderCredentialManagementError as exc:
         raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc

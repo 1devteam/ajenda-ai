@@ -43,10 +43,12 @@ flowchart LR
 | Plugin discovery API | Implemented (`GET /v1/plugins`, action→plugin mapping) |
 | HubSpot CRM adapter (optional plugin) | Implemented (`services/hubspot_crm_adapter`, TLS ingress in Compose/K8s) |
 | Gmail + SMTP email plugins | Implemented — `external_email` credentials; `gtm.email_send` / `gtm.email_check` |
-| Credentials UI | Implemented at `/credentials` (customer frontend) |
+| Google Calendar / Contacts connectors | Implemented — separate OAuth connect (not identity login scopes) |
+| Credentials / Connections UI | Implemented at `/credentials` and `/connections` (OAuth-first Google cards) |
+| Mission composition engine | Implemented — plain language → structured `MissionIntent` → jobs → proposal; restatement on incomplete input |
 | Stripe billing API | Implemented — checkout, portal (`billing:manage`), signed webhook with dedup |
 | Ability runtime API | Implemented — task launch, proofs, feature/quota gates |
-| Customer frontend | Implemented — React Router app (`/signup`, `/verify-email`, `/dashboard`, `/billing`, `/tasks`) |
+| Customer frontend | Implemented — React Router app (`/signup`, `/signin`, `/missions`, `/connections`, `/dashboard`, `/billing`) |
 | Verify-email landing page | Implemented at `/verify-email` (Compose/K8s when frontend is deployed) |
 | Frontend in deploy | Implemented — Compose `:8080`, K8s `ajenda-frontend`, GHCR image in release CI |
 | E2E paid-customer proof | Implemented — `tests/integration/saas/test_paid_customer_loop_real.py` + staging curl script |
@@ -87,7 +89,8 @@ See [`docs/product/plugin-architecture.md`](docs/product/plugin-architecture.md)
 
 3. **Register credentials (UI or API)**
 
-   - UI: sign in → **Credentials** → paste HubSpot personal access key
+   - UI: sign in → **Connections** (`/connections` or `/credentials`) → paste HubSpot personal access key
+   - Google connectors (Gmail / Calendar / Contacts) use **separate OAuth buttons** (identity login stays `openid email profile` only)
    - API: `POST /v1/account/provider-credentials` with `provider=external_crm`, `integration=hubspot`
 
 4. **Launch governed CRM actions**
@@ -580,8 +583,23 @@ Run integration tests, migration round-trip checks, and live runtime proof when 
 | 0031 | backfill mission_plans from legacy mission metadata |
 | 0032 | OIDC login intents and customer auth sessions |
 | 0033 | tenant_internal_records for Ajenda standalone brain mode |
+| 0034 | email_send_idempotency_receipts (SMTP send replay protection) |
+| 0035 | mission_composition_proposals (durable compose history; no execution authority) |
 
-**Alembic head:** `0033_tenant_internal_records`
+**Alembic head:** `0035_composition_proposals`
+
+### Mission composition (plain language → plan)
+
+```text
+raw instruction → interpret (canonical outcomes, send_policy, quantity)
+  → route jobs → resolve abilities → proposal
+  → confirm → intake + plan + task graph
+  → runtime queue admission (separate)
+```
+
+- Compose is read-only / declarative; incomplete input returns **full-mission restatement** requirements (not fragment Q&A merge).
+- Proposals may be stored durably in `mission_composition_proposals` when a DB session is present (audit / supersession / loop escalation only).
+- See [`docs/architecture/ADR-0008-mission-composition-engine.md`](docs/architecture/ADR-0008-mission-composition-engine.md).
 
 ---
 

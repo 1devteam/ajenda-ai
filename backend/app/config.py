@@ -208,6 +208,15 @@ class Settings(BaseSettings):
         default="enforce",
         alias="AJENDA_MISSION_INTAKE_QUALITY_MODE",
     )
+    # Optional linguistic enhancements (candidates only; deterministic core always runs).
+    mission_interpreter_spelling_enabled: bool = Field(
+        default=True,
+        alias="AJENDA_MISSION_INTERPRETER_SPELLING_ENABLED",
+    )
+    mission_interpreter_fuzzy_enabled: bool = Field(
+        default=True,
+        alias="AJENDA_MISSION_INTERPRETER_FUZZY_ENABLED",
+    )
     gmail_oauth_redirect_uri: str = Field(
         default="http://localhost:5173/credentials/gmail/callback",
         alias="AJENDA_GMAIL_OAUTH_REDIRECT_URI",
@@ -223,6 +232,10 @@ class Settings(BaseSettings):
     google_calendar_oauth_redirect_uri: str = Field(
         default="http://localhost:5173/credentials/google-calendar/callback",
         alias="AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI",
+    )
+    google_contacts_oauth_redirect_uri: str = Field(
+        default="http://localhost:5173/credentials/google-contacts/callback",
+        alias="AJENDA_GOOGLE_CONTACTS_OAUTH_REDIRECT_URI",
     )
     github_oauth_redirect_uri: str = Field(
         default="http://localhost:5173/credentials/github/callback",

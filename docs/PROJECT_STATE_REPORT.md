@@ -50,7 +50,8 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Quota and feature enforcement (`QuotaEnforcementService`)
 - Self-serve onboarding: signup → verify → bootstrap key → promote
 - Account APIs: `/v1/account/me`, `/plan`, `/usage`, `/billing`
-- Provider credentials: `/v1/account/provider-credentials` (+ OAuth flows per provider)
+- Provider credentials: `/v1/account/provider-credentials` (+ OAuth flows per provider; Google Contacts/Calendar/Gmail separate from identity OIDC)
+- Mission composition: structured interpreter + restatement; durable proposals (`0035_composition_proposals`)
 - Billing RBAC: checkout/portal require `billing:manage`; account reads use `account:read`
 - Stripe: checkout, portal, webhook with `stripe_webhook_events` dedup
 - Plans: free, starter, pro, enterprise (`0006` seed; `0026` ability_runtime on pro+)
@@ -65,7 +66,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 ### 2.5 Customer frontend
 
 - React 19 + Vite + `react-router-dom`
-- Routes: `/signup`, `/verify-email`, `/promote`, `/dashboard`, `/billing`, `/tasks`, `/credentials`, `/dev`
+- Routes: `/signup`, `/signin`, `/verify-email`, `/promote`, `/dashboard`, `/missions`, `/billing`, `/tasks`, `/connections` (`/credentials`), `/dev`
 - Session storage for bootstrap vs operational API keys
 - Compose: customer UI on **:8080** (nginx proxies `/v1` to API)
 - K8s: `ajenda-frontend` deployment + ingress paths; image `ghcr.io/<org>/<repo>-frontend:<version>`
@@ -79,6 +80,8 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - `mission_plans` — canonical plan storage; `0031` backfill from legacy metadata
 - `customer_auth_sessions`, OIDC login intents — migration `0032`
 - `tenant_internal_records` — migration `0033`
+- `email_send_idempotency_receipts` — migration `0034`
+- `mission_composition_proposals` — migration `0035` (declarative history only)
 
 ### 2.7 Tests and proof
 

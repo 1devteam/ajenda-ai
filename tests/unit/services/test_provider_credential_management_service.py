@@ -186,6 +186,24 @@ def test_register_google_calendar_read_credential(session_factory) -> None:
     assert result.summary.trusted_destination_hosts == ["www.googleapis.com"]
 
 
+def test_register_google_contacts_read_credential(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session)
+        result = service.register(
+            tenant_id=tenant_id,
+            credential_id="google-contacts-read",
+            provider="external_read_provider",
+            integration="google_contacts",
+            secret_value="contacts-oauth-token",
+            actor_id="user-1",
+        )
+        session.commit()
+
+    assert "provider.external_read" in result.summary.allowed_actions
+    assert result.summary.trusted_destination_hosts == ["people.googleapis.com"]
+
+
 def test_register_github_read_credential(session_factory) -> None:
     tenant_id = str(uuid.uuid4())
     with session_factory() as session:

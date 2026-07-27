@@ -21,7 +21,7 @@ runtime_secrets:
   sync_script: scripts/dev/sync-local-secrets.sh
 credential_sources:
   google:
-    label: Google (OIDC sign-in, Gmail, Calendar)
+    label: Google (OIDC identity login + connector OAuth for Gmail/Calendar/Contacts)
     required_for_local: true
     env_file: deploy/compose/.env.prod
     console:
@@ -29,17 +29,24 @@ credential_sources:
       consent_screen: https://console.cloud.google.com/apis/credentials/consent
       gmail_api: https://console.cloud.google.com/apis/library/gmail.googleapis.com
       calendar_api: https://console.cloud.google.com/apis/library/calendar-json.googleapis.com
+      people_api: https://console.cloud.google.com/apis/library/people.googleapis.com
     env_vars:
+      - AJENDA_OIDC_LOGIN_ENABLED
+      - AJENDA_OIDC_PROVIDER
       - AJENDA_OIDC_CLIENT_ID
       - AJENDA_OIDC_CLIENT_SECRET
+      - AJENDA_OIDC_ISSUER
+      - AJENDA_OIDC_JWKS_URI
       - AJENDA_SESSION_SIGNING_SECRET
     cli_env_file: ~/.ajenda/google-cli.env
     cli_env_vars:
       - AJENDA_GOOGLE_CLI_CLIENT_ID
       - AJENDA_GOOGLE_CLI_CLIENT_SECRET
     notes: >
-      One Web OAuth client covers sign-in and Credentials UI. Add profile redirect URIs
-      from this guide. For CLI/E2E tokens: bash scripts/google/create_cli_oauth_client.sh
+      One Web OAuth client can cover identity login and Connections UI, but scopes and
+      redirect URIs must stay separate. Identity login uses openid/email/profile only.
+      Connectors use Gmail / Calendar / Contacts scopes via Connections buttons.
+      Enable People API for Contacts. CLI/E2E: bash scripts/google/create_cli_oauth_client.sh
   salesforce:
     label: Salesforce (Credentials UI)
     required_for_local: false
@@ -127,11 +134,20 @@ profiles:
     env:
       AJENDA_CORS_ALLOWED_ORIGINS: http://localhost:5173
       AJENDA_SIGNUP_VERIFY_URL_BASE: http://localhost:5173/verify-email
+      # Identity login (OIDC) — openid/email/profile only; no Gmail/Calendar/Contacts scopes
+      AJENDA_OIDC_LOGIN_ENABLED: "true"
+      AJENDA_OIDC_PROVIDER: google
+      AJENDA_OIDC_ISSUER: https://accounts.google.com
+      AJENDA_OIDC_JWKS_URI: https://www.googleapis.com/oauth2/v3/certs
+      AJENDA_OIDC_AUDIENCE: ajenda-api
+      AJENDA_OIDC_SCOPES: openid email profile
       AJENDA_OIDC_REDIRECT_URI_ALLOWLIST: http://localhost:5173/auth/callback
+      # Connector OAuth redirects (Connections UI buttons — separate from identity login)
       AJENDA_GMAIL_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/gmail/callback
       AJENDA_LINKEDIN_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/linkedin/callback
       AJENDA_SALESFORCE_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/salesforce/callback
       AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/google-calendar/callback
+      AJENDA_GOOGLE_CONTACTS_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/google-contacts/callback
       AJENDA_GITHUB_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/github/callback
     external_callbacks:
       google_cloud:
@@ -142,6 +158,7 @@ profiles:
           - http://localhost:5173/auth/callback
           - http://localhost:5173/credentials/gmail/callback
           - http://localhost:5173/credentials/google-calendar/callback
+          - http://localhost:5173/credentials/google-contacts/callback
       salesforce:
         console_hint: Connected App → OAuth settings → Callback URL
         callback_urls:
@@ -167,11 +184,20 @@ profiles:
     env:
       AJENDA_CORS_ALLOWED_ORIGINS: http://localhost:8080
       AJENDA_SIGNUP_VERIFY_URL_BASE: http://localhost:8080/verify-email
+      # Identity login (OIDC) — openid/email/profile only; no Gmail/Calendar/Contacts scopes
+      AJENDA_OIDC_LOGIN_ENABLED: "true"
+      AJENDA_OIDC_PROVIDER: google
+      AJENDA_OIDC_ISSUER: https://accounts.google.com
+      AJENDA_OIDC_JWKS_URI: https://www.googleapis.com/oauth2/v3/certs
+      AJENDA_OIDC_AUDIENCE: ajenda-api
+      AJENDA_OIDC_SCOPES: openid email profile
       AJENDA_OIDC_REDIRECT_URI_ALLOWLIST: http://localhost:8080/auth/callback
+      # Connector OAuth redirects (Connections UI buttons — separate from identity login)
       AJENDA_GMAIL_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/gmail/callback
       AJENDA_LINKEDIN_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/linkedin/callback
       AJENDA_SALESFORCE_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/salesforce/callback
       AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/google-calendar/callback
+      AJENDA_GOOGLE_CONTACTS_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/google-contacts/callback
       AJENDA_GITHUB_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/github/callback
     external_callbacks:
       google_cloud:
@@ -182,6 +208,7 @@ profiles:
           - http://localhost:8080/auth/callback
           - http://localhost:8080/credentials/gmail/callback
           - http://localhost:8080/credentials/google-calendar/callback
+          - http://localhost:8080/credentials/google-contacts/callback
       salesforce:
         console_hint: Connected App → OAuth settings → Callback URL
         callback_urls:

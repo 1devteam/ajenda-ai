@@ -47,7 +47,12 @@ from backend.services.mission_composition.plan_compiler import (
     compile_planned_steps,
     compile_task_graph_preview,
 )
-from backend.services.mission_composition.proposal_store import get_proposal, put_proposal
+from backend.services.mission_composition.proposal_store import (
+    get_proposal,
+    load_recent_failure_context,
+    mark_superseded,
+    put_proposal,
+)
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
     validate_mission_intake_prompt,
@@ -100,7 +105,18 @@ def _integrations_for_credential(record: object) -> set[str]:
         found.add("gmail")
     if provider == "external_crm" or "hubspot" in credential_id or "hubapi.com" in " ".join(hosts):
         found.add("hubspot")
-    if "google-calendar" in credential_id or "calendar" in credential_id or "www.googleapis.com" in hosts:
+    # Credential-id first so Contacts never masquerades as Calendar via shared API host.
+    if "google-contacts" in credential_id or "contacts" in credential_id or "people.googleapis.com" in hosts:
+        found.add("google_contacts")
+    if (
+        "google-calendar" in credential_id
+        or ("calendar" in credential_id and "contacts" not in credential_id)
+        or (
+            "www.googleapis.com" in hosts
+            and "people.googleapis.com" not in hosts
+            and "google-contacts" not in credential_id
+        )
+    ):
         found.add("google_calendar")
     if "salesforce" in credential_id or any("salesforce.com" in host for host in hosts):
         found.add("salesforce")
@@ -147,6 +163,7 @@ def _connected_sets(
         ("gmail-email", "gmail"),
         ("hubspot-crm", "hubspot"),
         ("google-calendar-read", "google_calendar"),
+        ("google-contacts-read", "google_contacts"),
         ("salesforce-read", "salesforce"),
         ("linkedin-read", "linkedin"),
         ("github-read", "github"),
@@ -172,14 +189,42 @@ class MissionCompositionService:
     def __init__(self, db: Session | None = None) -> None:
         self._db = db
 
-    def compose(self, *, tenant_id: str, instruction: str) -> MissionCompositionRecord:
+    def compose(self, *, tenant_id: str, instruction: str, actor_id: str | None = None) -> MissionCompositionRecord:
         if not instruction or not instruction.strip():
             raise MissionCompositionError(code="INSTRUCTION_REQUIRED", message="instruction is required")
+
+        prior = load_recent_failure_context(tenant_id=tenant_id, db=self._db)
 
         profile = None
         if self._db is not None:
             profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
         intent = interpret_instruction(instruction, profile_context=_profile_context(profile))
+        # Backend-owned loop escalation: same missing fields → more specific restatement example.
+        if prior and intent.ambiguity:
+            shared = set(prior.get("unresolved_fields") or []) & {c.field for c in intent.ambiguity}
+            if shared:
+                example = (
+                    "Find five roofing companies in Northwest Arkansas, qualify them, "
+                    "and prepare draft emails for review without sending them."
+                )
+                escalated = []
+                for item in intent.ambiguity:
+                    if item.field in shared:
+                        escalated.append(
+                            item.model_copy(
+                                update={
+                                    "question": (
+                                        f"{item.question} The revised mission still does not include "
+                                        f"required detail for '{item.field}'. Restate the full mission "
+                                        f"in this form: '{example}'"
+                                    )[:1000]
+                                }
+                            )
+                        )
+                    else:
+                        escalated.append(item)
+                intent = intent.model_copy(update={"ambiguity": escalated})
+
         charter = _load_charter(self._db, tenant_id)
         connected_ids, connected_integrations, preferred_creds, type_by_id = _connected_sets(self._db, tenant_id)
 
@@ -206,7 +251,11 @@ class MissionCompositionService:
         forbidden = sorted(
             {
                 *intent.forbidden_outcomes,
-                *(["gtm.email_send"] if any("do not send" in c.lower() for c in intent.constraints) else []),
+                *(
+                    ["gtm.email_send"]
+                    if intent.send_policy.mode in {"forbid", "conditional"} or intent.blocks_send()
+                    else []
+                ),
             }
         )
         approval_gates: list[str] = []
@@ -241,9 +290,29 @@ class MissionCompositionService:
             task_graph_preview=task_graph_preview,
             clarifications=list(intent.ambiguity),
             ready_to_start=ready_to_start,
-            composition_provenance=CompositionProvenance(authority_class="read_model"),
+            composition_provenance=CompositionProvenance(
+                authority_class="read_model",
+                components_active=list(intent.components_active),
+            ),
         )
-        put_proposal(tenant_id=tenant_id, record=record)
+        failure_count = int(prior.get("repeated_failure_count") or 0) if prior and not ready_to_start else 0
+        superseded_id = str(prior["proposal_id"]) if prior and prior.get("proposal_id") else None
+        put_proposal(
+            tenant_id=tenant_id,
+            record=record,
+            db=self._db,
+            actor_id=actor_id,
+            normalized_instruction=instruction.strip(),
+            repeated_failure_count=failure_count,
+            superseded_proposal_id=superseded_id,
+        )
+        if superseded_id:
+            mark_superseded(
+                tenant_id=tenant_id,
+                proposal_id=superseded_id,
+                superseding_proposal_id=record.proposal_id,
+                db=self._db,
+            )
         return record
 
     def confirm(
@@ -280,7 +349,7 @@ class MissionCompositionService:
                 raise MissionCompositionError(code="INVALID_COMPOSITION", message="composition must be a full record")
 
         if instruction is None and proposal_id:
-            cached = get_proposal(tenant_id=tenant_id, proposal_id=proposal_id)
+            cached = get_proposal(tenant_id=tenant_id, proposal_id=proposal_id, db=self._db)
             if cached is None:
                 raise MissionCompositionError(
                     code="PROPOSAL_NOT_FOUND",
@@ -341,12 +410,21 @@ class MissionCompositionService:
             }
             for item in record.intent.constraints
         ]
-        if "gtm.email_send" in record.forbidden_actions:
+        if "gtm.email_send" in record.forbidden_actions or record.intent.send_policy.mode in {
+            "forbid",
+            "conditional",
+        }:
             if not any("do not send" in c["description"].lower() for c in constraints):
+                mode = record.intent.send_policy.mode
                 constraints.append(
                     {
-                        "name": "Do not send messages",
-                        "description": "Do not send messages; drafts require human review before any future send.",
+                        "name": "Send policy",
+                        "description": (
+                            "Do not send messages; drafts require human review before any future send."
+                            if mode == "forbid"
+                            else f"Send is conditional ({record.intent.send_policy.condition}); "
+                            "not authorized for immediate delivery."
+                        ),
                         "hard": True,
                     }
                 )
