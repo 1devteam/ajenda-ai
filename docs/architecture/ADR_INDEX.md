@@ -28,7 +28,7 @@ All ADRs in this folder should be treated as policy-level architecture guidance 
 | [ADR-0005](./ADR-0005-informed-autonomy-gate-policy.md) | Informed Autonomy Gate Policy | Accepted (policy) | 2026-06-23 | Replace misplaced gates with tiered disclaimers for tool/ability phases |
 | [ADR-0006](./ADR-0006-external-platform-integration-doctrine.md) | External Platform Integration Doctrine | Accepted | 2026-06-27 | PluginContract vs provider modules, OAuth refresh, side-effect tiers, hybrid CRM, expansion gate |
 | [ADR-0007](./ADR-0007-governed-vertical-role-catalog.md) | Governed Vertical Role Catalog on the Ability Spine | Proposed | 2026-07-10 | Vertical roles as declarative catalogs on mission/ability spine; Phase B runtime templates + Phase C plan-only fail-closed queue |
-| [ADR-0008](./ADR-0008-mission-composition-engine.md) | Mission Composition Engine | Accepted | 2026-07-19 | Plain language → jobs → abilities → plan/graph proposal; compose read-only; confirm intake only; no queue collapse |
+| [ADR-0008](./ADR-0008-mission-composition-engine.md) | Mission Composition Engine | Accepted | 2026-07-19 (upd. 2026-07-27) | Plain language → canonical outcomes + structured intent → jobs → abilities → durable proposal; restatement not fragment merge; compose read-only; confirm intake only |
 
 ---
 
