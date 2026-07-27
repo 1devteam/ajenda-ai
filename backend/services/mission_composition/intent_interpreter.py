@@ -86,7 +86,11 @@ _LOCATION_TRAILING_STOP = re.compile(
 _ENRICH_PATTERNS = (
     r"\benrich\b",
     r"contact details",
-    r"find emails",
+    r"contact info(?:rmation)?",
+    r"collect (?:contact|email|phone)",
+    r"gather (?:contact|email|phone)",
+    r"find (?:emails?|phone numbers?|contact)",
+    r"look up (?:emails?|contact)",
 )
 _CALENDAR_PATTERNS = (
     r"\bcalendar\b",
@@ -103,8 +107,15 @@ _CRM_UPDATE_PATTERNS = (
     r"\blogs? (?:activity|to crm)\b",
     r"\bupsert\b",
     r"\bwrite (?:to |into )?(?:the )?crm\b",
-    r"\bsync (?:to |into )?(?:the )?(?:crm|hubspot)\b",
-    r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot)\b",
+    r"\bsync (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
+    r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
+    # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
+    r"\badd (?:them|it|these|those|each|leads?|prospects?|companies)?\s*(?:to|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\bsave (?:them|it|these|those|each|leads?|prospects?)?\s*(?:to|into|in)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\bput (?:them|it|these|those)\s+(?:in|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
+    r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
+    r"\bcreate (?:crm )?(?:records?|contacts?)\b",
 )
 # Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
@@ -143,6 +154,27 @@ _LEADING_VERB_WORDS = frozenset(
         "target",
     }
 )
+# Strip quantity words so "three roofing companies" → industry "roofing".
+_LEADING_QUANTITY_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "several",
+        "some",
+        "few",
+        "many",
+    }
+)
 _FRAGMENT_HINTS = (
     r"^complete when\b",
     r"^when the email is sent\b",
@@ -174,6 +206,10 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
         return []
     industry_tokens = [token for token in match.group("industry").strip().split() if token]
     while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
+        industry_tokens.pop(0)
+    while industry_tokens and (
+        industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()
+    ):
         industry_tokens.pop(0)
     industry = " ".join(industry_tokens).strip(" ,.;:")
     location = match.group("location").strip(" ,.;:")
