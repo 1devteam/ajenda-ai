@@ -242,6 +242,7 @@ def build_default_action_registry() -> ActionRegistry:
     from backend.services.tools.sales_actions import register_sales_actions
     from backend.services.tools.salesforce_actions import register_salesforce_actions
     from backend.services.tools.standalone_actions import register_standalone_actions
+    from backend.services.tools.web_actions import register_web_actions
     from backend.services.tools.webhook_actions import register_webhook_actions
 
     registry = ActionRegistry()
@@ -258,6 +259,7 @@ def build_default_action_registry() -> ActionRegistry:
     register_document_actions(registry)
     register_retrieval_actions(registry)
     register_standalone_actions(registry)
+    register_web_actions(registry)
     registry.freeze()
     return registry
 

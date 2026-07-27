@@ -60,13 +60,24 @@ def http_request(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         task_id=str(context.task_id),
         mission_id=str(context.mission_id) if context.mission_id else None,
         summary=summary,
-        structured_payload={"status_code": response.status_code, "url": url},
+        structured_payload={
+            "status_code": response.status_code,
+            "url": url,
+            "access_mode": "http_request",
+            "method": payload.method,
+        },
         confidence=1.0,
-        limitations=["response body truncated to 4096 characters", "redirects disabled"],
+        limitations=[
+            "response body truncated to 4096 characters",
+            "redirects disabled",
+            "open_write / browser_session modes are reserved expansion doors",
+        ],
         provenance={
             "runtime_path": "TaskDispatcher -> tool.invoke -> ToolRuntimeAuthority -> ActionRegistry",
             "network_egress_authority": "backend.services.network_egress.NetworkEgressAuthority",
             "library": "httpx",
+            "access_mode": "http_request",
+            "internet_access": "backend.services.internet",
         },
         side_effect_class=side_effect_class,
     )

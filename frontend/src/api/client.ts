@@ -504,7 +504,7 @@ export async function getGmailOAuthAuthorizeUrl(
   return withFreshSession(session, (fresh) =>
     request<GmailOAuthAuthorizeUrlResponse>(
       `/v1/account/provider-credentials/gmail/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
-      {},
+      { method: "GET" },
       runtimeOptions(sessionToRuntimeConfig(fresh)),
     ),
   );
@@ -582,7 +582,7 @@ export async function getGoogleCalendarOAuthAuthorizeUrl(
   return withFreshSession(session, (fresh) =>
     request<GmailOAuthAuthorizeUrlResponse>(
       `/v1/account/provider-credentials/google-calendar/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
-      {},
+      { method: "GET" },
       runtimeOptions(sessionToRuntimeConfig(fresh)),
     ),
   );
@@ -608,7 +608,7 @@ export async function getGoogleContactsOAuthAuthorizeUrl(
   return withFreshSession(session, (fresh) =>
     request<GmailOAuthAuthorizeUrlResponse>(
       `/v1/account/provider-credentials/google-contacts/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
-      {},
+      { method: "GET" },
       runtimeOptions(sessionToRuntimeConfig(fresh)),
     ),
   );

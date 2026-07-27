@@ -14,6 +14,23 @@ disclaimers:
       - sales.research
     text: >
       You authorize Ajenda to read data from your connected external account using the supplied credential.
+  - disclaimer_id: autonomy.public_internet_read.v1
+    tier: 2
+    actions:
+      - web.search
+      - web.page_read
+      - web.browser_session
+      - http.request
+    text: >
+      You authorize Ajenda to access the public internet on your behalf (search, page read, browser session, or governed HTTP).
+      Results may be incomplete or wrong. You are responsible for how those results are used.
+  - disclaimer_id: autonomy.public_internet_write.v1
+    tier: 3
+    actions:
+      - web.open_write
+    text: >
+      You accept responsibility for public-web mutations (POST/PUT/PATCH) performed by Ajenda, including form
+      submissions and API posts. Idempotency and rate limits apply; credentials must not be pasted into headers.
   - disclaimer_id: autonomy.external_send.v1
     tier: 3
     actions:

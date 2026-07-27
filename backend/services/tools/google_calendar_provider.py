@@ -1,8 +1,6 @@
-"""Google Calendar provider adapter contract.
+"""Google Calendar provider adapter contract and OAuth scopes.
 
-This module defines the future Google Calendar provider boundary without
-importing the Google SDK, resolving credentials, refreshing OAuth tokens, or
-calling external APIs.
+Connector OAuth only — identity login must never request these scopes.
 """
 
 from __future__ import annotations
@@ -12,6 +10,7 @@ from typing import Any
 from backend.services.tools.calendar_provider import CalendarProvider
 from backend.services.tools.external_credentials import ExternalCredentialReference, ExternalProviderName
 
+# Product connector consent matches Google Cloud OAuth client scopes in use.
 GOOGLE_CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
 GOOGLE_CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 
@@ -61,9 +60,19 @@ class GoogleCalendarProvider(CalendarProvider):
             raise ValueError("credential tenant_id does not match provider call tenant_id")
 
 
-def required_google_calendar_scopes(*, write: bool) -> tuple[str, ...]:
-    """Return the minimum documented scopes for Google Calendar operations."""
+def required_google_calendar_scopes(*, write: bool = True) -> tuple[str, ...]:
+    """Scopes requested for Calendar connector OAuth.
+
+    Product default is ``calendar.events`` (view/edit events), matching the
+    Ajenda Google OAuth client consent configuration.
+    """
 
     if write:
         return (GOOGLE_CALENDAR_EVENTS_SCOPE,)
     return (GOOGLE_CALENDAR_READ_SCOPE,)
+
+
+def recognized_google_calendar_scopes() -> tuple[str, ...]:
+    """Scopes that identify a stored secret as a calendar OAuth bundle."""
+
+    return (GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_READ_SCOPE)

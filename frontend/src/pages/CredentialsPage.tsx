@@ -173,6 +173,13 @@ const INTEGRATION_ORDER: IntegrationKind[] = [
   "github",
 ];
 
+/**
+ * In-memory guard for concurrent OAuth callback exchanges (React Strict Mode remounts
+ * the same effect). sessionStorage alone is not enough: "in-flight" must not permanently
+ * block a remount, but two parallel connect() calls with one code will fail the second.
+ */
+const oauthCallbackInFlight = new Set<string>();
+
 const OAUTH_CALLBACKS: Record<
   string,
   {
@@ -309,6 +316,7 @@ export default function CredentialsPage() {
           code: oauthError === "access_denied" ? "ACCESS_DENIED" : "OAUTH_ERROR",
         },
       });
+      setLoading(null);
       navigate("/credentials", { replace: true });
       return;
     }
@@ -319,12 +327,18 @@ export default function CredentialsPage() {
       return;
     }
 
+    // Only skip completed exchanges in sessionStorage. In-memory set handles concurrent
+    // Strict Mode remounts without permanently blocking a later legitimate retry.
     const oauthDedupeKey = `ajenda.oauth.callback:${location.pathname}:${state}`;
-    if (window.sessionStorage.getItem(oauthDedupeKey)) {
+    if (window.sessionStorage.getItem(oauthDedupeKey) === "done") {
+      setLoading(null);
       navigate("/credentials", { replace: true });
       return;
     }
-    window.sessionStorage.setItem(oauthDedupeKey, "in-flight");
+    if (oauthCallbackInFlight.has(oauthDedupeKey)) {
+      return;
+    }
+    oauthCallbackInFlight.add(oauthDedupeKey);
 
     let cancelled = false;
     async function finishOAuth(oauthCode: string, oauthState: string) {
@@ -336,26 +350,34 @@ export default function CredentialsPage() {
           state: oauthState,
           credential_id: callback.defaultCredentialId,
         });
-        if (!cancelled) {
-          window.sessionStorage.setItem(oauthDedupeKey, "done");
-          if (response.warning) {
-            setWarning(response.warning);
-          }
-          setIntegration(callback.integration);
-          navigate("/credentials", { replace: true });
+        window.sessionStorage.setItem(oauthDedupeKey, "done");
+        if (response.warning) {
+          setWarning(response.warning);
+        }
+        setIntegration(callback.integration);
+        // Refresh list before navigate so React-preserved page state still has data.
+        try {
           const listed = await listProviderCredentials(session!);
           setCredentials(listed.credentials);
+        } catch (listErr) {
+          // Connect succeeded; list failure should not keep the UI locked.
+          if (!cancelled) {
+            setError(listErr);
+          }
         }
+        navigate("/credentials", { replace: true });
       } catch (err) {
+        window.sessionStorage.removeItem(oauthDedupeKey);
         if (!cancelled) {
-          window.sessionStorage.removeItem(oauthDedupeKey);
           setError(err);
-          navigate("/credentials", { replace: true });
         }
+        navigate("/credentials", { replace: true });
       } finally {
-        if (!cancelled) {
-          setLoading(null);
-        }
+        oauthCallbackInFlight.delete(oauthDedupeKey);
+        // Always clear loading. navigate() reuses CredentialsPage (same element type),
+        // so effect cleanup sets cancelled=true and used to skip this — freezing all
+        // connector buttons until a hard refresh.
+        setLoading(null);
       }
     }
     void finishOAuth(code, state);
@@ -419,10 +441,16 @@ export default function CredentialsPage() {
 
   async function handleOAuthConnect(target: IntegrationKind = integration) {
     if (!session) {
+      setError(
+        new Error(
+          "Sign in first, then use Connections to link Gmail, Calendar, or Contacts. Google sign-in alone does not connect those tools.",
+        ),
+      );
       return;
     }
     const label = INTEGRATION_LABELS[target];
     const credentialId = FORM_BY_INTEGRATION[target].credential_id;
+    setIntegration(target);
     setLoading(`Starting ${label} OAuth`);
     setError(null);
     try {
@@ -442,7 +470,14 @@ export default function CredentialsPage() {
       } else {
         throw new Error(`${label} does not support OAuth connect`);
       }
+      if (!response?.authorization_url) {
+        throw new Error(`${label} OAuth did not return an authorization URL from the API.`);
+      }
+      // Full-page redirect; if navigation is blocked, re-enable buttons.
       window.location.assign(response.authorization_url);
+      window.setTimeout(() => {
+        setLoading(null);
+      }, 2500);
     } catch (err) {
       setError(err);
       setLoading(null);
@@ -522,12 +557,12 @@ export default function CredentialsPage() {
     },
     {
       kind: "google_calendar",
-      description: "Read calendar events. Grants calendar.readonly only.",
+      description: "Calendar events (view and edit). Scope: calendar.events.",
       credentialId: "google-calendar-read",
     },
     {
       kind: "google_contacts",
-      description: "Read Google Contacts via People API. Grants contacts.readonly only.",
+      description: "Google Contacts + Other contacts. Scopes: contacts, contacts.other.readonly.",
       credentialId: "google-contacts-read",
     },
   ];
@@ -548,31 +583,51 @@ export default function CredentialsPage() {
         </p>
         {warning ? <p className="notice warning">{warning}</p> : null}
         <PageErrorAlert error={error} className="notice error" />
-        <div className="cc-integration-grid" style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div className="cc-integration-grid">
           {googleConnectorCards.map((card) => {
             const connected = credentialIsActive(credentials, card.credentialId);
+            // Only lock the connector that is actively connecting; others stay clickable.
+            const cardBusy = loading !== null && integration === card.kind;
+            const anyOAuthBusy = loading !== null;
+            const start = () => {
+              if (anyOAuthBusy) {
+                return;
+              }
+              void handleOAuthConnect(card.kind);
+            };
             return (
               <IntegrationCard
                 key={card.kind}
                 name={INTEGRATION_LABELS[card.kind]}
                 description={card.description}
                 status={connected ? "connected" : "connect"}
+                disabled={anyOAuthBusy}
+                onActivate={start}
               >
                 <button
                   type="button"
                   className="primary-button"
-                  disabled={loading !== null}
-                  onClick={() => {
-                    setIntegration(card.kind);
-                    void handleOAuthConnect(card.kind);
-                  }}
+                  disabled={anyOAuthBusy}
+                  data-connector={card.kind}
+                  data-testid={`connect-${card.kind}`}
+                  onClick={start}
                 >
-                  {connected ? `Reconnect ${INTEGRATION_LABELS[card.kind]}` : `Connect ${INTEGRATION_LABELS[card.kind]}`}
+                  {cardBusy
+                    ? loading
+                    : connected
+                      ? `Reconnect ${INTEGRATION_LABELS[card.kind]}`
+                      : `Connect ${INTEGRATION_LABELS[card.kind]} with Google`}
                 </button>
               </IntegrationCard>
             );
           })}
         </div>
+        <p className="field-hint" style={{ marginTop: "0.75rem" }}>
+          Calendar and Contacts use separate Google OAuth consent from sign-in. Register redirect URIs
+          <code> /credentials/google-calendar/callback </code> and
+          <code> /credentials/google-contacts/callback </code>
+          on your Google Cloud OAuth client, and enable Calendar API + People API.
+        </p>
       </section>
 
       <section className="panel">
@@ -826,7 +881,8 @@ export default function CredentialsPage() {
                   placeholder='Paste access token or JSON: {"provider_kind":"google_contacts","access_token":"...","refresh_token":"...","expires_at":"..."}'
                 />
                 <span className="field-hint">
-                  Prefer the Google Contacts connector button above. Scope is contacts.readonly only.
+                  Prefer the Google Contacts connector button above. OAuth requests contacts +
+                  contacts.other.readonly.
                 </span>
               </label>
               <button

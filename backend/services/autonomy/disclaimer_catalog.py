@@ -108,6 +108,10 @@ def action_tier(action_name: str) -> int:
         "web.research",
     }:
         return 0
+    if action_name in {"web.search", "web.page_read", "web.browser_session", "http.request"}:
+        return 2
+    if action_name in {"web.open_write"}:
+        return 3
     return 0
 
 

@@ -78,7 +78,8 @@ def issue_google_contacts_oauth_authorization(
         authorization_url=build_google_authorization_url(
             client=client,
             state=state,
-            scopes=required_google_contacts_scopes(write=False),
+            # Product consent: contacts + contacts.other.readonly.
+            scopes=required_google_contacts_scopes(write=True),
             pick_account=True,
         ),
         state=state,
