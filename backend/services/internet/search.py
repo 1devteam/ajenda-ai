@@ -163,17 +163,22 @@ class DuckDuckGoSearchPackageProvider:
 
     def search(self, *, query: str, limit: int, timeout_seconds: float) -> SearchBundle:
         try:
+            import importlib
+
             try:
-                from duckduckgo_search import DDGS  # type: ignore[import-untyped]
+                ddgs_mod = importlib.import_module("duckduckgo_search")
             except ImportError:  # pragma: no cover
-                from ddgs import DDGS  # type: ignore[import-untyped]
+                ddgs_mod = importlib.import_module("ddgs")
+            ddgs_cls = getattr(ddgs_mod, "DDGS", None)
+            if ddgs_cls is None:
+                return SearchBundle(provider=self.name, real=False, error="ddgs package missing DDGS class")
         except ImportError as exc:
             return SearchBundle(provider=self.name, real=False, error=f"ddgs package unavailable: {exc}")
 
         try:
             hits: list[SearchHit] = []
             # DDGS context manager closes internal clients.
-            with DDGS() as client:
+            with ddgs_cls() as client:
                 raw_items = list(client.text(query.strip(), max_results=max(1, min(limit, 20))))
             for item in raw_items:
                 if not isinstance(item, dict):

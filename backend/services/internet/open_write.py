@@ -1,28 +1,34 @@
 """Open-write policy for public-web mutations (forms / generic POST).
 
 Separate from connector OAuth writes. Flag-gated, rate-limited, HTTPS-only,
-idempotency required, NetworkEgressAuthority only.
+idempotency required (claim-before-send), NetworkEgressAuthority only.
 """
 
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from backend.rate_limit.limiter import RateLimitDecision, RateLimiter, RateLimitKey
+from sqlalchemy.orm import Session
+
+from backend.rate_limit.limiter import RateLimitDecision, RateLimitKey, RateLimiter
+from backend.repositories.email_send_idempotency_repository import EmailSendIdempotencyRepository
 from backend.services.internet.modes import InternetAccessMode
-from backend.services.network_egress import (
-    NetworkEgressError,
-    NetworkEgressResponse,
-    VettedNetworkDestination,
-    get_default_network_egress_authority,
-)
+from backend.services.internet.url_safety import reject_credentialed_url
+from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
 
 WriteMethod = Literal["POST", "PUT", "PATCH"]
+OPEN_WRITE_ACTION = "web.open_write"
 _OPEN_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
+# Rate limit is tenant-scoped — principal is a fixed policy bucket, never worker_id.
+_TENANT_RATE_PRINCIPAL = "open_write_policy"
 _lock = threading.Lock()
 _limiter: RateLimiter | None = None
+# Process-local claim table for tests / single-process; workers with session_factory use durable DB.
+_memory_claims: dict[tuple[str, str, str], dict[str, Any]] = {}
+_memory_lock = threading.Lock()
 
 
 class OpenWritePolicyError(ValueError):
@@ -40,6 +46,8 @@ class OpenWriteResult:
     error: str | None
     rate_limit_remaining: int | None
     access_mode: InternetAccessMode = InternetAccessMode.OPEN_WRITE
+    idempotency_decision: str | None = None
+    idempotency_backend: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +60,8 @@ class OpenWriteResult:
             "error": self.error,
             "rate_limit_remaining": self.rate_limit_remaining,
             "access_mode": self.access_mode.value,
+            "idempotency_decision": self.idempotency_decision,
+            "idempotency_backend": self.idempotency_backend,
         }
 
 
@@ -90,7 +100,7 @@ def _get_limiter() -> RateLimiter:
     global _limiter
     with _lock:
         max_req = _max_per_hour()
-        if _limiter is None or _limiter._max_requests != max_req:
+        if _limiter is None or _limiter._max_requests != max_req:  # noqa: SLF001
             _limiter = RateLimiter(max_requests=max_req, window_seconds=3600)
         return _limiter
 
@@ -99,11 +109,114 @@ def reset_open_write_rate_limiter_for_tests() -> None:
     global _limiter
     with _lock:
         _limiter = None
+    with _memory_lock:
+        _memory_claims.clear()
 
 
-def evaluate_open_write_rate_limit(*, tenant_id: str, principal_id: str = "runtime") -> RateLimitDecision:
-    key = RateLimitKey(tenant_id=tenant_id, principal_id=principal_id or "runtime", route="web.open_write")
+def evaluate_open_write_rate_limit(*, tenant_id: str) -> RateLimitDecision:
+    """Tenant-wide quota — do not key by worker_id."""
+
+    key = RateLimitKey(
+        tenant_id=tenant_id,
+        principal_id=_TENANT_RATE_PRINCIPAL,
+        route=OPEN_WRITE_ACTION,
+    )
     return _get_limiter().evaluate(key)
+
+
+def _claim_memory(*, tenant_id: str, idempotency_key: str) -> tuple[str, dict[str, Any] | None]:
+    key = (tenant_id, OPEN_WRITE_ACTION, idempotency_key)
+    with _memory_lock:
+        existing = _memory_claims.get(key)
+        if existing is None:
+            _memory_claims[key] = {"status": "claiming", "payload": None}
+            return "newly_claimed", None
+        if existing.get("status") == "completed":
+            payload = existing.get("payload")
+            return "replayed", dict(payload) if isinstance(payload, dict) else {}
+        return "in_flight", None
+
+
+def _complete_memory(*, tenant_id: str, idempotency_key: str, payload: dict[str, Any]) -> None:
+    key = (tenant_id, OPEN_WRITE_ACTION, idempotency_key)
+    with _memory_lock:
+        _memory_claims[key] = {"status": "completed", "payload": dict(payload)}
+
+
+def _release_memory(*, tenant_id: str, idempotency_key: str) -> None:
+    key = (tenant_id, OPEN_WRITE_ACTION, idempotency_key)
+    with _memory_lock:
+        current = _memory_claims.get(key)
+        if current and current.get("status") == "claiming":
+            del _memory_claims[key]
+
+
+def _claim_durable(
+    *,
+    session_factory: Callable[[], Session],
+    tenant_id: str,
+    idempotency_key: str,
+) -> tuple[str, dict[str, Any] | None]:
+    session = session_factory()
+    try:
+        status, payload = EmailSendIdempotencyRepository(session).try_claim(
+            tenant_id=tenant_id,
+            action=OPEN_WRITE_ACTION,
+            idempotency_key=idempotency_key,
+        )
+        session.commit()
+        return status, payload
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _complete_durable(
+    *,
+    session_factory: Callable[[], Session],
+    tenant_id: str,
+    idempotency_key: str,
+    payload: dict[str, Any],
+) -> None:
+    session = session_factory()
+    try:
+        EmailSendIdempotencyRepository(session).complete(
+            tenant_id=tenant_id,
+            action=OPEN_WRITE_ACTION,
+            idempotency_key=idempotency_key,
+            result_payload=payload,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _release_durable(
+    *,
+    session_factory: Callable[[], Session],
+    tenant_id: str,
+    idempotency_key: str,
+    error_detail: str | None,
+) -> None:
+    session = session_factory()
+    try:
+        EmailSendIdempotencyRepository(session).release(
+            tenant_id=tenant_id,
+            action=OPEN_WRITE_ACTION,
+            idempotency_key=idempotency_key,
+            error_detail=error_detail,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 def execute_open_write(
@@ -116,9 +229,9 @@ def execute_open_write(
     body_text: str | None = None,
     headers: dict[str, str] | None = None,
     timeout_seconds: float = 10.0,
-    principal_id: str = "runtime",
+    session_factory: Callable[[], Session] | None = None,
 ) -> OpenWriteResult:
-    """Policy gate + egress POST/PUT/PATCH. Never simulates success when blocked."""
+    """Policy gate + claim-before-send + egress POST/PUT/PATCH."""
 
     normalized_method = method.upper().strip()
     if normalized_method not in _OPEN_WRITE_METHODS:
@@ -132,7 +245,8 @@ def execute_open_write(
             error="open_write only allows POST, PUT, or PATCH",
             rate_limit_remaining=None,
         )
-    if not idempotency_key.strip():
+    key = idempotency_key.strip()
+    if not key:
         return OpenWriteResult(
             real=False,
             url=url,
@@ -154,12 +268,25 @@ def execute_open_write(
             error="open_write disabled (set AJENDA_OPEN_WRITE_ENABLED=true)",
             rate_limit_remaining=None,
         )
-
-    decision = evaluate_open_write_rate_limit(tenant_id=tenant_id, principal_id=principal_id)
-    if not decision.allowed:
+    try:
+        safe_url = reject_credentialed_url(url, action_name="web.open_write")
+    except ValueError as exc:
         return OpenWriteResult(
             real=False,
             url=url,
+            method=normalized_method,
+            status_code=None,
+            body_text=None,
+            body_truncated=False,
+            error=str(exc),
+            rate_limit_remaining=None,
+        )
+
+    decision = evaluate_open_write_rate_limit(tenant_id=tenant_id)
+    if not decision.allowed:
+        return OpenWriteResult(
+            real=False,
+            url=safe_url,
             method=normalized_method,
             status_code=None,
             body_text=None,
@@ -168,9 +295,47 @@ def execute_open_write(
             rate_limit_remaining=0,
         )
 
+    backend = "durable" if session_factory is not None else "memory"
+    if session_factory is not None:
+        claim_status, cached = _claim_durable(
+            session_factory=session_factory,
+            tenant_id=tenant_id,
+            idempotency_key=key,
+        )
+    else:
+        claim_status, cached = _claim_memory(tenant_id=tenant_id, idempotency_key=key)
+
+    if claim_status == "replayed":
+        cached = cached or {}
+        return OpenWriteResult(
+            real=bool(cached.get("real", True)),
+            url=str(cached.get("url") or safe_url),
+            method=str(cached.get("method") or normalized_method),
+            status_code=cached.get("status_code") if isinstance(cached.get("status_code"), int) else None,
+            body_text=str(cached["body_text"]) if isinstance(cached.get("body_text"), str) else None,
+            body_truncated=bool(cached.get("body_truncated", False)),
+            error=None,
+            rate_limit_remaining=decision.remaining,
+            idempotency_decision="replayed",
+            idempotency_backend=backend,
+        )
+    if claim_status == "in_flight":
+        return OpenWriteResult(
+            real=False,
+            url=safe_url,
+            method=normalized_method,
+            status_code=None,
+            body_text=None,
+            body_truncated=False,
+            error="open_write already claimed for this idempotency_key and is not yet finalized",
+            rate_limit_remaining=decision.remaining,
+            idempotency_decision="in_flight",
+            idempotency_backend=backend,
+        )
+
     request_headers = dict(headers or {})
     request_headers.setdefault("User-Agent", "AjendaInternet/1.0 (+open_write)")
-    request_headers["X-Ajenda-Idempotency-Key"] = idempotency_key.strip()[:200]
+    request_headers["X-Ajenda-Idempotency-Key"] = key[:200]
     content: bytes | None = None
     json_payload = json_body
     if body_text is not None and json_body is None:
@@ -180,7 +345,7 @@ def execute_open_write(
     try:
         _dest, response = get_default_network_egress_authority().request(
             method=normalized_method,
-            url=url,
+            url=safe_url,
             headers=request_headers,
             json_body=json_payload,
             content=content,
@@ -188,46 +353,61 @@ def execute_open_write(
             action_name="web.open_write",
             response_text_limit=8192,
         )
-        return OpenWriteResult(
+        result = OpenWriteResult(
             real=True,
-            url=url,
+            url=safe_url,
             method=normalized_method,
             status_code=response.status_code,
             body_text=response.body_text,
             body_truncated=response.body_truncated,
             error=None,
             rate_limit_remaining=decision.remaining,
+            idempotency_decision="newly_claimed",
+            idempotency_backend=backend,
         )
-    except NetworkEgressError as exc:
-        return OpenWriteResult(
-            real=False,
-            url=url,
-            method=normalized_method,
-            status_code=None,
-            body_text=None,
-            body_truncated=False,
-            error=str(exc),
-            rate_limit_remaining=decision.remaining,
-        )
+        payload = result.as_dict()
+        if session_factory is not None:
+            _complete_durable(
+                session_factory=session_factory,
+                tenant_id=tenant_id,
+                idempotency_key=key,
+                payload=payload,
+            )
+        else:
+            _complete_memory(tenant_id=tenant_id, idempotency_key=key, payload=payload)
+        return result
     except Exception as exc:
+        err = str(exc) if not isinstance(exc, NetworkEgressError) else str(exc)
+        if session_factory is not None:
+            try:
+                _release_durable(
+                    session_factory=session_factory,
+                    tenant_id=tenant_id,
+                    idempotency_key=key,
+                    error_detail=err,
+                )
+            except Exception:
+                pass
+        else:
+            _release_memory(tenant_id=tenant_id, idempotency_key=key)
         return OpenWriteResult(
             real=False,
-            url=url,
+            url=safe_url,
             method=normalized_method,
             status_code=None,
             body_text=None,
             body_truncated=False,
-            error=str(exc),
+            error=err,
             rate_limit_remaining=decision.remaining,
+            idempotency_decision="released",
+            idempotency_backend=backend,
         )
 
 
-# Re-export types used by tests/actions
 __all__ = [
-    "NetworkEgressResponse",
+    "OPEN_WRITE_ACTION",
     "OpenWritePolicyError",
     "OpenWriteResult",
-    "VettedNetworkDestination",
     "evaluate_open_write_rate_limit",
     "execute_open_write",
     "open_write_enabled",

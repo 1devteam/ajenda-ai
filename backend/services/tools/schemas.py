@@ -390,6 +390,13 @@ class WebPageReadInput(BaseModel):
     url: str = Field(min_length=3, max_length=2048)
     timeout_seconds: float = Field(default=8.0, ge=0.5, le=15.0)
 
+    @field_validator("url")
+    @classmethod
+    def reject_credentialed_page_url(cls, value: str) -> str:
+        from backend.services.internet.url_safety import reject_credentialed_url
+
+        return reject_credentialed_url(value, action_name="web.page_read")
+
 
 class WebBrowserSessionInput(BaseModel):
     """Ephemeral Playwright session — one navigate, then destroy context."""
@@ -400,6 +407,13 @@ class WebBrowserSessionInput(BaseModel):
     timeout_seconds: float = Field(default=15.0, ge=1.0, le=60.0)
     wait_until: Literal["domcontentloaded", "load", "networkidle"] = "domcontentloaded"
     extract_text: bool = True
+
+    @field_validator("url")
+    @classmethod
+    def reject_credentialed_browser_url(cls, value: str) -> str:
+        from backend.services.internet.url_safety import reject_credentialed_url
+
+        return reject_credentialed_url(value, action_name="web.browser_session")
 
 
 class WebOpenWriteInput(BaseModel):
@@ -422,6 +436,13 @@ class WebOpenWriteInput(BaseModel):
         if normalized not in {"POST", "PUT", "PATCH"}:
             raise ValueError("web.open_write only allows POST, PUT, or PATCH")
         return normalized
+
+    @field_validator("url")
+    @classmethod
+    def reject_credentialed_open_write_url(cls, value: str) -> str:
+        from backend.services.internet.url_safety import reject_credentialed_url
+
+        return reject_credentialed_url(value, action_name="web.open_write")
 
     @field_validator("headers")
     @classmethod

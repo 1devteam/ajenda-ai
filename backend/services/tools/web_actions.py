@@ -144,7 +144,7 @@ def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContex
 
 def web_open_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebOpenWriteInput.model_validate(invocation.input)
-    principal = str(context.worker_id or "runtime")
+    # Rate limit is tenant-scoped inside execute_open_write (never worker_id).
     result = execute_open_write(
         tenant_id=context.tenant_id,
         url=payload.url,
@@ -154,7 +154,7 @@ def web_open_write(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         body_text=payload.body_text,
         headers=payload.headers,
         timeout_seconds=payload.timeout_seconds,
-        principal_id=principal,
+        session_factory=context.session_factory,
     )
     output = result.as_dict()
     output["idempotency_key_present"] = True
