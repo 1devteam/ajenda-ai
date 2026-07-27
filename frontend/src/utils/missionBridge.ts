@@ -30,6 +30,20 @@ export function seedToolInputForAction(
       };
     case "web.search":
       return { query: objectiveText, limit: 5 };
+    case "web.page_read":
+      return { url: "https://example.com", timeout_seconds: 8 };
+    case "web.browser_session":
+      return { url: "https://example.com", timeout_seconds: 15, wait_until: "domcontentloaded" };
+    case "web.open_write":
+      return {
+        url: "https://httpbin.org/post",
+        method: "POST",
+        json_body: { objective: objectiveText.slice(0, 200) },
+        idempotency_key: `mission-open-write-${Date.now()}`,
+        timeout_seconds: 10,
+      };
+    case "http.request":
+      return { method: "GET", url: "https://example.com", timeout_seconds: 5 };
     case "sales.qualify":
     case "sales.score_lead":
       return {

@@ -430,7 +430,7 @@ def test_google_contacts_oauth_authorize_url_returns_signed_state(mock_issue: Ma
     from backend.services.credentials.google_contacts_oauth_connect import GoogleContactsOAuthAuthorizeResult
 
     mock_issue.return_value = GoogleContactsOAuthAuthorizeResult(
-        authorization_url="https://accounts.google.com/o/oauth2/v2/auth?scope=contacts.readonly",
+        authorization_url="https://accounts.google.com/o/oauth2/v2/auth?scope=contacts",
         state="signed-state-token",
         redirect_uri="http://localhost:5173/credentials/google-contacts/callback",
     )

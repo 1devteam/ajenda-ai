@@ -16,6 +16,9 @@ DEFAULT_MAY_PREPARE: tuple[str, ...] = (
     "record.read",
     "web.research",
     "web.search",
+    "web.page_read",
+    "web.browser_session",
+    "http.request",
     "sales.qualify",
     "sales.score_lead",
     "sales.recommend_next_action",
@@ -39,6 +42,7 @@ DEFAULT_MAY_PERFORM: tuple[str, ...] = (
     "sales.log_activity",
     "sales.create_followup_task",
     "calendar.create_event",
+    "web.open_write",
 )
 
 DEFAULT_NEVER_DO: tuple[str, ...] = (

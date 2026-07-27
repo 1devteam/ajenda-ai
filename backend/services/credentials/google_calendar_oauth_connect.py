@@ -78,7 +78,8 @@ def issue_google_calendar_oauth_authorization(
         authorization_url=build_google_authorization_url(
             client=client,
             state=state,
-            scopes=required_google_calendar_scopes(write=False),
+            # Product consent: calendar.events (view/edit events).
+            scopes=required_google_calendar_scopes(write=True),
             # Connector OAuth is separate from identity login — always re-consent + account pick.
             pick_account=True,
         ),

@@ -114,13 +114,14 @@ def test_fetch_duckduckgo_parses_nested_related_topics() -> None:
     authority.request.return_value = (destination, response)
 
     with patch(
-        "backend.services.tools.standalone_actions.get_default_network_egress_authority",
+        "backend.services.internet.search.get_default_network_egress_authority",
         return_value=authority,
     ):
         bundle = _fetch_duckduckgo_instant_answer(query="HubSpot CRM", limit=5, timeout_seconds=10.0)
 
     assert bundle["real"] is True
     assert bundle["result_count"] >= 3
+    assert bundle["access_mode"] == "public_search"
 
 
 def test_web_search_merges_internal_records_and_public_results(monkeypatch) -> None:

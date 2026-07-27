@@ -530,9 +530,23 @@ button.primary-button:hover:not(:disabled),
   background: var(--cc-surface);
 }
 
+.cc-integration-card-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cc-integration-card-clickable:hover {
+  border-color: var(--cc-accent, #c43c3c);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cc-accent, #c43c3c) 35%, transparent);
+}
+
 .cc-integration-card h3 {
   margin: 0 0 0.35rem;
   font-size: 0.95rem;
+}
+
+.cc-integration-card .primary-button {
+  width: 100%;
 }
 
 /* Tabs */

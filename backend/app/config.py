@@ -200,6 +200,27 @@ class Settings(BaseSettings):
         default=True,
         alias="AJENDA_NETWORK_EGRESS_TLS_VERIFY",
     )
+    # --- Public internet lane (search / browser / open write) ---
+    public_search_provider: Literal["auto", "ddgs", "duckduckgo_instant_answer", "brave", "serpapi"] = Field(
+        default="auto",
+        alias="AJENDA_PUBLIC_SEARCH_PROVIDER",
+    )
+    brave_search_api_key: str = Field(default="", alias="AJENDA_BRAVE_SEARCH_API_KEY")
+    serpapi_api_key: str = Field(default="", alias="AJENDA_SERPAPI_API_KEY")
+    browser_session_enabled: bool = Field(
+        default=False,
+        alias="AJENDA_BROWSER_SESSION_ENABLED",
+    )
+    open_write_enabled: bool = Field(
+        default=False,
+        alias="AJENDA_OPEN_WRITE_ENABLED",
+    )
+    open_write_max_per_hour: int = Field(
+        default=20,
+        ge=1,
+        le=10_000,
+        alias="AJENDA_OPEN_WRITE_MAX_PER_HOUR",
+    )
     autonomy_disclaimer_mode: Literal["off", "pilot", "enforce"] = Field(
         default="off",
         alias="AJENDA_AUTONOMY_DISCLAIMER_MODE",

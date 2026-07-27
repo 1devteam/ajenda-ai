@@ -11,7 +11,7 @@ from backend.services.credentials.google_contacts_oauth_connect import (
     verify_google_contacts_oauth_state,
 )
 from backend.services.tools.gmail_provider import GOOGLE_OAUTH_TOKEN_URL
-from backend.services.tools.google_contacts_provider import GOOGLE_CONTACTS_READONLY_SCOPE
+from backend.services.tools.google_contacts_provider import GOOGLE_CONTACTS_SCOPE
 
 
 def test_issue_google_contacts_oauth_authorization_returns_signed_state(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -25,7 +25,11 @@ def test_issue_google_contacts_oauth_authorization_returns_signed_state(monkeypa
     )
 
     assert result.authorization_url.startswith("https://accounts.google.com/o/oauth2/v2/auth")
-    assert "contacts.readonly" in result.authorization_url
+    from urllib.parse import unquote
+
+    decoded = unquote(result.authorization_url)
+    assert "https://www.googleapis.com/auth/contacts" in decoded
+    assert "contacts.other.readonly" in decoded
     assert "select_account" in result.authorization_url
     assert "openid" not in result.authorization_url  # identity scopes belong to login, not connectors
     claims = verify_google_contacts_oauth_state(result.state)
@@ -55,7 +59,7 @@ def test_exchange_google_contacts_oauth_code_serializes_provider_kind_secret(
                 "refresh_token": "contacts-refresh",
                 "expires_in": 3600,
                 "token_type": "Bearer",
-                "scope": GOOGLE_CONTACTS_READONLY_SCOPE,
+                "scope": GOOGLE_CONTACTS_SCOPE,
             }
 
         text = ""

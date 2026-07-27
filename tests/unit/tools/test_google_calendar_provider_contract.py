@@ -72,3 +72,5 @@ def test_google_calendar_provider_operations_are_explicitly_deferred() -> None:
 def test_required_google_calendar_scopes_are_minimal_by_operation() -> None:
     assert required_google_calendar_scopes(write=False) == (GOOGLE_CALENDAR_READ_SCOPE,)
     assert required_google_calendar_scopes(write=True) == (GOOGLE_CALENDAR_EVENTS_SCOPE,)
+    # Product connector default is write/events consent.
+    assert required_google_calendar_scopes() == (GOOGLE_CALENDAR_EVENTS_SCOPE,)

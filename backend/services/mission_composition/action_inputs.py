@@ -66,6 +66,24 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         }
     if action_name == "web.search":
         return {"query": query, "limit": limit}
+    if action_name == "web.page_read":
+        # Prefer domain-like attributes on target entities when present.
+        # Never invent example.com — missing URL fails closed at composition.
+        url: str | None = None
+        for entity in intent.target_entities:
+            attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+            candidate = str(attrs.get("domain") or attrs.get("website") or attrs.get("url") or "").strip()
+            if candidate:
+                url = candidate if "://" in candidate else f"https://{candidate.lstrip('.')}"
+                break
+        if not url:
+            raise ValueError(
+                "web.page_read requires a target URL (entity attributes domain, website, or url); "
+                "refusing to synthesize example.com"
+            )
+        return {"url": url, "timeout_seconds": 8.0}
+    if action_name == "http.request":
+        return {"method": "GET", "url": "https://example.com", "timeout_seconds": 5.0}
     if action_name in {"sales.research", "crm.research"}:
         return {"lead": lead}
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:

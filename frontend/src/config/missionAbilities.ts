@@ -10,6 +10,11 @@ export type MissionAbilityPreset = {
 
 export const MISSION_ALLOWED_ACTION_OPTIONS = [
   { action: "web.search", label: "Web search" },
+  { action: "web.page_read", label: "Web page read" },
+  { action: "web.browser_session", label: "Web browser session" },
+  { action: "web.open_write", label: "Web open write" },
+  { action: "web.research", label: "Web research" },
+  { action: "http.request", label: "HTTP request" },
   { action: "sales.research", label: "Sales / CRM research" },
   { action: "crm.research", label: "CRM research (HubSpot)" },
   { action: "gtm.lead_enrich", label: "Lead enrich" },
@@ -41,6 +46,41 @@ export const MISSION_ABILITY_PRESETS: MissionAbilityPreset[] = [
     title: "Web search",
     description: "Search the public web for market or company signals.",
     input: { query: "roofing contractors Austin", limit: 5 },
+  },
+  {
+    action: "web.page_read",
+    title: "Web page read",
+    description: "Fetch a public HTTPS page and extract title/text (not a browser).",
+    input: { url: "https://example.com" },
+  },
+  {
+    action: "web.browser_session",
+    title: "Web browser session",
+    description: "Ephemeral headless browser navigate+extract (AJENDA_BROWSER_SESSION_ENABLED).",
+    input: { url: "https://example.com", wait_until: "domcontentloaded" },
+  },
+  {
+    action: "web.open_write",
+    title: "Web open write",
+    description: "Public POST/PUT/PATCH with rate limit + idempotency (AJENDA_OPEN_WRITE_ENABLED).",
+    input: {
+      url: "https://httpbin.org/post",
+      method: "POST",
+      json_body: { hello: "ajenda" },
+      idempotency_key: "demo-open-write-key-001",
+    },
+  },
+  {
+    action: "web.research",
+    title: "Web research",
+    description: "Hybrid research: internal records + optional public search/page.",
+    input: { query: "roofing contractors Austin", include_public_search: true, limit: 5 },
+  },
+  {
+    action: "http.request",
+    title: "HTTP request",
+    description: "Governed HTTPS call (GET/HEAD read; write methods need side-effect auth).",
+    input: { method: "GET", url: "https://example.com", timeout_seconds: 5 },
   },
   {
     action: "gtm.lead_enrich",

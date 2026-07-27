@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from backend.services.tools.google_calendar_provider import required_google_calendar_scopes
+from backend.services.tools.google_calendar_provider import (
+    recognized_google_calendar_scopes,
+    required_google_calendar_scopes,
+)
 from backend.services.tools.google_oauth_cli import (
     GoogleOAuthCliError,
     GoogleOAuthTokenBundle,
@@ -43,8 +46,8 @@ def is_google_calendar_oauth_secret(secret_value: str) -> bool:
         return True
     scopes = payload.get("scopes")
     if isinstance(scopes, list):
-        calendar_scope = required_google_calendar_scopes(write=False)[0]
-        if any(calendar_scope in str(item) for item in scopes):
+        known = recognized_google_calendar_scopes()
+        if any(any(scope in str(item) for scope in known) for item in scopes):
             return True
     return False
 
@@ -55,7 +58,7 @@ def serialize_google_calendar_oauth_secret(*, bundle: GoogleOAuthTokenBundle) ->
         "access_token": bundle.access_token,
         "refresh_token": bundle.refresh_token,
         "expires_at": bundle.expires_at,
-        "scopes": list(bundle.scopes or required_google_calendar_scopes(write=False)),
+        "scopes": list(bundle.scopes or required_google_calendar_scopes(write=True)),
         "token_type": bundle.token_type,
     }
     return json.dumps(document, sort_keys=True)
@@ -114,7 +117,7 @@ def resolve_google_calendar_credential_secret(
         access_token=refreshed.access_token,
         refresh_token=refreshed.refresh_token or refresh_token.strip(),
         expires_at=refreshed.expires_at,
-        scopes=refreshed.scopes or tuple(required_google_calendar_scopes(write=False)),
+        scopes=refreshed.scopes or tuple(required_google_calendar_scopes(write=True)),
         token_type=refreshed.token_type,
     )
     return GoogleCalendarRuntimeTokenResolution(

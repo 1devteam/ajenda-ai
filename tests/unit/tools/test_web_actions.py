@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+from unittest.mock import patch
+
+from backend.services.internet.contracts import PageSnapshot
+from backend.services.internet.modes import InternetAccessMode
+from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
+
+
+def _context() -> ActionRuntimeContext:
+    return ActionRuntimeContext(
+        tenant_id="tenant-web",
+        task_id=__import__("uuid").uuid4(),
+        mission_id=__import__("uuid").uuid4(),
+        worker_id="worker-1",
+        lease_id="lease-1",
+    )
+
+
+def test_web_page_read_action_returns_external_read_evidence() -> None:
+    snapshot = PageSnapshot(
+        url="https://example.com/",
+        real=True,
+        status_code=200,
+        title="Example Domain",
+        text_preview="Example Domain content",
+        body_preview="<html>",
+        access_mode=InternetAccessMode.PAGE_READ,
+        browser_ready=False,
+    )
+    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=snapshot):
+        registry = get_default_action_registry(rebuild=True)
+        result = registry.invoke(
+            ToolInvocation(action="web.page_read", input={"url": "https://example.com"}),
+            _context(),
+        )
+    assert result.action == "web.page_read"
+    assert result.provider == "ajenda_internet"
+    assert result.side_effect_class.value == "external_read"
+    assert result.output["real"] is True
+    assert result.output["title"] == "Example Domain"
+    assert result.output["browser_ready"] is False
+    assert "web.browser_session" in result.output["related_modes"]["browser_session"]
+    assert result.evidence[0].action_name == "web.page_read"
+
+
+def test_web_browser_session_and_open_write_registered() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    assert "web.browser_session" in registry.actions or registry.get("web.browser_session")
+    assert registry.get("web.open_write").side_effect_class.value == "external_write"
+
+
+def test_web_page_read_failure_is_not_fake_success() -> None:
+    snapshot = PageSnapshot(
+        url="https://blocked.invalid/",
+        real=False,
+        error="web.page_read DNS resolution failed",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=snapshot):
+        registry = get_default_action_registry(rebuild=True)
+        result = registry.invoke(
+            ToolInvocation(action="web.page_read", input={"url": "https://blocked.invalid"}),
+            _context(),
+        )
+    assert result.output["real"] is False
+    assert result.output["error"]
