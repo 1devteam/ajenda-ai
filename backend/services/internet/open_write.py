@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
-from backend.rate_limit.limiter import RateLimitDecision, RateLimitKey, RateLimiter
+from backend.rate_limit.limiter import RateLimitDecision, RateLimiter, RateLimitKey
 from backend.repositories.email_send_idempotency_repository import EmailSendIdempotencyRepository
 from backend.services.internet.modes import InternetAccessMode
 from backend.services.internet.url_safety import reject_credentialed_url
@@ -100,7 +100,7 @@ def _get_limiter() -> RateLimiter:
     global _limiter
     with _lock:
         max_req = _max_per_hour()
-        if _limiter is None or _limiter._max_requests != max_req:  # noqa: SLF001
+        if _limiter is None or _limiter._max_requests != max_req:
             _limiter = RateLimiter(max_requests=max_req, window_seconds=3600)
         return _limiter
 
@@ -377,7 +377,7 @@ def execute_open_write(
             _complete_memory(tenant_id=tenant_id, idempotency_key=key, payload=payload)
         return result
     except Exception as exc:
-        err = str(exc) if not isinstance(exc, NetworkEgressError) else str(exc)
+        err = str(exc)
         if session_factory is not None:
             try:
                 _release_durable(
