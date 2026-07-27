@@ -22,6 +22,8 @@ from backend.services.mission_composition.contracts import (
     SuccessCriterion,
     TargetEntity,
 )
+from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
+from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
 
 _COMPONENTS_ACTIVE = ("regex_core",)
 
@@ -346,6 +348,8 @@ def interpret_instruction(
     instruction: str,
     *,
     profile_context: dict[str, Any] | None = None,
+    spelling_enabled: bool | None = None,
+    fuzzy_enabled: bool | None = None,
 ) -> MissionIntent:
     """Extract a candidate MissionIntent without granting execution authority."""
 
@@ -353,11 +357,40 @@ def interpret_instruction(
     if not text:
         raise ValueError("instruction must be non-empty")
 
+    # Settings are optional so unit tests stay free of full app config.
+    if spelling_enabled is None or fuzzy_enabled is None:
+        try:
+            from backend.app.config import get_settings
+
+            settings = get_settings()
+            if spelling_enabled is None:
+                spelling_enabled = bool(settings.mission_interpreter_spelling_enabled)
+            if fuzzy_enabled is None:
+                fuzzy_enabled = bool(settings.mission_interpreter_fuzzy_enabled)
+        except Exception:
+            spelling_enabled = True if spelling_enabled is None else spelling_enabled
+            fuzzy_enabled = True if fuzzy_enabled is None else fuzzy_enabled
+
+    norm = normalize_instruction_text(text, spelling_enabled=bool(spelling_enabled))
+    text = norm.normalized
+    components_active: list[str] = list(dict.fromkeys([*_COMPONENTS_ACTIVE, *norm.components_active]))
+
     profile_context = profile_context or {}
     lower = text.lower()
     evidence: list[InterpretationEvidence] = []
     clarifications: list[Clarification] = []
     context_requirements: list[str] = []
+    for correction in norm.spelling_corrections:
+        evidence.append(
+            _evidence(
+                field_path="normalized_instruction",
+                source="normalized",
+                source_text=correction.original,
+                normalized_value=correction.replacement,
+                confidence=correction.confidence,
+                rule_id=f"spelling.{correction.source}",
+            )
+        )
 
     no_send = _contains_any(lower, _NO_SEND_PATTERNS)
     conditional_send = _contains_any(lower, _CONDITIONAL_SEND_PATTERNS)
@@ -435,6 +468,30 @@ def interpret_instruction(
         outcomes.append("update_crm")
     if wants_publish:
         outcomes.append("publish_content")
+
+    # Optional fuzzy candidates only for unresolved outcome language (never ability select).
+    fuzzy_hits, fuzzy_components = fuzzy_outcome_candidates(
+        text,
+        enabled=bool(fuzzy_enabled),
+        already=set(outcomes),
+    )
+    components_active.extend(c for c in fuzzy_components if c not in components_active)
+    medium_fuzzy: list[str] = []
+    for hit in fuzzy_hits:
+        if hit.band == "high" and hit.outcome not in outcomes:
+            outcomes.append(hit.outcome)
+            evidence.append(
+                _evidence(
+                    field_path=f"requested_outcomes.{hit.outcome}",
+                    source="inferred_fuzzy",
+                    source_text=hit.matched_alias,
+                    normalized_value=hit.outcome,
+                    confidence=min(0.89, hit.score / 100.0),
+                    rule_id="fuzzy.outcome_high",
+                )
+            )
+        elif hit.band == "medium":
+            medium_fuzzy.append(f"{hit.matched_alias}≈{hit.outcome}({hit.score:.0f})")
 
     # Structured send policy (authoritative for downstream).
     # Conditional approval outranks bare "do not send" when both appear
@@ -652,6 +709,23 @@ def interpret_instruction(
         )
         coverage = min(coverage, max(0.0, (material_ok) / max(material_total, 1)))
 
+    if medium_fuzzy and not outcomes:
+        clarifications.append(
+            _restatement(
+                field="requested_outcomes",
+                understood=None,
+                missing=(
+                    "only medium-confidence phrase matches were found "
+                    f"({'; '.join(medium_fuzzy[:3])}); outcomes must be clearer"
+                ),
+                include_instruction=(
+                    "explicit business outcomes using plain language "
+                    "(research, qualify, prepare outreach, send after approval, calendar)"
+                ),
+                reason="Medium-confidence fuzzy matches must not authorize outcomes.",
+            )
+        )
+
     # Publish is not executable in this catalog generation — fail closed if requested.
     if "publish_content" in outcomes:
         clarifications.append(
@@ -738,6 +812,6 @@ def interpret_instruction(
         unmatched_material_clauses=unmatched,
         interpretation_evidence=evidence,
         coverage_score=round(coverage, 3),
-        components_active=list(_COMPONENTS_ACTIVE),
+        components_active=list(dict.fromkeys(components_active)),
         interpreter_version=INTERPRETER_VERSION,
     )
