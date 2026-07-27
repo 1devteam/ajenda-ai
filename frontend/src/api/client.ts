@@ -601,6 +601,32 @@ export async function connectGoogleCalendarOAuth(
   );
 }
 
+export async function getGoogleContactsOAuthAuthorizeUrl(
+  session: CustomerSession,
+  credentialId = "google-contacts-read",
+): Promise<GmailOAuthAuthorizeUrlResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<GmailOAuthAuthorizeUrlResponse>(
+      `/v1/account/provider-credentials/google-contacts/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
+      {},
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function connectGoogleContactsOAuth(
+  session: CustomerSession,
+  body: GmailOAuthConnectRequest,
+): Promise<ProviderCredentialCreateResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialCreateResponse>(
+      "/v1/account/provider-credentials/google-contacts/oauth/connect",
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
 export async function getGitHubOAuthAuthorizeUrl(
   session: CustomerSession,
   credentialId = "github-read",

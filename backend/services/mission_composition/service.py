@@ -206,7 +206,11 @@ class MissionCompositionService:
         forbidden = sorted(
             {
                 *intent.forbidden_outcomes,
-                *(["gtm.email_send"] if any("do not send" in c.lower() for c in intent.constraints) else []),
+                *(
+                    ["gtm.email_send"]
+                    if intent.send_policy.mode in {"forbid", "conditional"} or intent.blocks_send()
+                    else []
+                ),
             }
         )
         approval_gates: list[str] = []
@@ -241,7 +245,10 @@ class MissionCompositionService:
             task_graph_preview=task_graph_preview,
             clarifications=list(intent.ambiguity),
             ready_to_start=ready_to_start,
-            composition_provenance=CompositionProvenance(authority_class="read_model"),
+            composition_provenance=CompositionProvenance(
+                authority_class="read_model",
+                components_active=list(intent.components_active),
+            ),
         )
         put_proposal(tenant_id=tenant_id, record=record)
         return record
@@ -341,12 +348,21 @@ class MissionCompositionService:
             }
             for item in record.intent.constraints
         ]
-        if "gtm.email_send" in record.forbidden_actions:
+        if "gtm.email_send" in record.forbidden_actions or record.intent.send_policy.mode in {
+            "forbid",
+            "conditional",
+        }:
             if not any("do not send" in c["description"].lower() for c in constraints):
+                mode = record.intent.send_policy.mode
                 constraints.append(
                     {
-                        "name": "Do not send messages",
-                        "description": "Do not send messages; drafts require human review before any future send.",
+                        "name": "Send policy",
+                        "description": (
+                            "Do not send messages; drafts require human review before any future send."
+                            if mode == "forbid"
+                            else f"Send is conditional ({record.intent.send_policy.condition}); "
+                            "not authorized for immediate delivery."
+                        ),
                         "hard": True,
                     }
                 )

@@ -197,13 +197,17 @@ export default function MissionsPage() {
 
           {proposal.clarifications.length > 0 ? (
             <div className="cc-clarification">
-              <strong>One more detail</strong>
+              <strong>Restate the complete mission</strong>
               <ul>
                 {proposal.clarifications.map((item) => (
                   <li key={`${item.field}-${item.question}`}>{item.question}</li>
                 ))}
               </ul>
-              <p>Answer in the same box on the left, then plan again.</p>
+              <p>
+                Do not send a short fragment alone. Rewrite the full mission in the box on the left,
+                include every missing detail above, then plan again. Ajenda will not merge partial
+                answers into the previous plan.
+              </p>
             </div>
           ) : null}
 
@@ -235,7 +239,8 @@ export default function MissionsPage() {
           </div>
           {!proposal.ready_to_start ? (
             <p className="field-hint">
-              Not ready yet — resolve connections or clarify the request, then plan again.
+              Not ready yet — resolve connections or restate the complete mission with the missing
+              detail, then plan again.
             </p>
           ) : null}
         </aside>

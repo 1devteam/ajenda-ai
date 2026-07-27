@@ -4,6 +4,7 @@ import {
   connectGmailOAuth,
   connectGitHubOAuth,
   connectGoogleCalendarOAuth,
+  connectGoogleContactsOAuth,
   connectLinkedInOAuth,
   connectSalesforceOAuth,
   createProviderCredential,
@@ -11,6 +12,7 @@ import {
   getGmailOAuthAuthorizeUrl,
   getGitHubOAuthAuthorizeUrl,
   getGoogleCalendarOAuthAuthorizeUrl,
+  getGoogleContactsOAuthAuthorizeUrl,
   getLinkedInOAuthAuthorizeUrl,
   getSalesforceOAuthAuthorizeUrl,
   listProviderCredentials,
@@ -18,6 +20,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
+import IntegrationCard from "../components/ui/IntegrationCard";
 import PageHeader from "../components/ui/PageHeader";
 import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
 
@@ -29,6 +32,7 @@ type IntegrationKind =
   | "linkedin"
   | "salesforce"
   | "google_calendar"
+  | "google_contacts"
   | "github";
 
 const HUBSPOT_FORM: ProviderCredentialCreateRequest = {
@@ -119,6 +123,14 @@ const GOOGLE_CALENDAR_FORM: ProviderCredentialCreateRequest = {
   use_platform_master_key: false,
 };
 
+const GOOGLE_CONTACTS_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "google-contacts-read",
+  provider: "external_read_provider",
+  integration: "google_contacts",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
 const GITHUB_FORM: ProviderCredentialCreateRequest = {
   credential_id: "github-read",
   provider: "external_read_provider",
@@ -134,6 +146,7 @@ const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateReque
   linkedin: LINKEDIN_FORM,
   salesforce: SALESFORCE_FORM,
   google_calendar: GOOGLE_CALENDAR_FORM,
+  google_contacts: GOOGLE_CONTACTS_FORM,
   github: GITHUB_FORM,
 };
 
@@ -144,16 +157,18 @@ const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
   linkedin: "LinkedIn",
   salesforce: "Salesforce",
   google_calendar: "Google Calendar",
+  google_contacts: "Google Contacts",
   github: "GitHub",
 };
 
-/** Display order: email options grouped, then CRM/read providers. */
+/** Display order: Google connectors first, then other providers. */
 const INTEGRATION_ORDER: IntegrationKind[] = [
   "gmail",
+  "google_calendar",
+  "google_contacts",
   "smtp",
   "hubspot",
   "salesforce",
-  "google_calendar",
   "linkedin",
   "github",
 ];
@@ -191,6 +206,12 @@ const OAUTH_CALLBACKS: Record<
     loadingLabel: "Connecting Google Calendar via OAuth",
     connect: connectGoogleCalendarOAuth,
   },
+  "/credentials/google-contacts/callback": {
+    integration: "google_contacts",
+    defaultCredentialId: "google-contacts-read",
+    loadingLabel: "Connecting Google Contacts via OAuth",
+    connect: connectGoogleContactsOAuth,
+  },
   "/credentials/github/callback": {
     integration: "github",
     defaultCredentialId: "github-read",
@@ -198,6 +219,13 @@ const OAUTH_CALLBACKS: Record<
     connect: connectGitHubOAuth,
   },
 };
+
+function credentialIsActive(
+  credentials: ProviderCredentialResponse[],
+  credentialId: string,
+): boolean {
+  return credentials.some((item) => item.credential_id === credentialId && item.enabled && !item.revoked);
+}
 
 export default function CredentialsPage() {
   const { session } = useAuth();
@@ -389,25 +417,30 @@ export default function CredentialsPage() {
     }
   }
 
-  async function handleOAuthConnect() {
+  async function handleOAuthConnect(target: IntegrationKind = integration) {
     if (!session) {
       return;
     }
-    const label = INTEGRATION_LABELS[integration];
+    const label = INTEGRATION_LABELS[target];
+    const credentialId = FORM_BY_INTEGRATION[target].credential_id;
     setLoading(`Starting ${label} OAuth`);
     setError(null);
     try {
       let response;
-      if (integration === "gmail") {
-        response = await getGmailOAuthAuthorizeUrl(session, form.credential_id);
-      } else if (integration === "linkedin") {
-        response = await getLinkedInOAuthAuthorizeUrl(session, form.credential_id);
-      } else if (integration === "salesforce") {
-        response = await getSalesforceOAuthAuthorizeUrl(session, form.credential_id);
-      } else if (integration === "google_calendar") {
-        response = await getGoogleCalendarOAuthAuthorizeUrl(session, form.credential_id);
+      if (target === "gmail") {
+        response = await getGmailOAuthAuthorizeUrl(session, credentialId);
+      } else if (target === "linkedin") {
+        response = await getLinkedInOAuthAuthorizeUrl(session, credentialId);
+      } else if (target === "salesforce") {
+        response = await getSalesforceOAuthAuthorizeUrl(session, credentialId);
+      } else if (target === "google_calendar") {
+        response = await getGoogleCalendarOAuthAuthorizeUrl(session, credentialId);
+      } else if (target === "google_contacts") {
+        response = await getGoogleContactsOAuthAuthorizeUrl(session, credentialId);
+      } else if (target === "github") {
+        response = await getGitHubOAuthAuthorizeUrl(session, credentialId);
       } else {
-        response = await getGitHubOAuthAuthorizeUrl(session, form.credential_id);
+        throw new Error(`${label} does not support OAuth connect`);
       }
       window.location.assign(response.authorization_url);
     } catch (err) {
@@ -459,6 +492,7 @@ export default function CredentialsPage() {
     integration === "linkedin" ||
     integration === "salesforce" ||
     integration === "google_calendar" ||
+    integration === "google_contacts" ||
     integration === "github";
   const submitLabel =
     integration === "hubspot"
@@ -476,16 +510,76 @@ export default function CredentialsPage() {
     (item) => item.credential_id === "ajenda-email" && item.uses_platform_master_key && !item.revoked,
   );
 
+  const googleConnectorCards: Array<{
+    kind: IntegrationKind;
+    description: string;
+    credentialId: string;
+  }> = [
+    {
+      kind: "gmail",
+      description: "Send and read email via Gmail API. Separate from Google sign-in.",
+      credentialId: "gmail-email",
+    },
+    {
+      kind: "google_calendar",
+      description: "Read calendar events. Grants calendar.readonly only.",
+      credentialId: "google-calendar-read",
+    },
+    {
+      kind: "google_contacts",
+      description: "Read Google Contacts via People API. Grants contacts.readonly only.",
+      credentialId: "google-contacts-read",
+    },
+  ];
+
   return (
     <main>
       <PageHeader
         eyebrow="Connections"
         title="Integrations and credentials"
-        lead="Connect external tools when you need them. Email send supports Gmail OAuth, tenant SMTP (any provider), or Ajenda platform email. Inbox read is Gmail-only today."
+        lead="Sign-in with Google only proves identity. Connect Gmail, Calendar, and Contacts here with separate OAuth consent when you need those tools."
       />
+
       <section className="panel">
+        <h2>Google connectors</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Each button starts a dedicated OAuth flow with only that connector&apos;s scopes. Your login session is
+          never used as Gmail/Calendar/Contacts authority.
+        </p>
         {warning ? <p className="notice warning">{warning}</p> : null}
         <PageErrorAlert error={error} className="notice error" />
+        <div className="cc-integration-grid" style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+          {googleConnectorCards.map((card) => {
+            const connected = credentialIsActive(credentials, card.credentialId);
+            return (
+              <IntegrationCard
+                key={card.kind}
+                name={INTEGRATION_LABELS[card.kind]}
+                description={card.description}
+                status={connected ? "connected" : "connect"}
+              >
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={loading !== null}
+                  onClick={() => {
+                    setIntegration(card.kind);
+                    void handleOAuthConnect(card.kind);
+                  }}
+                >
+                  {connected ? `Reconnect ${INTEGRATION_LABELS[card.kind]}` : `Connect ${INTEGRATION_LABELS[card.kind]}`}
+                </button>
+              </IntegrationCard>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Advanced credential setup</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Paste tokens, SMTP, or non-Google providers. Prefer the Google connector buttons above when possible.
+        </p>
 
         <div className="credential-tabs">
           {INTEGRATION_ORDER.map((kind) => (
@@ -710,17 +804,38 @@ export default function CredentialsPage() {
                   placeholder='Paste access token or JSON: {"provider_kind":"google_calendar","access_token":"...","refresh_token":"...","expires_at":"..."}'
                 />
                 <span className="field-hint">
-                  Or connect with Google below. Reuses the same Google OAuth client as Gmail with calendar.readonly
-                  scope.
+                  Prefer the Google Calendar connector button above. Manual paste is for CLI/E2E tokens only.
                 </span>
               </label>
               <button
                 type="button"
                 className="ghost-button"
                 disabled={loading !== null}
-                onClick={() => void handleOAuthConnect()}
+                onClick={() => void handleOAuthConnect("google_calendar")}
               >
                 Connect Google Calendar with OAuth
+              </button>
+            </>
+          ) : integration === "google_contacts" ? (
+            <>
+              <label>
+                Google Contacts OAuth bearer or JSON bundle
+                <textarea
+                  value={form.secret_value ?? ""}
+                  onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
+                  placeholder='Paste access token or JSON: {"provider_kind":"google_contacts","access_token":"...","refresh_token":"...","expires_at":"..."}'
+                />
+                <span className="field-hint">
+                  Prefer the Google Contacts connector button above. Scope is contacts.readonly only.
+                </span>
+              </label>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={loading !== null}
+                onClick={() => void handleOAuthConnect("google_contacts")}
+              >
+                Connect Google Contacts with OAuth
               </button>
             </>
           ) : integration === "github" ? (

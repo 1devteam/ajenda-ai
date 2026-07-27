@@ -1,4 +1,4 @@
-"""Product Gmail OAuth connect flow with signed state for Credentials API."""
+"""Product Google Contacts OAuth connect flow with signed state for Credentials API."""
 
 from __future__ import annotations
 
@@ -7,13 +7,14 @@ import time
 from dataclasses import dataclass
 
 from backend.app.config import Settings, get_settings
-from backend.services.credentials.gmail_runtime_token import serialize_gmail_oauth_secret
+from backend.services.credentials.google_contacts_runtime_token import serialize_google_contacts_oauth_secret
 from backend.services.credentials.oauth_state import (
     OAuthStateClaims,
     OAuthStateError,
     sign_oauth_state,
     verify_oauth_state,
 )
+from backend.services.tools.google_contacts_provider import required_google_contacts_scopes
 from backend.services.tools.google_oauth_cli import (
     GoogleOAuthCliError,
     build_google_authorization_url,
@@ -21,37 +22,37 @@ from backend.services.tools.google_oauth_cli import (
     resolve_google_oauth_client_config,
 )
 
-GMAIL_OAUTH_PROVIDER = "gmail"
+GOOGLE_CONTACTS_OAUTH_PROVIDER = "google_contacts"
 
 
-class GmailOAuthConnectError(ValueError):
-    """Deterministic Gmail OAuth connect failure."""
+class GoogleContactsOAuthConnectError(ValueError):
+    """Deterministic Google Contacts OAuth connect failure."""
 
 
 @dataclass(frozen=True, slots=True)
-class GmailOAuthAuthorizeResult:
+class GoogleContactsOAuthAuthorizeResult:
     authorization_url: str
     state: str
     redirect_uri: str
 
 
-def resolve_gmail_product_redirect_uri(*, settings: Settings | None = None) -> str:
+def resolve_google_contacts_product_redirect_uri(*, settings: Settings | None = None) -> str:
     runtime_settings = settings or get_settings()
-    configured = str(getattr(runtime_settings, "gmail_oauth_redirect_uri", "")).strip()
+    configured = str(getattr(runtime_settings, "google_contacts_oauth_redirect_uri", "")).strip()
     if configured:
         return configured
-    return "http://localhost:5173/credentials/gmail/callback"
+    return "http://localhost:5173/credentials/google-contacts/callback"
 
 
-def issue_gmail_oauth_authorization(
+def issue_google_contacts_oauth_authorization(
     *,
     tenant_id: str,
     credential_id: str,
     actor_id: str,
     settings: Settings | None = None,
-) -> GmailOAuthAuthorizeResult:
+) -> GoogleContactsOAuthAuthorizeResult:
     runtime_settings = settings or get_settings()
-    redirect_uri = resolve_gmail_product_redirect_uri(settings=runtime_settings)
+    redirect_uri = resolve_google_contacts_product_redirect_uri(settings=runtime_settings)
     try:
         client = resolve_google_oauth_client_config()
         client = type(client)(
@@ -60,7 +61,7 @@ def issue_gmail_oauth_authorization(
             redirect_uri=redirect_uri,
         )
     except GoogleOAuthCliError as exc:
-        raise GmailOAuthConnectError(str(exc)) from exc
+        raise GoogleContactsOAuthConnectError(str(exc)) from exc
 
     state = sign_oauth_state(
         {
@@ -69,15 +70,15 @@ def issue_gmail_oauth_authorization(
             "actor_id": actor_id,
             "nonce": secrets.token_urlsafe(16),
             "issued_at": int(time.time()),
-            "provider": GMAIL_OAUTH_PROVIDER,
+            "provider": GOOGLE_CONTACTS_OAUTH_PROVIDER,
         },
         settings=runtime_settings,
     )
-    return GmailOAuthAuthorizeResult(
+    return GoogleContactsOAuthAuthorizeResult(
         authorization_url=build_google_authorization_url(
             client=client,
             state=state,
-            # Connector OAuth is separate from identity login — always re-consent + account pick.
+            scopes=required_google_contacts_scopes(write=False),
             pick_account=True,
         ),
         state=state,
@@ -85,10 +86,10 @@ def issue_gmail_oauth_authorization(
     )
 
 
-def exchange_gmail_oauth_code(*, code: str, state: str, settings: Settings | None = None) -> str:
+def exchange_google_contacts_oauth_code(*, code: str, state: str, settings: Settings | None = None) -> str:
     runtime_settings = settings or get_settings()
-    verify_gmail_oauth_state(state, settings=runtime_settings)
-    redirect_uri = resolve_gmail_product_redirect_uri(settings=runtime_settings)
+    verify_google_contacts_oauth_state(state, settings=runtime_settings)
+    redirect_uri = resolve_google_contacts_product_redirect_uri(settings=runtime_settings)
     try:
         client = resolve_google_oauth_client_config()
         client = type(client)(
@@ -96,14 +97,14 @@ def exchange_gmail_oauth_code(*, code: str, state: str, settings: Settings | Non
             client_secret=client.client_secret,
             redirect_uri=redirect_uri,
         )
-        bundle = exchange_authorization_code(client=client, code=code.strip())
-    except (GoogleOAuthCliError, OAuthStateError) as exc:
-        raise GmailOAuthConnectError(str(exc)) from exc
-    return serialize_gmail_oauth_secret(bundle=bundle)
+        bundle = exchange_authorization_code(client=client, code=code)
+    except GoogleOAuthCliError as exc:
+        raise GoogleContactsOAuthConnectError(str(exc)) from exc
+    return serialize_google_contacts_oauth_secret(bundle=bundle)
 
 
-def verify_gmail_oauth_state(state: str, *, settings: Settings | None = None) -> OAuthStateClaims:
+def verify_google_contacts_oauth_state(state: str, *, settings: Settings | None = None) -> OAuthStateClaims:
     try:
-        return verify_oauth_state(state, provider=GMAIL_OAUTH_PROVIDER, settings=settings)
+        return verify_oauth_state(state, provider=GOOGLE_CONTACTS_OAUTH_PROVIDER, settings=settings)
     except OAuthStateError as exc:
-        raise GmailOAuthConnectError(str(exc)) from exc
+        raise GoogleContactsOAuthConnectError(str(exc)) from exc

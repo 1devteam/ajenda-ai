@@ -155,7 +155,16 @@ export interface ProviderCredentialResponse {
 export interface ProviderCredentialCreateRequest {
   credential_id: string;
   provider: string;
-  integration?: "hubspot" | "gmail" | "smtp" | "linkedin" | "salesforce" | "google_calendar" | "github" | "generic";
+  integration?:
+    | "hubspot"
+    | "gmail"
+    | "smtp"
+    | "linkedin"
+    | "salesforce"
+    | "google_calendar"
+    | "google_contacts"
+    | "github"
+    | "generic";
   secret_value?: string;
   use_platform_master_key?: boolean;
   allowed_actions?: string[];

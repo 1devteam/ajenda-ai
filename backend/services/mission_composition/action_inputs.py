@@ -2,33 +2,19 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from backend.services.mission_composition.contracts import MissionIntent
 
-_COUNT_RE = re.compile(r"\b(\d+|three|two|four|five|ten)\b", re.IGNORECASE)
-_WORD_COUNTS = {"two": 2, "three": 3, "four": 4, "five": 5, "ten": 10}
+_DEFAULT_PROSPECT_COUNT = 3
 
 
 def _prospect_count(intent: MissionIntent) -> int:
-    for criterion in intent.success_criteria:
-        match = _COUNT_RE.search(criterion.description)
-        if match is None:
-            continue
-        raw = match.group(1).lower()
-        if raw.isdigit():
-            return max(1, min(int(raw), 20))
-        if raw in _WORD_COUNTS:
-            return _WORD_COUNTS[raw]
-    match = _COUNT_RE.search(intent.objective)
-    if match is not None:
-        raw = match.group(1).lower()
-        if raw.isdigit():
-            return max(1, min(int(raw), 20))
-        if raw in _WORD_COUNTS:
-            return _WORD_COUNTS[raw]
-    return 3
+    """Use structured quantity only — never reparse success-criteria prose."""
+
+    if intent.requested_quantity is not None:
+        return max(1, min(int(intent.requested_quantity), 20))
+    return _DEFAULT_PROSPECT_COUNT
 
 
 def _target_bits(intent: MissionIntent) -> tuple[str | None, str | None, str]:
@@ -70,14 +56,11 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         lead["location"] = location
 
     if action_name == "web.research":
-        # Prefer full objective query when available so location/count survive parsing.
         research_query = intent.objective.strip()[:400] if intent.objective.strip() else query
         return {
             "query": research_query,
             "company": industry,
-            # Do not fetch tenant business-profile domain as if it were the research target.
             "fetch_public_page": False,
-            # Prospect discovery needs public signals when tenant CRM is empty.
             "include_public_search": True,
             "limit": limit,
         }
@@ -88,7 +71,6 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:
         return {
             "lead": lead,
-            # Empty until runtime binder fills from web.research prospect_candidates.
             "prospects": [],
             "context": {
                 "industry": industry,
@@ -96,6 +78,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 "objective": intent.objective[:300],
                 "binding_required": True,
                 "binding_source": "upstream_prospect_candidates",
+                "requested_quantity": limit,
             },
         }
     if action_name == "gtm.lead_enrich":
@@ -114,7 +97,6 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         topic = f"Introduction — {industry}" if industry else "Introduction"
         if location:
             topic = f"{topic} ({location})"
-        # Do not invent a deliverable mailbox. Runtime binder supplies company + optional email.
         return {
             "recipient": "pending.binding@invalid.local",
             "topic": topic[:240],
@@ -155,6 +137,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 "binding_required": True,
                 "binding_source": "upstream_enriched_prospects",
                 "binding_path": "$.enriched_prospects[*].email",
+                "send_policy": intent.send_policy.model_dump(mode="json"),
             },
         }
     if action_name == "gtm.email_check":
@@ -183,5 +166,4 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             "data": {"name": company_label, "industry": industry, "location": location},
         }
 
-    # Safe default: never empty for query-shaped actions; otherwise empty dict is fine.
     return {"context": {"objective": intent.objective[:300], "query": query}}

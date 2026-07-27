@@ -71,14 +71,11 @@ _CONNECTION_HINTS: dict[str, dict[str, str]] = {
 }
 
 
-def _normalize_outcome(value: str) -> str:
-    return " ".join(value.lower().split())
-
-
 def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
-    """Map requested outcomes to business jobs (deterministic)."""
+    """Map canonical requested outcomes to business jobs (deterministic)."""
 
-    outcomes = {_normalize_outcome(item) for item in intent.requested_outcomes}
+    # MissionIntent validator already normalizes outcomes to canonical IDs.
+    outcomes = {item.strip() for item in intent.requested_outcomes if item and item.strip()}
     if not outcomes:
         return []
 
@@ -86,7 +83,7 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
     selected_keys: set[str] = set()
 
     for job in list_business_jobs():
-        supported = {_normalize_outcome(item) for item in job.supported_outcomes}
+        supported = set(job.supported_outcomes)
         if outcomes.intersection(supported):
             if job.job_key not in selected_keys:
                 selected.append(job)
@@ -111,16 +108,8 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
     catalog_order = {job.job_key: index for index, job in enumerate(list_business_jobs())}
     expanded.sort(key=lambda job: catalog_order.get(job.job_key, 999))
 
-    # Drop explicit send job when intent forbids send.
-    forbidden = {_normalize_outcome(item) for item in intent.forbidden_outcomes}
-    constraints = {_normalize_outcome(item) for item in intent.constraints}
-    block_send = (
-        "gtm.email_send" in forbidden
-        or "send messages" in forbidden
-        or any("do not send" in item for item in constraints)
-        or any("before anything is sent" in item for item in constraints)
-    )
-    if block_send:
+    # Drop send job unless structured policy explicitly allows immediate send.
+    if intent.send_policy.mode != "allow" or intent.blocks_send():
         expanded = [job for job in expanded if job.job_key != "email.deliver_outreach"]
 
     return expanded
@@ -331,8 +320,8 @@ def resolve_jobs(
     preferred_credential_by_integration = preferred_credential_by_integration or {}
     credential_type_by_id = credential_type_by_id or {}
     forbid_actions = {item.strip() for item in intent.forbidden_outcomes if item.strip()}
-    # Treat gtm.email_send as forbidden when "send messages" constraint present.
-    if any("do not send" in c.lower() for c in intent.constraints):
+    # Structured send policy is authoritative (do not reparse constraint prose).
+    if intent.send_policy.mode in {"forbid", "conditional"} or intent.blocks_send():
         forbid_actions.add("gtm.email_send")
     if "gtm.email_send" in forbid_actions or "send messages" in forbid_actions:
         forbid_actions.add("gtm.email_send")
