@@ -2,11 +2,77 @@
 
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from backend.services.mission_composition.contracts import MissionIntent
 
 _DEFAULT_PROSPECT_COUNT = 3
+_MONTHS = {
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sep": 9,
+    "sept": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
+}
+_NAMED_DAY = re.compile(
+    r"\b(?P<month>january|february|march|april|may|june|july|august|september|october|"
+    r"november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\s+"
+    r"(?P<day>\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(?P<year>\d{4}))?\b",
+    re.IGNORECASE,
+)
+_ISO_DAY = re.compile(r"\b(?P<year>20\d{2})-(?P<month>\d{2})-(?P<day>\d{2})\b")
+
+
+def _calendar_window_from_objective(objective: str) -> tuple[str | None, str | None]:
+    """Return ISO start/end for a named day when present (UTC day bounds)."""
+
+    text = (objective or "").strip()
+    if not text:
+        return None, None
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+    named = _NAMED_DAY.search(text)
+    if named is not None:
+        month = _MONTHS.get(named.group("month").lower())
+        day = int(named.group("day"))
+        year_raw = named.group("year")
+        year = int(year_raw) if year_raw else datetime.now(tz=UTC).year
+    else:
+        iso = _ISO_DAY.search(text)
+        if iso is not None:
+            year = int(iso.group("year"))
+            month = int(iso.group("month"))
+            day = int(iso.group("day"))
+    if not year or not month or not day:
+        return None, None
+    try:
+        start = datetime(year, month, day, 0, 0, 0, tzinfo=UTC)
+    except ValueError:
+        return None, None
+    end = start + timedelta(days=1)
+    return start.isoformat().replace("+00:00", "Z"), end.isoformat().replace("+00:00", "Z")
 
 
 def _prospect_count(intent: MissionIntent) -> int:
@@ -173,9 +239,22 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name in {"record.search", "document.search", "retrieval.hybrid_search"}:
         return {"query": query, "limit": limit}
     if action_name == "google_calendar.events_read":
-        return {"calendar_id": "primary", "limit": limit}
+        # Prefer an explicit day window when the objective names a calendar date.
+        start, end = _calendar_window_from_objective(intent.objective)
+        payload: dict[str, Any] = {"calendar_id": "primary", "limit": max(limit, 20)}
+        if start:
+            payload["start"] = start
+        if end:
+            payload["end"] = end
+        return payload
     if action_name == "calendar.read":
-        return {"limit": limit}
+        start, end = _calendar_window_from_objective(intent.objective)
+        payload = {"limit": max(limit, 20)}
+        if start:
+            payload["start"] = start
+        if end:
+            payload["end"] = end
+        return payload
     if action_name == "sales.log_activity":
         return {"lead": lead, "activity": {"type": "note", "summary": intent.objective[:240]}}
     if action_name == "record.write":

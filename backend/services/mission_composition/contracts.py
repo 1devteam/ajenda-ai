@@ -85,6 +85,9 @@ LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "calendar briefing": "read_calendar",
     "read calendar": "read_calendar",
     "schedule review": "read_calendar",
+    "google calendar": "read_calendar",
+    "what is scheduled": "read_calendar",
+    "my schedule": "read_calendar",
 }
 
 SendPolicyMode = Literal["allow", "forbid", "conditional", "unknown"]

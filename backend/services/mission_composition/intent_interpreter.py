@@ -93,12 +93,20 @@ _ENRICH_PATTERNS = (
     r"look up (?:emails?|contact)",
 )
 _CALENDAR_PATTERNS = (
-    r"\bcalendar\b",
+    r"\bcalend[ae]r\b",  # calendar / common misspelling calender
     r"calendar briefing",
-    r"read calendar",
+    r"read calend[ae]r",
+    r"google calend[ae]r",
+    r"\bscheduled\b",
+    r"\bschedule\b",
+    r"\bagenda\b",
+    r"what(?:'s| is) on my (?:calend[ae]r|schedule)",
+    r"what do i have (?:scheduled|on my calend[ae]r)",
     r"upcoming (?:calendar )?commitments",
     r"meeting prep",
     r"meeting brief",
+    r"\bevents?\b.*\bcalend[ae]r\b",
+    r"\bcalend[ae]r\b.*\bevents?\b",
 )
 # Mutation verbs only — naming HubSpot/CRM as a read source must not imply upsert.
 _CRM_UPDATE_PATTERNS = (
@@ -134,6 +142,17 @@ _WORD_COUNTS = {
     "five": 5,
     "ten": 10,
 }
+_MONTH_NAME = (
+    r"january|february|march|april|may|june|july|august|september|october|november|december|"
+    r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
+)
+# Strip calendar dates so "July 28 2026" is not quantity 28.
+_DATE_SPAN = re.compile(
+    rf"\b(?:{_MONTH_NAME})\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,?\s*\d{{4}})?\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+    re.IGNORECASE,
+)
 _INDUSTRY_LOCATION = re.compile(
     r"(?:^|[\s,;:])(?P<industry>[A-Za-z][A-Za-z\-/]{1,40}(?:\s+[A-Za-z][A-Za-z\-/]{1,40}){0,3})"
     r"\s+companies\s+in\s+(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
@@ -191,12 +210,21 @@ def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
 
 
 def _extract_count(text: str) -> int | None:
-    match = _COUNT_PATTERN.search(text)
+    """Extract prospect/task quantity — never calendar day numbers or years."""
+
+    cleaned = _DATE_SPAN.sub(" ", text)
+    # Drop bare years so "2026" is not a quantity.
+    cleaned = re.sub(r"\b20\d{2}\b", " ", cleaned)
+    match = _COUNT_PATTERN.search(cleaned)
     if match is None:
         return None
     raw = match.group(1).lower()
     if raw.isdigit():
-        return int(raw)
+        value = int(raw)
+        # Prospect quantities are small; large bare integers are not counts here.
+        if value > 50:
+            return None
+        return value
     return _WORD_COUNTS.get(raw)
 
 
