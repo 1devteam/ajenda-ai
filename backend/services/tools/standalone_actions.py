@@ -85,9 +85,7 @@ def _fetch_public_page_snippet(
 def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds: float) -> dict[str, Any]:
     """Back-compat name for unit tests; delegates to internet.public_search."""
 
-    return search_bundle_as_legacy_dict(
-        public_search(query=query, limit=limit, timeout_seconds=timeout_seconds)
-    )
+    return search_bundle_as_legacy_dict(public_search(query=query, limit=limit, timeout_seconds=timeout_seconds))
 
 
 def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) -> dict[str, Any]:

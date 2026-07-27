@@ -450,4 +450,3 @@ class WebOpenWriteInput(BaseModel):
         if contains_sensitive_key(value):
             raise ValueError("web.open_write headers must not include raw credential material")
         return value
-

@@ -85,9 +85,7 @@ class DuckDuckGoInstantAnswerProvider:
 
     def search(self, *, query: str, limit: int, timeout_seconds: float) -> SearchBundle:
         encoded_query = quote(query.strip())
-        search_url = (
-            f"https://{DDG_INSTANT_ANSWER_HOST}/?q={encoded_query}&format=json&no_html=1&skip_disambig=1"
-        )
+        search_url = f"https://{DDG_INSTANT_ANSWER_HOST}/?q={encoded_query}&format=json&no_html=1&skip_disambig=1"
         try:
             _dest, response = get_default_network_egress_authority().request(
                 method="GET",

@@ -34,8 +34,7 @@ def web_page_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
     real = bool(output.get("real"))
     title = output.get("title") or ""
     summary = (
-        f"Read public page {output.get('url')} "
-        f"(status={output.get('status_code')}, title={title[:80]!r}, real={real})."
+        f"Read public page {output.get('url')} (status={output.get('status_code')}, title={title[:80]!r}, real={real})."
         if real
         else f"Public page read failed for {payload.url}: {output.get('error') or 'unknown error'}."
     )
@@ -93,8 +92,7 @@ def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContex
     real = bool(output.get("real"))
     title = output.get("title") or ""
     summary = (
-        f"Browser session {output.get('url')} "
-        f"(status={output.get('status_code')}, title={title[:80]!r}, real={real})."
+        f"Browser session {output.get('url')} (status={output.get('status_code')}, title={title[:80]!r}, real={real})."
         if real
         else f"Browser session failed for {payload.url}: {output.get('error') or 'unknown error'}."
     )

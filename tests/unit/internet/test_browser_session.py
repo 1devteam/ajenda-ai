@@ -27,9 +27,7 @@ def test_browser_session_vets_url_before_playwright(monkeypatch) -> None:
         config_mod.get_settings.cache_clear()
 
     authority = MagicMock()
-    authority.vet_https_url.side_effect = NetworkEgressError(
-        "web.browser_session blocked private DNS resolution"
-    )
+    authority.vet_https_url.side_effect = NetworkEgressError("web.browser_session blocked private DNS resolution")
     with patch(
         "backend.services.internet.browser_session.get_default_network_egress_authority",
         return_value=authority,

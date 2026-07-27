@@ -150,12 +150,16 @@ def fetch_public_page(
                 content_type = value
                 break
         body = response.body_text or ""
-        extraction = extract_html_snapshot(body) if body else {
-            "title": None,
-            "meta_description": None,
-            "text_preview": "",
-            "parser": "empty",
-        }
+        extraction = (
+            extract_html_snapshot(body)
+            if body
+            else {
+                "title": None,
+                "meta_description": None,
+                "text_preview": "",
+                "parser": "empty",
+            }
+        )
         return PageSnapshot(
             url=page_url,
             real=True,
