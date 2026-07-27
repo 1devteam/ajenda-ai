@@ -17,7 +17,7 @@ from backend.rate_limit.limiter import RateLimitDecision, RateLimiter, RateLimit
 from backend.repositories.email_send_idempotency_repository import EmailSendIdempotencyRepository
 from backend.services.internet.modes import InternetAccessMode
 from backend.services.internet.url_safety import reject_credentialed_url
-from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
+from backend.services.network_egress import get_default_network_egress_authority
 
 WriteMethod = Literal["POST", "PUT", "PATCH"]
 OPEN_WRITE_ACTION = "web.open_write"
