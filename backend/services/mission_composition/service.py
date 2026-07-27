@@ -105,7 +105,18 @@ def _integrations_for_credential(record: object) -> set[str]:
         found.add("gmail")
     if provider == "external_crm" or "hubspot" in credential_id or "hubapi.com" in " ".join(hosts):
         found.add("hubspot")
-    if "google-calendar" in credential_id or "calendar" in credential_id or "www.googleapis.com" in hosts:
+    # Credential-id first so Contacts never masquerades as Calendar via shared API host.
+    if "google-contacts" in credential_id or "contacts" in credential_id or "people.googleapis.com" in hosts:
+        found.add("google_contacts")
+    if (
+        "google-calendar" in credential_id
+        or ("calendar" in credential_id and "contacts" not in credential_id)
+        or (
+            "www.googleapis.com" in hosts
+            and "people.googleapis.com" not in hosts
+            and "google-contacts" not in credential_id
+        )
+    ):
         found.add("google_calendar")
     if "salesforce" in credential_id or any("salesforce.com" in host for host in hosts):
         found.add("salesforce")
@@ -152,6 +163,7 @@ def _connected_sets(
         ("gmail-email", "gmail"),
         ("hubspot-crm", "hubspot"),
         ("google-calendar-read", "google_calendar"),
+        ("google-contacts-read", "google_contacts"),
         ("salesforce-read", "salesforce"),
         ("linkedin-read", "linkedin"),
         ("github-read", "github"),

@@ -71,9 +71,7 @@ def apply_spelling_candidates(text: str) -> tuple[str, list[SpellingCorrection],
             # Preserve crude capitalization
             if token[0].isupper():
                 repl = repl[0].upper() + repl[1:]
-            corrections.append(
-                SpellingCorrection(original=token, replacement=repl, confidence=0.95, source="builtin")
-            )
+            corrections.append(SpellingCorrection(original=token, replacement=repl, confidence=0.95, source="builtin"))
             return repl
         return token
 

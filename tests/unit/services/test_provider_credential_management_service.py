@@ -201,8 +201,7 @@ def test_register_google_contacts_read_credential(session_factory) -> None:
         session.commit()
 
     assert "provider.external_read" in result.summary.allowed_actions
-    assert "people.googleapis.com" in result.summary.trusted_destination_hosts
-    assert "www.googleapis.com" in result.summary.trusted_destination_hosts
+    assert result.summary.trusted_destination_hosts == ["people.googleapis.com"]
 
 
 def test_register_github_read_credential(session_factory) -> None:

@@ -41,7 +41,9 @@ GOOGLE_CALENDAR_READ_SIDE_EFFECTS = ("external_read",)
 GOOGLE_CALENDAR_TRUSTED_HOSTS = ("www.googleapis.com",)
 GOOGLE_CONTACTS_READ_ACTIONS = ("provider.external_read",)
 GOOGLE_CONTACTS_READ_SIDE_EFFECTS = ("external_read",)
-GOOGLE_CONTACTS_TRUSTED_HOSTS = ("people.googleapis.com", "www.googleapis.com")
+# People API host only — do not include www.googleapis.com or Calendar will
+# appear "connected" via host-based integration detection and steal this token.
+GOOGLE_CONTACTS_TRUSTED_HOSTS = ("people.googleapis.com",)
 GITHUB_READ_ACTIONS = ("github.repo_read", "provider.external_read")
 GITHUB_READ_SIDE_EFFECTS = ("external_read",)
 GITHUB_TRUSTED_HOSTS = ("api.github.com",)

@@ -96,18 +96,24 @@ _CALENDAR_PATTERNS = (
     r"meeting prep",
     r"meeting brief",
 )
+# Mutation verbs only — naming HubSpot/CRM as a read source must not imply upsert.
 _CRM_UPDATE_PATTERNS = (
-    r"\bhubspot\b",
-    r"\bcrm\b",
-    r"update (?:the )?pipeline",
-    r"log (?:to |in )?crm",
-    r"upsert",
+    r"\bupdate (?:the )?(?:crm|pipeline|hubspot)\b",
+    r"\blog (?:to |in |into )?(?:the )?crm\b",
+    r"\blogs? (?:activity|to crm)\b",
+    r"\bupsert\b",
+    r"\bwrite (?:to |into )?(?:the )?crm\b",
+    r"\bsync (?:to |into )?(?:the )?(?:crm|hubspot)\b",
+    r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot)\b",
 )
+# Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
     r"\bpublish\b",
-    r"\blinkedin\b",
-    r"post (?:to |on )",
-    r"social media",
+    r"\bpost(?:ing)? (?:to|on) (?:linkedin|social|twitter|x)\b",
+    r"\bpost(?:ing)? .{0,48}\b(?:to|on) (?:linkedin|social|twitter|x)\b",
+    r"\bshare (?:to|on) (?:linkedin|social)\b",
+    r"\bpost (?:an? )?(?:update|announcement|message) (?:to|on)\b",
+    r"\bsocial media post",
 )
 _COUNT_PATTERN = re.compile(r"\b(\d+|three|two|four|five|ten)\b", re.IGNORECASE)
 _WORD_COUNTS = {

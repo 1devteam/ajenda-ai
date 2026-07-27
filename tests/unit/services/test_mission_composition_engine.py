@@ -219,9 +219,7 @@ def test_send_only_instruction_uses_send_completion_contract() -> None:
 
 
 def test_send_after_approval_is_conditional_not_immediate_send_job() -> None:
-    intent = interpret_instruction(
-        "Draft and send the emails, but do not send anything until I approve it."
-    )
+    intent = interpret_instruction("Draft and send the emails, but do not send anything until I approve it.")
     assert "prepare_outreach" in intent.requested_outcomes
     assert "send_outreach" not in intent.requested_outcomes
     assert intent.send_policy.mode == "conditional"
@@ -236,15 +234,25 @@ def test_unmatched_material_clause_fails_closed() -> None:
         "and post the results on LinkedIn without my approval."
     )
     assert "research_prospects" in intent.requested_outcomes
-    assert intent.unmatched_material_clauses or any(c.field in {"clause_coverage", "publish_content"} for c in intent.ambiguity)
+    assert "publish_content" in intent.requested_outcomes
     assert intent.ambiguity
     assert any("restate the complete mission" in c.question.lower() for c in intent.ambiguity)
 
 
+def test_hubspot_named_as_source_does_not_route_crm_write() -> None:
+    intent = interpret_instruction("Research five roofing companies in Austin from HubSpot CRM records.")
+    assert "research_prospects" in intent.requested_outcomes
+    assert "update_crm" not in intent.requested_outcomes
+
+
+def test_linkedin_as_research_source_does_not_require_publish() -> None:
+    intent = interpret_instruction("Find five prospects on LinkedIn in Austin roofing market.")
+    assert "research_prospects" in intent.requested_outcomes
+    assert "publish_content" not in intent.requested_outcomes
+
+
 def test_enrich_not_invented_from_draft_and_qualify() -> None:
-    intent = interpret_instruction(
-        "Identify three strong prospects and draft personalized introductions. Do not send."
-    )
+    intent = interpret_instruction("Identify three strong prospects and draft personalized introductions. Do not send.")
     assert "qualify_prospects" in intent.requested_outcomes or "research_prospects" in intent.requested_outcomes
     assert "prepare_outreach" in intent.requested_outcomes
     assert "enrich_contacts" not in intent.requested_outcomes

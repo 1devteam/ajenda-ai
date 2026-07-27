@@ -54,11 +54,7 @@ def put_proposal(
     if not record.ready_to_start:
         failure_reason = unresolved[0] if unresolved else "not_ready"
 
-    recognized = [
-        c.model_dump(mode="json")
-        for c in intent.interpreted_clauses
-        if c.status == "recognized"
-    ]
+    recognized = [c.model_dump(mode="json") for c in intent.interpreted_clauses if c.status == "recognized"]
     unmatched = [c.model_dump(mode="json") for c in intent.unmatched_material_clauses]
 
     try:

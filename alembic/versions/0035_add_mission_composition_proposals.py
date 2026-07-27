@@ -1,10 +1,11 @@
 """Add durable mission composition proposal / interpretation history.
 
-Revision ID: 0035_mission_composition_proposals
+Revision ID: 0035_composition_proposals
 Revises: 0034_email_send_idempotency
 Create Date: 2026-07-27
 
 Declarative store only — does not grant runtime execution authority.
+Revision id must fit alembic_version.version_num VARCHAR(32).
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision = "0035_mission_composition_proposals"
+revision = "0035_composition_proposals"
 down_revision = "0034_email_send_idempotency"
 branch_labels = None
 depends_on = None
