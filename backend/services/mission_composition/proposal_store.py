@@ -27,9 +27,10 @@ def put_proposal(
     repeated_failure_count: int = 0,
     superseded_proposal_id: str | None = None,
 ) -> None:
-    payload = {
+    record_json: dict[str, Any] = record.model_dump(mode="json")
+    payload: dict[str, Any] = {
         "tenant_id": tenant_id,
-        "record": record.model_dump(mode="json"),
+        "record": record_json,
     }
     with _LOCK:
         _PROPOSALS[record.proposal_id] = payload
@@ -62,7 +63,7 @@ def put_proposal(
             tenant_id=tenant_id,
             proposal_id=record.proposal_id,
             instruction=record.instruction,
-            record_json=payload["record"],
+            record_json=record_json,
             interpreter_version=intent.interpreter_version,
             components_active=list(intent.components_active),
             ready_to_start=record.ready_to_start,

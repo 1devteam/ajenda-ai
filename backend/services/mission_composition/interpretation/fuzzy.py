@@ -7,6 +7,7 @@ Fuzzy matches never select abilities — interpreter may only propose outcomes.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from backend.services.mission_composition.contracts import CANONICAL_OUTCOMES, LEGACY_OUTCOME_ALIASES, CanonicalOutcome
 
@@ -27,8 +28,8 @@ def _alias_table() -> list[tuple[str, CanonicalOutcome]]:
     rows: list[tuple[str, CanonicalOutcome]] = []
     for alias, outcome in LEGACY_OUTCOME_ALIASES.items():
         rows.append((alias, outcome))
-    for outcome in sorted(CANONICAL_OUTCOMES):
-        rows.append((outcome.replace("_", " "), outcome))  # type: ignore[arg-type]
+    for outcome_id in sorted(CANONICAL_OUTCOMES):
+        rows.append((str(outcome_id).replace("_", " "), cast(CanonicalOutcome, outcome_id)))
     return rows
 
 
@@ -44,7 +45,11 @@ def fuzzy_outcome_candidates(
         return [], []
     already = already or set()
     try:
-        from rapidfuzz import fuzz, process  # type: ignore[import-untyped]
+        import importlib
+
+        rapidfuzz_mod = importlib.import_module("rapidfuzz")
+        fuzz = rapidfuzz_mod.fuzz
+        process = rapidfuzz_mod.process
     except Exception:
         return [], []
 

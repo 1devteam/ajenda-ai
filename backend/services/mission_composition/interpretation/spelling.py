@@ -79,12 +79,13 @@ def apply_spelling_candidates(text: str) -> tuple[str, list[SpellingCorrection],
 
     # Optional SymSpell — candidate only; never applied if confidence unclear.
     try:
-        from symspellpy import SymSpell, Verbosity  # type: ignore[import-untyped]
+        import importlib
+
+        symspell_mod = importlib.import_module("symspellpy")
     except Exception:
         return out, corrections, components
 
     components.append("symspell")
-    # SymSpell is available but we only use it for unknown tokens if dictionary loads.
-    # Without a shipped frequency dictionary, skip mutation to avoid unsafe guesses.
-    _ = (SymSpell, Verbosity)
+    # Available but unused without a shipped frequency dictionary (avoid unsafe guesses).
+    _ = getattr(symspell_mod, "SymSpell", None)
     return out, corrections, components
