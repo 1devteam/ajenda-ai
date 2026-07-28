@@ -47,6 +47,7 @@ def evaluate_interpretation_readiness(intent: MissionIntent) -> InterpretationRe
             reasons.append("unresolved_contradictions")
     if intent.ambiguity:
         reasons.append("restatement_required")
+    # minimum_field_confidence is computed from non-default evidence only.
     if intent.minimum_field_confidence is not None and intent.minimum_field_confidence < min_outcome_conf:
         reasons.append(f"field_confidence_below_threshold:{intent.minimum_field_confidence:.2f}")
     if intent.send_policy.mode == "unknown" and "send_outreach" in intent.requested_outcomes:

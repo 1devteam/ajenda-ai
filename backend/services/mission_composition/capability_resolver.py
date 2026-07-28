@@ -36,6 +36,7 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "email.deliver_outreach": ("gtm.email_send",),
     "crm.pipeline_maintenance": ("gtm.crm_upsert", "sales.log_activity", "record.write"),
     "ops.calendar_briefing": ("google_calendar.events_read", "calendar.read"),
+    "gtm.publish_content": ("gtm.social_publish",),
 }
 
 _CONNECTION_HINTS: dict[str, dict[str, str]] = {
@@ -68,6 +69,11 @@ _CONNECTION_HINTS: dict[str, dict[str, str]] = {
         "provider": "external_read_provider",
         "integration": "salesforce",
         "credential_id": "salesforce-read",
+    },
+    "gtm.social_publish": {
+        "provider": "external_social",
+        "integration": "linkedin",
+        "credential_id": "linkedin-social",
     },
 }
 

@@ -91,6 +91,7 @@ _ENRICH_PATTERNS = (
     r"collect (?:contact|email|phone)",
     r"gather (?:contact|email|phone)",
     r"find (?:emails?|phone numbers?|contact)",
+    r"look up (?:emails?|contact)",
 )
 # Read-oriented calendar only. Imperative "schedule a meeting" is not events_read.
 _CALENDAR_PATTERNS = (
@@ -107,6 +108,8 @@ _CALENDAR_PATTERNS = (
     r"meeting brief",
     r"show (?:me )?(?:my )?(?:calend[ae]r|schedule)",
     r"check (?:my )?(?:calend[ae]r|schedule)",
+    r"\bevents?\b.*\bcalend[ae]r\b",
+    r"\bcalend[ae]r\b.*\bevents?\b",
 )
 _CALENDAR_MUTATION_PATTERNS = (
     r"\bschedule (?:a |an )?(?:meeting|call|event|appointment)\b",
@@ -127,11 +130,14 @@ _CRM_UPDATE_PATTERNS = (
     r"\bsave (?:them|it|these|those|each|leads?|prospects?)?\s*(?:to|into|in)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
+    # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
+    r"\bput (?:them|it|these|those)\s+(?:in|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\bcreate (?:crm )?(?:records?|contacts?)\b",
 )
 _CRM_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\s+add\b.{0,40}\bcontacts?\b",
     r"\b(?:do not|don't|dont|never|without)\s+save\b.{0,40}\bcontacts?\b",
-    r"\b(?:do not|don't|dont|never|without)\s+(?:add|save|sync|push|write|update|log|upsert)\b.{0,48}\b(?:crm|hubspot|pipeline|contacts?)\b",
+    r"\b(?:do not|don't|dont|never|without)\s+(?:add|save|sync|push|write|update|log|upsert|create)\b.{0,48}\b(?:crm|hubspot|pipeline|contacts?)\b",
     r"\bno\s+(?:crm|contact)\s+(?:updates?|writes?|saves?)\b",
     r"\bwithout\s+(?:adding|saving)\s+(?:them\s+)?to\s+contacts?\b",
 )
@@ -152,6 +158,17 @@ _WORD_COUNTS = {
     "five": 5,
     "ten": 10,
 }
+_MONTH_NAME = (
+    r"january|february|march|april|may|june|july|august|september|october|november|december|"
+    r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
+)
+# Strip calendar dates so "July 28 2026" is not quantity 28.
+_DATE_SPAN = re.compile(
+    rf"\b(?:{_MONTH_NAME})\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,?\s*\d{{4}})?\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+    re.IGNORECASE,
+)
 _INDUSTRY_LOCATION = re.compile(
     r"(?:^|[\s,;:])(?P<industry>[A-Za-z][A-Za-z\-/]{1,40}(?:\s+[A-Za-z][A-Za-z\-/]{1,40}){0,3})"
     r"\s+companies\s+in\s+(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
@@ -172,8 +189,26 @@ _LEADING_VERB_WORDS = frozenset(
         "target",
     }
 )
+# Strip quantity words so "three roofing companies" → industry "roofing".
 _LEADING_QUANTITY_WORDS = frozenset(
-    {"a", "an", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "several", "some"}
+    {
+        "a",
+        "an",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "several",
+        "some",
+        "few",
+        "many",
+    }
 )
 _FRAGMENT_HINTS = (
     r"^complete when\b",
@@ -206,6 +241,7 @@ def _extract_count(text: str) -> int | None:
     """Extract prospect quantity — never calendar day numbers or years."""
 
     cleaned = _DATE_SPAN.sub(" ", text)
+
     cleaned = re.sub(r"\b20\d{2}\b", " ", cleaned)
     match = _COUNT_PATTERN.search(cleaned)
     if match is None:
@@ -213,6 +249,8 @@ def _extract_count(text: str) -> int | None:
     raw = match.group(1).lower()
     if raw.isdigit():
         value = int(raw)
+        # Prospect quantities are small; large bare integers are not counts here.
+
         if value > 50:
             return None
         return value
@@ -922,7 +960,13 @@ def interpret_instruction(
     # Split forbid concepts: action tokens vs display/legacy mix.
     forbidden_actions = [item for item in forbidden if "." in item and " " not in item]
     forbidden_canonical = [item for item in forbidden if item in CANONICAL_OUTCOMES]
-    confidences = [e.confidence for e in evidence if e.confidence is not None]
+    # Gate confidence on user-derived fields only — system defaults (e.g. qty=3)
+    # must not fail ordinary research that intentionally omits quantity.
+    confidences = [
+        e.confidence
+        for e in evidence
+        if e.confidence is not None and e.source not in {"system_default", "profile_context"}
+    ]
     min_conf = min(confidences) if confidences else None
 
     # Semantic units from clauses (coverage measured over material units).

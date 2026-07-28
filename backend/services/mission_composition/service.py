@@ -628,13 +628,21 @@ class MissionCompositionService:
                     "ready_to_start": True,
                 }
             )
-            put_proposal(
+            persisted = put_proposal(
                 tenant_id=tenant_id,
                 record=stored,
                 db=self._db,
                 actor_id=actor_id,
-                require_durable=False,
+                require_durable=True,
             )
+            if not persisted:
+                raise MissionCompositionError(
+                    code="CONFIRM_RECEIPT_PERSIST_FAILED",
+                    message=(
+                        "mission was composed but the confirmation receipt could not be "
+                        "durably stored; retry with the same idempotency_key after the store recovers"
+                    ),
+                )
         return result
 
     def compile_for_mission(
