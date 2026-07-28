@@ -125,6 +125,13 @@ _CRM_UPDATE_PATTERNS = (
     r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     r"\bcreate (?:crm )?(?:records?|contacts?)\b",
 )
+_CRM_NEGATION_PATTERNS = (
+    r"\b(?:do not|don't|dont|never|without)\s+add\b.{0,40}\bcontacts?\b",
+    r"\b(?:do not|don't|dont|never|without)\s+save\b.{0,40}\bcontacts?\b",
+    r"\b(?:do not|don't|dont|never|without)\s+(?:add|save|sync|push|write|update|log|upsert|create)\b.{0,48}\b(?:crm|hubspot|pipeline|contacts?)\b",
+    r"\bno\s+(?:crm|contact)\s+(?:updates?|writes?|saves?)\b",
+    r"\bwithout\s+(?:adding|saving)\s+(?:them\s+)?to\s+contacts?\b",
+)
 # Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
     r"\bpublish\b",
@@ -235,9 +242,7 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     industry_tokens = [token for token in match.group("industry").strip().split() if token]
     while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
         industry_tokens.pop(0)
-    while industry_tokens and (
-        industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()
-    ):
+    while industry_tokens and (industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()):
         industry_tokens.pop(0)
     industry = " ".join(industry_tokens).strip(" ,.;:")
     location = match.group("location").strip(" ,.;:")
@@ -390,7 +395,7 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         outcomes.append("send_outreach")
     if _contains_any(lower, _CALENDAR_PATTERNS):
         outcomes.append("read_calendar")
-    if _contains_any(lower, _CRM_UPDATE_PATTERNS):
+    if _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(lower, _CRM_NEGATION_PATTERNS):
         outcomes.append("update_crm")
     if _contains_any(lower, _PUBLISH_PATTERNS):
         outcomes.append("publish_content")
@@ -400,13 +405,17 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         _NO_SEND_PATTERNS
         + _CONDITIONAL_SEND_PATTERNS
         + _CRM_UPDATE_PATTERNS
+        + _CRM_NEGATION_PATTERNS
         + _PUBLISH_PATTERNS
         + (r"\bapprov", r"\bdelet", r"\bcharg", r"\binvoice"),
     )
     # Bare location/count fragments treated as material when short.
     if not material and (re.search(r"\b\d+\b", lower) or len(clause.split()) <= 4):
         material = True
-    recognized = bool(outcomes) or _contains_any(lower, _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS)
+    recognized = bool(outcomes) or _contains_any(
+        lower,
+        _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS + _CRM_NEGATION_PATTERNS,
+    )
     # Industry+location span is recognized material even without a verb.
     if _INDUSTRY_LOCATION.search(clause):
         material = True
@@ -471,7 +480,8 @@ def interpret_instruction(
     # Enrich only when explicitly requested — not invented from draft+qualify.
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
-    wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS)
+    no_crm = _contains_any(lower, _CRM_NEGATION_PATTERNS)
+    wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm
     wants_publish = _contains_any(lower, _PUBLISH_PATTERNS)
 
     outcomes: list[CanonicalOutcome] = []
@@ -568,6 +578,11 @@ def interpret_instruction(
     # ("do not send anything until I approve").
     constraints: list[str] = []
     forbidden: list[str] = []
+    if no_crm:
+        forbidden.append("gtm.crm_upsert")
+        constraints.append("Do not write contacts or CRM records")
+        if "update_crm" in outcomes:
+            outcomes = [o for o in outcomes if o != "update_crm"]
     if conditional_send:
         send_policy = SendPolicy(
             mode="conditional",

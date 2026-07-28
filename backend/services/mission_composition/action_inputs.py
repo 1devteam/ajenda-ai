@@ -227,14 +227,31 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name == "gtm.email_check":
         return {"query": "in:inbox", "limit": limit}
     if action_name == "gtm.crm_upsert":
+        named = None
+        for entity in intent.target_entities:
+            if entity.name and entity.type in {"company", "person", "contact"}:
+                named = entity.name
+                break
         return {
             "record_type": "contact",
             "data": {
-                "company": company_label,
+                "company": named or "pending.binding.company",
                 "industry": industry,
                 "location": location,
             },
-            "context": {"source": "mission_composition"},
+            "context": {
+                "source": "mission_composition",
+                "binding_required": named is None,
+                "binding_source": "explicit_company" if named else "upstream_prospect_candidates",
+                "binding_path": None if named else "$.prospect_candidates",
+                "compose_note": (
+                    "CRM write uses the named company from the instruction."
+                    if named
+                    else (
+                        "CRM write must bind discovered prospect records — refusing to upsert the market label alone."
+                    )
+                ),
+            },
         }
     if action_name in {"record.search", "document.search", "retrieval.hybrid_search"}:
         return {"query": query, "limit": limit}
