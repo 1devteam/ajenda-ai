@@ -8,58 +8,6 @@ from typing import Any
 
 from backend.services.mission_composition.contracts import MissionIntent
 
-_MONTHS = {
-    "january": 1,
-    "jan": 1,
-    "february": 2,
-    "feb": 2,
-    "march": 3,
-    "mar": 3,
-    "april": 4,
-    "apr": 4,
-    "may": 5,
-    "june": 6,
-    "jun": 6,
-    "july": 7,
-    "jul": 7,
-    "august": 8,
-    "aug": 8,
-    "september": 9,
-    "sep": 9,
-    "sept": 9,
-    "october": 10,
-    "oct": 10,
-    "november": 11,
-    "nov": 11,
-    "december": 12,
-    "dec": 12,
-}
-_NAMED_DAY = re.compile(
-    r"\b(?P<month>january|february|march|april|may|june|july|august|september|october|"
-    r"november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\s+"
-    r"(?P<day>\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(?P<year>\d{4}))?\b",
-    re.IGNORECASE,
-)
-
-
-def _calendar_window_from_objective(objective: str) -> tuple[str | None, str | None]:
-    text = (objective or "").strip()
-    named = _NAMED_DAY.search(text)
-    if not named:
-        return None, None
-    month_num = _MONTHS.get(named.group("month").lower())
-    if month_num is None:
-        return None, None
-    day = int(named.group("day"))
-    year = int(named.group("year") or datetime.now(tz=UTC).year)
-    try:
-        start = datetime(year, month_num, day, 0, 0, 0, tzinfo=UTC)
-    except Exception:
-        return None, None
-    end = start + timedelta(days=1)
-    return start.isoformat().replace("+00:00", "Z"), end.isoformat().replace("+00:00", "Z")
-
-
 _DEFAULT_PROSPECT_COUNT = 3
 _MONTHS = {
     "january": 1,
