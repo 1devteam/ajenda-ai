@@ -84,12 +84,18 @@ class ConfirmCompositionResponse(BaseModel):
 
 
 def _actor_id(request: Request) -> str | None:
+    """Resolve actor identity from the request principal.
+
+    Production ``Principal`` exposes ``subject_id`` (not ``subject``/``sub``).
+    """
+
     principal = getattr(request.state, "principal", None)
     if principal is None:
         return None
-    subject = getattr(principal, "subject", None) or getattr(principal, "sub", None)
-    if isinstance(subject, str) and subject.strip():
-        return subject.strip()
+    for attr in ("subject_id", "subject", "sub", "member_id", "user_id"):
+        value = getattr(principal, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
     return None
 
 
@@ -182,12 +188,14 @@ def confirm_composition_proposal(
     require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
     service = MissionCompositionService(db)
     composition = body.composition if body is not None else None
+    idempotency_key = body.idempotency_key if body is not None else None
     try:
         result = service.confirm(
             tenant_id=str(tenant_id),
             proposal_id=proposal_id,
             composition=composition,
             actor_id=_actor_id(request),
+            idempotency_key=idempotency_key,
         )
     except MissionCompositionError as exc:
         raise _map_error(exc) from exc

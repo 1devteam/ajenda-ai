@@ -347,6 +347,7 @@ class MissionCompositionService:
         proposal_id: str | None = None,
         composition: MissionCompositionRecord | MissionIntent | dict[str, Any] | None = None,
         actor_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Persist mission intake + plan + task graph from a composition proposal.
 
@@ -354,6 +355,32 @@ class MissionCompositionService:
         """
         if self._db is None:
             raise MissionCompositionError(code="DB_REQUIRED", message="database session is required for confirm")
+
+        # Idempotent retry: same tenant + proposal + key returns prior mission receipt.
+        key = (idempotency_key or "").strip() or None
+        if key and proposal_id:
+            prior_record = get_proposal(tenant_id=tenant_id, proposal_id=proposal_id, db=self._db)
+            if prior_record is not None and isinstance(prior_record.confirm_receipt, dict):
+                receipt = prior_record.confirm_receipt
+                if str(receipt.get("idempotency_key") or "") == key and receipt.get("mission_id"):
+                    return {
+                        "mission_id": str(receipt["mission_id"]),
+                        "proposal_id": str(receipt.get("proposal_id") or proposal_id),
+                        "plan_id": str(receipt.get("plan_id") or ""),
+                        "allowed_actions": list(receipt.get("allowed_actions") or prior_record.allowed_actions),
+                        "forbidden_actions": list(receipt.get("forbidden_actions") or prior_record.forbidden_actions),
+                        "task_graph": dict(receipt.get("task_graph") or prior_record.task_graph_preview or {}),
+                        "ready_to_start": bool(receipt.get("ready_to_start", True)),
+                        "runtime_queued": False,
+                        "grants_execution_authority": False,
+                        "next_steps": list(
+                            receipt.get("next_steps")
+                            or [
+                                "Review the mission plan",
+                                "Use runtime-queue-admission when ready to execute",
+                            ]
+                        ),
+                    }
 
         # Never trust client-supplied ability selections / ready flags. Resolve the
         # instruction, then re-run server-side composition (charter + credentials).
@@ -565,7 +592,7 @@ class MissionCompositionService:
         mission.metadata_json = mission_metadata
         self._db.flush()
 
-        return {
+        result = {
             "mission_id": str(mission.id),
             "proposal_id": record.proposal_id,
             "plan_id": str(plan.id),
@@ -582,6 +609,33 @@ class MissionCompositionService:
                 "POST /v1/missions/{mission_id}/runtime-queue-admission",
             ],
         }
+        if key:
+            receipt = {
+                "idempotency_key": key,
+                "mission_id": result["mission_id"],
+                "proposal_id": result["proposal_id"],
+                "plan_id": result["plan_id"],
+                "allowed_actions": result["allowed_actions"],
+                "forbidden_actions": result["forbidden_actions"],
+                "task_graph": result["task_graph"],
+                "ready_to_start": result["ready_to_start"],
+                "next_steps": result["next_steps"],
+            }
+            stored = record.model_copy(
+                update={
+                    "confirm_receipt": receipt,
+                    "proposal_status": "confirmed",
+                    "ready_to_start": True,
+                }
+            )
+            put_proposal(
+                tenant_id=tenant_id,
+                record=stored,
+                db=self._db,
+                actor_id=actor_id,
+                require_durable=False,
+            )
+        return result
 
     def compile_for_mission(
         self,

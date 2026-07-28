@@ -170,7 +170,15 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
                 job_key="research.discover_prospects",
                 kind="conditional",
                 required_when_missing=("prospect_candidates", "qualified_prospects"),
-                satisfied_by=("explicit_company", "crm_record"),
+                # Industry/location market labels are not concrete CRM records.
+                # Only an explicit company name or existing CRM id satisfies without discovery.
+                satisfied_by=("named_company", "crm_record"),
+            ),
+            JobDependency(
+                job_key="sales.qualify_prospects",
+                kind="conditional",
+                required_when_missing=("qualified_prospects",),
+                satisfied_by=("named_company", "crm_record", "prospect_candidates"),
             ),
         ),
         depends_on_jobs=(),

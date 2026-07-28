@@ -525,8 +525,11 @@ class MissionCompositionRecord(BaseModel):
 
     schema_version: int = Field(default=COMPOSITION_SCHEMA_VERSION, ge=1)
     proposal_id: str = Field(min_length=1, max_length=80)
-    interpretation_thread_id: str = Field(min_length=1, max_length=80)
+    # Default preserves schema-v2 rows that predate thread scoping (migration 0036).
+    interpretation_thread_id: str = Field(default="legacy-unscoped", min_length=1, max_length=80)
     proposal_status: ProposalStatus = "interpretation_ready"
+    # Populated after successful confirm for idempotent retries (tenant-scoped store).
+    confirm_receipt: dict[str, Any] | None = None
     instruction: str = Field(min_length=1, max_length=8000)
     raw_instruction: str = Field(default="", max_length=8000)
     normalized_instruction: str = Field(default="", max_length=8000)

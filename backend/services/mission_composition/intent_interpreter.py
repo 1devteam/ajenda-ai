@@ -92,19 +92,27 @@ _ENRICH_PATTERNS = (
     r"gather (?:contact|email|phone)",
     r"find (?:emails?|phone numbers?|contact)",
 )
+# Read-oriented calendar only. Imperative "schedule a meeting" is not events_read.
 _CALENDAR_PATTERNS = (
     r"\bcalend[ae]r\b",
     r"calendar briefing",
     r"read calend[ae]r",
     r"google calend[ae]r",
-    r"\bscheduled\b",
-    r"\bschedule\b",
     r"\bagenda\b",
     r"what(?:'s| is) on my (?:calend[ae]r|schedule)",
     r"what do i have (?:scheduled|on my calend[ae]r)",
+    r"what(?:'s| is) scheduled\b",
     r"upcoming (?:calendar )?commitments",
     r"meeting prep",
     r"meeting brief",
+    r"show (?:me )?(?:my )?(?:calend[ae]r|schedule)",
+    r"check (?:my )?(?:calend[ae]r|schedule)",
+)
+_CALENDAR_MUTATION_PATTERNS = (
+    r"\bschedule (?:a |an )?(?:meeting|call|event|appointment)\b",
+    r"\bbook (?:a |an )?(?:meeting|call|event|appointment)\b",
+    r"\bcreate (?:a |an )?(?:calendar )?(?:event|meeting)\b",
+    r"\badd (?:a |an )?(?:meeting|event) to (?:my )?(?:calend[ae]r|schedule)\b",
 )
 # Mutation verbs only — naming HubSpot/CRM as a read source must not imply upsert.
 _CRM_UPDATE_PATTERNS = (
@@ -119,6 +127,13 @@ _CRM_UPDATE_PATTERNS = (
     r"\bsave (?:them|it|these|those|each|leads?|prospects?)?\s*(?:to|into|in)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
+)
+_CRM_NEGATION_PATTERNS = (
+    r"\b(?:do not|don't|dont|never|without)\s+add\b.{0,40}\bcontacts?\b",
+    r"\b(?:do not|don't|dont|never|without)\s+save\b.{0,40}\bcontacts?\b",
+    r"\b(?:do not|don't|dont|never|without)\s+(?:add|save|sync|push|write|update|log|upsert)\b.{0,48}\b(?:crm|hubspot|pipeline|contacts?)\b",
+    r"\bno\s+(?:crm|contact)\s+(?:updates?|writes?|saves?)\b",
+    r"\bwithout\s+(?:adding|saving)\s+(?:them\s+)?to\s+contacts?\b",
 )
 # Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
@@ -339,6 +354,13 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "publish_content" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Provider confirms the social post was accepted or returns a publish identifier",
+                measurable=True,
+            )
+        )
     return success
 
 
@@ -364,7 +386,7 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         outcomes.append("send_outreach")
     if _contains_any(lower, _CALENDAR_PATTERNS):
         outcomes.append("read_calendar")
-    if _contains_any(lower, _CRM_UPDATE_PATTERNS):
+    if _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(lower, _CRM_NEGATION_PATTERNS):
         outcomes.append("update_crm")
     if _contains_any(lower, _PUBLISH_PATTERNS):
         outcomes.append("publish_content")
@@ -374,13 +396,30 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         _NO_SEND_PATTERNS
         + _CONDITIONAL_SEND_PATTERNS
         + _CRM_UPDATE_PATTERNS
+        + _CRM_NEGATION_PATTERNS
         + _PUBLISH_PATTERNS
-        + (r"\bapprov", r"\bdelet", r"\bcharg", r"\binvoice"),
+        + (
+            r"\bapprov",
+            r"\bdelet",
+            r"\bcharg",
+            r"\binvoice",
+            r"\bfax\b",
+            r"\bpurchase order\b",
+            r"\bwire (?:transfer|money)\b",
+            r"\btransfer funds\b",
+            r"\bpay\b",
+            r"\brefund\b",
+            r"\bdelete\b",
+            r"\bterminate\b",
+        ),
     )
     # Bare location/count fragments treated as material when short.
     if not material and (re.search(r"\b\d+\b", lower) or len(clause.split()) <= 4):
         material = True
-    recognized = bool(outcomes) or _contains_any(lower, _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS)
+    recognized = bool(outcomes) or _contains_any(
+        lower,
+        _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS + _CRM_NEGATION_PATTERNS,
+    )
     # Industry+location span is recognized material even without a verb.
     if _INDUSTRY_LOCATION.search(clause):
         material = True
@@ -446,7 +485,8 @@ def interpret_instruction(
     # Enrich only when explicitly requested — not invented from draft+qualify.
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
-    wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS)
+    no_crm = _contains_any(lower, _CRM_NEGATION_PATTERNS)
+    wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm
     wants_publish = _contains_any(lower, _PUBLISH_PATTERNS)
 
     outcomes: list[CanonicalOutcome] = []
@@ -543,6 +583,11 @@ def interpret_instruction(
     # ("do not send anything until I approve").
     constraints: list[str] = []
     forbidden: list[str] = []
+    if no_crm:
+        forbidden.append("gtm.crm_upsert")
+        constraints.append("Do not write contacts or CRM records")
+        if "update_crm" in outcomes:
+            outcomes = [o for o in outcomes if o != "update_crm"]
     if conditional_send:
         send_policy = SendPolicy(
             mode="conditional",
@@ -802,15 +847,27 @@ def interpret_instruction(
             )
         )
 
-    # Publish is not executable in this catalog generation — fail closed if requested.
-    if "publish_content" in outcomes:
+    # Imperative calendar create/schedule is not supported as events_read.
+    if _contains_any(lower, _CALENDAR_MUTATION_PATTERNS):
+        # Strip accidental read_calendar when the user asked to create an event.
+        if "read_calendar" in outcomes and not re.search(
+            r"\b(?:what|show|check|read|upcoming|brief)\b",
+            lower,
+            flags=re.IGNORECASE,
+        ):
+            outcomes = [o for o in outcomes if o != "read_calendar"]
         clarifications.append(
             _restatement(
-                field="publish_content",
+                field="calendar_write",
                 understood=understood,
-                missing="publishing or social posting was requested but is not a composed runtime outcome yet",
-                include_instruction="whether to omit publishing, or restate only outcomes Ajenda can run today",
-                reason="publish_content is recognized but not runtime-bound in the job catalog.",
+                missing=(
+                    "creating or scheduling calendar events is not a composed runtime outcome yet "
+                    "(only calendar read/briefing is supported)"
+                ),
+                include_instruction=(
+                    "whether to read existing calendar events instead, or omit scheduling from this mission"
+                ),
+                reason="Calendar mutation language must not silently map to google_calendar.events_read.",
             )
         )
 

@@ -79,9 +79,12 @@ def _intent_input_sources(intent: MissionIntent) -> set[str]:
     if intent.has_recipient_context():
         sources.update({"recipient_context", "explicit_recipient", "explicit_email"})
     for entity in intent.target_entities:
-        if entity.name or entity.industry:
+        # Industry/location market targeting is not a concrete prospect list.
+        if entity.name and entity.type in {"company", "person", "contact", "recipient"}:
+            sources.add("named_company")
             sources.add("explicit_company")
-            sources.add("prospect_candidates")
+        if entity.industry or entity.location:
+            sources.add("market_scope")
         if entity.email:
             sources.add("explicit_email")
             sources.add("recipient_context")
@@ -89,6 +92,7 @@ def _intent_input_sources(intent: MissionIntent) -> set[str]:
             sources.add("crm_record")
         if entity.domain or entity.url:
             sources.add("explicit_company")
+            sources.add("named_company")
     if intent.requested_quantity is not None:
         sources.add("quantity")
     return sources
