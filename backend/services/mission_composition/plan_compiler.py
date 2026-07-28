@@ -54,7 +54,7 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         "sales.draft_followup",
     }:
         return "$.input.prospects"
-    if action_name in {"gtm.crm_upsert", "sales.log_activity", "record.write"}:
+    if action_name in {"gtm.crm_upsert", "sales.log_activity", "record.write", "gtm.social_publish"}:
         if output_name in {
             "prospect_candidates",
             "qualified_prospects",

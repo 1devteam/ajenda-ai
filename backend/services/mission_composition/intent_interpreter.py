@@ -116,6 +116,12 @@ _CALENDAR_MUTATION_PATTERNS = (
     r"\bbook (?:a |an )?(?:meeting|call|event|appointment)\b",
     r"\bcreate (?:a |an )?(?:calendar )?(?:event|meeting)\b",
     r"\badd (?:a |an )?(?:meeting|event) to (?:my )?(?:calend[ae]r|schedule)\b",
+    r"\bdelete\b.{0,40}\b(?:calend[ae]r|event|meeting|appointment)\b",
+    r"\bcancel\b.{0,40}\b(?:calend[ae]r|event|meeting|appointment)\b",
+    r"\breschedule\b.{0,40}\b(?:calend[ae]r|event|meeting|appointment)\b",
+    r"\bupdate\b.{0,40}\b(?:calend[ae]r|event|meeting|appointment)\b",
+    r"\bremove\b.{0,40}\b(?:calend[ae]r|events?|meetings?)\b",
+    r"\bmove\b.{0,40}\b(?:meeting|event|appointment)\b",
 )
 # Mutation verbs only — naming HubSpot/CRM as a read source must not imply upsert.
 _CRM_UPDATE_PATTERNS = (
@@ -149,6 +155,17 @@ _PUBLISH_PATTERNS = (
     r"\bshare (?:to|on) (?:linkedin|social)\b",
     r"\bpost (?:an? )?(?:update|announcement|message) (?:to|on)\b",
     r"\bsocial media post",
+)
+_PUBLISH_NEGATION_PATTERNS = (
+    r"\b(?:do not|don't|dont|never|without)\s+publish\b",
+    r"\b(?:do not|don't|dont|never|without)\s+post\b",
+    r"\b(?:do not|don't|dont|never)\s+share\b.{0,24}\b(?:linkedin|social|twitter|x)\b",
+    r"\bno\s+(?:social\s+)?(?:publishing|posts?)\b",
+)
+# Publish that must wait on upstream research outputs (not standalone copy).
+_PUBLISH_RESULT_BASED = re.compile(
+    r"\b(?:post|publish|share)\s+(?:the\s+)?(?:results?|findings?|them)\b",
+    re.IGNORECASE,
 )
 _COUNT_PATTERN = re.compile(r"\b(\d+|three|two|four|five|ten)\b", re.IGNORECASE)
 _WORD_COUNTS = {
@@ -426,7 +443,7 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         outcomes.append("read_calendar")
     if _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(lower, _CRM_NEGATION_PATTERNS):
         outcomes.append("update_crm")
-    if _contains_any(lower, _PUBLISH_PATTERNS):
+    if _contains_any(lower, _PUBLISH_PATTERNS) and not _contains_any(lower, _PUBLISH_NEGATION_PATTERNS):
         outcomes.append("publish_content")
 
     material = bool(outcomes) or _contains_any(
@@ -436,6 +453,7 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         + _CRM_UPDATE_PATTERNS
         + _CRM_NEGATION_PATTERNS
         + _PUBLISH_PATTERNS
+        + _PUBLISH_NEGATION_PATTERNS
         + (
             r"\bapprov",
             r"\bdelet",
@@ -525,7 +543,9 @@ def interpret_instruction(
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
     no_crm = _contains_any(lower, _CRM_NEGATION_PATTERNS)
     wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm
-    wants_publish = _contains_any(lower, _PUBLISH_PATTERNS)
+    no_publish = _contains_any(lower, _PUBLISH_NEGATION_PATTERNS)
+    wants_publish = _contains_any(lower, _PUBLISH_PATTERNS) and not no_publish
+    publish_result_based = _PUBLISH_RESULT_BASED.search(lower) is not None
 
     outcomes: list[CanonicalOutcome] = []
     if wants_research:
@@ -626,6 +646,11 @@ def interpret_instruction(
         constraints.append("Do not write contacts or CRM records")
         if "update_crm" in outcomes:
             outcomes = [o for o in outcomes if o != "update_crm"]
+    if no_publish:
+        forbidden.append("gtm.social_publish")
+        constraints.append("Do not publish or post to social channels")
+        if "publish_content" in outcomes:
+            outcomes = [o for o in outcomes if o != "publish_content"]
     if conditional_send:
         send_policy = SendPolicy(
             mode="conditional",
@@ -885,9 +910,9 @@ def interpret_instruction(
             )
         )
 
-    # Imperative calendar create/schedule is not supported as events_read.
+    # Imperative calendar create/update/delete is not supported as events_read.
     if _contains_any(lower, _CALENDAR_MUTATION_PATTERNS):
-        # Strip accidental read_calendar when the user asked to create an event.
+        # Strip accidental read_calendar when the user asked to mutate calendar state.
         if "read_calendar" in outcomes and not re.search(
             r"\b(?:what|show|check|read|upcoming|brief)\b",
             lower,
@@ -899,15 +924,32 @@ def interpret_instruction(
                 field="calendar_write",
                 understood=understood,
                 missing=(
-                    "creating or scheduling calendar events is not a composed runtime outcome yet "
-                    "(only calendar read/briefing is supported)"
+                    "creating, updating, rescheduling, or deleting calendar events is not a composed "
+                    "runtime outcome yet (only calendar read/briefing is supported)"
                 ),
                 include_instruction=(
-                    "whether to read existing calendar events instead, or omit scheduling from this mission"
+                    "whether to read existing calendar events instead, or omit calendar mutations from this mission"
                 ),
                 reason="Calendar mutation language must not silently map to google_calendar.events_read.",
             )
         )
+
+    # Tag result-based publish so planners can expand research deps and bind content.
+    if publish_result_based and "publish_content" in outcomes:
+        if entities:
+            entities = [
+                entity.model_copy(update={"attributes": {**(entity.attributes or {}), "publish_result_based": True}})
+                for entity in entities
+            ]
+        else:
+            entities = [
+                TargetEntity(
+                    type="publish_context",
+                    provenance="inferred_deterministic",
+                    confidence=0.9,
+                    attributes={"publish_result_based": True},
+                )
+            ]
 
     emailish = wants_draft or "email" in lower or "message" in lower
     if (

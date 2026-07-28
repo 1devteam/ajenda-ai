@@ -211,6 +211,16 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         credential_policy="required",
         approval_policy="always_review",
         evidence_requirements=("action_result_evidence",),
+        # "Post the results" expands research; standalone post copy does not.
+        dependencies=(
+            JobDependency(
+                job_key="research.discover_prospects",
+                kind="conditional",
+                required_when_missing=("publish_payload", "standalone_publish_content"),
+                satisfied_by=("standalone_publish_content",),
+            ),
+        ),
+        depends_on_jobs=(),
     ),
 )
 

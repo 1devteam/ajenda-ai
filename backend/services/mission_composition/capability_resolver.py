@@ -101,6 +101,15 @@ def _intent_input_sources(intent: MissionIntent) -> set[str]:
             sources.add("named_company")
     if intent.requested_quantity is not None:
         sources.add("quantity")
+    # Standalone publish copy is available unless the instruction says "post the results".
+    if "publish_content" in {str(o) for o in intent.requested_outcomes}:
+        result_based = any(
+            isinstance(entity.attributes, dict) and entity.attributes.get("publish_result_based")
+            for entity in intent.target_entities
+        )
+        if not result_based:
+            sources.add("standalone_publish_content")
+            sources.add("publish_payload")
     return sources
 
 

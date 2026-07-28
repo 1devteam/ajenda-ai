@@ -701,16 +701,21 @@ export async function confirmMissionComposition(
   proposalId: string,
   body?: { composition?: Record<string, unknown>; idempotency_key?: string },
 ): Promise<MissionComposeConfirmResponse> {
-  return withAuthedRuntime(caller, (config) =>
-    request<MissionComposeConfirmResponse>(
+  return withAuthedRuntime(caller, (config) => {
+    const idempotencyKey = body?.idempotency_key?.trim() || newIdempotencyKey();
+    const payload = {
+      ...(body ?? {}),
+      idempotency_key: idempotencyKey,
+    };
+    return request<MissionComposeConfirmResponse>(
       `/v1/missions/proposals/${encodeURIComponent(proposalId)}/confirm`,
       {
         method: "POST",
-        body: JSON.stringify(body ?? {}),
+        body: JSON.stringify(payload),
       },
-      runtimeOptions(config),
-    ),
-  );
+      { ...runtimeOptions(config), idempotencyKey },
+    );
+  });
 }
 
 export async function getMission(caller: AuthedCaller, missionId: string): Promise<MissionReadResponse> {

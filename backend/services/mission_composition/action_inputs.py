@@ -296,15 +296,37 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name == "gtm.social_publish":
         # Build a schema-valid publish payload; never leave content empty.
         objective = (intent.objective or "").strip()
-        content = objective[:280] if objective else "Ajenda composed social update"
-        if len(content) < 1:
-            content = "Ajenda composed social update"
-        platform = "linkedin"
         lower_obj = objective.lower()
+        platform = "linkedin"
         if "twitter" in lower_obj or re.search(r"\bx\b", lower_obj):
             platform = "twitter"
         elif "facebook" in lower_obj:
             platform = "facebook"
+        result_based = any(
+            isinstance(entity.attributes, dict) and entity.attributes.get("publish_result_based")
+            for entity in intent.target_entities
+        ) or bool(re.search(r"\b(?:post|publish|share)\s+(?:the\s+)?(?:results?|findings?|them)\b", lower_obj))
+        if result_based:
+            # Do not publish the mission command text; bind upstream research outputs.
+            content = "Pending research results for social publish (bind after upstream research)."
+            return {
+                "platform": platform,
+                "content": content[:280],
+                "context": {
+                    "objective": objective[:300],
+                    "source": "mission_composition",
+                    "binding_required": True,
+                    "binding_source": "upstream_prospect_candidates",
+                    "binding_path": "$.prospect_candidates",
+                    "compose_note": (
+                        "Result-based publish must bind research outputs; "
+                        "refusing to post the raw instruction as content."
+                    ),
+                },
+            }
+        content = objective[:280] if objective else "Ajenda composed social update"
+        if len(content) < 1:
+            content = "Ajenda composed social update"
         return {
             "platform": platform,
             "content": content,
@@ -312,6 +334,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 "objective": objective[:300],
                 "source": "mission_composition",
                 "binding_required": False,
+                "binding_source": "standalone_publish_content",
             },
         }
     if action_name == "google_calendar.events_read":
