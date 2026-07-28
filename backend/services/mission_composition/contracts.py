@@ -77,9 +77,17 @@ LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "log activity": "update_crm",
     "upsert crm": "update_crm",
     "pipeline update": "update_crm",
+    "add to contacts": "update_crm",
+    "save to contacts": "update_crm",
+    "add contacts": "update_crm",
+    "collect contact info": "enrich_contacts",
+    "collect contacts": "enrich_contacts",
     "calendar briefing": "read_calendar",
     "read calendar": "read_calendar",
     "schedule review": "read_calendar",
+    "google calendar": "read_calendar",
+    "what is scheduled": "read_calendar",
+    "my schedule": "read_calendar",
 }
 
 SendPolicyMode = Literal["allow", "forbid", "conditional", "unknown"]

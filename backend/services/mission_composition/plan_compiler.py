@@ -36,6 +36,15 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         "sales.draft_followup",
     }:
         return "$.input.prospects"
+    if action_name in {"gtm.crm_upsert", "sales.log_activity", "record.write"}:
+        if output_name in {
+            "prospect_candidates",
+            "qualified_prospects",
+            "enriched_prospects",
+            "researched_prospects",
+        }:
+            return f"$.input.context.{output_name}"
+        return "$.input.context.upstream"
     if action_name == "gtm.email_send":
         # GtmEmailSendInput forbids extras; carry draft/world-state only under context.
         if output_name in {"introduction_drafts", "enriched_prospects", "qualified_prospects", "prospect_candidates"}:

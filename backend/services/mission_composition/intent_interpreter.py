@@ -86,15 +86,27 @@ _LOCATION_TRAILING_STOP = re.compile(
 _ENRICH_PATTERNS = (
     r"\benrich\b",
     r"contact details",
-    r"find emails",
+    r"contact info(?:rmation)?",
+    r"collect (?:contact|email|phone)",
+    r"gather (?:contact|email|phone)",
+    r"find (?:emails?|phone numbers?|contact)",
+    r"look up (?:emails?|contact)",
 )
 _CALENDAR_PATTERNS = (
-    r"\bcalendar\b",
+    r"\bcalend[ae]r\b",  # calendar / common misspelling calender
     r"calendar briefing",
-    r"read calendar",
+    r"read calend[ae]r",
+    r"google calend[ae]r",
+    r"\bscheduled\b",
+    r"\bschedule\b",
+    r"\bagenda\b",
+    r"what(?:'s| is) on my (?:calend[ae]r|schedule)",
+    r"what do i have (?:scheduled|on my calend[ae]r)",
     r"upcoming (?:calendar )?commitments",
     r"meeting prep",
     r"meeting brief",
+    r"\bevents?\b.*\bcalend[ae]r\b",
+    r"\bcalend[ae]r\b.*\bevents?\b",
 )
 # Mutation verbs only — naming HubSpot/CRM as a read source must not imply upsert.
 _CRM_UPDATE_PATTERNS = (
@@ -103,8 +115,22 @@ _CRM_UPDATE_PATTERNS = (
     r"\blogs? (?:activity|to crm)\b",
     r"\bupsert\b",
     r"\bwrite (?:to |into )?(?:the )?crm\b",
-    r"\bsync (?:to |into )?(?:the )?(?:crm|hubspot)\b",
-    r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot)\b",
+    r"\bsync (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
+    r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
+    # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
+    r"\badd (?:them|it|these|those|each|leads?|prospects?|companies)?\s*(?:to|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\bsave (?:them|it|these|those|each|leads?|prospects?)?\s*(?:to|into|in)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\bput (?:them|it|these|those)\s+(?:in|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
+    r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
+    r"\bcreate (?:crm )?(?:records?|contacts?)\b",
+)
+_CRM_NEGATION_PATTERNS = (
+    r"\b(?:do not|don't|dont|never|without)\s+add\b.{0,40}\bcontacts?\b",
+    r"\b(?:do not|don't|dont|never|without)\s+save\b.{0,40}\bcontacts?\b",
+    r"\b(?:do not|don't|dont|never|without)\s+(?:add|save|sync|push|write|update|log|upsert|create)\b.{0,48}\b(?:crm|hubspot|pipeline|contacts?)\b",
+    r"\bno\s+(?:crm|contact)\s+(?:updates?|writes?|saves?)\b",
+    r"\bwithout\s+(?:adding|saving)\s+(?:them\s+)?to\s+contacts?\b",
 )
 # Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
@@ -123,6 +149,17 @@ _WORD_COUNTS = {
     "five": 5,
     "ten": 10,
 }
+_MONTH_NAME = (
+    r"january|february|march|april|may|june|july|august|september|october|november|december|"
+    r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
+)
+# Strip calendar dates so "July 28 2026" is not quantity 28.
+_DATE_SPAN = re.compile(
+    rf"\b(?:{_MONTH_NAME})\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,?\s*\d{{4}})?\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+    re.IGNORECASE,
+)
 _INDUSTRY_LOCATION = re.compile(
     r"(?:^|[\s,;:])(?P<industry>[A-Za-z][A-Za-z\-/]{1,40}(?:\s+[A-Za-z][A-Za-z\-/]{1,40}){0,3})"
     r"\s+companies\s+in\s+(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
@@ -143,6 +180,27 @@ _LEADING_VERB_WORDS = frozenset(
         "target",
     }
 )
+# Strip quantity words so "three roofing companies" → industry "roofing".
+_LEADING_QUANTITY_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "several",
+        "some",
+        "few",
+        "many",
+    }
+)
 _FRAGMENT_HINTS = (
     r"^complete when\b",
     r"^when the email is sent\b",
@@ -159,12 +217,21 @@ def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
 
 
 def _extract_count(text: str) -> int | None:
-    match = _COUNT_PATTERN.search(text)
+    """Extract prospect/task quantity — never calendar day numbers or years."""
+
+    cleaned = _DATE_SPAN.sub(" ", text)
+    # Drop bare years so "2026" is not a quantity.
+    cleaned = re.sub(r"\b20\d{2}\b", " ", cleaned)
+    match = _COUNT_PATTERN.search(cleaned)
     if match is None:
         return None
     raw = match.group(1).lower()
     if raw.isdigit():
-        return int(raw)
+        value = int(raw)
+        # Prospect quantities are small; large bare integers are not counts here.
+        if value > 50:
+            return None
+        return value
     return _WORD_COUNTS.get(raw)
 
 
@@ -174,6 +241,8 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
         return []
     industry_tokens = [token for token in match.group("industry").strip().split() if token]
     while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
+        industry_tokens.pop(0)
+    while industry_tokens and (industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()):
         industry_tokens.pop(0)
     industry = " ".join(industry_tokens).strip(" ,.;:")
     location = match.group("location").strip(" ,.;:")
@@ -326,7 +395,7 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         outcomes.append("send_outreach")
     if _contains_any(lower, _CALENDAR_PATTERNS):
         outcomes.append("read_calendar")
-    if _contains_any(lower, _CRM_UPDATE_PATTERNS):
+    if _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(lower, _CRM_NEGATION_PATTERNS):
         outcomes.append("update_crm")
     if _contains_any(lower, _PUBLISH_PATTERNS):
         outcomes.append("publish_content")
@@ -336,13 +405,17 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         _NO_SEND_PATTERNS
         + _CONDITIONAL_SEND_PATTERNS
         + _CRM_UPDATE_PATTERNS
+        + _CRM_NEGATION_PATTERNS
         + _PUBLISH_PATTERNS
         + (r"\bapprov", r"\bdelet", r"\bcharg", r"\binvoice"),
     )
     # Bare location/count fragments treated as material when short.
     if not material and (re.search(r"\b\d+\b", lower) or len(clause.split()) <= 4):
         material = True
-    recognized = bool(outcomes) or _contains_any(lower, _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS)
+    recognized = bool(outcomes) or _contains_any(
+        lower,
+        _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS + _CRM_NEGATION_PATTERNS,
+    )
     # Industry+location span is recognized material even without a verb.
     if _INDUSTRY_LOCATION.search(clause):
         material = True
@@ -407,7 +480,8 @@ def interpret_instruction(
     # Enrich only when explicitly requested — not invented from draft+qualify.
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
-    wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS)
+    no_crm = _contains_any(lower, _CRM_NEGATION_PATTERNS)
+    wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm
     wants_publish = _contains_any(lower, _PUBLISH_PATTERNS)
 
     outcomes: list[CanonicalOutcome] = []
@@ -504,6 +578,11 @@ def interpret_instruction(
     # ("do not send anything until I approve").
     constraints: list[str] = []
     forbidden: list[str] = []
+    if no_crm:
+        forbidden.append("gtm.crm_upsert")
+        constraints.append("Do not write contacts or CRM records")
+        if "update_crm" in outcomes:
+            outcomes = [o for o in outcomes if o != "update_crm"]
     if conditional_send:
         send_policy = SendPolicy(
             mode="conditional",

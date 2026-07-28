@@ -108,13 +108,15 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         display_name="Pipeline maintenance",
         vertical_role="vertical.sales",
         supported_outcomes=("update_crm",),
-        required_inputs=("qualified_prospects",),
+        required_inputs=("prospect_candidates",),
         produced_outputs=("pipeline_records",),
         candidate_actions=("gtm.crm_upsert", "sales.log_activity", "record.write"),
         risk_level="medium",
         maturity="runtime_bound",
         credential_policy="optional",
         evidence_requirements=("action_result_evidence",),
+        # "Add them to contacts" after discovery must bind discovered prospects, not market labels.
+        depends_on_jobs=("research.discover_prospects",),
         seed_brain_missions=("M9",),
     ),
     BusinessJob(
