@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from backend.services.mission_composition.contracts import (
+    CANONICAL_OUTCOMES,
     INTERPRETER_VERSION,
     CanonicalOutcome,
     Clarification,
@@ -86,12 +87,21 @@ _LOCATION_TRAILING_STOP = re.compile(
 _ENRICH_PATTERNS = (
     r"\benrich\b",
     r"contact details",
-    r"find emails",
+    r"contact info(?:rmation)?",
+    r"collect (?:contact|email|phone)",
+    r"gather (?:contact|email|phone)",
+    r"find (?:emails?|phone numbers?|contact)",
 )
 _CALENDAR_PATTERNS = (
-    r"\bcalendar\b",
+    r"\bcalend[ae]r\b",
     r"calendar briefing",
-    r"read calendar",
+    r"read calend[ae]r",
+    r"google calend[ae]r",
+    r"\bscheduled\b",
+    r"\bschedule\b",
+    r"\bagenda\b",
+    r"what(?:'s| is) on my (?:calend[ae]r|schedule)",
+    r"what do i have (?:scheduled|on my calend[ae]r)",
     r"upcoming (?:calendar )?commitments",
     r"meeting prep",
     r"meeting brief",
@@ -103,8 +113,12 @@ _CRM_UPDATE_PATTERNS = (
     r"\blogs? (?:activity|to crm)\b",
     r"\bupsert\b",
     r"\bwrite (?:to |into )?(?:the )?crm\b",
-    r"\bsync (?:to |into )?(?:the )?(?:crm|hubspot)\b",
-    r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot)\b",
+    r"\bsync (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
+    r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
+    r"\badd (?:them|it|these|those|each|leads?|prospects?|companies)?\s*(?:to|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\bsave (?:them|it|these|those|each|leads?|prospects?)?\s*(?:to|into|in)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
+    r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
 )
 # Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
@@ -143,6 +157,9 @@ _LEADING_VERB_WORDS = frozenset(
         "target",
     }
 )
+_LEADING_QUANTITY_WORDS = frozenset(
+    {"a", "an", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "several", "some"}
+)
 _FRAGMENT_HINTS = (
     r"^complete when\b",
     r"^when the email is sent\b",
@@ -158,13 +175,32 @@ def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
 
 
+_MONTH_NAME = (
+    r"january|february|march|april|may|june|july|august|september|october|november|december|"
+    r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
+)
+_DATE_SPAN = re.compile(
+    rf"\b(?:{_MONTH_NAME})\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,?\s*\d{{4}})?\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+    re.IGNORECASE,
+)
+
+
 def _extract_count(text: str) -> int | None:
-    match = _COUNT_PATTERN.search(text)
+    """Extract prospect quantity — never calendar day numbers or years."""
+
+    cleaned = _DATE_SPAN.sub(" ", text)
+    cleaned = re.sub(r"\b20\d{2}\b", " ", cleaned)
+    match = _COUNT_PATTERN.search(cleaned)
     if match is None:
         return None
     raw = match.group(1).lower()
     if raw.isdigit():
-        return int(raw)
+        value = int(raw)
+        if value > 50:
+            return None
+        return value
     return _WORD_COUNTS.get(raw)
 
 
@@ -174,6 +210,8 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
         return []
     industry_tokens = [token for token in match.group("industry").strip().split() if token]
     while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
+        industry_tokens.pop(0)
+    while industry_tokens and (industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()):
         industry_tokens.pop(0)
     industry = " ".join(industry_tokens).strip(" ,.;:")
     location = match.group("location").strip(" ,.;:")
@@ -359,6 +397,7 @@ def interpret_instruction(
 ) -> MissionIntent:
     """Extract a candidate MissionIntent without granting execution authority."""
 
+    raw_instruction = instruction
     text = instruction.strip()
     if not text:
         raise ValueError("instruction must be non-empty")
@@ -535,7 +574,9 @@ def interpret_instruction(
             rule_id="negation.no_send" if no_send else "negation.draft_only",
         )
         constraints.append("Do not send messages")
-        forbidden.extend(["send messages", "gtm.email_send"])
+        forbidden.extend(["gtm.email_send"])
+        if "send_outreach" in outcomes:
+            outcomes = [o for o in outcomes if o != "send_outreach"]
         evidence.append(
             _evidence(
                 field_path="send_policy",
@@ -579,7 +620,8 @@ def interpret_instruction(
                 rule_id="entity.quantity",
             )
         )
-    elif outcomes and any(o in outcomes for o in ("research_prospects", "qualify_prospects", "prepare_outreach")):
+    elif outcomes and any(o in outcomes for o in ("research_prospects", "qualify_prospects")):
+        # Default quantity only for low-risk prospect research — not drafts/calendar.
         quantity = 3
         quantity_provenance = "system_default"
         evidence.append(
@@ -587,7 +629,7 @@ def interpret_instruction(
                 field_path="requested_quantity",
                 source="system_default",
                 normalized_value="3",
-                confidence=0.5,
+                confidence=0.55,
                 rule_id="default.quantity_3",
             )
         )
@@ -596,7 +638,33 @@ def interpret_instruction(
         quantity_provenance = None
 
     entities = _extract_target_entities(text)
-    if entities:
+    # Named email recipients (draft-to-X without inventing discovery).
+    for email_match in re.finditer(
+        r"\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
+        text,
+    ):
+        email = email_match.group(1)
+        if not any((e.email or "").lower() == email.lower() for e in entities):
+            entities.append(
+                TargetEntity(
+                    type="recipient",
+                    name=email.split("@")[0],
+                    email=email,
+                    provenance="explicit",
+                    confidence=0.95,
+                )
+            )
+            evidence.append(
+                _evidence(
+                    field_path="target_entities.email",
+                    source="explicit",
+                    source_text=email,
+                    normalized_value=email,
+                    confidence=0.95,
+                    rule_id="entity.email_recipient",
+                )
+            )
+    if entities and entities[0].industry:
         evidence.append(
             _evidence(
                 field_path="target_entities[0]",
@@ -608,6 +676,8 @@ def interpret_instruction(
             )
         )
         label = f"{entities[0].industry or 'target'} in {entities[0].location or 'specified market'}"
+    elif entities and entities[0].email:
+        label = entities[0].email
     else:
         label = "the requested market"
 
@@ -792,7 +862,43 @@ def interpret_instruction(
     if "research_prospects" in outcomes and "prepare_outreach" in outcomes and send_policy.mode == "forbid":
         objective = f"Identify and prepare outreach for qualified {label} prospects without sending messages."
 
-    return MissionIntent(
+    # Split forbid concepts: action tokens vs display/legacy mix.
+    forbidden_actions = [item for item in forbidden if "." in item and " " not in item]
+    forbidden_canonical = [item for item in forbidden if item in CANONICAL_OUTCOMES]
+    confidences = [e.confidence for e in evidence if e.confidence is not None]
+    min_conf = min(confidences) if confidences else None
+
+    # Semantic units from clauses (coverage measured over material units).
+    from backend.services.mission_composition.contracts import SemanticUnit
+
+    semantic_units: list[SemanticUnit] = []
+    unmatched_units: list[SemanticUnit] = []
+    try:
+        for clause in clause_models:
+            unit = SemanticUnit(
+                unit_id=clause.clause_id,
+                kind="action" if clause.mapped_outcomes else "other",
+                text=clause.text,
+                accounted=clause.status == "recognized",
+                mapped_outcomes=list(clause.mapped_outcomes),
+                risk="high"
+                if any(
+                    token in clause.text.lower()
+                    for token in ("delete", "charge", "invoice", "publish", "send", "overwrite")
+                )
+                else "low",
+                reason=clause.reason,
+            )
+            semantic_units.append(unit)
+            if clause.material and clause.status != "recognized":
+                unmatched_units.append(unit)
+    except Exception:
+        semantic_units = []
+        unmatched_units = []
+
+    intent = MissionIntent(
+        raw_instruction=raw_instruction,
+        normalized_instruction=text,
         objective=objective,
         requested_outcomes=list(outcomes),
         requested_quantity=quantity,
@@ -801,6 +907,8 @@ def interpret_instruction(
         target_entities=entities,
         constraints=constraints,
         forbidden_outcomes=forbidden,
+        forbidden_actions=forbidden_actions,
+        forbidden_canonical_outcomes=forbidden_canonical,
         success_criteria=success
         if success
         else [
@@ -816,8 +924,42 @@ def interpret_instruction(
         ambiguity=clarifications,
         interpreted_clauses=clause_models,
         unmatched_material_clauses=unmatched,
+        semantic_units=semantic_units,
+        unmatched_material_units=unmatched_units,
         interpretation_evidence=evidence,
         coverage_score=round(coverage, 3),
+        minimum_field_confidence=min_conf,
+        components_available=list(dict.fromkeys([*components_active, "regex_core"])),
+        components_executed=list(dict.fromkeys(components_active)),
+        components_contributing=list(dict.fromkeys(components_active)),
         components_active=list(dict.fromkeys(components_active)),
         interpreter_version=INTERPRETER_VERSION,
+    )
+    from backend.services.mission_composition.readiness import evaluate_interpretation_readiness
+
+    readiness = evaluate_interpretation_readiness(intent)
+    return intent.model_copy(
+        update={
+            "interpretation_ready": readiness.ready,
+            "interpretation_readiness_reasons": list(readiness.reasons),
+            # Align ambiguity with readiness when restatement required.
+            "ambiguity": clarifications
+            if clarifications
+            else (
+                [
+                    _restatement(
+                        field="interpretation_readiness",
+                        understood=objective[:240] if objective else None,
+                        missing="; ".join(readiness.reasons)[:400],
+                        include_instruction=(
+                            "the full objective, target market or scope, deliverable, "
+                            "and whether sending or other external actions are permitted"
+                        ),
+                        reason="Interpretation readiness policy failed.",
+                    )
+                ]
+                if not readiness.ready
+                else []
+            ),
+        }
     )

@@ -313,11 +313,16 @@ export interface MissionCreateRequest {
 /** Mission Composition Engine (ADR-0008) — everyday launch path. */
 export interface MissionComposeRequest {
   instruction: string;
+  interpretation_thread_id?: string;
 }
 
 export interface MissionComposeResponse {
   proposal_id: string;
+  interpretation_thread_id: string;
+  proposal_status?: string;
   instruction: string;
+  raw_instruction?: string;
+  normalized_instruction?: string;
   mission_brief: {
     objective: string;
     success_criteria: Array<{ description: string; measurable?: boolean }>;

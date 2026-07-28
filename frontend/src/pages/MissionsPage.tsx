@@ -21,6 +21,7 @@ export default function MissionsPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const [instruction, setInstruction] = useState("");
+  const [interpretationThreadId, setInterpretationThreadId] = useState<string | null>(null);
   const [proposal, setProposal] = useState<MissionComposeResponse | null>(null);
   const [confirmed, setConfirmed] = useState<MissionComposeConfirmResponse | null>(null);
   const [missions, setMissions] = useState<MissionListItem[]>([]);
@@ -56,8 +57,8 @@ export default function MissionsPage() {
     if (!session) {
       return;
     }
-    const text = instruction.trim();
-    if (!text) {
+    // Validate non-empty with trim; send original textarea value unchanged.
+    if (!instruction.trim()) {
       return;
     }
 
@@ -66,8 +67,14 @@ export default function MissionsPage() {
     setProposal(null);
     setConfirmed(null);
     try {
-      const result = await composeMission(session, { instruction: text });
+      const result = await composeMission(session, {
+        instruction,
+        interpretation_thread_id: interpretationThreadId ?? undefined,
+      });
       setProposal(result);
+      if (result.interpretation_thread_id) {
+        setInterpretationThreadId(result.interpretation_thread_id);
+      }
     } catch (err) {
       setError(err);
     } finally {
@@ -82,12 +89,12 @@ export default function MissionsPage() {
     setConfirming(true);
     setError(null);
     try {
-      const result = await confirmMissionComposition(session, proposal.proposal_id, {
-        composition: proposal.composition,
-      });
+      // Proposal-ID-only confirmation — backend revalidates server-side.
+      const result = await confirmMissionComposition(session, proposal.proposal_id, {});
       setConfirmed(result);
       setProposal(null);
       setInstruction("");
+      setInterpretationThreadId(null);
       await refreshMissions();
       // Composition creates plan + graph; open execution and auto-run remaining ladder.
       navigate(`/missions/${result.mission_id}?execute=1`);
@@ -112,7 +119,10 @@ export default function MissionsPage() {
             <span className="cc-ai-mark">A</span>
             <div>
               <strong>What should we accomplish?</strong>
-              <p>Tell me naturally. I’ll turn it into a governed plan and ask one focused question if anything important is missing.</p>
+              <p>
+                Tell me naturally. I&apos;ll turn the request into a governed plan. If material information is missing,
+                I&apos;ll tell you what to include when you restate the complete mission.
+              </p>
             </div>
           </div>
         <form className="form-grid mission-create-form" onSubmit={(event) => void handleCompose(event)}>

@@ -10,10 +10,37 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-COMPOSITION_SCHEMA_VERSION = 2
-JOB_CATALOG_VERSION = "2"
-INTERPRETER_VERSION = "3"
-CAPABILITY_RESOLVER_VERSION = "2"
+COMPOSITION_SCHEMA_VERSION = 3
+JOB_CATALOG_VERSION = "3"
+INTERPRETER_VERSION = "4"
+CAPABILITY_RESOLVER_VERSION = "3"
+
+ProposalStatus = Literal[
+    "interpretation_failed",
+    "interpretation_ready",
+    "composition_blocked",
+    "connection_required",
+    "charter_blocked",
+    "proposal_ready",
+    "superseded",
+    "confirmed",
+]
+DependencyKind = Literal["hard", "conditional", "optional"]
+SemanticUnitKind = Literal[
+    "action",
+    "target",
+    "quantity",
+    "location",
+    "time",
+    "side_effect",
+    "approval",
+    "prohibition",
+    "correction",
+    "recipient",
+    "deliverable",
+    "other",
+]
+RiskLevel = Literal["low", "medium", "high", "critical"]
 
 JobRiskLevel = Literal["low", "medium", "high", "critical"]
 JobMaturity = Literal["runtime_bound", "catalog_only"]
@@ -145,9 +172,75 @@ class TargetEntity(BaseModel):
     location: str | None = Field(default=None, max_length=160)
     name: str | None = Field(default=None, max_length=240)
     radius_km: float | None = Field(default=None, ge=0)
+    domain: str | None = Field(default=None, max_length=255)
+    url: str | None = Field(default=None, max_length=2048)
+    email: str | None = Field(default=None, max_length=320)
     attributes: dict[str, Any] = Field(default_factory=dict)
     provenance: ProvenanceSource = "explicit"
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class SemanticUnit(BaseModel):
+    """One material action/target/policy unit — coverage is measured over these."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    unit_id: str = Field(min_length=1, max_length=80)
+    kind: SemanticUnitKind = "other"
+    text: str = Field(min_length=1, max_length=2000)
+    accounted: bool = False
+    mapped_outcomes: list[CanonicalOutcome] = Field(default_factory=list, max_length=10)
+    risk: RiskLevel = "low"
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class Contradiction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_path: str = Field(min_length=1, max_length=160)
+    first_span: str = Field(min_length=1, max_length=500)
+    second_span: str = Field(min_length=1, max_length=500)
+    first_value: str = Field(min_length=1, max_length=240)
+    second_value: str = Field(min_length=1, max_length=240)
+    risk: RiskLevel = "high"
+    resolution_status: Literal["unresolved", "resolved"] = "unresolved"
+    rule_id: str | None = Field(default=None, max_length=120)
+
+
+class StructuredPolicy(BaseModel):
+    """Generic permission/timing policy for non-send channels."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: SendPolicyMode = "unknown"
+    condition: SendPolicyCondition = "none"
+    source: ProvenanceSource = "unresolved"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    rule_id: str | None = Field(default=None, max_length=120)
+
+
+class TimingConstraint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["absolute_window", "relative", "after_job", "after_approval"] = "absolute_window"
+    start: str | None = Field(default=None, max_length=80)
+    end: str | None = Field(default=None, max_length=80)
+    label: str | None = Field(default=None, max_length=240)
+    provenance: ProvenanceSource = "explicit"
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class JobDependency(BaseModel):
+    """Typed dependency — not unconditional pipeline expansion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_key: str = Field(min_length=1, max_length=120)
+    kind: DependencyKind = "hard"
+    # Expand only when these intent/job inputs are missing.
+    required_when_missing: tuple[str, ...] = ()
+    # Alternative input sources that satisfy the dependency without expansion.
+    satisfied_by: tuple[str, ...] = ()
 
 
 class Clarification(BaseModel):
@@ -203,16 +296,28 @@ class MissionIntent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # Audit forms
+    raw_instruction: str = Field(default="", max_length=8000)
+    normalized_instruction: str = Field(default="", max_length=8000)
+    # Display only — not authoritative for execution inputs.
     objective: str = Field(min_length=1, max_length=5000)
     # Canonical outcome IDs only (legacy phrases normalized on validate).
     requested_outcomes: list[str] = Field(default_factory=list, max_length=30)
+    unsupported_outcomes: list[str] = Field(default_factory=list, max_length=20)
     requested_quantity: int | None = Field(default=None, ge=1, le=100)
     quantity_provenance: ProvenanceSource | None = None
     send_policy: SendPolicy = Field(default_factory=SendPolicy)
+    contact_policy: StructuredPolicy = Field(default_factory=StructuredPolicy)
+    publish_policy: StructuredPolicy = Field(default_factory=StructuredPolicy)
+    write_policy: StructuredPolicy = Field(default_factory=StructuredPolicy)
     target_entities: list[TargetEntity] = Field(default_factory=list, max_length=20)
+    timing_constraints: list[TimingConstraint] = Field(default_factory=list, max_length=10)
     # Human-readable display constraints (not authority).
     constraints: list[str] = Field(default_factory=list, max_length=30)
-    # May include action names (gtm.email_send) for resolver forbid set + display labels.
+    # Split forbid concepts (resolver uses forbidden_actions + policies).
+    forbidden_canonical_outcomes: list[str] = Field(default_factory=list, max_length=30)
+    forbidden_actions: list[str] = Field(default_factory=list, max_length=30)
+    # Legacy mixed field — kept for compatibility; prefer the split fields above.
     forbidden_outcomes: list[str] = Field(default_factory=list, max_length=30)
     success_criteria: list[SuccessCriterion] = Field(default_factory=list, max_length=20)
     urgency: str = Field(default="normal", max_length=40)
@@ -222,9 +327,19 @@ class MissionIntent(BaseModel):
     ambiguity: list[Clarification] = Field(default_factory=list, max_length=20)
     interpreted_clauses: list[InterpretedClause] = Field(default_factory=list, max_length=40)
     unmatched_material_clauses: list[InterpretedClause] = Field(default_factory=list, max_length=20)
+    semantic_units: list[SemanticUnit] = Field(default_factory=list, max_length=60)
+    unmatched_material_units: list[SemanticUnit] = Field(default_factory=list, max_length=30)
+    contradictions: list[Contradiction] = Field(default_factory=list, max_length=20)
     interpretation_evidence: list[InterpretationEvidence] = Field(default_factory=list, max_length=50)
     coverage_score: float = Field(default=0.0, ge=0.0, le=1.0)
-    components_active: list[str] = Field(default_factory=lambda: ["regex_core"], max_length=20)
+    minimum_field_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    interpretation_ready: bool = False
+    interpretation_readiness_reasons: list[str] = Field(default_factory=list, max_length=20)
+    components_available: list[str] = Field(default_factory=list, max_length=30)
+    components_executed: list[str] = Field(default_factory=list, max_length=30)
+    components_contributing: list[str] = Field(default_factory=list, max_length=30)
+    # Legacy alias of components_executed for older readers.
+    components_active: list[str] = Field(default_factory=lambda: ["regex_core"], max_length=30)
     interpreter_version: str = Field(default=INTERPRETER_VERSION, max_length=40)
 
     @field_validator("requested_outcomes", mode="before")
@@ -247,8 +362,15 @@ class MissionIntent(BaseModel):
     @field_validator(
         "constraints",
         "forbidden_outcomes",
+        "forbidden_canonical_outcomes",
+        "forbidden_actions",
+        "unsupported_outcomes",
         "context_requirements",
         "components_active",
+        "components_available",
+        "components_executed",
+        "components_contributing",
+        "interpretation_readiness_reasons",
     )
     @classmethod
     def _normalize_string_list(cls, value: list[str]) -> list[str]:
@@ -256,6 +378,21 @@ class MissionIntent(BaseModel):
         if len(set(normalized)) != len(normalized):
             raise ValueError("list entries must be unique")
         return normalized
+
+    def effective_forbidden_actions(self) -> list[str]:
+        """Resolver-facing action forbid set (structured only)."""
+
+        actions = {item.strip() for item in self.forbidden_actions if item and item.strip()}
+        # Legacy bridge: only known action tokens from mixed forbidden_outcomes.
+        for item in self.forbidden_outcomes:
+            token = item.strip()
+            if "." in token and " " not in token:
+                actions.add(token)
+        if self.send_policy.mode in {"forbid", "conditional"}:
+            actions.add("gtm.email_send")
+        if self.publish_policy.mode in {"forbid", "conditional"}:
+            actions.add("gtm.social_publish")
+        return sorted(actions)
 
     def blocks_send(self) -> bool:
         """Authoritative send block from structured policy (not constraint prose)."""
@@ -266,11 +403,20 @@ class MissionIntent(BaseModel):
             "approval",
             "review",
         }:
-            # Conditional send is not immediately executable as a ready send job.
             return True
-        if "send_outreach" not in self.requested_outcomes and self.send_policy.mode != "allow":
-            return "gtm.email_send" in {item.strip() for item in self.forbidden_outcomes}
-        return "gtm.email_send" in {item.strip() for item in self.forbidden_outcomes}
+        forbidden = set(self.effective_forbidden_actions())
+        return "gtm.email_send" in forbidden
+
+    def has_recipient_context(self) -> bool:
+        for entity in self.target_entities:
+            if entity.email or entity.type in {"person", "recipient", "contact"}:
+                return True
+            if entity.name and entity.email:
+                return True
+            attrs = entity.attributes or {}
+            if attrs.get("email") or attrs.get("recipient") or attrs.get("crm_record_id"):
+                return True
+        return False
 
 
 class BusinessJob(BaseModel):
@@ -291,7 +437,9 @@ class BusinessJob(BaseModel):
     credential_policy: Literal["none", "optional", "required"] = "none"
     approval_policy: Literal["none", "review_before_external", "always_review"] = "none"
     evidence_requirements: tuple[str, ...] = ()
+    # Legacy unconditional deps — prefer dependencies when present.
     depends_on_jobs: tuple[str, ...] = ()
+    dependencies: tuple[JobDependency, ...] = ()
     seed_brain_missions: tuple[str, ...] = ()
 
 
@@ -377,7 +525,11 @@ class MissionCompositionRecord(BaseModel):
 
     schema_version: int = Field(default=COMPOSITION_SCHEMA_VERSION, ge=1)
     proposal_id: str = Field(min_length=1, max_length=80)
+    interpretation_thread_id: str = Field(min_length=1, max_length=80)
+    proposal_status: ProposalStatus = "interpretation_ready"
     instruction: str = Field(min_length=1, max_length=8000)
+    raw_instruction: str = Field(default="", max_length=8000)
+    normalized_instruction: str = Field(default="", max_length=8000)
     intent: MissionIntent
     job_assignments: list[JobAssignment] = Field(default_factory=list, max_length=40)
     ability_selections: list[AbilitySelection] = Field(default_factory=list, max_length=40)

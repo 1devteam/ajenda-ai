@@ -49,7 +49,7 @@ from backend.services.mission_composition.plan_compiler import (
 )
 from backend.services.mission_composition.proposal_store import (
     get_proposal,
-    load_recent_failure_context,
+    load_thread_failure_context,
     mark_superseded,
     put_proposal,
 )
@@ -189,18 +189,33 @@ class MissionCompositionService:
     def __init__(self, db: Session | None = None) -> None:
         self._db = db
 
-    def compose(self, *, tenant_id: str, instruction: str, actor_id: str | None = None) -> MissionCompositionRecord:
+    def compose(
+        self,
+        *,
+        tenant_id: str,
+        instruction: str,
+        actor_id: str | None = None,
+        interpretation_thread_id: str | None = None,
+    ) -> MissionCompositionRecord:
         if not instruction or not instruction.strip():
             raise MissionCompositionError(code="INSTRUCTION_REQUIRED", message="instruction is required")
 
-        prior = load_recent_failure_context(tenant_id=tenant_id, db=self._db)
+        # Preserve exact raw instruction; validation uses strip only for emptiness.
+        raw_instruction = instruction
+        thread_id = (interpretation_thread_id or "").strip() or str(uuid.uuid4())
+        prior = load_thread_failure_context(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            interpretation_thread_id=thread_id,
+            db=self._db,
+        )
 
         profile = None
         if self._db is not None:
             profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
-        intent = interpret_instruction(instruction, profile_context=_profile_context(profile))
-        # Backend-owned loop escalation: same missing fields → more specific restatement example.
-        if prior and intent.ambiguity:
+        intent = interpret_instruction(raw_instruction, profile_context=_profile_context(profile))
+        # Escalation only for same actor+thread interpretation failures (durable required).
+        if prior and prior.get("durable") and intent.ambiguity and not intent.interpretation_ready:
             shared = set(prior.get("unresolved_fields") or []) & {c.field for c in intent.ambiguity}
             if shared:
                 example = (
@@ -248,16 +263,7 @@ class MissionCompositionService:
         allowed_actions = [
             item.action_name for item in selections if item.selection_status == "selected" and item.readiness == "ready"
         ]
-        forbidden = sorted(
-            {
-                *intent.forbidden_outcomes,
-                *(
-                    ["gtm.email_send"]
-                    if intent.send_policy.mode in {"forbid", "conditional"} or intent.blocks_send()
-                    else []
-                ),
-            }
-        )
+        forbidden = list(intent.effective_forbidden_actions())
         approval_gates: list[str] = []
         if any(
             item.side_effect_class in {"external_send", "external_write", "external_publish"} for item in selections
@@ -269,15 +275,29 @@ class MissionCompositionService:
         ready_job_keys = {
             item.job_key for item in selections if item.selection_status == "selected" and item.readiness == "ready"
         }
-        # Every runtime-bound job on the composed path must have a ready ability.
-        # Required connection_required jobs (e.g. send without Gmail) keep ready_to_start false.
         required_jobs_ready = all(job.job_key in ready_job_keys for job in jobs if job.maturity == "runtime_bound")
-        ready_to_start = bool(allowed_actions) and required_jobs_ready and not intent.ambiguity
+        interpretation_ok = bool(intent.interpretation_ready) and not intent.ambiguity
+        composition_ok = bool(allowed_actions) and required_jobs_ready
+        connection_blocked = bool(missing) and not composition_ok
+        ready_to_start = interpretation_ok and composition_ok and not connection_blocked
+
+        if not interpretation_ok:
+            proposal_status: str = "interpretation_failed"
+        elif connection_blocked:
+            proposal_status = "connection_required"
+        elif not composition_ok:
+            proposal_status = "composition_blocked"
+        else:
+            proposal_status = "proposal_ready"
 
         record = MissionCompositionRecord(
             schema_version=COMPOSITION_SCHEMA_VERSION,
             proposal_id=str(uuid.uuid4()),
-            instruction=instruction.strip(),
+            interpretation_thread_id=thread_id,
+            proposal_status=proposal_status,  # type: ignore[arg-type]
+            instruction=raw_instruction,
+            raw_instruction=raw_instruction,
+            normalized_instruction=intent.normalized_instruction or raw_instruction,
             intent=intent,
             job_assignments=job_assignments,
             ability_selections=selections,
@@ -292,21 +312,26 @@ class MissionCompositionService:
             ready_to_start=ready_to_start,
             composition_provenance=CompositionProvenance(
                 authority_class="read_model",
-                components_active=list(intent.components_active),
+                components_active=list(intent.components_executed or intent.components_active),
             ),
         )
-        failure_count = int(prior.get("repeated_failure_count") or 0) if prior and not ready_to_start else 0
-        superseded_id = str(prior["proposal_id"]) if prior and prior.get("proposal_id") else None
+        # Only interpretation failures escalate via thread history.
+        failure_count = 0
+        superseded_id = None
+        if proposal_status == "interpretation_failed" and prior and prior.get("durable"):
+            failure_count = int(prior.get("repeated_failure_count") or 0)
+            superseded_id = str(prior["proposal_id"]) if prior.get("proposal_id") else None
         put_proposal(
             tenant_id=tenant_id,
             record=record,
             db=self._db,
             actor_id=actor_id,
-            normalized_instruction=instruction.strip(),
+            normalized_instruction=intent.normalized_instruction or raw_instruction,
             repeated_failure_count=failure_count,
             superseded_proposal_id=superseded_id,
+            require_durable=False,
         )
-        if superseded_id:
+        if superseded_id and proposal_status == "interpretation_failed":
             mark_superseded(
                 tenant_id=tenant_id,
                 proposal_id=superseded_id,

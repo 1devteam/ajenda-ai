@@ -685,7 +685,7 @@ export async function createMission(
 
 export async function composeMission(
   caller: AuthedCaller,
-  body: { instruction: string },
+  body: { instruction: string; interpretation_thread_id?: string },
 ): Promise<MissionComposeResponse> {
   return withAuthedRuntime(caller, (config) =>
     request<MissionComposeResponse>(
@@ -699,7 +699,7 @@ export async function composeMission(
 export async function confirmMissionComposition(
   caller: AuthedCaller,
   proposalId: string,
-  body?: { composition?: Record<string, unknown> },
+  body?: { composition?: Record<string, unknown>; idempotency_key?: string },
 ): Promise<MissionComposeConfirmResponse> {
   return withAuthedRuntime(caller, (config) =>
     request<MissionComposeConfirmResponse>(

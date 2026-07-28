@@ -2,9 +2,63 @@
 
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from backend.services.mission_composition.contracts import MissionIntent
+
+_MONTHS = {
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sep": 9,
+    "sept": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
+}
+_NAMED_DAY = re.compile(
+    r"\b(?P<month>january|february|march|april|may|june|july|august|september|october|"
+    r"november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\s+"
+    r"(?P<day>\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(?P<year>\d{4}))?\b",
+    re.IGNORECASE,
+)
+
+
+def _calendar_window_from_objective(objective: str) -> tuple[str | None, str | None]:
+    text = (objective or "").strip()
+    named = _NAMED_DAY.search(text)
+    if not named:
+        return None, None
+    month_num = _MONTHS.get(named.group("month").lower())
+    if month_num is None:
+        return None, None
+    day = int(named.group("day"))
+    year = int(named.group("year") or datetime.now(tz=UTC).year)
+    try:
+        start = datetime(year, month_num, day, 0, 0, 0, tzinfo=UTC)
+    except Exception:
+        return None, None
+    end = start + timedelta(days=1)
+    return start.isoformat().replace("+00:00", "Z"), end.isoformat().replace("+00:00", "Z")
+
 
 _DEFAULT_PROSPECT_COUNT = 3
 
@@ -56,10 +110,16 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         lead["location"] = location
 
     if action_name == "web.research":
-        research_query = intent.objective.strip()[:400] if intent.objective.strip() else query
+        entity = intent.target_entities[0] if intent.target_entities else None
+        research_query = query
+        if entity and entity.industry and entity.location:
+            research_query = f"{entity.industry} companies in {entity.location}"
+        elif entity and entity.name:
+            research_query = entity.name
         return {
-            "query": research_query,
+            "query": research_query[:400],
             "company": industry,
+            "domain": entity.domain if entity else None,
             "fetch_public_page": False,
             "include_public_search": True,
             "limit": limit,
@@ -173,7 +233,15 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name in {"record.search", "document.search", "retrieval.hybrid_search"}:
         return {"query": query, "limit": limit}
     if action_name == "google_calendar.events_read":
-        return {"calendar_id": "primary", "limit": limit}
+        start, end = _calendar_window_from_objective(
+            intent.raw_instruction or intent.normalized_instruction or intent.objective
+        )
+        payload = {"calendar_id": "primary", "limit": max(limit, 20)}
+        if start:
+            payload["start"] = start
+        if end:
+            payload["end"] = end
+        return payload
     if action_name == "calendar.read":
         return {"limit": limit}
     if action_name == "sales.log_activity":

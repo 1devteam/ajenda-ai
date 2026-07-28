@@ -27,6 +27,7 @@ class MissionCompositionProposalRepository:
         components_active: list[str],
         ready_to_start: bool,
         actor_id: str | None = None,
+        interpretation_thread_id: str | None = None,
         normalized_instruction: str | None = None,
         failure_reason: str | None = None,
         restatement_requirement: str | None = None,
@@ -38,7 +39,7 @@ class MissionCompositionProposalRepository:
         coverage_score: float | None = None,
         repeated_failure_count: int = 0,
         superseded_proposal_id: str | None = None,
-        status: str = "active",
+        status: str = "interpretation_ready",
     ) -> MissionCompositionProposal:
         existing = self.get(tenant_id=tenant_id, proposal_id=proposal_id)
         now = datetime.now(tz=UTC)
@@ -48,6 +49,7 @@ class MissionCompositionProposalRepository:
                 tenant_id=tenant_id,
                 proposal_id=proposal_id,
                 actor_id=actor_id,
+                interpretation_thread_id=interpretation_thread_id,
                 instruction=instruction,
                 normalized_instruction=normalized_instruction,
                 interpreter_version=interpreter_version,
@@ -71,6 +73,7 @@ class MissionCompositionProposalRepository:
             return row
 
         existing.actor_id = actor_id
+        existing.interpretation_thread_id = interpretation_thread_id
         existing.instruction = instruction
         existing.normalized_instruction = normalized_instruction
         existing.interpreter_version = interpreter_version
@@ -117,14 +120,42 @@ class MissionCompositionProposalRepository:
         self._session.flush()
 
     def latest_failed_for_tenant(self, *, tenant_id: str, limit: int = 5) -> list[MissionCompositionProposal]:
+        """Deprecated chronology lookup — prefer thread-scoped history."""
+
         stmt = (
             select(MissionCompositionProposal)
             .where(
                 MissionCompositionProposal.tenant_id == tenant_id,
-                MissionCompositionProposal.status.in_(("failed", "active")),
+                MissionCompositionProposal.status.in_(
+                    ("failed", "active", "interpretation_failed"),
+                ),
                 MissionCompositionProposal.ready_to_start.is_(False),
             )
             .order_by(MissionCompositionProposal.created_at.desc())
             .limit(limit)
         )
+        return list(self._session.execute(stmt).scalars().all())
+
+    def latest_interpretation_failures_for_thread(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str | None,
+        interpretation_thread_id: str,
+        limit: int = 5,
+    ) -> list[MissionCompositionProposal]:
+        """Only true interpretation failures for one actor+thread participate in escalation."""
+
+        stmt = (
+            select(MissionCompositionProposal)
+            .where(
+                MissionCompositionProposal.tenant_id == tenant_id,
+                MissionCompositionProposal.interpretation_thread_id == interpretation_thread_id,
+                MissionCompositionProposal.status == "interpretation_failed",
+            )
+            .order_by(MissionCompositionProposal.created_at.desc())
+            .limit(limit)
+        )
+        if actor_id:
+            stmt = stmt.where(MissionCompositionProposal.actor_id == actor_id)
         return list(self._session.execute(stmt).scalars().all())

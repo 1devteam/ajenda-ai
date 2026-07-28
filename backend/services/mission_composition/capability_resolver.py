@@ -13,6 +13,7 @@ from backend.services.mission_composition.contracts import (
     AbilityAlternative,
     AbilitySelection,
     BusinessJob,
+    JobDependency,
     MissionIntent,
 )
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY, list_business_jobs
@@ -71,16 +72,50 @@ _CONNECTION_HINTS: dict[str, dict[str, str]] = {
 }
 
 
+def _intent_input_sources(intent: MissionIntent) -> set[str]:
+    """What structured inputs the intent already satisfies (no invented work)."""
+
+    sources: set[str] = set()
+    if intent.has_recipient_context():
+        sources.update({"recipient_context", "explicit_recipient", "explicit_email"})
+    for entity in intent.target_entities:
+        if entity.name or entity.industry:
+            sources.add("explicit_company")
+            sources.add("prospect_candidates")
+        if entity.email:
+            sources.add("explicit_email")
+            sources.add("recipient_context")
+        if (entity.attributes or {}).get("crm_record_id"):
+            sources.add("crm_record")
+        if entity.domain or entity.url:
+            sources.add("explicit_company")
+    if intent.requested_quantity is not None:
+        sources.add("quantity")
+    return sources
+
+
+def _dependency_should_expand(dep: JobDependency, *, available: set[str]) -> bool:
+    if dep.kind == "optional":
+        return False
+    if dep.kind == "hard":
+        return True
+    if dep.satisfied_by and any(item in available for item in dep.satisfied_by):
+        return False
+    if not dep.required_when_missing:
+        return False
+    return any(item not in available for item in dep.required_when_missing)
+
+
 def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
     """Map canonical requested outcomes to business jobs (deterministic)."""
 
-    # MissionIntent validator already normalizes outcomes to canonical IDs.
     outcomes = {item.strip() for item in intent.requested_outcomes if item and item.strip()}
     if not outcomes:
         return []
 
     selected: list[BusinessJob] = []
     selected_keys: set[str] = set()
+    available = _intent_input_sources(intent)
 
     for job in list_business_jobs():
         supported = set(job.supported_outcomes)
@@ -89,28 +124,32 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
                 selected.append(job)
                 selected_keys.add(job.job_key)
 
-    # Expand required upstream dependencies transitively (fixed-point).
     expanded = list(selected)
     pending = list(selected)
     while pending:
         job = pending.pop()
-        for dep_key in job.depends_on_jobs:
-            if dep_key in selected_keys:
+        deps: list[JobDependency] = list(job.dependencies)
+        if not deps:
+            deps = [JobDependency(job_key=k, kind="hard") for k in job.depends_on_jobs]
+        for dep in deps:
+            if dep.job_key in selected_keys:
                 continue
-            dep = BUSINESS_JOBS_BY_KEY.get(dep_key)
-            if dep is None:
+            if not _dependency_should_expand(dep, available=available):
                 continue
-            expanded.append(dep)
-            selected_keys.add(dep_key)
-            pending.append(dep)
+            dep_job = BUSINESS_JOBS_BY_KEY.get(dep.job_key)
+            if dep_job is None:
+                continue
+            expanded.append(dep_job)
+            selected_keys.add(dep.job_key)
+            pending.append(dep_job)
 
-    # Stable topological-ish order: dependencies first by catalog order.
     catalog_order = {job.job_key: index for index, job in enumerate(list_business_jobs())}
     expanded.sort(key=lambda job: catalog_order.get(job.job_key, 999))
 
-    # Drop send job unless structured policy explicitly allows immediate send.
     if intent.send_policy.mode != "allow" or intent.blocks_send():
         expanded = [job for job in expanded if job.job_key != "email.deliver_outreach"]
+    if "publish_content" not in outcomes:
+        expanded = [job for job in expanded if job.job_key != "gtm.publish_content"]
 
     return expanded
 

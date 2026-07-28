@@ -28,14 +28,20 @@ router = APIRouter(prefix="/missions", tags=["mission-composition"])
 class ComposeMissionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Exact raw instruction (frontend validates non-empty with trim but must not strip).
     instruction: str = Field(min_length=1, max_length=8000)
+    interpretation_thread_id: str | None = Field(default=None, max_length=80)
 
 
 class ComposeMissionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     proposal_id: str
+    interpretation_thread_id: str
+    proposal_status: str = "interpretation_ready"
     instruction: str
+    raw_instruction: str = ""
+    normalized_instruction: str = ""
     mission_brief: dict[str, Any]
     assigned_verticals: list[str]
     jobs: list[dict[str, Any]]
@@ -57,7 +63,9 @@ class ComposeMissionResponse(BaseModel):
 class ConfirmCompositionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Preferred: confirm by proposal identity only. Full composition is legacy/compat.
     composition: dict[str, Any] | None = None
+    idempotency_key: str | None = Field(default=None, max_length=200)
 
 
 class ConfirmCompositionResponse(BaseModel):
@@ -89,7 +97,11 @@ def _to_compose_response(record: MissionCompositionRecord) -> ComposeMissionResp
     verticals = sorted({item.vertical_key for item in record.job_assignments})
     return ComposeMissionResponse(
         proposal_id=record.proposal_id,
+        interpretation_thread_id=record.interpretation_thread_id,
+        proposal_status=str(record.proposal_status),
         instruction=record.instruction,
+        raw_instruction=record.raw_instruction or record.instruction,
+        normalized_instruction=record.normalized_instruction or record.intent.normalized_instruction,
         mission_brief={
             "objective": record.intent.objective,
             "success_criteria": [item.model_dump(mode="json") for item in record.intent.success_criteria],
@@ -141,7 +153,12 @@ def compose_mission(
     require_route_permission(request=request, db=db, permission=Permission.MISSION_CREATE, tenant_id=tenant_id)
     service = MissionCompositionService(db)
     try:
-        record = service.compose(tenant_id=str(tenant_id), instruction=body.instruction)
+        record = service.compose(
+            tenant_id=str(tenant_id),
+            instruction=body.instruction,
+            actor_id=_actor_id(request),
+            interpretation_thread_id=body.interpretation_thread_id,
+        )
     except MissionCompositionError as exc:
         raise _map_error(exc) from exc
     return _to_compose_response(record)

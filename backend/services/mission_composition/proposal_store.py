@@ -1,7 +1,8 @@
-"""Proposal store: in-process cache + optional durable SQL persistence.
+"""Proposal store: in-process cache + durable SQL persistence.
 
-Durable rows never grant runtime execution authority. Multi-worker confirm
-still re-composes from instruction server-side.
+Durable history is **required** for clarification-loop escalation and
+supersession. When DB persistence fails, escalation is disabled (fail closed
+for loop correctness claims — never claim multi-worker durable loops on memory).
 """
 
 from __future__ import annotations
@@ -26,7 +27,10 @@ def put_proposal(
     normalized_instruction: str | None = None,
     repeated_failure_count: int = 0,
     superseded_proposal_id: str | None = None,
-) -> None:
+    require_durable: bool = False,
+) -> bool:
+    """Persist proposal. Returns True when durable write succeeded (or not required)."""
+
     record_json: dict[str, Any] = record.model_dump(mode="json")
     payload: dict[str, Any] = {
         "tenant_id": tenant_id,
@@ -36,13 +40,13 @@ def put_proposal(
         _PROPOSALS[record.proposal_id] = payload
 
     if db is None:
-        return
+        return not require_durable
     try:
         from backend.repositories.mission_composition_proposal_repository import (
             MissionCompositionProposalRepository,
         )
     except Exception:
-        return
+        return not require_durable
 
     intent = record.intent
     restatement = None
@@ -50,25 +54,33 @@ def put_proposal(
     if record.clarifications:
         restatement = " ".join(c.question for c in record.clarifications)[:4000]
         unresolved = sorted({c.field for c in record.clarifications})
-    status = "ready" if record.ready_to_start else "failed"
+
+    status = record.proposal_status
     failure_reason = None
-    if not record.ready_to_start:
-        failure_reason = unresolved[0] if unresolved else "not_ready"
+    if status == "interpretation_failed":
+        failure_reason = unresolved[0] if unresolved else "interpretation_failed"
+    elif not record.ready_to_start and status == "connection_required":
+        failure_reason = "connection_required"
+    elif not record.ready_to_start and status == "charter_blocked":
+        failure_reason = "charter_blocked"
 
     recognized = [c.model_dump(mode="json") for c in intent.interpreted_clauses if c.status == "recognized"]
     unmatched = [c.model_dump(mode="json") for c in intent.unmatched_material_clauses]
+    raw_instruction = record.raw_instruction or record.instruction
+    normalized = normalized_instruction or record.normalized_instruction or intent.normalized_instruction
 
     try:
         MissionCompositionProposalRepository(db).upsert(
             tenant_id=tenant_id,
             proposal_id=record.proposal_id,
-            instruction=record.instruction,
+            instruction=raw_instruction,
             record_json=record_json,
             interpreter_version=intent.interpreter_version,
-            components_active=list(intent.components_active),
+            components_active=list(intent.components_executed or intent.components_active),
             ready_to_start=record.ready_to_start,
             actor_id=actor_id,
-            normalized_instruction=normalized_instruction,
+            interpretation_thread_id=record.interpretation_thread_id,
+            normalized_instruction=normalized,
             failure_reason=failure_reason,
             restatement_requirement=restatement,
             recognized_clauses=recognized,
@@ -82,12 +94,13 @@ def put_proposal(
             status=status,
         )
         db.commit()
+        return True
     except Exception:
-        # Fail-open to in-memory: durable history must not break compose.
         try:
             db.rollback()
         except Exception:
             pass
+        return False
 
 
 def get_proposal(
@@ -123,10 +136,16 @@ def get_proposal(
         return None
 
 
-def load_recent_failure_context(*, tenant_id: str, db: Session | None) -> dict[str, Any] | None:
-    """Backend-owned prior failure context for restatement escalation (not client merge)."""
+def load_thread_failure_context(
+    *,
+    tenant_id: str,
+    actor_id: str | None,
+    interpretation_thread_id: str,
+    db: Session | None,
+) -> dict[str, Any] | None:
+    """Backend-owned prior **interpretation** failure context for one thread only."""
 
-    if db is None:
+    if db is None or not interpretation_thread_id.strip():
         return None
     try:
         from backend.repositories.mission_composition_proposal_repository import (
@@ -135,7 +154,12 @@ def load_recent_failure_context(*, tenant_id: str, db: Session | None) -> dict[s
     except Exception:
         return None
     try:
-        rows = MissionCompositionProposalRepository(db).latest_failed_for_tenant(tenant_id=tenant_id, limit=3)
+        rows = MissionCompositionProposalRepository(db).latest_interpretation_failures_for_thread(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            interpretation_thread_id=interpretation_thread_id,
+            limit=5,
+        )
     except Exception:
         return None
     if not rows:
@@ -150,7 +174,19 @@ def load_recent_failure_context(*, tenant_id: str, db: Session | None) -> dict[s
         "unresolved_fields": sorted(shared_fields) if shared_fields else list(latest.unresolved_fields or []),
         "prior_instruction": latest.instruction,
         "restatement_requirement": latest.restatement_requirement,
+        "interpretation_thread_id": interpretation_thread_id,
+        "durable": True,
     }
+
+
+def load_recent_failure_context(*, tenant_id: str, db: Session | None) -> dict[str, Any] | None:
+    """Deprecated tenant-chronology lookup — disabled for correctness.
+
+    Use load_thread_failure_context. Returning None prevents cross-actor contamination.
+    """
+
+    _ = (tenant_id, db)
+    return None
 
 
 def mark_superseded(
