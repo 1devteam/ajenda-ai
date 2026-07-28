@@ -28,6 +28,8 @@ class MissionCompositionProposal(Base):
     tenant_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     proposal_id: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     actor_id: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    interpretation_thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    proposal_kind: Mapped[str] = mapped_column(String(40), nullable=False, default="interpretation")
     instruction: Mapped[str] = mapped_column(Text, nullable=False)
     normalized_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
     interpreter_version: Mapped[str] = mapped_column(String(40), nullable=False, default="3")

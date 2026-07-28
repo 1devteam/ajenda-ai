@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from backend.services.mission_composition.contracts import (
+    CANONICAL_OUTCOMES,
     INTERPRETER_VERSION,
     CanonicalOutcome,
     Clarification,
@@ -92,21 +93,35 @@ _ENRICH_PATTERNS = (
     r"find (?:emails?|phone numbers?|contact)",
     r"look up (?:emails?|contact)",
 )
+# Read-oriented calendar only. Imperative "schedule a meeting" is not events_read.
 _CALENDAR_PATTERNS = (
-    r"\bcalend[ae]r\b",  # calendar / common misspelling calender
+    r"\bcalend[ae]r\b",
     r"calendar briefing",
     r"read calend[ae]r",
     r"google calend[ae]r",
-    r"\bscheduled\b",
-    r"\bschedule\b",
     r"\bagenda\b",
     r"what(?:'s| is) on my (?:calend[ae]r|schedule)",
     r"what do i have (?:scheduled|on my calend[ae]r)",
+    r"what(?:'s| is) scheduled\b",
     r"upcoming (?:calendar )?commitments",
     r"meeting prep",
     r"meeting brief",
+    r"show (?:me )?(?:my )?(?:calend[ae]r|schedule)",
+    r"check (?:my )?(?:calend[ae]r|schedule)",
     r"\bevents?\b.*\bcalend[ae]r\b",
     r"\bcalend[ae]r\b.*\bevents?\b",
+)
+_CALENDAR_MUTATION_PATTERNS = (
+    r"\bschedule (?:a |an )?(?:meeting|call|event|appointment)\b",
+    r"\bbook (?:a |an )?(?:meeting|call|event|appointment)\b",
+    r"\bcreate (?:a |an )?(?:calendar )?(?:event|meeting)\b",
+    r"\badd (?:a |an )?(?:meeting|event) to (?:my )?(?:calend[ae]r|schedule)\b",
+    r"\bdelete\b.{0,40}\b(?:calend[ae]r|event|meeting|appointment)\b",
+    r"\bcancel\b.{0,40}\b(?:calend[ae]r|event|meeting|appointment)\b",
+    r"\breschedule\b.{0,40}\b(?:calend[ae]r|event|meeting|appointment)\b",
+    r"\bupdate\b.{0,40}\b(?:calend[ae]r|event|meeting|appointment)\b",
+    r"\bremove\b.{0,40}\b(?:calend[ae]r|events?|meetings?)\b",
+    r"\bmove\b.{0,40}\b(?:meeting|event|appointment)\b",
 )
 # Mutation verbs only — naming HubSpot/CRM as a read source must not imply upsert.
 _CRM_UPDATE_PATTERNS = (
@@ -117,12 +132,12 @@ _CRM_UPDATE_PATTERNS = (
     r"\bwrite (?:to |into )?(?:the )?crm\b",
     r"\bsync (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
     r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
-    # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
     r"\badd (?:them|it|these|those|each|leads?|prospects?|companies)?\s*(?:to|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\bsave (?:them|it|these|those|each|leads?|prospects?)?\s*(?:to|into|in)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
-    r"\bput (?:them|it|these|those)\s+(?:in|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
+    # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
+    r"\bput (?:them|it|these|those)\s+(?:in|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\bcreate (?:crm )?(?:records?|contacts?)\b",
 )
 _CRM_NEGATION_PATTERNS = (
@@ -140,6 +155,17 @@ _PUBLISH_PATTERNS = (
     r"\bshare (?:to|on) (?:linkedin|social)\b",
     r"\bpost (?:an? )?(?:update|announcement|message) (?:to|on)\b",
     r"\bsocial media post",
+)
+_PUBLISH_NEGATION_PATTERNS = (
+    r"\b(?:do not|don't|dont|never|without)\s+publish\b",
+    r"\b(?:do not|don't|dont|never|without)\s+post\b",
+    r"\b(?:do not|don't|dont|never)\s+share\b.{0,24}\b(?:linkedin|social|twitter|x)\b",
+    r"\bno\s+(?:social\s+)?(?:publishing|posts?)\b",
+)
+# Publish that must wait on upstream research outputs (not standalone copy).
+_PUBLISH_RESULT_BASED = re.compile(
+    r"\b(?:post|publish|share)\s+(?:the\s+)?(?:results?|findings?|them)\b",
+    re.IGNORECASE,
 )
 _COUNT_PATTERN = re.compile(r"\b(\d+|three|two|four|five|ten)\b", re.IGNORECASE)
 _WORD_COUNTS = {
@@ -216,11 +242,23 @@ def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
 
 
+_MONTH_NAME = (
+    r"january|february|march|april|may|june|july|august|september|october|november|december|"
+    r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
+)
+_DATE_SPAN = re.compile(
+    rf"\b(?:{_MONTH_NAME})\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,?\s*\d{{4}})?\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+    re.IGNORECASE,
+)
+
+
 def _extract_count(text: str) -> int | None:
-    """Extract prospect/task quantity — never calendar day numbers or years."""
+    """Extract prospect quantity — never calendar day numbers or years."""
 
     cleaned = _DATE_SPAN.sub(" ", text)
-    # Drop bare years so "2026" is not a quantity.
+
     cleaned = re.sub(r"\b20\d{2}\b", " ", cleaned)
     match = _COUNT_PATTERN.search(cleaned)
     if match is None:
@@ -229,6 +267,7 @@ def _extract_count(text: str) -> int | None:
     if raw.isdigit():
         value = int(raw)
         # Prospect quantities are small; large bare integers are not counts here.
+
         if value > 50:
             return None
         return value
@@ -370,6 +409,13 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "publish_content" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Provider confirms the social post was accepted or returns a publish identifier",
+                measurable=True,
+            )
+        )
     return success
 
 
@@ -397,7 +443,7 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         outcomes.append("read_calendar")
     if _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(lower, _CRM_NEGATION_PATTERNS):
         outcomes.append("update_crm")
-    if _contains_any(lower, _PUBLISH_PATTERNS):
+    if _contains_any(lower, _PUBLISH_PATTERNS) and not _contains_any(lower, _PUBLISH_NEGATION_PATTERNS):
         outcomes.append("publish_content")
 
     material = bool(outcomes) or _contains_any(
@@ -407,7 +453,21 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         + _CRM_UPDATE_PATTERNS
         + _CRM_NEGATION_PATTERNS
         + _PUBLISH_PATTERNS
-        + (r"\bapprov", r"\bdelet", r"\bcharg", r"\binvoice"),
+        + _PUBLISH_NEGATION_PATTERNS
+        + (
+            r"\bapprov",
+            r"\bdelet",
+            r"\bcharg",
+            r"\binvoice",
+            r"\bfax\b",
+            r"\bpurchase order\b",
+            r"\bwire (?:transfer|money)\b",
+            r"\btransfer funds\b",
+            r"\bpay\b",
+            r"\brefund\b",
+            r"\bdelete\b",
+            r"\bterminate\b",
+        ),
     )
     # Bare location/count fragments treated as material when short.
     if not material and (re.search(r"\b\d+\b", lower) or len(clause.split()) <= 4):
@@ -432,6 +492,7 @@ def interpret_instruction(
 ) -> MissionIntent:
     """Extract a candidate MissionIntent without granting execution authority."""
 
+    raw_instruction = instruction
     text = instruction.strip()
     if not text:
         raise ValueError("instruction must be non-empty")
@@ -482,7 +543,9 @@ def interpret_instruction(
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
     no_crm = _contains_any(lower, _CRM_NEGATION_PATTERNS)
     wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm
-    wants_publish = _contains_any(lower, _PUBLISH_PATTERNS)
+    no_publish = _contains_any(lower, _PUBLISH_NEGATION_PATTERNS)
+    wants_publish = _contains_any(lower, _PUBLISH_PATTERNS) and not no_publish
+    publish_result_based = _PUBLISH_RESULT_BASED.search(lower) is not None
 
     outcomes: list[CanonicalOutcome] = []
     if wants_research:
@@ -583,6 +646,11 @@ def interpret_instruction(
         constraints.append("Do not write contacts or CRM records")
         if "update_crm" in outcomes:
             outcomes = [o for o in outcomes if o != "update_crm"]
+    if no_publish:
+        forbidden.append("gtm.social_publish")
+        constraints.append("Do not publish or post to social channels")
+        if "publish_content" in outcomes:
+            outcomes = [o for o in outcomes if o != "publish_content"]
     if conditional_send:
         send_policy = SendPolicy(
             mode="conditional",
@@ -614,7 +682,9 @@ def interpret_instruction(
             rule_id="negation.no_send" if no_send else "negation.draft_only",
         )
         constraints.append("Do not send messages")
-        forbidden.extend(["send messages", "gtm.email_send"])
+        forbidden.extend(["gtm.email_send"])
+        if "send_outreach" in outcomes:
+            outcomes = [o for o in outcomes if o != "send_outreach"]
         evidence.append(
             _evidence(
                 field_path="send_policy",
@@ -658,7 +728,8 @@ def interpret_instruction(
                 rule_id="entity.quantity",
             )
         )
-    elif outcomes and any(o in outcomes for o in ("research_prospects", "qualify_prospects", "prepare_outreach")):
+    elif outcomes and any(o in outcomes for o in ("research_prospects", "qualify_prospects")):
+        # Default quantity only for low-risk prospect research — not drafts/calendar.
         quantity = 3
         quantity_provenance = "system_default"
         evidence.append(
@@ -666,7 +737,7 @@ def interpret_instruction(
                 field_path="requested_quantity",
                 source="system_default",
                 normalized_value="3",
-                confidence=0.5,
+                confidence=0.55,
                 rule_id="default.quantity_3",
             )
         )
@@ -675,7 +746,33 @@ def interpret_instruction(
         quantity_provenance = None
 
     entities = _extract_target_entities(text)
-    if entities:
+    # Named email recipients (draft-to-X without inventing discovery).
+    for email_match in re.finditer(
+        r"\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
+        text,
+    ):
+        email = email_match.group(1)
+        if not any((e.email or "").lower() == email.lower() for e in entities):
+            entities.append(
+                TargetEntity(
+                    type="recipient",
+                    name=email.split("@")[0],
+                    email=email,
+                    provenance="explicit",
+                    confidence=0.95,
+                )
+            )
+            evidence.append(
+                _evidence(
+                    field_path="target_entities.email",
+                    source="explicit",
+                    source_text=email,
+                    normalized_value=email,
+                    confidence=0.95,
+                    rule_id="entity.email_recipient",
+                )
+            )
+    if entities and entities[0].industry:
         evidence.append(
             _evidence(
                 field_path="target_entities[0]",
@@ -687,6 +784,8 @@ def interpret_instruction(
             )
         )
         label = f"{entities[0].industry or 'target'} in {entities[0].location or 'specified market'}"
+    elif entities and entities[0].email:
+        label = entities[0].email
     else:
         label = "the requested market"
 
@@ -811,17 +910,46 @@ def interpret_instruction(
             )
         )
 
-    # Publish is not executable in this catalog generation — fail closed if requested.
-    if "publish_content" in outcomes:
+    # Imperative calendar create/update/delete is not supported as events_read.
+    if _contains_any(lower, _CALENDAR_MUTATION_PATTERNS):
+        # Strip accidental read_calendar when the user asked to mutate calendar state.
+        if "read_calendar" in outcomes and not re.search(
+            r"\b(?:what|show|check|read|upcoming|brief)\b",
+            lower,
+            flags=re.IGNORECASE,
+        ):
+            outcomes = [o for o in outcomes if o != "read_calendar"]
         clarifications.append(
             _restatement(
-                field="publish_content",
+                field="calendar_write",
                 understood=understood,
-                missing="publishing or social posting was requested but is not a composed runtime outcome yet",
-                include_instruction="whether to omit publishing, or restate only outcomes Ajenda can run today",
-                reason="publish_content is recognized but not runtime-bound in the job catalog.",
+                missing=(
+                    "creating, updating, rescheduling, or deleting calendar events is not a composed "
+                    "runtime outcome yet (only calendar read/briefing is supported)"
+                ),
+                include_instruction=(
+                    "whether to read existing calendar events instead, or omit calendar mutations from this mission"
+                ),
+                reason="Calendar mutation language must not silently map to google_calendar.events_read.",
             )
         )
+
+    # Tag result-based publish so planners can expand research deps and bind content.
+    if publish_result_based and "publish_content" in outcomes:
+        if entities:
+            entities = [
+                entity.model_copy(update={"attributes": {**(entity.attributes or {}), "publish_result_based": True}})
+                for entity in entities
+            ]
+        else:
+            entities = [
+                TargetEntity(
+                    type="publish_context",
+                    provenance="inferred_deterministic",
+                    confidence=0.9,
+                    attributes={"publish_result_based": True},
+                )
+            ]
 
     emailish = wants_draft or "email" in lower or "message" in lower
     if (
@@ -871,7 +999,49 @@ def interpret_instruction(
     if "research_prospects" in outcomes and "prepare_outreach" in outcomes and send_policy.mode == "forbid":
         objective = f"Identify and prepare outreach for qualified {label} prospects without sending messages."
 
-    return MissionIntent(
+    # Split forbid concepts: action tokens vs display/legacy mix.
+    forbidden_actions = [item for item in forbidden if "." in item and " " not in item]
+    forbidden_canonical = [item for item in forbidden if item in CANONICAL_OUTCOMES]
+    # Gate confidence on user-derived fields only — system defaults (e.g. qty=3)
+    # must not fail ordinary research that intentionally omits quantity.
+    confidences = [
+        e.confidence
+        for e in evidence
+        if e.confidence is not None and e.source not in {"system_default", "profile_context"}
+    ]
+    min_conf = min(confidences) if confidences else None
+
+    # Semantic units from clauses (coverage measured over material units).
+    from backend.services.mission_composition.contracts import SemanticUnit
+
+    semantic_units: list[SemanticUnit] = []
+    unmatched_units: list[SemanticUnit] = []
+    try:
+        for clause in clause_models:
+            unit = SemanticUnit(
+                unit_id=clause.clause_id,
+                kind="action" if clause.mapped_outcomes else "other",
+                text=clause.text,
+                accounted=clause.status == "recognized",
+                mapped_outcomes=list(clause.mapped_outcomes),
+                risk="high"
+                if any(
+                    token in clause.text.lower()
+                    for token in ("delete", "charge", "invoice", "publish", "send", "overwrite")
+                )
+                else "low",
+                reason=clause.reason,
+            )
+            semantic_units.append(unit)
+            if clause.material and clause.status != "recognized":
+                unmatched_units.append(unit)
+    except Exception:
+        semantic_units = []
+        unmatched_units = []
+
+    intent = MissionIntent(
+        raw_instruction=raw_instruction,
+        normalized_instruction=text,
         objective=objective,
         requested_outcomes=list(outcomes),
         requested_quantity=quantity,
@@ -880,6 +1050,8 @@ def interpret_instruction(
         target_entities=entities,
         constraints=constraints,
         forbidden_outcomes=forbidden,
+        forbidden_actions=forbidden_actions,
+        forbidden_canonical_outcomes=forbidden_canonical,
         success_criteria=success
         if success
         else [
@@ -895,8 +1067,42 @@ def interpret_instruction(
         ambiguity=clarifications,
         interpreted_clauses=clause_models,
         unmatched_material_clauses=unmatched,
+        semantic_units=semantic_units,
+        unmatched_material_units=unmatched_units,
         interpretation_evidence=evidence,
         coverage_score=round(coverage, 3),
+        minimum_field_confidence=min_conf,
+        components_available=list(dict.fromkeys([*components_active, "regex_core"])),
+        components_executed=list(dict.fromkeys(components_active)),
+        components_contributing=list(dict.fromkeys(components_active)),
         components_active=list(dict.fromkeys(components_active)),
         interpreter_version=INTERPRETER_VERSION,
+    )
+    from backend.services.mission_composition.readiness import evaluate_interpretation_readiness
+
+    readiness = evaluate_interpretation_readiness(intent)
+    return intent.model_copy(
+        update={
+            "interpretation_ready": readiness.ready,
+            "interpretation_readiness_reasons": list(readiness.reasons),
+            # Align ambiguity with readiness when restatement required.
+            "ambiguity": clarifications
+            if clarifications
+            else (
+                [
+                    _restatement(
+                        field="interpretation_readiness",
+                        understood=objective[:240] if objective else None,
+                        missing="; ".join(readiness.reasons)[:400],
+                        include_instruction=(
+                            "the full objective, target market or scope, deliverable, "
+                            "and whether sending or other external actions are permitted"
+                        ),
+                        reason="Interpretation readiness policy failed.",
+                    )
+                ]
+                if not readiness.ready
+                else []
+            ),
+        }
     )

@@ -228,13 +228,26 @@ def test_send_after_approval_is_conditional_not_immediate_send_job() -> None:
     assert "email.deliver_outreach" not in {job.job_key for job in jobs}
 
 
-def test_unmatched_material_clause_fails_closed() -> None:
+def test_publish_content_is_runtime_bound_not_stranded() -> None:
     intent = interpret_instruction(
         "Research three roofing companies in Austin, qualify them, draft emails, "
-        "and post the results on LinkedIn without my approval."
+        "and post the results on LinkedIn without my approval. Do not send emails."
     )
     assert "research_prospects" in intent.requested_outcomes
     assert "publish_content" in intent.requested_outcomes
+    assert intent.success_criteria
+    assert any("publish" in c.description.lower() for c in intent.success_criteria)
+    jobs = route_jobs_for_intent(intent)
+    assert "gtm.publish_content" in {job.job_key for job in jobs}
+
+
+def test_unmatched_material_clause_fails_closed() -> None:
+    intent = interpret_instruction(
+        "Research three roofing companies in Austin and fax each of them a signed purchase order"
+    )
+    assert "research_prospects" in intent.requested_outcomes
+    # "fax … purchase order" is material without a canonical outcome mapping.
+    assert intent.unmatched_material_clauses or any(c.field == "clause_coverage" for c in intent.ambiguity)
     assert intent.ambiguity
     assert any("restate the complete mission" in c.question.lower() for c in intent.ambiguity)
 

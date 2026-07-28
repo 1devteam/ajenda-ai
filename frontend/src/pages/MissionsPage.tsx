@@ -13,6 +13,7 @@ import type {
   MissionComposeResponse,
   MissionListItem,
 } from "../types";
+import { newIdempotencyKey } from "../utils/errors";
 
 const PLACEHOLDER =
   "Research roofing companies in Austin, identify three strong prospects, draft personalized introductions, and bring them to me before anything is sent.";
@@ -21,6 +22,7 @@ export default function MissionsPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const [instruction, setInstruction] = useState("");
+  const [interpretationThreadId, setInterpretationThreadId] = useState<string | null>(null);
   const [proposal, setProposal] = useState<MissionComposeResponse | null>(null);
   const [confirmed, setConfirmed] = useState<MissionComposeConfirmResponse | null>(null);
   const [missions, setMissions] = useState<MissionListItem[]>([]);
@@ -29,6 +31,8 @@ export default function MissionsPage() {
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [listLoading, setListLoading] = useState(false);
+  // Stable per-proposal key so confirm retries do not create duplicate missions.
+  const [confirmIdempotencyKey, setConfirmIdempotencyKey] = useState<string | null>(null);
 
   const refreshMissions = useCallback(async () => {
     if (!session) {
@@ -56,8 +60,8 @@ export default function MissionsPage() {
     if (!session) {
       return;
     }
-    const text = instruction.trim();
-    if (!text) {
+    // Validate non-empty with trim; send original textarea value unchanged.
+    if (!instruction.trim()) {
       return;
     }
 
@@ -65,9 +69,18 @@ export default function MissionsPage() {
     setError(null);
     setProposal(null);
     setConfirmed(null);
+    setConfirmIdempotencyKey(null);
     try {
-      const result = await composeMission(session, { instruction: text });
+      const result = await composeMission(session, {
+        instruction,
+        interpretation_thread_id: interpretationThreadId ?? undefined,
+      });
       setProposal(result);
+      // One idempotency key per proposal; reused on confirm retries.
+      setConfirmIdempotencyKey(`compose-confirm:${result.proposal_id}:${newIdempotencyKey()}`);
+      if (result.interpretation_thread_id) {
+        setInterpretationThreadId(result.interpretation_thread_id);
+      }
     } catch (err) {
       setError(err);
     } finally {
@@ -81,13 +94,22 @@ export default function MissionsPage() {
     }
     setConfirming(true);
     setError(null);
+    const idempotencyKey =
+      confirmIdempotencyKey ?? `compose-confirm:${proposal.proposal_id}:${newIdempotencyKey()}`;
+    if (!confirmIdempotencyKey) {
+      setConfirmIdempotencyKey(idempotencyKey);
+    }
     try {
+      // Proposal-ID confirmation — backend revalidates server-side.
+      // Reuse the same idempotency key across retries for this proposal.
       const result = await confirmMissionComposition(session, proposal.proposal_id, {
-        composition: proposal.composition,
+        idempotency_key: idempotencyKey,
       });
       setConfirmed(result);
       setProposal(null);
       setInstruction("");
+      setInterpretationThreadId(null);
+      setConfirmIdempotencyKey(null);
       await refreshMissions();
       // Composition creates plan + graph; open execution and auto-run remaining ladder.
       navigate(`/missions/${result.mission_id}?execute=1`);
@@ -112,7 +134,10 @@ export default function MissionsPage() {
             <span className="cc-ai-mark">A</span>
             <div>
               <strong>What should we accomplish?</strong>
-              <p>Tell me naturally. I’ll turn it into a governed plan and ask one focused question if anything important is missing.</p>
+              <p>
+                Tell me naturally. I&apos;ll turn the request into a governed plan. If material information is missing,
+                I&apos;ll tell you what to include when you restate the complete mission.
+              </p>
             </div>
           </div>
         <form className="form-grid mission-create-form" onSubmit={(event) => void handleCompose(event)}>

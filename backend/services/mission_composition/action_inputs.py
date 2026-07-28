@@ -99,6 +99,22 @@ def _target_bits(intent: MissionIntent) -> tuple[str | None, str | None, str]:
     return industry, location, query
 
 
+def _explicit_email(intent: MissionIntent) -> str | None:
+    """Return a concrete recipient email from structured entities, if any."""
+
+    for entity in intent.target_entities:
+        if entity.email and "@" in entity.email:
+            return entity.email.strip()
+        attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+        for key in ("email", "recipient_email", "to"):
+            value = attrs.get(key)
+            if isinstance(value, str) and "@" in value:
+                return value.strip()
+        if entity.type in {"email", "recipient", "contact"} and entity.name and "@" in entity.name:
+            return entity.name.strip()
+    return None
+
+
 def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any]:
     """Return a schema-valid-enough input payload for the action.
 
@@ -122,10 +138,16 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         lead["location"] = location
 
     if action_name == "web.research":
-        research_query = intent.objective.strip()[:400] if intent.objective.strip() else query
+        entity = intent.target_entities[0] if intent.target_entities else None
+        research_query = query
+        if entity and entity.industry and entity.location:
+            research_query = f"{entity.industry} companies in {entity.location}"
+        elif entity and entity.name:
+            research_query = entity.name
         return {
-            "query": research_query,
+            "query": research_query[:400],
             "company": industry,
+            "domain": entity.domain if entity else None,
             "fetch_public_page": False,
             "include_public_search": True,
             "limit": limit,
@@ -181,8 +203,21 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         topic = f"Introduction — {industry}" if industry else "Introduction"
         if location:
             topic = f"{topic} ({location})"
+        explicit = _explicit_email(intent)
+        recipient = explicit or "pending.binding@invalid.local"
+        if explicit:
+            compose_note = "Recipient taken from explicit address in the mission instruction."
+            binding_required = False
+            binding_source = "explicit_recipient"
+        else:
+            compose_note = (
+                "Recipient stays non-deliverable until enrich yields a real contact email. "
+                "Draft content must still use bound prospect company/signals."
+            )
+            binding_required = True
+            binding_source = "upstream_enriched_prospects"
         return {
-            "recipient": "pending.binding@invalid.local",
+            "recipient": recipient,
             "topic": topic[:240],
             "tone": "professional",
             "prospects": [],
@@ -190,43 +225,45 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 "industry": industry,
                 "location": location,
                 "objective": intent.objective[:300],
-                "binding_required": True,
-                "binding_source": "upstream_enriched_prospects",
-                "binding_path": "$.enriched_prospects",
-                "compose_note": (
-                    "Recipient stays non-deliverable until enrich yields a real contact email. "
-                    "Draft content must still use bound prospect company/signals."
-                ),
+                "binding_required": binding_required,
+                "binding_source": binding_source,
+                "binding_path": "$.enriched_prospects" if binding_required else None,
+                "compose_note": compose_note,
             },
         }
     if action_name == "sales.draft_followup":
+        explicit = _explicit_email(intent)
+        recipient_name = explicit or "Prospect (pending enrichment)"
         return {
-            "recipient_name": "Prospect (pending enrichment)",
+            "recipient_name": recipient_name,
             "topic": f"Follow-up regarding {industry or 'our conversation'}",
             "tone": "professional",
             "context": {
                 "company": company_label,
                 "location": location,
-                "binding_required": True,
-                "binding_source": "upstream_enriched_prospects",
+                "binding_required": explicit is None,
+                "binding_source": "explicit_recipient" if explicit else "upstream_enriched_prospects",
             },
         }
     if action_name == "gtm.email_send":
+        explicit = _explicit_email(intent)
         return {
-            "to": "pending.binding@invalid.local",
+            "to": explicit or "pending.binding@invalid.local",
             "subject": f"Introduction — {industry or 'Ajenda'}",
             "body": "Prepared by mission composition; requires bound recipient and human review before send.",
             "context": {
                 "objective": intent.objective[:300],
-                "binding_required": True,
-                "binding_source": "upstream_enriched_prospects",
-                "binding_path": "$.enriched_prospects[*].email",
+                "binding_required": explicit is None,
+                "binding_source": "explicit_recipient" if explicit else "upstream_enriched_prospects",
+                "binding_path": None if explicit else "$.enriched_prospects[*].email",
                 "send_policy": intent.send_policy.model_dump(mode="json"),
             },
         }
     if action_name == "gtm.email_check":
         return {"query": "in:inbox", "limit": limit}
     if action_name == "gtm.crm_upsert":
+        # Market labels must not become static contacts; bind discovered prospects.
+
         named = None
         for entity in intent.target_entities:
             if entity.name and entity.type in {"company", "person", "contact"}:
@@ -248,16 +285,62 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                     "CRM write uses the named company from the instruction."
                     if named
                     else (
-                        "CRM write must bind discovered prospect records — refusing to upsert the market label alone."
+                        "CRM write must bind discovered/qualified prospect records — "
+                        "refusing to upsert the market label alone."
                     )
                 ),
             },
         }
     if action_name in {"record.search", "document.search", "retrieval.hybrid_search"}:
         return {"query": query, "limit": limit}
+    if action_name == "gtm.social_publish":
+        # Build a schema-valid publish payload; never leave content empty.
+        objective = (intent.objective or "").strip()
+        lower_obj = objective.lower()
+        platform = "linkedin"
+        if "twitter" in lower_obj or re.search(r"\bx\b", lower_obj):
+            platform = "twitter"
+        elif "facebook" in lower_obj:
+            platform = "facebook"
+        result_based = any(
+            isinstance(entity.attributes, dict) and entity.attributes.get("publish_result_based")
+            for entity in intent.target_entities
+        ) or bool(re.search(r"\b(?:post|publish|share)\s+(?:the\s+)?(?:results?|findings?|them)\b", lower_obj))
+        if result_based:
+            # Do not publish the mission command text; bind upstream research outputs.
+            content = "Pending research results for social publish (bind after upstream research)."
+            return {
+                "platform": platform,
+                "content": content[:280],
+                "context": {
+                    "objective": objective[:300],
+                    "source": "mission_composition",
+                    "binding_required": True,
+                    "binding_source": "upstream_prospect_candidates",
+                    "binding_path": "$.prospect_candidates",
+                    "compose_note": (
+                        "Result-based publish must bind research outputs; "
+                        "refusing to post the raw instruction as content."
+                    ),
+                },
+            }
+        content = objective[:280] if objective else "Ajenda composed social update"
+        if len(content) < 1:
+            content = "Ajenda composed social update"
+        return {
+            "platform": platform,
+            "content": content,
+            "context": {
+                "objective": objective[:300],
+                "source": "mission_composition",
+                "binding_required": False,
+                "binding_source": "standalone_publish_content",
+            },
+        }
     if action_name == "google_calendar.events_read":
-        # Prefer an explicit day window when the objective names a calendar date.
-        start, end = _calendar_window_from_objective(intent.objective)
+        start, end = _calendar_window_from_objective(
+            intent.raw_instruction or intent.normalized_instruction or intent.objective
+        )
         payload: dict[str, Any] = {"calendar_id": "primary", "limit": max(limit, 20)}
         if start:
             payload["start"] = start

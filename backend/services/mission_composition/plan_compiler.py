@@ -10,6 +10,7 @@ from typing import Any
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.contracts import (
     AbilitySelection,
+    BusinessJob,
     JobAssignment,
     MissionIntent,
     PlannedStepPreview,
@@ -20,6 +21,23 @@ from backend.services.tools.schemas import SideEffectClass
 
 def _slug(action: str) -> str:
     return action.replace(".", "-")
+
+
+def _resolved_dependency_job_keys(job: BusinessJob, *, selected_keys: set[str]) -> list[str]:
+    """Resolve hard + typed dependencies into job keys present in this composition.
+
+    Catalog entries may leave ``depends_on_jobs`` empty when using conditional
+    ``dependencies``. When the dep job was expanded into the same plan, wire an
+    edge so downstream steps still bind upstream outputs.
+    """
+
+    if job.depends_on_jobs:
+        return [key for key in job.depends_on_jobs if key in selected_keys]
+    keys: list[str] = []
+    for dep in job.dependencies:
+        if dep.job_key in selected_keys and dep.job_key not in keys:
+            keys.append(dep.job_key)
+    return keys
 
 
 def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
@@ -36,7 +54,7 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         "sales.draft_followup",
     }:
         return "$.input.prospects"
-    if action_name in {"gtm.crm_upsert", "sales.log_activity", "record.write"}:
+    if action_name in {"gtm.crm_upsert", "sales.log_activity", "record.write", "gtm.social_publish"}:
         if output_name in {
             "prospect_candidates",
             "qualified_prospects",
@@ -62,6 +80,7 @@ def compile_planned_steps(
     """Build dependency-aware planned steps from ready selected abilities."""
 
     ready = [item for item in selections if item.selection_status == "selected" and item.readiness == "ready"]
+    selected_keys = {item.job_key for item in ready}
     step_by_job: dict[str, PlannedStepPreview] = {}
     steps: list[PlannedStepPreview] = []
 
@@ -71,7 +90,7 @@ def compile_planned_steps(
         depends_on: list[str] = []
         input_bindings: list[dict[str, str]] = []
         if job is not None:
-            for dep_job in job.depends_on_jobs:
+            for dep_job in _resolved_dependency_job_keys(job, selected_keys=selected_keys):
                 dep_step = step_by_job.get(dep_job)
                 if dep_step is None:
                     continue
@@ -123,18 +142,22 @@ def compile_planned_steps(
 def compile_job_assignments(selections: list[AbilitySelection]) -> list[JobAssignment]:
     assignments: list[JobAssignment] = []
     seen: set[str] = set()
+    selected_keys = {
+        item.job_key for item in selections if item.selection_status == "selected" and item.readiness == "ready"
+    }
     for selection in selections:
         if selection.job_key in seen:
             continue
         if selection.selection_status != "selected" or selection.readiness != "ready":
             continue
         job = BUSINESS_JOBS_BY_KEY.get(selection.job_key)
+        dep_keys = _resolved_dependency_job_keys(job, selected_keys=selected_keys) if job else []
         assignments.append(
             JobAssignment(
                 job_key=selection.job_key,
                 vertical_key=selection.vertical_role,
                 display_name=job.display_name if job else selection.job_key,
-                depends_on_jobs=list(job.depends_on_jobs) if job else [],
+                depends_on_jobs=dep_keys,
             )
         )
         seen.add(selection.job_key)

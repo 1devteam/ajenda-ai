@@ -11,7 +11,7 @@ def test_retrieval_contract_migration_has_single_head_and_short_revision_id() ->
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0035_composition_proposals"]
+    assert heads == ["0036_composition_thread"]
     assert len(heads[0]) <= 32
 
 
