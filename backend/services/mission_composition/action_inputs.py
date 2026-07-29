@@ -178,7 +178,11 @@ def _gmail_query(intent: MissionIntent) -> str:
 
 
 def _salesforce_soql(intent: MissionIntent) -> str:
-    """Build a conservative read-only SOQL query from explicit Salesforce language."""
+    """Build a conservative read-only SOQL query from explicit Salesforce language.
+
+    Fail closed when the instruction states filters we cannot compile — never run an
+    unfiltered object dump that silently ignores named/date scope.
+    """
 
     source = _source_instruction(intent)
     explicit = re.search(r"\bSELECT\s+.+", source, flags=re.IGNORECASE | re.DOTALL)
@@ -218,6 +222,42 @@ def _salesforce_soql(intent: MissionIntent) -> str:
                 value *= 1_000_000
             operator = ">=" if amount.group(1) == "at least" else ">"
             filters.append(f"Amount {operator} {int(value)}")
+    else:
+        # Contact / Lead / Account — only compile filters we can express honestly.
+        name_match = re.search(
+            r"\b(?:named|called|name\s+is)\s+([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+){0,3})\b",
+            source,
+            flags=re.IGNORECASE,
+        )
+        if name_match is not None:
+            safe_name = name_match.group(1).replace("'", "\\'")
+            filters.append(f"Name LIKE '%{safe_name}%'")
+        days_match = re.search(
+            r"\b(?:modified|updated|changed)\b.{0,24}\b(?:last|past)\s+(\d{1,3})\s+days?\b",
+            lower,
+        )
+        if days_match is not None:
+            days = max(1, min(int(days_match.group(1)), 365))
+            filters.append(f"LastModifiedDate = LAST_N_DAYS:{days}")
+        # Stated filter language we do not compile → fail closed (no silent unfiltered dump).
+        residual_filter = re.search(
+            r"\b(?:where|filter(?:ed)?|status\s+is|email\s+is|industry\s+is|owner\s+is|"
+            r"with\s+status|matching\s+criteria)\b",
+            lower,
+        )
+        if residual_filter is not None and not filters:
+            raise ValueError(
+                "Salesforce filter criteria in the instruction cannot be compiled safely; "
+                "restate with an explicit SOQL SELECT or a supported named/date filter"
+            )
+        stated_scope = re.search(
+            r"\b(?:named|called|name\s+is|modified|updated|changed|last\s+\d+\s+days)\b",
+            lower,
+        )
+        if stated_scope is not None and not filters:
+            raise ValueError(
+                "Salesforce request states a record filter that was not compiled; refusing unfiltered object query"
+            )
 
     soql = f"SELECT {fields} FROM {object_name}"
     if filters:
@@ -302,7 +342,17 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name == "http.request":
         return {"method": "GET", "url": "https://example.com", "timeout_seconds": 5.0}
     if action_name in {"sales.research", "crm.research"}:
-        return {"lead": lead}
+        # Explicit HubSpot / CRM read jobs must fail closed on external errors —
+        # never silently complete with Ajenda-brain internal records.
+        require_external = "read_crm" in {str(o) for o in intent.requested_outcomes}
+        return {
+            "lead": lead,
+            "context": {
+                "require_external_crm": require_external,
+                "crm_source": "hubspot" if require_external else "auto",
+                "objective": intent.objective[:300],
+            },
+        }
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:
         return {
             "lead": lead,

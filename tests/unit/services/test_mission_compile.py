@@ -250,8 +250,8 @@ def test_compile_mission_not_found() -> None:
     assert exc.value.code == "MISSION_NOT_FOUND"
 
 
-def test_compile_prefers_stored_composition_instruction_over_lossy_objective() -> None:
-    """Dispatch UI historically passed mission.objective (restatement). Stored instruction wins."""
+def test_compile_uses_stored_composition_when_client_omits_instruction() -> None:
+    """Dispatch UI omits instruction; server uses stored composition over lossy objective."""
     original = (
         "Research five competitors of Acme Roofing in Northwest Arkansas, "
         "score them, and prepare outreach drafts for the top three."
@@ -284,11 +284,10 @@ def test_compile_prefers_stored_composition_instruction_over_lossy_objective() -
             metadata_json={},
         )
 
-        # Client even sends the mangled objective — server must ignore it when composition exists.
         result = service.compile_for_mission(
             tenant_id=tenant_id,
             mission_id=mission.id,
-            instruction=mangled,
+            instruction=None,
             persist=False,
             actor_id="operator-1",
             source="mission_dispatch_ui",
@@ -299,6 +298,50 @@ def test_compile_prefers_stored_composition_instruction_over_lossy_objective() -
     assert "sales.qualify" in result["display"]["allowed_actions"]
     assert "gtm.email_draft" in result["display"]["allowed_actions"]
     assert "gtm.email_send" not in result["display"]["allowed_actions"]
+
+
+def test_compile_honors_explicit_client_instruction_over_stored() -> None:
+    """API recompile with a new instruction must not be silently discarded."""
+    stored = "Research five roofing companies in Austin and prepare drafts without sending."
+    revised = (
+        "Research five competitors of Acme Roofing in Northwest Arkansas, "
+        "score them, and prepare outreach drafts for the top three."
+    )
+    mission = _mission(objective=stored)
+    mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["context"] = {
+        "composition": {
+            "proposal_id": "ff1a8b6f-c8d2-4c2f-9db0-2b9b3864443e",
+            "instruction": stored,
+        }
+    }
+    service = MissionCompositionService(db=MagicMock())
+    with (
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_cls,
+        patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
+        patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
+    ):
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        cred_cls.return_value.list_for_tenant.return_value = []
+        mission_repo_cls.return_value.get_for_tenant.return_value = mission
+        plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
+            id=uuid.uuid4(),
+            tenant_id=mission.tenant_id,
+            mission_id=mission.id,
+            status=MissionPlanStatus.DRAFT.value,
+            metadata_json={},
+        )
+        result = service.compile_for_mission(
+            tenant_id=mission.tenant_id,
+            mission_id=mission.id,
+            instruction=revised,
+            persist=False,
+            actor_id="operator-1",
+        )
+    assert result["compile_status"] == "ready"
+    assert "web.research" in result["display"]["allowed_actions"]
+    # Revised instruction uses competitor scoring path (qualify).
+    assert "sales.qualify" in result["display"]["allowed_actions"]
 
 
 def test_compile_binding_manifest_present_when_steps_have_deps() -> None:

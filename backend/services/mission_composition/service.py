@@ -98,10 +98,13 @@ def _integrations_for_credential(record: object) -> set[str]:
     hosts_raw = getattr(record, "trusted_destination_hosts", None) or []
     hosts = {str(host).strip().lower() for host in hosts_raw if str(host).strip()}
 
-    if provider == "external_email" or "gmail" in credential_id or "gmail.googleapis.com" in hosts:
-        found.add("gmail")
-    if provider == "external_email" and ("smtp" in credential_id or credential_id.endswith("-email")):
+    # SMTP is send-only — never treat it as Gmail (gtm.email_check requires Gmail API).
+    is_smtp = "smtp" in credential_id or (
+        provider == "external_email" and str(getattr(record, "integration", "") or "").lower() == "smtp"
+    )
+    if is_smtp:
         found.add("smtp")
+    elif provider == "external_email" or "gmail" in credential_id or "gmail.googleapis.com" in hosts:
         found.add("gmail")
     if provider == "external_crm" or "hubspot" in credential_id or "hubapi.com" in " ".join(hosts):
         found.add("hubspot")
@@ -682,20 +685,23 @@ class MissionCompositionService:
         if not isinstance(intake, dict):
             intake = {}
 
-        # Instruction source of truth for confirmed/composed missions: stored composition.
-        # Client may pass mission.objective (lossy restatement) — do not prefer that over
-        # the original composition instruction the user confirmed.
+        # Instruction resolution for compile:
+        # 1) Explicit non-empty client instruction (intentional recompile) wins.
+        # 2) Else stored composition.instruction (confirmed mission source of truth).
+        # 3) Else mission.objective.
+        # Dispatch UI omits instruction so it does not re-send lossy objective restatements.
         raw_context = intake.get("context")
         context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
         raw_composition = context.get("composition")
         composition: dict[str, Any] = raw_composition if isinstance(raw_composition, dict) else {}
         stored_instruction = composition.get("instruction")
+        client_instruction = (instruction or "").strip()
         instruction_text = ""
-        if isinstance(stored_instruction, str) and stored_instruction.strip():
+        if client_instruction:
+            instruction_text = client_instruction
+        elif isinstance(stored_instruction, str) and stored_instruction.strip():
             instruction_text = stored_instruction.strip()
-        if not instruction_text:
-            instruction_text = (instruction or "").strip()
-        if not instruction_text:
+        else:
             instruction_text = str(mission.objective or "").strip()
         if not instruction_text:
             raise MissionCompositionError(

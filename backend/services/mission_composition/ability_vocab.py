@@ -48,7 +48,6 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "check my inbox": "read_email",
     "read my email": "read_email",
     "search my email": "read_email",
-    "summarize my email": "read_email",
     "read hubspot": "read_crm",
     "search hubspot": "read_crm",
     "check the crm": "read_crm",
@@ -63,20 +62,34 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
 
 # Regex patterns that map a clause/window to a canonical outcome (deterministic).
 OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
-    (r"\b(?:check|read|search|list|show|summarize)\b.{0,48}\b(?:gmail|inbox|emails?|messages?)\b", "read_email"),
+    (r"\b(?:check|read|search|list|show)\b.{0,48}\b(?:gmail|inbox)\b", "read_email"),
     (r"\b(?:gmail|inbox)\b.{0,48}\b(?:unread|recent|replies?|messages?|emails?)\b", "read_email"),
-    (r"\b(?:check|read|search|query|list|show|summarize)\b.{0,48}\b(?:hubspot|crm)\b", "read_crm"),
+    (r"\b(?:check|read|search|list|show)\s+my\s+(?:emails?|messages?)\b", "read_email"),
+    (r"\b(?:check|read|search|query|list|show)\b.{0,48}\b(?:hubspot|crm)\b", "read_crm"),
     (r"\b(?:hubspot|crm)\b.{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b", "read_crm"),
-    (r"\b(?:query|check|read|search|list|show|summarize)\b.{0,48}\bsalesforce\b", "query_salesforce"),
+    (r"\b(?:query|check|read|search|list|show)\b.{0,48}\bsalesforce\b", "query_salesforce"),
     (r"\bsalesforce\b.{0,48}\b(?:accounts?|contacts?|leads?|opportunities|records?|pipeline)\b", "query_salesforce"),
     (r"\bqualify\b", "qualify_prospects"),
-    (r"\bscore(?:s|d|ing)?\b", "qualify_prospects"),
-    (r"\brank(?:s|ed|ing)?\b", "qualify_prospects"),
-    (r"\brate(?:s|d|ing)?\b", "qualify_prospects"),
-    (r"\bgrade(?:s|d|ing)?\b", "qualify_prospects"),
+    (
+        r"\bscore(?:s|d|ing)?\s+(?:them|these|those|it|the\s+(?:prospects?|leads?|competitors?))\b",
+        "qualify_prospects",
+    ),
+    (
+        r"\brank(?:s|ed|ing)?\s+(?:them|these|those|the\s+(?:strongest|best|prospects?|leads?|competitors?))\b",
+        "qualify_prospects",
+    ),
+    (
+        r"\brate(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
+        "qualify_prospects",
+    ),
+    (
+        r"\bgrade(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
+        "qualify_prospects",
+    ),
     (r"\bstrong(?:est)? prospects?\b", "qualify_prospects"),
     (r"\bbest (?:leads?|prospects?)\b", "qualify_prospects"),
-    (r"\btop (?:leads?|prospects?|three|five|\d+)\b", "qualify_prospects"),
+    (r"\btop (?:leads?|prospects?)\b", "qualify_prospects"),
+    (r"\btop (?:three|five)\b", "qualify_prospects"),
     (r"\bpick the (?:strongest|best)\b", "qualify_prospects"),
     (r"\bidentify .* (?:strong|best|top)\b", "qualify_prospects"),
 )

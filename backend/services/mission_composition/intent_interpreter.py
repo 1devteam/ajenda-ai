@@ -71,12 +71,13 @@ _QUALIFY_PATTERNS = (
     r"strong prospects",
     r"identify .* prospects",
     r"best (?:leads|prospects)",
-    # Ability vocab: score/rank/rate are qualify, not unmatched material.
-    r"\bscore(?:s|d|ing)?\b",
-    r"\brank(?:s|ed|ing)?\b",
-    r"\brate(?:s|d|ing)?\b",
-    r"\bgrade(?:s|d|ing)?\b",
-    r"\btop (?:leads?|prospects?|three|five|\d+)\b",
+    # Score/rank/rate only when aimed at prospects/leads/competitors (not reports/rates).
+    r"\bscore(?:s|d|ing)?\s+(?:them|these|those|it|the\s+(?:prospects?|leads?|competitors?))\b",
+    r"\brank(?:s|ed|ing)?\s+(?:them|these|those|the\s+(?:strongest|best|prospects?|leads?|competitors?))\b",
+    r"\brate(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
+    r"\bgrade(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
+    r"\btop (?:leads?|prospects?)\b",
+    r"\btop (?:three|five)\b",
     r"\bstrongest (?:leads?|prospects?|competitors?)\b",
     r"\bpick the (?:strongest|best)\b",
 )
@@ -107,8 +108,10 @@ _ENRICH_PATTERNS = (
     r"look up (?:emails?|contact)",
 )
 _EMAIL_READ_PATTERNS = (
-    r"\b(?:check|read|search|list|show|summarize)\b.{0,48}\b(?:gmail|inbox|emails?|messages?)\b",
+    # Require Gmail/inbox context — bare "email/message" often means CRM fields.
+    r"\b(?:check|read|search|list|show)\b.{0,48}\b(?:gmail|inbox)\b",
     r"\b(?:gmail|inbox)\b.{0,48}\b(?:unread|recent|replies?|messages?|emails?)\b",
+    r"\b(?:check|read|search|list|show)\s+my\s+(?:emails?|messages?)\b",
 )
 _CRM_READ_PATTERNS = (
     r"\b(?:check|read|search|query|list|show|summarize|find|look up)\b.{0,48}\b(?:hubspot|crm)\b",
@@ -120,8 +123,8 @@ _SALESFORCE_QUERY_PATTERNS = (
 )
 _HUBSPOT_COMPANY_AFTER = re.compile(
     r"\b(?:hubspot|(?:the\s+)?crm)\s+(?:for|about|on|matching)\s+"
-    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
-    r"(?=$|[,;.]|\band\b|\bthen\b)",
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
+    r"(?=$|[,;.]|\s+\band\b|\s+\bthen\b)",
     re.IGNORECASE,
 )
 _HUBSPOT_COMPANY_BEFORE = re.compile(
@@ -393,10 +396,7 @@ def _extract_competitors_of(text: str) -> list[TargetEntity]:
     ]
 
 
-def _extract_target_entities(text: str) -> list[TargetEntity]:
-    competitors = _extract_competitors_of(text)
-    if competitors:
-        return competitors
+def _extract_industry_location_entities(text: str) -> list[TargetEntity]:
     match = _INDUSTRY_LOCATION.search(text)
     if match is None:
         return []
@@ -407,7 +407,23 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
         industry_tokens.pop(0)
     industry = " ".join(industry_tokens).strip(" ,.;:")
     location = _trim_location(match.group("location"))
+    # Drop trailing source qualifiers ("from HubSpot CRM records").
+    location = re.sub(
+        r"\s+\bfrom\b\s+.*$",
+        "",
+        location,
+        flags=re.IGNORECASE,
+    ).strip(" ,.;:")
     if not industry or not location:
+        return []
+    # Industry must not keep the leading verb + quantity ("Research five roofing").
+    industry_tokens = [token for token in industry.split() if token]
+    while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
+        industry_tokens.pop(0)
+    while industry_tokens and (industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()):
+        industry_tokens.pop(0)
+    industry = " ".join(industry_tokens).strip(" ,.;:")
+    if not industry:
         return []
     return [
         TargetEntity(
@@ -418,6 +434,20 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
             confidence=0.95,
         )
     ]
+
+
+def _extract_target_entities(text: str) -> list[TargetEntity]:
+    """Retain explicit research / connector targets (competitors, market, CRM company)."""
+
+    entities: list[TargetEntity] = []
+    entities.extend(_extract_competitors_of(text))
+    entities.extend(_extract_industry_location_entities(text))
+    # Connector company targets (HubSpot for Acme) — only when no market target already.
+    if not entities:
+        entities.extend(_extract_connector_company(text))
+    elif not any(e.name for e in entities):
+        entities.extend(_extract_connector_company(text))
+    return entities
 
 
 def _extract_connector_company(text: str) -> list[TargetEntity]:
@@ -585,9 +615,36 @@ def _success_for_outcomes(
     return success
 
 
-def _segment_clauses(text: str) -> list[str]:
-    parts = [p.strip(" ,.;") for p in _CLAUSE_SPLIT.split(text) if p and p.strip(" ,.;")]
-    return parts if parts else [text.strip()]
+def _segment_clauses(text: str, *, protected_spans: list[str] | None = None) -> list[str]:
+    """Split on commas/and/semicolons, keeping protected entity spans intact (e.g. Johnson and Johnson)."""
+
+    working = text
+    placeholders: list[tuple[str, str]] = []
+    # Do not treat thousand-separator commas in amounts ($50,000) as clause breaks.
+    for index, match in enumerate(re.finditer(r"\$?\d{1,3}(?:,\d{3})+(?:\.\d+)?", working)):
+        placeholder = f"__AJENDA_AMOUNT_{index}__"
+        token = match.group(0)
+        working = working.replace(token, placeholder, 1)
+        placeholders.append((placeholder, token))
+    for index, span in enumerate(protected_spans or []):
+        token = (span or "").strip()
+        if not token or " and " not in token.lower():
+            continue
+        placeholder = f"__AJENDA_ENTITY_{index}__"
+        # Case-insensitive single replacement of the entity name span.
+        pattern = re.compile(re.escape(token), flags=re.IGNORECASE)
+        if pattern.search(working) is None:
+            continue
+        working = pattern.sub(placeholder, working, count=1)
+        placeholders.append((placeholder, token))
+    parts = [p.strip(" ,.;") for p in _CLAUSE_SPLIT.split(working) if p and p.strip(" ,.;")]
+    restored: list[str] = []
+    for part in parts:
+        restored_part = part
+        for placeholder, token in placeholders:
+            restored_part = restored_part.replace(placeholder, token)
+        restored.append(restored_part)
+    return restored if restored else [text.strip()]
 
 
 def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
@@ -599,16 +656,30 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
     crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
     salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
     connector_read = email_read or crm_read or salesforce_query
-    explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?)\b", lower))
-    if _contains_any(lower, _RESEARCH_PATTERNS) and (not connector_read or explicit_prospect_research):
-        outcomes.append("research_prospects")
-    if _contains_any(lower, _QUALIFY_PATTERNS):
+    # Trailing "summarize the messages/record" after a read is covered by list/read path.
+    if re.search(r"\bsummarize\b.{0,40}\b(?:messages?|emails?|records?|results?)\b", lower) and not connector_read:
+        return [], False, True
+    # "from HubSpot CRM records" is a source qualifier for prospect research, not only CRM read.
+    hubspot_as_source = bool(
+        re.search(r"\bfrom\s+(?:hubspot|(?:the\s+)?crm)\b", lower)
+        or re.search(r"\bcompanies\b.*\b(?:hubspot|crm)\b", lower)
+    )
+    explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
+    if _contains_any(lower, _RESEARCH_PATTERNS) and (
+        not connector_read or explicit_prospect_research or hubspot_as_source
+    ):
+        # Prefer market research when "companies in X from HubSpot" — source is HubSpot, job is discover.
+        if hubspot_as_source and re.search(r"\bcompanies\s+in\b|\bprospects?\b", lower):
+            outcomes.append("research_prospects")
+        elif not connector_read or explicit_prospect_research:
+            outcomes.append("research_prospects")
+    if _contains_any(lower, _QUALIFY_PATTERNS) and not salesforce_query:
         outcomes.append("qualify_prospects")
     if _contains_any(lower, _ENRICH_PATTERNS):
         outcomes.append("enrich_contacts")
     if email_read:
         outcomes.append("read_email")
-    if crm_read:
+    if crm_read and not (hubspot_as_source and "research_prospects" in outcomes):
         outcomes.append("read_crm")
     if salesforce_query:
         outcomes.append("query_salesforce")
@@ -722,8 +793,19 @@ def interpret_instruction(
     wants_crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
     wants_salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
     connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
-    explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?)\b", lower))
-    wants_research = _contains_any(lower, _RESEARCH_PATTERNS) and (not connector_read or explicit_prospect_research)
+    explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
+    hubspot_as_research_source = bool(
+        re.search(r"\bfrom\s+(?:hubspot|(?:the\s+)?crm)\b", lower)
+        or re.search(r"\bcompanies\b.+\b(?:hubspot|crm)\s+records?\b", lower)
+    )
+    wants_research = _contains_any(lower, _RESEARCH_PATTERNS) and (
+        not connector_read or explicit_prospect_research or hubspot_as_research_source
+    )
+    # "Research companies in X from HubSpot" is market discovery using CRM as a source,
+    # not a pure HubSpot record-read mission.
+    if wants_research and hubspot_as_research_source and explicit_prospect_research:
+        wants_crm_read = False
+        connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
     # Enrich only when explicitly requested — not invented from draft+qualify.
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
@@ -861,7 +943,8 @@ def interpret_instruction(
         outcomes = [o for o in outcomes if o != "read_calendar"]
 
     # Optional fuzzy candidates only for unresolved outcome language (never ability select).
-    fuzzy_already = set(outcomes)
+    # Use set[str] so mypy accepts the fuzzy helper signature (not a Literal union set).
+    fuzzy_already: set[str] = {str(item) for item in outcomes}
     if calendar_write_requested and not calendar_read_intent:
         # Do not let fuzzy re-introduce read_calendar from "my calendar" / "schedule" aliases.
         fuzzy_already.add("read_calendar")
@@ -1065,7 +1148,10 @@ def interpret_instruction(
     # Clause coverage
     clause_models: list[InterpretedClause] = []
     unmatched: list[InterpretedClause] = []
-    for index, clause_text in enumerate(_segment_clauses(text)):
+    protected_entity_spans = [
+        entity.name for entity in entities if isinstance(entity.name, str) and entity.name.strip()
+    ]
+    for index, clause_text in enumerate(_segment_clauses(text, protected_spans=protected_entity_spans)):
         mapped, material, recognized = _classify_clause(clause_text)
         # Non-material filler: short politeness without risk keywords.
         if not material and len(clause_text.split()) <= 3:

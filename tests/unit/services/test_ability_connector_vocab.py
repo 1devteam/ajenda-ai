@@ -134,6 +134,7 @@ def test_hubspot_read_uses_explicit_company_and_requires_connection() -> None:
 
     payload = build_action_input(action_name="sales.research", intent=intent)
     assert payload["lead"]["company"] == "Acme Roofing"
+    assert payload["context"]["require_external_crm"] is True
 
 
 def test_salesforce_query_composes_read_only_soql_and_requires_connection() -> None:
@@ -171,3 +172,35 @@ def test_connector_read_clause_does_not_invent_web_research() -> None:
     assert intent.requested_outcomes == ["read_crm"]
     assert "research_prospects" not in intent.requested_outcomes
     assert intent.unmatched_material_clauses == []
+
+
+def test_score_without_prospect_context_does_not_map_qualify() -> None:
+    hits = match_outcome_phrases("Research conversion rates and grade the report")
+    assert not any(h.outcome == "qualify_prospects" for h in hits)
+
+
+def test_hubspot_email_records_do_not_require_gmail() -> None:
+    intent = interpret_instruction("Check HubSpot for email records for Acme")
+    assert "read_crm" in intent.requested_outcomes
+    assert "read_email" not in intent.requested_outcomes
+
+
+def test_salesforce_named_contact_filter_compiles() -> None:
+    intent = interpret_instruction("Query Salesforce for contacts named Alice")
+    payload = build_action_input(action_name="salesforce.soql_read", intent=intent)
+    assert "FROM Contact" in payload["soql"]
+    assert "Name LIKE '%Alice%'" in payload["soql"]
+
+
+def test_google_contacts_write_is_deferred() -> None:
+    assert connector_supports_op("google_contacts", "write") is False
+    assert connector_defers_op("google_contacts", "write") is True
+
+
+def test_competitor_name_with_and_stays_ready() -> None:
+    intent = interpret_instruction(
+        "Research competitors of Johnson and Johnson in Austin and prepare draft emails without sending."
+    )
+    assert intent.target_entities
+    assert intent.target_entities[0].name == "Johnson and Johnson"
+    assert not any(c.field == "clause_coverage" for c in intent.ambiguity)

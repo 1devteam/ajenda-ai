@@ -70,15 +70,20 @@ CONNECTOR_CAPABILITIES: tuple[ConnectorCapability, ...] = (
         connector_id="google_contacts",
         display_name="Google Contacts",
         provider="external_read_provider",
-        operations=frozenset({"read", "write"}),
-        deferred_operations=frozenset(),
+        operations=frozenset({"read"}),
+        deferred_operations=frozenset({"write"}),
         oauth_scopes=(
             "https://www.googleapis.com/auth/contacts",
             "https://www.googleapis.com/auth/contacts.other.readonly",
         ),
-        runtime_actions=("gtm.crm_upsert",),
+        # Runtime path is provider.external_read only today; write is not Contacts-bound
+        # (gtm.crm_upsert resolves through HubSpot, not Google Contacts).
+        runtime_actions=("provider.external_read",),
         maturity="partial",
-        notes="Contact writes route through CRM-style update_crm / upsert jobs when requested.",
+        notes=(
+            "Google Contacts is read-only in composition. Writes stay deferred until a "
+            "Contacts write adapter is runtime-bound; do not advertise HubSpot upsert as Contacts write."
+        ),
     ),
     ConnectorCapability(
         connector_id="linkedin",

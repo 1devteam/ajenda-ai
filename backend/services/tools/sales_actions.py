@@ -163,6 +163,9 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         if account:
             related.append(account)
 
+    context_map = payload.context if isinstance(payload.context, dict) else {}
+    require_external_crm = bool(context_map.get("require_external_crm"))
+
     cred: RuntimeCredentialMaterial | dict[str, Any] | None = context.runtime_credentials.get(
         "sales.research"
     ) or context.runtime_credentials.get("crm.research")
@@ -191,6 +194,19 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         SideEffectClass.EXTERNAL_READ if invocation.credential_reference is not None else SideEffectClass.INTERNAL_READ
     )
     external_attempt_failed = bool(attempted_external and search.error)
+
+    # Explicit HubSpot / CRM-read missions must not silently complete on brain fallback.
+    if require_external_crm:
+        if search.error:
+            raise ValueError(
+                f"HubSpot CRM read failed and internal brain fallback is disabled for this mission: {search.error}"
+            )
+        if not use_external:
+            raise ValueError(
+                "HubSpot CRM read required external records but no live HubSpot result was returned; "
+                "refusing Ajenda-brain fallback for explicit CRM read"
+            )
+
     research_notes = (
         [f"external CRM plugin search via {search.source} (count={search.count})"]
         if use_external
