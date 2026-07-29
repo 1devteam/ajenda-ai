@@ -88,7 +88,30 @@ _JOB_CONNECTION_HINTS: dict[tuple[str, str], dict[str, str]] = {
         "integration": "hubspot",
         "credential_id": "hubspot-crm",
     },
+    # Explicit "research from HubSpot" — discover must be CRM-bound, not public web.
+    ("research.discover_prospects", "sales.research"): {
+        "provider": "external_crm",
+        "integration": "hubspot",
+        "credential_id": "hubspot-crm",
+    },
+    ("research.discover_prospects", "crm.research"): {
+        "provider": "external_crm",
+        "integration": "hubspot",
+        "credential_id": "hubspot-crm",
+    },
 }
+
+
+def intent_requires_hubspot_research_source(intent: MissionIntent) -> bool:
+    """True when the user required HubSpot/CRM as the research source of truth."""
+
+    if "hubspot_source" in {str(item) for item in intent.context_requirements}:
+        return True
+    for entity in intent.target_entities:
+        attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+        if attrs.get("research_source") == "hubspot":
+            return True
+    return False
 
 
 def _intent_input_sources(intent: MissionIntent) -> set[str]:
@@ -242,6 +265,7 @@ def evaluate_action_candidate(
     forbid_actions: set[str],
     preferred_credential_by_integration: dict[str, tuple[str, str]] | None = None,
     credential_type_by_id: dict[str, str] | None = None,
+    require_connection: bool = False,
 ) -> AbilitySelection:
     registry = get_default_action_registry()
     manifest = ABILITY_MANIFESTS_BY_ACTION.get(action_name)
@@ -322,7 +346,11 @@ def evaluate_action_candidate(
         preferred_credential_by_integration=preferred_credential_by_integration,
         credential_type_by_id=credential_type_by_id,
     )
-    if job.credential_policy == "required" and not connected:
+    # HubSpot-source discovery forces CRM connection even when the job catalog says optional.
+    connection_required = job.credential_policy == "required" or (
+        require_connection and action_name in {"sales.research", "crm.research"}
+    )
+    if connection_required and not connected:
         return AbilitySelection(
             job_key=job.job_key,
             ability_id=manifest.ability_id,
@@ -333,7 +361,7 @@ def evaluate_action_candidate(
             vertical_role=job.vertical_role,
             side_effect_class=side_effect.value,
             requires_connection=True,
-            connection_provider=hint["integration"] if hint else None,
+            connection_provider=hint["integration"] if hint else "hubspot",
         )
 
     if not connected and hint is not None and action_name in {"crm.research"}:
@@ -402,9 +430,18 @@ def resolve_jobs(
     selections: list[AbilitySelection] = []
     missing: list[dict[str, Any]] = []
 
+    hubspot_source = intent_requires_hubspot_research_source(intent)
+
     for job in jobs:
-        preference = _ACTION_PREFERENCE.get(job.job_key, job.candidate_actions)
-        ordered = list(preference) + [a for a in job.candidate_actions if a not in preference]
+        preference = list(_ACTION_PREFERENCE.get(job.job_key, job.candidate_actions))
+        # Explicit CRM source: only connector-bound research actions (never public web first).
+        if hubspot_source and job.job_key == "research.discover_prospects":
+            preference = ["sales.research", "crm.research"]
+            ordered = preference
+            require_connection = True
+        else:
+            ordered = preference + [a for a in job.candidate_actions if a not in preference]
+            require_connection = False
         evaluated = [
             evaluate_action_candidate(
                 job=job,
@@ -415,6 +452,7 @@ def resolve_jobs(
                 forbid_actions=forbid_actions,
                 preferred_credential_by_integration=preferred_credential_by_integration,
                 credential_type_by_id=credential_type_by_id,
+                require_connection=require_connection,
             )
             for action_name in ordered
         ]

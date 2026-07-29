@@ -147,7 +147,11 @@ def _source_instruction(intent: MissionIntent) -> str:
 
 
 def _gmail_query(intent: MissionIntent) -> str:
-    """Build a bounded Gmail search query from explicit read-only language."""
+    """Build a bounded Gmail search query from explicit read-only language.
+
+    Imperative \"read messages\" is not a Gmail is:read filter. Material search
+    terms (from, subject keywords) are compiled when possible; otherwise fail closed.
+    """
 
     source = _source_instruction(intent)
     lower = source.lower()
@@ -158,7 +162,8 @@ def _gmail_query(intent: MissionIntent) -> str:
         terms.append("in:inbox")
     if "unread" in lower:
         terms.append("is:unread")
-    elif re.search(r"\bread\s+(?:messages?|emails?)\b", lower):
+    elif re.search(r"\b(?:already\s+read|is\s+read|read\s+only)\b", lower):
+        # Only explicit read-state language — not the verb "read my email".
         terms.append("is:read")
     if re.search(r"\b(?:last|past)\s+week\b", lower):
         terms.append("newer_than:7d")
@@ -167,13 +172,75 @@ def _gmail_query(intent: MissionIntent) -> str:
     elif re.search(r"\btoday\b|\blast\s+24\s+hours?\b", lower):
         terms.append("newer_than:1d")
 
-    from_match = re.search(
+    from_email = re.search(
         r"\bfrom\s+([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
         source,
         flags=re.IGNORECASE,
     )
-    if from_match is not None:
-        terms.append(f"from:{from_match.group(1)}")
+    if from_email is not None:
+        terms.append(f"from:{from_email.group(1)}")
+    else:
+        # Stop sender capture before temporal / filter clauses (last week, unread, …).
+        from_name = re.search(
+            r"\bfrom\s+"
+            r"([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+){0,2}?)"
+            r"(?=\s+(?:last|past|today|unread|newer|older|after|before|for|in:|is:|and\b|,|$)|$)",
+            source,
+            flags=re.IGNORECASE,
+        )
+        if from_name is not None:
+            name = from_name.group(1).strip()
+            if name.lower() not in {
+                "gmail",
+                "google",
+                "the",
+                "my",
+                "inbox",
+                "last",
+                "past",
+                "this",
+                "today",
+            }:
+                # Quote multiword names so Gmail treats them as one from: token.
+                sender = f'"{name}"' if " " in name else name
+                terms.append(f"from:{sender}")
+
+    # Free-text after "for …" (e.g. "Search Gmail for Acme invoices").
+    for_match = re.search(r"\bfor\s+(.+)$", source, flags=re.IGNORECASE)
+    if for_match is not None:
+        rest = for_match.group(1)
+        rest = re.sub(
+            r"\b(?:unread|replies?|messages?|emails?|mail)\b",
+            " ",
+            rest,
+            flags=re.IGNORECASE,
+        )
+        rest = re.sub(
+            r"\bfrom\s+(?:[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|[A-Za-z][A-Za-z\-']*(?:\s+[A-Za-z][A-Za-z\-']*){0,2})\b",
+            " ",
+            rest,
+            flags=re.IGNORECASE,
+        )
+        rest = re.sub(
+            r"\b(?:last|past)\s+(?:week|month|day|24\s+hours?)\b|\btoday\b",
+            " ",
+            rest,
+            flags=re.IGNORECASE,
+        )
+        rest = re.sub(r"\s+", " ", rest).strip(" ,.;")
+        if rest and len(rest) >= 2:
+            terms.append(f'"{rest[:80]}"' if " " in rest else rest[:80])
+
+    # Material scopes we cannot compile → refuse silent full-inbox widen.
+    residual = re.search(
+        r"\b(?:subject:|has:attachment|label:|before:|after:|larger:|smaller:)\b",
+        lower,
+    )
+    if residual is not None:
+        raise ValueError(
+            "Gmail search uses operators that composition cannot compile yet; "
+            "restate with from:/unread/date window language or an explicit query string"
+        )
     return " ".join(dict.fromkeys(terms))
 
 
@@ -224,14 +291,20 @@ def _salesforce_soql(intent: MissionIntent) -> str:
             filters.append(f"Amount {operator} {int(value)}")
     else:
         # Contact / Lead / Account — only compile filters we can express honestly.
+        # Keep "and" inside names (Johnson and Johnson). Only stop at real filter openers.
         name_match = re.search(
-            r"\b(?:named|called|name\s+is)\s+([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+){0,3})\b",
+            r"\b(?:named|called|name\s+is)\s+"
+            r"([A-Za-z][A-Za-z\-']+(?:\s+(?:and\s+)?[A-Za-z][A-Za-z\-']+){0,4}?)"
+            r"(?=\s+(?:modified|updated|changed|last|with|where|that\b|,|;|$)|$)",
             source,
             flags=re.IGNORECASE,
         )
         if name_match is not None:
-            safe_name = name_match.group(1).replace("'", "\\'")
-            filters.append(f"Name LIKE '%{safe_name}%'")
+            safe_name = name_match.group(1).strip().replace("'", "\\'")
+            # Drop trailing conjunction fragments without a following name token.
+            safe_name = re.sub(r"\s+and$", "", safe_name, flags=re.IGNORECASE).strip()
+            if safe_name:
+                filters.append(f"Name LIKE '%{safe_name}%'")
         days_match = re.search(
             r"\b(?:modified|updated|changed)\b.{0,24}\b(?:last|past)\s+(\d{1,3})\s+days?\b",
             lower,
@@ -345,6 +418,24 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         # Explicit HubSpot / CRM read jobs must fail closed on external errors —
         # never silently complete with Ajenda-brain internal records.
         require_external = "read_crm" in {str(o) for o in intent.requested_outcomes}
+        if require_external:
+            crm_source = _source_instruction(intent).lower()
+            # sales.research only searches by company/domain — reject scopes the adapter drops.
+            unsupported_scope = False
+            if re.search(r"\bdeals?\b|\bpipeline\b", crm_source) and not explicit_company:
+                unsupported_scope = True
+            if re.search(
+                r"\b(?:modified|updated|changed)\b.{0,32}\b(?:last|past)\s+\d+\s+days?\b",
+                crm_source,
+            ):
+                unsupported_scope = True
+            if re.search(r"\blist\b.{0,24}\bcontacts?\b", crm_source) and not explicit_company:
+                unsupported_scope = True
+            if unsupported_scope:
+                raise ValueError(
+                    "HubSpot request scope (object type / date filter / contact list) cannot be "
+                    "expressed by sales.research company search; refusing silent wrong-scope read"
+                )
         return {
             "lead": lead,
             "context": {
