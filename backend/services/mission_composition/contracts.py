@@ -11,9 +11,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 COMPOSITION_SCHEMA_VERSION = 3
-JOB_CATALOG_VERSION = "3"
-INTERPRETER_VERSION = "6"
-CAPABILITY_RESOLVER_VERSION = "3"
+JOB_CATALOG_VERSION = "4"
+INTERPRETER_VERSION = "7"
+CAPABILITY_RESOLVER_VERSION = "4"
 
 ProposalStatus = Literal[
     "interpretation_failed",
@@ -64,6 +64,9 @@ CanonicalOutcome = Literal[
     "update_crm",
     "publish_content",
     "read_calendar",
+    "read_email",
+    "read_crm",
+    "query_salesforce",
 ]
 
 CANONICAL_OUTCOMES: frozenset[str] = frozenset(
@@ -76,6 +79,9 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
         "update_crm",
         "publish_content",
         "read_calendar",
+        "read_email",
+        "read_crm",
+        "query_salesforce",
     }
 )
 
@@ -122,6 +128,17 @@ LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "google calendar": "read_calendar",
     "what is scheduled": "read_calendar",
     "my schedule": "read_calendar",
+    "check gmail": "read_email",
+    "read email": "read_email",
+    "check inbox": "read_email",
+    "search email": "read_email",
+    "read hubspot": "read_crm",
+    "search hubspot": "read_crm",
+    "check crm": "read_crm",
+    "read crm": "read_crm",
+    "query salesforce": "query_salesforce",
+    "read salesforce": "query_salesforce",
+    "search salesforce": "query_salesforce",
 }
 
 SendPolicyMode = Literal["allow", "forbid", "conditional", "unknown"]
