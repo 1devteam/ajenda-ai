@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 COMPOSITION_SCHEMA_VERSION = 3
 JOB_CATALOG_VERSION = "3"
-INTERPRETER_VERSION = "4"
+INTERPRETER_VERSION = "5"
 CAPABILITY_RESOLVER_VERSION = "3"
 
 ProposalStatus = Literal[
@@ -89,7 +89,14 @@ LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "qualify prospects": "qualify_prospects",
     "identify strong prospects": "qualify_prospects",
     "score leads": "qualify_prospects",
+    "score them": "qualify_prospects",
+    "score the prospects": "qualify_prospects",
+    "score competitors": "qualify_prospects",
+    "rank them": "qualify_prospects",
+    "rate them": "qualify_prospects",
+    "grade them": "qualify_prospects",
     "qualification": "qualify_prospects",
+    "strongest prospects": "qualify_prospects",
     "enrich contacts": "enrich_contacts",
     "enrich leads": "enrich_contacts",
     "lead enrichment": "enrich_contacts",

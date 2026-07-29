@@ -11,6 +11,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from backend.services.mission_composition.ability_vocab import (
+    match_outcome_phrases,
+    phrase_maps_to_outcome,
+)
+from backend.services.mission_composition.connector_capabilities import restatement_for_deferred_op
 from backend.services.mission_composition.contracts import (
     CANONICAL_OUTCOMES,
     INTERPRETER_VERSION,
@@ -26,7 +31,7 @@ from backend.services.mission_composition.contracts import (
 from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
 
-_COMPONENTS_ACTIVE = ("regex_core",)
+_COMPONENTS_ACTIVE = ("regex_core", "ability_vocab")
 
 _SEND_PATTERNS = (
     r"\bsend\b",
@@ -66,6 +71,14 @@ _QUALIFY_PATTERNS = (
     r"strong prospects",
     r"identify .* prospects",
     r"best (?:leads|prospects)",
+    # Ability vocab: score/rank/rate are qualify, not unmatched material.
+    r"\bscore(?:s|d|ing)?\b",
+    r"\brank(?:s|ed|ing)?\b",
+    r"\brate(?:s|d|ing)?\b",
+    r"\bgrade(?:s|d|ing)?\b",
+    r"\btop (?:leads?|prospects?|three|five|\d+)\b",
+    r"\bstrongest (?:leads?|prospects?|competitors?)\b",
+    r"\bpick the (?:strongest|best)\b",
 )
 _RESEARCH_PATTERNS = (
     r"\bresearch\b",
@@ -445,6 +458,10 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         outcomes.append("update_crm")
     if _contains_any(lower, _PUBLISH_PATTERNS) and not _contains_any(lower, _PUBLISH_NEGATION_PATTERNS):
         outcomes.append("publish_content")
+    # Ability vocabulary: map short clauses like "score them" before marking unmatched.
+    vocab_outcome = phrase_maps_to_outcome(clause)
+    if vocab_outcome is not None and vocab_outcome not in outcomes:
+        outcomes.append(vocab_outcome)
 
     material = bool(outcomes) or _contains_any(
         lower,
@@ -572,6 +589,22 @@ def interpret_instruction(
                 rule_id="alias.qualify",
             )
         )
+    # Ability vocabulary layer (score/rank/… → canonical outcomes).
+    for vocab_hit in match_outcome_phrases(text):
+        if vocab_hit.outcome not in outcomes:
+            outcomes.append(vocab_hit.outcome)
+            evidence.append(
+                _evidence(
+                    field_path=f"requested_outcomes.{vocab_hit.outcome}",
+                    source="inferred_deterministic",
+                    source_text=vocab_hit.source_text,
+                    normalized_value=vocab_hit.outcome,
+                    confidence=vocab_hit.confidence,
+                    rule_id=vocab_hit.rule_id,
+                )
+            )
+            if vocab_hit.outcome == "qualify_prospects":
+                wants_qualify = True
     if wants_enrich:
         outcomes.append("enrich_contacts")
         evidence.append(
@@ -612,29 +645,48 @@ def interpret_instruction(
     if wants_publish:
         outcomes.append("publish_content")
 
+    # Calendar write/create language is understood via connector schema but not runtime-bound.
+    calendar_write_requested = _contains_any(lower, _CALENDAR_MUTATION_PATTERNS)
+    calendar_read_intent = bool(
+        re.search(
+            r"\b(?:what(?:'s| is)|show|check|read|upcoming|brief(?:ing)?)\b.{0,40}\b(?:calend[ae]r|schedule)\b"
+            r"|\b(?:calend[ae]r|schedule)\b.{0,40}\b(?:what|show|check|read|upcoming|brief)\b",
+            lower,
+            flags=re.IGNORECASE,
+        )
+    )
+    if calendar_write_requested and "read_calendar" in outcomes and not calendar_read_intent:
+        outcomes = [o for o in outcomes if o != "read_calendar"]
+
     # Optional fuzzy candidates only for unresolved outcome language (never ability select).
+    fuzzy_already = set(outcomes)
+    if calendar_write_requested and not calendar_read_intent:
+        # Do not let fuzzy re-introduce read_calendar from "my calendar" / "schedule" aliases.
+        fuzzy_already.add("read_calendar")
     fuzzy_hits, fuzzy_components = fuzzy_outcome_candidates(
         text,
         enabled=bool(fuzzy_enabled),
-        already=set(outcomes),
+        already=fuzzy_already,
     )
     components_active.extend(c for c in fuzzy_components if c not in components_active)
     medium_fuzzy: list[str] = []
-    for hit in fuzzy_hits:
-        if hit.band == "high" and hit.outcome not in outcomes:
-            outcomes.append(hit.outcome)
+    for fuzzy_hit in fuzzy_hits:
+        if fuzzy_hit.band == "high" and fuzzy_hit.outcome not in outcomes:
+            if calendar_write_requested and not calendar_read_intent and fuzzy_hit.outcome == "read_calendar":
+                continue
+            outcomes.append(fuzzy_hit.outcome)
             evidence.append(
                 _evidence(
-                    field_path=f"requested_outcomes.{hit.outcome}",
+                    field_path=f"requested_outcomes.{fuzzy_hit.outcome}",
                     source="inferred_fuzzy",
-                    source_text=hit.matched_alias,
-                    normalized_value=hit.outcome,
-                    confidence=min(0.89, hit.score / 100.0),
+                    source_text=fuzzy_hit.matched_alias,
+                    normalized_value=fuzzy_hit.outcome,
+                    confidence=min(0.89, fuzzy_hit.score / 100.0),
                     rule_id="fuzzy.outcome_high",
                 )
             )
-        elif hit.band == "medium":
-            medium_fuzzy.append(f"{hit.matched_alias}≈{hit.outcome}({hit.score:.0f})")
+        elif fuzzy_hit.band == "medium":
+            medium_fuzzy.append(f"{fuzzy_hit.matched_alias}≈{fuzzy_hit.outcome}({fuzzy_hit.score:.0f})")
 
     # Structured send policy (authoritative for downstream).
     # Conditional approval outranks bare "do not send" when both appear
@@ -836,7 +888,10 @@ def interpret_instruction(
     understood = ", ".join(understood_bits) if understood_bits else None
 
     if not outcomes:
-        if _looks_like_fragment(text):
+        if calendar_write_requested:
+            # Connector schema clarification (calendar_write) is enough — avoid dual restatements.
+            pass
+        elif _looks_like_fragment(text):
             clarifications.append(
                 _restatement(
                     field="requested_outcomes",
@@ -910,27 +965,25 @@ def interpret_instruction(
             )
         )
 
-    # Imperative calendar create/update/delete is not supported as events_read.
-    if _contains_any(lower, _CALENDAR_MUTATION_PATTERNS):
-        # Strip accidental read_calendar when the user asked to mutate calendar state.
-        if "read_calendar" in outcomes and not re.search(
-            r"\b(?:what|show|check|read|upcoming|brief)\b",
-            lower,
-            flags=re.IGNORECASE,
-        ):
-            outcomes = [o for o in outcomes if o != "read_calendar"]
+    # Imperative calendar create/update/delete — intent understood, op deferred by connector schema.
+    if calendar_write_requested:
+        connector_note = restatement_for_deferred_op(connector_id="google_calendar", op="write")
+        missing = connector_note or (
+            "creating, updating, rescheduling, or deleting calendar events is not a composed "
+            "runtime outcome yet (only calendar read/briefing is supported)"
+        )
         clarifications.append(
             _restatement(
                 field="calendar_write",
                 understood=understood,
-                missing=(
-                    "creating, updating, rescheduling, or deleting calendar events is not a composed "
-                    "runtime outcome yet (only calendar read/briefing is supported)"
-                ),
+                missing=missing[:500],
                 include_instruction=(
                     "whether to read existing calendar events instead, or omit calendar mutations from this mission"
                 ),
-                reason="Calendar mutation language must not silently map to google_calendar.events_read.",
+                reason=(
+                    "Connector capability schema: google_calendar write is deferred; "
+                    "mutation language must not silently map to google_calendar.events_read."
+                ),
             )
         )
 
