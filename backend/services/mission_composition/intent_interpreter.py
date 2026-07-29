@@ -106,6 +106,30 @@ _ENRICH_PATTERNS = (
     r"find (?:emails?|phone numbers?|contact)",
     r"look up (?:emails?|contact)",
 )
+_EMAIL_READ_PATTERNS = (
+    r"\b(?:check|read|search|list|show|summarize)\b.{0,48}\b(?:gmail|inbox|emails?|messages?)\b",
+    r"\b(?:gmail|inbox)\b.{0,48}\b(?:unread|recent|replies?|messages?|emails?)\b",
+)
+_CRM_READ_PATTERNS = (
+    r"\b(?:check|read|search|query|list|show|summarize|find|look up)\b.{0,48}\b(?:hubspot|crm)\b",
+    r"\b(?:hubspot|crm)\b.{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b",
+)
+_SALESFORCE_QUERY_PATTERNS = (
+    r"\b(?:query|check|read|search|list|show|summarize)\b.{0,48}\bsalesforce\b",
+    r"\bsalesforce\b.{0,48}\b(?:accounts?|contacts?|leads?|opportunities|records?|pipeline)\b",
+)
+_HUBSPOT_COMPANY_AFTER = re.compile(
+    r"\b(?:hubspot|(?:the\s+)?crm)\s+(?:for|about|on|matching)\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
+    r"(?=$|[,;.]|\band\b|\bthen\b)",
+    re.IGNORECASE,
+)
+_HUBSPOT_COMPANY_BEFORE = re.compile(
+    r"\b(?:find|search|check|read|look\s+up|show)\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
+    r"\s+(?:in|on|from)\s+(?:hubspot|(?:the\s+)?crm)\b",
+    re.IGNORECASE,
+)
 # Read-oriented calendar only. Imperative "schedule a meeting" is not events_read.
 _CALENDAR_PATTERNS = (
     r"\bcalend[ae]r\b",
@@ -396,6 +420,26 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     ]
 
 
+def _extract_connector_company(text: str) -> list[TargetEntity]:
+    """Extract an explicit company target for a HubSpot/CRM read."""
+
+    match = _HUBSPOT_COMPANY_AFTER.search(text) or _HUBSPOT_COMPANY_BEFORE.search(text)
+    if match is None:
+        return []
+    name = match.group("name").strip(" ,.;:")
+    if not name or name.lower() in {"records", "contacts", "companies", "deals", "pipeline"}:
+        return []
+    return [
+        TargetEntity(
+            type="company",
+            name=name,
+            attributes={"connector": "hubspot", "research_mode": "crm_read"},
+            provenance="explicit",
+            confidence=0.95,
+        )
+    ]
+
+
 def _restatement(
     *,
     field: str,
@@ -420,7 +464,14 @@ def _looks_like_fragment(text: str) -> bool:
         return True
     if len(stripped) < 80 and not _contains_any(
         stripped.lower(),
-        _RESEARCH_PATTERNS + _DRAFT_PATTERNS + _SEND_PATTERNS + _QUALIFY_PATTERNS + _CALENDAR_PATTERNS,
+        _RESEARCH_PATTERNS
+        + _DRAFT_PATTERNS
+        + _SEND_PATTERNS
+        + _QUALIFY_PATTERNS
+        + _CALENDAR_PATTERNS
+        + _EMAIL_READ_PATTERNS
+        + _CRM_READ_PATTERNS
+        + _SALESFORCE_QUERY_PATTERNS,
     ):
         return True
     return False
@@ -496,6 +547,27 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "read_email" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Requested Gmail messages are returned with provider evidence",
+                measurable=True,
+            )
+        )
+    if "read_crm" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Requested HubSpot CRM records are returned with provider evidence",
+                measurable=True,
+            )
+        )
+    if "query_salesforce" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="The read-only Salesforce query returns records with provider evidence",
+                measurable=True,
+            )
+        )
     if "update_crm" in outcomes:
         success.append(
             SuccessCriterion(
@@ -523,12 +595,23 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
 
     lower = clause.lower()
     outcomes: list[CanonicalOutcome] = []
-    if _contains_any(lower, _RESEARCH_PATTERNS):
+    email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
+    crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
+    salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
+    connector_read = email_read or crm_read or salesforce_query
+    explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?)\b", lower))
+    if _contains_any(lower, _RESEARCH_PATTERNS) and (not connector_read or explicit_prospect_research):
         outcomes.append("research_prospects")
     if _contains_any(lower, _QUALIFY_PATTERNS):
         outcomes.append("qualify_prospects")
     if _contains_any(lower, _ENRICH_PATTERNS):
         outcomes.append("enrich_contacts")
+    if email_read:
+        outcomes.append("read_email")
+    if crm_read:
+        outcomes.append("read_crm")
+    if salesforce_query:
+        outcomes.append("query_salesforce")
     if _contains_any(lower, _DRAFT_PATTERNS):
         outcomes.append("prepare_outreach")
     if _contains_any(lower, _SEND_PATTERNS) and not _contains_any(lower, _NO_SEND_PATTERNS):
@@ -635,7 +718,14 @@ def interpret_instruction(
     wants_send = _contains_any(lower, _SEND_PATTERNS) and not no_send and not conditional_send
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
-    wants_research = _contains_any(lower, _RESEARCH_PATTERNS)
+    wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
+    wants_crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
+    wants_salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
+    connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
+    explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?)\b", lower))
+    wants_research = _contains_any(lower, _RESEARCH_PATTERNS) and (
+        not connector_read or explicit_prospect_research
+    )
     # Enrich only when explicitly requested — not invented from draft+qualify.
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
@@ -695,6 +785,39 @@ def interpret_instruction(
                 normalized_value="enrich_contacts",
                 confidence=0.95,
                 rule_id="alias.enrich",
+            )
+        )
+    if wants_email_read and "read_email" not in outcomes:
+        outcomes.append("read_email")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.read_email",
+                source="explicit",
+                normalized_value="read_email",
+                confidence=0.95,
+                rule_id="connector.gmail_read",
+            )
+        )
+    if wants_crm_read and "read_crm" not in outcomes:
+        outcomes.append("read_crm")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.read_crm",
+                source="explicit",
+                normalized_value="read_crm",
+                confidence=0.95,
+                rule_id="connector.hubspot_read",
+            )
+        )
+    if wants_salesforce_query and "query_salesforce" not in outcomes:
+        outcomes.append("query_salesforce")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.query_salesforce",
+                source="explicit",
+                normalized_value="query_salesforce",
+                confidence=0.95,
+                rule_id="connector.salesforce_query",
             )
         )
     if wants_draft:
@@ -879,6 +1002,8 @@ def interpret_instruction(
         quantity_provenance = None
 
     entities = _extract_target_entities(text)
+    if not entities and wants_crm_read:
+        entities = _extract_connector_company(text)
     # Named email recipients (draft-to-X without inventing discovery).
     for email_match in re.finditer(
         r"\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
@@ -1111,6 +1236,7 @@ def interpret_instruction(
         and not wants_draft
         and not wants_send
         and "send_outreach" not in outcomes
+        and "read_email" not in outcomes
     ):
         clarifications.append(
             _restatement(
