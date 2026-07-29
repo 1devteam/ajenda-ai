@@ -43,6 +43,19 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "prepare outreach drafts": "prepare_outreach",
     "draft outreach": "prepare_outreach",
     "write introductions": "prepare_outreach",
+    # Connector reads
+    "check gmail": "read_email",
+    "check my inbox": "read_email",
+    "read my email": "read_email",
+    "search my email": "read_email",
+    "summarize my email": "read_email",
+    "read hubspot": "read_crm",
+    "search hubspot": "read_crm",
+    "check the crm": "read_crm",
+    "read crm records": "read_crm",
+    "query salesforce": "query_salesforce",
+    "read salesforce": "query_salesforce",
+    "search salesforce": "query_salesforce",
     # Calendar read
     "check my calendar": "read_calendar",
     "calendar for": "read_calendar",
@@ -50,6 +63,12 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
 
 # Regex patterns that map a clause/window to a canonical outcome (deterministic).
 OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
+    (r"\b(?:check|read|search|list|show|summarize)\b.{0,48}\b(?:gmail|inbox|emails?|messages?)\b", "read_email"),
+    (r"\b(?:gmail|inbox)\b.{0,48}\b(?:unread|recent|replies?|messages?|emails?)\b", "read_email"),
+    (r"\b(?:check|read|search|query|list|show|summarize)\b.{0,48}\b(?:hubspot|crm)\b", "read_crm"),
+    (r"\b(?:hubspot|crm)\b.{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b", "read_crm"),
+    (r"\b(?:query|check|read|search|list|show|summarize)\b.{0,48}\bsalesforce\b", "query_salesforce"),
+    (r"\bsalesforce\b.{0,48}\b(?:accounts?|contacts?|leads?|opportunities|records?|pipeline)\b", "query_salesforce"),
     (r"\bqualify\b", "qualify_prospects"),
     (r"\bscore(?:s|d|ing)?\b", "qualify_prospects"),
     (r"\brank(?:s|ed|ing)?\b", "qualify_prospects"),
