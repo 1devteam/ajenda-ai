@@ -25,7 +25,8 @@ def evaluate_interpretation_readiness(intent: MissionIntent) -> InterpretationRe
     min_coverage = 0.99
     min_outcome_conf = 0.7
     external_risk = any(
-        outcome in {
+        outcome
+        in {
             "send_outreach",
             "update_crm",
             "publish_content",
