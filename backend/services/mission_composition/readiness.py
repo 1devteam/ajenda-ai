@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from backend.services.mission_composition.contracts import MissionIntent
 
-READINESS_POLICY_VERSION = "1"
+READINESS_POLICY_VERSION = "2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +25,15 @@ def evaluate_interpretation_readiness(intent: MissionIntent) -> InterpretationRe
     min_coverage = 0.99
     min_outcome_conf = 0.7
     external_risk = any(
-        outcome in {"send_outreach", "update_crm", "publish_content"} for outcome in intent.requested_outcomes
+        outcome in {
+            "send_outreach",
+            "update_crm",
+            "publish_content",
+            "read_email",
+            "read_crm",
+            "query_salesforce",
+        }
+        for outcome in intent.requested_outcomes
     )
     if external_risk:
         min_coverage = 1.0
