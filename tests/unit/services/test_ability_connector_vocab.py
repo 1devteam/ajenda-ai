@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from backend.services.mission_composition.ability_vocab import match_outcome_phrases, phrase_maps_to_outcome
+from backend.services.mission_composition.action_inputs import build_action_input
+from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.connector_capabilities import (
     connector_defers_op,
     connector_supports_op,
     restatement_for_deferred_op,
 )
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.tools.salesforce_actions import SalesforceSoqlReadInput
 
 
 def test_score_them_maps_to_qualify() -> None:
@@ -80,3 +83,91 @@ def test_connector_capability_calendar_defers_write() -> None:
     note = restatement_for_deferred_op(connector_id="google_calendar", op="write")
     assert note is not None
     assert "write" in note.lower()
+
+def test_gmail_read_composes_registered_action_and_bounded_query() -> None:
+    intent = interpret_instruction(
+        "Check Gmail for unread replies from alice@example.com from the last week and summarize the messages."
+    )
+
+    assert intent.requested_outcomes == ["read_email"]
+    assert intent.interpretation_ready is True
+    assert not any(item.field == "send_permission" for item in intent.ambiguity)
+
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == ["email.read_messages"]
+
+    blocked, missing = resolve_jobs(jobs, intent=intent)
+    assert blocked[0].readiness == "connection_required"
+    assert any(item["provider"] == "gmail" for item in missing)
+
+    selected, missing = resolve_jobs(jobs, intent=intent, connected_integrations={"gmail"})
+    assert missing == []
+    assert selected[0].action_name == "gtm.email_check"
+    assert selected[0].readiness == "ready"
+
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    assert payload["limit"] == 10
+    assert "in:inbox" in payload["query"]
+    assert "is:unread" in payload["query"]
+    assert "newer_than:7d" in payload["query"]
+    assert "from:alice@example.com" in payload["query"]
+
+
+def test_hubspot_read_uses_explicit_company_and_requires_connection() -> None:
+    intent = interpret_instruction("Check HubSpot for Acme Roofing and summarize the CRM record.")
+
+    assert intent.requested_outcomes == ["read_crm"]
+    assert intent.interpretation_ready is True
+    assert intent.target_entities[0].name == "Acme Roofing"
+
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == ["crm.read_records"]
+    blocked, missing = resolve_jobs(jobs, intent=intent)
+    assert blocked[0].readiness == "connection_required"
+    assert any(item["provider"] == "hubspot" for item in missing)
+
+    selected, missing = resolve_jobs(jobs, intent=intent, connected_integrations={"hubspot"})
+    assert missing == []
+    assert selected[0].action_name == "sales.research"
+    assert selected[0].readiness == "ready"
+
+    payload = build_action_input(action_name="sales.research", intent=intent)
+    assert payload["lead"]["company"] == "Acme Roofing"
+
+
+def test_salesforce_query_composes_read_only_soql_and_requires_connection() -> None:
+    intent = interpret_instruction(
+        "Query Salesforce for the top 12 open opportunities over $50,000 closing this quarter."
+    )
+
+    assert intent.requested_outcomes == ["query_salesforce"]
+    assert intent.interpretation_ready is True
+
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == ["crm.query_salesforce"]
+    blocked, missing = resolve_jobs(jobs, intent=intent)
+    assert blocked[0].readiness == "connection_required"
+    assert any(item["provider"] == "salesforce" for item in missing)
+
+    selected, missing = resolve_jobs(jobs, intent=intent, connected_integrations={"salesforce"})
+    assert missing == []
+    assert selected[0].action_name == "salesforce.soql_read"
+    assert selected[0].readiness == "ready"
+
+    payload = build_action_input(action_name="salesforce.soql_read", intent=intent)
+    parsed = SalesforceSoqlReadInput.model_validate(payload)
+    assert "FROM Opportunity" in parsed.soql
+    assert "IsClosed = false" in parsed.soql
+    assert "CloseDate = THIS_QUARTER" in parsed.soql
+    assert "Amount > 50000" in parsed.soql
+    assert "ORDER BY Amount DESC" in parsed.soql
+    assert parsed.soql.endswith("LIMIT 12")
+
+
+def test_connector_read_clause_does_not_invent_web_research() -> None:
+    intent = interpret_instruction("Find Acme Roofing in HubSpot.")
+
+    assert intent.requested_outcomes == ["read_crm"]
+    assert "research_prospects" not in intent.requested_outcomes
+    assert intent.unmatched_material_clauses == []
+
