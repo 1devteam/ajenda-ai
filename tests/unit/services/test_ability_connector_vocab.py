@@ -243,3 +243,32 @@ def test_hubspot_source_research_does_not_dual_route_web_and_crm() -> None:
     intent = interpret_instruction("Research five roofing companies in Austin from HubSpot CRM records.")
     assert "research_prospects" in intent.requested_outcomes
     assert "read_crm" not in intent.requested_outcomes
+    assert "hubspot_source" in intent.context_requirements
+
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == ["research.discover_prospects"]
+    # Without HubSpot: connection_required (not public web).
+    blocked, missing = resolve_jobs(jobs, intent=intent)
+    assert blocked[0].action_name == "sales.research"
+    assert blocked[0].readiness == "connection_required"
+    assert any(item["provider"] == "hubspot" for item in missing)
+    # With HubSpot: CRM-bound sales.research, never web.research.
+    selected, missing = resolve_jobs(jobs, intent=intent, connected_integrations={"hubspot"})
+    assert missing == []
+    assert selected[0].action_name == "sales.research"
+    assert selected[0].readiness == "ready"
+
+
+def test_gmail_from_stops_before_temporal_clause() -> None:
+    intent = interpret_instruction("Search Gmail for invoices from Alice last week")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "from:Alice" in query
+    assert "from:Alice last" not in query
+    assert "newer_than:7d" in query
+
+
+def test_salesforce_name_keeps_and_inside_company() -> None:
+    intent = interpret_instruction("Query Salesforce for accounts named Johnson and Johnson")
+    payload = build_action_input(action_name="salesforce.soql_read", intent=intent)
+    assert "Name LIKE '%Johnson and Johnson%'" in payload["soql"]

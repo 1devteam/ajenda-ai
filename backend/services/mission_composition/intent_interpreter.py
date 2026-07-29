@@ -889,10 +889,12 @@ def interpret_instruction(
                 rule_id="connector.hubspot_read",
             )
         )
-    # HubSpot-as-source prospect research must not also route a public CRM-read job
-    # (vocab phrase "crm records" would re-add read_crm after we cleared wants_crm_read).
-    if hubspot_as_research_source and "research_prospects" in outcomes and "read_crm" in outcomes:
+    # HubSpot-as-source prospect research: one research_prospects outcome (not dual read_crm).
+    # Resolver uses context_requirements hubspot_source to require CRM-bound sales.research.
+    if hubspot_as_research_source and "research_prospects" in outcomes:
         outcomes = [o for o in outcomes if o != "read_crm"]
+        if "hubspot_source" not in context_requirements:
+            context_requirements.append("hubspot_source")
     if wants_salesforce_query and "query_salesforce" not in outcomes:
         outcomes.append("query_salesforce")
         evidence.append(
@@ -1089,6 +1091,11 @@ def interpret_instruction(
     entities = _extract_target_entities(text)
     if not entities and wants_crm_read:
         entities = _extract_connector_company(text)
+    if hubspot_as_research_source and "research_prospects" in outcomes and entities:
+        head = entities[0]
+        attrs = dict(head.attributes or {})
+        attrs["research_source"] = "hubspot"
+        entities[0] = head.model_copy(update={"attributes": attrs})
     # Named email recipients (draft-to-X without inventing discovery).
     for email_match in re.finditer(
         r"\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",

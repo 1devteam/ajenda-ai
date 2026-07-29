@@ -180,8 +180,11 @@ def _gmail_query(intent: MissionIntent) -> str:
     if from_email is not None:
         terms.append(f"from:{from_email.group(1)}")
     else:
+        # Stop sender capture before temporal / filter clauses (last week, unread, …).
         from_name = re.search(
-            r"\bfrom\s+([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+){0,2})\b",
+            r"\bfrom\s+"
+            r"([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+){0,2}?)"
+            r"(?=\s+(?:last|past|today|unread|newer|older|after|before|for|in:|is:|and\b|,|$)|$)",
             source,
             flags=re.IGNORECASE,
         )
@@ -198,7 +201,9 @@ def _gmail_query(intent: MissionIntent) -> str:
                 "this",
                 "today",
             }:
-                terms.append(f"from:{name}")
+                # Quote multiword names so Gmail treats them as one from: token.
+                sender = f'"{name}"' if " " in name else name
+                terms.append(f"from:{sender}")
 
     # Free-text after "for …" (e.g. "Search Gmail for Acme invoices").
     for_match = re.search(r"\bfor\s+(.+)$", source, flags=re.IGNORECASE)
@@ -286,17 +291,20 @@ def _salesforce_soql(intent: MissionIntent) -> str:
             filters.append(f"Amount {operator} {int(value)}")
     else:
         # Contact / Lead / Account — only compile filters we can express honestly.
-        # Stop the name capture before the next filter phrase (modified/last/with/where).
+        # Keep "and" inside names (Johnson and Johnson). Only stop at real filter openers.
         name_match = re.search(
             r"\b(?:named|called|name\s+is)\s+"
-            r"([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+){0,3}?)"
-            r"(?=\s+(?:modified|updated|changed|last|with|where|and\b|,|$)|$)",
+            r"([A-Za-z][A-Za-z\-']+(?:\s+(?:and\s+)?[A-Za-z][A-Za-z\-']+){0,4}?)"
+            r"(?=\s+(?:modified|updated|changed|last|with|where|that\b|,|;|$)|$)",
             source,
             flags=re.IGNORECASE,
         )
         if name_match is not None:
             safe_name = name_match.group(1).strip().replace("'", "\\'")
-            filters.append(f"Name LIKE '%{safe_name}%'")
+            # Drop trailing conjunction fragments without a following name token.
+            safe_name = re.sub(r"\s+and$", "", safe_name, flags=re.IGNORECASE).strip()
+            if safe_name:
+                filters.append(f"Name LIKE '%{safe_name}%'")
         days_match = re.search(
             r"\b(?:modified|updated|changed)\b.{0,24}\b(?:last|past)\s+(\d{1,3})\s+days?\b",
             lower,
