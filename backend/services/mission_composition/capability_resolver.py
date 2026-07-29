@@ -34,6 +34,9 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "gtm.enrich_contacts": ("gtm.lead_enrich",),
     "email.prepare_outreach": ("gtm.email_draft", "sales.draft_followup"),
     "email.deliver_outreach": ("gtm.email_send",),
+    "email.read_messages": ("gtm.email_check",),
+    "crm.read_records": ("sales.research",),
+    "crm.query_salesforce": ("salesforce.soql_read",),
     "crm.pipeline_maintenance": ("gtm.crm_upsert", "sales.log_activity", "record.write"),
     "ops.calendar_briefing": ("google_calendar.events_read", "calendar.read"),
     "gtm.publish_content": ("gtm.social_publish",),
@@ -74,6 +77,16 @@ _CONNECTION_HINTS: dict[str, dict[str, str]] = {
         "provider": "external_social",
         "integration": "linkedin",
         "credential_id": "linkedin-social",
+    },
+}
+
+# Some hybrid actions are connector-bound only for a specific business job.
+# Keeping this job-scoped preserves Ajenda-brain fallback for ordinary sales research.
+_JOB_CONNECTION_HINTS: dict[tuple[str, str], dict[str, str]] = {
+    ("crm.read_records", "sales.research"): {
+        "provider": "external_crm",
+        "integration": "hubspot",
+        "credential_id": "hubspot-crm",
     },
 }
 
@@ -194,6 +207,7 @@ def _charter_allows(*, action_name: str, charter: OperatingCharter) -> tuple[boo
 def _connection_status(
     action_name: str,
     *,
+    job_key: str,
     connected_credential_ids: set[str],
     connected_integrations: set[str],
     preferred_credential_by_integration: dict[str, tuple[str, str]] | None = None,
@@ -203,7 +217,7 @@ def _connection_status(
 
     preferred_credential_by_integration = preferred_credential_by_integration or {}
     credential_type_by_id = credential_type_by_id or {}
-    hint = _CONNECTION_HINTS.get(action_name)
+    hint = _JOB_CONNECTION_HINTS.get((job_key, action_name)) or _CONNECTION_HINTS.get(action_name)
     if hint is None:
         return True, None, None, None
     if hint["credential_id"] in connected_credential_ids:
@@ -302,6 +316,7 @@ def evaluate_action_candidate(
 
     connected, hint, matched_credential_id, matched_credential_type = _connection_status(
         action_name,
+        job_key=job.job_key,
         connected_credential_ids=connected_credential_ids,
         connected_integrations=connected_integrations,
         preferred_credential_by_integration=preferred_credential_by_integration,
