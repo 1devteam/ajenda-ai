@@ -84,6 +84,7 @@ def test_connector_capability_calendar_defers_write() -> None:
     assert note is not None
     assert "write" in note.lower()
 
+
 def test_gmail_read_composes_registered_action_and_bounded_query() -> None:
     intent = interpret_instruction(
         "Check Gmail for unread replies from alice@example.com from the last week and summarize the messages."
@@ -170,4 +171,3 @@ def test_connector_read_clause_does_not_invent_web_research() -> None:
     assert intent.requested_outcomes == ["read_crm"]
     assert "research_prospects" not in intent.requested_outcomes
     assert intent.unmatched_material_clauses == []
-
