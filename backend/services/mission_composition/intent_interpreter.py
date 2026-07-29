@@ -889,6 +889,10 @@ def interpret_instruction(
                 rule_id="connector.hubspot_read",
             )
         )
+    # HubSpot-as-source prospect research must not also route a public CRM-read job
+    # (vocab phrase "crm records" would re-add read_crm after we cleared wants_crm_read).
+    if hubspot_as_research_source and "research_prospects" in outcomes and "read_crm" in outcomes:
+        outcomes = [o for o in outcomes if o != "read_crm"]
     if wants_salesforce_query and "query_salesforce" not in outcomes:
         outcomes.append("query_salesforce")
         evidence.append(

@@ -31,6 +31,8 @@ dependencies = [
   "stripe>=10.0,<16.0",
   # Onboarding email canonicalization
   "email-validator>=2.0,<3.0",
+  # Public search discovery (web.research / ddgs chain)
+  "ddgs>=9.0,<10.0",
 
   # Observability
   "prometheus-client>=0.20,<1.0",

@@ -204,3 +204,42 @@ def test_competitor_name_with_and_stays_ready() -> None:
     assert intent.target_entities
     assert intent.target_entities[0].name == "Johnson and Johnson"
     assert not any(c.field == "clause_coverage" for c in intent.ambiguity)
+
+
+def test_gmail_read_imperative_does_not_add_is_read_filter() -> None:
+    intent = interpret_instruction("Read messages from Gmail")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    assert "in:inbox" in payload["query"]
+    assert "is:read" not in payload["query"]
+
+
+def test_gmail_query_preserves_from_name_and_for_keywords() -> None:
+    intent = interpret_instruction("Search Gmail for Acme invoices from Alice")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "from:Alice" in query or "from:alice" in query.lower()
+    assert "Acme" in query or "invoices" in query.lower()
+
+
+def test_salesforce_named_contact_stops_before_date_filter() -> None:
+    intent = interpret_instruction("Query Salesforce for contacts named Alice modified in the last 30 days")
+    payload = build_action_input(action_name="salesforce.soql_read", intent=intent)
+    assert "Name LIKE '%Alice%'" in payload["soql"]
+    assert "Alice modified" not in payload["soql"]
+    assert "LAST_N_DAYS:30" in payload["soql"]
+
+
+def test_hubspot_deals_without_company_fails_closed() -> None:
+    intent = interpret_instruction("Check HubSpot deals")
+    assert "read_crm" in intent.requested_outcomes
+    try:
+        build_action_input(action_name="sales.research", intent=intent)
+        raise AssertionError("expected ValueError for unsupported HubSpot scope")
+    except ValueError as exc:
+        assert "scope" in str(exc).lower() or "sales.research" in str(exc).lower()
+
+
+def test_hubspot_source_research_does_not_dual_route_web_and_crm() -> None:
+    intent = interpret_instruction("Research five roofing companies in Austin from HubSpot CRM records.")
+    assert "research_prospects" in intent.requested_outcomes
+    assert "read_crm" not in intent.requested_outcomes
