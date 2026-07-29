@@ -142,6 +142,93 @@ def _explicit_email(intent: MissionIntent) -> str | None:
     return None
 
 
+def _source_instruction(intent: MissionIntent) -> str:
+    return (intent.raw_instruction or intent.normalized_instruction or intent.objective or "").strip()
+
+
+def _gmail_query(intent: MissionIntent) -> str:
+    """Build a bounded Gmail search query from explicit read-only language."""
+
+    source = _source_instruction(intent)
+    lower = source.lower()
+    terms: list[str] = []
+    if re.search(r"\b(?:sent|outbox)\b", lower):
+        terms.append("in:sent")
+    else:
+        terms.append("in:inbox")
+    if "unread" in lower:
+        terms.append("is:unread")
+    elif re.search(r"\bread\s+(?:messages?|emails?)\b", lower):
+        terms.append("is:read")
+    if re.search(r"\b(?:last|past)\s+week\b", lower):
+        terms.append("newer_than:7d")
+    elif re.search(r"\b(?:last|past)\s+month\b", lower):
+        terms.append("newer_than:30d")
+    elif re.search(r"\btoday\b|\blast\s+24\s+hours?\b", lower):
+        terms.append("newer_than:1d")
+
+    from_match = re.search(
+        r"\bfrom\s+([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
+        source,
+        flags=re.IGNORECASE,
+    )
+    if from_match is not None:
+        terms.append(f"from:{from_match.group(1)}")
+    return " ".join(dict.fromkeys(terms))
+
+
+def _salesforce_soql(intent: MissionIntent) -> str:
+    """Build a conservative read-only SOQL query from explicit Salesforce language."""
+
+    source = _source_instruction(intent)
+    explicit = re.search(r"\bSELECT\s+.+", source, flags=re.IGNORECASE | re.DOTALL)
+    if explicit is not None:
+        return explicit.group(0).strip().strip("\"'").rstrip(";")[:4000]
+
+    lower = source.lower()
+    if re.search(r"\bopportunit(?:y|ies)\b", lower):
+        object_name = "Opportunity"
+        fields = "Id, Name, Amount, StageName, CloseDate"
+    elif re.search(r"\bcontacts?\b", lower):
+        object_name = "Contact"
+        fields = "Id, Name, Email, AccountId, LastModifiedDate"
+    elif re.search(r"\bleads?\b", lower):
+        object_name = "Lead"
+        fields = "Id, Name, Company, Email, Status, LastModifiedDate"
+    else:
+        object_name = "Account"
+        fields = "Id, Name, Industry, Website, LastModifiedDate"
+
+    filters: list[str] = []
+    if object_name == "Opportunity":
+        if re.search(r"\bopen\b|\bactive\b|\bnot\s+closed\b", lower):
+            filters.append("IsClosed = false")
+        if re.search(r"\b(?:closing|close)\b.{0,24}\bthis\s+quarter\b", lower):
+            filters.append("CloseDate = THIS_QUARTER")
+        amount = re.search(
+            r"\b(over|above|greater\s+than|at\s+least)\s+\$?([0-9][0-9,]*(?:\.[0-9]+)?)\s*([km])?\b",
+            lower,
+        )
+        if amount is not None:
+            value = float(amount.group(2).replace(",", ""))
+            suffix = amount.group(3)
+            if suffix == "k":
+                value *= 1000
+            elif suffix == "m":
+                value *= 1_000_000
+            operator = ">=" if amount.group(1) == "at least" else ">"
+            filters.append(f"Amount {operator} {int(value)}")
+
+    soql = f"SELECT {fields} FROM {object_name}"
+    if filters:
+        soql += " WHERE " + " AND ".join(filters)
+    if object_name == "Opportunity" and re.search(r"\btop\b|\blargest\b|\bhighest\b|\bamount\b", lower):
+        soql += " ORDER BY Amount DESC"
+    requested_limit = intent.requested_quantity if intent.requested_quantity is not None else 20
+    soql += f" LIMIT {max(1, min(int(requested_limit), 50))}"
+    return soql
+
+
 def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any]:
     """Return a schema-valid-enough input payload for the action.
 
@@ -151,7 +238,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
 
     industry, location, query = _target_bits(intent)
     limit = _prospect_count(intent)
-    company_label = industry or "prospect company"
+    primary_entity = intent.target_entities[0] if intent.target_entities else None
+    explicit_company = primary_entity.name.strip() if primary_entity and primary_entity.name else None
+    company_label = explicit_company or industry or "prospect company"
     if location:
         company_label = f"{company_label} ({location})"
 
@@ -300,7 +389,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             },
         }
     if action_name == "gtm.email_check":
-        return {"query": "in:inbox", "limit": limit}
+        return {"query": _gmail_query(intent), "limit": max(limit, 10)}
+    if action_name == "salesforce.soql_read":
+        return {"soql": _salesforce_soql(intent), "api_version": "v59.0"}
     if action_name == "gtm.crm_upsert":
         # Market labels must not become static contacts; bind discovered prospects.
 
