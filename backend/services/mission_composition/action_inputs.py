@@ -83,10 +83,37 @@ def _prospect_count(intent: MissionIntent) -> int:
     return _DEFAULT_PROSPECT_COUNT
 
 
+def _research_query_fallback(intent: MissionIntent) -> str:
+    """Prefer original user instruction over lossy mission objective restatement."""
+
+    for candidate in (
+        intent.raw_instruction,
+        intent.normalized_instruction,
+        intent.objective,
+    ):
+        text = (candidate or "").strip()
+        if not text:
+            continue
+        # Skip generic restatement that is useless as a web search query.
+        if text.lower().startswith("identify and prepare outreach for qualified the requested market"):
+            continue
+        return text[:400]
+    return "prospect research"
+
+
 def _target_bits(intent: MissionIntent) -> tuple[str | None, str | None, str]:
     entity = intent.target_entities[0] if intent.target_entities else None
     industry = entity.industry.strip() if entity and entity.industry else None
     location = entity.location.strip() if entity and entity.location else None
+    if entity and (
+        entity.type == "competitor_set"
+        or (isinstance(entity.attributes, dict) and entity.attributes.get("research_mode") == "competitors")
+    ):
+        name = (entity.name or "").strip()
+        if name and location:
+            return industry, location, f"competitors of {name} in {location}"
+        if name:
+            return industry, location, f"competitors of {name}"
     parts: list[str] = []
     if industry:
         parts.append(industry)
@@ -95,7 +122,7 @@ def _target_bits(intent: MissionIntent) -> tuple[str | None, str | None, str]:
         parts.append(f"in {location}")
     query = " ".join(parts).strip()
     if not query or query == "companies":
-        query = intent.objective.strip()[:400] or "prospect research"
+        query = _research_query_fallback(intent)
     return industry, location, query
 
 
@@ -140,13 +167,26 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name == "web.research":
         entity = intent.target_entities[0] if intent.target_entities else None
         research_query = query
-        if entity and entity.industry and entity.location:
+        if entity and (
+            entity.type == "competitor_set"
+            or (isinstance(entity.attributes, dict) and entity.attributes.get("research_mode") == "competitors")
+        ):
+            name = (entity.name or "").strip()
+            if name and location:
+                research_query = f"competitors of {name} in {location}"
+            elif name:
+                research_query = f"competitors of {name}"
+        elif entity and entity.industry and entity.location:
             research_query = f"{entity.industry} companies in {entity.location}"
         elif entity and entity.name:
             research_query = entity.name
+        elif not research_query or research_query.lower().startswith(
+            "identify and prepare outreach for qualified the requested market"
+        ):
+            research_query = _research_query_fallback(intent)
         return {
             "query": research_query[:400],
-            "company": industry,
+            "company": industry or (entity.name if entity else None),
             "domain": entity.domain if entity else None,
             "fetch_public_page": False,
             "include_public_search": True,

@@ -76,8 +76,8 @@ export default function MissionsPage() {
         interpretation_thread_id: interpretationThreadId ?? undefined,
       });
       setProposal(result);
-      // One idempotency key per proposal; reused on confirm retries.
-      setConfirmIdempotencyKey(`compose-confirm:${result.proposal_id}:${newIdempotencyKey()}`);
+      // One UUID v4 per proposal; reused on confirm retries (middleware requires UUID).
+      setConfirmIdempotencyKey(newIdempotencyKey());
       if (result.interpretation_thread_id) {
         setInterpretationThreadId(result.interpretation_thread_id);
       }
@@ -94,8 +94,7 @@ export default function MissionsPage() {
     }
     setConfirming(true);
     setError(null);
-    const idempotencyKey =
-      confirmIdempotencyKey ?? `compose-confirm:${proposal.proposal_id}:${newIdempotencyKey()}`;
+    const idempotencyKey = confirmIdempotencyKey ?? newIdempotencyKey();
     if (!confirmIdempotencyKey) {
       setConfirmIdempotencyKey(idempotencyKey);
     }

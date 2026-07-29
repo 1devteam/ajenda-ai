@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 COMPOSITION_SCHEMA_VERSION = 3
 JOB_CATALOG_VERSION = "3"
-INTERPRETER_VERSION = "5"
+INTERPRETER_VERSION = "6"
 CAPABILITY_RESOLVER_VERSION = "3"
 
 ProposalStatus = Literal[

@@ -92,7 +92,7 @@ _RESEARCH_PATTERNS = (
 _LOCATION_TRAILING_STOP = re.compile(
     r"\s+\b(?:"
     r"identify|find|discover|and|with|for|to|that|who|which|"
-    r"strong|best|top|draft|enrich|qualify|send|prepare|"
+    r"strong|best|top|draft|enrich|qualify|send|prepare|score|rank|"
     r"prospects?|competitors?|competors?|leads?"
     r")\b",
     re.IGNORECASE,
@@ -205,6 +205,22 @@ _INDUSTRY_LOCATION = re.compile(
     r"(?=$|[\s,;.:]|\band\b)",
     re.IGNORECASE,
 )
+# "competitors of Acme Roofing in Northwest Arkansas" (prefer with location)
+_COMPETITORS_OF_IN = re.compile(
+    r"\bcompetitors?\s+of\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
+    r"\s+in\s+"
+    r"(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,4})"
+    r"(?=$|[\s,;.:]|\band\b)",
+    re.IGNORECASE,
+)
+# "competitors of Smith HVAC" (no location)
+_COMPETITORS_OF_BARE = re.compile(
+    r"\bcompetitors?\s+of\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
+    r"(?=$|[\s,;.:]|\band\b)",
+    re.IGNORECASE,
+)
 _LEADING_VERB_WORDS = frozenset(
     {
         "research",
@@ -287,7 +303,76 @@ def _extract_count(text: str) -> int | None:
     return _WORD_COUNTS.get(raw)
 
 
+def _trim_location(location: str) -> str:
+    location = (location or "").strip(" ,.;:")
+    stop = _LOCATION_TRAILING_STOP.search(f" {location}")
+    if stop is not None:
+        cut = max(0, stop.start() - 1)
+        location = location[:cut].strip(" ,.;:")
+    return location
+
+
+def _extract_competitors_of(text: str) -> list[TargetEntity]:
+    """Extract 'competitors of {Company} [in {Location}]' as a structured target."""
+
+    match = _COMPETITORS_OF_IN.search(text)
+    location: str | None = None
+    if match is not None:
+        name = match.group("name").strip(" ,.;:")
+        location = _trim_location(match.group("location"))
+    else:
+        match = _COMPETITORS_OF_BARE.search(text)
+        if match is None:
+            return []
+        name = match.group("name").strip(" ,.;:")
+        # Guard against swallowing trailing verbs when "in" is absent.
+        name_stop = _LOCATION_TRAILING_STOP.search(f" {name}")
+        if name_stop is not None:
+            cut = max(0, name_stop.start() - 1)
+            name = name[:cut].strip(" ,.;:")
+    if not name or len(name) < 2:
+        return []
+    # Infer a light industry hint from the last name token when it is a trade word.
+    industry: str | None = None
+    tokens = name.split()
+    if tokens:
+        last = tokens[-1].lower()
+        if last in {
+            "roofing",
+            "plumbing",
+            "hvac",
+            "electrical",
+            "landscaping",
+            "construction",
+            "dentistry",
+            "dental",
+            "legal",
+            "law",
+            "insurance",
+            "realty",
+            "software",
+        }:
+            industry = tokens[-1]
+    return [
+        TargetEntity(
+            type="competitor_set",
+            name=name,
+            industry=industry,
+            location=location or None,
+            attributes={
+                "research_mode": "competitors",
+                "anchor_company": name,
+            },
+            provenance="explicit",
+            confidence=0.95,
+        )
+    ]
+
+
 def _extract_target_entities(text: str) -> list[TargetEntity]:
+    competitors = _extract_competitors_of(text)
+    if competitors:
+        return competitors
     match = _INDUSTRY_LOCATION.search(text)
     if match is None:
         return []
@@ -297,11 +382,7 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     while industry_tokens and (industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()):
         industry_tokens.pop(0)
     industry = " ".join(industry_tokens).strip(" ,.;:")
-    location = match.group("location").strip(" ,.;:")
-    stop = _LOCATION_TRAILING_STOP.search(f" {location}")
-    if stop is not None:
-        cut = max(0, stop.start() - 1)
-        location = location[:cut].strip(" ,.;:")
+    location = _trim_location(match.group("location"))
     if not industry or not location:
         return []
     return [
@@ -824,7 +905,24 @@ def interpret_instruction(
                     rule_id="entity.email_recipient",
                 )
             )
-    if entities and entities[0].industry:
+    if entities and entities[0].type == "competitor_set" and entities[0].name:
+        evidence.append(
+            _evidence(
+                field_path="target_entities[0]",
+                source="explicit",
+                source_text=(
+                    f"competitors of {entities[0].name}"
+                    + (f" in {entities[0].location}" if entities[0].location else "")
+                ),
+                normalized_value=f"competitors_of|{entities[0].name}|{entities[0].location or ''}",
+                confidence=entities[0].confidence,
+                rule_id="entity.competitors_of",
+            )
+        )
+        label = f"competitors of {entities[0].name}" + (
+            f" in {entities[0].location}" if entities[0].location else ""
+        )
+    elif entities and entities[0].industry:
         evidence.append(
             _evidence(
                 field_path="target_entities[0]",
@@ -838,6 +936,8 @@ def interpret_instruction(
         label = f"{entities[0].industry or 'target'} in {entities[0].location or 'specified market'}"
     elif entities and entities[0].email:
         label = entities[0].email
+    elif entities and entities[0].name:
+        label = entities[0].name
     else:
         label = "the requested market"
 
@@ -1022,17 +1122,20 @@ def interpret_instruction(
             )
         )
 
-    # Prospect discovery without target scope (industry/location) — job-specific.
+    # Prospect discovery without target scope (industry/location/competitors) — job-specific.
     if "research_prospects" in outcomes and not entities:
         # Allow trend-like research if no company-hunt shape; only restatement when
         # "companies" / prospect hunt language implies a bounded market.
-        if re.search(r"\bcompanies\b|\bprospects\b|\bleads\b", lower):
+        if re.search(r"\bcompanies\b|\bprospects\b|\bleads\b|\bcompetitors?\b", lower):
             clarifications.append(
                 _restatement(
                     field="target_scope",
                     understood=understood,
                     missing="the target market is missing or could not be extracted",
-                    include_instruction="the industry or company type and the city, region, or service area",
+                    include_instruction=(
+                        "the industry or company type and the city/region, "
+                        "or competitors of a named company in a location"
+                    ),
                     reason="Prospect discovery requires a usable target scope.",
                 )
             )
@@ -1048,8 +1151,16 @@ def interpret_instruction(
     if profile_context.get("company") or profile_context.get("business_name"):
         context_requirements.append("business_profile")
 
+    # Keep the user's instruction as objective by default. Only rewrite when we have a
+    # concrete target label — never "the requested market" which becomes a useless search query.
     objective = text if len(text) <= 500 else text[:497] + "..."
-    if "research_prospects" in outcomes and "prepare_outreach" in outcomes and send_policy.mode == "forbid":
+    if (
+        "research_prospects" in outcomes
+        and "prepare_outreach" in outcomes
+        and send_policy.mode == "forbid"
+        and entities
+        and label != "the requested market"
+    ):
         objective = f"Identify and prepare outreach for qualified {label} prospects without sending messages."
 
     # Split forbid concepts: action tokens vs display/legacy mix.

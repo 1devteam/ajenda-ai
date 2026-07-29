@@ -657,8 +657,13 @@ class MissionCompositionService:
     ) -> dict[str, Any]:
         """Compile a server-owned plan/graph for an existing mission.
 
-        Re-runs composition from the mission objective (or explicit instruction).
+        Re-runs composition from the stored composition instruction when present
+        (confirmed composition missions), else client instruction, else mission objective.
         Does not queue work, create leases, or invoke tools.
+
+        Preferring stored composition.instruction avoids recompiling from the mission
+        objective restatement, which is often lossy and can fail ready_to_start even
+        when the original confirmed instruction was ready.
 
         When persist=True, replaces mission task graph + refreshes intake allowed_actions,
         supersedes stale graph admission/materialization metadata, supersedes any active
@@ -677,15 +682,19 @@ class MissionCompositionService:
         if not isinstance(intake, dict):
             intake = {}
 
-        instruction_text = (instruction or "").strip()
+        # Instruction source of truth for confirmed/composed missions: stored composition.
+        # Client may pass mission.objective (lossy restatement) — do not prefer that over
+        # the original composition instruction the user confirmed.
+        raw_context = intake.get("context")
+        context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
+        raw_composition = context.get("composition")
+        composition: dict[str, Any] = raw_composition if isinstance(raw_composition, dict) else {}
+        stored_instruction = composition.get("instruction")
+        instruction_text = ""
+        if isinstance(stored_instruction, str) and stored_instruction.strip():
+            instruction_text = stored_instruction.strip()
         if not instruction_text:
-            raw_context = intake.get("context")
-            context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
-            raw_composition = context.get("composition")
-            composition: dict[str, Any] = raw_composition if isinstance(raw_composition, dict) else {}
-            stored = composition.get("instruction")
-            if isinstance(stored, str) and stored.strip():
-                instruction_text = stored.strip()
+            instruction_text = (instruction or "").strip()
         if not instruction_text:
             instruction_text = str(mission.objective or "").strip()
         if not instruction_text:
@@ -733,10 +742,20 @@ class MissionCompositionService:
                     }
                 )
             if record.clarifications:
+                clarification_msgs = [
+                    str(getattr(c, "question", None) or getattr(c, "reason", None) or "").strip()
+                    for c in record.clarifications
+                ]
+                clarification_msgs = [m for m in clarification_msgs if m]
+                detail = "; ".join(clarification_msgs[:5]) if clarification_msgs else ""
                 blockers.append(
                     {
                         "code": "AMBIGUITY",
-                        "message": "instruction needs clarification before ready_to_start",
+                        "message": (
+                            f"instruction needs clarification before ready_to_start: {detail}"
+                            if detail
+                            else "instruction needs clarification before ready_to_start"
+                        ),
                     }
                 )
             if compile_status == "blocked" and not blockers:

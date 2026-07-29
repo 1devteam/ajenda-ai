@@ -29,6 +29,31 @@ def test_score_them_mission_composes_ready() -> None:
     assert not any(c.field == "clause_coverage" for c in intent.ambiguity)
     assert intent.interpretation_ready is True
     assert intent.coverage_score >= 0.99
+    # Structured competitor target — not the lossy "requested market" restatement.
+    assert intent.target_entities
+    entity = intent.target_entities[0]
+    assert entity.type == "competitor_set"
+    assert entity.name == "Acme Roofing"
+    assert entity.location is not None
+    assert "Northwest Arkansas" in (entity.location or "")
+    assert "requested market" not in intent.objective.lower()
+    assert "Acme Roofing" in intent.objective or "competitors of Acme" in intent.objective.lower()
+
+
+def test_competitors_of_builds_usable_web_research_query() -> None:
+    from backend.services.mission_composition.action_inputs import build_action_input
+
+    intent = interpret_instruction(
+        "Research five competitors of Acme Roofing in Northwest Arkansas, "
+        "score them, and prepare outreach drafts for the top three."
+    )
+    payload = build_action_input(action_name="web.research", intent=intent)
+    query = str(payload["query"])
+    assert "Acme Roofing" in query
+    assert "Northwest Arkansas" in query
+    assert "competitors" in query.lower()
+    assert "requested market" not in query.lower()
+    assert "Identify and prepare outreach" not in query
 
 
 def test_rank_and_best_also_qualify() -> None:
