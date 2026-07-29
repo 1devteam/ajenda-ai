@@ -723,9 +723,7 @@ def interpret_instruction(
     wants_salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
     connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
     explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?)\b", lower))
-    wants_research = _contains_any(lower, _RESEARCH_PATTERNS) and (
-        not connector_read or explicit_prospect_research
-    )
+    wants_research = _contains_any(lower, _RESEARCH_PATTERNS) and (not connector_read or explicit_prospect_research)
     # Enrich only when explicitly requested — not invented from draft+qualify.
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
@@ -1044,9 +1042,7 @@ def interpret_instruction(
                 rule_id="entity.competitors_of",
             )
         )
-        label = f"competitors of {entities[0].name}" + (
-            f" in {entities[0].location}" if entities[0].location else ""
-        )
+        label = f"competitors of {entities[0].name}" + (f" in {entities[0].location}" if entities[0].location else "")
     elif entities and entities[0].industry:
         evidence.append(
             _evidence(
