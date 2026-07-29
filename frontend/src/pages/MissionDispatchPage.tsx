@@ -32,6 +32,49 @@ import { failureText, pretty } from "../utils/errors";
 
 type StepStatus = "pending" | "complete" | "blocked" | "running";
 
+/** Prefer confirmed composition instruction over lossy mission.objective restatement. */
+function compositionInstructionFromIntake(intake: Record<string, unknown> | null | undefined): string {
+  if (!intake || typeof intake !== "object") {
+    return "";
+  }
+  const context = intake.context;
+  if (!context || typeof context !== "object") {
+    return "";
+  }
+  const composition = (context as { composition?: unknown }).composition;
+  if (!composition || typeof composition !== "object") {
+    return "";
+  }
+  const instruction = (composition as { instruction?: unknown }).instruction;
+  return typeof instruction === "string" ? instruction.trim() : "";
+}
+
+function formatCompileFailure(compiled: Record<string, unknown>): string {
+  const status = String(compiled.compile_status ?? "unknown");
+  const blockers = Array.isArray(compiled.blockers) ? compiled.blockers : [];
+  const blockerMsgs = blockers
+    .map((b) =>
+      typeof b === "object" && b && "message" in b ? String((b as { message: string }).message) : "",
+    )
+    .filter(Boolean);
+  const warnings = Array.isArray(compiled.warnings) ? compiled.warnings : [];
+  const warningMsgs = warnings
+    .map((w) =>
+      typeof w === "object" && w && "message" in w ? String((w as { message: string }).message) : "",
+    )
+    .filter(Boolean);
+  const parts = [...blockerMsgs];
+  for (const msg of warningMsgs) {
+    if (!parts.includes(msg)) {
+      parts.push(msg);
+    }
+  }
+  if (parts.length > 0) {
+    return parts.join("; ");
+  }
+  return `Server compile is not ready (status=${status}).`;
+}
+
 function stepStatusFor(
   stepId: (typeof PIPELINE_STEPS)[number]["id"],
   lifecycle: MissionLifecycleReadResponse | null,
@@ -198,8 +241,8 @@ export default function MissionDispatchPage() {
       return;
     }
     await runStep("Compiling task graph (server)…", async () => {
+      // Omit instruction: server prefers stored composition.instruction over objective.
       const compiled = await compileMission(session, missionId, {
-        instruction: lifecycle?.mission.objective,
         persist: true,
         source: "mission_dispatch_ui",
       });
@@ -207,12 +250,7 @@ export default function MissionDispatchPage() {
       const display = (compiled.display as { allowed_actions?: string[] } | undefined) ?? {};
       const actions = display.allowed_actions ?? [];
       if (status !== "ready") {
-        const blockers = Array.isArray(compiled.blockers) ? compiled.blockers : [];
-        const detail = blockers
-          .map((b) => (typeof b === "object" && b && "message" in b ? String((b as { message: string }).message) : ""))
-          .filter(Boolean)
-          .join("; ");
-        throw new Error(detail || `Server compile is not ready (status=${status || "unknown"}).`);
+        throw new Error(formatCompileFailure(compiled));
       }
       setNotice(
         `Server compiled ${actions.length} ability step(s) via ajenda-mission-compiler.`,
@@ -226,14 +264,13 @@ export default function MissionDispatchPage() {
       return;
     }
     await runStep("Recompiling + materializing (server)…", async () => {
-      // Server compile now owns graph materialization metadata.
+      // Server compile owns graph materialization; prefer stored composition instruction.
       const compiled = await compileMission(session, missionId, {
-        instruction: lifecycle?.mission.objective,
         persist: true,
         source: "mission_dispatch_ui",
       });
       if (String(compiled.compile_status ?? "") !== "ready") {
-        throw new Error("Server compile is not ready for materialization.");
+        throw new Error(formatCompileFailure(compiled));
       }
       setNotice("Server compile wrote graph materialization.");
       await refreshLifecycle();
@@ -318,22 +355,19 @@ export default function MissionDispatchPage() {
       }
       // Server compile is the only graph authority for dispatch. Always recompile so
       // kitchen-sink intake graphs are replaced by composition-selected abilities.
-      if (!current.mission.objective?.trim()) {
-        throw new Error("Mission has no objective to compile.");
+      // Do not pass mission.objective — it is often a lossy restatement; server uses
+      // stored composition.instruction when present.
+      const storedInstruction = compositionInstructionFromIntake(current.intake ?? null);
+      if (!storedInstruction && !current.mission.objective?.trim()) {
+        throw new Error("Mission has no composition instruction or objective to compile.");
       }
       const compiled = await compileMission(session, missionId, {
-        instruction: current.mission.objective,
         persist: true,
         source: "mission_dispatch_ui",
       });
       const compileStatus = String(compiled.compile_status ?? "");
       if (compileStatus !== "ready") {
-        const blockers = Array.isArray(compiled.blockers) ? compiled.blockers : [];
-        const detail = blockers
-          .map((b) => (typeof b === "object" && b && "message" in b ? String((b as { message: string }).message) : ""))
-          .filter(Boolean)
-          .join("; ");
-        throw new Error(detail || `Server compile is not ready (status=${compileStatus || "unknown"}).`);
+        throw new Error(formatCompileFailure(compiled));
       }
       current = (await refreshLifecycle()) ?? current;
       const compiledActions =

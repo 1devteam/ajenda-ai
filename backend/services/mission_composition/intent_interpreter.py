@@ -11,6 +11,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from backend.services.mission_composition.ability_vocab import (
+    match_outcome_phrases,
+    phrase_maps_to_outcome,
+)
+from backend.services.mission_composition.connector_capabilities import restatement_for_deferred_op
 from backend.services.mission_composition.contracts import (
     CANONICAL_OUTCOMES,
     INTERPRETER_VERSION,
@@ -26,7 +31,7 @@ from backend.services.mission_composition.contracts import (
 from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
 
-_COMPONENTS_ACTIVE = ("regex_core",)
+_COMPONENTS_ACTIVE = ("regex_core", "ability_vocab")
 
 _SEND_PATTERNS = (
     r"\bsend\b",
@@ -66,6 +71,15 @@ _QUALIFY_PATTERNS = (
     r"strong prospects",
     r"identify .* prospects",
     r"best (?:leads|prospects)",
+    # Score/rank/rate only when aimed at prospects/leads/competitors (not reports/rates).
+    r"\bscore(?:s|d|ing)?\s+(?:them|these|those|it|the\s+(?:prospects?|leads?|competitors?))\b",
+    r"\brank(?:s|ed|ing)?\s+(?:them|these|those|the\s+(?:strongest|best|prospects?|leads?|competitors?))\b",
+    r"\brate(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
+    r"\bgrade(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
+    r"\btop (?:leads?|prospects?)\b",
+    r"\btop (?:three|five)\b",
+    r"\bstrongest (?:leads?|prospects?|competitors?)\b",
+    r"\bpick the (?:strongest|best)\b",
 )
 _RESEARCH_PATTERNS = (
     r"\bresearch\b",
@@ -79,7 +93,7 @@ _RESEARCH_PATTERNS = (
 _LOCATION_TRAILING_STOP = re.compile(
     r"\s+\b(?:"
     r"identify|find|discover|and|with|for|to|that|who|which|"
-    r"strong|best|top|draft|enrich|qualify|send|prepare|"
+    r"strong|best|top|draft|enrich|qualify|send|prepare|score|rank|"
     r"prospects?|competitors?|competors?|leads?"
     r")\b",
     re.IGNORECASE,
@@ -92,6 +106,32 @@ _ENRICH_PATTERNS = (
     r"gather (?:contact|email|phone)",
     r"find (?:emails?|phone numbers?|contact)",
     r"look up (?:emails?|contact)",
+)
+_EMAIL_READ_PATTERNS = (
+    # Require Gmail/inbox context — bare "email/message" often means CRM fields.
+    r"\b(?:check|read|search|list|show)\b.{0,48}\b(?:gmail|inbox)\b",
+    r"\b(?:gmail|inbox)\b.{0,48}\b(?:unread|recent|replies?|messages?|emails?)\b",
+    r"\b(?:check|read|search|list|show)\s+my\s+(?:emails?|messages?)\b",
+)
+_CRM_READ_PATTERNS = (
+    r"\b(?:check|read|search|query|list|show|summarize|find|look up)\b.{0,48}\b(?:hubspot|crm)\b",
+    r"\b(?:hubspot|crm)\b.{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b",
+)
+_SALESFORCE_QUERY_PATTERNS = (
+    r"\b(?:query|check|read|search|list|show|summarize)\b.{0,48}\bsalesforce\b",
+    r"\bsalesforce\b.{0,48}\b(?:accounts?|contacts?|leads?|opportunities|records?|pipeline)\b",
+)
+_HUBSPOT_COMPANY_AFTER = re.compile(
+    r"\b(?:hubspot|(?:the\s+)?crm)\s+(?:for|about|on|matching)\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
+    r"(?=$|[,;.]|\s+\band\b|\s+\bthen\b)",
+    re.IGNORECASE,
+)
+_HUBSPOT_COMPANY_BEFORE = re.compile(
+    r"\b(?:find|search|check|read|look\s+up|show)\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
+    r"\s+(?:in|on|from)\s+(?:hubspot|(?:the\s+)?crm)\b",
+    re.IGNORECASE,
 )
 # Read-oriented calendar only. Imperative "schedule a meeting" is not events_read.
 _CALENDAR_PATTERNS = (
@@ -192,6 +232,22 @@ _INDUSTRY_LOCATION = re.compile(
     r"(?=$|[\s,;.:]|\band\b)",
     re.IGNORECASE,
 )
+# "competitors of Acme Roofing in Northwest Arkansas" (prefer with location)
+_COMPETITORS_OF_IN = re.compile(
+    r"\bcompetitors?\s+of\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
+    r"\s+in\s+"
+    r"(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,4})"
+    r"(?=$|[\s,;.:]|\band\b)",
+    re.IGNORECASE,
+)
+# "competitors of Smith HVAC" (no location)
+_COMPETITORS_OF_BARE = re.compile(
+    r"\bcompetitors?\s+of\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
+    r"(?=$|[\s,;.:]|\band\b)",
+    re.IGNORECASE,
+)
 _LEADING_VERB_WORDS = frozenset(
     {
         "research",
@@ -274,7 +330,73 @@ def _extract_count(text: str) -> int | None:
     return _WORD_COUNTS.get(raw)
 
 
-def _extract_target_entities(text: str) -> list[TargetEntity]:
+def _trim_location(location: str) -> str:
+    location = (location or "").strip(" ,.;:")
+    stop = _LOCATION_TRAILING_STOP.search(f" {location}")
+    if stop is not None:
+        cut = max(0, stop.start() - 1)
+        location = location[:cut].strip(" ,.;:")
+    return location
+
+
+def _extract_competitors_of(text: str) -> list[TargetEntity]:
+    """Extract 'competitors of {Company} [in {Location}]' as a structured target."""
+
+    match = _COMPETITORS_OF_IN.search(text)
+    location: str | None = None
+    if match is not None:
+        name = match.group("name").strip(" ,.;:")
+        location = _trim_location(match.group("location"))
+    else:
+        match = _COMPETITORS_OF_BARE.search(text)
+        if match is None:
+            return []
+        name = match.group("name").strip(" ,.;:")
+        # Guard against swallowing trailing verbs when "in" is absent.
+        name_stop = _LOCATION_TRAILING_STOP.search(f" {name}")
+        if name_stop is not None:
+            cut = max(0, name_stop.start() - 1)
+            name = name[:cut].strip(" ,.;:")
+    if not name or len(name) < 2:
+        return []
+    # Infer a light industry hint from the last name token when it is a trade word.
+    industry: str | None = None
+    tokens = name.split()
+    if tokens:
+        last = tokens[-1].lower()
+        if last in {
+            "roofing",
+            "plumbing",
+            "hvac",
+            "electrical",
+            "landscaping",
+            "construction",
+            "dentistry",
+            "dental",
+            "legal",
+            "law",
+            "insurance",
+            "realty",
+            "software",
+        }:
+            industry = tokens[-1]
+    return [
+        TargetEntity(
+            type="competitor_set",
+            name=name,
+            industry=industry,
+            location=location or None,
+            attributes={
+                "research_mode": "competitors",
+                "anchor_company": name,
+            },
+            provenance="explicit",
+            confidence=0.95,
+        )
+    ]
+
+
+def _extract_industry_location_entities(text: str) -> list[TargetEntity]:
     match = _INDUSTRY_LOCATION.search(text)
     if match is None:
         return []
@@ -284,18 +406,64 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     while industry_tokens and (industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()):
         industry_tokens.pop(0)
     industry = " ".join(industry_tokens).strip(" ,.;:")
-    location = match.group("location").strip(" ,.;:")
-    stop = _LOCATION_TRAILING_STOP.search(f" {location}")
-    if stop is not None:
-        cut = max(0, stop.start() - 1)
-        location = location[:cut].strip(" ,.;:")
+    location = _trim_location(match.group("location"))
+    # Drop trailing source qualifiers ("from HubSpot CRM records").
+    location = re.sub(
+        r"\s+\bfrom\b\s+.*$",
+        "",
+        location,
+        flags=re.IGNORECASE,
+    ).strip(" ,.;:")
     if not industry or not location:
+        return []
+    # Industry must not keep the leading verb + quantity ("Research five roofing").
+    industry_tokens = [token for token in industry.split() if token]
+    while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
+        industry_tokens.pop(0)
+    while industry_tokens and (industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()):
+        industry_tokens.pop(0)
+    industry = " ".join(industry_tokens).strip(" ,.;:")
+    if not industry:
         return []
     return [
         TargetEntity(
             type="company",
             industry=industry,
             location=location,
+            provenance="explicit",
+            confidence=0.95,
+        )
+    ]
+
+
+def _extract_target_entities(text: str) -> list[TargetEntity]:
+    """Retain explicit research / connector targets (competitors, market, CRM company)."""
+
+    entities: list[TargetEntity] = []
+    entities.extend(_extract_competitors_of(text))
+    entities.extend(_extract_industry_location_entities(text))
+    # Connector company targets (HubSpot for Acme) — only when no market target already.
+    if not entities:
+        entities.extend(_extract_connector_company(text))
+    elif not any(e.name for e in entities):
+        entities.extend(_extract_connector_company(text))
+    return entities
+
+
+def _extract_connector_company(text: str) -> list[TargetEntity]:
+    """Extract an explicit company target for a HubSpot/CRM read."""
+
+    match = _HUBSPOT_COMPANY_AFTER.search(text) or _HUBSPOT_COMPANY_BEFORE.search(text)
+    if match is None:
+        return []
+    name = match.group("name").strip(" ,.;:")
+    if not name or name.lower() in {"records", "contacts", "companies", "deals", "pipeline"}:
+        return []
+    return [
+        TargetEntity(
+            type="company",
+            name=name,
+            attributes={"connector": "hubspot", "research_mode": "crm_read"},
             provenance="explicit",
             confidence=0.95,
         )
@@ -326,7 +494,14 @@ def _looks_like_fragment(text: str) -> bool:
         return True
     if len(stripped) < 80 and not _contains_any(
         stripped.lower(),
-        _RESEARCH_PATTERNS + _DRAFT_PATTERNS + _SEND_PATTERNS + _QUALIFY_PATTERNS + _CALENDAR_PATTERNS,
+        _RESEARCH_PATTERNS
+        + _DRAFT_PATTERNS
+        + _SEND_PATTERNS
+        + _QUALIFY_PATTERNS
+        + _CALENDAR_PATTERNS
+        + _EMAIL_READ_PATTERNS
+        + _CRM_READ_PATTERNS
+        + _SALESFORCE_QUERY_PATTERNS,
     ):
         return True
     return False
@@ -402,6 +577,27 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "read_email" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Requested Gmail messages are returned with provider evidence",
+                measurable=True,
+            )
+        )
+    if "read_crm" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Requested HubSpot CRM records are returned with provider evidence",
+                measurable=True,
+            )
+        )
+    if "query_salesforce" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="The read-only Salesforce query returns records with provider evidence",
+                measurable=True,
+            )
+        )
     if "update_crm" in outcomes:
         success.append(
             SuccessCriterion(
@@ -419,9 +615,36 @@ def _success_for_outcomes(
     return success
 
 
-def _segment_clauses(text: str) -> list[str]:
-    parts = [p.strip(" ,.;") for p in _CLAUSE_SPLIT.split(text) if p and p.strip(" ,.;")]
-    return parts if parts else [text.strip()]
+def _segment_clauses(text: str, *, protected_spans: list[str] | None = None) -> list[str]:
+    """Split on commas/and/semicolons, keeping protected entity spans intact (e.g. Johnson and Johnson)."""
+
+    working = text
+    placeholders: list[tuple[str, str]] = []
+    # Do not treat thousand-separator commas in amounts ($50,000) as clause breaks.
+    for index, match in enumerate(re.finditer(r"\$?\d{1,3}(?:,\d{3})+(?:\.\d+)?", working)):
+        placeholder = f"__AJENDA_AMOUNT_{index}__"
+        token = match.group(0)
+        working = working.replace(token, placeholder, 1)
+        placeholders.append((placeholder, token))
+    for index, span in enumerate(protected_spans or []):
+        token = (span or "").strip()
+        if not token or " and " not in token.lower():
+            continue
+        placeholder = f"__AJENDA_ENTITY_{index}__"
+        # Case-insensitive single replacement of the entity name span.
+        pattern = re.compile(re.escape(token), flags=re.IGNORECASE)
+        if pattern.search(working) is None:
+            continue
+        working = pattern.sub(placeholder, working, count=1)
+        placeholders.append((placeholder, token))
+    parts = [p.strip(" ,.;") for p in _CLAUSE_SPLIT.split(working) if p and p.strip(" ,.;")]
+    restored: list[str] = []
+    for part in parts:
+        restored_part = part
+        for placeholder, token in placeholders:
+            restored_part = restored_part.replace(placeholder, token)
+        restored.append(restored_part)
+    return restored if restored else [text.strip()]
 
 
 def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
@@ -429,12 +652,37 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
 
     lower = clause.lower()
     outcomes: list[CanonicalOutcome] = []
-    if _contains_any(lower, _RESEARCH_PATTERNS):
-        outcomes.append("research_prospects")
-    if _contains_any(lower, _QUALIFY_PATTERNS):
+    email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
+    crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
+    salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
+    connector_read = email_read or crm_read or salesforce_query
+    # Trailing "summarize the messages/record" after a read is covered by list/read path.
+    if re.search(r"\bsummarize\b.{0,40}\b(?:messages?|emails?|records?|results?)\b", lower) and not connector_read:
+        return [], False, True
+    # "from HubSpot CRM records" is a source qualifier for prospect research, not only CRM read.
+    hubspot_as_source = bool(
+        re.search(r"\bfrom\s+(?:hubspot|(?:the\s+)?crm)\b", lower)
+        or re.search(r"\bcompanies\b.*\b(?:hubspot|crm)\b", lower)
+    )
+    explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
+    if _contains_any(lower, _RESEARCH_PATTERNS) and (
+        not connector_read or explicit_prospect_research or hubspot_as_source
+    ):
+        # Prefer market research when "companies in X from HubSpot" — source is HubSpot, job is discover.
+        if hubspot_as_source and re.search(r"\bcompanies\s+in\b|\bprospects?\b", lower):
+            outcomes.append("research_prospects")
+        elif not connector_read or explicit_prospect_research:
+            outcomes.append("research_prospects")
+    if _contains_any(lower, _QUALIFY_PATTERNS) and not salesforce_query:
         outcomes.append("qualify_prospects")
     if _contains_any(lower, _ENRICH_PATTERNS):
         outcomes.append("enrich_contacts")
+    if email_read:
+        outcomes.append("read_email")
+    if crm_read and not (hubspot_as_source and "research_prospects" in outcomes):
+        outcomes.append("read_crm")
+    if salesforce_query:
+        outcomes.append("query_salesforce")
     if _contains_any(lower, _DRAFT_PATTERNS):
         outcomes.append("prepare_outreach")
     if _contains_any(lower, _SEND_PATTERNS) and not _contains_any(lower, _NO_SEND_PATTERNS):
@@ -445,6 +693,10 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         outcomes.append("update_crm")
     if _contains_any(lower, _PUBLISH_PATTERNS) and not _contains_any(lower, _PUBLISH_NEGATION_PATTERNS):
         outcomes.append("publish_content")
+    # Ability vocabulary: map short clauses like "score them" before marking unmatched.
+    vocab_outcome = phrase_maps_to_outcome(clause)
+    if vocab_outcome is not None and vocab_outcome not in outcomes:
+        outcomes.append(vocab_outcome)
 
     material = bool(outcomes) or _contains_any(
         lower,
@@ -537,7 +789,23 @@ def interpret_instruction(
     wants_send = _contains_any(lower, _SEND_PATTERNS) and not no_send and not conditional_send
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
-    wants_research = _contains_any(lower, _RESEARCH_PATTERNS)
+    wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
+    wants_crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
+    wants_salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
+    connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
+    explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
+    hubspot_as_research_source = bool(
+        re.search(r"\bfrom\s+(?:hubspot|(?:the\s+)?crm)\b", lower)
+        or re.search(r"\bcompanies\b.+\b(?:hubspot|crm)\s+records?\b", lower)
+    )
+    wants_research = _contains_any(lower, _RESEARCH_PATTERNS) and (
+        not connector_read or explicit_prospect_research or hubspot_as_research_source
+    )
+    # "Research companies in X from HubSpot" is market discovery using CRM as a source,
+    # not a pure HubSpot record-read mission.
+    if wants_research and hubspot_as_research_source and explicit_prospect_research:
+        wants_crm_read = False
+        connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
     # Enrich only when explicitly requested — not invented from draft+qualify.
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
@@ -572,6 +840,22 @@ def interpret_instruction(
                 rule_id="alias.qualify",
             )
         )
+    # Ability vocabulary layer (score/rank/… → canonical outcomes).
+    for vocab_hit in match_outcome_phrases(text):
+        if vocab_hit.outcome not in outcomes:
+            outcomes.append(vocab_hit.outcome)
+            evidence.append(
+                _evidence(
+                    field_path=f"requested_outcomes.{vocab_hit.outcome}",
+                    source="inferred_deterministic",
+                    source_text=vocab_hit.source_text,
+                    normalized_value=vocab_hit.outcome,
+                    confidence=vocab_hit.confidence,
+                    rule_id=vocab_hit.rule_id,
+                )
+            )
+            if vocab_hit.outcome == "qualify_prospects":
+                wants_qualify = True
     if wants_enrich:
         outcomes.append("enrich_contacts")
         evidence.append(
@@ -581,6 +865,39 @@ def interpret_instruction(
                 normalized_value="enrich_contacts",
                 confidence=0.95,
                 rule_id="alias.enrich",
+            )
+        )
+    if wants_email_read and "read_email" not in outcomes:
+        outcomes.append("read_email")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.read_email",
+                source="explicit",
+                normalized_value="read_email",
+                confidence=0.95,
+                rule_id="connector.gmail_read",
+            )
+        )
+    if wants_crm_read and "read_crm" not in outcomes:
+        outcomes.append("read_crm")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.read_crm",
+                source="explicit",
+                normalized_value="read_crm",
+                confidence=0.95,
+                rule_id="connector.hubspot_read",
+            )
+        )
+    if wants_salesforce_query and "query_salesforce" not in outcomes:
+        outcomes.append("query_salesforce")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.query_salesforce",
+                source="explicit",
+                normalized_value="query_salesforce",
+                confidence=0.95,
+                rule_id="connector.salesforce_query",
             )
         )
     if wants_draft:
@@ -612,29 +929,49 @@ def interpret_instruction(
     if wants_publish:
         outcomes.append("publish_content")
 
+    # Calendar write/create language is understood via connector schema but not runtime-bound.
+    calendar_write_requested = _contains_any(lower, _CALENDAR_MUTATION_PATTERNS)
+    calendar_read_intent = bool(
+        re.search(
+            r"\b(?:what(?:'s| is)|show|check|read|upcoming|brief(?:ing)?)\b.{0,40}\b(?:calend[ae]r|schedule)\b"
+            r"|\b(?:calend[ae]r|schedule)\b.{0,40}\b(?:what|show|check|read|upcoming|brief)\b",
+            lower,
+            flags=re.IGNORECASE,
+        )
+    )
+    if calendar_write_requested and "read_calendar" in outcomes and not calendar_read_intent:
+        outcomes = [o for o in outcomes if o != "read_calendar"]
+
     # Optional fuzzy candidates only for unresolved outcome language (never ability select).
+    # Use set[str] so mypy accepts the fuzzy helper signature (not a Literal union set).
+    fuzzy_already: set[str] = {str(item) for item in outcomes}
+    if calendar_write_requested and not calendar_read_intent:
+        # Do not let fuzzy re-introduce read_calendar from "my calendar" / "schedule" aliases.
+        fuzzy_already.add("read_calendar")
     fuzzy_hits, fuzzy_components = fuzzy_outcome_candidates(
         text,
         enabled=bool(fuzzy_enabled),
-        already=set(outcomes),
+        already=fuzzy_already,
     )
     components_active.extend(c for c in fuzzy_components if c not in components_active)
     medium_fuzzy: list[str] = []
-    for hit in fuzzy_hits:
-        if hit.band == "high" and hit.outcome not in outcomes:
-            outcomes.append(hit.outcome)
+    for fuzzy_hit in fuzzy_hits:
+        if fuzzy_hit.band == "high" and fuzzy_hit.outcome not in outcomes:
+            if calendar_write_requested and not calendar_read_intent and fuzzy_hit.outcome == "read_calendar":
+                continue
+            outcomes.append(fuzzy_hit.outcome)
             evidence.append(
                 _evidence(
-                    field_path=f"requested_outcomes.{hit.outcome}",
+                    field_path=f"requested_outcomes.{fuzzy_hit.outcome}",
                     source="inferred_fuzzy",
-                    source_text=hit.matched_alias,
-                    normalized_value=hit.outcome,
-                    confidence=min(0.89, hit.score / 100.0),
+                    source_text=fuzzy_hit.matched_alias,
+                    normalized_value=fuzzy_hit.outcome,
+                    confidence=min(0.89, fuzzy_hit.score / 100.0),
                     rule_id="fuzzy.outcome_high",
                 )
             )
-        elif hit.band == "medium":
-            medium_fuzzy.append(f"{hit.matched_alias}≈{hit.outcome}({hit.score:.0f})")
+        elif fuzzy_hit.band == "medium":
+            medium_fuzzy.append(f"{fuzzy_hit.matched_alias}≈{fuzzy_hit.outcome}({fuzzy_hit.score:.0f})")
 
     # Structured send policy (authoritative for downstream).
     # Conditional approval outranks bare "do not send" when both appear
@@ -746,6 +1083,8 @@ def interpret_instruction(
         quantity_provenance = None
 
     entities = _extract_target_entities(text)
+    if not entities and wants_crm_read:
+        entities = _extract_connector_company(text)
     # Named email recipients (draft-to-X without inventing discovery).
     for email_match in re.finditer(
         r"\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
@@ -772,7 +1111,22 @@ def interpret_instruction(
                     rule_id="entity.email_recipient",
                 )
             )
-    if entities and entities[0].industry:
+    if entities and entities[0].type == "competitor_set" and entities[0].name:
+        evidence.append(
+            _evidence(
+                field_path="target_entities[0]",
+                source="explicit",
+                source_text=(
+                    f"competitors of {entities[0].name}"
+                    + (f" in {entities[0].location}" if entities[0].location else "")
+                ),
+                normalized_value=f"competitors_of|{entities[0].name}|{entities[0].location or ''}",
+                confidence=entities[0].confidence,
+                rule_id="entity.competitors_of",
+            )
+        )
+        label = f"competitors of {entities[0].name}" + (f" in {entities[0].location}" if entities[0].location else "")
+    elif entities and entities[0].industry:
         evidence.append(
             _evidence(
                 field_path="target_entities[0]",
@@ -786,13 +1140,18 @@ def interpret_instruction(
         label = f"{entities[0].industry or 'target'} in {entities[0].location or 'specified market'}"
     elif entities and entities[0].email:
         label = entities[0].email
+    elif entities and entities[0].name:
+        label = entities[0].name
     else:
         label = "the requested market"
 
     # Clause coverage
     clause_models: list[InterpretedClause] = []
     unmatched: list[InterpretedClause] = []
-    for index, clause_text in enumerate(_segment_clauses(text)):
+    protected_entity_spans = [
+        entity.name for entity in entities if isinstance(entity.name, str) and entity.name.strip()
+    ]
+    for index, clause_text in enumerate(_segment_clauses(text, protected_spans=protected_entity_spans)):
         mapped, material, recognized = _classify_clause(clause_text)
         # Non-material filler: short politeness without risk keywords.
         if not material and len(clause_text.split()) <= 3:
@@ -836,7 +1195,10 @@ def interpret_instruction(
     understood = ", ".join(understood_bits) if understood_bits else None
 
     if not outcomes:
-        if _looks_like_fragment(text):
+        if calendar_write_requested:
+            # Connector schema clarification (calendar_write) is enough — avoid dual restatements.
+            pass
+        elif _looks_like_fragment(text):
             clarifications.append(
                 _restatement(
                     field="requested_outcomes",
@@ -910,27 +1272,25 @@ def interpret_instruction(
             )
         )
 
-    # Imperative calendar create/update/delete is not supported as events_read.
-    if _contains_any(lower, _CALENDAR_MUTATION_PATTERNS):
-        # Strip accidental read_calendar when the user asked to mutate calendar state.
-        if "read_calendar" in outcomes and not re.search(
-            r"\b(?:what|show|check|read|upcoming|brief)\b",
-            lower,
-            flags=re.IGNORECASE,
-        ):
-            outcomes = [o for o in outcomes if o != "read_calendar"]
+    # Imperative calendar create/update/delete — intent understood, op deferred by connector schema.
+    if calendar_write_requested:
+        connector_note = restatement_for_deferred_op(connector_id="google_calendar", op="write")
+        missing = connector_note or (
+            "creating, updating, rescheduling, or deleting calendar events is not a composed "
+            "runtime outcome yet (only calendar read/briefing is supported)"
+        )
         clarifications.append(
             _restatement(
                 field="calendar_write",
                 understood=understood,
-                missing=(
-                    "creating, updating, rescheduling, or deleting calendar events is not a composed "
-                    "runtime outcome yet (only calendar read/briefing is supported)"
-                ),
+                missing=missing[:500],
                 include_instruction=(
                     "whether to read existing calendar events instead, or omit calendar mutations from this mission"
                 ),
-                reason="Calendar mutation language must not silently map to google_calendar.events_read.",
+                reason=(
+                    "Connector capability schema: google_calendar write is deferred; "
+                    "mutation language must not silently map to google_calendar.events_read."
+                ),
             )
         )
 
@@ -958,6 +1318,7 @@ def interpret_instruction(
         and not wants_draft
         and not wants_send
         and "send_outreach" not in outcomes
+        and "read_email" not in outcomes
     ):
         clarifications.append(
             _restatement(
@@ -969,17 +1330,20 @@ def interpret_instruction(
             )
         )
 
-    # Prospect discovery without target scope (industry/location) — job-specific.
+    # Prospect discovery without target scope (industry/location/competitors) — job-specific.
     if "research_prospects" in outcomes and not entities:
         # Allow trend-like research if no company-hunt shape; only restatement when
         # "companies" / prospect hunt language implies a bounded market.
-        if re.search(r"\bcompanies\b|\bprospects\b|\bleads\b", lower):
+        if re.search(r"\bcompanies\b|\bprospects\b|\bleads\b|\bcompetitors?\b", lower):
             clarifications.append(
                 _restatement(
                     field="target_scope",
                     understood=understood,
                     missing="the target market is missing or could not be extracted",
-                    include_instruction="the industry or company type and the city, region, or service area",
+                    include_instruction=(
+                        "the industry or company type and the city/region, "
+                        "or competitors of a named company in a location"
+                    ),
                     reason="Prospect discovery requires a usable target scope.",
                 )
             )
@@ -995,8 +1359,16 @@ def interpret_instruction(
     if profile_context.get("company") or profile_context.get("business_name"):
         context_requirements.append("business_profile")
 
+    # Keep the user's instruction as objective by default. Only rewrite when we have a
+    # concrete target label — never "the requested market" which becomes a useless search query.
     objective = text if len(text) <= 500 else text[:497] + "..."
-    if "research_prospects" in outcomes and "prepare_outreach" in outcomes and send_policy.mode == "forbid":
+    if (
+        "research_prospects" in outcomes
+        and "prepare_outreach" in outcomes
+        and send_policy.mode == "forbid"
+        and entities
+        and label != "the requested market"
+    ):
         objective = f"Identify and prepare outreach for qualified {label} prospects without sending messages."
 
     # Split forbid concepts: action tokens vs display/legacy mix.

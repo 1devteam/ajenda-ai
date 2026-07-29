@@ -35,6 +35,8 @@ export const DEFAULT_OPERATING_CHARTER: OperatingCharter = {
     "sales.research",
     "crm.research",
     "crm.read",
+    "salesforce.soql_read",
+    "provider.external_read",
     "gtm.email_check",
     "google_calendar.events_read",
     "calendar.read",

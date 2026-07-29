@@ -83,10 +83,37 @@ def _prospect_count(intent: MissionIntent) -> int:
     return _DEFAULT_PROSPECT_COUNT
 
 
+def _research_query_fallback(intent: MissionIntent) -> str:
+    """Prefer original user instruction over lossy mission objective restatement."""
+
+    for candidate in (
+        intent.raw_instruction,
+        intent.normalized_instruction,
+        intent.objective,
+    ):
+        text = (candidate or "").strip()
+        if not text:
+            continue
+        # Skip generic restatement that is useless as a web search query.
+        if text.lower().startswith("identify and prepare outreach for qualified the requested market"):
+            continue
+        return text[:400]
+    return "prospect research"
+
+
 def _target_bits(intent: MissionIntent) -> tuple[str | None, str | None, str]:
     entity = intent.target_entities[0] if intent.target_entities else None
     industry = entity.industry.strip() if entity and entity.industry else None
     location = entity.location.strip() if entity and entity.location else None
+    if entity and (
+        entity.type == "competitor_set"
+        or (isinstance(entity.attributes, dict) and entity.attributes.get("research_mode") == "competitors")
+    ):
+        name = (entity.name or "").strip()
+        if name and location:
+            return industry, location, f"competitors of {name} in {location}"
+        if name:
+            return industry, location, f"competitors of {name}"
     parts: list[str] = []
     if industry:
         parts.append(industry)
@@ -95,7 +122,7 @@ def _target_bits(intent: MissionIntent) -> tuple[str | None, str | None, str]:
         parts.append(f"in {location}")
     query = " ".join(parts).strip()
     if not query or query == "companies":
-        query = intent.objective.strip()[:400] or "prospect research"
+        query = _research_query_fallback(intent)
     return industry, location, query
 
 
@@ -115,6 +142,133 @@ def _explicit_email(intent: MissionIntent) -> str | None:
     return None
 
 
+def _source_instruction(intent: MissionIntent) -> str:
+    return (intent.raw_instruction or intent.normalized_instruction or intent.objective or "").strip()
+
+
+def _gmail_query(intent: MissionIntent) -> str:
+    """Build a bounded Gmail search query from explicit read-only language."""
+
+    source = _source_instruction(intent)
+    lower = source.lower()
+    terms: list[str] = []
+    if re.search(r"\b(?:sent|outbox)\b", lower):
+        terms.append("in:sent")
+    else:
+        terms.append("in:inbox")
+    if "unread" in lower:
+        terms.append("is:unread")
+    elif re.search(r"\bread\s+(?:messages?|emails?)\b", lower):
+        terms.append("is:read")
+    if re.search(r"\b(?:last|past)\s+week\b", lower):
+        terms.append("newer_than:7d")
+    elif re.search(r"\b(?:last|past)\s+month\b", lower):
+        terms.append("newer_than:30d")
+    elif re.search(r"\btoday\b|\blast\s+24\s+hours?\b", lower):
+        terms.append("newer_than:1d")
+
+    from_match = re.search(
+        r"\bfrom\s+([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
+        source,
+        flags=re.IGNORECASE,
+    )
+    if from_match is not None:
+        terms.append(f"from:{from_match.group(1)}")
+    return " ".join(dict.fromkeys(terms))
+
+
+def _salesforce_soql(intent: MissionIntent) -> str:
+    """Build a conservative read-only SOQL query from explicit Salesforce language.
+
+    Fail closed when the instruction states filters we cannot compile — never run an
+    unfiltered object dump that silently ignores named/date scope.
+    """
+
+    source = _source_instruction(intent)
+    explicit = re.search(r"\bSELECT\s+.+", source, flags=re.IGNORECASE | re.DOTALL)
+    if explicit is not None:
+        return explicit.group(0).strip().strip("\"'").rstrip(";")[:4000]
+
+    lower = source.lower()
+    if re.search(r"\bopportunit(?:y|ies)\b", lower):
+        object_name = "Opportunity"
+        fields = "Id, Name, Amount, StageName, CloseDate"
+    elif re.search(r"\bcontacts?\b", lower):
+        object_name = "Contact"
+        fields = "Id, Name, Email, AccountId, LastModifiedDate"
+    elif re.search(r"\bleads?\b", lower):
+        object_name = "Lead"
+        fields = "Id, Name, Company, Email, Status, LastModifiedDate"
+    else:
+        object_name = "Account"
+        fields = "Id, Name, Industry, Website, LastModifiedDate"
+
+    filters: list[str] = []
+    if object_name == "Opportunity":
+        if re.search(r"\bopen\b|\bactive\b|\bnot\s+closed\b", lower):
+            filters.append("IsClosed = false")
+        if re.search(r"\b(?:closing|close)\b.{0,24}\bthis\s+quarter\b", lower):
+            filters.append("CloseDate = THIS_QUARTER")
+        amount = re.search(
+            r"\b(over|above|greater\s+than|at\s+least)\s+\$?([0-9][0-9,]*(?:\.[0-9]+)?)\s*([km])?\b",
+            lower,
+        )
+        if amount is not None:
+            value = float(amount.group(2).replace(",", ""))
+            suffix = amount.group(3)
+            if suffix == "k":
+                value *= 1000
+            elif suffix == "m":
+                value *= 1_000_000
+            operator = ">=" if amount.group(1) == "at least" else ">"
+            filters.append(f"Amount {operator} {int(value)}")
+    else:
+        # Contact / Lead / Account — only compile filters we can express honestly.
+        name_match = re.search(
+            r"\b(?:named|called|name\s+is)\s+([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+){0,3})\b",
+            source,
+            flags=re.IGNORECASE,
+        )
+        if name_match is not None:
+            safe_name = name_match.group(1).replace("'", "\\'")
+            filters.append(f"Name LIKE '%{safe_name}%'")
+        days_match = re.search(
+            r"\b(?:modified|updated|changed)\b.{0,24}\b(?:last|past)\s+(\d{1,3})\s+days?\b",
+            lower,
+        )
+        if days_match is not None:
+            days = max(1, min(int(days_match.group(1)), 365))
+            filters.append(f"LastModifiedDate = LAST_N_DAYS:{days}")
+        # Stated filter language we do not compile → fail closed (no silent unfiltered dump).
+        residual_filter = re.search(
+            r"\b(?:where|filter(?:ed)?|status\s+is|email\s+is|industry\s+is|owner\s+is|"
+            r"with\s+status|matching\s+criteria)\b",
+            lower,
+        )
+        if residual_filter is not None and not filters:
+            raise ValueError(
+                "Salesforce filter criteria in the instruction cannot be compiled safely; "
+                "restate with an explicit SOQL SELECT or a supported named/date filter"
+            )
+        stated_scope = re.search(
+            r"\b(?:named|called|name\s+is|modified|updated|changed|last\s+\d+\s+days)\b",
+            lower,
+        )
+        if stated_scope is not None and not filters:
+            raise ValueError(
+                "Salesforce request states a record filter that was not compiled; refusing unfiltered object query"
+            )
+
+    soql = f"SELECT {fields} FROM {object_name}"
+    if filters:
+        soql += " WHERE " + " AND ".join(filters)
+    if object_name == "Opportunity" and re.search(r"\btop\b|\blargest\b|\bhighest\b|\bamount\b", lower):
+        soql += " ORDER BY Amount DESC"
+    requested_limit = intent.requested_quantity if intent.requested_quantity is not None else 20
+    soql += f" LIMIT {max(1, min(int(requested_limit), 50))}"
+    return soql
+
+
 def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any]:
     """Return a schema-valid-enough input payload for the action.
 
@@ -124,7 +278,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
 
     industry, location, query = _target_bits(intent)
     limit = _prospect_count(intent)
-    company_label = industry or "prospect company"
+    primary_entity = intent.target_entities[0] if intent.target_entities else None
+    explicit_company = primary_entity.name.strip() if primary_entity and primary_entity.name else None
+    company_label = explicit_company or industry or "prospect company"
     if location:
         company_label = f"{company_label} ({location})"
 
@@ -140,13 +296,26 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name == "web.research":
         entity = intent.target_entities[0] if intent.target_entities else None
         research_query = query
-        if entity and entity.industry and entity.location:
+        if entity and (
+            entity.type == "competitor_set"
+            or (isinstance(entity.attributes, dict) and entity.attributes.get("research_mode") == "competitors")
+        ):
+            name = (entity.name or "").strip()
+            if name and location:
+                research_query = f"competitors of {name} in {location}"
+            elif name:
+                research_query = f"competitors of {name}"
+        elif entity and entity.industry and entity.location:
             research_query = f"{entity.industry} companies in {entity.location}"
         elif entity and entity.name:
             research_query = entity.name
+        elif not research_query or research_query.lower().startswith(
+            "identify and prepare outreach for qualified the requested market"
+        ):
+            research_query = _research_query_fallback(intent)
         return {
             "query": research_query[:400],
-            "company": industry,
+            "company": industry or (entity.name if entity else None),
             "domain": entity.domain if entity else None,
             "fetch_public_page": False,
             "include_public_search": True,
@@ -173,7 +342,17 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name == "http.request":
         return {"method": "GET", "url": "https://example.com", "timeout_seconds": 5.0}
     if action_name in {"sales.research", "crm.research"}:
-        return {"lead": lead}
+        # Explicit HubSpot / CRM read jobs must fail closed on external errors —
+        # never silently complete with Ajenda-brain internal records.
+        require_external = "read_crm" in {str(o) for o in intent.requested_outcomes}
+        return {
+            "lead": lead,
+            "context": {
+                "require_external_crm": require_external,
+                "crm_source": "hubspot" if require_external else "auto",
+                "objective": intent.objective[:300],
+            },
+        }
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:
         return {
             "lead": lead,
@@ -260,7 +439,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             },
         }
     if action_name == "gtm.email_check":
-        return {"query": "in:inbox", "limit": limit}
+        return {"query": _gmail_query(intent), "limit": max(limit, 10)}
+    if action_name == "salesforce.soql_read":
+        return {"soql": _salesforce_soql(intent), "api_version": "v59.0"}
     if action_name == "gtm.crm_upsert":
         # Market labels must not become static contacts; bind discovered prospects.
 

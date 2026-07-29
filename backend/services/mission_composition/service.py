@@ -98,10 +98,13 @@ def _integrations_for_credential(record: object) -> set[str]:
     hosts_raw = getattr(record, "trusted_destination_hosts", None) or []
     hosts = {str(host).strip().lower() for host in hosts_raw if str(host).strip()}
 
-    if provider == "external_email" or "gmail" in credential_id or "gmail.googleapis.com" in hosts:
-        found.add("gmail")
-    if provider == "external_email" and ("smtp" in credential_id or credential_id.endswith("-email")):
+    # SMTP is send-only — never treat it as Gmail (gtm.email_check requires Gmail API).
+    is_smtp = "smtp" in credential_id or (
+        provider == "external_email" and str(getattr(record, "integration", "") or "").lower() == "smtp"
+    )
+    if is_smtp:
         found.add("smtp")
+    elif provider == "external_email" or "gmail" in credential_id or "gmail.googleapis.com" in hosts:
         found.add("gmail")
     if provider == "external_crm" or "hubspot" in credential_id or "hubapi.com" in " ".join(hosts):
         found.add("hubspot")
@@ -657,8 +660,13 @@ class MissionCompositionService:
     ) -> dict[str, Any]:
         """Compile a server-owned plan/graph for an existing mission.
 
-        Re-runs composition from the mission objective (or explicit instruction).
+        Re-runs composition from the stored composition instruction when present
+        (confirmed composition missions), else client instruction, else mission objective.
         Does not queue work, create leases, or invoke tools.
+
+        Preferring stored composition.instruction avoids recompiling from the mission
+        objective restatement, which is often lossy and can fail ready_to_start even
+        when the original confirmed instruction was ready.
 
         When persist=True, replaces mission task graph + refreshes intake allowed_actions,
         supersedes stale graph admission/materialization metadata, supersedes any active
@@ -677,16 +685,23 @@ class MissionCompositionService:
         if not isinstance(intake, dict):
             intake = {}
 
-        instruction_text = (instruction or "").strip()
-        if not instruction_text:
-            raw_context = intake.get("context")
-            context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
-            raw_composition = context.get("composition")
-            composition: dict[str, Any] = raw_composition if isinstance(raw_composition, dict) else {}
-            stored = composition.get("instruction")
-            if isinstance(stored, str) and stored.strip():
-                instruction_text = stored.strip()
-        if not instruction_text:
+        # Instruction resolution for compile:
+        # 1) Explicit non-empty client instruction (intentional recompile) wins.
+        # 2) Else stored composition.instruction (confirmed mission source of truth).
+        # 3) Else mission.objective.
+        # Dispatch UI omits instruction so it does not re-send lossy objective restatements.
+        raw_context = intake.get("context")
+        context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
+        raw_composition = context.get("composition")
+        composition: dict[str, Any] = raw_composition if isinstance(raw_composition, dict) else {}
+        stored_instruction = composition.get("instruction")
+        client_instruction = (instruction or "").strip()
+        instruction_text = ""
+        if client_instruction:
+            instruction_text = client_instruction
+        elif isinstance(stored_instruction, str) and stored_instruction.strip():
+            instruction_text = stored_instruction.strip()
+        else:
             instruction_text = str(mission.objective or "").strip()
         if not instruction_text:
             raise MissionCompositionError(
@@ -733,10 +748,20 @@ class MissionCompositionService:
                     }
                 )
             if record.clarifications:
+                clarification_msgs = [
+                    str(getattr(c, "question", None) or getattr(c, "reason", None) or "").strip()
+                    for c in record.clarifications
+                ]
+                clarification_msgs = [m for m in clarification_msgs if m]
+                detail = "; ".join(clarification_msgs[:5]) if clarification_msgs else ""
                 blockers.append(
                     {
                         "code": "AMBIGUITY",
-                        "message": "instruction needs clarification before ready_to_start",
+                        "message": (
+                            f"instruction needs clarification before ready_to_start: {detail}"
+                            if detail
+                            else "instruction needs clarification before ready_to_start"
+                        ),
                     }
                 )
             if compile_status == "blocked" and not blockers:
