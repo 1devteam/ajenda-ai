@@ -38,7 +38,7 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "crm.read_records": ("sales.research",),
     "crm.query_salesforce": ("salesforce.soql_read",),
     "crm.pipeline_maintenance": ("gtm.crm_upsert", "sales.log_activity", "record.write"),
-    "ops.calendar_briefing": ("google_calendar.events_read", "calendar.read"),
+    "ops.calendar_briefing": ("google_calendar.events_read",),
     "gtm.publish_content": ("gtm.social_publish",),
 }
 
@@ -346,9 +346,13 @@ def evaluate_action_candidate(
         preferred_credential_by_integration=preferred_credential_by_integration,
         credential_type_by_id=credential_type_by_id,
     )
-    # HubSpot-source discovery forces CRM connection even when the job catalog says optional.
-    connection_required = job.credential_policy == "required" or (
-        require_connection and action_name in {"sales.research", "crm.research"}
+    # Any action with a connection hint is fail-closed without that connection.
+    # Optional job policy must not make external-hinted actions "ready" then simulate.
+    force_hint_connection = hint is not None
+    connection_required = (
+        job.credential_policy == "required"
+        or force_hint_connection
+        or (require_connection and action_name in {"sales.research", "crm.research"})
     )
     if connection_required and not connected:
         return AbilitySelection(
@@ -361,22 +365,7 @@ def evaluate_action_candidate(
             vertical_role=job.vertical_role,
             side_effect_class=side_effect.value,
             requires_connection=True,
-            connection_provider=hint["integration"] if hint else "hubspot",
-        )
-
-    if not connected and hint is not None and action_name in {"crm.research"}:
-        # Prefer internal/public alternatives; mark this as alternative.
-        return AbilitySelection(
-            job_key=job.job_key,
-            ability_id=manifest.ability_id,
-            action_name=action_name,
-            selection_status="alternative",
-            selection_reason="External CRM connection missing; usable only after connect.",
-            readiness="connection_required",
-            vertical_role=job.vertical_role,
-            side_effect_class=side_effect.value,
-            requires_connection=True,
-            connection_provider=hint["integration"],
+            connection_provider=(hint["integration"] if hint else None) or "required_connection",
         )
 
     credential_reference = None

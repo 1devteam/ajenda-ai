@@ -21,7 +21,22 @@ def _context() -> ActionRuntimeContext:
     )
 
 
-def test_salesforce_soql_read_simulated_without_credential() -> None:
+def test_salesforce_soql_read_fails_closed_without_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", raising=False)
+    registry = ActionRegistry()
+    register_salesforce_actions(registry)
+    with pytest.raises(ValueError, match="requires a runtime credential"):
+        registry.invoke(
+            ToolInvocation(
+                action="salesforce.soql_read",
+                input={"soql": "SELECT Id, Name FROM Account LIMIT 1"},
+            ),
+            _context(),
+        )
+
+
+def test_salesforce_soql_read_simulated_when_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")
     registry = ActionRegistry()
     register_salesforce_actions(registry)
     result = registry.invoke(

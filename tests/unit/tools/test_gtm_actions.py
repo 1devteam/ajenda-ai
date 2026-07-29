@@ -238,7 +238,21 @@ def test_gtm_email_check_fail_closed_on_credentialed_api_error() -> None:
             )
 
 
-def test_gtm_email_check_simulated_without_credential() -> None:
+def test_gtm_email_check_fails_closed_without_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", raising=False)
+    registry = get_default_action_registry(rebuild=True)
+    with pytest.raises(ValueError, match="requires a runtime credential"):
+        registry.invoke(
+            ToolInvocation(
+                action="gtm.email_check",
+                input={"query": "is:unread", "limit": 2},
+            ),
+            _context(),
+        )
+
+
+def test_gtm_email_check_simulated_when_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(
         ToolInvocation(

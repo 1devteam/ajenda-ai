@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.tools.action_registry import ActionRegistry
 from backend.services.tools.github_actions import register_github_actions
@@ -19,7 +21,19 @@ def _context() -> ActionRuntimeContext:
     )
 
 
-def test_github_repo_read_simulated_without_credential() -> None:
+def test_github_repo_read_fails_closed_without_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", raising=False)
+    registry = ActionRegistry()
+    register_github_actions(registry)
+    with pytest.raises(ValueError, match="requires a runtime credential"):
+        registry.invoke(
+            ToolInvocation(action="github.repo_read", input={"owner": "ajenda", "repo": "ajenda-ai"}),
+            _context(),
+        )
+
+
+def test_github_repo_read_simulated_when_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")
     registry = ActionRegistry()
     register_github_actions(registry)
     result = registry.invoke(

@@ -95,6 +95,12 @@ def linkedin_profile_read(invocation: ToolInvocation, context: ActionRuntimeCont
         aliases=(LINKEDIN_PROFILE_READ_ACTION, "provider.external_read", PROVIDER_EXTERNAL_READ_PROVIDER),
     )
     secret = _credential_secret(credential)
+    from backend.services.tools.external_sim_policy import require_external_secret
+
+    require_external_secret(
+        secret=secret if isinstance(secret, str) else None,
+        action=LINKEDIN_PROFILE_READ_ACTION,
+    )
     profile: dict[str, Any]
     real = False
     status_code: int | None = None

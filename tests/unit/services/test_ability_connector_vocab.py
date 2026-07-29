@@ -272,3 +272,13 @@ def test_salesforce_name_keeps_and_inside_company() -> None:
     intent = interpret_instruction("Query Salesforce for accounts named Johnson and Johnson")
     payload = build_action_input(action_name="salesforce.soql_read", intent=intent)
     assert "Name LIKE '%Johnson and Johnson%'" in payload["soql"]
+
+
+def test_calendar_briefing_requires_google_connection() -> None:
+    intent = interpret_instruction("Check my calendar for upcoming events")
+    jobs = route_jobs_for_intent(intent)
+    assert any(j.job_key == "ops.calendar_briefing" for j in jobs)
+    blocked, missing = resolve_jobs(jobs, intent=intent)
+    cal = next(s for s in blocked if s.action_name == "google_calendar.events_read")
+    assert cal.readiness == "connection_required"
+    assert any(m.get("provider") == "google_calendar" for m in missing)
