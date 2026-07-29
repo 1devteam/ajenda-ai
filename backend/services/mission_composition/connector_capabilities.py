@@ -49,7 +49,7 @@ CONNECTOR_CAPABILITIES: tuple[ConnectorCapability, ...] = (
         ),
         runtime_actions=("gtm.email_send", "gtm.email_check"),
         maturity="runtime_bound",
-        notes="Send requires explicit mission send policy allow/conditional + charter.",
+        notes="Read and send require a live Gmail connection; send also requires explicit mission send policy and charter authority.",
     ),
     ConnectorCapability(
         connector_id="google_calendar",
@@ -101,8 +101,9 @@ CONNECTOR_CAPABILITIES: tuple[ConnectorCapability, ...] = (
         operations=frozenset({"read", "write"}),
         deferred_operations=frozenset(),
         oauth_scopes=(),
-        runtime_actions=("gtm.crm_upsert", "crm.research"),
+        runtime_actions=("gtm.crm_upsert", "sales.research"),
         maturity="runtime_bound",
+        notes="HubSpot reads use the sales.research runtime action with an external CRM credential reference.",
     ),
     ConnectorCapability(
         connector_id="salesforce",
