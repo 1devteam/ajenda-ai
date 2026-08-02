@@ -258,6 +258,51 @@ def test_hubspot_source_research_does_not_dual_route_web_and_crm() -> None:
     assert selected[0].action_name == "sales.research"
     assert selected[0].readiness == "ready"
 
+    try:
+        build_action_input(action_name="sales.research", intent=intent)
+        raise AssertionError("expected market-scoped HubSpot discovery to fail closed")
+    except ValueError as exc:
+        assert "scope" in str(exc).lower() or "company" in str(exc).lower()
+
+
+def test_ordinary_research_keeps_internal_sales_research_without_hubspot() -> None:
+    intent = interpret_instruction("Research five roofing companies in Austin.")
+    intent = intent.model_copy(
+        update={
+            "forbidden_outcomes": [
+                *intent.forbidden_outcomes,
+                "web.research",
+                "web.search",
+                "web.page_read",
+                "crm.research",
+            ]
+        }
+    )
+    jobs = route_jobs_for_intent(intent)
+    selected, missing = resolve_jobs(jobs, intent=intent)
+    assert missing == []
+    assert selected[0].action_name == "sales.research"
+    assert selected[0].readiness == "ready"
+    assert selected[0].requires_connection is False
+
+
+def test_gmail_sender_before_keyword_clause_preserves_material_scope() -> None:
+    intent = interpret_instruction("Search Gmail for messages from Alice for Acme invoices")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "from:Alice" in query
+    assert "Acme" in query
+    assert "invoices" in query
+    assert "from:Alice for" not in query
+
+
+def test_gmail_sender_preserves_and_inside_organization_name() -> None:
+    intent = interpret_instruction("Search Gmail for messages from Johnson and Johnson")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert 'from:"Johnson and Johnson"' in query
+    assert "from:Johnson " not in query
+
 
 def test_gmail_from_stops_before_temporal_clause() -> None:
     intent = interpret_instruction("Search Gmail for invoices from Alice last week")
