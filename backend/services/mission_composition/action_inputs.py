@@ -183,8 +183,10 @@ def _gmail_query(intent: MissionIntent) -> str:
         # Stop sender capture before temporal / filter clauses (last week, unread, …).
         from_name = re.search(
             r"\bfrom\s+"
-            r"([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+){0,2}?)"
-            r"(?=\s+(?:last|past|today|unread|newer|older|after|before|for|in:|is:|and\b|,|$)|$)",
+            r"([A-Za-z][A-Za-z\-']+"
+            r"(?:\s+(?:and\s+)?[A-Za-z][A-Za-z\-']+){0,4}?)"
+            r"(?=\s+(?:last|past|today|unread|newer|older|after|before|for|in:|is:|"
+            r"and\s+(?:summarize|show|list|return|find|include|exclude)\b|,|$)|$)",
             source,
             flags=re.IGNORECASE,
         )
@@ -206,9 +208,11 @@ def _gmail_query(intent: MissionIntent) -> str:
                 terms.append(f"from:{sender}")
 
     # Free-text after "for …" (e.g. "Search Gmail for Acme invoices").
-    for_match = re.search(r"\bfor\s+(.+)$", source, flags=re.IGNORECASE)
-    if for_match is not None:
-        rest = for_match.group(1)
+    # Use the final "for" clause. Earlier occurrences commonly introduce the
+    # Gmail search itself ("Search Gmail for messages ...") rather than keywords.
+    for_clauses = list(re.finditer(r"\bfor\s+", source, flags=re.IGNORECASE))
+    if for_clauses:
+        rest = source[for_clauses[-1].end() :]
         rest = re.sub(
             r"\b(?:unread|replies?|messages?|emails?|mail)\b",
             " ",
@@ -216,7 +220,10 @@ def _gmail_query(intent: MissionIntent) -> str:
             flags=re.IGNORECASE,
         )
         rest = re.sub(
-            r"\bfrom\s+(?:[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|[A-Za-z][A-Za-z\-']*(?:\s+[A-Za-z][A-Za-z\-']*){0,2})\b",
+            r"\bfrom\s+(?:"
+            r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|"
+            r"[A-Za-z][A-Za-z\-']*(?:\s+[A-Za-z][A-Za-z\-']*){0,2}?"
+            r")(?=\s+(?:for\b|last\b|past\b|today\b|unread\b|$)|$)",
             " ",
             rest,
             flags=re.IGNORECASE,
@@ -417,7 +424,10 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name in {"sales.research", "crm.research"}:
         # Explicit HubSpot / CRM read jobs must fail closed on external errors —
         # never silently complete with Ajenda-brain internal records.
-        require_external = "read_crm" in {str(o) for o in intent.requested_outcomes}
+        require_external = (
+            "read_crm" in {str(o) for o in intent.requested_outcomes}
+            or "hubspot_source" in {str(item) for item in intent.context_requirements}
+        )
         if require_external:
             crm_source = _source_instruction(intent).lower()
             # sales.research only searches by company/domain — reject scopes the adapter drops.
@@ -430,6 +440,16 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             ):
                 unsupported_scope = True
             if re.search(r"\blist\b.{0,24}\bcontacts?\b", crm_source) and not explicit_company:
+                unsupported_scope = True
+            # The current HubSpot adapter accepts company/domain lookup only.
+            # Market, location, quantity, and competitor discovery cannot be
+            # represented faithfully without inventing a company search term.
+            if not explicit_company and (
+                industry
+                or location
+                or intent.requested_quantity is not None
+                or any(entity.type == "competitor_set" for entity in intent.target_entities)
+            ):
                 unsupported_scope = True
             if unsupported_scope:
                 raise ValueError(
