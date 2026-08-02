@@ -223,7 +223,7 @@ def _gmail_query(intent: MissionIntent) -> str:
         rest = re.sub(
             r"\bfrom\s+(?:"
             r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|"
-            r"[A-Za-z][A-Za-z\-']*(?:\s+[A-Za-z][A-Za-z\-']*){0,2}?"
+            r"[A-Za-z][A-Za-z\-']*(?:\s+[A-Za-z][A-Za-z\-']*){0,4}?"
             r")(?=\s+(?:for\b|last\b|past\b|today\b|unread\b|"
             r"and\s+(?:summarize|show|list|return|find|include|exclude)\b|$)|$)",
             " ",
