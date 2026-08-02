@@ -199,9 +199,11 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         supported_outcomes=("update_crm",),
         required_inputs=("prospect_candidates", "qualified_prospects"),
         produced_outputs=("pipeline_records",),
+        # Prefer HubSpot upsert when CRM write is requested; local record.write remains fallback.
         candidate_actions=("gtm.crm_upsert", "sales.log_activity", "record.write"),
         risk_level="medium",
         maturity="runtime_bound",
+        # Connection hint on gtm.crm_upsert still fail-closes that action; local actions stay usable.
         credential_policy="optional",
         evidence_requirements=("action_result_evidence",),
         dependencies=(
@@ -230,10 +232,11 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         supported_outcomes=("read_calendar",),
         required_inputs=(),
         produced_outputs=("calendar_events",),
-        candidate_actions=("google_calendar.events_read", "calendar.read"),
+        # Google is the real path; local calendar.read is proof-only and not preferred.
+        candidate_actions=("google_calendar.events_read",),
         risk_level="low",
         maturity="runtime_bound",
-        credential_policy="optional",
+        credential_policy="required",
         evidence_requirements=("action_result_evidence",),
     ),
     # Publish is fully job-bound with external-publish side effects (not stranded).
