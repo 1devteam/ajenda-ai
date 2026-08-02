@@ -384,6 +384,15 @@ def test_gmail_long_sender_name_does_not_leak_into_keyword_phrase() -> None:
     assert "summarize" not in query
 
 
+def test_gmail_sender_stops_before_keyword_preposition() -> None:
+    intent = interpret_instruction("Search Gmail for messages from Alice about Acme invoices")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "from:Alice" in query
+    assert '"Acme invoices"' in query
+    assert "from:Alice about" not in query
+
+
 def test_salesforce_name_keeps_and_inside_company() -> None:
     intent = interpret_instruction("Query Salesforce for accounts named Johnson and Johnson")
     payload = build_action_input(action_name="salesforce.soql_read", intent=intent)

@@ -185,7 +185,8 @@ def _gmail_query(intent: MissionIntent) -> str:
             r"\bfrom\s+"
             r"([A-Za-z][A-Za-z\-']+"
             r"(?:\s+(?:and\s+)?[A-Za-z][A-Za-z\-']+){0,4}?)"
-            r"(?=\s+(?:last|past|today|unread|newer|older|after|before|for|in:|is:|"
+            r"(?=\s+(?:last|past|today|unread|newer|older|after|before|for|"
+            r"about|regarding|containing|with|in:|is:|"
             r"and\s+(?:summarize|show|list|return|find|include|exclude)\b|,|$)|$)",
             source,
             flags=re.IGNORECASE,
@@ -224,7 +225,8 @@ def _gmail_query(intent: MissionIntent) -> str:
             r"\bfrom\s+(?:"
             r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|"
             r"[A-Za-z][A-Za-z\-']*(?:\s+[A-Za-z][A-Za-z\-']*){0,4}?"
-            r")(?=\s+(?:for\b|last\b|past\b|today\b|unread\b|"
+            r")(?=\s+(?:for\b|about\b|regarding\b|containing\b|with\b|"
+            r"last\b|past\b|today\b|unread\b|"
             r"and\s+(?:summarize|show|list|return|find|include|exclude)\b|$)|$)",
             " ",
             rest,
@@ -236,6 +238,7 @@ def _gmail_query(intent: MissionIntent) -> str:
             rest,
             flags=re.IGNORECASE,
         )
+        rest = re.sub(r"^\s*(?:about|regarding|containing|with)\s+", " ", rest, flags=re.IGNORECASE)
         rest = re.sub(
             r"\b(?:last|past)\s+(?:week|month|day|24\s+hours?)\b|\btoday\b",
             " ",
