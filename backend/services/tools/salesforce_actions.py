@@ -115,6 +115,9 @@ def salesforce_soql_read(invocation: ToolInvocation, context: ActionRuntimeConte
     real = False
     status_code: int | None = None
 
+    from backend.services.tools.external_sim_policy import require_external_secret
+
+    require_external_secret(secret=secret if isinstance(secret, str) else None, action=SALESFORCE_SOQL_READ_ACTION)
     if secret:
         trusted_hosts = _trusted_hosts(credential)
         if not trusted_hosts:
