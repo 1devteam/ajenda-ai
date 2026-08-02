@@ -17,7 +17,10 @@ COPY alembic.ini /app/
 COPY alembic /app/alembic
 COPY deploy/scripts /app/deploy/scripts
 
-RUN pip install --upgrade pip "setuptools>=78.1.1" && pip install .
+RUN pip install --no-cache-dir --upgrade pip "setuptools>=78.1.1" \
+    && pip install --no-cache-dir . \
+    && pip uninstall --yes pip setuptools \
+    && rm -rf /root/.cache/pip /tmp/pip-*
 
 EXPOSE 8000
 
