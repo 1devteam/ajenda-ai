@@ -17,7 +17,7 @@ COPY alembic.ini /app/
 COPY alembic /app/alembic
 COPY deploy/scripts /app/deploy/scripts
 
-RUN pip install --upgrade pip && pip install .
+RUN pip install --upgrade pip "setuptools>=78.1.1" && pip install .
 
 EXPOSE 8000
 
