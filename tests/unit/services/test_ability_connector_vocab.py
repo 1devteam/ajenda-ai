@@ -298,27 +298,17 @@ def test_ordinary_research_keeps_internal_sales_research_without_hubspot() -> No
     assert selected[0].requires_connection is False
 
 
-def test_optional_crm_job_uses_schema_valid_local_write_without_hubspot() -> None:
-    from backend.services.mission_composition.plan_compiler import compile_planned_steps
-
+def test_crm_job_without_hubspot_fails_closed_instead_of_writing_aggregate_record() -> None:
     intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
     jobs = route_jobs_for_intent(intent)
 
     selected, missing = resolve_jobs(jobs, intent=intent)
     crm_selection = next(item for item in selected if item.job_key == "crm.pipeline_maintenance")
 
-    assert crm_selection.action_name == "record.write"
-    assert crm_selection.readiness == "ready"
-    assert missing == []
-    assert any(
-        item.action == "gtm.crm_upsert" and item.status == "connection_required" for item in crm_selection.alternatives
-    )
-    RecordWriteInput.model_validate(build_action_input(action_name=crm_selection.action_name, intent=intent))
-    crm_step = next(
-        step for step in compile_planned_steps(selected, intent=intent) if step.job_key == "crm.pipeline_maintenance"
-    )
-    assert crm_step.input_bindings
-    assert all(binding["input_path"].startswith("$.input.data.") for binding in crm_step.input_bindings)
+    assert crm_selection.action_name == "gtm.crm_upsert"
+    assert crm_selection.readiness == "connection_required"
+    assert crm_selection.selection_status == "rejected"
+    assert any(item["action"] == "gtm.crm_upsert" and item["provider"] == "hubspot" for item in missing)
 
 
 def test_sales_log_activity_composition_input_matches_runtime_schema() -> None:
