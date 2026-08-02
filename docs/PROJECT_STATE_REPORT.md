@@ -84,8 +84,8 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - `customer_auth_sessions`, OIDC login intents — migration `0032`
 - `tenant_internal_records` — migration `0033`
 - `email_send_idempotency_receipts` — migration `0034`
-- `mission_composition_proposals` — migration `0035` (declarative history only)
-- interpretation thread, actor scope, and proposal status — migration `0036`
+- `mission_composition_proposals` — migration `0035` (includes `actor_id` and `status`; declarative history only)
+- `interpretation_thread_id`, `proposal_kind`, and tenant/actor/thread index — migration `0036`
 
 ### 2.7 Tests and proof
 

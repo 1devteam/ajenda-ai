@@ -1,7 +1,7 @@
 # Ajenda AI — System Architecture (Code-Aligned)
 
 **Status:** Active  
-**Last verified against `main`:** 2026-07-07  
+**Last verified against `main`:** 2026-08-01
 **Source of truth:** implementation files, migrations, tests — not aspirational product docs.
 
 This document is the canonical visual and narrative map of what exists in the repository today. When docs conflict with code, code wins.
@@ -266,7 +266,7 @@ Root (unversioned): `/health`, `/readiness`
 
 ## 9. Database migrations (Alembic head)
 
-**Head revision:** `0033_tenant_internal_records`
+**Head revision:** `0036_composition_thread`
 
 | Rev | Description |
 |-----|-------------|
@@ -283,6 +283,9 @@ Root (unversioned): `/health`, `/readiness`
 | 0031 | backfill mission_plans from legacy mission metadata |
 | 0032 | OIDC login intents + customer auth sessions |
 | 0033 | tenant_internal_records (Ajenda standalone brain mode) |
+| 0034 | email_send_idempotency_receipts (SMTP replay protection) |
+| 0035 | mission_composition_proposals (including actor/status history fields) |
+| 0036 | interpretation thread/proposal-kind fields and tenant/actor/thread index |
 
 ---
 
