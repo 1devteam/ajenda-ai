@@ -649,7 +649,14 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             payload["end"] = end
         return payload
     if action_name == "sales.log_activity":
-        return {"lead": lead, "activity": {"type": "note", "summary": intent.objective[:240]}}
+        return {
+            "record_type": "activity",
+            "data": {
+                "lead": lead,
+                "type": "note",
+                "summary": intent.objective[:240],
+            },
+        }
     if action_name == "record.write":
         return {
             "record_type": "account",

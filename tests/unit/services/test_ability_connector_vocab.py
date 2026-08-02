@@ -14,6 +14,7 @@ from backend.services.mission_composition.connector_capabilities import (
 )
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.tools.salesforce_actions import SalesforceSoqlReadInput
+from backend.services.tools.schemas import RecordWriteInput
 
 
 def test_score_them_maps_to_qualify() -> None:
@@ -295,6 +296,31 @@ def test_ordinary_research_keeps_internal_sales_research_without_hubspot() -> No
     assert selected[0].action_name == "sales.research"
     assert selected[0].readiness == "ready"
     assert selected[0].requires_connection is False
+
+
+def test_optional_crm_job_uses_schema_valid_local_write_without_hubspot() -> None:
+    intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
+    jobs = route_jobs_for_intent(intent)
+
+    selected, missing = resolve_jobs(jobs, intent=intent)
+    crm_selection = next(item for item in selected if item.job_key == "crm.pipeline_maintenance")
+
+    assert crm_selection.action_name == "record.write"
+    assert crm_selection.readiness == "ready"
+    assert missing == []
+    assert any(
+        item.action == "gtm.crm_upsert" and item.status == "connection_required" for item in crm_selection.alternatives
+    )
+    RecordWriteInput.model_validate(build_action_input(action_name=crm_selection.action_name, intent=intent))
+
+
+def test_sales_log_activity_composition_input_matches_runtime_schema() -> None:
+    intent = interpret_instruction("Log a note about Acme Roofing in the pipeline")
+    payload = build_action_input(action_name="sales.log_activity", intent=intent)
+
+    parsed = RecordWriteInput.model_validate(payload)
+    assert parsed.record_type == "activity"
+    assert parsed.data["type"] == "note"
 
 
 def test_gmail_sender_before_keyword_clause_preserves_material_scope() -> None:

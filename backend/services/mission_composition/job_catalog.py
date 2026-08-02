@@ -200,7 +200,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         required_inputs=("prospect_candidates", "qualified_prospects"),
         produced_outputs=("pipeline_records",),
         # Prefer HubSpot upsert when CRM write is requested; local record.write remains fallback.
-        candidate_actions=("gtm.crm_upsert", "sales.log_activity", "record.write"),
+        candidate_actions=("gtm.crm_upsert", "record.write", "sales.log_activity"),
         risk_level="medium",
         maturity="runtime_bound",
         # Connection hint on gtm.crm_upsert still fail-closes that action; local actions stay usable.
