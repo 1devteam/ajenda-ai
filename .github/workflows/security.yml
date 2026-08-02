@@ -24,12 +24,14 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Build image for scanning
-        run: docker build -t ajenda-ai:scan .
+        run: docker build --no-cache -t "ajenda-ai:scan-${{ github.sha }}" .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ajenda-ai:scan
+          image-ref: ajenda-ai:scan-${{ github.sha }}
+          # Never reuse package-analysis results across identically tagged PR images.
+          cache: false
           format: table
           # Secret scanning is covered by gitleaks; keep Trivy on package CVEs.
           scanners: vuln
