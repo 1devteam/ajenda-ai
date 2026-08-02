@@ -209,12 +209,14 @@ def _gmail_query(intent: MissionIntent) -> str:
                 terms.append(f"from:{sender}")
 
     # Free-text after "for …" (e.g. "Search Gmail for Acme invoices").
-    # Inspect every clause and keep the last material candidate. A trailing
-    # temporal clause ("for the last week") must not displace earlier keywords.
+    # Bound each clause at the next "for" so independent material constraints
+    # are preserved while temporal-only clauses remain represented by date terms.
     for_clauses = list(re.finditer(r"\bfor\s+", source, flags=re.IGNORECASE))
-    keyword_candidate: str | None = None
-    for clause in for_clauses:
-        rest = source[clause.end() :]
+    keyword_candidates: list[str] = []
+    seen_keyword_candidates: set[str] = set()
+    for index, clause in enumerate(for_clauses):
+        clause_end = for_clauses[index + 1].start() if index + 1 < len(for_clauses) else len(source)
+        rest = source[clause.end() : clause_end]
         rest = re.sub(
             r"\b(?:unread|replies?|messages?|emails?|mail)\b",
             " ",
@@ -250,7 +252,11 @@ def _gmail_query(intent: MissionIntent) -> str:
         rest = re.sub(r"\s+", " ", rest).strip(" ,.;")
         if rest and len(rest) >= 2 and rest.lower() not in {"a", "an", "the"}:
             keyword_candidate = rest[:80]
-    if keyword_candidate:
+            normalized_candidate = keyword_candidate.casefold()
+            if normalized_candidate not in seen_keyword_candidates:
+                seen_keyword_candidates.add(normalized_candidate)
+                keyword_candidates.append(keyword_candidate)
+    for keyword_candidate in keyword_candidates:
         terms.append(f'"{keyword_candidate}"' if " " in keyword_candidate else keyword_candidate)
 
     # Material scopes we cannot compile → refuse silent full-inbox widen.

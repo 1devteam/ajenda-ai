@@ -356,6 +356,14 @@ def test_gmail_temporal_for_clause_does_not_displace_subject_terms() -> None:
     assert '"the"' not in query
 
 
+def test_gmail_multiple_material_for_clauses_preserve_all_keywords() -> None:
+    intent = interpret_instruction("Search Gmail for invoices for Acme")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "invoices" in query
+    assert "Acme" in query
+
+
 def test_gmail_sender_clause_does_not_leak_into_keyword_phrase() -> None:
     intent = interpret_instruction("Search Gmail for messages from Alice and summarize them")
     payload = build_action_input(action_name="gtm.email_check", intent=intent)
