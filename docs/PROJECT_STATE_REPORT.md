@@ -66,7 +66,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 
 ### 2.5 Customer frontend
 
-- React 19 + Vite + `react-router-dom`
+- React 19 + Vite + `react-router` 8.3.0 (client-only SPA)
 - Routes: `/signup`, `/signin`, `/verify-email`, `/promote`, `/dashboard`, `/missions`, `/billing`, `/tasks`, `/connections` (`/credentials`), `/dev`
 - Session storage for bootstrap vs operational API keys
 - Compose: customer UI on **:8080** (nginx proxies `/v1` to API)

@@ -13,6 +13,7 @@ from backend.services.tools.mission_input_binding import (
     apply_input_bindings,
     pending_dependency_keys,
 )
+from backend.services.tools.schemas import RecordWriteInput
 
 
 def _task(
@@ -158,6 +159,42 @@ def test_bind_fails_closed_when_required_and_empty() -> None:
             mission_tasks=[research, draft],
         )
     assert "binding_required" in str(excinfo.value).lower() or "no upstream" in str(excinfo.value).lower()
+
+
+def test_bind_prospects_into_record_write_data_remains_schema_valid() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    research = _task(
+        node_key="ability-web-research",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={"prospect_candidates": [{"company": "Acme Roofing", "domain": "acme.example"}]},
+    )
+    write = _task(
+        node_key="ability-record-write",
+        status=ExecutionTaskState.RUNNING.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=["ability-web-research"],
+        tool_input={"record_type": "account", "data": {"industry": "roofing"}},
+        input_bindings=[
+            {
+                "from_step": "ability-web-research",
+                "output_path": "$.prospect_candidates",
+                "input_path": "$.input.data.prospect_candidates",
+            }
+        ],
+    )
+
+    bound, _audit = apply_input_bindings(
+        tool_input=write.metadata_json["tool_invocation"]["input"],
+        task=write,
+        mission_tasks=[research, write],
+    )
+
+    parsed = RecordWriteInput.model_validate(bound)
+    assert parsed.data["prospect_candidates"][0]["company"] == "Acme Roofing"
 
 
 def test_merge_keeps_enriched_contacts_when_qualify_also_binds() -> None:

@@ -299,6 +299,8 @@ def test_ordinary_research_keeps_internal_sales_research_without_hubspot() -> No
 
 
 def test_optional_crm_job_uses_schema_valid_local_write_without_hubspot() -> None:
+    from backend.services.mission_composition.plan_compiler import compile_planned_steps
+
     intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
     jobs = route_jobs_for_intent(intent)
 
@@ -312,6 +314,11 @@ def test_optional_crm_job_uses_schema_valid_local_write_without_hubspot() -> Non
         item.action == "gtm.crm_upsert" and item.status == "connection_required" for item in crm_selection.alternatives
     )
     RecordWriteInput.model_validate(build_action_input(action_name=crm_selection.action_name, intent=intent))
+    crm_step = next(
+        step for step in compile_planned_steps(selected, intent=intent) if step.job_key == "crm.pipeline_maintenance"
+    )
+    assert crm_step.input_bindings
+    assert all(binding["input_path"].startswith("$.input.data.") for binding in crm_step.input_bindings)
 
 
 def test_sales_log_activity_composition_input_matches_runtime_schema() -> None:
@@ -357,6 +364,15 @@ def test_gmail_temporal_for_clause_does_not_displace_subject_terms() -> None:
     assert '"Acme invoices"' in query
     assert "newer_than:7d" in query
     assert '"the"' not in query
+
+
+def test_gmail_sender_clause_does_not_leak_into_keyword_phrase() -> None:
+    intent = interpret_instruction("Search Gmail for messages from Alice and summarize them")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "from:Alice" in query
+    assert '"from Alice and summarize them"' not in query
+    assert "summarize" not in query
 
 
 def test_salesforce_name_keeps_and_inside_company() -> None:
