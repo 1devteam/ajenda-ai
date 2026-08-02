@@ -13,9 +13,7 @@ def test_external_simulation_fails_closed_by_default(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("value", ["1", "true", "yes", "on", "TRUE"])
-def test_external_simulation_requires_explicit_non_production_opt_in(
-    monkeypatch, value: str
-) -> None:
+def test_external_simulation_requires_explicit_non_production_opt_in(monkeypatch, value: str) -> None:
     monkeypatch.setenv("AJENDA_ENV", "development")
     monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", value)
 

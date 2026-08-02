@@ -208,11 +208,12 @@ def _gmail_query(intent: MissionIntent) -> str:
                 terms.append(f"from:{sender}")
 
     # Free-text after "for …" (e.g. "Search Gmail for Acme invoices").
-    # Use the final "for" clause. Earlier occurrences commonly introduce the
-    # Gmail search itself ("Search Gmail for messages ...") rather than keywords.
+    # Inspect every clause and keep the last material candidate. A trailing
+    # temporal clause ("for the last week") must not displace earlier keywords.
     for_clauses = list(re.finditer(r"\bfor\s+", source, flags=re.IGNORECASE))
-    if for_clauses:
-        rest = source[for_clauses[-1].end() :]
+    keyword_candidate: str | None = None
+    for clause in for_clauses:
+        rest = source[clause.end() :]
         rest = re.sub(
             r"\b(?:unread|replies?|messages?|emails?|mail)\b",
             " ",
@@ -234,9 +235,13 @@ def _gmail_query(intent: MissionIntent) -> str:
             rest,
             flags=re.IGNORECASE,
         )
+        rest = re.sub(r"(?:\bfor\s+)?\bthe\s*$", " ", rest, flags=re.IGNORECASE)
+        rest = re.sub(r"^\s*for\s+", " ", rest, flags=re.IGNORECASE)
         rest = re.sub(r"\s+", " ", rest).strip(" ,.;")
-        if rest and len(rest) >= 2:
-            terms.append(f'"{rest[:80]}"' if " " in rest else rest[:80])
+        if rest and len(rest) >= 2 and rest.lower() not in {"a", "an", "the"}:
+            keyword_candidate = rest[:80]
+    if keyword_candidate:
+        terms.append(f'"{keyword_candidate}"' if " " in keyword_candidate else keyword_candidate)
 
     # Material scopes we cannot compile → refuse silent full-inbox widen.
     residual = re.search(
@@ -424,10 +429,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name in {"sales.research", "crm.research"}:
         # Explicit HubSpot / CRM read jobs must fail closed on external errors —
         # never silently complete with Ajenda-brain internal records.
-        require_external = (
-            "read_crm" in {str(o) for o in intent.requested_outcomes}
-            or "hubspot_source" in {str(item) for item in intent.context_requirements}
-        )
+        require_external = "read_crm" in {str(o) for o in intent.requested_outcomes} or "hubspot_source" in {
+            str(item) for item in intent.context_requirements
+        }
         if require_external:
             crm_source = _source_instruction(intent).lower()
             # sales.research only searches by company/domain — reject scopes the adapter drops.
@@ -444,12 +448,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             # The current HubSpot adapter accepts company/domain lookup only.
             # Market, location, quantity, and competitor discovery cannot be
             # represented faithfully without inventing a company search term.
-            if not explicit_company and (
-                industry
-                or location
-                or intent.requested_quantity is not None
-                or any(entity.type == "competitor_set" for entity in intent.target_entities)
-            ):
+            if any(entity.type == "competitor_set" for entity in intent.target_entities):
+                unsupported_scope = True
+            if not explicit_company and (industry or location or intent.requested_quantity is not None):
                 unsupported_scope = True
             if unsupported_scope:
                 raise ValueError(

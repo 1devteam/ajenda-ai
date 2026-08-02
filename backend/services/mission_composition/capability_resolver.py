@@ -244,14 +244,8 @@ def _connection_status(
 
     preferred_credential_by_integration = preferred_credential_by_integration or {}
     credential_type_by_id = credential_type_by_id or {}
-    source_hint = (
-        _SOURCE_CONNECTION_HINTS.get((job_key, action_name))
-        if source_connection_required
-        else None
-    )
-    hint = source_hint or _JOB_CONNECTION_HINTS.get((job_key, action_name)) or _CONNECTION_HINTS.get(
-        action_name
-    )
+    source_hint = _SOURCE_CONNECTION_HINTS.get((job_key, action_name)) if source_connection_required else None
+    hint = source_hint or _JOB_CONNECTION_HINTS.get((job_key, action_name)) or _CONNECTION_HINTS.get(action_name)
     if hint is None:
         return True, None, None, None
     if hint["credential_id"] in connected_credential_ids:

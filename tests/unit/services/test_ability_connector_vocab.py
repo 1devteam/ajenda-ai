@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from backend.services.mission_composition.ability_vocab import match_outcome_phrases, phrase_maps_to_outcome
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
@@ -265,6 +267,15 @@ def test_hubspot_source_research_does_not_dual_route_web_and_crm() -> None:
         assert "scope" in str(exc).lower() or "company" in str(exc).lower()
 
 
+def test_hubspot_source_named_competitor_discovery_fails_closed() -> None:
+    intent = interpret_instruction("Research five competitors of Acme Roofing in Austin from HubSpot CRM records.")
+    assert intent.target_entities[0].type == "competitor_set"
+    assert intent.target_entities[0].name == "Acme Roofing"
+
+    with pytest.raises(ValueError, match=r"scope|company|sales\.research"):
+        build_action_input(action_name="sales.research", intent=intent)
+
+
 def test_ordinary_research_keeps_internal_sales_research_without_hubspot() -> None:
     intent = interpret_instruction("Research five roofing companies in Austin.")
     intent = intent.model_copy(
@@ -311,6 +322,15 @@ def test_gmail_from_stops_before_temporal_clause() -> None:
     assert "from:Alice" in query
     assert "from:Alice last" not in query
     assert "newer_than:7d" in query
+
+
+def test_gmail_temporal_for_clause_does_not_displace_subject_terms() -> None:
+    intent = interpret_instruction("Search Gmail for Acme invoices for the last week")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert '"Acme invoices"' in query
+    assert "newer_than:7d" in query
+    assert '"the"' not in query
 
 
 def test_salesforce_name_keeps_and_inside_company() -> None:
