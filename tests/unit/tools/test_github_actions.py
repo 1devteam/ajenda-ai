@@ -19,7 +19,8 @@ def _context() -> ActionRuntimeContext:
     )
 
 
-def test_github_repo_read_simulated_without_credential() -> None:
+def test_github_repo_read_simulated_without_credential(monkeypatch) -> None:
+    monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")
     registry = ActionRegistry()
     register_github_actions(registry)
     result = registry.invoke(
