@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router";
 import { createCheckout, createPortal, getAccountBilling } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";

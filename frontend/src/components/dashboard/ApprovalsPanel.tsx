@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import type { ReviewQueueItem } from "../../types";
 import { pendingReviewItems } from "../../dashboard/dashboardModel";
 import Card from "../primitives/Card";

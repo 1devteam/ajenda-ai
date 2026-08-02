@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Check, Circle } from "lucide-react";
 import type { ChecklistStep } from "../../dashboard/dashboardModel";
 import Card from "../primitives/Card";

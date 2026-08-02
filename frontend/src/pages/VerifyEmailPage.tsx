@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { verifyEmail } from "../api/client";
 import { beginOidcRedirect } from "../auth/oidc";
 import { saveSession } from "../auth/session";

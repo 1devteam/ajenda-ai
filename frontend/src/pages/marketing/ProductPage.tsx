@@ -1,5 +1,5 @@
 import { ArrowRight, Brain, CheckCircle2, ClipboardCheck, FileCheck2, Plug, Rocket, ShieldCheck } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import CallToAction from "../../components/marketing/CallToAction";
 import ProductPreview from "../../components/marketing/ProductPreview";
 import Seo from "../../components/marketing/Seo";

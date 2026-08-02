@@ -1,5 +1,5 @@
 import { ArrowRight, Check } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import Seo from "../../components/marketing/Seo";
 
 const plans = [

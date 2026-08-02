@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router";
 import { ChevronDown, ChevronLeft, ChevronRight, LogOut, Settings, CreditCard, Menu } from "lucide-react";
 import { COMMAND_CENTER_NAV, isNavItemActive } from "../../config/nav";
 import BrandMark from "../BrandMark";

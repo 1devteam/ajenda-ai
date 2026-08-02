@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { getAccountMe, promoteBootstrapKey } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { beginOidcRedirect } from "../auth/oidc";
