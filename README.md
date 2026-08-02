@@ -42,8 +42,8 @@ flowchart LR
 | Ajenda central brain (standalone) | Implemented — durable `tenant_internal_records`, `web.research`, internal `gtm.crm_upsert` |
 | Plugin discovery API | Implemented (`GET /v1/plugins`, action→plugin mapping) |
 | HubSpot CRM adapter (optional plugin) | Implemented (`services/hubspot_crm_adapter`, TLS ingress in Compose/K8s) |
-| Gmail + SMTP email plugins | Implemented — `external_email` credentials; `gtm.email_send` / `gtm.email_check` |
-| Google Calendar / Contacts connectors | Implemented — separate OAuth connect (not identity login scopes) |
+| Gmail + SMTP email plugins | Implemented — credential-bound `gtm.email_send` / `gtm.email_check`; missing credentials fail closed |
+| Google Calendar / Contacts connectors | Implemented — separate OAuth connect; external actions never silently simulate in production |
 | Credentials / Connections UI | Implemented at `/credentials` and `/connections` (OAuth-first Google cards) |
 | Mission composition engine | Implemented — plain language → structured `MissionIntent` → jobs → proposal; restatement on incomplete input |
 | Governed vertical operations | Implemented — `/v1/vertical-ops/*` template planning and bounded queue admission; Phase C templates remain plan-only |
@@ -68,6 +68,18 @@ Ajenda runs fully without external CRM or email plugins:
 5. **Plugin discovery** — `GET /v1/plugins` lists standalone vs optional plugins and standard CRM contract paths.
 
 See [`docs/product/plugin-architecture.md`](docs/product/plugin-architecture.md).
+
+### External connector truthfulness
+
+External providers are governed separately from Ajenda's standalone capabilities:
+
+- Missing provider credentials fail closed by default. Simulated external results require explicit non-production opt-in through `AJENDA_ALLOW_SIMULATED_EXTERNAL`; production ignores that opt-in.
+- A credentialed provider failure is reported as a failure and is never replaced with simulated success.
+- Explicit provider requests remain provider-bound. For example, HubSpot-sourced research cannot fall back to public web research or Ajenda's internal records.
+- Mission composition rejects connector scopes it cannot represent faithfully. Gmail retains each material search clause while translating recognized temporal clauses into bounded Gmail date operators.
+- CRM writes that require an external connector report `connection_required` when the connector is unavailable; they do not claim success by writing one aggregate placeholder locally.
+
+The governing decision and compatibility notes are in [`ADR-0009`](docs/architecture/ADR-0009-external-connector-truthfulness.md).
 
 ### HubSpot CRM integration (optional plugin)
 
