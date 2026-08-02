@@ -238,7 +238,8 @@ def test_gtm_email_check_fail_closed_on_credentialed_api_error() -> None:
             )
 
 
-def test_gtm_email_check_simulated_without_credential() -> None:
+def test_gtm_email_check_simulated_without_credential(monkeypatch) -> None:
+    monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(
         ToolInvocation(
