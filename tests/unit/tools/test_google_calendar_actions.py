@@ -19,7 +19,8 @@ def _context() -> ActionRuntimeContext:
     )
 
 
-def test_google_calendar_events_read_simulated_without_credential() -> None:
+def test_google_calendar_events_read_simulated_without_credential(monkeypatch) -> None:
+    monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")
     registry = ActionRegistry()
     register_google_calendar_actions(registry)
     result = registry.invoke(

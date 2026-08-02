@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { getBusinessProfile, upsertBusinessProfileFact } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";

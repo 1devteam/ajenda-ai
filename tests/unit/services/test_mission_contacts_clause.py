@@ -45,7 +45,12 @@ def test_add_to_contacts_depends_on_discovery_and_binds() -> None:
     jobs = route_jobs_for_intent(intent)
     assert "research.discover_prospects" in {j.job_key for j in jobs}
     assert "crm.pipeline_maintenance" in {j.job_key for j in jobs}
-    selections, _ = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    selections, _ = resolve_jobs(
+        jobs,
+        intent=intent,
+        charter=default_operating_charter(),
+        connected_integrations={"hubspot"},
+    )
     steps = compile_planned_steps(selections, intent=intent)
     crm = [s for s in steps if s.job_key == "crm.pipeline_maintenance"]
     assert crm and crm[0].depends_on

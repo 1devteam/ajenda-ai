@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { ArrowRight, Menu, X } from "lucide-react";
 import { useAuth } from "../../auth/AuthProvider";
 import { PUBLIC_SITE_NAV } from "../../config/marketingRoutes";

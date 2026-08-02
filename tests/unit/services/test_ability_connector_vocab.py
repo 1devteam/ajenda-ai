@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from backend.services.mission_composition.ability_vocab import match_outcome_phrases, phrase_maps_to_outcome
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
@@ -12,6 +14,7 @@ from backend.services.mission_composition.connector_capabilities import (
 )
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.tools.salesforce_actions import SalesforceSoqlReadInput
+from backend.services.tools.schemas import RecordWriteInput
 
 
 def test_score_them_maps_to_qualify() -> None:
@@ -258,6 +261,82 @@ def test_hubspot_source_research_does_not_dual_route_web_and_crm() -> None:
     assert selected[0].action_name == "sales.research"
     assert selected[0].readiness == "ready"
 
+    try:
+        build_action_input(action_name="sales.research", intent=intent)
+        raise AssertionError("expected market-scoped HubSpot discovery to fail closed")
+    except ValueError as exc:
+        assert "scope" in str(exc).lower() or "company" in str(exc).lower()
+
+
+def test_hubspot_source_named_competitor_discovery_fails_closed() -> None:
+    intent = interpret_instruction("Research five competitors of Acme Roofing in Austin from HubSpot CRM records.")
+    assert intent.target_entities[0].type == "competitor_set"
+    assert intent.target_entities[0].name == "Acme Roofing"
+
+    with pytest.raises(ValueError, match=r"scope|company|sales\.research"):
+        build_action_input(action_name="sales.research", intent=intent)
+
+
+def test_ordinary_research_keeps_internal_sales_research_without_hubspot() -> None:
+    intent = interpret_instruction("Research five roofing companies in Austin.")
+    intent = intent.model_copy(
+        update={
+            "forbidden_outcomes": [
+                *intent.forbidden_outcomes,
+                "web.research",
+                "web.search",
+                "web.page_read",
+                "crm.research",
+            ]
+        }
+    )
+    jobs = route_jobs_for_intent(intent)
+    selected, missing = resolve_jobs(jobs, intent=intent)
+    assert missing == []
+    assert selected[0].action_name == "sales.research"
+    assert selected[0].readiness == "ready"
+    assert selected[0].requires_connection is False
+
+
+def test_crm_job_without_hubspot_fails_closed_instead_of_writing_aggregate_record() -> None:
+    intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
+    jobs = route_jobs_for_intent(intent)
+
+    selected, missing = resolve_jobs(jobs, intent=intent)
+    crm_selection = next(item for item in selected if item.job_key == "crm.pipeline_maintenance")
+
+    assert crm_selection.action_name == "gtm.crm_upsert"
+    assert crm_selection.readiness == "connection_required"
+    assert crm_selection.selection_status == "rejected"
+    assert any(item["action"] == "gtm.crm_upsert" and item["provider"] == "hubspot" for item in missing)
+
+
+def test_sales_log_activity_composition_input_matches_runtime_schema() -> None:
+    intent = interpret_instruction("Log a note about Acme Roofing in the pipeline")
+    payload = build_action_input(action_name="sales.log_activity", intent=intent)
+
+    parsed = RecordWriteInput.model_validate(payload)
+    assert parsed.record_type == "activity"
+    assert parsed.data["type"] == "note"
+
+
+def test_gmail_sender_before_keyword_clause_preserves_material_scope() -> None:
+    intent = interpret_instruction("Search Gmail for messages from Alice for Acme invoices")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "from:Alice" in query
+    assert "Acme" in query
+    assert "invoices" in query
+    assert "from:Alice for" not in query
+
+
+def test_gmail_sender_preserves_and_inside_organization_name() -> None:
+    intent = interpret_instruction("Search Gmail for messages from Johnson and Johnson")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert 'from:"Johnson and Johnson"' in query
+    assert "from:Johnson " not in query
+
 
 def test_gmail_from_stops_before_temporal_clause() -> None:
     intent = interpret_instruction("Search Gmail for invoices from Alice last week")
@@ -266,6 +345,50 @@ def test_gmail_from_stops_before_temporal_clause() -> None:
     assert "from:Alice" in query
     assert "from:Alice last" not in query
     assert "newer_than:7d" in query
+
+
+def test_gmail_temporal_for_clause_does_not_displace_subject_terms() -> None:
+    intent = interpret_instruction("Search Gmail for Acme invoices for the last week")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert '"Acme invoices"' in query
+    assert "newer_than:7d" in query
+    assert '"the"' not in query
+
+
+def test_gmail_multiple_material_for_clauses_preserve_all_keywords() -> None:
+    intent = interpret_instruction("Search Gmail for invoices for Acme")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "invoices" in query
+    assert "Acme" in query
+
+
+def test_gmail_sender_clause_does_not_leak_into_keyword_phrase() -> None:
+    intent = interpret_instruction("Search Gmail for messages from Alice and summarize them")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "from:Alice" in query
+    assert '"from Alice and summarize them"' not in query
+    assert "summarize" not in query
+
+
+def test_gmail_long_sender_name_does_not_leak_into_keyword_phrase() -> None:
+    intent = interpret_instruction("Search Gmail for messages from The Walt Disney Company and summarize them")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert 'from:"The Walt Disney Company"' in query
+    assert '"from The Walt Disney Company"' not in query
+    assert "summarize" not in query
+
+
+def test_gmail_sender_stops_before_keyword_preposition() -> None:
+    intent = interpret_instruction("Search Gmail for messages from Alice about Acme invoices")
+    payload = build_action_input(action_name="gtm.email_check", intent=intent)
+    query = payload["query"]
+    assert "from:Alice" in query
+    assert '"Acme invoices"' in query
+    assert "from:Alice about" not in query
 
 
 def test_salesforce_name_keeps_and_inside_company() -> None:

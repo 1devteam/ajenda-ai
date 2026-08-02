@@ -52,7 +52,12 @@ def test_typed_dependencies_compile_to_graph_edges() -> None:
         "draft personalized introductions. Do not send."
     )
     jobs = route_jobs_for_intent(intent)
-    selections, _ = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    selections, _ = resolve_jobs(
+        jobs,
+        intent=intent,
+        charter=default_operating_charter(),
+        connected_integrations={"hubspot"},
+    )
     steps = compile_planned_steps(selections, intent=intent)
     graph = compile_task_graph_preview(steps)
     assert any(step.depends_on for step in steps)
@@ -91,7 +96,12 @@ def test_add_to_contacts_expands_research_dependency() -> None:
     jobs = route_jobs_for_intent(intent)
     assert "research.discover_prospects" in {j.job_key for j in jobs}
     assert "crm.pipeline_maintenance" in {j.job_key for j in jobs}
-    selections, _ = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    selections, _ = resolve_jobs(
+        jobs,
+        intent=intent,
+        charter=default_operating_charter(),
+        connected_integrations={"hubspot"},
+    )
     steps = compile_planned_steps(selections, intent=intent)
     crm_steps = [s for s in steps if s.job_key == "crm.pipeline_maintenance"]
     assert crm_steps

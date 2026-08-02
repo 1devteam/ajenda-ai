@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { resendVerification } from "../api/client";
 import type { ApiFailure } from "../types";
 import { failureText } from "../utils/errors";

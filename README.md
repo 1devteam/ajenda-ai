@@ -46,6 +46,7 @@ flowchart LR
 | Google Calendar / Contacts connectors | Implemented — separate OAuth connect (not identity login scopes) |
 | Credentials / Connections UI | Implemented at `/credentials` and `/connections` (OAuth-first Google cards) |
 | Mission composition engine | Implemented — plain language → structured `MissionIntent` → jobs → proposal; restatement on incomplete input |
+| Governed vertical operations | Implemented — `/v1/vertical-ops/*` template planning and bounded queue admission; Phase C templates remain plan-only |
 | Stripe billing API | Implemented — checkout, portal (`billing:manage`), signed webhook with dedup |
 | Ability runtime API | Implemented — task launch, proofs, feature/quota gates |
 | Customer frontend | Implemented — React Router app (`/signup`, `/signin`, `/missions`, `/connections`, `/dashboard`, `/billing`) |
@@ -260,6 +261,7 @@ Current implementation note:
   - `/v1/operations/*`
   - `/v1/system/*`
   - `/v1/observability/*`
+  - `/v1/vertical-ops/*`
   - `/v1/webhooks/*`
   - `/v1/admin/*`
 

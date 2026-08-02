@@ -588,6 +588,9 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
         emails: list[dict[str, Any]] = []
         secret = _credential_secret(gmail_cred)
+        from backend.services.tools.external_sim_policy import require_external_secret
+
+        require_external_secret(secret=secret if isinstance(secret, str) else None, action=inv.action)
         credentialed_path = bool(secret)
         if credentialed_path:
             try:

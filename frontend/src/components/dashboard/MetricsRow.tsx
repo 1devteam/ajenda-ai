@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import Card from "../primitives/Card";
 import PanelSkeleton from "../states/PanelSkeleton";
 import ErrorState from "../states/ErrorState";

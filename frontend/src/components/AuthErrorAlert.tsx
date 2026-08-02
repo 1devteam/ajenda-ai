@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import type { ApiFailure } from "../types";
 import { authErrorDetails } from "../utils/errors";
 

@@ -1,8 +1,8 @@
 # Ajenda AI — Project State Report
 
-**Date:** July 7, 2026  
+**Date:** July 31, 2026
 **Branch:** `main`  
-**Alembic head:** `0033_tenant_internal_records`  
+**Alembic head:** `0035_composition_proposals`
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
 
 This report reflects implementation-backed truth on `main`. For visual flows, see the Mermaid diagrams in `SYSTEM_ARCHITECTURE.md`.
@@ -52,6 +52,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Account APIs: `/v1/account/me`, `/plan`, `/usage`, `/billing`
 - Provider credentials: `/v1/account/provider-credentials` (+ OAuth flows per provider; Google Contacts/Calendar/Gmail separate from identity OIDC)
 - Mission composition: structured interpreter + restatement; durable proposals (`0035_composition_proposals`)
+- Governed vertical operations: Phase B templates can materialize and queue through `ExecutionCoordinator`; Phase C templates are plan-only and fail closed on queue requests
 - Billing RBAC: checkout/portal require `billing:manage`; account reads use `account:read`
 - Stripe: checkout, portal, webhook with `stripe_webhook_events` dedup
 - Plans: free, starter, pro, enterprise (`0006` seed; `0026` ability_runtime on pro+)
@@ -65,7 +66,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 
 ### 2.5 Customer frontend
 
-- React 19 + Vite + `react-router-dom`
+- React 19 + Vite + `react-router` 8.3.0 (client-only SPA)
 - Routes: `/signup`, `/signin`, `/verify-email`, `/promote`, `/dashboard`, `/missions`, `/billing`, `/tasks`, `/connections` (`/credentials`), `/dev`
 - Session storage for bootstrap vs operational API keys
 - Compose: customer UI on **:8080** (nginx proxies `/v1` to API)

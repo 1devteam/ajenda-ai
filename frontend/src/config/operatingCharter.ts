@@ -74,6 +74,8 @@ export const PREPARE_ACTION_OPTIONS = [
   { action: "sales.research", label: "Sales research" },
   { action: "crm.research", label: "CRM research" },
   { action: "crm.read", label: "CRM read" },
+  { action: "salesforce.soql_read", label: "Salesforce read-only query" },
+  { action: "provider.external_read", label: "External provider read" },
   { action: "gtm.email_check", label: "Check inbox (Gmail)" },
   { action: "google_calendar.events_read", label: "Google Calendar read" },
   { action: "calendar.read", label: "Local calendar read proof" },

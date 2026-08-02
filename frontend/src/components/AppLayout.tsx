@@ -1,4 +1,4 @@
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { logoutCustomer } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { clearSession, isOperational } from "../auth/session";

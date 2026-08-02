@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import type { AttentionBanner as BannerModel } from "../../dashboard/dashboardModel";
 import Card from "../primitives/Card";
 import Button from "../primitives/Button";

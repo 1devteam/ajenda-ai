@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { signup } from "../api/client";
 import VerificationHelpPanel from "../components/VerificationHelpPanel";
 import { failureText } from "../utils/errors";

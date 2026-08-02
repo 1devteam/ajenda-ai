@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import { ensureFreshSession } from "../api/client";
 import { useAuth } from "./AuthProvider";
 import {

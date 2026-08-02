@@ -291,7 +291,7 @@ Root (unversioned): `/health`, `/readiness`
 | Item | Status |
 |------|--------|
 | Location | `frontend/src/` — pages, components, auth session, API client |
-| Framework | React 19 + Vite + `react-router-dom` |
+| Framework | React 19 + Vite + `react-router` 8.3.0 (client-only SPA) |
 | Customer routes | `/signup`, `/verify-email`, `/promote`, `/dashboard`, `/billing`, `/tasks` |
 | Dev route | `/dev` — Runtime Ability Console (ability-runtime + billing test buttons) |
 | Auth model | sessionStorage session (bootstrap vs operational API keys + tenant id) |

@@ -183,8 +183,11 @@ def _gmail_query(intent: MissionIntent) -> str:
         # Stop sender capture before temporal / filter clauses (last week, unread, …).
         from_name = re.search(
             r"\bfrom\s+"
-            r"([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+){0,2}?)"
-            r"(?=\s+(?:last|past|today|unread|newer|older|after|before|for|in:|is:|and\b|,|$)|$)",
+            r"([A-Za-z][A-Za-z\-']+"
+            r"(?:\s+(?:and\s+)?[A-Za-z][A-Za-z\-']+){0,4}?)"
+            r"(?=\s+(?:last|past|today|unread|newer|older|after|before|for|"
+            r"about|regarding|containing|with|in:|is:|"
+            r"and\s+(?:summarize|show|list|return|find|include|exclude)\b|,|$)|$)",
             source,
             flags=re.IGNORECASE,
         )
@@ -206,9 +209,14 @@ def _gmail_query(intent: MissionIntent) -> str:
                 terms.append(f"from:{sender}")
 
     # Free-text after "for …" (e.g. "Search Gmail for Acme invoices").
-    for_match = re.search(r"\bfor\s+(.+)$", source, flags=re.IGNORECASE)
-    if for_match is not None:
-        rest = for_match.group(1)
+    # Bound each clause at the next "for" so independent material constraints
+    # are preserved while temporal-only clauses remain represented by date terms.
+    for_clauses = list(re.finditer(r"\bfor\s+", source, flags=re.IGNORECASE))
+    keyword_candidates: list[str] = []
+    seen_keyword_candidates: set[str] = set()
+    for index, clause in enumerate(for_clauses):
+        clause_end = for_clauses[index + 1].start() if index + 1 < len(for_clauses) else len(source)
+        rest = source[clause.end() : clause_end]
         rest = re.sub(
             r"\b(?:unread|replies?|messages?|emails?|mail)\b",
             " ",
@@ -216,20 +224,40 @@ def _gmail_query(intent: MissionIntent) -> str:
             flags=re.IGNORECASE,
         )
         rest = re.sub(
-            r"\bfrom\s+(?:[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|[A-Za-z][A-Za-z\-']*(?:\s+[A-Za-z][A-Za-z\-']*){0,2})\b",
+            r"\bfrom\s+(?:"
+            r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|"
+            r"[A-Za-z][A-Za-z\-']*(?:\s+[A-Za-z][A-Za-z\-']*){0,4}?"
+            r")(?=\s+(?:for\b|about\b|regarding\b|containing\b|with\b|"
+            r"last\b|past\b|today\b|unread\b|"
+            r"and\s+(?:summarize|show|list|return|find|include|exclude)\b|$)|$)",
             " ",
             rest,
             flags=re.IGNORECASE,
         )
+        rest = re.sub(
+            r"\band\s+(?:summarize|show|list|return|find|include|exclude)\b.*$",
+            " ",
+            rest,
+            flags=re.IGNORECASE,
+        )
+        rest = re.sub(r"^\s*(?:about|regarding|containing|with)\s+", " ", rest, flags=re.IGNORECASE)
         rest = re.sub(
             r"\b(?:last|past)\s+(?:week|month|day|24\s+hours?)\b|\btoday\b",
             " ",
             rest,
             flags=re.IGNORECASE,
         )
+        rest = re.sub(r"(?:\bfor\s+)?\bthe\s*$", " ", rest, flags=re.IGNORECASE)
+        rest = re.sub(r"^\s*for\s+", " ", rest, flags=re.IGNORECASE)
         rest = re.sub(r"\s+", " ", rest).strip(" ,.;")
-        if rest and len(rest) >= 2:
-            terms.append(f'"{rest[:80]}"' if " " in rest else rest[:80])
+        if rest and len(rest) >= 2 and rest.lower() not in {"a", "an", "the"}:
+            keyword_candidate = rest[:80]
+            normalized_candidate = keyword_candidate.casefold()
+            if normalized_candidate not in seen_keyword_candidates:
+                seen_keyword_candidates.add(normalized_candidate)
+                keyword_candidates.append(keyword_candidate)
+    for keyword_candidate in keyword_candidates:
+        terms.append(f'"{keyword_candidate}"' if " " in keyword_candidate else keyword_candidate)
 
     # Material scopes we cannot compile → refuse silent full-inbox widen.
     residual = re.search(
@@ -417,7 +445,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name in {"sales.research", "crm.research"}:
         # Explicit HubSpot / CRM read jobs must fail closed on external errors —
         # never silently complete with Ajenda-brain internal records.
-        require_external = "read_crm" in {str(o) for o in intent.requested_outcomes}
+        require_external = "read_crm" in {str(o) for o in intent.requested_outcomes} or "hubspot_source" in {
+            str(item) for item in intent.context_requirements
+        }
         if require_external:
             crm_source = _source_instruction(intent).lower()
             # sales.research only searches by company/domain — reject scopes the adapter drops.
@@ -430,6 +460,13 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             ):
                 unsupported_scope = True
             if re.search(r"\blist\b.{0,24}\bcontacts?\b", crm_source) and not explicit_company:
+                unsupported_scope = True
+            # The current HubSpot adapter accepts company/domain lookup only.
+            # Market, location, quantity, and competitor discovery cannot be
+            # represented faithfully without inventing a company search term.
+            if any(entity.type == "competitor_set" for entity in intent.target_entities):
+                unsupported_scope = True
+            if not explicit_company and (industry or location or intent.requested_quantity is not None):
                 unsupported_scope = True
             if unsupported_scope:
                 raise ValueError(
@@ -628,7 +665,14 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             payload["end"] = end
         return payload
     if action_name == "sales.log_activity":
-        return {"lead": lead, "activity": {"type": "note", "summary": intent.objective[:240]}}
+        return {
+            "record_type": "activity",
+            "data": {
+                "lead": lead,
+                "type": "note",
+                "summary": intent.objective[:240],
+            },
+        }
     if action_name == "record.write":
         return {
             "record_type": "account",

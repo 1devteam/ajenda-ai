@@ -108,6 +108,11 @@ def google_calendar_events_read(invocation: ToolInvocation, context: ActionRunti
     real = False
     status_code: int | None = None
 
+    from backend.services.tools.external_sim_policy import require_external_secret
+
+    require_external_secret(
+        secret=secret if isinstance(secret, str) else None, action=GOOGLE_CALENDAR_EVENTS_READ_ACTION
+    )
     if secret:
         url = _events_url(
             calendar_id=payload.calendar_id,
@@ -143,6 +148,7 @@ def google_calendar_events_read(invocation: ToolInvocation, context: ActionRunti
         except Exception as exc:
             raise ValueError(f"Google Calendar events read failed on credentialed path: {exc}") from exc
     else:
+        # Only reachable when AJENDA_ALLOW_SIMULATED_EXTERNAL=1
         events = _simulated_events()
 
     output = {

@@ -1,5 +1,5 @@
 version: 1
-last_reviewed: 2026-07-07
+last_reviewed: 2026-07-31
 owner: architecture-runtime-governance
 
 notes:
@@ -1276,3 +1276,29 @@ authority_entries:
       - tests/contract/api/test_onboarding_signup_route.py
       - tests/contract/api/test_onboarding_verify_route.py
       - tests/integration/saas/test_tenant_onboarding_real.py
+
+  - id: vertical_ops_template_contract
+    area: governed vertical operation templates
+    source_of_truth:
+      - backend/api/routes/vertical_ops.py
+      - backend/services/vertical_ops/plan_templates.py
+      - backend/services/vertical_ops/template_service.py
+      - docs/architecture/ADR-0007-governed-vertical-role-catalog.md
+    route_scope:
+      - /v1/vertical-ops/*
+    authority_class: governed_mutation
+    side_effect_class: tenant_scoped_plan_materialization_and_bounded_queue_admission
+    allowed_side_effects:
+      - list versioned vertical mission templates
+      - create and apply tenant-scoped mission plan and task graph records
+      - queue eligible Phase B planned tasks only through ExecutionCoordinator
+    forbidden_side_effects:
+      - treat declarative vertical-role packs as execution authority
+      - queue Phase C plan-only templates
+      - bypass tenant validation, policy gates, ExecutionCoordinator, TaskDispatcher, queue authority, or worker lease ownership
+    required_proofs:
+      - tests/unit/api/test_vertical_ops_route.py
+      - tests/unit/services/test_vertical_ops_phase_b.py
+      - tests/unit/services/test_vertical_ops_phase_c.py
+      - tests/contract/runtime/test_vertical_ops_execution_path_contract.py
+      - tests/integration/runtime/test_vertical_ops_research_template_runtime_real.py

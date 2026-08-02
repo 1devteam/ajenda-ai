@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router";
 import SessionWatchdog from "./auth/SessionWatchdog";
 import AppLayout from "./components/AppLayout";
 import PublicSiteLayout from "./components/marketing/PublicSiteLayout";
