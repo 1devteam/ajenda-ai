@@ -42,8 +42,8 @@ flowchart LR
 | Ajenda central brain (standalone) | Implemented — durable `tenant_internal_records`, `web.research`, internal `gtm.crm_upsert` |
 | Plugin discovery API | Implemented (`GET /v1/plugins`, action→plugin mapping) |
 | HubSpot CRM adapter (optional plugin) | Implemented (`services/hubspot_crm_adapter`, TLS ingress in Compose/K8s) |
-| Gmail + SMTP email plugins | Implemented — `external_email` credentials; `gtm.email_send` / `gtm.email_check` |
-| Google Calendar / Contacts connectors | Implemented — separate OAuth connect (not identity login scopes) |
+| Gmail + SMTP email plugins | Implemented — credential-bound `gtm.email_send` / `gtm.email_check`; missing credentials fail closed |
+| Google Calendar / Contacts connectors | Implemented — separate OAuth connect; external actions never silently simulate in production |
 | Credentials / Connections UI | Implemented at `/credentials` and `/connections` (OAuth-first Google cards) |
 | Mission composition engine | Implemented — plain language → structured `MissionIntent` → jobs → proposal; restatement on incomplete input |
 | Governed vertical operations | Implemented — `/v1/vertical-ops/*` template planning and bounded queue admission; Phase C templates remain plan-only |
@@ -68,6 +68,18 @@ Ajenda runs fully without external CRM or email plugins:
 5. **Plugin discovery** — `GET /v1/plugins` lists standalone vs optional plugins and standard CRM contract paths.
 
 See [`docs/product/plugin-architecture.md`](docs/product/plugin-architecture.md).
+
+### External connector truthfulness
+
+External providers are governed separately from Ajenda's standalone capabilities:
+
+- Missing provider credentials fail closed by default. Simulated external results require explicit non-production opt-in through `AJENDA_ALLOW_SIMULATED_EXTERNAL`; production ignores that opt-in.
+- Connector handlers governed by ADR-0009 never replace a credentialed provider exception with simulated success. The generic `provider.external_read` foundation separately records the returned HTTP status as read evidence, including non-2xx responses.
+- Explicit provider requests remain provider-bound. For example, HubSpot-sourced research cannot fall back to public web research or Ajenda's internal records.
+- Mission composition rejects known unsupported explicit Gmail operators and unsupported CRM scopes. Gmail retains each material `for` clause and translates supported week, month, today, and 24-hour language into bounded date operators; other natural-language time expressions are not yet guaranteed as structured filters.
+- CRM writes that require an external connector report `connection_required` when the connector is unavailable; they do not claim success by writing one aggregate placeholder locally.
+
+The governing decision and compatibility notes are in [`ADR-0009`](docs/architecture/ADR-0009-external-connector-truthfulness.md).
 
 ### HubSpot CRM integration (optional plugin)
 
@@ -526,7 +538,7 @@ Recent milestones:
 - **Mission plans (Phase 4):** durable `mission_plans` table is canonical; `PUT /plan` writes table only; legacy metadata read-only + `0031` backfill migration; `allow_legacy_v1` opt-in on mission create (default false)
 - **Worker tenancy (Phase 5):** `AJENDA_WORKER_TENANT_MODE=multi` round-robin across active tenants (ADR-0004); production deploy defaults updated
 - **Paid customer product:** account APIs, customer frontend (router + pages), Compose/K8s frontend deploy, GHCR frontend image CI, E2E integration test + staging curl proof
-- **Alembic head:** `0033_tenant_internal_records`
+- **Alembic head:** `0036_composition_thread`
 - **Live proof CI:** `main` push runs Live Runtime Proof after integration + docker build (see `docs/validation/live-runtime-proof-release-gate.md`)
 
 ---
@@ -587,8 +599,9 @@ Run integration tests, migration round-trip checks, and live runtime proof when 
 | 0033 | tenant_internal_records for Ajenda standalone brain mode |
 | 0034 | email_send_idempotency_receipts (SMTP send replay protection) |
 | 0035 | mission_composition_proposals (durable compose history; no execution authority) |
+| 0036 | interpretation thread/proposal-kind fields and tenant/actor/thread index |
 
-**Alembic head:** `0035_composition_proposals`
+**Alembic head:** `0036_composition_thread`
 
 ### Mission composition (plain language → plan)
 
@@ -632,7 +645,7 @@ Start here when working on product direction and current runtime behavior.
 
 ## Contract audit status
 
-**Last audited:** July 7, 2026 (`main`, Alembic head `0033_tenant_internal_records`)
+**Last audited:** August 1, 2026 (`main`, Alembic head `0036_composition_thread`)
 
 The July 2026 contract replay closed the README follow-up audit list. Authority classes below map to `docs/contracts/authority-ledger.v1.yaml` (`declarative`, `read_model`, `governed_mutation`, `runtime_authoritative`). `python scripts/validation/contract_drift_check.py` passes on `main`.
 
@@ -647,7 +660,7 @@ The July 2026 contract replay closed the README follow-up audit list. Authority 
 | SaaS/quota admission replay | Closed | `QuotaEnforcementService` and rate-limit middleware gate API usage; queue/mission/API-key admission paths have contract and unit coverage. |
 | Mission approval/admission semantics | Classified | **Enforced gates:** `PolicyGuardian` → `pending_review` at queue admission; `requires_human_review` on tasks; ability-runtime launch authority; `side_effect_authorization` for external actions; informed-autonomy disclaimer (ADR-0005). **Advisory metadata:** `mission.approval_required` (stored and surfaced in Mission Brief, not enforced at queue admission); `capability.approval_requirements` (declaration validation); `outcome_review.human_approval_required` (review metadata). |
 | Validation matrix freshness | Closed | AT-05 refreshed: public probes are `/health`, `/readiness`, `/v1/system/health`, `/v1/system/readiness` only; `POST /v1/operations/recovery` requires tenant auth + `RUNTIME_OPERATE` (FR-06, `test_recovery_public_contract.py`). |
-| Project state report freshness | Current | `docs/PROJECT_STATE_REPORT.md` dated July 7, 2026; refresh on each release cycle per `docs/policies/DOCS_FRESHNESS_POLICY.md`. |
+| Project state report freshness | Current | `docs/PROJECT_STATE_REPORT.md` dated August 1, 2026; refresh on each release cycle per `docs/policies/DOCS_FRESHNESS_POLICY.md`. |
 
 Remaining platform gaps (outside this audit closure):
 

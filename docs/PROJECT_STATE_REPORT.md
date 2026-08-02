@@ -1,8 +1,8 @@
 # Ajenda AI — Project State Report
 
-**Date:** July 31, 2026
+**Date:** August 1, 2026
 **Branch:** `main`  
-**Alembic head:** `0035_composition_proposals`
+**Alembic head:** `0036_composition_thread`
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
 
 This report reflects implementation-backed truth on `main`. For visual flows, see the Mermaid diagrams in `SYSTEM_ARCHITECTURE.md`.
@@ -51,7 +51,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Self-serve onboarding: signup → verify → bootstrap key → promote
 - Account APIs: `/v1/account/me`, `/plan`, `/usage`, `/billing`
 - Provider credentials: `/v1/account/provider-credentials` (+ OAuth flows per provider; Google Contacts/Calendar/Gmail separate from identity OIDC)
-- Mission composition: structured interpreter + restatement; durable proposals (`0035_composition_proposals`)
+- Mission composition: structured interpreter + restatement; durable actor/thread-scoped proposals (`0035_composition_proposals`, `0036_composition_thread`)
 - Governed vertical operations: Phase B templates can materialize and queue through `ExecutionCoordinator`; Phase C templates are plan-only and fail closed on queue requests
 - Billing RBAC: checkout/portal require `billing:manage`; account reads use `account:read`
 - Stripe: checkout, portal, webhook with `stripe_webhook_events` dedup
@@ -62,7 +62,9 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Standalone mode: `tenant_internal_records` (migration `0033`) for internal CRM/contact storage
 - Plugin discovery: `GET /v1/plugins`
 - HubSpot CRM optional plugin with TLS ingress in Compose/K8s prod stack
-- Gmail/SMTP email plugins; credential resolver + fail-closed simulated paths when creds absent
+- External connectors fail closed without credentials; simulation requires explicit non-production opt-in and remains disabled in production
+- Gmail query composition preserves sender and material `for` clauses, translates supported time windows, and rejects known unsupported explicit operators
+- Explicit HubSpot sourcing remains connector-bound and unsupported CRM discovery scopes are rejected instead of falling back
 
 ### 2.5 Customer frontend
 
@@ -82,7 +84,8 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - `customer_auth_sessions`, OIDC login intents — migration `0032`
 - `tenant_internal_records` — migration `0033`
 - `email_send_idempotency_receipts` — migration `0034`
-- `mission_composition_proposals` — migration `0035` (declarative history only)
+- `mission_composition_proposals` — migration `0035` (includes `actor_id` and `status`; declarative history only)
+- `interpretation_thread_id`, `proposal_kind`, and tenant/actor/thread index — migration `0036`
 
 ### 2.7 Tests and proof
 
