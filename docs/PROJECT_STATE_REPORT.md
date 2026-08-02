@@ -63,7 +63,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Plugin discovery: `GET /v1/plugins`
 - HubSpot CRM optional plugin with TLS ingress in Compose/K8s prod stack
 - External connectors fail closed without credentials; simulation requires explicit non-production opt-in and remains disabled in production
-- Gmail query composition preserves sender, material keyword, and temporal scopes; unsupported operators fail closed
+- Gmail query composition preserves sender and material `for` clauses, translates supported time windows, and rejects known unsupported explicit operators
 - Explicit HubSpot sourcing remains connector-bound and unsupported CRM discovery scopes are rejected instead of falling back
 
 ### 2.5 Customer frontend

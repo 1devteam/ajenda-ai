@@ -76,7 +76,7 @@ External providers are governed separately from Ajenda's standalone capabilities
 - Missing provider credentials fail closed by default. Simulated external results require explicit non-production opt-in through `AJENDA_ALLOW_SIMULATED_EXTERNAL`; production ignores that opt-in.
 - Connector handlers governed by ADR-0009 never replace a credentialed provider exception with simulated success. The generic `provider.external_read` foundation separately records the returned HTTP status as read evidence, including non-2xx responses.
 - Explicit provider requests remain provider-bound. For example, HubSpot-sourced research cannot fall back to public web research or Ajenda's internal records.
-- Mission composition rejects connector scopes it cannot represent faithfully. Gmail retains each material search clause while translating recognized temporal clauses into bounded Gmail date operators.
+- Mission composition rejects known unsupported explicit Gmail operators and unsupported CRM scopes. Gmail retains each material `for` clause and translates supported week, month, today, and 24-hour language into bounded date operators; other natural-language time expressions are not yet guaranteed as structured filters.
 - CRM writes that require an external connector report `connection_required` when the connector is unavailable; they do not claim success by writing one aggregate placeholder locally.
 
 The governing decision and compatibility notes are in [`ADR-0009`](docs/architecture/ADR-0009-external-connector-truthfulness.md).
