@@ -25,8 +25,8 @@ The initial default is the 4B instruction model `qwen3:4b-instruct-2507-q4_K_M`.
 - Input is the exact user instruction plus an allowlisted subset of approved business-profile facts.
 - Output is strict JSON validated by Pydantic. Unknown fields are rejected.
 - Every material outcome, policy, target, context requirement, constraint, timing value, success criterion, and instruction segment carries source grounding. Target kinds and context requirements use closed vocabularies; the model cannot add arbitrary target attributes.
-- A deterministic meaning guard rejects invented or dropped email addresses, URLs, and numeric facts. Supplied protected facts must survive both the reviewed wording and their corresponding structured fields.
-- Every normalized target name, industry, and location must remain bounded to its cited source; only spelling and grammatical-inflection repair is accepted. Domains, URLs, emails, abbreviations, and labels remain exact.
+- A deterministic meaning guard rejects invented or dropped email addresses, URLs, and numeric facts. Supplied protected facts must survive both the reviewed wording and their corresponding structured fields; explicit action counts are bound specifically to `requested_quantity` and its cited span rather than accepted in an unrelated numeric field.
+- Every normalized target name, industry, and location must remain bounded to its cited source at complete token/phrase boundaries; only spelling and grammatical-inflection repair is accepted. Domains, URLs, emails, abbreviations, and labels remain exact.
 - The inference client connects only to an exact operator-configured private-host allowlist and rejects every other hostname before opening a connection.
 - The model never chooses jobs, abilities, tools, credentials, permissions, policy, approval, queue state, or runtime actions.
 - Raw prompts and model output are never written to application logs. The durable proposal remains tenant-scoped and retains the raw instruction for backend audit. Browser-visible mission lifecycle metadata stores only the confirmed interpretation and a sanitized intent without raw/source evidence spans.

@@ -10,6 +10,7 @@ from backend.services.mission_composition.interpretation.interpreter import (
     MissionInterpreterOutputError,
 )
 from backend.services.mission_composition.interpretation.schema import (
+    GroundedConstraint,
     GroundedContextRequirement,
     GroundedPolicy,
     GroundedTarget,
@@ -149,6 +150,59 @@ def test_supplied_number_must_survive_echo_and_structured_details(interpreted: s
     assert exc.value.code == "INTERPRETER_DROPPED_QUANTITY"
 
 
+def test_action_count_cannot_be_parked_in_an_unrelated_constraint() -> None:
+    raw = "Find 10 roofers in Austin."
+    candidate = llm_interpretation(raw).model_copy(
+        update={
+            "constraints": [
+                GroundedConstraint(
+                    text="10",
+                    source_text="10",
+                )
+            ]
+        }
+    )
+
+    with pytest.raises(MissionInterpreterOutputError) as exc:
+        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+
+    assert exc.value.code == "INTERPRETER_DROPPED_QUANTITY"
+
+
+def test_action_count_is_bound_to_requested_quantity_and_its_source() -> None:
+    raw = "Find 10 roofers in Austin."
+    candidate = llm_interpretation(
+        raw,
+        quantity=10,
+        quantity_source_text="Find 10",
+    )
+
+    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+
+    assert intent.requested_quantity == 10
+
+
+def test_distance_after_action_verb_is_not_misclassified_as_result_count() -> None:
+    raw = "Find 10-mile radius around Austin."
+    candidate = llm_interpretation(raw).model_copy(
+        update={
+            "target_entities": [
+                GroundedTarget(
+                    type="market",
+                    source_text=raw,
+                    location="Austin",
+                    radius_km=10,
+                )
+            ]
+        }
+    )
+
+    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+
+    assert intent.requested_quantity is None
+    assert intent.target_entities[0].radius_km == 10
+
+
 def test_supplied_protected_facts_can_survive_echo_and_corresponding_schema() -> None:
     raw = "Review https://example.com/pricing and draft 3 emails to ceo@example.com."
     candidate = llm_interpretation(
@@ -230,6 +284,28 @@ def test_target_fields_cannot_invent_values_inside_a_real_source_span() -> None:
     assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
     assert "target:name" in str(exc.value)
     assert "target:industry" in str(exc.value)
+    assert "target:location" in str(exc.value)
+
+
+def test_short_target_value_cannot_match_inside_a_source_token() -> None:
+    raw = "Find roofers in Austin."
+    candidate = llm_interpretation(raw).model_copy(
+        update={
+            "target_entities": [
+                GroundedTarget(
+                    type="market",
+                    source_text="roofers in Austin",
+                    industry="roofing",
+                    location="US",
+                )
+            ]
+        }
+    )
+
+    with pytest.raises(MissionInterpreterOutputError) as exc:
+        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+
+    assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
     assert "target:location" in str(exc.value)
 
 

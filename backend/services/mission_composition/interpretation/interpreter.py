@@ -62,6 +62,18 @@ _NUMBER_WORDS = {
     "twenty": 20,
 }
 _NUMBER_WORD_RE = re.compile(r"\b(" + "|".join(_NUMBER_WORDS) + r")\b", re.IGNORECASE)
+_NUMBER_TOKEN_PATTERN = r"(?:\d+|" + "|".join(_NUMBER_WORDS) + r")"
+_REQUESTED_QUANTITY_RE = re.compile(
+    r"\b(?:find|fnd|research|rsearch|identify|discover|locate|list|return|get|select|qualify|enrich|"
+    r"draft|prepare|send|email|contact|need|want)\s+(?:me\s+)?(?:the\s+)?(?:top\s+)?"
+    rf"(?P<quantity>{_NUMBER_TOKEN_PATTERN})\b",
+    re.IGNORECASE,
+)
+_NON_COUNT_UNIT_RE = re.compile(
+    r"^\s*[- ]?\s*(?:%|percent|km|kilometers?|mi|miles?|radius|seconds?|minutes?|hours?|days?|weeks?|"
+    r"months?|years?|dollars?|usd|pages?|words?|characters?|paragraphs?)\b",
+    re.IGNORECASE,
+)
 
 
 class MissionInterpreter(Protocol):
@@ -257,6 +269,8 @@ def _validate_protected_facts(*, instruction: str, candidate: LlmMissionInterpre
             code="INTERPRETER_INVENTED_QUANTITY",
             message="interpretation introduced a quantity that was not provided",
         )
+    _validate_requested_quantity_binding(instruction=instruction, candidate=candidate)
+    _validate_typed_numeric_fields(candidate)
     structured_numbers = _structured_number_facts(candidate)
     raw_number_values = set(raw_numbers)
     if not raw_number_values.issubset(structured_numbers):
@@ -274,15 +288,22 @@ def _validate_protected_facts(*, instruction: str, candidate: LlmMissionInterpre
 def _target_text_is_source_correspondent(value: str, source_text: str) -> bool:
     """Allow bounded spelling/inflection repair without accepting new target facts."""
 
-    normalized_value = _normalize_source(value)
-    normalized_source = _normalize_source(source_text)
-    if normalized_value in normalized_source:
+    exact_value_tokens = [item.casefold() for item in _TEXT_TOKEN_RE.findall(value)]
+    exact_source_tokens = [item.casefold() for item in _TEXT_TOKEN_RE.findall(source_text)]
+    if _contains_token_sequence(exact_source_tokens, exact_value_tokens):
         return True
-    value_tokens = [item.casefold() for item in _TEXT_TOKEN_RE.findall(value) if not item.isdigit()]
-    source_tokens = [item.casefold() for item in _TEXT_TOKEN_RE.findall(source_text) if not item.isdigit()]
+    value_tokens = [item for item in exact_value_tokens if not item.isdigit()]
+    source_tokens = [item for item in exact_source_tokens if not item.isdigit()]
     if not value_tokens or not source_tokens:
         return False
     return all(any(_tokens_correspond(token, source_token) for source_token in source_tokens) for token in value_tokens)
+
+
+def _contains_token_sequence(source: list[str], candidate: list[str]) -> bool:
+    if not candidate or len(candidate) > len(source):
+        return False
+    width = len(candidate)
+    return any(source[index : index + width] == candidate for index in range(len(source) - width + 1))
 
 
 def _tokens_correspond(value: str, source: str) -> bool:
@@ -326,6 +347,66 @@ def _edit_distance_with_limit(left: str, right: str, limit: int) -> int:
             return limit + 1
         previous = current
     return previous[-1]
+
+
+def _validate_requested_quantity_binding(*, instruction: str, candidate: LlmMissionInterpretation) -> None:
+    """Bind explicit action counts to requested_quantity, never an unrelated numeric field."""
+
+    required = _requested_quantity_facts(instruction)
+    if not required:
+        return
+    quantity_source = candidate.quantity_source_text or ""
+    for value, source_span in required:
+        source_overlaps = _source_is_grounded(quantity_source, source_span) or _source_is_grounded(
+            source_span, quantity_source
+        )
+        if candidate.requested_quantity != value or not source_overlaps:
+            raise MissionInterpreterOutputError(
+                code="INTERPRETER_DROPPED_QUANTITY",
+                message="an explicit action count was not represented by requested_quantity and its source span",
+            )
+
+
+def _requested_quantity_facts(instruction: str) -> list[tuple[int, str]]:
+    facts: list[tuple[int, str]] = []
+    for match in _REQUESTED_QUANTITY_RE.finditer(instruction):
+        if _NON_COUNT_UNIT_RE.match(instruction[match.end("quantity") :]):
+            continue
+        values = _number_facts(match.group("quantity"))
+        if len(values) == 1:
+            facts.append((next(iter(values)), match.group(0)))
+    return facts
+
+
+def _validate_typed_numeric_fields(candidate: LlmMissionInterpretation) -> None:
+    """Prevent a raw number from being moved into an unrelated structured field."""
+
+    for target in candidate.target_entities:
+        for value in (target.name, target.industry, target.location, target.domain, target.url, target.email):
+            if value and not _counter_is_subset(_number_facts(value), _number_facts(target.source_text)):
+                raise MissionInterpreterOutputError(
+                    code="INTERPRETER_INVENTED_QUANTITY",
+                    message="a target numeric fact does not match its cited source span",
+                )
+    for timing in candidate.timing_constraints:
+        normalized = " ".join(value for value in (timing.start, timing.end, timing.label) if value)
+        if not _counter_is_subset(_number_facts(normalized), _number_facts(timing.source_text)):
+            raise MissionInterpreterOutputError(
+                code="INTERPRETER_INVENTED_QUANTITY",
+                message="a timing numeric fact does not match its cited source span",
+            )
+    for constraint_item in candidate.constraints:
+        if not _counter_is_subset(_number_facts(constraint_item.text), _number_facts(constraint_item.source_text)):
+            raise MissionInterpreterOutputError(
+                code="INTERPRETER_INVENTED_QUANTITY",
+                message="a constraint numeric fact does not match its cited source span",
+            )
+    for criterion in candidate.success_criteria:
+        if not _counter_is_subset(_number_facts(criterion.description), _number_facts(criterion.source_text)):
+            raise MissionInterpreterOutputError(
+                code="INTERPRETER_INVENTED_QUANTITY",
+                message="a success-criterion numeric fact does not match its cited source span",
+            )
 
 
 def _structured_number_facts(candidate: LlmMissionInterpretation) -> set[int]:

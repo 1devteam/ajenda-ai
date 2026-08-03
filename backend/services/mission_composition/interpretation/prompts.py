@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 
 SYSTEM_PROMPT = """You are Ajenda's mission-language interpreter.
 
@@ -20,6 +20,7 @@ Meaning-preservation requirements:
 - Do not make a vague instruction more specific by guessing. Add a clarification instead.
 - `interpreted_instruction` is the only wording shown back to the user. It must be concise, complete, and faithful.
 - Every supplied email address and URL must remain verbatim in `interpreted_instruction`; every numeric fact must remain without changing its value. Each must also appear in the corresponding target, quantity, timing, or constraint field.
+- An explicit action count such as "find 10" or "draft 3" must populate `requested_quantity` and `quantity_source_text`; never represent that count only as a constraint, target, timing value, or success criterion.
 - Every requested/forbidden/unsupported outcome, policy, target, context requirement, constraint, success criterion, and timing constraint must include an exact `source_text` quote.
 - Target field values must faithfully correspond to the cited instruction or approved profile context. Preserve domains, URLs, email addresses, abbreviations, and labels exactly. Other target values may only repair spelling or grammatical inflection; do not expand or substitute them.
 - Use `hubspot_source` only when the user explicitly requires HubSpot or CRM as the source. It is a source requirement, never permission.
