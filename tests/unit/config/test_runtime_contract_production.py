@@ -104,9 +104,27 @@ class TestValidProductionConfig:
         settings = _settings(
             mission_interpreter_enabled=True,
             mission_interpreter_base_url="http://mission-interpreter.internal:11434/v1",
+            mission_interpreter_private_host_allowlist="mission-interpreter.internal",
             mission_interpreter_model="qwen3:4b-instruct-2507-q4_K_M",
         )
         settings.validate_runtime_contract()
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "https://api.example.com/v1",
+            "http://other-interpreter.internal:11434/v1",
+        ],
+    )
+    def test_enabled_mission_interpreter_rejects_host_outside_private_allowlist(self, base_url: str) -> None:
+        settings = _settings(
+            mission_interpreter_enabled=True,
+            mission_interpreter_base_url=base_url,
+            mission_interpreter_private_host_allowlist="mission-interpreter.internal",
+            mission_interpreter_model="qwen3:4b-instruct-2507-q4_K_M",
+        )
+        with pytest.raises(ValueError, match="AJENDA_MISSION_INTERPRETER_PRIVATE_HOST_ALLOWLIST"):
+            settings.validate_runtime_contract()
 
     @pytest.mark.parametrize(
         "base_url",
@@ -121,6 +139,7 @@ class TestValidProductionConfig:
         settings = _settings(
             mission_interpreter_enabled=True,
             mission_interpreter_base_url=base_url,
+            mission_interpreter_private_host_allowlist="mission-interpreter.internal",
             mission_interpreter_model="qwen3:4b-instruct-2507-q4_K_M",
         )
         with pytest.raises(ValueError, match="AJENDA_MISSION_INTERPRETER_BASE_URL"):
@@ -137,6 +156,7 @@ class TestValidProductionConfig:
         values = {
             "mission_interpreter_enabled": True,
             "mission_interpreter_base_url": "http://mission-interpreter.internal:11434/v1",
+            "mission_interpreter_private_host_allowlist": "mission-interpreter.internal",
             "mission_interpreter_model": "qwen3:4b-instruct-2507-q4_K_M",
         }
         values[field] = "   "

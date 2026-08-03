@@ -22,6 +22,7 @@ def _settings(*, enabled: bool = True) -> Settings:
     return Settings.model_construct(
         mission_interpreter_enabled=enabled,
         mission_interpreter_base_url="http://interpreter.internal/v1",
+        mission_interpreter_private_host_allowlist="interpreter.internal",
         mission_interpreter_model="qwen3:4b-instruct-2507-q4_K_M",
         mission_interpreter_api_key=None,
         mission_interpreter_timeout_seconds=12.0,
@@ -71,6 +72,21 @@ def test_disabled_interpreter_fails_closed_without_network() -> None:
                 MissionInterpretationRequest(system_prompt="system", user_prompt="user")
             )
     assert exc.value.code == "INTERPRETER_DISABLED"
+    assert exc.value.retryable is False
+    client_cls.assert_not_called()
+
+
+def test_unlisted_interpreter_endpoint_fails_closed_without_network() -> None:
+    settings = _settings()
+    settings.mission_interpreter_base_url = "https://api.example.com/v1"
+
+    with patch("backend.services.mission_composition.interpretation.llm_client.httpx.Client") as client_cls:
+        with pytest.raises(MissionInterpreterTransportError) as exc:
+            OpenAiCompatibleMissionInterpreterClient(settings=settings).interpret(
+                MissionInterpretationRequest(system_prompt="system", user_prompt="user")
+            )
+
+    assert exc.value.code == "INTERPRETER_ENDPOINT_NOT_ALLOWED"
     assert exc.value.retryable is False
     client_cls.assert_not_called()
 

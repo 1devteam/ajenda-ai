@@ -42,6 +42,7 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_CORS_ALLOWED_ORIGINS` | yes | no | Comma-separated origins when customer frontend is deployed. |
 | `AJENDA_MISSION_INTERPRETER_ENABLED` | yes | no | Explicit rollout/rollback switch; disabled fails closed instead of restoring the legacy parser. |
 | `AJENDA_MISSION_INTERPRETER_BASE_URL` | conditional | no | Private OpenAI-compatible `/v1` endpoint; required when the interpreter is enabled. |
+| `AJENDA_MISSION_INTERPRETER_PRIVATE_HOST_ALLOWLIST` | yes | no | Exact comma-separated private inference hostnames allowed to receive interpretation input. |
 | `AJENDA_MISSION_INTERPRETER_MODEL` | conditional | no | Model identifier loaded by the internal inference service. |
 | `AJENDA_MISSION_INTERPRETER_TIMEOUT_SECONDS` | yes | no | Per-interpretation request timeout (maximum 120 seconds). |
 | `AJENDA_MISSION_INTERPRETER_MAX_TOKENS` | yes | no | Structured-output token ceiling. |
@@ -58,7 +59,7 @@ ollama pull qwen3:4b-instruct-2507-q4_K_M
 ollama serve
 ```
 
-Set `AJENDA_MISSION_INTERPRETER_BASE_URL=http://127.0.0.1:11434/v1` when the API runs on the host. Containers and Kubernetes pods must use a reachable private service address instead of loopback. The endpoint must support `/v1/chat/completions` and JSON-schema `response_format` structured output.
+Set `AJENDA_MISSION_INTERPRETER_BASE_URL=http://127.0.0.1:11434/v1` when the API runs on the host. Containers and Kubernetes pods must use a reachable private service address instead of loopback. Set `AJENDA_MISSION_INTERPRETER_PRIVATE_HOST_ALLOWLIST` to that endpoint's exact hostname; the client rejects every other host before opening a connection. The endpoint must support `/v1/chat/completions` and JSON-schema `response_format` structured output.
 
 Rollout sequence:
 
@@ -122,6 +123,7 @@ Settings.validate_runtime_contract() rejects production deployments that use:
 - budget enforcement with observe-only still enabled.
 - enabled mission interpreter with a blank endpoint or model.
 - invalid or credentialed mission interpreter endpoint (must be an `http(s)` `/v1` URL; credentials belong in the API-key secret).
+- mission interpreter endpoint host outside its explicit private allowlist.
 
 ## F3-B deployment/runtime source of truth
 

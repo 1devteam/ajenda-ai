@@ -91,6 +91,94 @@ def test_protected_facts_cannot_be_invented(raw: str, interpreted: str, expected
     assert exc.value.code == expected_code
 
 
+@pytest.mark.parametrize(
+    ("raw", "interpreted", "targets", "expected_code"),
+    [
+        (
+            "Draft an email to ceo@example.com.",
+            "Draft an email.",
+            [],
+            "INTERPRETER_DROPPED_RECIPIENT",
+        ),
+        (
+            "Draft an email to ceo@example.com.",
+            "Draft an email to ceo@example.com.",
+            [],
+            "INTERPRETER_DROPPED_RECIPIENT",
+        ),
+        (
+            "Review https://example.com/pricing.",
+            "Review the pricing page.",
+            [],
+            "INTERPRETER_DROPPED_URL",
+        ),
+        (
+            "Review https://example.com/pricing.",
+            "Review https://example.com/pricing.",
+            [],
+            "INTERPRETER_DROPPED_URL",
+        ),
+    ],
+)
+def test_supplied_recipients_and_urls_must_survive_echo_and_schema(
+    raw: str,
+    interpreted: str,
+    targets: list[GroundedTarget],
+    expected_code: str,
+) -> None:
+    candidate = llm_interpretation(raw, interpreted_instruction=interpreted).model_copy(
+        update={"target_entities": targets}
+    )
+    with pytest.raises(MissionInterpreterOutputError) as exc:
+        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+    assert exc.value.code == expected_code
+
+
+@pytest.mark.parametrize(
+    "interpreted",
+    [
+        "Find roofing companies in Austin.",
+        "Find 3 roofing companies in Austin.",
+    ],
+)
+def test_supplied_number_must_survive_echo_and_structured_details(interpreted: str) -> None:
+    raw = "Find 3 roofers in Austin."
+    candidate = llm_interpretation(raw, interpreted_instruction=interpreted)
+    with pytest.raises(MissionInterpreterOutputError) as exc:
+        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+    assert exc.value.code == "INTERPRETER_DROPPED_QUANTITY"
+
+
+def test_supplied_protected_facts_can_survive_echo_and_corresponding_schema() -> None:
+    raw = "Review https://example.com/pricing and draft 3 emails to ceo@example.com."
+    candidate = llm_interpretation(
+        raw,
+        quantity=3,
+        quantity_source_text="3",
+    ).model_copy(
+        update={
+            "target_entities": [
+                GroundedTarget(
+                    type="company",
+                    source_text="https://example.com/pricing",
+                    url="https://example.com/pricing",
+                ),
+                GroundedTarget(
+                    type="recipient",
+                    source_text="ceo@example.com",
+                    email="ceo@example.com",
+                ),
+            ]
+        }
+    )
+
+    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+
+    assert intent.requested_quantity == 3
+    assert {item.url for item in intent.target_entities if item.url} == {"https://example.com/pricing"}
+    assert {item.email for item in intent.target_entities if item.email} == {"ceo@example.com"}
+
+
 def test_structured_quantity_must_match_its_grounded_source_span() -> None:
     raw = "Find three roofing companies in Austin."
     candidate = llm_interpretation(
@@ -120,6 +208,68 @@ def test_ungrounded_structured_field_fails_closed() -> None:
     with pytest.raises(MissionInterpreterOutputError) as exc:
         LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
     assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
+
+
+def test_target_fields_cannot_invent_values_inside_a_real_source_span() -> None:
+    raw = "Find roofers in Austin."
+    candidate = llm_interpretation(raw).model_copy(
+        update={
+            "target_entities": [
+                GroundedTarget(
+                    type="market",
+                    source_text="roofers in Austin",
+                    name="Pfizer",
+                    industry="pharmaceutical",
+                    location="Dallas",
+                )
+            ]
+        }
+    )
+    with pytest.raises(MissionInterpreterOutputError) as exc:
+        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+    assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
+    assert "target:name" in str(exc.value)
+    assert "target:industry" in str(exc.value)
+    assert "target:location" in str(exc.value)
+
+
+def test_target_abbreviation_is_preserved_without_expansion() -> None:
+    raw = "Find roofers in NWA."
+    candidate = llm_interpretation(raw).model_copy(
+        update={
+            "target_entities": [
+                GroundedTarget(
+                    type="market",
+                    source_text="roofers in NWA",
+                    industry="roofing",
+                    location="NWA",
+                )
+            ]
+        }
+    )
+
+    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+
+    assert intent.target_entities[0].location == "NWA"
+
+
+def test_target_name_allows_bounded_spelling_repair() -> None:
+    raw = "Research alce."
+    candidate = llm_interpretation(raw).model_copy(
+        update={
+            "target_entities": [
+                GroundedTarget(
+                    type="person",
+                    source_text="alce",
+                    name="Alice",
+                )
+            ]
+        }
+    )
+
+    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+
+    assert intent.target_entities[0].name == "Alice"
 
 
 def test_target_radius_cannot_be_invented_outside_its_source_span() -> None:

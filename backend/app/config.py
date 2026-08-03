@@ -239,6 +239,10 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:11434/v1",
         alias="AJENDA_MISSION_INTERPRETER_BASE_URL",
     )
+    mission_interpreter_private_host_allowlist: str = Field(
+        default="127.0.0.1,localhost,::1",
+        alias="AJENDA_MISSION_INTERPRETER_PRIVATE_HOST_ALLOWLIST",
+    )
     mission_interpreter_model: str = Field(
         default="qwen3:4b-instruct-2507-q4_K_M",
         alias="AJENDA_MISSION_INTERPRETER_MODEL",
@@ -365,6 +369,14 @@ class Settings(BaseSettings):
     @property
     def oidc_redirect_uri_allowlist_set(self) -> set[str]:
         return {item.strip() for item in self.oidc_redirect_uri_allowlist.split(",") if item.strip()}
+
+    @property
+    def mission_interpreter_private_host_allowlist_set(self) -> set[str]:
+        return {
+            item.strip().casefold().rstrip(".")
+            for item in self.mission_interpreter_private_host_allowlist.split(",")
+            if item.strip()
+        }
 
     @property
     def oidc_login_ready(self) -> bool:
@@ -553,6 +565,13 @@ class Settings(BaseSettings):
                     raise ValueError(
                         "AJENDA_MISSION_INTERPRETER_BASE_URL must not contain credentials; "
                         "use AJENDA_MISSION_INTERPRETER_API_KEY"
+                    )
+                interpreter_host = str(interpreter_url.hostname).casefold().rstrip(".")
+                allowed_hosts = self.mission_interpreter_private_host_allowlist_set
+                if not allowed_hosts or interpreter_host not in allowed_hosts:
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_BASE_URL host must be explicitly listed in "
+                        "AJENDA_MISSION_INTERPRETER_PRIVATE_HOST_ALLOWLIST"
                     )
             if self.network_egress_allow_private_destinations:
                 raise ValueError("AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS is forbidden in production")

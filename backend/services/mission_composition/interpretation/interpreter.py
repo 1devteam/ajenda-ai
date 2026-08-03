@@ -37,6 +37,7 @@ _WS_RE = re.compile(r"\s+")
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _URL_RE = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
 _INTEGER_RE = re.compile(r"\b\d+\b")
+_TEXT_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 _NUMBER_WORDS = {
     "zero": 0,
     "one": 1,
@@ -188,6 +189,10 @@ def _validate_candidate_grounding(
         source = profile_text if target.source == "profile_context" else instruction
         if not _source_is_grounded(target.source_text, source):
             ungrounded.append(f"target:{target.type}")
+        for field_name in ("name", "industry", "location"):
+            value = getattr(target, field_name)
+            if value and not _target_text_is_source_correspondent(value, target.source_text):
+                ungrounded.append(f"target:{field_name}")
         for field_name in ("domain", "url", "email"):
             value = getattr(target, field_name)
             if value and _normalize_source(value) not in _normalize_source(source):
@@ -200,31 +205,156 @@ def _validate_candidate_grounding(
             message=f"interpretation contains ungrounded fields: {', '.join(sorted(set(ungrounded)))}",
         )
 
-    _validate_protected_facts(instruction=instruction, interpreted=candidate.interpreted_instruction)
+    _validate_protected_facts(instruction=instruction, candidate=candidate)
 
 
-def _validate_protected_facts(*, instruction: str, interpreted: str) -> None:
+def _validate_protected_facts(*, instruction: str, candidate: LlmMissionInterpretation) -> None:
+    interpreted = candidate.interpreted_instruction
     raw_emails = {item.casefold() for item in _EMAIL_RE.findall(instruction)}
     interpreted_emails = {item.casefold() for item in _EMAIL_RE.findall(interpreted)}
     raw_urls = {item.casefold().rstrip(".,") for item in _URL_RE.findall(instruction)}
     interpreted_urls = {item.casefold().rstrip(".,") for item in _URL_RE.findall(interpreted)}
     raw_numbers = _number_facts(instruction)
     interpreted_numbers = _number_facts(interpreted)
+    target_emails = {
+        str(target.email).casefold()
+        for target in candidate.target_entities
+        if target.email and str(target.email).strip()
+    }
+    target_urls = {
+        str(target.url).casefold().rstrip(".,")
+        for target in candidate.target_entities
+        if target.url and str(target.url).strip()
+    }
+
+    if not raw_emails.issubset(interpreted_emails) or not raw_emails.issubset(target_emails):
+        raise MissionInterpreterOutputError(
+            code="INTERPRETER_DROPPED_RECIPIENT",
+            message="interpretation omitted a supplied email address from the reviewed wording or target schema",
+        )
     if not interpreted_emails.issubset(raw_emails):
         raise MissionInterpreterOutputError(
             code="INTERPRETER_INVENTED_RECIPIENT",
             message="interpretation introduced an email address that was not provided",
+        )
+    if not raw_urls.issubset(interpreted_urls) or not raw_urls.issubset(target_urls):
+        raise MissionInterpreterOutputError(
+            code="INTERPRETER_DROPPED_URL",
+            message="interpretation omitted a supplied URL from the reviewed wording or target schema",
         )
     if not interpreted_urls.issubset(raw_urls):
         raise MissionInterpreterOutputError(
             code="INTERPRETER_INVENTED_URL",
             message="interpretation introduced a URL that was not provided",
         )
+    if not _counter_is_subset(raw_numbers, interpreted_numbers):
+        raise MissionInterpreterOutputError(
+            code="INTERPRETER_DROPPED_QUANTITY",
+            message="interpretation omitted a supplied numeric fact from the reviewed wording",
+        )
     if not _counter_is_subset(interpreted_numbers, raw_numbers):
         raise MissionInterpreterOutputError(
             code="INTERPRETER_INVENTED_QUANTITY",
             message="interpretation introduced a quantity that was not provided",
         )
+    structured_numbers = _structured_number_facts(candidate)
+    raw_number_values = set(raw_numbers)
+    if not raw_number_values.issubset(structured_numbers):
+        raise MissionInterpreterOutputError(
+            code="INTERPRETER_DROPPED_QUANTITY",
+            message="interpretation omitted a supplied numeric fact from the structured mission details",
+        )
+    if not structured_numbers.issubset(raw_number_values):
+        raise MissionInterpreterOutputError(
+            code="INTERPRETER_INVENTED_QUANTITY",
+            message="structured interpretation introduced a numeric fact that was not provided",
+        )
+
+
+def _target_text_is_source_correspondent(value: str, source_text: str) -> bool:
+    """Allow bounded spelling/inflection repair without accepting new target facts."""
+
+    normalized_value = _normalize_source(value)
+    normalized_source = _normalize_source(source_text)
+    if normalized_value in normalized_source:
+        return True
+    value_tokens = [item.casefold() for item in _TEXT_TOKEN_RE.findall(value) if not item.isdigit()]
+    source_tokens = [item.casefold() for item in _TEXT_TOKEN_RE.findall(source_text) if not item.isdigit()]
+    if not value_tokens or not source_tokens:
+        return False
+    return all(any(_tokens_correspond(token, source_token) for source_token in source_tokens) for token in value_tokens)
+
+
+def _tokens_correspond(value: str, source: str) -> bool:
+    if value == source:
+        return True
+    if len(value) < 4 or len(source) < 4:
+        return False
+    if _morphological_stems(value) & _morphological_stems(source):
+        return True
+    max_edits = 1 if max(len(value), len(source)) <= 7 else 2
+    return _edit_distance_with_limit(value, source, max_edits) <= max_edits
+
+
+def _morphological_stems(token: str) -> set[str]:
+    stems = {token}
+    if token.endswith("ies") and len(token) > 4:
+        stems.add(f"{token[:-3]}y")
+    for suffix in ("ing", "ers", "er", "ed", "es", "s"):
+        if token.endswith(suffix) and len(token) - len(suffix) >= 4:
+            stems.add(token[: -len(suffix)])
+    return stems
+
+
+def _edit_distance_with_limit(left: str, right: str, limit: int) -> int:
+    """Return Levenshtein distance, stopping when it cannot be within the limit."""
+
+    if abs(len(left) - len(right)) > limit:
+        return limit + 1
+    previous = list(range(len(right) + 1))
+    for row_index, left_char in enumerate(left, start=1):
+        current = [row_index]
+        for column_index, right_char in enumerate(right, start=1):
+            current.append(
+                min(
+                    current[-1] + 1,
+                    previous[column_index] + 1,
+                    previous[column_index - 1] + (left_char != right_char),
+                )
+            )
+        if min(current) > limit:
+            return limit + 1
+        previous = current
+    return previous[-1]
+
+
+def _structured_number_facts(candidate: LlmMissionInterpretation) -> set[int]:
+    values: set[int] = set()
+    if candidate.requested_quantity is not None:
+        values.add(candidate.requested_quantity)
+    texts: list[str] = []
+    for target in candidate.target_entities:
+        texts.extend(
+            value
+            for value in (
+                target.name,
+                target.industry,
+                target.location,
+                target.domain,
+                target.url,
+                target.email,
+            )
+            if value
+        )
+        if target.radius_km is not None:
+            texts.append(str(int(target.radius_km)) if target.radius_km.is_integer() else str(target.radius_km))
+    for timing in candidate.timing_constraints:
+        texts.extend(value for value in (timing.start, timing.end, timing.label) if value)
+    texts.extend(item.text for item in candidate.constraints)
+    texts.extend(item.description for item in candidate.success_criteria)
+    for text in texts:
+        values.update(_number_facts(text))
+    return values
 
 
 def _radius_is_grounded(radius_km: float, source_text: str) -> bool:

@@ -162,6 +162,24 @@ def test_competitor_target_builds_specific_research_query() -> None:
     assert payload["query"] == "competitors of Acme Roofing in Northwest Arkansas"
 
 
+def test_page_read_uses_schema_validated_interpreter_url() -> None:
+    intent = ready_intent(
+        "review https://example.com/pricing",
+        interpreted_instruction="Review https://example.com/pricing.",
+        outcomes=("research_prospects",),
+        targets=[
+            TargetEntity(
+                type="company",
+                url="https://example.com/pricing",
+            )
+        ],
+    )
+
+    payload = build_action_input(action_name="web.page_read", intent=intent)
+
+    assert payload == {"url": "https://example.com/pricing", "timeout_seconds": 8.0}
+
+
 def test_gmail_read_requires_connection_and_compiles_bounded_query() -> None:
     intent = ready_intent(
         "chk gmial unread alice wk",

@@ -36,6 +36,7 @@ REQUIRED_PRODUCTION_ENV_VARS = frozenset(
         "AJENDA_BUDGET_POLICY_OBSERVE_ONLY",
         "AJENDA_BUDGET_POLICY_ENFORCE",
         "AJENDA_MISSION_INTERPRETER_ENABLED",
+        "AJENDA_MISSION_INTERPRETER_PRIVATE_HOST_ALLOWLIST",
         "AJENDA_MISSION_INTERPRETER_TIMEOUT_SECONDS",
         "AJENDA_MISSION_INTERPRETER_MAX_TOKENS",
     }
@@ -63,6 +64,7 @@ PRODUCTION_ENV_GUARDRAILS = (
     "OPA modes without OPA URL",
     "enabled mission interpreter with a blank endpoint or model",
     "invalid or credentialed mission interpreter endpoint",
+    "mission interpreter endpoint host outside its explicit private allowlist",
 )
 
 

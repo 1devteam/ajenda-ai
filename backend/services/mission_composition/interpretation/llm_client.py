@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import httpx
 
@@ -59,6 +60,13 @@ class OpenAiCompatibleMissionInterpreterClient:
             raise MissionInterpreterTransportError(
                 code="INTERPRETER_NOT_CONFIGURED",
                 message="mission interpreter endpoint and model must be configured",
+                retryable=False,
+            )
+        endpoint_host = (urlparse(base_url).hostname or "").casefold().rstrip(".")
+        if endpoint_host not in self._settings.mission_interpreter_private_host_allowlist_set:
+            raise MissionInterpreterTransportError(
+                code="INTERPRETER_ENDPOINT_NOT_ALLOWED",
+                message="mission interpreter endpoint is not on the private host allowlist",
                 retryable=False,
             )
 
