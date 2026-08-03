@@ -6,6 +6,8 @@ Confirm: creates mission intake + plan + task graph contracts only; never queues
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from typing import Any
 
@@ -40,7 +42,16 @@ from backend.services.mission_composition.contracts import (
     MissionCompositionRecord,
     MissionIntent,
 )
-from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.interpretation import (
+    MissionInterpreter,
+    MissionInterpreterOutputError,
+    build_mission_interpreter,
+)
+from backend.services.mission_composition.interpretation.llm_client import MissionInterpreterTransportError
+from backend.services.mission_composition.interpretation.review import (
+    confirmed_intent_payload,
+    reviewed_interpretation_payload,
+)
 from backend.services.mission_composition.plan_compiler import (
     compile_job_assignments,
     compile_plan_payload,
@@ -48,7 +59,9 @@ from backend.services.mission_composition.plan_compiler import (
     compile_task_graph_preview,
 )
 from backend.services.mission_composition.proposal_store import (
-    get_proposal,
+    ProposalStoreRecordError,
+    ProposalStoreUnavailableError,
+    get_proposal_for_confirmation,
     load_thread_failure_context,
     mark_superseded,
     put_proposal,
@@ -71,6 +84,14 @@ class MissionCompositionError(ValueError):
         self.code = code
         self.message = message
         super().__init__(message)
+
+
+def _interpretation_fingerprint(intent: MissionIntent) -> str:
+    """Fingerprint exactly the execution-relevant interpretation shown for review."""
+
+    payload = reviewed_interpretation_payload(intent)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _profile_context(profile: Any) -> dict[str, Any]:
@@ -189,59 +210,20 @@ def _load_charter(db: Session | None, tenant_id: str) -> Any:
 class MissionCompositionService:
     """Coordinates intent → jobs → abilities → proposal without runtime authority."""
 
-    def __init__(self, db: Session | None = None) -> None:
+    def __init__(self, db: Session | None = None, *, interpreter: MissionInterpreter | None = None) -> None:
         self._db = db
+        self._interpreter = interpreter or build_mission_interpreter()
 
-    def compose(
+    def _compose_from_intent(
         self,
         *,
         tenant_id: str,
-        instruction: str,
-        actor_id: str | None = None,
-        interpretation_thread_id: str | None = None,
+        raw_instruction: str,
+        intent: MissionIntent,
+        interpretation_thread_id: str,
+        proposal_id: str | None = None,
     ) -> MissionCompositionRecord:
-        if not instruction or not instruction.strip():
-            raise MissionCompositionError(code="INSTRUCTION_REQUIRED", message="instruction is required")
-
-        # Preserve exact raw instruction; validation uses strip only for emptiness.
-        raw_instruction = instruction
-        thread_id = (interpretation_thread_id or "").strip() or str(uuid.uuid4())
-        prior = load_thread_failure_context(
-            tenant_id=tenant_id,
-            actor_id=actor_id,
-            interpretation_thread_id=thread_id,
-            db=self._db,
-        )
-
-        profile = None
-        if self._db is not None:
-            profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
-        intent = interpret_instruction(raw_instruction, profile_context=_profile_context(profile))
-        # Escalation only for same actor+thread interpretation failures (durable required).
-        if prior and prior.get("durable") and intent.ambiguity and not intent.interpretation_ready:
-            shared = set(prior.get("unresolved_fields") or []) & {c.field for c in intent.ambiguity}
-            if shared:
-                example = (
-                    "Find five roofing companies in Northwest Arkansas, qualify them, "
-                    "and prepare draft emails for review without sending them."
-                )
-                escalated = []
-                for item in intent.ambiguity:
-                    if item.field in shared:
-                        escalated.append(
-                            item.model_copy(
-                                update={
-                                    "question": (
-                                        f"{item.question} The revised mission still does not include "
-                                        f"required detail for '{item.field}'. Restate the full mission "
-                                        f"in this form: '{example}'"
-                                    )[:1000]
-                                }
-                            )
-                        )
-                    else:
-                        escalated.append(item)
-                intent = intent.model_copy(update={"ambiguity": escalated})
+        """Re-run deterministic governance and compilation for a stored interpretation."""
 
         charter = _load_charter(self._db, tenant_id)
         connected_ids, connected_integrations, preferred_creds, type_by_id = _connected_sets(self._db, tenant_id)
@@ -293,14 +275,15 @@ class MissionCompositionService:
         else:
             proposal_status = "proposal_ready"
 
-        record = MissionCompositionRecord(
+        return MissionCompositionRecord(
             schema_version=COMPOSITION_SCHEMA_VERSION,
-            proposal_id=str(uuid.uuid4()),
-            interpretation_thread_id=thread_id,
+            proposal_id=proposal_id or str(uuid.uuid4()),
+            interpretation_thread_id=interpretation_thread_id,
             proposal_status=proposal_status,  # type: ignore[arg-type]
             instruction=raw_instruction,
             raw_instruction=raw_instruction,
             normalized_instruction=intent.normalized_instruction or raw_instruction,
+            interpretation_fingerprint=_interpretation_fingerprint(intent),
             intent=intent,
             job_assignments=job_assignments,
             ability_selections=selections,
@@ -318,13 +301,76 @@ class MissionCompositionService:
                 components_active=list(intent.components_executed or intent.components_active),
             ),
         )
+
+    def compose(
+        self,
+        *,
+        tenant_id: str,
+        instruction: str,
+        actor_id: str | None = None,
+        interpretation_thread_id: str | None = None,
+    ) -> MissionCompositionRecord:
+        if not instruction or not instruction.strip():
+            raise MissionCompositionError(code="INSTRUCTION_REQUIRED", message="instruction is required")
+
+        # Preserve exact raw instruction; validation uses strip only for emptiness.
+        raw_instruction = instruction
+        thread_id = (interpretation_thread_id or "").strip() or str(uuid.uuid4())
+        prior = load_thread_failure_context(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            interpretation_thread_id=thread_id,
+            db=self._db,
+        )
+
+        profile = None
+        if self._db is not None:
+            profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
+        try:
+            intent = self._interpreter.interpret(raw_instruction, profile_context=_profile_context(profile))
+        except MissionInterpreterTransportError as exc:
+            raise MissionCompositionError(code=exc.code, message=str(exc)) from exc
+        except MissionInterpreterOutputError as exc:
+            raise MissionCompositionError(code=exc.code, message=str(exc)) from exc
+        # Escalation only for same actor+thread interpretation failures (durable required).
+        if prior and prior.get("durable") and intent.ambiguity and not intent.interpretation_ready:
+            shared = set(prior.get("unresolved_fields") or []) & {c.field for c in intent.ambiguity}
+            if shared:
+                example = (
+                    "Find five roofing companies in Northwest Arkansas, qualify them, "
+                    "and prepare draft emails for review without sending them."
+                )
+                escalated = []
+                for item in intent.ambiguity:
+                    if item.field in shared:
+                        escalated.append(
+                            item.model_copy(
+                                update={
+                                    "question": (
+                                        f"{item.question} The revised mission still does not include "
+                                        f"required detail for '{item.field}'. Restate the full mission "
+                                        f"in this form: '{example}'"
+                                    )[:1000]
+                                }
+                            )
+                        )
+                    else:
+                        escalated.append(item)
+                intent = intent.model_copy(update={"ambiguity": escalated})
+
+        record = self._compose_from_intent(
+            tenant_id=tenant_id,
+            raw_instruction=raw_instruction,
+            intent=intent,
+            interpretation_thread_id=thread_id,
+        )
         # Only interpretation failures escalate via thread history.
         failure_count = 0
         superseded_id = None
-        if proposal_status == "interpretation_failed" and prior and prior.get("durable"):
+        if record.proposal_status == "interpretation_failed" and prior and prior.get("durable"):
             failure_count = int(prior.get("repeated_failure_count") or 0)
             superseded_id = str(prior["proposal_id"]) if prior.get("proposal_id") else None
-        put_proposal(
+        persisted = put_proposal(
             tenant_id=tenant_id,
             record=record,
             db=self._db,
@@ -332,9 +378,14 @@ class MissionCompositionService:
             normalized_instruction=intent.normalized_instruction or raw_instruction,
             repeated_failure_count=failure_count,
             superseded_proposal_id=superseded_id,
-            require_durable=False,
+            require_durable=self._db is not None,
         )
-        if superseded_id and proposal_status == "interpretation_failed":
+        if not persisted:
+            raise MissionCompositionError(
+                code="PROPOSAL_PERSIST_FAILED",
+                message="the mission proposal could not be stored for confirmation; try again",
+            )
+        if superseded_id and record.proposal_status == "interpretation_failed":
             mark_superseded(
                 tenant_id=tenant_id,
                 proposal_id=superseded_id,
@@ -348,7 +399,8 @@ class MissionCompositionService:
         *,
         tenant_id: str,
         proposal_id: str | None = None,
-        composition: MissionCompositionRecord | MissionIntent | dict[str, Any] | None = None,
+        interpretation_fingerprint: str | None = None,
+        interpretation_confirmed: bool = False,
         actor_id: str | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
@@ -359,75 +411,83 @@ class MissionCompositionService:
         if self._db is None:
             raise MissionCompositionError(code="DB_REQUIRED", message="database session is required for confirm")
 
-        # Idempotent retry: same tenant + proposal + key returns prior mission receipt.
         key = (idempotency_key or "").strip() or None
-        if key and proposal_id:
-            prior_record = get_proposal(tenant_id=tenant_id, proposal_id=proposal_id, db=self._db)
-            if prior_record is not None and isinstance(prior_record.confirm_receipt, dict):
-                receipt = prior_record.confirm_receipt
-                if str(receipt.get("idempotency_key") or "") == key and receipt.get("mission_id"):
-                    return {
-                        "mission_id": str(receipt["mission_id"]),
-                        "proposal_id": str(receipt.get("proposal_id") or proposal_id),
-                        "plan_id": str(receipt.get("plan_id") or ""),
-                        "allowed_actions": list(receipt.get("allowed_actions") or prior_record.allowed_actions),
-                        "forbidden_actions": list(receipt.get("forbidden_actions") or prior_record.forbidden_actions),
-                        "task_graph": dict(receipt.get("task_graph") or prior_record.task_graph_preview or {}),
-                        "ready_to_start": bool(receipt.get("ready_to_start", True)),
-                        "runtime_queued": False,
-                        "grants_execution_authority": False,
-                        "next_steps": list(
-                            receipt.get("next_steps")
-                            or [
-                                "Review the mission plan",
-                                "Use runtime-queue-admission when ready to execute",
-                            ]
-                        ),
-                    }
-
-        # Never trust client-supplied ability selections / ready flags. Resolve the
-        # instruction, then re-run server-side composition (charter + credentials).
-        instruction: str | None = None
-        client_proposal_id = proposal_id
-        if composition is not None:
-            if isinstance(composition, MissionCompositionRecord):
-                instruction = composition.instruction
-                client_proposal_id = composition.proposal_id or proposal_id
-            elif isinstance(composition, dict):
-                raw_instruction = composition.get("instruction")
-                if isinstance(raw_instruction, str) and raw_instruction.strip():
-                    instruction = raw_instruction.strip()
-                raw_pid = composition.get("proposal_id")
-                if isinstance(raw_pid, str) and raw_pid.strip():
-                    client_proposal_id = raw_pid.strip()
-            else:
-                raise MissionCompositionError(code="INVALID_COMPOSITION", message="composition must be a full record")
-
-        if instruction is None and proposal_id:
-            cached = get_proposal(tenant_id=tenant_id, proposal_id=proposal_id, db=self._db)
-            if cached is None:
-                raise MissionCompositionError(
-                    code="PROPOSAL_NOT_FOUND",
-                    message="proposal_id not found for tenant; recompose or pass composition.instruction",
-                )
-            instruction = cached.instruction
-            client_proposal_id = cached.proposal_id
-
-        if not instruction:
-            if proposal_id:
-                raise MissionCompositionError(
-                    code="PROPOSAL_NOT_FOUND",
-                    message="proposal_id not found for tenant; recompose or pass composition.instruction",
-                )
+        if key is None:
+            raise MissionCompositionError(
+                code="IDEMPOTENCY_KEY_REQUIRED",
+                message="idempotency_key is required when confirming a mission proposal",
+            )
+        if not proposal_id:
             raise MissionCompositionError(
                 code="PROPOSAL_REQUIRED",
-                message="proposal_id or composition.instruction is required",
+                message="proposal_id is required",
             )
+        try:
+            cached = get_proposal_for_confirmation(tenant_id=tenant_id, proposal_id=proposal_id, db=self._db)
+        except ProposalStoreUnavailableError as exc:
+            raise MissionCompositionError(
+                code="PROPOSAL_STORE_UNAVAILABLE",
+                message="the mission proposal store is unavailable; retry confirmation",
+            ) from exc
+        except ProposalStoreRecordError as exc:
+            raise MissionCompositionError(
+                code="INTERPRETATION_RECORD_INVALID",
+                message="the stored interpretation failed integrity validation; plan the mission again",
+            ) from exc
+        if cached is None:
+            raise MissionCompositionError(
+                code="PROPOSAL_NOT_FOUND",
+                message="proposal_id not found for tenant; plan the mission again",
+            )
+        if not interpretation_confirmed:
+            raise MissionCompositionError(
+                code="INTERPRETATION_CONFIRMATION_REQUIRED",
+                message="confirm that the displayed interpretation matches your intent",
+            )
+        supplied_fingerprint = (interpretation_fingerprint or "").strip()
+        if not supplied_fingerprint or supplied_fingerprint != cached.interpretation_fingerprint:
+            raise MissionCompositionError(
+                code="INTERPRETATION_FINGERPRINT_MISMATCH",
+                message="the interpretation changed or was not the proposal you reviewed; plan the mission again",
+            )
+        if _interpretation_fingerprint(cached.intent) != cached.interpretation_fingerprint:
+            raise MissionCompositionError(
+                code="INTERPRETATION_RECORD_INVALID",
+                message="the stored interpretation failed integrity validation; plan the mission again",
+            )
+        # A completed confirmation is proposal-idempotent even when the caller
+        # lost its original retry key. The durable row lock prevents two workers
+        # from passing this point before the first receipt is committed.
+        if isinstance(cached.confirm_receipt, dict) and cached.confirm_receipt.get("mission_id"):
+            receipt = cached.confirm_receipt
+            return {
+                "mission_id": str(receipt["mission_id"]),
+                "proposal_id": str(receipt.get("proposal_id") or proposal_id),
+                "plan_id": str(receipt.get("plan_id") or ""),
+                "allowed_actions": list(receipt.get("allowed_actions") or cached.allowed_actions),
+                "forbidden_actions": list(receipt.get("forbidden_actions") or cached.forbidden_actions),
+                "task_graph": dict(receipt.get("task_graph") or cached.task_graph_preview or {}),
+                "ready_to_start": bool(receipt.get("ready_to_start", True)),
+                "runtime_queued": False,
+                "grants_execution_authority": False,
+                "next_steps": list(
+                    receipt.get("next_steps")
+                    or [
+                        "Review the mission plan",
+                        "Use runtime-queue-admission when ready to execute",
+                    ]
+                ),
+            }
 
-        record = self.compose(tenant_id=tenant_id, instruction=instruction)
-        if client_proposal_id:
-            record = record.model_copy(update={"proposal_id": client_proposal_id})
-            put_proposal(tenant_id=tenant_id, record=record)
+        # Re-run only deterministic, current governance and compilation. Re-running
+        # the model here could mutate the interpretation after the human reviewed it.
+        record = self._compose_from_intent(
+            tenant_id=tenant_id,
+            raw_instruction=cached.instruction,
+            intent=cached.intent,
+            interpretation_thread_id=cached.interpretation_thread_id,
+            proposal_id=cached.proposal_id,
+        )
 
         if not record.allowed_actions:
             raise MissionCompositionError(
@@ -525,7 +585,10 @@ class MissionCompositionService:
                 "composition": {
                     "proposal_id": record.proposal_id,
                     "schema_version": record.schema_version,
-                    "instruction": record.instruction,
+                    "interpreted_instruction": record.normalized_instruction,
+                    "interpretation_fingerprint": record.interpretation_fingerprint,
+                    "interpretation_confirmed": True,
+                    "intent": confirmed_intent_payload(record.intent),
                     "job_assignments": [item.model_dump(mode="json") for item in record.job_assignments],
                     "ability_selections": [item.model_dump(mode="json") for item in record.ability_selections],
                     "forbidden_actions": record.forbidden_actions,
@@ -612,40 +675,41 @@ class MissionCompositionService:
                 "POST /v1/missions/{mission_id}/runtime-queue-admission",
             ],
         }
-        if key:
-            receipt = {
-                "idempotency_key": key,
-                "mission_id": result["mission_id"],
-                "proposal_id": result["proposal_id"],
-                "plan_id": result["plan_id"],
-                "allowed_actions": result["allowed_actions"],
-                "forbidden_actions": result["forbidden_actions"],
-                "task_graph": result["task_graph"],
-                "ready_to_start": result["ready_to_start"],
-                "next_steps": result["next_steps"],
+        receipt = {
+            "idempotency_key": key,
+            "mission_id": result["mission_id"],
+            "proposal_id": result["proposal_id"],
+            "plan_id": result["plan_id"],
+            "allowed_actions": result["allowed_actions"],
+            "forbidden_actions": result["forbidden_actions"],
+            "task_graph": result["task_graph"],
+            "ready_to_start": result["ready_to_start"],
+            "interpretation_fingerprint": record.interpretation_fingerprint,
+            "interpretation_confirmed": True,
+            "next_steps": result["next_steps"],
+        }
+        stored = record.model_copy(
+            update={
+                "confirm_receipt": receipt,
+                "proposal_status": "confirmed",
+                "ready_to_start": True,
             }
-            stored = record.model_copy(
-                update={
-                    "confirm_receipt": receipt,
-                    "proposal_status": "confirmed",
-                    "ready_to_start": True,
-                }
+        )
+        persisted = put_proposal(
+            tenant_id=tenant_id,
+            record=stored,
+            db=self._db,
+            actor_id=actor_id,
+            require_durable=True,
+        )
+        if not persisted:
+            raise MissionCompositionError(
+                code="CONFIRM_RECEIPT_PERSIST_FAILED",
+                message=(
+                    "the mission confirmation could not be durably stored; "
+                    "retry with the same idempotency_key after the store recovers"
+                ),
             )
-            persisted = put_proposal(
-                tenant_id=tenant_id,
-                record=stored,
-                db=self._db,
-                actor_id=actor_id,
-                require_durable=True,
-            )
-            if not persisted:
-                raise MissionCompositionError(
-                    code="CONFIRM_RECEIPT_PERSIST_FAILED",
-                    message=(
-                        "mission was composed but the confirmation receipt could not be "
-                        "durably stored; retry with the same idempotency_key after the store recovers"
-                    ),
-                )
         return result
 
     def compile_for_mission(
@@ -660,13 +724,12 @@ class MissionCompositionService:
     ) -> dict[str, Any]:
         """Compile a server-owned plan/graph for an existing mission.
 
-        Re-runs composition from the stored composition instruction when present
-        (confirmed composition missions), else client instruction, else mission objective.
+        Re-runs deterministic governance from the exact interpretation confirmed
+        by the user. The model is never called during compile.
         Does not queue work, create leases, or invoke tools.
 
-        Preferring stored composition.instruction avoids recompiling from the mission
-        objective restatement, which is often lossy and can fail ready_to_start even
-        when the original confirmed instruction was ready.
+        Refusing new or lossy instruction text prevents interpretation drift after
+        human review. A changed instruction must go through compose + confirm again.
 
         When persist=True, replaces mission task graph + refreshes intake allowed_actions,
         supersedes stale graph admission/materialization metadata, supersedes any active
@@ -685,31 +748,53 @@ class MissionCompositionService:
         if not isinstance(intake, dict):
             intake = {}
 
-        # Instruction resolution for compile:
-        # 1) Explicit non-empty client instruction (intentional recompile) wins.
-        # 2) Else stored composition.instruction (confirmed mission source of truth).
-        # 3) Else mission.objective.
-        # Dispatch UI omits instruction so it does not re-send lossy objective restatements.
         raw_context = intake.get("context")
         context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
         raw_composition = context.get("composition")
         composition: dict[str, Any] = raw_composition if isinstance(raw_composition, dict) else {}
-        stored_instruction = composition.get("instruction")
+        stored_instruction = composition.get("interpreted_instruction") or composition.get("instruction")
         client_instruction = (instruction or "").strip()
-        instruction_text = ""
-        if client_instruction:
-            instruction_text = client_instruction
-        elif isinstance(stored_instruction, str) and stored_instruction.strip():
-            instruction_text = stored_instruction.strip()
-        else:
-            instruction_text = str(mission.objective or "").strip()
-        if not instruction_text:
+        if client_instruction and (
+            not isinstance(stored_instruction, str) or client_instruction != stored_instruction.strip()
+        ):
             raise MissionCompositionError(
-                code="INSTRUCTION_REQUIRED",
-                message="mission has no objective/instruction to compile",
+                code="INTERPRETATION_CONFIRMATION_REQUIRED",
+                message="a changed instruction must be planned and confirmed before compile",
             )
-
-        record = self.compose(tenant_id=tenant_id, instruction=instruction_text)
+        proposal_id = str(composition.get("proposal_id") or "").strip()
+        stored_fingerprint = str(composition.get("interpretation_fingerprint") or "").strip()
+        interpretation_confirmed = composition.get("interpretation_confirmed") is True
+        stored_intent = composition.get("intent")
+        if (
+            not proposal_id
+            or not stored_fingerprint
+            or not interpretation_confirmed
+            or not isinstance(stored_intent, dict)
+        ):
+            raise MissionCompositionError(
+                code="CONFIRMED_INTERPRETATION_REQUIRED",
+                message="mission must be created from a confirmed interpretation before it can be recompiled",
+            )
+        try:
+            intent = MissionIntent.model_validate(stored_intent)
+        except ValueError as exc:
+            raise MissionCompositionError(
+                code="INTERPRETATION_RECORD_INVALID",
+                message="stored mission interpretation is invalid; plan the mission again",
+            ) from exc
+        if _interpretation_fingerprint(intent) != stored_fingerprint:
+            raise MissionCompositionError(
+                code="INTERPRETATION_RECORD_INVALID",
+                message="stored mission interpretation failed integrity validation; plan the mission again",
+            )
+        instruction_text = str(stored_instruction or "")
+        record = self._compose_from_intent(
+            tenant_id=tenant_id,
+            raw_instruction=instruction_text,
+            intent=intent,
+            interpretation_thread_id="confirmed-mission",
+            proposal_id=proposal_id,
+        )
         approved_by = (actor_id or "").strip() or "server:mission_compile"
         # Recompile graph with authenticated actor for non-forged SE auth lineage.
         graph_preview = compile_task_graph_preview(
@@ -829,7 +914,10 @@ class MissionCompositionService:
             context["composition"] = {
                 "proposal_id": record.proposal_id,
                 "schema_version": record.schema_version,
-                "instruction": record.instruction,
+                "interpreted_instruction": record.normalized_instruction,
+                "interpretation_fingerprint": record.interpretation_fingerprint,
+                "interpretation_confirmed": True,
+                "intent": confirmed_intent_payload(record.intent),
                 "compiled_by": COMPILER_NAME,
                 "compiler_version": COMPILER_VERSION,
                 "source": source,

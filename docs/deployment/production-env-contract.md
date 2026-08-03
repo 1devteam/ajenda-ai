@@ -40,6 +40,36 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN` | yes | no | Must be `false` in production. |
 | `AJENDA_SIGNUP_REQUIRE_IDEMPOTENCY_KEY` | no | no | Defaults to true in production when unset. |
 | `AJENDA_CORS_ALLOWED_ORIGINS` | yes | no | Comma-separated origins when customer frontend is deployed. |
+| `AJENDA_MISSION_INTERPRETER_ENABLED` | yes | no | Explicit rollout/rollback switch; disabled fails closed instead of restoring the legacy parser. |
+| `AJENDA_MISSION_INTERPRETER_BASE_URL` | conditional | no | Private OpenAI-compatible `/v1` endpoint; required when the interpreter is enabled. |
+| `AJENDA_MISSION_INTERPRETER_MODEL` | conditional | no | Model identifier loaded by the internal inference service. |
+| `AJENDA_MISSION_INTERPRETER_TIMEOUT_SECONDS` | yes | no | Per-interpretation request timeout (maximum 120 seconds). |
+| `AJENDA_MISSION_INTERPRETER_MAX_TOKENS` | yes | no | Structured-output token ceiling. |
+| `AJENDA_MISSION_INTERPRETER_API_KEY` | no | yes | Optional bearer token for an authenticated internal inference service. |
+
+## Mission interpreter deployment
+
+The interpreter is a language-normalization dependency of `POST /v1/missions/compose`, not a runtime worker and not a parallel mission-intelligence service. It receives the raw request plus a small allowlisted set of approved business-profile facts and returns schema-constrained, source-grounded interpretation data. It never receives credentials and cannot select abilities, grant permissions, approve a mission, admit work to a queue, or invoke a tool.
+
+The default model is `qwen3:4b-instruct-2507-q4_K_M`. For a local Ollama installation:
+
+```text
+ollama pull qwen3:4b-instruct-2507-q4_K_M
+ollama serve
+```
+
+Set `AJENDA_MISSION_INTERPRETER_BASE_URL=http://127.0.0.1:11434/v1` when the API runs on the host. Containers and Kubernetes pods must use a reachable private service address instead of loopback. The endpoint must support `/v1/chat/completions` and JSON-schema `response_format` structured output.
+
+Rollout sequence:
+
+1. Deploy and preload the model endpoint.
+2. Verify schema output, latency, memory limits, and endpoint isolation in staging.
+3. Enable `AJENDA_MISSION_INTERPRETER_ENABLED=true` for the API only.
+4. Monitor structured interpreter failure codes and latency; raw prompts and model output must not be logged.
+
+Compose also requires the tenant-scoped proposal database write to succeed. Confirmation row-locks that proposal and stores its receipt in the same transaction so retries—including retries with a new client key—cannot create duplicate missions. Treat `PROPOSAL_PERSIST_FAILED`, `PROPOSAL_STORE_UNAVAILABLE`, and `CONFIRM_RECEIPT_PERSIST_FAILED` as database availability alerts; all return HTTP 503 and fail closed.
+
+Rollback sets `AJENDA_MISSION_INTERPRETER_ENABLED=false`. Compose then returns `INTERPRETER_DISABLED` with HTTP 503. Existing confirmed missions continue through deterministic compile/runtime paths because compile never calls the model. There is intentionally no template or legacy-parser fallback.
 
 ## Stripe and onboarding
 
@@ -90,6 +120,8 @@ Settings.validate_runtime_contract() rejects production deployments that use:
 - OPA modes without OPA URL,
 - budget enforcement without budget policy enablement,
 - budget enforcement with observe-only still enabled.
+- enabled mission interpreter with a blank endpoint or model.
+- invalid or credentialed mission interpreter endpoint (must be an `http(s)` `/v1` URL; credentials belong in the API-key secret).
 
 ## F3-B deployment/runtime source of truth
 

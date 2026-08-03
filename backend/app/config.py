@@ -7,6 +7,7 @@ import os
 import socket
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 from pydantic import Field
@@ -229,14 +230,34 @@ class Settings(BaseSettings):
         default="enforce",
         alias="AJENDA_MISSION_INTAKE_QUALITY_MODE",
     )
-    # Optional linguistic enhancements (candidates only; deterministic core always runs).
-    mission_interpreter_spelling_enabled: bool = Field(
-        default=True,
-        alias="AJENDA_MISSION_INTERPRETER_SPELLING_ENABLED",
+    # --- Mission language interpreter (interpretation only; never runtime authority) ---
+    mission_interpreter_enabled: bool = Field(
+        default=False,
+        alias="AJENDA_MISSION_INTERPRETER_ENABLED",
     )
-    mission_interpreter_fuzzy_enabled: bool = Field(
-        default=True,
-        alias="AJENDA_MISSION_INTERPRETER_FUZZY_ENABLED",
+    mission_interpreter_base_url: str = Field(
+        default="http://127.0.0.1:11434/v1",
+        alias="AJENDA_MISSION_INTERPRETER_BASE_URL",
+    )
+    mission_interpreter_model: str = Field(
+        default="qwen3:4b-instruct-2507-q4_K_M",
+        alias="AJENDA_MISSION_INTERPRETER_MODEL",
+    )
+    mission_interpreter_api_key: str | None = Field(
+        default=None,
+        alias="AJENDA_MISSION_INTERPRETER_API_KEY",
+    )
+    mission_interpreter_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        le=120,
+        alias="AJENDA_MISSION_INTERPRETER_TIMEOUT_SECONDS",
+    )
+    mission_interpreter_max_tokens: int = Field(
+        default=4096,
+        ge=512,
+        le=16_384,
+        alias="AJENDA_MISSION_INTERPRETER_MAX_TOKENS",
     )
     gmail_oauth_redirect_uri: str = Field(
         default="http://localhost:5173/credentials/gmail/callback",
@@ -510,6 +531,29 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"AJENDA_LLM_TIMEOUT_SECONDS must be a positive number, got {self.llm_timeout_seconds}"
                 )
+            if self.mission_interpreter_enabled:
+                if _blank(self.mission_interpreter_base_url):
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_BASE_URL is required when the mission interpreter is enabled"
+                    )
+                if _blank(self.mission_interpreter_model):
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_MODEL is required when the mission interpreter is enabled"
+                    )
+                interpreter_url = urlparse(str(self.mission_interpreter_base_url).strip())
+                if (
+                    interpreter_url.scheme not in {"http", "https"}
+                    or not interpreter_url.hostname
+                    or not interpreter_url.path.rstrip("/").endswith("/v1")
+                ):
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_BASE_URL must be an http(s) OpenAI-compatible /v1 endpoint"
+                    )
+                if interpreter_url.username or interpreter_url.password:
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_BASE_URL must not contain credentials; "
+                        "use AJENDA_MISSION_INTERPRETER_API_KEY"
+                    )
             if self.network_egress_allow_private_destinations:
                 raise ValueError("AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS is forbidden in production")
             if not self.network_egress_tls_verify:

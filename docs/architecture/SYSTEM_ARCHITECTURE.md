@@ -162,6 +162,27 @@ flowchart TD
 
 ---
 
+## 4b. Mission interpretation and governed start
+
+```mermaid
+flowchart TD
+    A["User enters broken, shorthand, or ordinary language"] --> B["Local LLM interpreter<br/>strict JSON schema; no runtime authority"]
+    B --> C{"Backend schema, grounding,<br/>protected-fact, and readiness checks"}
+    C -->|invalid| D["Structured rejection or restatement request"]
+    C -->|valid| E["Deterministic BusinessJob routing"]
+    E --> F["CapabilityResolver<br/>registry + manifests + charter + credentials"]
+    F --> G["Plan and task-graph preview<br/>still declarative"]
+    G --> H["UI echoes interpreted wording + derived details<br/>and shows Ajenda-selected work"]
+    H -->|cancel| I["No mission created; user revises and composes again"]
+    H -->|acknowledge exact fingerprint| J["Confirm row-locks durable proposal<br/>and reruns deterministic governance"]
+    J --> K["Mission intake + plan + draft graph"]
+    K --> L["Existing materialization and runtime-admission ladder"]
+```
+
+The interpreter replaces the legacy phrase parser; it is not a parallel planner. It cannot select abilities, authorize work, or enter the queue. The UI never adds a second echo of the original wording. Confirmation is proposal-idempotent, and later compile consumes the exact stored intent reviewed by the user without rerunning the model. See ADR-0010.
+
+---
+
 ## 5. Paid work execution path (ability runtime)
 
 ```mermaid

@@ -10,6 +10,11 @@ data:
   AJENDA_LOG_JSON: "true"
   AJENDA_HOST: "0.0.0.0"
   AJENDA_PORT: "8000"
+  AJENDA_MISSION_INTERPRETER_ENABLED: "false"
+  AJENDA_MISSION_INTERPRETER_BASE_URL: "http://mission-interpreter.ajenda.svc.cluster.local:11434/v1"
+  AJENDA_MISSION_INTERPRETER_MODEL: "qwen3:4b-instruct-2507-q4_K_M"
+  AJENDA_MISSION_INTERPRETER_TIMEOUT_SECONDS: "30"
+  AJENDA_MISSION_INTERPRETER_MAX_TOKENS: "4096"
   AJENDA_DB_POOL_SIZE: "20"
   AJENDA_DB_MAX_OVERFLOW: "40"
   AJENDA_DB_POOL_TIMEOUT: "30"
@@ -40,3 +45,4 @@ data:
   AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST: "crm-adapter.ajenda.example.com"
   AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED: "false"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+  # The interpreter stays disabled until a private OpenAI-compatible model service is deployed.
