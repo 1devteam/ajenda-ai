@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -8,7 +9,36 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
-CATALOG_PATH = Path(__file__).resolve().parents[3] / "docs" / "product" / "autonomy-disclaimer-catalog.v1.yaml"
+_CATALOG_FILENAME = "autonomy-disclaimer-catalog.v1.yaml"
+
+
+def _resolve_catalog_path() -> Path:
+    """Resolve the disclaimer catalog across source, image, and override layouts.
+
+    Source checkout: <repo>/docs/product/...
+    Container layout: /app/docs/product/... (WORKDIR /app, backend under /app/backend)
+    Installed package: site-packages does not ship docs; prefer the image path.
+    Operators may override with AJENDA_AUTONOMY_DISCLAIMER_CATALOG.
+    """
+
+    override = os.environ.get("AJENDA_AUTONOMY_DISCLAIMER_CATALOG", "").strip()
+    candidates: list[Path] = []
+    if override:
+        candidates.append(Path(override))
+    candidates.extend(
+        (
+            Path("/app/docs/product") / _CATALOG_FILENAME,
+            Path(__file__).resolve().parents[3] / "docs" / "product" / _CATALOG_FILENAME,
+            Path.cwd() / "docs" / "product" / _CATALOG_FILENAME,
+        )
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
+CATALOG_PATH = _resolve_catalog_path()
 
 
 class AutonomyPolicyError(ValueError):
@@ -47,9 +77,10 @@ def _hash_text(text: str) -> str:
 
 @lru_cache(maxsize=1)
 def load_disclaimer_catalog() -> tuple[DisclaimerEntry, ...]:
-    if not CATALOG_PATH.is_file():
-        raise AutonomyPolicyError(f"disclaimer catalog not found: {CATALOG_PATH}")
-    loaded = yaml.safe_load(CATALOG_PATH.read_text(encoding="utf-8"))
+    catalog_path = _resolve_catalog_path()
+    if not catalog_path.is_file():
+        raise AutonomyPolicyError(f"disclaimer catalog not found: {catalog_path}")
+    loaded = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
         raise AutonomyPolicyError("disclaimer catalog must be a mapping")
     raw_entries = loaded.get("disclaimers")

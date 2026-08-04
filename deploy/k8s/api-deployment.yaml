@@ -5,7 +5,7 @@ metadata:
   namespace: ajenda
   labels:
     app: ajenda-api
-    version: "1.1.0"
+    version: "1.2.0"
 spec:
   replicas: 2
   selector:
@@ -15,11 +15,11 @@ spec:
     metadata:
       labels:
         app: ajenda-api
-        version: "1.1.0"
+        version: "1.2.0"
     spec:
       containers:
         - name: api
-          image: ajenda/api:1.1.0
+          image: ajenda/api:1.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

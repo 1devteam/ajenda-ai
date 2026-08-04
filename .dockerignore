@@ -1,0 +1,72 @@
+# Build context hygiene — keep production images free of local secrets,
+# toolchains, caches, and non-runtime surfaces.
+
+# VCS / IDE
+.git
+.github
+.grok
+.vscode
+.idea
+**/.DS_Store
+
+# Local secrets and env (never bake credentials into images)
+.env
+.env.*
+!**/.env.example
+!**/.env.prod.example
+!**/.env.staging.example
+**/*.pem
+**/*.key
+**/*.crt
+secrets/
+**/*.secret
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Python tooling / caches
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage
+**/.coverage.*
+**/htmlcov
+**/coverage.xml
+**/*.egg-info
+build/
+dist/
+.tox/
+.nox/
+.hypothesis/
+
+# Frontend local install / build output (image runs its own npm ci)
+frontend/node_modules
+frontend/dist
+frontend/tsconfig.tsbuildinfo
+
+# Tests and local validation artifacts (not runtime)
+tests/
+artifacts/
+reports/
+docs/snapshots/
+**/*.log
+tmp/
+temp/
+
+# Terraform state / local infra leftovers
+infra/**/.terraform
+infra/**/*.tfstate
+infra/**/*.tfstate.*
+
+# Compose runtime data
+postgres_data/
+docker-data/
+
+# Local HubSpot / Google CLI state
+.hs/
+.ajenda/
+hubspot.config.yml

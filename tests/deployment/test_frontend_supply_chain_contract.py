@@ -29,7 +29,7 @@ def test_ci_gates_frontend_install_audit_and_build() -> None:
 
     assert "frontend-build:" in content
     assert "name: Frontend Build & Audit" in content
-    assert "uses: actions/setup-node@v4" in content
+    assert "uses: actions/setup-node@v6" in content
     assert SUPPORTED_NODE_VERSION in content
     assert "cache-dependency-path: frontend/package-lock.json" in content
     assert "working-directory: frontend" in content
@@ -44,7 +44,7 @@ def test_security_workflow_audits_frontend_npm_dependencies() -> None:
 
     assert "npm-audit:" in content
     assert "name: npm-audit Frontend Dependency Scan" in content
-    assert "uses: actions/setup-node@v4" in content
+    assert "uses: actions/setup-node@v6" in content
     assert SUPPORTED_NODE_VERSION in content
     assert "cache-dependency-path: frontend/package-lock.json" in content
     assert "working-directory: frontend" in content
@@ -61,7 +61,7 @@ def test_weekly_frontend_coherence_audit_runs_supply_chain_gate() -> None:
     assert "workflow_dispatch:" in content
     assert "frontend-supply-chain-coherence:" in content
     assert "name: Frontend Supply-Chain Coherence" in content
-    assert "uses: actions/setup-node@v4" in content
+    assert "uses: actions/setup-node@v6" in content
     assert SUPPORTED_NODE_VERSION in content
     assert "cache-dependency-path: frontend/package-lock.json" in content
     assert "working-directory: frontend" in content

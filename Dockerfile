@@ -1,26 +1,50 @@
 # Production API image — canonical build path shared by dev Compose, CI, and release.
-# Worker and migrate images live under deploy/docker/.
+# Worker and migrate images live under deploy/docker/ and must stay hardening-parity.
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md ./
+COPY backend ./backend
+
+RUN pip install --upgrade "pip<26.0.1" "setuptools>=78.1.1" wheel \
+    && pip install --prefix=/install .
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    HOME=/home/ajenda \
+    PATH="/usr/local/bin:${PATH}"
 
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev curl \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends libpq5 curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1000 ajenda \
+    && useradd --uid 1000 --gid 1000 --create-home --home-dir /home/ajenda --shell /usr/sbin/nologin ajenda
 
+COPY --from=builder /install /usr/local
 COPY pyproject.toml README.md /app/
 COPY backend /app/backend
 COPY alembic.ini /app/
 COPY alembic /app/alembic
 COPY deploy/scripts /app/deploy/scripts
+COPY docs/product/autonomy-disclaimer-catalog.v1.yaml /app/docs/product/autonomy-disclaimer-catalog.v1.yaml
 
-RUN pip install --no-cache-dir --upgrade pip "setuptools>=78.1.1" \
-    && pip install --no-cache-dir . \
-    && pip uninstall --yes pip setuptools \
-    && rm -rf /root/.cache/pip /tmp/pip-*
+RUN chown -R ajenda:ajenda /app /home/ajenda
+
+USER 1000
 
 EXPOSE 8000
 

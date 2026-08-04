@@ -9,10 +9,10 @@ COPY frontend/ .
 
 # Same-origin API calls when ingress or compose nginx proxies /v1 to the API.
 # Never bake local frontend/.env dev credentials into production images.
+# Do not declare credential-shaped ENV keys (even empty) — they surface in image
+# config metadata and scanners treat them as secret-bearing surfaces.
 RUN rm -f .env .env.local .env.development .env.development.local
 ENV VITE_API_BASE_URL=
-ENV VITE_DEFAULT_TENANT_ID=
-ENV VITE_DEFAULT_API_KEY=
 RUN npm run build
 
 FROM nginx:1.27-alpine
