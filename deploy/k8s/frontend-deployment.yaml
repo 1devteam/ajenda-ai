@@ -22,7 +22,7 @@ spec:
         - name: frontend
           # Use immutable image tags in production — never :latest
           # Override via Kustomize or Helm: ghcr.io/<owner>/<repo>-frontend:${VERSION}
-          image: ghcr.io/ajenda-ai/ajenda-ai-frontend:1.1.0
+          image: ghcr.io/ajenda-ai/ajenda-ai-frontend:1.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80

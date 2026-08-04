@@ -78,8 +78,15 @@ def test_api_and_worker_images_include_curl_for_runtime_checks() -> None:
 
 
 def test_api_image_includes_autonomy_disclaimer_catalog() -> None:
-    dockerfile = _read(API_DOCKERFILE)
-    assert "autonomy-disclaimer-catalog.v1.yaml" in dockerfile
+    for path in (ROOT_DOCKERFILE, API_DOCKERFILE):
+        dockerfile = _read(path)
+        assert "autonomy-disclaimer-catalog.v1.yaml" in dockerfile
+
+
+def test_root_and_api_dockerfiles_share_non_root_runtime_user() -> None:
+    for path in (ROOT_DOCKERFILE, API_DOCKERFILE, WORKER_DOCKERFILE, MIGRATE_DOCKERFILE):
+        dockerfile = _read(path)
+        assert "USER 1000" in dockerfile
 
 
 def test_frontend_image_builds_static_assets_with_nginx() -> None:

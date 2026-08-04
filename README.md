@@ -1,4 +1,4 @@
-# Ajenda AI — v1.1.0
+# Ajenda AI — v1.2.0
 
 Ajenda AI is a governed, multi-tenant execution platform built for enterprise-grade runtime control, tenant isolation, compliance-aware task admission, authoritative queue-backed execution, bounded recovery, and evidence-based release decisions.
 

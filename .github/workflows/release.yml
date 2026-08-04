@@ -1,16 +1,15 @@
 name: Release — Build & Publish
 
 # Triggers on every merge to main.
-# Reads the version from pyproject.toml, creates a git tag, builds the
-# Docker image, and pushes it to GitHub Container Registry (GHCR).
+# Reads the version from pyproject.toml. Version tags (vX.Y.Z) and matching
+# immutable image tags are created only when that tag does not already exist.
+# Every main push still publishes mutable :latest and immutable sha-* digests.
 on:
   push:
     branches: [main]
 
 permissions:
-  contents: write       # create tags and releases
-  packages: write       # push to GHCR
-  id-token: write       # OIDC token for provenance attestation
+  contents: read
 
 env:
   REGISTRY: ghcr.io
@@ -50,6 +49,10 @@ jobs:
     name: Tag Release
     runs-on: ubuntu-latest
     needs: version
+    permissions:
+      contents: write
+    outputs:
+      created: ${{ steps.create.outputs.created }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -57,26 +60,33 @@ jobs:
           fetch-depth: 0
 
       - name: Create tag if not exists
+        id: create
         env:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists — skipping"
+            echo "Tag $TAG already exists — version image tags will not be rewritten"
+            echo "created=false" >> "$GITHUB_OUTPUT"
           else
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "Release $TAG"
             git push origin "$TAG"
             echo "Created and pushed tag $TAG"
+            echo "created=true" >> "$GITHUB_OUTPUT"
           fi
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Job 3: Build and push Docker image to GHCR
+  # Job 3: Build and push Docker images to GHCR
   # ─────────────────────────────────────────────────────────────────────────
   docker-publish:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
     needs: [version, tag]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -91,15 +101,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ needs.version.outputs.version }}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=sha-,format=short
+      - name: Resolve publish tags
+        id: tags
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG_CREATED: ${{ needs.tag.outputs.created }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          short_sha="${SHORT_SHA:0:7}"
+          api_tags="${REGISTRY}/${IMAGE_NAME}:latest,${REGISTRY}/${IMAGE_NAME}:sha-${short_sha}"
+          worker_tags="${REGISTRY}/${IMAGE_NAME}-worker:latest,${REGISTRY}/${IMAGE_NAME}-worker:sha-${short_sha}"
+          migrate_tags="${REGISTRY}/${IMAGE_NAME}-migrate:latest,${REGISTRY}/${IMAGE_NAME}-migrate:sha-${short_sha}"
+          frontend_tags="${REGISTRY}/${IMAGE_NAME}-frontend:latest,${REGISTRY}/${IMAGE_NAME}-frontend:sha-${short_sha}"
+          if [[ "${TAG_CREATED}" == "true" ]]; then
+            api_tags="${api_tags},${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+            worker_tags="${worker_tags},${REGISTRY}/${IMAGE_NAME}-worker:${VERSION}"
+            migrate_tags="${migrate_tags},${REGISTRY}/${IMAGE_NAME}-migrate:${VERSION}"
+            frontend_tags="${frontend_tags},${REGISTRY}/${IMAGE_NAME}-frontend:${VERSION}"
+          fi
+          echo "api_tags=${api_tags}" >> "$GITHUB_OUTPUT"
+          echo "worker_tags=${worker_tags}" >> "$GITHUB_OUTPUT"
+          echo "migrate_tags=${migrate_tags}" >> "$GITHUB_OUTPUT"
+          echo "frontend_tags=${frontend_tags}" >> "$GITHUB_OUTPUT"
+          echo "API tags: ${api_tags}"
 
       - name: Build and push API image
         uses: docker/build-push-action@v7
@@ -107,8 +131,7 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.api_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
@@ -120,11 +143,11 @@ jobs:
           context: .
           file: deploy/docker/worker.Dockerfile
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ needs.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:latest
+          tags: ${{ steps.tags.outputs.worker_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
 
       - name: Build and push migrate image
         uses: docker/build-push-action@v7
@@ -132,11 +155,11 @@ jobs:
           context: .
           file: deploy/docker/migrate.Dockerfile
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-migrate:${{ needs.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-migrate:latest
+          tags: ${{ steps.tags.outputs.migrate_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v7
@@ -146,19 +169,22 @@ jobs:
           push: true
           build-args: |
             NGINX_CONF=deploy/nginx/frontend.k8s.conf
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ needs.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
+          tags: ${{ steps.tags.outputs.frontend_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Job 4: Create a GitHub Release with auto-generated changelog
+  # Job 4: Create a GitHub Release only for newly created version tags
   # ─────────────────────────────────────────────────────────────────────────
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [version, docker-publish]
+    needs: [version, tag, docker-publish]
+    if: needs.tag.outputs.created == 'true'
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7

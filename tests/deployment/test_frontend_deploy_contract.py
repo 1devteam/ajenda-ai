@@ -36,6 +36,9 @@ def test_frontend_dockerfile_builds_vite_app_and_serves_with_nginx() -> None:
     assert "nginx:1.27-alpine" in dockerfile
     assert "VITE_API_BASE_URL=" in dockerfile
     assert "rm -f .env" in dockerfile
+    # Credential-shaped keys must never appear in image ENV metadata.
+    assert "VITE_DEFAULT_API_KEY" not in dockerfile
+    assert "VITE_DEFAULT_TENANT_ID" not in dockerfile
 
 
 def test_compose_nginx_proxies_api_paths() -> None:
@@ -72,7 +75,8 @@ def test_release_workflow_publishes_frontend_image() -> None:
     workflow = _read(RELEASE_WORKFLOW)
     assert "deploy/docker/frontend.Dockerfile" in workflow
     assert "Build and push frontend image" in workflow
-    assert "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:" in workflow
+    assert "frontend_tags=" in workflow
+    assert "${IMAGE_NAME}-frontend:" in workflow or "IMAGE_NAME}-frontend" in workflow
     assert "NGINX_CONF=deploy/nginx/frontend.k8s.conf" in workflow
 
 
