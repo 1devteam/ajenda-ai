@@ -29,6 +29,8 @@ All ADRs in this folder should be treated as policy-level architecture guidance 
 | [ADR-0006](./ADR-0006-external-platform-integration-doctrine.md) | External Platform Integration Doctrine | Accepted | 2026-06-27 | PluginContract vs provider modules, OAuth refresh, side-effect tiers, hybrid CRM, expansion gate |
 | [ADR-0007](./ADR-0007-governed-vertical-role-catalog.md) | Governed Vertical Role Catalog on the Ability Spine | Proposed | 2026-07-10 | Vertical roles as declarative catalogs on mission/ability spine; Phase B runtime templates + Phase C plan-only fail-closed queue |
 | [ADR-0008](./ADR-0008-mission-composition-engine.md) | Mission Composition Engine | Accepted | 2026-07-19 (upd. 2026-07-27) | Plain language → canonical outcomes + structured intent → jobs → abilities → durable proposal; restatement not fragment merge; compose read-only; confirm intake only |
+| [ADR-0009](./ADR-0009-external-connector-truthfulness.md) | External Connector Truthfulness | Accepted | 2026-07-29 | External connector failures, source fidelity, and fail-closed action-input compilation |
+| [ADR-0010](./ADR-0010-local-llm-mission-interpreter.md) | Local LLM Mission Interpreter | Accepted | 2026-08-03 | Replace the phrase parser with a schema-constrained language normalizer; exact interpretation review before governed mission creation |
 
 ---
 

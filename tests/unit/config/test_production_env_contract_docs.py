@@ -35,6 +35,10 @@ REQUIRED_PRODUCTION_ENV_VARS = frozenset(
         "AJENDA_BUDGET_POLICY_ENABLED",
         "AJENDA_BUDGET_POLICY_OBSERVE_ONLY",
         "AJENDA_BUDGET_POLICY_ENFORCE",
+        "AJENDA_MISSION_INTERPRETER_ENABLED",
+        "AJENDA_MISSION_INTERPRETER_PRIVATE_HOST_ALLOWLIST",
+        "AJENDA_MISSION_INTERPRETER_TIMEOUT_SECONDS",
+        "AJENDA_MISSION_INTERPRETER_MAX_TOKENS",
     }
 )
 
@@ -43,6 +47,9 @@ OPTIONAL_BUT_DOCUMENTED_PRODUCTION_ENV_VARS = frozenset(
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
         "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
         "AJENDA_AUTHZ_OPA_URL",
+        "AJENDA_MISSION_INTERPRETER_BASE_URL",
+        "AJENDA_MISSION_INTERPRETER_MODEL",
+        "AJENDA_MISSION_INTERPRETER_API_KEY",
     }
 )
 
@@ -55,6 +62,9 @@ PRODUCTION_ENV_GUARDRAILS = (
     "default or blank worker tenant id",
     "invalid rate-limit settings",
     "OPA modes without OPA URL",
+    "enabled mission interpreter with a blank endpoint or model",
+    "invalid or credentialed mission interpreter endpoint",
+    "mission interpreter endpoint host outside its explicit private allowlist",
 )
 
 

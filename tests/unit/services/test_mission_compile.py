@@ -17,18 +17,28 @@ from backend.domain.mission import (
     Mission,
     MissionPlan,
 )
+from backend.services.mission_composition.contracts import TargetEntity
 from backend.services.mission_composition.service import (
     COMPILER_NAME,
     COMPILER_VERSION,
     MissionCompositionError,
     MissionCompositionService,
+    _interpretation_fingerprint,
 )
+from tests.mission_interpreter_fakes import ready_intent
 
 
 def _mission(
     *, objective: str = "Find three roofing companies in Austin and draft outreach without sending."
 ) -> Mission:
     mid = uuid.uuid4()
+    intent = ready_intent(
+        objective,
+        outcomes=("research_prospects", "qualify_prospects", "prepare_outreach"),
+        quantity=3,
+        targets=[TargetEntity(type="market", industry="roofing", location="Austin")],
+    )
+    fingerprint = _interpretation_fingerprint(intent)
     return Mission(
         id=mid,
         tenant_id="11111111-1111-1111-1111-111111111111",
@@ -46,7 +56,16 @@ def _mission(
                 ],
                 "success_criteria": [],
                 "constraints": [],
-                "context": {},
+                "context": {
+                    "composition": {
+                        "proposal_id": "confirmed-proposal",
+                        "instruction": objective,
+                        "interpreted_instruction": intent.normalized_instruction,
+                        "interpretation_fingerprint": fingerprint,
+                        "interpretation_confirmed": True,
+                        "intent": intent.model_dump(mode="json"),
+                    }
+                },
             }
         },
     )
@@ -258,10 +277,28 @@ def test_compile_uses_stored_composition_when_client_omits_instruction() -> None
     )
     mangled = "Identify and prepare outreach for qualified the requested market prospects without sending messages."
     mission = _mission(objective=mangled)
+    intent = ready_intent(
+        original,
+        interpreted_instruction=original,
+        outcomes=("research_prospects", "qualify_prospects", "prepare_outreach"),
+        quantity=5,
+        targets=[
+            TargetEntity(
+                type="competitor_set",
+                name="Acme Roofing",
+                location="Northwest Arkansas",
+                attributes={"research_mode": "competitors"},
+            )
+        ],
+    )
     mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["context"] = {
         "composition": {
             "proposal_id": "ff1a8b6f-c8d2-4c2f-9db0-2b9b3864443e",
             "instruction": original,
+            "interpreted_instruction": original,
+            "interpretation_fingerprint": _interpretation_fingerprint(intent),
+            "interpretation_confirmed": True,
+            "intent": intent.model_dump(mode="json"),
         }
     }
     tenant_id = mission.tenant_id
@@ -300,20 +337,14 @@ def test_compile_uses_stored_composition_when_client_omits_instruction() -> None
     assert "gtm.email_send" not in result["display"]["allowed_actions"]
 
 
-def test_compile_honors_explicit_client_instruction_over_stored() -> None:
-    """API recompile with a new instruction must not be silently discarded."""
+def test_compile_rejects_changed_instruction_after_human_confirmation() -> None:
+    """A revised request must return through compose and human review."""
     stored = "Research five roofing companies in Austin and prepare drafts without sending."
     revised = (
         "Research five competitors of Acme Roofing in Northwest Arkansas, "
         "score them, and prepare outreach drafts for the top three."
     )
     mission = _mission(objective=stored)
-    mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["context"] = {
-        "composition": {
-            "proposal_id": "ff1a8b6f-c8d2-4c2f-9db0-2b9b3864443e",
-            "instruction": stored,
-        }
-    }
     service = MissionCompositionService(db=MagicMock())
     with (
         patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_cls,
@@ -331,17 +362,26 @@ def test_compile_honors_explicit_client_instruction_over_stored() -> None:
             status=MissionPlanStatus.DRAFT.value,
             metadata_json={},
         )
-        result = service.compile_for_mission(
-            tenant_id=mission.tenant_id,
-            mission_id=mission.id,
-            instruction=revised,
-            persist=False,
-            actor_id="operator-1",
-        )
-    assert result["compile_status"] == "ready"
-    assert "web.research" in result["display"]["allowed_actions"]
-    # Revised instruction uses competitor scoring path (qualify).
-    assert "sales.qualify" in result["display"]["allowed_actions"]
+        with pytest.raises(MissionCompositionError) as exc:
+            service.compile_for_mission(
+                tenant_id=mission.tenant_id,
+                mission_id=mission.id,
+                instruction=revised,
+                persist=False,
+                actor_id="operator-1",
+            )
+    assert exc.value.code == "INTERPRETATION_CONFIRMATION_REQUIRED"
+
+
+def test_compile_rejects_legacy_mission_without_confirmed_interpretation() -> None:
+    mission = _mission()
+    mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["context"] = {}
+    service = MissionCompositionService(db=MagicMock())
+    with patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls:
+        mission_repo_cls.return_value.get_for_tenant.return_value = mission
+        with pytest.raises(MissionCompositionError) as exc:
+            service.compile_for_mission(tenant_id=mission.tenant_id, mission_id=mission.id, persist=False)
+    assert exc.value.code == "CONFIRMED_INTERPRETATION_REQUIRED"
 
 
 def test_compile_binding_manifest_present_when_steps_have_deps() -> None:

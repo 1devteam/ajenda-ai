@@ -1,18 +1,20 @@
-"""Optional linguistic helpers for mission interpretation.
+"""Mission-language interpretation boundary.
 
-Deterministic regex core remains authoritative. Modules here only generate
-normalization / fuzzy *candidates*. Missing optional libraries never crash
-compose and never select abilities.
+The local model produces an untrusted, grounded language interpretation. All
+ability selection, policy, permission, compile, and runtime authority remains
+outside this package.
 """
 
-from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
-from backend.services.mission_composition.interpretation.normalize import (
-    NormalizationResult,
-    normalize_instruction_text,
+from backend.services.mission_composition.interpretation.interpreter import (
+    LlmMissionInterpreter,
+    MissionInterpreter,
+    MissionInterpreterOutputError,
+    build_mission_interpreter,
 )
 
 __all__ = [
-    "NormalizationResult",
-    "fuzzy_outcome_candidates",
-    "normalize_instruction_text",
+    "LlmMissionInterpreter",
+    "MissionInterpreter",
+    "MissionInterpreterOutputError",
+    "build_mission_interpreter",
 ]

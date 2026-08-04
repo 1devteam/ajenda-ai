@@ -120,6 +120,8 @@ button.primary-button:hover:not(:disabled),
 .cc-mission-brief ul, .cc-mission-brief ol { padding-left: 1.15rem; }
 .cc-clarification { margin: 1rem 0; padding: 0.9rem 0; border-block: 1px solid rgba(245,158,11,.25); color: #fde68a; }
 .cc-clarification p { margin-bottom: 0; color: var(--cc-text-muted); font-size: .82rem; }
+.mission-interpretation-confirmation { display: flex; gap: .65rem; align-items: flex-start; margin: 1rem 0; padding: .85rem; border: 1px solid rgba(125,211,252,.24); border-radius: .7rem; background: rgba(14,165,233,.07); color: var(--cc-text); font-size: .9rem; }
+.mission-interpretation-confirmation input { margin-top: .15rem; accent-color: var(--cc-accent); }
 .cc-mission-index { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--cc-border); }
 .cc-mission-index .mission-list { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .cc-mission-index .mission-card { background: transparent; border-inline: 0; border-radius: 0; }

@@ -84,12 +84,12 @@ def _prospect_count(intent: MissionIntent) -> int:
 
 
 def _research_query_fallback(intent: MissionIntent) -> str:
-    """Prefer original user instruction over lossy mission objective restatement."""
+    """Prefer the reviewed interpretation; keep raw wording for audit only."""
 
     for candidate in (
-        intent.raw_instruction,
         intent.normalized_instruction,
         intent.objective,
+        intent.raw_instruction,
     ):
         text = (candidate or "").strip()
         if not text:
@@ -143,7 +143,9 @@ def _explicit_email(intent: MissionIntent) -> str | None:
 
 
 def _source_instruction(intent: MissionIntent) -> str:
-    return (intent.raw_instruction or intent.normalized_instruction or intent.objective or "").strip()
+    """Return executable wording from the reviewed interpretation, never raw first."""
+
+    return (intent.normalized_instruction or intent.objective or intent.raw_instruction or "").strip()
 
 
 def _gmail_query(intent: MissionIntent) -> str:
@@ -187,7 +189,7 @@ def _gmail_query(intent: MissionIntent) -> str:
             r"(?:\s+(?:and\s+)?[A-Za-z][A-Za-z\-']+){0,4}?)"
             r"(?=\s+(?:last|past|today|unread|newer|older|after|before|for|"
             r"about|regarding|containing|with|in:|is:|"
-            r"and\s+(?:summarize|show|list|return|find|include|exclude)\b|,|$)|$)",
+            r"and\s+(?:summarize|show|list|return|find|include|exclude)\b|$)|[,.;!?]\s*$|$)",
             source,
             flags=re.IGNORECASE,
         )
@@ -227,7 +229,7 @@ def _gmail_query(intent: MissionIntent) -> str:
             r"\bfrom\s+(?:"
             r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|"
             r"[A-Za-z][A-Za-z\-']*(?:\s+[A-Za-z][A-Za-z\-']*){0,4}?"
-            r")(?=\s+(?:for\b|about\b|regarding\b|containing\b|with\b|"
+            r")(?=\s+(?:from\b|for\b|about\b|regarding\b|containing\b|with\b|"
             r"last\b|past\b|today\b|unread\b|"
             r"and\s+(?:summarize|show|list|return|find|include|exclude)\b|$)|$)",
             " ",
@@ -425,18 +427,21 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name == "web.search":
         return {"query": query, "limit": limit}
     if action_name == "web.page_read":
-        # Prefer domain-like attributes on target entities when present.
+        # Prefer the interpreter's schema-validated URL/domain, while retaining
+        # support for older deterministic intents that stored it in attributes.
         # Never invent example.com — missing URL fails closed at composition.
         url: str | None = None
         for entity in intent.target_entities:
             attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
-            candidate = str(attrs.get("domain") or attrs.get("website") or attrs.get("url") or "").strip()
+            candidate = str(
+                entity.url or entity.domain or attrs.get("domain") or attrs.get("website") or attrs.get("url") or ""
+            ).strip()
             if candidate:
                 url = candidate if "://" in candidate else f"https://{candidate.lstrip('.')}"
                 break
         if not url:
             raise ValueError(
-                "web.page_read requires a target URL (entity attributes domain, website, or url); "
+                "web.page_read requires a target URL (entity URL, domain, or legacy attributes); "
                 "refusing to synthesize example.com"
             )
         return {"url": url, "timeout_seconds": 8.0}
@@ -648,7 +653,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         }
     if action_name == "google_calendar.events_read":
         start, end = _calendar_window_from_objective(
-            intent.raw_instruction or intent.normalized_instruction or intent.objective
+            intent.normalized_instruction or intent.objective or intent.raw_instruction
         )
         payload: dict[str, Any] = {"calendar_id": "primary", "limit": max(limit, 20)}
         if start:
