@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
-from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
+from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.outcome_review import OutcomeReview
@@ -19,9 +19,11 @@ from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
+from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
-from backend.runtime.transitions import transition_lease, transition_task
+from backend.runtime.state_machine import InvalidTransitionError
+from backend.runtime.transitions import transition_lease, transition_mission, transition_task
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import pending_dependency_keys
 
@@ -261,6 +263,7 @@ class WorkerRuntimeService:
                 payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
             )
         )
+        self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
         self._session.flush()
         self._session.commit()
 
@@ -276,6 +279,96 @@ class WorkerRuntimeService:
                 reason=result.reason or "complete rejected",
             )
         return task
+
+    def _maybe_rollup_mission_status(self, *, task: ExecutionTask, worker_id: str) -> None:
+        """Advance mission status when graph tasks finish (composition path stays planned today)."""
+
+        if task.mission_id is None:
+            return
+        mission = MissionRepository(self._session).get_for_tenant(
+            mission_id=task.mission_id,
+            tenant_id=task.tenant_id,
+        )
+        if mission is None:
+            return
+        # Do not reopen terminal missions.
+        if mission.status in {
+            MissionState.COMPLETED.value,
+            MissionState.FAILED.value,
+            MissionState.CANCELLED.value,
+            MissionState.ARCHIVED.value,
+        }:
+            return
+
+        siblings = self._tasks.list_for_mission(task.mission_id)
+        if not siblings:
+            return
+        open_tasks = [item for item in siblings if item.status not in _TERMINAL_TASK_STATES]
+        failedish = {
+            ExecutionTaskState.FAILED.value,
+            ExecutionTaskState.DEAD_LETTERED.value,
+            ExecutionTaskState.BLOCKED.value,
+        }
+        try:
+            if open_tasks:
+                # First successful completion while others remain → running.
+                if mission.status in {
+                    MissionState.PLANNED.value,
+                    MissionState.APPROVED.value,
+                    MissionState.QUEUED.value,
+                }:
+                    transition_mission(mission, MissionState.RUNNING)
+                    self._session.add(mission)
+                    self._audit.append(
+                        AuditEvent(
+                            tenant_id=task.tenant_id,
+                            mission_id=task.mission_id,
+                            category="mission",
+                            action="mission_running",
+                            actor=worker_id,
+                            details=f"Mission {task.mission_id} marked running after task {task.id}",
+                            payload_json={"task_id": str(task.id), "open_tasks": len(open_tasks)},
+                        )
+                    )
+                return
+
+            # All graph tasks terminal.
+            any_failed = any(item.status in failedish for item in siblings)
+            target = MissionState.FAILED if any_failed else MissionState.COMPLETED
+            if mission.status != MissionState.RUNNING.value:
+                # Hop through running when coming from planned/queued so state machine stays honest.
+                if mission.status in {
+                    MissionState.PLANNED.value,
+                    MissionState.APPROVED.value,
+                    MissionState.QUEUED.value,
+                }:
+                    transition_mission(mission, MissionState.RUNNING)
+            transition_mission(mission, target)
+            self._session.add(mission)
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=task.tenant_id,
+                    mission_id=task.mission_id,
+                    category="mission",
+                    action="mission_completed" if target == MissionState.COMPLETED else "mission_failed",
+                    actor=worker_id,
+                    details=f"Mission {task.mission_id} rolled up to {target.value} after graph terminalization",
+                    payload_json={
+                        "task_id": str(task.id),
+                        "task_count": len(siblings),
+                        "mission_status": target.value,
+                    },
+                )
+            )
+        except InvalidTransitionError as exc:
+            logger.warning(
+                "mission_status_rollup_skipped",
+                extra={
+                    "mission_id": str(task.mission_id),
+                    "mission_status": mission.status,
+                    "reason": str(exc),
+                },
+            )
 
     def block_completion_failure(
         self,

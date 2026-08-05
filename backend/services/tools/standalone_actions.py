@@ -88,6 +88,37 @@ def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds:
     return search_bundle_as_legacy_dict(public_search(query=query, limit=limit, timeout_seconds=timeout_seconds))
 
 
+def _guess_domain_from_query(query: str, *, company: str | None = None) -> str | None:
+    """Return an explicit host already present in the query, if any.
+
+    Does not invent a TLD for a company name (no absolutejanitorial.com synthesis).
+    """
+
+    import re
+    from urllib.parse import urlparse
+
+    text = (query or "").strip()
+    if not text:
+        return None
+    for match in re.finditer(r"https?://[^\s<>()]+", text, flags=re.IGNORECASE):
+        host = urlparse(match.group(0)).netloc.removeprefix("www.").strip().lower()
+        if host and "." in host:
+            return host[:160]
+    for match in re.finditer(
+        r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        host = match.group(0).removeprefix("www.").strip().lower()
+        # Skip common non-company tokens
+        if host in {"quality.control", "contact.info"}:
+            continue
+        if host.endswith((".com", ".org", ".net", ".io", ".ai", ".co", ".us", ".biz")):
+            return host[:160]
+    _ = company  # reserved for future safe resolver; do not invent hosts
+    return None
+
+
 def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) -> dict[str, Any]:
     raw_data = record.get("data")
     data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else record
@@ -138,21 +169,18 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     store = resolve_record_store(context)
     # Research targets are only what the caller supplied. Never fill a missing
     # company/domain half from the tenant profile (e.g. company=Acme must not
-    # get domain=ajenda.ai). Profile values are separate lineage fields.
-    # When neither half is explicit, open-query research may surface profile
-    # company/domain as the tenant context defaults (demo / self-context path).
+    # get domain=ajenda.ai). Profile is lineage-only (profile_company/profile_domain).
+    # Open-query missions about *other* companies must not report Ajenda as the target.
     explicit_company = (payload.company or "").strip() or None
     explicit_domain = (payload.domain or "").strip() or None
     profile_company_raw, profile_domain_raw = default_company_and_domain(context=context)
     profile_company = (profile_company_raw or "").strip() or None
     profile_domain = (profile_domain_raw or "").strip() or None
-    if explicit_company is not None or explicit_domain is not None:
-        company = explicit_company
-        domain = explicit_domain
-    else:
-        company = profile_company
-        domain = profile_domain
-    search_company = explicit_company or payload.query
+    company = explicit_company
+    domain = explicit_domain
+    # Internal/CRM search keys: prefer explicit target; fall back to query text only
+    # (never tenant profile company, which pollutes external research).
+    search_company = explicit_company or (payload.query or "").strip() or None
     search_domain = explicit_domain
 
     internal_matches: list[dict[str, Any]] = []
@@ -165,27 +193,37 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 limit=payload.limit,
             )
         )
-    if search_domain or search_company:
+    # Narrow once so mypy sees query: str (not str | None) at the call site.
+    contact_query = search_domain or search_company
+    if contact_query:
         internal_matches.extend(
             store.search_records(
                 tenant_id=context.tenant_id,
                 record_type="contact",
-                query=search_domain or search_company,
+                query=contact_query,
                 limit=payload.limit,
             )
         )
 
     web_snippet: dict[str, Any] | None = None
-    if payload.fetch_public_page and search_domain:
+    page_domain = search_domain
+    if payload.fetch_public_page and not page_domain and explicit_company:
+        # Best-effort host guess for site-scoped scrape intents (no invented TLD claims
+        # beyond common patterns already present in the query).
+        page_domain = _guess_domain_from_query(payload.query, company=explicit_company)
+    if payload.fetch_public_page and page_domain:
         web_snippet = _fetch_public_page_snippet(
-            domain=search_domain,
+            domain=page_domain,
             action_name="web.research",
             timeout_seconds=payload.timeout_seconds,
         )
+        if domain is None and page_domain:
+            domain = page_domain
 
+    # CRM client contract requires str company; empty string means no company filter.
     crm_search = default_crm_client().search(
         context=context,
-        company=search_company,
+        company=search_company or "",
         domain=search_domain or "",
         credential=None,
         invocation=invocation,
@@ -196,10 +234,11 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     search_error: str | None = None
     public_search_real = False
     side_effect = SideEffectClass.INTERNAL_READ
+    public_query = (payload.query or "").strip()
     if payload.include_public_search:
         side_effect = SideEffectClass.EXTERNAL_READ
         search_bundle = _fetch_duckduckgo_instant_answer(
-            query=payload.query,
+            query=public_query,
             limit=payload.limit,
             timeout_seconds=payload.timeout_seconds,
         )

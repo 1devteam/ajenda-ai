@@ -84,20 +84,110 @@ def _prospect_count(intent: MissionIntent) -> int:
 
 
 def _research_query_fallback(intent: MissionIntent) -> str:
-    """Prefer original user instruction over lossy mission objective restatement."""
+    """Build a compact search query from entities + instruction — not a verb dump."""
 
-    for candidate in (
-        intent.raw_instruction,
-        intent.normalized_instruction,
-        intent.objective,
+    return _compact_research_query(intent)
+
+
+_SCRAPE_SITE_RE = re.compile(
+    r"\b(?:scrape|crawl|visit|open|read)\b.{0,40}\b(?:web\s*site|website|site|page|url)\b|"
+    r"\b(?:web\s*site|website)\b",
+    re.IGNORECASE,
+)
+_PERSON_AFTER_ROLE_RE = re.compile(
+    r"\b(?:quality\s+control|qc|contact|find|for)\s+"
+    r"(?P<person>[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b",
+)
+_SCRAPE_COMPANY_RE = re.compile(
+    r"\b(?:scrape|crawl|visit|open)\s+(?:the\s+)?"
+    r"(?P<company>[A-Za-z0-9][A-Za-z0-9.&'\-]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-]*){0,4}?)"
+    r"\s+(?:web\s*site|website|site|page)\b",
+    re.IGNORECASE,
+)
+_COMPANY_WEBSITE_RE = re.compile(
+    r"\b(?P<company>[A-Za-z0-9][A-Za-z0-9.&'\-]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-]*){0,4}?)"
+    r"\s+(?:web\s*site|website)\b",
+    re.IGNORECASE,
+)
+_STOP_QUERY_VERBS = re.compile(
+    r"\b(?:scrape|crawl|return|find|get|give|show|need|want|please|research|"
+    r"identify|locate|look\s+up|look\s+for)\b",
+    re.IGNORECASE,
+)
+
+
+def _instruction_text(intent: MissionIntent) -> str:
+    return (intent.raw_instruction or intent.normalized_instruction or intent.objective or "").strip()
+
+
+def _extract_person_from_instruction(text: str) -> str | None:
+    match = _PERSON_AFTER_ROLE_RE.search(text or "")
+    if match is None:
+        return None
+    person = match.group("person").strip(" ,.;:")
+    if person.casefold() in {"quality control", "contact info", "contact information"}:
+        return None
+    return person[:120] if len(person) >= 3 else None
+
+
+def _extract_company_from_instruction(text: str) -> str | None:
+    for pattern in (_SCRAPE_COMPANY_RE, _COMPANY_WEBSITE_RE):
+        match = pattern.search(text or "")
+        if match is None:
+            continue
+        company = match.group("company").strip(" ,.;:")
+        # Drop leading articles / verbs left on the capture.
+        company = re.sub(r"^(?:the|a|an)\s+", "", company, flags=re.IGNORECASE).strip()
+        if company.casefold() in {"the", "a", "an", "web", "their", "our", "its"}:
+            continue
+        if len(company) >= 2:
+            return company[:160]
+    return None
+
+
+def _compact_research_query(intent: MissionIntent) -> str:
+    """Entity-first search string. Avoid dumping the full mission as a DDG query."""
+
+    entity = intent.target_entities[0] if intent.target_entities else None
+    industry = entity.industry.strip() if entity and entity.industry else None
+    location = entity.location.strip() if entity and entity.location else None
+    name = entity.name.strip() if entity and entity.name else None
+    source = _instruction_text(intent)
+    person = _extract_person_from_instruction(source)
+    company = name or _extract_company_from_instruction(source)
+
+    if entity and (
+        entity.type == "competitor_set"
+        or (isinstance(entity.attributes, dict) and entity.attributes.get("research_mode") == "competitors")
     ):
-        text = (candidate or "").strip()
-        if not text:
-            continue
-        # Skip generic restatement that is useless as a web search query.
-        if text.lower().startswith("identify and prepare outreach for qualified the requested market"):
-            continue
-        return text[:400]
+        if name and location:
+            return f"competitors of {name} in {location}"[:400]
+        if name:
+            return f"competitors of {name}"[:400]
+
+    parts: list[str] = []
+    if company:
+        parts.append(company)
+    if person:
+        parts.append(person)
+        if re.search(r"\bquality\s+control\b|\bqc\b", source, flags=re.IGNORECASE):
+            parts.append("quality control")
+        if re.search(r"\bcontact\b", source, flags=re.IGNORECASE):
+            parts.append("contact")
+    if industry and industry.casefold() not in " ".join(parts).casefold():
+        parts.append(industry)
+    if location and location.casefold() not in " ".join(parts).casefold():
+        parts.append(location)
+    if company and _SCRAPE_SITE_RE.search(source):
+        parts.append("official website")
+    if parts:
+        return " ".join(parts)[:400]
+
+    # Last resort: strip imperative verbs from instruction rather than full dump.
+    cleaned = _STOP_QUERY_VERBS.sub(" ", source)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.;:")
+    if cleaned and len(cleaned) >= 8:
+        return cleaned[:400]
     return "prospect research"
 
 
@@ -122,7 +212,7 @@ def _target_bits(intent: MissionIntent) -> tuple[str | None, str | None, str]:
         parts.append(f"in {location}")
     query = " ".join(parts).strip()
     if not query or query == "companies":
-        query = _research_query_fallback(intent)
+        query = _compact_research_query(intent)
     return industry, location, query
 
 
@@ -396,44 +486,65 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
 
     if action_name == "web.research":
         entity = intent.target_entities[0] if intent.target_entities else None
-        research_query = query
-        if entity and (
-            entity.type == "competitor_set"
-            or (isinstance(entity.attributes, dict) and entity.attributes.get("research_mode") == "competitors")
-        ):
-            name = (entity.name or "").strip()
-            if name and location:
-                research_query = f"competitors of {name} in {location}"
-            elif name:
-                research_query = f"competitors of {name}"
-        elif entity and entity.industry and entity.location:
+        source = _instruction_text(intent)
+        research_query = _compact_research_query(intent)
+        # Prefer structured industry/location phrasing when both present.
+        if entity and entity.industry and entity.location and not entity.name:
             research_query = f"{entity.industry} companies in {entity.location}"
-        elif entity and entity.name:
-            research_query = entity.name
-        elif not research_query or research_query.lower().startswith(
-            "identify and prepare outreach for qualified the requested market"
-        ):
-            research_query = _research_query_fallback(intent)
+        extracted_company = (
+            (entity.name.strip() if entity and entity.name else None)
+            or industry
+            or _extract_company_from_instruction(source)
+        )
+        domain = entity.domain if entity and entity.domain else None
+        if domain is None and entity and isinstance(entity.attributes, dict):
+            for key in ("domain", "website", "url"):
+                raw = entity.attributes.get(key)
+                if isinstance(raw, str) and raw.strip():
+                    domain = raw.strip()
+                    break
+        if isinstance(domain, str) and domain and "://" in domain:
+            from urllib.parse import urlparse
+
+            domain = urlparse(domain).netloc.removeprefix("www.") or domain
+        scrape_intent = bool(_SCRAPE_SITE_RE.search(source))
+        # Site-scoped research when user asked to scrape/visit a website and we have a host.
+        fetch_public_page = bool(scrape_intent and domain)
+        # When scrape intent names a company but no host yet, still flag fetch so the
+        # handler can use an explicit host from the query if present.
+        if scrape_intent and extracted_company and not domain:
+            fetch_public_page = True
         return {
             "query": research_query[:400],
-            "company": industry or (entity.name if entity else None),
-            "domain": entity.domain if entity else None,
-            "fetch_public_page": False,
+            "company": extracted_company,
+            "domain": domain,
+            "fetch_public_page": fetch_public_page,
             "include_public_search": True,
             "limit": limit,
         }
     if action_name == "web.search":
-        return {"query": query, "limit": limit}
+        return {"query": _compact_research_query(intent)[:400], "limit": limit}
     if action_name == "web.page_read":
         # Prefer domain-like attributes on target entities when present.
         # Never invent example.com — missing URL fails closed at composition.
         url: str | None = None
         for entity in intent.target_entities:
             attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
-            candidate = str(attrs.get("domain") or attrs.get("website") or attrs.get("url") or "").strip()
+            candidate = str(attrs.get("domain") or attrs.get("website") or attrs.get("url") or entity.url or "").strip()
             if candidate:
                 url = candidate if "://" in candidate else f"https://{candidate.lstrip('.')}"
                 break
+        if not url:
+            # Scrape-style instructions with an explicit host in free text.
+            source = _instruction_text(intent)
+            host_match = re.search(
+                r"https?://[^\s<>()]+|\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b",
+                source,
+                flags=re.IGNORECASE,
+            )
+            if host_match is not None:
+                raw_host = host_match.group(0).strip()
+                url = raw_host if "://" in raw_host else f"https://{raw_host.removeprefix('www.')}"
         if not url:
             raise ValueError(
                 "web.page_read requires a target URL (entity attributes domain, website, or url); "

@@ -3,12 +3,14 @@ from __future__ import annotations
 from backend.domain.enums import (
     ExecutionBranchState,
     ExecutionTaskState,
+    MissionState,
     UserWorkforceAgentState,
     WorkerLeaseState,
     WorkforceFleetState,
 )
 from backend.domain.execution_branch import ExecutionBranch
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.mission import Mission
 from backend.domain.user_workforce_agent import UserWorkforceAgent
 from backend.domain.worker_lease import WorkerLease
 from backend.domain.workforce_fleet import WorkforceFleet
@@ -19,6 +21,12 @@ def transition_task(task: ExecutionTask, target: ExecutionTaskState) -> Executio
     StateMachine.ensure_task_transition(task.status, target.value)
     task.status = target.value
     return task
+
+
+def transition_mission(mission: Mission, target: MissionState) -> Mission:
+    StateMachine.ensure_mission_transition(mission.status, target.value)
+    mission.status = target.value
+    return mission
 
 
 def transition_fleet(fleet: WorkforceFleet, target: WorkforceFleetState) -> WorkforceFleet:
