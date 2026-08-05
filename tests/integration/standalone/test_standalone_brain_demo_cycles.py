@@ -69,6 +69,8 @@ def test_ajenda_standalone_brain_demo_cycle(pg_engine, cycle: int) -> None:
     assert search.output["count"] >= 1
     assert PROFILE_ACCOUNT_RECORD_ID in search.evidence[0].records_inspected
 
+    # Open-query research must not promote tenant profile into target company/domain.
+    # Profile remains lineage-only (profile_company / profile_domain).
     research = registry.invoke(
         ToolInvocation(
             action="web.research",
@@ -76,6 +78,8 @@ def test_ajenda_standalone_brain_demo_cycle(pg_engine, cycle: int) -> None:
         ),
         context,
     )
-    assert research.output["company"] == "Ajenda AI"
-    assert research.output["domain"] == "ajenda.ai"
+    assert research.output["company"] is None
+    assert research.output["domain"] is None
+    assert research.output["profile_company"] == "Ajenda AI"
+    assert research.output["profile_domain"] == "ajenda.ai"
     assert research.output["business_context_source"] == "business_profile"
