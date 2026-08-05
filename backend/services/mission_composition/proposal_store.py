@@ -1,8 +1,8 @@
-"""Proposal store: local read cache plus authoritative SQL persistence.
+"""Proposal store: in-process cache + durable SQL persistence.
 
-API compose/confirm requires durable storage. Confirmation bypasses the cache
-and row-locks SQL so workers cannot create duplicate missions. The cache remains
-for non-authoritative reads and isolated no-DB tests only.
+Durable history is **required** for clarification-loop escalation and
+supersession. When DB persistence fails, escalation is disabled (fail closed
+for loop correctness claims — never claim multi-worker durable loops on memory).
 """
 
 from __future__ import annotations
@@ -16,14 +16,6 @@ from backend.services.mission_composition.contracts import MissionCompositionRec
 
 _LOCK = threading.Lock()
 _PROPOSALS: dict[str, dict[str, Any]] = {}
-
-
-class ProposalStoreUnavailableError(RuntimeError):
-    """Raised when a confirmation cannot read the authoritative proposal row."""
-
-
-class ProposalStoreRecordError(RuntimeError):
-    """Raised when a durable proposal row does not satisfy its stored contract."""
 
 
 def put_proposal(
@@ -44,20 +36,17 @@ def put_proposal(
         "tenant_id": tenant_id,
         "record": record_json,
     }
+    with _LOCK:
+        _PROPOSALS[record.proposal_id] = payload
+
     if db is None:
-        with _LOCK:
-            _PROPOSALS[record.proposal_id] = payload
         return not require_durable
     try:
         from backend.repositories.mission_composition_proposal_repository import (
             MissionCompositionProposalRepository,
         )
     except Exception:
-        if not require_durable:
-            with _LOCK:
-                _PROPOSALS[record.proposal_id] = payload
-            return True
-        return False
+        return not require_durable
 
     intent = record.intent
     restatement = None
@@ -105,17 +94,12 @@ def put_proposal(
             status=status,
         )
         db.commit()
-        with _LOCK:
-            _PROPOSALS[record.proposal_id] = payload
         return True
     except Exception:
         try:
             db.rollback()
         except Exception:
             pass
-        if not require_durable:
-            with _LOCK:
-                _PROPOSALS[record.proposal_id] = payload
         return False
 
 
@@ -134,7 +118,6 @@ def get_proposal(
 
     if db is None:
         return None
-
     try:
         from backend.repositories.mission_composition_proposal_repository import (
             MissionCompositionProposalRepository,
@@ -145,52 +128,12 @@ def get_proposal(
         row = MissionCompositionProposalRepository(db).get(tenant_id=tenant_id, proposal_id=proposal_id)
     except Exception:
         return None
-    if row is None:
+    if row is None or not isinstance(row.record_json, dict):
         return None
-    if not isinstance(row.record_json, dict):
-        raise ProposalStoreRecordError("durable proposal record is not an object")
     try:
         return MissionCompositionRecord.model_validate(row.record_json)
-    except Exception as exc:
-        raise ProposalStoreRecordError("durable proposal record failed validation") from exc
-
-
-def get_proposal_for_confirmation(
-    *,
-    tenant_id: str,
-    proposal_id: str,
-    db: Session,
-) -> MissionCompositionRecord | None:
-    """Load and lock the durable proposal until the confirmation transaction commits.
-
-    Confirmation intentionally bypasses the in-process cache. The database row
-    lock serializes different idempotency keys across API workers so a proposal
-    cannot create more than one mission.
-    """
-
-    try:
-        from backend.repositories.mission_composition_proposal_repository import (
-            MissionCompositionProposalRepository,
-        )
-
-        row = MissionCompositionProposalRepository(db).get_for_update(
-            tenant_id=tenant_id,
-            proposal_id=proposal_id,
-        )
-    except Exception as exc:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        raise ProposalStoreUnavailableError("durable proposal store unavailable") from exc
-    if row is None:
+    except Exception:
         return None
-    if not isinstance(row.record_json, dict):
-        raise ProposalStoreRecordError("durable proposal record is not an object")
-    try:
-        return MissionCompositionRecord.model_validate(row.record_json)
-    except Exception as exc:
-        raise ProposalStoreRecordError("durable proposal record failed validation") from exc
 
 
 def load_thread_failure_context(

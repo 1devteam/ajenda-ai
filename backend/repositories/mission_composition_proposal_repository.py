@@ -103,19 +103,6 @@ class MissionCompositionProposalRepository:
         )
         return self._session.execute(stmt).scalar_one_or_none()
 
-    def get_for_update(self, *, tenant_id: str, proposal_id: str) -> MissionCompositionProposal | None:
-        """Lock one tenant-scoped proposal for a single confirmation transaction."""
-
-        stmt = (
-            select(MissionCompositionProposal)
-            .where(
-                MissionCompositionProposal.tenant_id == tenant_id,
-                MissionCompositionProposal.proposal_id == proposal_id,
-            )
-            .with_for_update()
-        )
-        return self._session.execute(stmt).scalar_one_or_none()
-
     def mark_superseded(
         self,
         *,

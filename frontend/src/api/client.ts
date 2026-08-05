@@ -699,16 +699,12 @@ export async function composeMission(
 export async function confirmMissionComposition(
   caller: AuthedCaller,
   proposalId: string,
-  body: {
-    interpretation_fingerprint: string;
-    interpretation_confirmed: boolean;
-    idempotency_key: string;
-  },
+  body?: { composition?: Record<string, unknown>; idempotency_key?: string },
 ): Promise<MissionComposeConfirmResponse> {
   return withAuthedRuntime(caller, (config) => {
-    const idempotencyKey = body.idempotency_key.trim();
+    const idempotencyKey = body?.idempotency_key?.trim() || newIdempotencyKey();
     const payload = {
-      ...body,
+      ...(body ?? {}),
       idempotency_key: idempotencyKey,
     };
     return request<MissionComposeConfirmResponse>(

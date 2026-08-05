@@ -10,9 +10,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-COMPOSITION_SCHEMA_VERSION = 4
+COMPOSITION_SCHEMA_VERSION = 3
 JOB_CATALOG_VERSION = "4"
-INTERPRETER_VERSION = "8-local-llm"
+INTERPRETER_VERSION = "7"
 CAPABILITY_RESOLVER_VERSION = "4"
 
 ProposalStatus = Literal[
@@ -565,7 +565,6 @@ class MissionCompositionRecord(BaseModel):
     instruction: str = Field(min_length=1, max_length=8000)
     raw_instruction: str = Field(default="", max_length=8000)
     normalized_instruction: str = Field(default="", max_length=8000)
-    interpretation_fingerprint: str = Field(default="", max_length=80)
     intent: MissionIntent
     job_assignments: list[JobAssignment] = Field(default_factory=list, max_length=40)
     ability_selections: list[AbilitySelection] = Field(default_factory=list, max_length=40)

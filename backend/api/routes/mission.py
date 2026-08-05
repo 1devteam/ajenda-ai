@@ -2017,14 +2017,7 @@ def compile_mission(
         status = 400
         if exc.code == "MISSION_NOT_FOUND":
             status = 404
-        elif exc.code in {
-            "NO_RUNTIME_ACTIONS",
-            "PROPOSAL_NOT_READY",
-            "INSTRUCTION_REQUIRED",
-            "INTERPRETATION_CONFIRMATION_REQUIRED",
-            "INTERPRETATION_RECORD_INVALID",
-            "CONFIRMED_INTERPRETATION_REQUIRED",
-        }:
+        elif exc.code in {"NO_RUNTIME_ACTIONS", "PROPOSAL_NOT_READY", "INSTRUCTION_REQUIRED"}:
             status = 422
         raise HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message}) from exc
     return MissionCompileResponse.model_validate(result)

@@ -320,40 +320,15 @@ export interface MissionComposeResponse {
   proposal_id: string;
   interpretation_thread_id: string;
   proposal_status?: string;
-  interpreted_instruction: string;
-  interpretation_fingerprint: string;
+  instruction: string;
+  raw_instruction?: string;
+  normalized_instruction?: string;
   mission_brief: {
-    interpreted_instruction: string;
-    requested_outcomes: string[];
-    unsupported_outcomes: string[];
-    requested_quantity: number | null;
-    send_policy: { mode: string; condition: string };
-    contact_policy: { mode: string; condition: string };
-    publish_policy: { mode: string; condition: string };
-    write_policy: { mode: string; condition: string };
+    objective: string;
     success_criteria: Array<{ description: string; measurable?: boolean }>;
     constraints: string[];
-    forbidden_outcomes: string[];
-    approval_preference: string;
-    context_requirements: string[];
-    target_entities: Array<{
-      type: string;
-      industry?: string | null;
-      location?: string | null;
-      name?: string | null;
-      radius_km?: number | null;
-      domain?: string | null;
-      url?: string | null;
-      email?: string | null;
-    }>;
-    timing_constraints: Array<{
-      kind: string;
-      start?: string | null;
-      end?: string | null;
-      label?: string | null;
-    }>;
-    clarifications: Array<Record<string, unknown>>;
-    contradictions: Array<Record<string, unknown>>;
+    approval_preference?: string;
+    target_entities?: Array<Record<string, unknown>>;
   };
   assigned_verticals: string[];
   jobs: Array<Record<string, unknown>>;
@@ -380,6 +355,7 @@ export interface MissionComposeResponse {
   task_graph_preview: Record<string, unknown>;
   clarifications: Array<{ field: string; question: string; reason: string }>;
   ready_to_start: boolean;
+  composition: Record<string, unknown>;
   grants_execution_authority: boolean;
   authority_class: string;
 }
