@@ -2,9 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-19
-- **Updated:** 2026-08-03
+- **Updated:** 2026-07-27
 - **Owner:** AJENDA-AI Architecture Team
-- **Related:** ADR-0001, ADR-0005, ADR-0006, ADR-0007, ADR-0010, `docs/product/mission-runtime-architecture-map.md`, `docs/product/mission-based-ai-core.md`
+- **Related:** ADR-0001, ADR-0005, ADR-0006, ADR-0007, `docs/product/mission-runtime-architecture-map.md`, `docs/product/mission-based-ai-core.md`
 
 ## Context
 
@@ -23,15 +23,13 @@ Overlapping catalogs (BRAIN_MISSIONS, vertical roles/templates, ability manifest
 ### Operating chain
 
 ```text
-Raw instruction (frontend input; backend audit only after submit)
-  → local LLM interpretation (strict schema; untrusted candidate)
-  → deterministic grounding/readiness validation
-  → MissionIntent (canonical outcome IDs + structured fields + fingerprint)
+Raw instruction (frontend display/input only)
+  → normalize (optional spelling/fuzzy candidates)
+  → MissionIntent (canonical outcome IDs + structured fields)
   → BusinessJob routing (IDs only)
   → CapabilityResolver (registry + manifest + charter + connections)
   → MissionCompositionRecord (proposal; durable history when DB present)
-  → User reviews only the interpreted wording and acknowledges exact fingerprint
-  → Confirm → deterministic revalidation → mission intake + plan + task graph
+  → Confirm → mission intake + plan + task graph
   → Existing staged runtime admission (explicit, separate)
 ```
 
@@ -42,7 +40,7 @@ Raw instruction (frontend input; backend audit only after submit)
 | `POST /v1/missions/compose` | `read_model` | Create tasks, queue, leases, provider side effects |
 | Confirm composition | `governed_mutation` | Queue, materialize runtime tasks, invoke tools |
 | Runtime queue admission | `runtime_authoritative` | Remain the only canonical enqueue path |
-| Local mission LLM | candidate generation only | Select abilities/tools, grant authority, approve, queue, or execute |
+| Language-processing libraries | candidate generation only | Select abilities or grant authority |
 
 ### Rules
 
@@ -57,10 +55,9 @@ Raw instruction (frontend input; backend audit only after submit)
 9. **Restatement, not fragment merge:** when interpretation is incomplete, return full-mission restatement requirements; each compose submit is a standalone raw instruction. Frontend must not patch `MissionIntent`.
 10. **Structured policy:** `send_policy`, `requested_quantity`, and target entities are authoritative; success-criteria prose and constraint strings are display/evidence, not data transport.
 11. **Vocabulary ownership:** interpreter owns NL aliases; job catalog owns outcome IDs + completion contracts + candidate actions; ability manifests stay governance-only.
-12. **Local LLM replacement boundary:** ADR-0010 replaces the spelling/fuzzy/phrase interpreter. Structured output remains untrusted until deterministic schema, grounding, readiness, governance, and compiler checks pass.
-13. **Exact semantic review:** the client confirms the server proposal ID plus interpretation fingerprint. Confirmation and compile reuse the stored intent and never call the model again.
+12. **Optional NLP** (spelling/fuzzy) may propose candidates behind flags; identical governance must hold when libraries are disabled. Active components are recorded on the intent/proposal.
 
-### Structured MissionIntent (interpreter v8 local-LLM replacement)
+### Structured MissionIntent (interpreter v3+)
 
 Material fields include:
 
@@ -74,12 +71,10 @@ Material fields include:
 
 ### Proposal durability
 
-- The in-process cache supports non-authoritative reads and local no-DB tests. Confirmation always bypasses it.
-- API proposals are persisted to `mission_composition_proposals` (migration `0035_composition_proposals`) for audit, supersession, backend-owned restatement-loop escalation, and confirmation. Compose fails closed if the durable write fails.
-- Confirmation locks the tenant-scoped proposal row until its receipt is committed, making confirmation proposal-idempotent across workers and retry keys.
+- In-process cache remains for single-process compose→confirm.
+- When a DB session is present, proposals are also persisted to `mission_composition_proposals` (migration `0035_composition_proposals`) for audit, supersession, and backend-owned restatement loop escalation.
 - History rows are declarative only and **never** grant execution authority.
-- Original wording remains only in the tenant-scoped proposal audit row; browser-visible mission intake stores the confirmed interpretation and sanitized intent.
-- Confirm distrusts client ability selections / ready flags and reruns only deterministic governance from the stored, fingerprinted intent. It never reinterprets the instruction.
+- Confirm still re-composes server-side from the instruction and distrusts client ability selections / ready flags.
 
 ### Accounting
 
@@ -115,14 +110,14 @@ Task-graph capability references use the same `bridge_*` naming as runtime autho
 
 ### Tradeoffs
 
-- Confirm accepts only proposal identity, the displayed interpretation fingerprint, explicit acknowledgement, and an idempotency key; full client composition bodies are rejected.
-- New compose requests require the configured local interpreter endpoint; failure is visible and fail-closed with no legacy parser fallback.
+- Confirm still accepts a full composition body for multi-process compatibility; server re-compose remains authoritative.
+- Intent interpreter remains deterministic (not free-form LLM); optional fuzzy/spelling only propose candidates.
 - Full auto-queue on confirm remains deferred — queue admission stays the runtime authority.
 
 ## Verification
 
-- Unit: strict model schema/transport/grounding, canonical intent, send policy, restatement, coverage, job routing, capability resolver, and plan/graph compiler.
-- Contract: compose creates no runtime state and does not return raw instruction/full proposal state; fingerprinted confirmation creates intake/plan/graph only and does not rerun the model.
+- Unit: intent (canonical IDs, send policy, restatement, coverage), job routing, capability resolver, plan/graph compiler, roofing flagship, linguistic helpers disabled path.
+- Contract: compose creates no runtime state; confirm creates intake/plan/graph only.
 - Migration: head includes `0035_composition_proposals`; round-trip green.
-- Frontend: Missions review echoes only interpreted wording plus every execution-relevant derived detail, requires explicit acknowledgement or cancel/retry, and exposes no ability selectors.
+- Frontend: Missions page = templates + tip + query + restatement copy; Connections OAuth-first for Google connectors; no ability selectors.
 - Live runtime proof: CI / staging proof on the composition + credentials path as configured for the release gate.

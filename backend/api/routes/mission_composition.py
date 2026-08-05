@@ -16,17 +16,7 @@ from sqlalchemy.orm import Session
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
-from backend.services.mission_composition.contracts import (
-    Clarification,
-    Contradiction,
-    MissionCompositionRecord,
-    SendPolicy,
-    StructuredPolicy,
-    SuccessCriterion,
-    TargetEntity,
-    TimingConstraint,
-)
-from backend.services.mission_composition.interpretation.review import reviewed_interpretation_payload
+from backend.services.mission_composition.contracts import MissionCompositionRecord
 from backend.services.mission_composition.service import (
     MissionCompositionError,
     MissionCompositionService,
@@ -43,37 +33,16 @@ class ComposeMissionRequest(BaseModel):
     interpretation_thread_id: str | None = Field(default=None, max_length=80)
 
 
-class ReviewedInterpretationResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    interpreted_instruction: str
-    requested_outcomes: list[str]
-    unsupported_outcomes: list[str]
-    requested_quantity: int | None
-    send_policy: SendPolicy
-    contact_policy: StructuredPolicy
-    publish_policy: StructuredPolicy
-    write_policy: StructuredPolicy
-    target_entities: list[TargetEntity]
-    timing_constraints: list[TimingConstraint]
-    constraints: list[str]
-    forbidden_outcomes: list[str]
-    success_criteria: list[SuccessCriterion]
-    approval_preference: str
-    context_requirements: list[str]
-    clarifications: list[Clarification]
-    contradictions: list[Contradiction]
-
-
 class ComposeMissionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     proposal_id: str
     interpretation_thread_id: str
     proposal_status: str = "interpretation_ready"
-    interpreted_instruction: str
-    interpretation_fingerprint: str
-    mission_brief: ReviewedInterpretationResponse
+    instruction: str
+    raw_instruction: str = ""
+    normalized_instruction: str = ""
+    mission_brief: dict[str, Any]
     assigned_verticals: list[str]
     jobs: list[dict[str, Any]]
     selected_abilities: list[dict[str, Any]]
@@ -86,6 +55,7 @@ class ComposeMissionResponse(BaseModel):
     task_graph_preview: dict[str, Any]
     clarifications: list[dict[str, Any]]
     ready_to_start: bool
+    composition: dict[str, Any]
     grants_execution_authority: bool = False
     authority_class: str = "read_model"
 
@@ -93,9 +63,9 @@ class ComposeMissionResponse(BaseModel):
 class ConfirmCompositionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    interpretation_fingerprint: str = Field(min_length=8, max_length=80)
-    interpretation_confirmed: bool
-    idempotency_key: str = Field(min_length=1, max_length=200)
+    # Preferred: confirm by proposal identity only. Full composition is legacy/compat.
+    composition: dict[str, Any] | None = None
+    idempotency_key: str | None = Field(default=None, max_length=200)
 
 
 class ConfirmCompositionResponse(BaseModel):
@@ -135,9 +105,16 @@ def _to_compose_response(record: MissionCompositionRecord) -> ComposeMissionResp
         proposal_id=record.proposal_id,
         interpretation_thread_id=record.interpretation_thread_id,
         proposal_status=str(record.proposal_status),
-        interpreted_instruction=record.normalized_instruction or record.intent.normalized_instruction,
-        interpretation_fingerprint=record.interpretation_fingerprint,
-        mission_brief=ReviewedInterpretationResponse.model_validate(reviewed_interpretation_payload(record.intent)),
+        instruction=record.instruction,
+        raw_instruction=record.raw_instruction or record.instruction,
+        normalized_instruction=record.normalized_instruction or record.intent.normalized_instruction,
+        mission_brief={
+            "objective": record.intent.objective,
+            "success_criteria": [item.model_dump(mode="json") for item in record.intent.success_criteria],
+            "constraints": list(record.intent.constraints),
+            "approval_preference": record.intent.approval_preference,
+            "target_entities": [item.model_dump(mode="json") for item in record.intent.target_entities],
+        },
         assigned_verticals=verticals,
         jobs=[item.model_dump(mode="json") for item in record.job_assignments],
         selected_abilities=[item.model_dump(mode="json") for item in record.ability_selections],
@@ -150,6 +127,7 @@ def _to_compose_response(record: MissionCompositionRecord) -> ComposeMissionResp
         task_graph_preview=dict(record.task_graph_preview),
         clarifications=[item.model_dump(mode="json") for item in record.clarifications],
         ready_to_start=record.ready_to_start,
+        composition=record.model_dump(mode="json"),
         grants_execution_authority=False,
         authority_class="read_model",
     )
@@ -161,25 +139,8 @@ def _map_error(exc: MissionCompositionError) -> HTTPException:
         status = 404
     elif exc.code in {"QUOTA_EXCEEDED"}:
         status = 402
-    elif exc.code in {
-        "INTAKE_QUALITY",
-        "NO_RUNTIME_ACTIONS",
-        "PROPOSAL_NOT_READY",
-        "INTERPRETATION_CONFIRMATION_REQUIRED",
-        "INTERPRETATION_FINGERPRINT_MISMATCH",
-        "INTERPRETATION_RECORD_INVALID",
-        "CONFIRMED_INTERPRETATION_REQUIRED",
-        "IDEMPOTENCY_KEY_REQUIRED",
-    }:
+    elif exc.code in {"INTAKE_QUALITY", "NO_RUNTIME_ACTIONS", "PROPOSAL_NOT_READY"}:
         status = 422
-    elif exc.code.startswith("INTERPRETER_"):
-        status = 503
-    elif exc.code in {
-        "PROPOSAL_PERSIST_FAILED",
-        "PROPOSAL_STORE_UNAVAILABLE",
-        "CONFIRM_RECEIPT_PERSIST_FAILED",
-    }:
-        status = 503
     return HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message})
 
 
@@ -213,7 +174,7 @@ def compose_mission(
 def confirm_composition_proposal(
     proposal_id: str,
     request: Request,
-    body: ConfirmCompositionRequest,
+    body: ConfirmCompositionRequest | None = None,
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> ConfirmCompositionResponse:
@@ -226,14 +187,15 @@ def confirm_composition_proposal(
     # Plan/graph write also requires manage in mission routes; require both.
     require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
     service = MissionCompositionService(db)
+    composition = body.composition if body is not None else None
+    idempotency_key = body.idempotency_key if body is not None else None
     try:
         result = service.confirm(
             tenant_id=str(tenant_id),
             proposal_id=proposal_id,
-            interpretation_fingerprint=body.interpretation_fingerprint,
-            interpretation_confirmed=body.interpretation_confirmed,
+            composition=composition,
             actor_id=_actor_id(request),
-            idempotency_key=body.idempotency_key,
+            idempotency_key=idempotency_key,
         )
     except MissionCompositionError as exc:
         raise _map_error(exc) from exc

@@ -18,19 +18,6 @@ import { newIdempotencyKey } from "../utils/errors";
 const PLACEHOLDER =
   "Research roofing companies in Austin, identify three strong prospects, draft personalized introductions, and bring them to me before anything is sent.";
 
-function friendlyToken(value: string) {
-  return value.replaceAll("_", " ");
-}
-
-function describeTarget(target: MissionComposeResponse["mission_brief"]["target_entities"][number]) {
-  const identity = target.name ?? target.email ?? target.domain ?? target.url ?? target.industry ?? friendlyToken(target.type);
-  const details = [target.industry && target.industry !== identity ? target.industry : null, target.location]
-    .filter(Boolean)
-    .join(" in ");
-  const radius = target.radius_km != null ? ` within ${target.radius_km} km` : "";
-  return `${identity}${details ? ` — ${details}` : ""}${radius}`;
-}
-
 export default function MissionsPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -43,7 +30,6 @@ export default function MissionsPage() {
   const [listError, setListError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [interpretationAcknowledged, setInterpretationAcknowledged] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   // Stable per-proposal key so confirm retries do not create duplicate missions.
   const [confirmIdempotencyKey, setConfirmIdempotencyKey] = useState<string | null>(null);
@@ -83,7 +69,6 @@ export default function MissionsPage() {
     setError(null);
     setProposal(null);
     setConfirmed(null);
-    setInterpretationAcknowledged(false);
     setConfirmIdempotencyKey(null);
     try {
       const result = await composeMission(session, {
@@ -104,7 +89,7 @@ export default function MissionsPage() {
   }
 
   async function handleConfirm() {
-    if (!session || !proposal || !interpretationAcknowledged) {
+    if (!session || !proposal) {
       return;
     }
     setConfirming(true);
@@ -117,8 +102,6 @@ export default function MissionsPage() {
       // Proposal-ID confirmation — backend revalidates server-side.
       // Reuse the same idempotency key across retries for this proposal.
       const result = await confirmMissionComposition(session, proposal.proposal_id, {
-        interpretation_fingerprint: proposal.interpretation_fingerprint,
-        interpretation_confirmed: true,
         idempotency_key: idempotencyKey,
       });
       setConfirmed(result);
@@ -126,7 +109,6 @@ export default function MissionsPage() {
       setInstruction("");
       setInterpretationThreadId(null);
       setConfirmIdempotencyKey(null);
-      setInterpretationAcknowledged(false);
       await refreshMissions();
       // Composition creates plan + graph; open execution and auto-run remaining ladder.
       navigate(`/missions/${result.mission_id}?execute=1`);
@@ -167,7 +149,6 @@ export default function MissionsPage() {
                 setInstruction(event.target.value);
                 setProposal(null);
                 setConfirmed(null);
-                setInterpretationAcknowledged(false);
               }}
               placeholder={PLACEHOLDER}
               rows={4}
@@ -187,53 +168,9 @@ export default function MissionsPage() {
 
       {proposal ? (
         <aside className="cc-mission-brief">
-          <p className="cc-section-kicker">Ajenda&apos;s interpretation</p>
+          <p className="cc-section-kicker">Mission brief</p>
           <h2>{proposal.clarifications.length > 0 ? "Needs clarity" : "Ready to review"}</h2>
-          <p className="mission-card-objective">{proposal.interpreted_instruction}</p>
-
-          <div className="mission-card-meta mission-review-details">
-            <strong>Understood details</strong>
-            <ul>
-              {proposal.mission_brief.requested_outcomes.map((outcome) => (
-                <li key={outcome}>Outcome: {friendlyToken(outcome)}</li>
-              ))}
-              {proposal.mission_brief.requested_quantity != null ? (
-                <li>Quantity: {proposal.mission_brief.requested_quantity}</li>
-              ) : null}
-              {proposal.mission_brief.target_entities.map((target, index) => (
-                <li key={`${target.type}-${index}`}>Target: {describeTarget(target)}</li>
-              ))}
-              {proposal.mission_brief.context_requirements.map((requirement) => (
-                <li key={requirement}>Required source: {friendlyToken(requirement)}</li>
-              ))}
-              {proposal.mission_brief.timing_constraints.map((timing, index) => (
-                <li key={`${timing.kind}-${index}`}>
-                  Timing: {timing.label ?? ([timing.start, timing.end].filter(Boolean).join(" to ") || friendlyToken(timing.kind))}
-                </li>
-              ))}
-              {(
-                [
-                  ["Send", proposal.mission_brief.send_policy],
-                  ["Contact", proposal.mission_brief.contact_policy],
-                  ["Publish", proposal.mission_brief.publish_policy],
-                  ["Write", proposal.mission_brief.write_policy],
-                ] as const
-              )
-                .filter(([, policy]) => policy.mode !== "unknown")
-                .map(([label, policy]) => (
-                  <li key={label}>
-                    {label} condition: {friendlyToken(policy.mode)}
-                    {policy.condition !== "none" ? ` — ${friendlyToken(policy.condition)}` : ""}
-                  </li>
-                ))}
-              {proposal.mission_brief.forbidden_outcomes.map((outcome) => (
-                <li key={`forbidden-${outcome}`}>Excluded outcome: {friendlyToken(outcome)}</li>
-              ))}
-              {proposal.mission_brief.unsupported_outcomes.map((outcome) => (
-                <li key={`unsupported-${outcome}`}>Not supported: {outcome}</li>
-              ))}
-            </ul>
-          </div>
+          <p className="mission-card-objective">{proposal.mission_brief.objective}</p>
 
           {proposal.mission_brief.success_criteria.length > 0 ? (
             <div className="mission-card-meta">
@@ -300,29 +237,18 @@ export default function MissionsPage() {
 
           {proposal.forbidden_actions.includes("gtm.email_send") ? (
             <p className="muted">
-              <strong>Send is off</strong> for this mission. Drafts stay in review until you allow sending.
+              <strong>Send is off</strong> for this mission (charter). Drafts stay in review until you allow sending.
             </p>
-          ) : null}
-
-          {proposal.ready_to_start ? (
-            <label className="mission-interpretation-confirmation">
-              <input
-                type="checkbox"
-                checked={interpretationAcknowledged}
-                onChange={(event) => setInterpretationAcknowledged(event.target.checked)}
-              />
-              <span>This interpretation and the understood details match what I meant.</span>
-            </label>
           ) : null}
 
           <div className="mission-card-actions">
             <button
               type="button"
               className="primary-button"
-              disabled={!session || confirming || !proposal.ready_to_start || !interpretationAcknowledged}
+              disabled={!session || confirming || !proposal.ready_to_start}
               onClick={() => void handleConfirm()}
             >
-              {confirming ? "Starting…" : "Confirm interpretation and start"}
+              {confirming ? "Starting…" : "Start mission"}
             </button>
             <button
               type="button"
@@ -330,10 +256,9 @@ export default function MissionsPage() {
               disabled={loading}
               onClick={() => {
                 setProposal(null);
-                setInterpretationAcknowledged(false);
               }}
             >
-              Cancel and revise
+              Revise request
             </button>
           </div>
           {!proposal.ready_to_start ? (

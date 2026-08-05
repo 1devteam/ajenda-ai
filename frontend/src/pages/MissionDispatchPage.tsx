@@ -32,7 +32,7 @@ import { failureText, pretty } from "../utils/errors";
 
 type StepStatus = "pending" | "complete" | "blocked" | "running";
 
-/** Read the confirmed interpretation; legacy records may still use instruction. */
+/** Prefer confirmed composition instruction over lossy mission.objective restatement. */
 function compositionInstructionFromIntake(intake: Record<string, unknown> | null | undefined): string {
   if (!intake || typeof intake !== "object") {
     return "";
@@ -44,10 +44,6 @@ function compositionInstructionFromIntake(intake: Record<string, unknown> | null
   const composition = (context as { composition?: unknown }).composition;
   if (!composition || typeof composition !== "object") {
     return "";
-  }
-  const interpreted = (composition as { interpreted_instruction?: unknown }).interpreted_instruction;
-  if (typeof interpreted === "string" && interpreted.trim()) {
-    return interpreted.trim();
   }
   const instruction = (composition as { instruction?: unknown }).instruction;
   return typeof instruction === "string" ? instruction.trim() : "";
@@ -245,7 +241,7 @@ export default function MissionDispatchPage() {
       return;
     }
     await runStep("Compiling task graph (server)…", async () => {
-      // Omit instruction: server uses the stored confirmed interpretation.
+      // Omit instruction: server prefers stored composition.instruction over objective.
       const compiled = await compileMission(session, missionId, {
         persist: true,
         source: "mission_dispatch_ui",
@@ -268,7 +264,7 @@ export default function MissionDispatchPage() {
       return;
     }
     await runStep("Recompiling + materializing (server)…", async () => {
-      // Server compile owns graph materialization and uses the stored interpretation.
+      // Server compile owns graph materialization; prefer stored composition instruction.
       const compiled = await compileMission(session, missionId, {
         persist: true,
         source: "mission_dispatch_ui",
@@ -360,10 +356,10 @@ export default function MissionDispatchPage() {
       // Server compile is the only graph authority for dispatch. Always recompile so
       // kitchen-sink intake graphs are replaced by composition-selected abilities.
       // Do not pass mission.objective — it is often a lossy restatement; server uses
-      // stored confirmed interpretation when present.
+      // stored composition.instruction when present.
       const storedInstruction = compositionInstructionFromIntake(current.intake ?? null);
       if (!storedInstruction && !current.mission.objective?.trim()) {
-        throw new Error("Mission has no confirmed interpretation or objective to compile.");
+        throw new Error("Mission has no composition instruction or objective to compile.");
       }
       const compiled = await compileMission(session, missionId, {
         persist: true,
