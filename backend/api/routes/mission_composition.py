@@ -155,6 +155,18 @@ def _to_compose_response(record: MissionCompositionRecord) -> ComposeMissionResp
     )
 
 
+_INTERPRETER_TRANSPORT_CODES = frozenset(
+    {
+        "INTERPRETER_DISABLED",
+        "INTERPRETER_NOT_CONFIGURED",
+        "INTERPRETER_ENDPOINT_NOT_ALLOWED",
+        "INTERPRETER_TIMEOUT",
+        "INTERPRETER_UNAVAILABLE",
+        "INTERPRETER_INVALID_OUTPUT",
+    }
+)
+
+
 def _map_error(exc: MissionCompositionError) -> HTTPException:
     status = 400
     if exc.code in {"PROPOSAL_NOT_FOUND"}:
@@ -170,9 +182,21 @@ def _map_error(exc: MissionCompositionError) -> HTTPException:
         "INTERPRETATION_RECORD_INVALID",
         "CONFIRMED_INTERPRETATION_REQUIRED",
         "IDEMPOTENCY_KEY_REQUIRED",
+        # Model-output/grounding failures are user-revisable interpretation
+        # problems, not platform outages.
+        "INTERPRETER_UNGROUNDED_OUTPUT",
+        "INTERPRETER_DROPPED_RECIPIENT",
+        "INTERPRETER_DROPPED_URL",
+        "INTERPRETER_DROPPED_QUANTITY",
+        "INTERPRETER_INVENTED_RECIPIENT",
+        "INTERPRETER_INVENTED_URL",
+        "INTERPRETER_INVENTED_QUANTITY",
+        "INSTRUCTION_REQUIRED",
+        "INSTRUCTION_TOO_LONG",
     }:
         status = 422
-    elif exc.code.startswith("INTERPRETER_"):
+    elif exc.code in _INTERPRETER_TRANSPORT_CODES or exc.code.startswith("INTERPRETER_"):
+        # Unknown INTERPRETER_* codes fail closed as unavailable rather than 400.
         status = 503
     elif exc.code in {
         "PROPOSAL_PERSIST_FAILED",

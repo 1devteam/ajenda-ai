@@ -245,7 +245,9 @@ def test_structured_quantity_must_match_its_grounded_source_span() -> None:
     assert exc.value.code == "INTERPRETER_INVENTED_QUANTITY"
 
 
-def test_ungrounded_structured_field_fails_closed() -> None:
+def test_ungrounded_target_span_is_dropped_not_rewritten() -> None:
+    """Invented city/spans are dropped; local models must not smuggle Dallas→Austin rewrites."""
+
     raw = "Find roofers in Austin."
     candidate = llm_interpretation(raw).model_copy(
         update={
@@ -259,9 +261,8 @@ def test_ungrounded_structured_field_fails_closed() -> None:
             ]
         }
     )
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
+    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
+    assert intent.target_entities == []
 
 
 def test_target_fields_cannot_invent_values_inside_a_real_source_span() -> None:

@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import Settings
+from backend.db.session import _safe_rollback
 
 
 class VectorDatabaseRuntime:
@@ -48,7 +49,7 @@ class VectorDatabaseRuntime:
             yield session
             session.commit()
         except Exception:
-            session.rollback()
+            _safe_rollback(session)
             raise
         finally:
             session.close()
@@ -67,7 +68,7 @@ class VectorDatabaseRuntime:
             yield session
             session.commit()
         except Exception:
-            session.rollback()
+            _safe_rollback(session)
             raise
         finally:
             session.close()

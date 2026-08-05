@@ -164,6 +164,10 @@ export interface ProviderCredentialCreateRequest {
     | "google_calendar"
     | "google_contacts"
     | "github"
+    | "instagram"
+    | "facebook"
+    | "youtube"
+    | "linkedin_publish"
     | "generic";
   secret_value?: string;
   use_platform_master_key?: boolean;

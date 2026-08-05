@@ -252,9 +252,11 @@ class Settings(BaseSettings):
         alias="AJENDA_MISSION_INTERPRETER_API_KEY",
     )
     mission_interpreter_timeout_seconds: float = Field(
+        # In-stack CPU Ollama routinely needs 60–180s for structured mission JSON.
+        # Cap stays hard-bounded so requests cannot hang indefinitely.
         default=30.0,
         gt=0,
-        le=120,
+        le=300,
         alias="AJENDA_MISSION_INTERPRETER_TIMEOUT_SECONDS",
     )
     mission_interpreter_max_tokens: int = Field(

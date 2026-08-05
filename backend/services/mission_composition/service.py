@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.enums import MissionPlanStatus, MissionState
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
@@ -326,12 +327,26 @@ class MissionCompositionService:
         profile = None
         if self._db is not None:
             profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
+        profile_context = _profile_context(profile)
+
+        # End the open request transaction before the model call. Keeping a DB
+        # transaction idle across interpreter latency trips
+        # idle_in_transaction_session_timeout (default 30s) and turns clean
+        # INTERPRETER_* failures into Internal Server Error on rollback.
+        if self._db is not None:
+            self._db.commit()
+
         try:
-            intent = self._interpreter.interpret(raw_instruction, profile_context=_profile_context(profile))
+            intent = self._interpreter.interpret(raw_instruction, profile_context=profile_context)
         except MissionInterpreterTransportError as exc:
             raise MissionCompositionError(code=exc.code, message=str(exc)) from exc
         except MissionInterpreterOutputError as exc:
             raise MissionCompositionError(code=exc.code, message=str(exc)) from exc
+
+        # Re-open a tenant-scoped transaction for durable proposal writes.
+        if self._db is not None:
+            activate_tenant_session(self._db, tenant_id)
+
         # Escalation only for same actor+thread interpretation failures (durable required).
         if prior and prior.get("durable") and intent.ambiguity and not intent.interpretation_ready:
             shared = set(prior.get("unresolved_fields") or []) & {c.field for c in intent.ambiguity}

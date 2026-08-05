@@ -176,12 +176,22 @@ export default function MissionsPage() {
           </label>
 
           <div className="cc-composer-actions">
-            <span>Enter the details Ajenda needs to define success.</span>
+            <span>
+              {loading
+                ? "Planning with the local interpreter — usually under 30 seconds. Leave this tab open."
+                : "Enter the details Ajenda needs to define success."}
+            </span>
             <button type="submit" className="primary-button" disabled={!session || loading || !instruction.trim()}>
               {loading ? "Planning…" : "Plan mission"}
             </button>
           </div>
         </form>
+        {loading ? (
+          <p className="notice warning" role="status">
+            Planning is running on the in-stack model (fast path). Do not refresh. If this fails after about a minute,
+            check that mission-interpreter is healthy.
+          </p>
+        ) : null}
         <PageErrorAlert error={error} />
         </div>
 

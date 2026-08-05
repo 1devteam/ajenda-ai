@@ -424,9 +424,9 @@ export default function MissionDispatchPage() {
     if (autoExecuteStarted.current || loading !== null) {
       return;
     }
-    if (allowedActions.length === 0) {
-      return;
-    }
+    // Do not require client-side allowedActions: handleRunPipeline recompiles on the
+    // server and derives abilities from the confirmed interpretation. Blocking here
+    // left missions stuck at "planned" after confirm when intake shape was incomplete.
     autoExecuteStarted.current = true;
     setSearchParams(
       (prev) => {
@@ -439,7 +439,7 @@ export default function MissionDispatchPage() {
     void handleRunPipeline();
     // Intentionally once per mission load with execute=1.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-start handoff
-  }, [session, lifecycle, missionId, searchParams, allowedActions.length, loading]);
+  }, [session, lifecycle, missionId, searchParams, loading]);
 
   if (!missionId) {
     return (
@@ -484,7 +484,8 @@ export default function MissionDispatchPage() {
             </p>
           ) : (
             <p className="muted">
-              This mission has no composed plan yet. Request a mission from the missions page so Ajenda can plan it.
+              Intake does not list abilities yet. Use <strong>Start execution</strong> — the server recompiles from the
+              confirmed interpretation and materializes the task graph.
             </p>
           )}
         </section>
@@ -496,7 +497,7 @@ export default function MissionDispatchPage() {
           <button
             type="button"
             className="primary-button"
-            disabled={!session || loading !== null || allowedActions.length === 0}
+            disabled={!session || loading !== null}
             onClick={() => void handleRunPipeline()}
           >
             {loading === "Running full pipeline…" ? "Running…" : "Start execution"}
@@ -527,12 +528,12 @@ export default function MissionDispatchPage() {
                     </button>
                   ) : null}
                   {step.id === "graph" ? (
-                    <button type="button" className="ghost-button" disabled={!session || loading !== null || allowedActions.length === 0} onClick={() => void handlePrepareGraph()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null} onClick={() => void handlePrepareGraph()}>
                       {loading === "Building task graph…" ? "Working…" : lifecycle?.completeness.has_task_graph ? "Replace graph" : "Build graph"}
                     </button>
                   ) : null}
                   {step.id === "materialize" ? (
-                    <button type="button" className="ghost-button" disabled={!session || loading !== null || allowedActions.length === 0} onClick={() => void handleMaterializeGraph()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null} onClick={() => void handleMaterializeGraph()}>
                       {loading === "Materializing graph…" ? "Working…" : "Materialize"}
                     </button>
                   ) : null}
@@ -542,7 +543,7 @@ export default function MissionDispatchPage() {
                     </button>
                   ) : null}
                   {step.id === "admit" ? (
-                    <button type="button" className="ghost-button" disabled={!session || loading !== null || allowedActions.length === 0} onClick={() => void handleAdmitRuntime()}>
+                    <button type="button" className="ghost-button" disabled={!session || loading !== null} onClick={() => void handleAdmitRuntime()}>
                       {loading === "Admitting to runtime…" ? "Working…" : "Admit to runtime"}
                     </button>
                   ) : null}

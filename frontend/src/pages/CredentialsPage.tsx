@@ -33,7 +33,11 @@ type IntegrationKind =
   | "salesforce"
   | "google_calendar"
   | "google_contacts"
-  | "github";
+  | "github"
+  | "instagram"
+  | "facebook"
+  | "youtube"
+  | "linkedin_publish";
 
 const HUBSPOT_FORM: ProviderCredentialCreateRequest = {
   credential_id: "hubspot-crm",
@@ -139,6 +143,38 @@ const GITHUB_FORM: ProviderCredentialCreateRequest = {
   use_platform_master_key: false,
 };
 
+const INSTAGRAM_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "instagram-publish",
+  provider: "external_social",
+  integration: "instagram",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
+const FACEBOOK_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "facebook-publish",
+  provider: "external_social",
+  integration: "facebook",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
+const YOUTUBE_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "youtube-publish",
+  provider: "external_social",
+  integration: "youtube",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
+const LINKEDIN_PUBLISH_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "linkedin-publish",
+  provider: "external_social",
+  integration: "linkedin_publish",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
 const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateRequest> = {
   hubspot: HUBSPOT_FORM,
   gmail: GMAIL_FORM,
@@ -148,17 +184,25 @@ const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateReque
   google_calendar: GOOGLE_CALENDAR_FORM,
   google_contacts: GOOGLE_CONTACTS_FORM,
   github: GITHUB_FORM,
+  instagram: INSTAGRAM_FORM,
+  facebook: FACEBOOK_FORM,
+  youtube: YOUTUBE_FORM,
+  linkedin_publish: LINKEDIN_PUBLISH_FORM,
 };
 
 const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
   hubspot: "HubSpot CRM",
   gmail: "Gmail (Google)",
   smtp: "Email (SMTP)",
-  linkedin: "LinkedIn",
+  linkedin: "LinkedIn (read)",
   salesforce: "Salesforce",
   google_calendar: "Google Calendar",
   google_contacts: "Google Contacts",
   github: "GitHub",
+  instagram: "Instagram (publish)",
+  facebook: "Facebook (publish)",
+  youtube: "YouTube (publish)",
+  linkedin_publish: "LinkedIn (publish)",
 };
 
 /** Display order: Google connectors first, then other providers. */
@@ -170,6 +214,10 @@ const INTEGRATION_ORDER: IntegrationKind[] = [
   "hubspot",
   "salesforce",
   "linkedin",
+  "linkedin_publish",
+  "instagram",
+  "facebook",
+  "youtube",
   "github",
 ];
 
@@ -534,9 +582,14 @@ export default function CredentialsPage() {
       ? "Connect HubSpot CRM"
       : integration === "smtp"
         ? "Connect SMTP email"
-        : supportsOAuth
-          ? `Connect ${INTEGRATION_LABELS[integration]} (paste)`
-          : `Connect ${INTEGRATION_LABELS[integration]}`;
+        : integration === "instagram" ||
+            integration === "facebook" ||
+            integration === "youtube" ||
+            integration === "linkedin_publish"
+          ? `Save ${INTEGRATION_LABELS[integration]} token`
+          : supportsOAuth
+            ? `Connect ${INTEGRATION_LABELS[integration]} (paste)`
+            : `Connect ${INTEGRATION_LABELS[integration]}`;
 
   const platformHubspot = credentials.find(
     (item) => item.credential_id === "hubspot-crm" && item.uses_platform_master_key && !item.revoked,
@@ -567,13 +620,65 @@ export default function CredentialsPage() {
     },
   ];
 
+  const socialPublishCards: Array<{
+    kind: IntegrationKind;
+    description: string;
+    credentialId: string;
+  }> = [
+    {
+      kind: "instagram",
+      description: "Instagram Graph publish. Paste a Page/IG user access token from Meta.",
+      credentialId: "instagram-publish",
+    },
+    {
+      kind: "facebook",
+      description: "Facebook Page feed publish. Paste a Page access token from Meta.",
+      credentialId: "facebook-publish",
+    },
+    {
+      kind: "youtube",
+      description: "YouTube Data API publish. Paste a Google OAuth access token with youtube.upload.",
+      credentialId: "youtube-publish",
+    },
+    {
+      kind: "linkedin_publish",
+      description: "LinkedIn UGC publish. Paste a token with w_member_social (separate from LinkedIn read).",
+      credentialId: "linkedin-publish",
+    },
+  ];
+
+  const isSocialPublish =
+    integration === "instagram" ||
+    integration === "facebook" ||
+    integration === "youtube" ||
+    integration === "linkedin_publish";
+
+  function openSocialForm(kind: IntegrationKind) {
+    setIntegration(kind);
+    setForm({ ...FORM_BY_INTEGRATION[kind] });
+    setError(null);
+    // Scroll advanced form into view after tab switch.
+    window.requestAnimationFrame(() => {
+      document.getElementById("credential-setup-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   return (
     <main>
       <PageHeader
         eyebrow="Connections"
         title="Integrations and credentials"
-        lead="Sign-in with Google only proves identity. Connect Gmail, Calendar, and Contacts here with separate OAuth consent when you need those tools."
+        lead="Sign-in with Google only proves identity. Connect Gmail, Calendar, Contacts, and social publish tokens here."
       />
+
+      {loading ? (
+        <p className="notice warning" role="status">
+          Working: {loading}.{" "}
+          <button type="button" className="ghost-button" onClick={() => setLoading(null)}>
+            Cancel / re-enable buttons
+          </button>
+        </p>
+      ) : null}
 
       <section className="panel">
         <h2>Google connectors</h2>
@@ -631,9 +736,43 @@ export default function CredentialsPage() {
       </section>
 
       <section className="panel">
+        <h2>Social publish (operator tokens)</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Instagram, Facebook, YouTube, and LinkedIn publish use encrypted API tokens you paste here — not Google
+          sign-in. High-risk publish still requires charter/guardian gates at runtime.
+        </p>
+        <div className="cc-integration-grid">
+          {socialPublishCards.map((card) => {
+            const connected = credentialIsActive(credentials, card.credentialId);
+            return (
+              <IntegrationCard
+                key={card.kind}
+                name={INTEGRATION_LABELS[card.kind]}
+                description={card.description}
+                status={connected ? "connected" : "connect"}
+                onActivate={() => openSocialForm(card.kind)}
+              >
+                <button
+                  type="button"
+                  className="primary-button"
+                  data-connector={card.kind}
+                  data-testid={`connect-${card.kind}`}
+                  onClick={() => openSocialForm(card.kind)}
+                >
+                  {connected
+                    ? `Update ${INTEGRATION_LABELS[card.kind]} token`
+                    : `Add ${INTEGRATION_LABELS[card.kind]} token`}
+                </button>
+              </IntegrationCard>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="panel" id="credential-setup-form">
         <h2>Advanced credential setup</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          Paste tokens, SMTP, or non-Google providers. Prefer the Google connector buttons above when possible.
+          Paste tokens, SMTP, or non-Google providers. Prefer the connector buttons above when possible.
         </p>
 
         <div className="credential-tabs">
@@ -915,6 +1054,39 @@ export default function CredentialsPage() {
               >
                 Connect GitHub with OAuth
               </button>
+            </>
+          ) : isSocialPublish ? (
+            <>
+              <p className="muted">
+                Paste the provider access token for <strong>{INTEGRATION_LABELS[integration]}</strong>. Tokens are
+                encrypted at rest. Publish actions fail closed if this credential is missing.
+              </p>
+              <label>
+                Access token
+                <textarea
+                  value={form.secret_value ?? ""}
+                  onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
+                  placeholder={
+                    integration === "youtube"
+                      ? "Paste Google OAuth access token (youtube.upload scope)"
+                      : integration === "linkedin_publish"
+                        ? "Paste LinkedIn access token (w_member_social)"
+                        : "Paste Meta Graph Page / IG user access token"
+                  }
+                  required
+                  rows={4}
+                />
+                <span className="field-hint">
+                  {integration === "instagram" &&
+                    "Also set destination ig_user_id in mission publish context when posting."}
+                  {integration === "facebook" &&
+                    "Also set destination page_id in mission publish context when posting."}
+                  {integration === "youtube" &&
+                    "Video publish requires media_url + title on the publish action input."}
+                  {integration === "linkedin_publish" &&
+                    "Also set author_urn (urn:li:person:…) in mission publish context."}
+                </span>
+              </label>
             </>
           ) : null}
 

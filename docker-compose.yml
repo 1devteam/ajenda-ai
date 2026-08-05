@@ -94,6 +94,8 @@ services:
     build:
       context: .
       dockerfile: deploy/compose/hubspot-crm-ingress/Dockerfile
+    volumes:
+      - ./deploy/compose/hubspot-crm-ingress/certs:/etc/nginx/certs:ro
     ports:
       - "8443:443"
     depends_on:

@@ -96,7 +96,8 @@ CONNECTOR_CAPABILITIES: tuple[ConnectorCapability, ...] = (
         maturity="partial",
         notes=(
             "Default OAuth is openid/profile/email. Member publish (w_member_social) is not "
-            "default; gtm.social_publish is generic external_social and may simulate without creds."
+            "default; gtm.social_publish requires external_social credentials "
+            "(instagram/facebook/youtube/linkedin_publish) and fails closed without them."
         ),
     ),
     ConnectorCapability(

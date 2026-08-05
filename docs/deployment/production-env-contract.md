@@ -44,7 +44,7 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_MISSION_INTERPRETER_BASE_URL` | conditional | no | Private OpenAI-compatible `/v1` endpoint; required when the interpreter is enabled. |
 | `AJENDA_MISSION_INTERPRETER_PRIVATE_HOST_ALLOWLIST` | yes | no | Exact comma-separated private inference hostnames allowed to receive interpretation input. |
 | `AJENDA_MISSION_INTERPRETER_MODEL` | conditional | no | Model identifier loaded by the internal inference service. |
-| `AJENDA_MISSION_INTERPRETER_TIMEOUT_SECONDS` | yes | no | Per-interpretation request timeout (maximum 120 seconds). |
+| `AJENDA_MISSION_INTERPRETER_TIMEOUT_SECONDS` | yes | no | Per-interpretation request timeout (maximum 300 seconds; in-stack CPU models often need 120–180). |
 | `AJENDA_MISSION_INTERPRETER_MAX_TOKENS` | yes | no | Structured-output token ceiling. |
 | `AJENDA_MISSION_INTERPRETER_API_KEY` | no | yes | Optional bearer token for an authenticated internal inference service. |
 

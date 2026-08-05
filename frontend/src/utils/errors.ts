@@ -136,9 +136,25 @@ export function failureText(error: unknown): string {
   }
   if (typeof maybe.status === "number") {
     if (maybe.status === 504) {
-      return "Ajenda API timed out. The service may be restarting — wait a few seconds and try again.";
+      return (
+        "Ajenda timed out waiting for the mission interpreter. Local planning often takes 1–3 minutes — " +
+        "retry once; if it keeps failing, check that mission-interpreter is healthy and try a shorter mission."
+      );
     }
     if (maybe.status === 502 || maybe.status === 503) {
+      // Prefer the API's structured message (e.g. INTERPRETER_*) over a generic
+      // gateway blurb so operators can act on the real failure.
+      const structured = extractFailureMessage(maybe.body);
+      const code = extractFailureCode(maybe.body);
+      if (structured) {
+        return code ? `${structured} (${code})` : structured;
+      }
+      if (maybe.status === 502) {
+        return (
+          "Ajenda gateway lost the API mid-request (often during long mission planning). " +
+          "Wait a moment and retry Plan mission once."
+        );
+      }
       return "Ajenda API is temporarily unavailable. Wait a moment and retry.";
     }
     if (maybe.status === 402) {
@@ -211,6 +227,14 @@ export function failureText(error: unknown): string {
         const structured = detail as { code?: string; message?: string; field?: string; limit?: number; current?: number; plan?: string };
         if (structured.code === "QUOTA_EXCEEDED" && typeof structured.message === "string") {
           return structured.message;
+        }
+        if (
+          typeof structured.code === "string" &&
+          structured.code.startsWith("INTERPRETER_") &&
+          typeof structured.message === "string" &&
+          structured.message.trim()
+        ) {
+          return `${structured.message} (${structured.code})`;
         }
         if (
           structured.code === "AUTHENTICATION_REQUIRED" ||

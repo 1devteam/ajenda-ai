@@ -612,9 +612,11 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         objective = (intent.objective or "").strip()
         lower_obj = objective.lower()
         platform = "linkedin"
-        if "twitter" in lower_obj or re.search(r"\bx\b", lower_obj):
-            platform = "twitter"
-        elif "facebook" in lower_obj:
+        if "instagram" in lower_obj or re.search(r"\big\b", lower_obj):
+            platform = "instagram"
+        elif "youtube" in lower_obj or re.search(r"\byt\b", lower_obj):
+            platform = "youtube"
+        elif "facebook" in lower_obj or re.search(r"\bfb\b", lower_obj):
             platform = "facebook"
         result_based = any(
             isinstance(entity.attributes, dict) and entity.attributes.get("publish_result_based")

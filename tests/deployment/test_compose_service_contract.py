@@ -19,6 +19,7 @@ REQUIRED_SERVICES = frozenset(
         "redis",
         "prometheus",
         "otel-collector",
+        "mission-interpreter",
     }
 )
 
@@ -79,6 +80,18 @@ def test_api_service_waits_for_required_dependencies() -> None:
     assert "redis:" in api_block
     assert "condition: service_started" in api_block
     assert "otel-collector:" in api_block
+    assert "mission-interpreter:" in api_block
+
+
+def test_mission_interpreter_is_private_in_stack_service() -> None:
+    compose = _read(COMPOSE_FILE)
+    block = _service_block(compose, "mission-interpreter")
+    assert "ollama/ollama" in block
+    assert "mission_interpreter_data" in block
+    # Must not publish inference to the host network for the product stack.
+    assert "ports:" not in block
+    api_block = _service_block(compose, "api")
+    assert "mission-interpreter:" in api_block
 
 
 def test_worker_service_waits_for_queue_database_and_migrations() -> None:

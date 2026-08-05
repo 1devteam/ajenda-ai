@@ -355,8 +355,11 @@ class GtmCrmUpsertInput(BaseModel):
 class GtmSocialPublishInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    platform: str = Field(default="twitter", max_length=80)
-    content: str = Field(min_length=1, max_length=280)
+    # Supported product platforms: instagram | facebook | youtube | linkedin
+    platform: str = Field(default="linkedin", min_length=1, max_length=80)
+    content: str = Field(min_length=1, max_length=5000)
+    title: str | None = Field(default=None, max_length=200)
+    media_url: str | None = Field(default=None, max_length=2048)
     context: dict[str, Any] = Field(default_factory=dict)
 
 

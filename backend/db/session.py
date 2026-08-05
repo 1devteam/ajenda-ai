@@ -9,6 +9,24 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.app.config import Settings
 
 
+def _safe_rollback(session: Session) -> None:
+    """Rollback without masking the original request failure.
+
+    Long external calls (for example mission interpretation) can outlive
+    ``idle_in_transaction_session_timeout``. When Postgres already killed the
+    connection, a naive ``session.rollback()`` raises and replaces the real
+    HTTP error with a 500 Internal Server Error.
+    """
+
+    try:
+        session.rollback()
+    except Exception:
+        try:
+            session.invalidate()
+        except Exception:
+            pass
+
+
 class DatabaseRuntime:
     def __init__(self, settings: Settings) -> None:
         engine_kwargs: dict[str, object] = {
@@ -44,7 +62,7 @@ class DatabaseRuntime:
             yield session
             session.commit()
         except Exception:
-            session.rollback()
+            _safe_rollback(session)
             raise
         finally:
             session.close()
@@ -64,7 +82,7 @@ class DatabaseRuntime:
             yield session
             session.commit()
         except Exception:
-            session.rollback()
+            _safe_rollback(session)
             raise
         finally:
             session.close()

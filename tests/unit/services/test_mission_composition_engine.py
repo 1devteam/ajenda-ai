@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.contracts import AbilitySelection, TargetEntity
@@ -107,15 +107,21 @@ def test_profile_context_passed_to_interpreter_contains_only_approved_fields() -
             }
         },
     )()
+    db = MagicMock()
     with patch("backend.services.mission_composition.service.BusinessProfileRepository") as repo_cls:
         repo_cls.return_value.get_active_profile_for_tenant.return_value = profile
         with patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as creds_cls:
             creds_cls.return_value.list_for_tenant.return_value = []
             with patch("backend.services.mission_composition.service.put_proposal", return_value=True):
-                MissionCompositionService(db=object(), interpreter=interpreter).compose(
-                    tenant_id="tenant-1",
-                    instruction=RAW,
-                )
+                with patch("backend.services.mission_composition.service.activate_tenant_session") as activate:
+                    MissionCompositionService(db=db, interpreter=interpreter).compose(
+                        tenant_id="tenant-1",
+                        instruction=RAW,
+                    )
+                    # Release the request transaction before the model call, then
+                    # re-activate tenant RLS before durable writes.
+                    db.commit.assert_called()
+                    activate.assert_called_with(db, "tenant-1")
     assert interpreter.calls[0][1] == {"business_name": "Acme Roofing", "industry": "Roofing"}
 
 

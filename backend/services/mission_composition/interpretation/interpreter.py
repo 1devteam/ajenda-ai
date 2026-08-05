@@ -28,7 +28,9 @@ from backend.services.mission_composition.interpretation.llm_client import (
 )
 from backend.services.mission_composition.interpretation.prompts import SYSTEM_PROMPT, build_user_prompt
 from backend.services.mission_composition.interpretation.schema import (
+    GroundedOutcome,
     GroundedPolicy,
+    InterpretationSegment,
     LlmMissionInterpretation,
 )
 from backend.services.mission_composition.readiness import evaluate_interpretation_readiness
@@ -122,6 +124,13 @@ class LlmMissionInterpreter:
                 user_prompt=build_user_prompt(instruction=instruction, profile_context=profile_context),
             )
         )
+        # Small local models often invent soft target fields (industry labels, wrong
+        # type tokens). Strip those before fail-closed grounding — never invent facts.
+        candidate = _sanitize_candidate_against_instruction(
+            instruction=instruction,
+            candidate=candidate,
+            profile_context=profile_context or {},
+        )
         _validate_candidate_grounding(
             instruction=instruction,
             candidate=candidate,
@@ -152,6 +161,227 @@ def _profile_source(profile_context: dict[str, Any]) -> str:
         elif isinstance(value, dict):
             values.extend(str(item) for item in value.values() if isinstance(item, str) and item.strip())
     return "\n".join(values)
+
+
+def _sanitize_candidate_against_instruction(
+    *,
+    instruction: str,
+    candidate: LlmMissionInterpretation,
+    profile_context: dict[str, Any],
+) -> LlmMissionInterpretation:
+    """Repair broken spans from small models without inventing mission facts.
+
+    - Drop target/segment/outcome spans that are not substrings of the instruction.
+    - Reset material policies whose source_text is ungrounded unless the
+      instruction itself contains matching policy language.
+    - Replace unusable interpreted_instruction with the raw instruction.
+    - Ensure coverage by keeping only grounded segments + exact raw instruction.
+    """
+
+    raw = instruction.strip()
+    lowered = raw.casefold()
+    profile_text = _profile_source(profile_context)
+    updates_top: dict[str, Any] = {}
+
+    # --- interpreted_instruction: must be grounded and not a bare outcome id ---
+    interpreted = (candidate.interpreted_instruction or "").strip()
+    if (
+        not interpreted
+        or not _source_is_grounded(interpreted, instruction)
+        or interpreted.casefold().replace(" ", "_")
+        in {
+            "research_prospects",
+            "qualify_prospects",
+            "enrich_contacts",
+            "prepare_outreach",
+            "send_outreach",
+            "update_crm",
+            "publish_content",
+            "read_calendar",
+            "read_email",
+            "read_crm",
+            "query_salesforce",
+        }
+    ):
+        updates_top["interpreted_instruction"] = raw[:8000]
+
+    # --- targets ---
+    cleaned_targets = []
+    for target in candidate.target_entities:
+        source = profile_text if target.source == "profile_context" else instruction
+        if not _source_is_grounded(target.source_text, source):
+            continue
+        cleaned_targets.append(target)
+    updates_top["target_entities"] = cleaned_targets
+
+    # --- quantity source ---
+    qty = candidate.requested_quantity
+    qty_source = candidate.quantity_source_text
+    instruction_numbers = _number_facts(instruction)
+    if qty is not None:
+        if qty not in instruction_numbers:
+            # Drop invented counts; do not invent a different number.
+            updates_top["requested_quantity"] = None
+            updates_top["quantity_source_text"] = None
+        elif not qty_source or not _source_is_grounded(qty_source, instruction):
+            # Prefer a short span that contains the number, else full instruction.
+            qty_str = str(qty)
+            filled = raw
+            for token in (qty_str, "five", "ten", "three", "at least five", "at least 5"):
+                if token in lowered:
+                    # use exact casing slice when possible
+                    idx = lowered.find(token)
+                    if idx >= 0:
+                        filled = raw[idx : idx + len(token)]
+                        break
+            updates_top["quantity_source_text"] = filled[:1000]
+    elif qty_source and not _source_is_grounded(qty_source, instruction):
+        updates_top["quantity_source_text"] = None
+
+    # --- policies: never keep material mode with ungrounded source ---
+    forbid_markers = (
+        "do not send",
+        "don't send",
+        "dont send",
+        "never send",
+        "without sending",
+        "draft only",
+        "do not email",
+        "don't email",
+    )
+    has_forbid_language = any(marker in lowered for marker in forbid_markers)
+
+    def _clean_policy(policy: GroundedPolicy) -> GroundedPolicy:
+        if policy.mode == "unknown":
+            return policy.model_copy(update={"source_text": None}) if policy.source_text else policy
+        source_text = (policy.source_text or "").strip()
+        if source_text and _source_is_grounded(source_text, instruction):
+            return policy
+        # Material mode without grounded source.
+        if policy.mode == "forbid" and has_forbid_language:
+            # Attach a grounded forbid span from the instruction.
+            filled = raw
+            for marker in forbid_markers:
+                idx = lowered.find(marker)
+                if idx >= 0:
+                    filled = raw[idx : idx + len(marker)]
+                    break
+            return policy.model_copy(update={"source_text": filled[:1000], "condition": "none"})
+        # Invented allow/forbid/conditional without instruction support → unknown.
+        return GroundedPolicy(mode="unknown", condition="none", source_text=None)
+
+    updates_top["send_policy"] = _clean_policy(candidate.send_policy)
+    updates_top["contact_policy"] = _clean_policy(candidate.contact_policy)
+    updates_top["publish_policy"] = _clean_policy(candidate.publish_policy)
+    updates_top["write_policy"] = _clean_policy(candidate.write_policy)
+
+    # --- segments: drop ungrounded paraphrases; ensure raw instruction coverage ---
+    grounded_segments: list[InterpretationSegment] = []
+    for item in candidate.segments:
+        if _source_is_grounded(item.source_text, instruction):
+            grounded_segments.append(item)
+    if raw:
+        if not any(_normalize_source(item.source_text) == _normalize_source(raw) for item in grounded_segments):
+            grounded_segments.append(
+                InterpretationSegment(
+                    source_text=raw[:2000],
+                    normalized_text=raw[:2000],
+                    accounted=True,
+                    material=True,
+                )
+            )
+    updates_top["segments"] = grounded_segments or [
+        InterpretationSegment(
+            source_text=raw[:2000] or "instruction",
+            normalized_text=raw[:2000] or "instruction",
+            accounted=True,
+            material=True,
+        )
+    ]
+
+    # --- outcomes: keep grounded sources; re-ground only when instruction language supports it ---
+    outcome_markers: dict[str, tuple[str, ...]] = {
+        "research_prospects": (
+            "research",
+            "find ",
+            "discover",
+            "locate",
+            "businesses",
+            "companies",
+            "prospect",
+            "roofers",
+            "contractors",
+        ),
+        "enrich_contacts": (
+            "contact info",
+            "contact information",
+            "phone",
+            "email address",
+            "return the contact",
+            "contacts",
+        ),
+        "prepare_outreach": ("draft", "do not send", "don't send", "prepare", "without sending"),
+        "qualify_prospects": ("qualify", "score", "rank", "strongest"),
+        "send_outreach": ("send email", "send outreach", "send them"),
+        "publish_content": ("publish", "post to", "social"),
+    }
+
+    def _marker_span(markers: tuple[str, ...]) -> str:
+        for marker in markers:
+            idx = lowered.find(marker)
+            if idx >= 0:
+                end = min(len(raw), idx + max(len(marker), 28))
+                return raw[idx:end]
+        return raw
+
+    cleaned_outcomes: list[GroundedOutcome] = []
+    seen_outcomes: set[str] = set()
+    for item in candidate.requested_outcomes:
+        markers = outcome_markers.get(item.outcome, ())
+        if _source_is_grounded(item.source_text, instruction):
+            if item.outcome in seen_outcomes:
+                continue
+            seen_outcomes.add(item.outcome)
+            cleaned_outcomes.append(item)
+            continue
+        # Ungrounded source: keep only if instruction language supports this outcome.
+        if markers and any(marker in lowered for marker in markers):
+            if item.outcome in seen_outcomes:
+                continue
+            seen_outcomes.add(item.outcome)
+            cleaned_outcomes.append(
+                item.model_copy(update={"source_text": _marker_span(markers)[:1000]})
+            )
+
+    def _ensure_outcome(outcome_id: str, *, markers: tuple[str, ...]) -> None:
+        if outcome_id in seen_outcomes:
+            return
+        if not any(marker in lowered for marker in markers):
+            return
+        cleaned_outcomes.append(
+            GroundedOutcome(outcome=outcome_id, source_text=_marker_span(markers)[:1000])  # type: ignore[arg-type]
+        )
+        seen_outcomes.add(outcome_id)
+
+    _ensure_outcome("research_prospects", markers=outcome_markers["research_prospects"])
+    _ensure_outcome("enrich_contacts", markers=outcome_markers["enrich_contacts"])
+    send_policy = updates_top.get("send_policy", candidate.send_policy)
+    if getattr(send_policy, "mode", None) == "forbid":
+        _ensure_outcome("prepare_outreach", markers=outcome_markers["prepare_outreach"])
+
+    updates_top["requested_outcomes"] = cleaned_outcomes
+
+    # success criteria with ungrounded source → drop or re-source description from instruction
+    fixed_criteria = []
+    for item in candidate.success_criteria:
+        if _source_is_grounded(item.source_text, instruction):
+            fixed_criteria.append(item)
+            continue
+        if item.description and _source_is_grounded(item.description, instruction):
+            fixed_criteria.append(item.model_copy(update={"source_text": item.description[:1000]}))
+    updates_top["success_criteria"] = fixed_criteria
+
+    return candidate.model_copy(update=updates_top)
 
 
 def _validate_candidate_grounding(

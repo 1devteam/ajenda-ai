@@ -15,6 +15,14 @@ from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.provider_runtime_credential_repository import ProviderRuntimeCredentialRepository
 from backend.services.credentials.platform_master import platform_master_ready_for
 from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
+from backend.services.tools.social_publish import (
+    FACEBOOK_TRUSTED_HOSTS,
+    INSTAGRAM_TRUSTED_HOSTS,
+    LINKEDIN_PUBLISH_TRUSTED_HOSTS,
+    SOCIAL_PUBLISH_ACTIONS,
+    SOCIAL_PUBLISH_SIDE_EFFECTS,
+    YOUTUBE_TRUSTED_HOSTS,
+)
 
 PLATFORM_MASTER_CREDENTIAL_TYPE = "platform_master"
 TENANT_API_KEY_CREDENTIAL_TYPE = "api_key"
@@ -100,6 +108,10 @@ class ProviderCredentialManagementService:
             "google_calendar",
             "google_contacts",
             "github",
+            "instagram",
+            "facebook",
+            "youtube",
+            "linkedin_publish",
             "generic",
         ] = "hubspot",
         secret_value: str | None = None,
@@ -111,9 +123,15 @@ class ProviderCredentialManagementService:
     ) -> ProviderCredentialCreateResult:
         normalized_id = _normalize_credential_id(credential_id)
         normalized_provider = provider.strip().lower()
-        if normalized_provider not in {"external_crm", "external_read_provider", "external_email"}:
+        if normalized_provider not in {
+            "external_crm",
+            "external_read_provider",
+            "external_email",
+            "external_social",
+        }:
             raise ProviderCredentialManagementError(
-                "provider must be external_crm, external_read_provider, or external_email"
+                "provider must be external_crm, external_read_provider, "
+                "external_email, or external_social"
             )
 
         warning: str | None = None
@@ -292,6 +310,35 @@ class ProviderCredentialManagementService:
             actions = tuple(allowed_actions or SMTP_EMAIL_ACTIONS)
             side_effects = tuple(allowed_side_effect_classes or SMTP_EMAIL_SIDE_EFFECTS)
             hosts = tuple(trusted_destination_hosts or ())
+            return actions, side_effects, hosts
+        if provider == "external_social" and integration == "instagram":
+            actions = tuple(allowed_actions or SOCIAL_PUBLISH_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or SOCIAL_PUBLISH_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or INSTAGRAM_TRUSTED_HOSTS)
+            return actions, side_effects, hosts
+        if provider == "external_social" and integration == "facebook":
+            actions = tuple(allowed_actions or SOCIAL_PUBLISH_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or SOCIAL_PUBLISH_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or FACEBOOK_TRUSTED_HOSTS)
+            return actions, side_effects, hosts
+        if provider == "external_social" and integration == "youtube":
+            actions = tuple(allowed_actions or SOCIAL_PUBLISH_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or SOCIAL_PUBLISH_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or YOUTUBE_TRUSTED_HOSTS)
+            return actions, side_effects, hosts
+        if provider == "external_social" and integration in {"linkedin_publish", "linkedin"}:
+            actions = tuple(allowed_actions or SOCIAL_PUBLISH_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or SOCIAL_PUBLISH_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or LINKEDIN_PUBLISH_TRUSTED_HOSTS)
+            return actions, side_effects, hosts
+        if provider == "external_social":
+            actions = tuple(allowed_actions or SOCIAL_PUBLISH_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or SOCIAL_PUBLISH_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or ())
+            if not hosts:
+                raise ProviderCredentialManagementError(
+                    "trusted_destination_hosts is required for generic external_social integrations"
+                )
             return actions, side_effects, hosts
         actions = tuple(allowed_actions or ())
         side_effects = tuple(allowed_side_effect_classes or ())
