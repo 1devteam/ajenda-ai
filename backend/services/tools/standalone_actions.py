@@ -193,12 +193,14 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 limit=payload.limit,
             )
         )
-    if search_domain or search_company:
+    # Narrow once so mypy sees query: str (not str | None) at the call site.
+    contact_query = search_domain or search_company
+    if contact_query:
         internal_matches.extend(
             store.search_records(
                 tenant_id=context.tenant_id,
                 record_type="contact",
-                query=search_domain or search_company,
+                query=contact_query,
                 limit=payload.limit,
             )
         )
@@ -218,9 +220,10 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         if domain is None and page_domain:
             domain = page_domain
 
+    # CRM client contract requires str company; empty string means no company filter.
     crm_search = default_crm_client().search(
         context=context,
-        company=search_company,
+        company=search_company or "",
         domain=search_domain or "",
         credential=None,
         invocation=invocation,
