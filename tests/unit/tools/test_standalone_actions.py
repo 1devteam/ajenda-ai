@@ -32,6 +32,57 @@ def test_web_research_runs_without_external_plugins() -> None:
     assert result.output["domain"] is None
 
 
+def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> None:
+    """Open research about a third party must not report tenant profile as company/domain."""
+    from backend.services.business_context_resolver import BusinessContext
+    from backend.services.tools import standalone_actions
+
+    profile = BusinessContext(
+        business_name="Ajenda AI",
+        company="Ajenda AI",
+        domain="ajenda.ai",
+        website="https://ajenda.ai",
+        service_area=None,
+        primary_contact_name=None,
+        contact_email=None,
+        contact_phone=None,
+        target_customers=(),
+        products_services=(),
+        operator_notes=None,
+        account_record_id=None,
+        contact_record_id=None,
+        source="business_profile",
+    )
+    monkeypatch.setattr(standalone_actions, "resolve_business_context", lambda _ctx: profile)
+    monkeypatch.setattr(
+        standalone_actions,
+        "default_company_and_domain",
+        lambda **_kwargs: ("Ajenda AI", "ajenda.ai"),
+    )
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_duckduckgo_instant_answer",
+        lambda **_kwargs: {"results": [], "real": True, "error": None},
+    )
+
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "Absolute Janitorial Sarah Bogert quality control contact",
+                "include_public_search": True,
+            },
+        ),
+        _context(),
+    )
+    assert result.output["company"] is None
+    assert result.output["domain"] is None
+    assert result.output["profile_company"] == "Ajenda AI"
+    assert result.output["profile_domain"] == "ajenda.ai"
+    assert "Ajenda AI" not in str(result.output.get("query"))
+
+
 def test_web_research_does_not_mix_explicit_company_with_profile_domain(monkeypatch) -> None:
     """Codex P2: explicit prospect target must not inherit tenant profile domain."""
     from backend.services.business_context_resolver import BusinessContext

@@ -53,8 +53,10 @@ class StateMachine:
     """Centralized state transition validator for all domain entities."""
 
     _MISSION_ALLOWED: ClassVar[dict[str, set[str]]] = {
-        "planned": {"approved"},
-        "approved": {"queued"},
+        # Composition missions queue tasks without a separate mission-level
+        # approve/queue step — allow planned→running and planned→completed rollups.
+        "planned": {"approved", "running", "cancelled", "completed", "failed"},
+        "approved": {"queued", "running", "cancelled"},
         "queued": {"running", "cancelled"},
         "running": {"paused", "completed", "failed", "cancelled"},
         "paused": {"running"},
