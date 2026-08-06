@@ -121,6 +121,27 @@ _SALESFORCE_QUERY_PATTERNS = (
     r"\b(?:query|check|read|search|list|show|summarize)\b.{0,48}\bsalesforce\b",
     r"\bsalesforce\b.{0,48}\b(?:accounts?|contacts?|leads?|opportunities|records?|pipeline)\b",
 )
+
+# Wave A operator reads — distinct from publish (LinkedIn) and CRM write (contacts).
+_LINKEDIN_READ_PATTERNS = (
+    r"\b(?:check|read|show|fetch|get|open)\b.{0,40}\blinkedin\b.{0,24}\bprofile\b",
+    r"\blinkedin\b.{0,24}\bprofile\b",
+    r"\b(?:my|the)\s+linkedin\s+profile\b",
+    r"\bread\s+(?:my\s+)?linkedin\b",
+)
+_GITHUB_READ_PATTERNS = (
+    r"\b(?:check|read|show|fetch|get|open)\b.{0,40}\bgithub\b.{0,40}\b(?:repo|repository)\b",
+    r"\bgithub\b.{0,24}\b(?:repo|repository)\b",
+    r"\bread\s+(?:the\s+)?github\b",
+    r"\bgithub\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\b",
+)
+_CONTACTS_READ_PATTERNS = (
+    r"\b(?:check|read|list|show|fetch|get)\b.{0,40}\bgoogle\s+contacts?\b",
+    r"\bgoogle\s+contacts?\b",
+    r"\b(?:check|read|list|show)\b.{0,24}\b(?:my\s+)?contacts?\b",
+    r"\b(?:my|the)\s+(?:google\s+)?contacts?\b",
+)
+
 _HUBSPOT_COMPANY_AFTER = re.compile(
     r"\b(?:hubspot|(?:the\s+)?crm)\s+(?:for|about|on|matching)\s+"
     r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
@@ -605,6 +626,28 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "read_linkedin" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="LinkedIn profile fields are returned with provider evidence",
+                measurable=True,
+            )
+        )
+    if "read_github" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="GitHub repository metadata is returned with provider evidence",
+                measurable=True,
+            )
+        )
+    if "read_contacts" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Google Contacts records are returned with provider evidence",
+                measurable=True,
+            )
+        )
+
     if "publish_content" in outcomes:
         success.append(
             SuccessCriterion(
@@ -651,6 +694,11 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
+    # Wave A operator reads — fail closed against publish/write collisions.
+    wants_linkedin_read = _contains_any(lower, _LINKEDIN_READ_PATTERNS) and not wants_publish
+    wants_github_read = _contains_any(lower, _GITHUB_READ_PATTERNS)
+    wants_contacts_read = _contains_any(lower, _CONTACTS_READ_PATTERNS) and not wants_crm
+
     outcomes: list[CanonicalOutcome] = []
     email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
@@ -930,6 +978,40 @@ def interpret_instruction(
         )
     if wants_calendar:
         outcomes.append("read_calendar")
+    if wants_linkedin_read and "read_linkedin" not in outcomes:
+        outcomes.append("read_linkedin")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.read_linkedin",
+                source="explicit",
+                normalized_value="read_linkedin",
+                confidence=0.95,
+                rule_id="connector.linkedin_profile_read",
+            )
+        )
+    if wants_github_read and "read_github" not in outcomes:
+        outcomes.append("read_github")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.read_github",
+                source="explicit",
+                normalized_value="read_github",
+                confidence=0.95,
+                rule_id="connector.github_repo_read",
+            )
+        )
+    if wants_contacts_read and "read_contacts" not in outcomes:
+        outcomes.append("read_contacts")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.read_contacts",
+                source="explicit",
+                normalized_value="read_contacts",
+                confidence=0.95,
+                rule_id="connector.google_contacts_read",
+            )
+        )
+
     if wants_crm:
         outcomes.append("update_crm")
     if wants_publish:

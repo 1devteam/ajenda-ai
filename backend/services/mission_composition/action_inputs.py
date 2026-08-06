@@ -790,4 +790,81 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             "data": {"name": company_label, "industry": industry, "location": location},
         }
 
+    if action_name == "linkedin.profile_read":
+        # Optional profile_id from target entity attributes or name; default = authenticated user.
+        profile_id = None
+        for entity in intent.target_entities:
+            attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+            if attrs.get("linkedin_profile_id"):
+                profile_id = str(attrs["linkedin_profile_id"])
+                break
+            if entity.type in {"person", "linkedin_profile"} and entity.name:
+                profile_id = entity.name
+                break
+        payload: dict[str, Any] = {
+            "fields": ("id", "firstName", "lastName", "headline"),
+        }
+        if profile_id:
+            payload["profile_id"] = profile_id
+        return payload
+    if action_name == "github.repo_read":
+        owner = None
+        repo = None
+        for entity in intent.target_entities:
+            attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+            if attrs.get("github_owner") and attrs.get("github_repo"):
+                owner = str(attrs["github_owner"])
+                repo = str(attrs["github_repo"])
+                break
+            if entity.type == "github_repo" and entity.name and "/" in entity.name:
+                parts = entity.name.strip("/").split("/", 1)
+                if len(parts) == 2:
+                    owner, repo = parts[0], parts[1]
+                    break
+        if owner is None or repo is None:
+            # Parse owner/repo from instruction text.
+            text_src = _instruction_text(intent)
+            match = re.search(
+                r"\bgithub\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)\b|"
+                r"\b([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)\b",
+                text_src,
+            )
+            if match:
+                owner = match.group(1) or match.group(3)
+                repo = match.group(2) or match.group(4)
+        if not owner or not repo:
+            # Schema requires owner+repo; leave explicit placeholders for restatement/binding.
+            owner = owner or "pending"
+            repo = repo or "pending"
+        return {"owner": owner, "repo": repo}
+    if action_name == "provider.external_read":
+        # Contacts-shaped default when composition selected this action for ops.google_contacts_read.
+        # Generic external read still accepts an explicit URL via target entity attributes.
+        explicit_url = None
+        for entity in intent.target_entities:
+            if entity.url:
+                explicit_url = entity.url
+                break
+            attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+            if attrs.get("provider_read_url"):
+                explicit_url = str(attrs["provider_read_url"])
+                break
+        if explicit_url:
+            return {
+                "method": "GET",
+                "url": explicit_url,
+                "timeout_seconds": 5.0,
+                "allowed_hosts": [],
+            }
+        # Default: Google People API connections list (read-only contacts surface).
+        return {
+            "method": "GET",
+            "url": (
+                "https://people.googleapis.com/v1/people/me/connections"
+                "?personFields=names,emailAddresses,phoneNumbers&pageSize=25"
+            ),
+            "timeout_seconds": 5.0,
+            "allowed_hosts": ["people.googleapis.com"],
+        }
+
     return {"context": {"objective": intent.objective[:300], "query": query}}
