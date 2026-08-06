@@ -8,32 +8,32 @@ Branch: `feat/composition-operator-reads-wave-a`
 - job_catalog (3 Wave A jobs)
 - ability_vocab
 - connector_capabilities (github row)
+- **capability_resolver** (Wave A preferences + connection hints) ✅
 - readiness (external_risk)
 - operating_charter (may_prepare)
 - tests/unit/services/test_composition_operator_reads.py (10 cases)
 - ADR-0008 touch
 - APPLY_WAVE_A.sh (rejects placeholder)
 
-## Missing on remote (matrix incomplete without these)
+## Still missing (required before merge)
 - contracts.py (outcomes + versions 5/8/5)
-- capability_resolver.py (action preference + connection hints)
 - action_inputs.py (profile/repo/People API bindings)
 - intent_interpreter.py (read patterns, entity extract, success criteria)
 
 ## Authoritative complete sources
-All four live under workspace `artifacts/wave-a/` and the full unified patch:
-`artifacts/wave-a/0001-feat-composition-Wave-A-operator-reads-LinkedIn-GitH.patch`
+Workspace: `/home/workdir/artifacts/wave-a/{contracts,action_inputs,intent_interpreter}.py`
 
-## One-shot finish (authenticated local)
+## Finish (authenticated local)
 ```bash
 git fetch origin feat/composition-operator-reads-wave-a
 git checkout feat/composition-operator-reads-wave-a
-# Copy complete sources from artifacts/wave-a/ into
-# backend/services/mission_composition/{contracts,capability_resolver,action_inputs,intent_interpreter}.py
+# copy contracts.py action_inputs.py intent_interpreter.py from workspace artifacts/wave-a/
+# into backend/services/mission_composition/
 pytest tests/unit/services/test_composition_operator_reads.py -q
+git add backend/services/mission_composition/{contracts,action_inputs,intent_interpreter}.py
+git commit -m "feat(composition): Wave A contracts + action_inputs + intent_interpreter"
+git push
 ```
 
 ## Pride note
-Process was full-matrix, tested locally (15 Wave A + 60 regression).
-Remote tip is partial until the four large composition sources land.
-Do not merge until versions assert JOB_CATALOG=5 / INTERPRETER=8 / RESOLVER=5.
+Do not merge until JOB_CATALOG=5 / INTERPRETER=8 / RESOLVER=5 and the three missions compose.
