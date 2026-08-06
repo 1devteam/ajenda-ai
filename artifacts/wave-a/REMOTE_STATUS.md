@@ -1,39 +1,36 @@
-# Wave A remote status (2026-08-06)
+# Wave A remote status
 
-## PR
-https://github.com/1devteam/ajenda-ai/pull/405
 Branch: `feat/composition-operator-reads-wave-a`
+PR: https://github.com/1devteam/ajenda-ai/pull/405
 
-## On remote tip
+## On remote (composition matrix)
 - job_catalog (3 Wave A jobs)
 - ability_vocab
-- connector_capabilities (github row)
-- **capability_resolver** (Wave A preferences + connection hints) ✅
-- readiness (external_risk)
-- operating_charter (may_prepare)
-- tests/unit/services/test_composition_operator_reads.py (10 cases)
-- ADR-0008 touch
-- APPLY_WAVE_A.sh (rejects placeholder)
+- connector_capabilities (github)
+- capability_resolver (prefs + connection hints) ✅
+- readiness, operating_charter, tests, ADR
 
-## Still missing (required before merge)
-- contracts.py (outcomes + versions 5/8/5)
-- action_inputs.py (profile/repo/People API bindings)
-- intent_interpreter.py (read patterns, entity extract, success criteria)
+## Apply on local after pull
 
-## Authoritative complete sources
-Workspace: `/home/workdir/artifacts/wave-a/{contracts,action_inputs,intent_interpreter}.py`
-
-## Finish (authenticated local)
 ```bash
-git fetch origin feat/composition-operator-reads-wave-a
-git checkout feat/composition-operator-reads-wave-a
-# copy contracts.py action_inputs.py intent_interpreter.py from workspace artifacts/wave-a/
-# into backend/services/mission_composition/
-pytest tests/unit/services/test_composition_operator_reads.py -q
-git add backend/services/mission_composition/{contracts,action_inputs,intent_interpreter}.py
-git commit -m "feat(composition): Wave A contracts + action_inputs + intent_interpreter"
+cd ~/projects/ajenda-ai
+git pull --ff-only origin feat/composition-operator-reads-wave-a
+
+# 1) contracts versions + outcomes
+bash artifacts/wave-a/APPLY_CONTRACTS.sh
+# or: git apply --index artifacts/wave-a/contracts_wave_a.patch
+
+# 2) action_inputs handlers
+python3 artifacts/wave-a/install_action_inputs_wave_a.py
+
+# 3) intent_interpreter — still pending (next push)
+
+# 4) verify
+PYTHONPATH=. pytest tests/unit/services/test_composition_operator_reads.py -q
+git add -A && git status
+git commit -m "feat(composition): Wave A contracts + action_inputs applied"
 git push
 ```
 
-## Pride note
-Do not merge until JOB_CATALOG=5 / INTERPRETER=8 / RESOLVER=5 and the three missions compose.
+## Remaining
+- intent_interpreter.py Wave A patterns (next)
