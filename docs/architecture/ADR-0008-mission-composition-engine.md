@@ -8,7 +8,7 @@
 
 ## Context
 
-Ajenda has a production mission ladder (intake → plan → task graph → materialization → runtime-queue-admission → workers → tool.invoke → evidence) and live external abilities (Gmail, HubSpot, Salesforce, Google Calendar, Google Contacts). What it lacked was a governed front-end that turns plain language into multi-job work without:
+Ajenda has a production mission ladder (intake → plan → task graph → materialization → runtime-queue-admission → workers → tool.invoke → evidence) and live external abilities (Gmail, HubSpot, Salesforce, Google Calendar, Google Contacts, LinkedIn profile read, GitHub repo read). What it lacked was a governed front-end that turns plain language into multi-job work without:
 
 - keyword routing (`"email"` → `gtm.email_send`),
 - user checkbox graphs with linear fake dependencies,
