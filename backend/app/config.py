@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import ipaddress
 import math
 import os
 import socket
@@ -510,6 +511,37 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"AJENDA_LLM_TIMEOUT_SECONDS must be a positive number, got {self.llm_timeout_seconds}"
                 )
+<<<<<<< Updated upstream
+=======
+            if self.mission_interpreter_enabled:
+                if _blank(self.mission_interpreter_base_url):
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_BASE_URL is required when the mission interpreter is enabled"
+                    )
+                if _blank(self.mission_interpreter_model):
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_MODEL is required when the mission interpreter is enabled"
+                    )
+                interpreter_url = urlparse(str(self.mission_interpreter_base_url).strip())
+                if (
+                    interpreter_url.scheme not in {"http", "https"}
+                    or not interpreter_url.hostname
+                    or not interpreter_url.path.rstrip("/").endswith("/v1")
+                ):
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_BASE_URL must be an http(s) OpenAI-compatible /v1 endpoint"
+                    )
+                if interpreter_url.username or interpreter_url.password:
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_BASE_URL must not contain credentials; "
+                        "use AJENDA_MISSION_INTERPRETER_API_KEY"
+                    )
+                if not _is_private_mission_interpreter_host(interpreter_url.hostname):
+                    raise ValueError(
+                        "AJENDA_MISSION_INTERPRETER_BASE_URL must point to a private/local/internal "
+                        "OpenAI-compatible /v1 endpoint in production"
+                    )
+>>>>>>> Stashed changes
             if self.network_egress_allow_private_destinations:
                 raise ValueError("AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS is forbidden in production")
             if not self.network_egress_tls_verify:
@@ -726,6 +758,46 @@ class Settings(BaseSettings):
             Fernet(normalized_value.encode())
         except Exception as exc:
             raise ValueError(f"{env_name} must be a valid Fernet key") from exc
+
+
+def _is_private_mission_interpreter_host(hostname: str | None) -> bool:
+    """Return true only for local/private/internal interpreter endpoints.
+
+    The mission interpreter receives raw mission wording and approved profile
+    context. In production it must not be accidentally pointed at a public
+    OpenAI-compatible endpoint.
+    """
+
+    if hostname is None or not hostname.strip():
+        return False
+
+    normalized = hostname.strip().strip("[]").rstrip(".").casefold()
+    if not normalized:
+        return False
+
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        pass
+    else:
+        return address.is_private or address.is_loopback or address.is_link_local
+
+    if normalized in {"localhost", "host.docker.internal"}:
+        return True
+
+    # Docker Compose / Kubernetes service names are normally single-label
+    # names, for example "ollama" or "mission-interpreter".
+    if "." not in normalized:
+        return True
+
+    return normalized.endswith(
+        (
+            ".local",
+            ".internal",
+            ".svc",
+            ".cluster.local",
+        )
+    )
 
 
 @lru_cache(maxsize=1)
