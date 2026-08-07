@@ -801,7 +801,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             if entity.type in {"person", "linkedin_profile"} and entity.name:
                 profile_id = entity.name
                 break
-        payload: dict[str, Any] = {
+        payload = {
             "fields": ("id", "firstName", "lastName", "headline"),
         }
         if profile_id:

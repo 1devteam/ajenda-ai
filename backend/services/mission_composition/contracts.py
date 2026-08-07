@@ -11,9 +11,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 COMPOSITION_SCHEMA_VERSION = 3
-JOB_CATALOG_VERSION = "4"
-INTERPRETER_VERSION = "7"
-CAPABILITY_RESOLVER_VERSION = "4"
+JOB_CATALOG_VERSION = "5"
+INTERPRETER_VERSION = "8"
+CAPABILITY_RESOLVER_VERSION = "5"
 
 ProposalStatus = Literal[
     "interpretation_failed",
@@ -67,6 +67,9 @@ CanonicalOutcome = Literal[
     "read_email",
     "read_crm",
     "query_salesforce",
+    "read_linkedin",
+    "read_github",
+    "read_contacts",
 ]
 
 CANONICAL_OUTCOMES: frozenset[str] = frozenset(
@@ -82,6 +85,9 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
         "read_email",
         "read_crm",
         "query_salesforce",
+        "read_linkedin",
+        "read_github",
+        "read_contacts",
     }
 )
 
@@ -139,6 +145,22 @@ LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "query salesforce": "query_salesforce",
     "read salesforce": "query_salesforce",
     "search salesforce": "query_salesforce",
+    "read linkedin": "read_linkedin",
+    "linkedin profile": "read_linkedin",
+    "my linkedin": "read_linkedin",
+    "linkedin profile read": "read_linkedin",
+    "check linkedin": "read_linkedin",
+    "read github": "read_github",
+    "github repo": "read_github",
+    "github repository": "read_github",
+    "read github repo": "read_github",
+    "check github": "read_github",
+    "read contacts": "read_contacts",
+    "google contacts": "read_contacts",
+    "my contacts": "read_contacts",
+    "list contacts": "read_contacts",
+    "read google contacts": "read_contacts",
+    "check contacts": "read_contacts",
 }
 
 SendPolicyMode = Literal["allow", "forbid", "conditional", "unknown"]
