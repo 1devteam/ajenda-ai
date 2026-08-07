@@ -694,11 +694,6 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
-    # Wave A operator reads — fail closed against publish/write collisions.
-    wants_linkedin_read = _contains_any(lower, _LINKEDIN_READ_PATTERNS) and not wants_publish
-    wants_github_read = _contains_any(lower, _GITHUB_READ_PATTERNS)
-    wants_contacts_read = _contains_any(lower, _CONTACTS_READ_PATTERNS) and not wants_crm
-
     outcomes: list[CanonicalOutcome] = []
     email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
@@ -731,6 +726,14 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         outcomes.append("read_crm")
     if salesforce_query:
         outcomes.append("query_salesforce")
+    # Wave A operator reads (before write/publish so "linkedin profile" is not publish).
+    if _contains_any(lower, _LINKEDIN_READ_PATTERNS) and not _contains_any(lower, _PUBLISH_PATTERNS):
+        outcomes.append("read_linkedin")
+    if _contains_any(lower, _GITHUB_READ_PATTERNS):
+        outcomes.append("read_github")
+    # Contacts read only when not a CRM write ("add/save to contacts").
+    if _contains_any(lower, _CONTACTS_READ_PATTERNS) and not _contains_any(lower, _CRM_UPDATE_PATTERNS):
+        outcomes.append("read_contacts")
     if _contains_any(lower, _DRAFT_PATTERNS):
         outcomes.append("prepare_outreach")
     if _contains_any(lower, _SEND_PATTERNS) and not _contains_any(lower, _NO_SEND_PATTERNS):
@@ -862,6 +865,10 @@ def interpret_instruction(
     no_publish = _contains_any(lower, _PUBLISH_NEGATION_PATTERNS)
     wants_publish = _contains_any(lower, _PUBLISH_PATTERNS) and not no_publish
     publish_result_based = _PUBLISH_RESULT_BASED.search(lower) is not None
+    # Wave A operator reads — fail closed against publish/write collisions.
+    wants_linkedin_read = _contains_any(lower, _LINKEDIN_READ_PATTERNS) and not wants_publish
+    wants_github_read = _contains_any(lower, _GITHUB_READ_PATTERNS)
+    wants_contacts_read = _contains_any(lower, _CONTACTS_READ_PATTERNS) and not wants_crm
 
     outcomes: list[CanonicalOutcome] = []
     if wants_research:
