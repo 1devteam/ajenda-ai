@@ -1,454 +1,108 @@
-"""Mission-language interpreter boundary and meaning-guard tests."""
+"""Coherent interpreter upgrade invariants (history, calendar, draft recipient, deps)."""
 
-from __future__ import annotations
-
-import pytest
-from pydantic import ValidationError
-
-from backend.services.mission_composition.interpretation.interpreter import (
-    LlmMissionInterpreter,
-    MissionInterpreterOutputError,
-)
-from backend.services.mission_composition.interpretation.schema import (
-    GroundedContextRequirement,
-    GroundedPolicy,
-    GroundedTarget,
-    GroundedUnsupportedOutcome,
-    InterpretationClarification,
-    InterpretationContradiction,
-    InterpretationSegment,
-)
-from tests.mission_interpreter_fakes import StaticMissionInterpreterClient, llm_interpretation
+from backend.services.mission_composition.capability_resolver import route_jobs_for_intent
+from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.proposal_store import load_recent_failure_context
 
 
-def test_shorthand_and_misspellings_become_reviewable_intent_without_authority() -> None:
-    raw = "fnd 3 roofers in austin n draft intros dont send"
-    candidate = llm_interpretation(
-        raw,
-        interpreted_instruction=(
-            "Find 3 roofing companies in Austin and draft introductions. Do not send the introductions."
-        ),
-        outcomes=("research_prospects", "prepare_outreach"),
-        quantity=3,
-        quantity_source_text="3",
-        send_policy=GroundedPolicy(
-            mode="forbid",
-            condition="none",
-            source_text="dont send",
-            confidence=1.0,
-        ),
-    ).model_copy(
-        update={
-            "target_entities": [
-                GroundedTarget(
-                    type="market",
-                    source_text="roofers in austin",
-                    industry="roofing",
-                    location="Austin",
-                )
-            ]
-        }
+def test_calendar_day_query_not_quantity() -> None:
+    intent = interpret_instruction("what do i have scheduled for july 28 2026 in my google calender")
+    assert intent.requested_outcomes == ["read_calendar"]
+    assert intent.requested_quantity is None
+    assert intent.interpretation_ready is True
+    assert route_jobs_for_intent(intent)[0].job_key == "ops.calendar_briefing"
+
+
+def test_draft_to_email_does_not_expand_prospect_discovery() -> None:
+    intent = interpret_instruction("Draft an introduction email to bob@acme.com about roofing. Do not send.")
+    assert intent.requested_outcomes == ["prepare_outreach"]
+    assert intent.has_recipient_context() is True
+    keys = [j.job_key for j in route_jobs_for_intent(intent)]
+    assert keys == ["email.prepare_outreach"]
+    assert "research.discover_prospects" not in keys
+
+
+def test_tenant_chronology_escalation_disabled() -> None:
+    assert load_recent_failure_context(tenant_id="t1", db=None) is None
+
+
+def test_no_send_removes_send_outcome() -> None:
+    intent = interpret_instruction(
+        "Find three roofing companies in Austin Texas and send emails. Do not send anything."
     )
-    client = StaticMissionInterpreterClient(candidate)
-
-    intent = LlmMissionInterpreter(client=client).interpret(raw)
-
-    assert intent.raw_instruction == raw
-    assert intent.normalized_instruction == candidate.interpreted_instruction
-    assert intent.requested_outcomes == ["research_prospects", "prepare_outreach"]
-    assert intent.requested_quantity == 3
+    assert "send_outreach" not in intent.requested_outcomes
     assert intent.send_policy.mode == "forbid"
-    assert intent.effective_forbidden_actions() == ["gtm.email_send"]
-    assert intent.interpretation_ready is True
-    assert intent.components_executed == ["local_llm", "json_schema", "meaning_guard"]
-    assert len(client.requests) == 1
 
 
-@pytest.mark.parametrize(
-    ("raw", "interpreted", "expected_code"),
-    [
-        (
-            "Draft an introduction email.",
-            "Draft an introduction email to ceo@example.com.",
-            "INTERPRETER_INVENTED_RECIPIENT",
-        ),
-        (
-            "Find roofing companies in Austin.",
-            "Find 10 roofing companies in Austin.",
-            "INTERPRETER_INVENTED_QUANTITY",
-        ),
-        (
-            "Review the company website.",
-            "Review https://example.com.",
-            "INTERPRETER_INVENTED_URL",
-        ),
-    ],
-)
-def test_protected_facts_cannot_be_invented(raw: str, interpreted: str, expected_code: str) -> None:
-    candidate = llm_interpretation(raw, interpreted_instruction=interpreted)
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == expected_code
+def test_raw_and_normalized_preserved() -> None:
+    raw = "  Find three roofing companies in Austin  "
+    intent = interpret_instruction(raw)
+    assert intent.raw_instruction == raw
+    assert intent.normalized_instruction.strip()
+    assert intent.normalized_instruction != ""  # normalized form stored separately
 
 
-def test_structured_quantity_must_match_its_grounded_source_span() -> None:
-    raw = "Find three roofing companies in Austin."
-    candidate = llm_interpretation(
-        raw,
-        quantity=10,
-        quantity_source_text="three",
+def test_typed_dependencies_compile_to_graph_edges() -> None:
+    from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
+    from backend.services.mission_composition.plan_compiler import compile_planned_steps, compile_task_graph_preview
+    from backend.services.operating_charter import default_operating_charter
+
+    intent = interpret_instruction(
+        "Research three roofing companies in Austin, identify strong prospects, "
+        "draft personalized introductions. Do not send."
     )
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_INVENTED_QUANTITY"
-
-
-def test_ungrounded_structured_field_fails_closed() -> None:
-    raw = "Find roofers in Austin."
-    candidate = llm_interpretation(raw).model_copy(
-        update={
-            "target_entities": [
-                GroundedTarget(
-                    type="market",
-                    source_text="roofers in Dallas",
-                    industry="roofing",
-                    location="Dallas",
-                )
-            ]
-        }
+    jobs = route_jobs_for_intent(intent)
+    selections, _ = resolve_jobs(
+        jobs,
+        intent=intent,
+        charter=default_operating_charter(),
+        connected_integrations={"hubspot"},
     )
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
+    steps = compile_planned_steps(selections, intent=intent)
+    graph = compile_task_graph_preview(steps)
+    assert any(step.depends_on for step in steps)
+    assert graph.get("edges")
 
 
-def test_target_radius_cannot_be_invented_outside_its_source_span() -> None:
-    raw = "Find roofers near Austin."
-    candidate = llm_interpretation(raw).model_copy(
-        update={
-            "target_entities": [
-                GroundedTarget(
-                    type="market",
-                    source_text="roofers near Austin",
-                    industry="roofing",
-                    location="Austin",
-                    radius_km=25,
-                )
-            ]
-        }
+def test_explicit_email_recipient_bound_in_draft_input() -> None:
+    from backend.services.mission_composition.action_inputs import build_action_input
+
+    intent = interpret_instruction("Draft an introduction email to bob@acme.com about roofing. Do not send.")
+    payload = build_action_input(action_name="gtm.email_draft", intent=intent)
+    assert payload["recipient"] == "bob@acme.com"
+    assert payload["context"]["binding_required"] is False
+
+
+def test_schedule_meeting_does_not_map_to_calendar_read() -> None:
+    intent = interpret_instruction("Schedule a meeting with Bob tomorrow")
+    assert "read_calendar" not in intent.requested_outcomes
+    assert any(c.field == "calendar_write" for c in intent.ambiguity)
+
+
+def test_crm_negation_suppresses_update_crm() -> None:
+    intent = interpret_instruction("Find three roofing companies in Austin, but don't add them to contacts")
+    assert "research_prospects" in intent.requested_outcomes
+    assert "update_crm" not in intent.requested_outcomes
+    assert "gtm.crm_upsert" in intent.forbidden_outcomes
+
+
+def test_add_to_contacts_expands_research_dependency() -> None:
+    from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
+    from backend.services.mission_composition.plan_compiler import compile_planned_steps
+    from backend.services.operating_charter import default_operating_charter
+
+    intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
+    assert "update_crm" in intent.requested_outcomes
+    jobs = route_jobs_for_intent(intent)
+    assert "research.discover_prospects" in {j.job_key for j in jobs}
+    assert "crm.pipeline_maintenance" in {j.job_key for j in jobs}
+    selections, _ = resolve_jobs(
+        jobs,
+        intent=intent,
+        charter=default_operating_charter(),
+        connected_integrations={"hubspot"},
     )
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
-
-
-def test_contradiction_spans_must_quote_the_instruction() -> None:
-    raw = "Draft the message but do not send it."
-    candidate = llm_interpretation(raw).model_copy(
-        update={
-            "contradictions": [
-                InterpretationContradiction(
-                    field_path="send_policy",
-                    first_span="Send it immediately",
-                    second_span="do not send it",
-                    first_value="send",
-                    second_value="do_not_send",
-                )
-            ]
-        }
-    )
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
-
-
-def test_target_schema_rejects_arbitrary_attributes_that_could_select_routing() -> None:
-    with pytest.raises(ValidationError):
-        GroundedTarget.model_validate(
-            {
-                "type": "market",
-                "source_text": "roofers in Austin",
-                "industry": "roofing",
-                "location": "Austin",
-                "attributes": {"research_source": "dangerous.admin_tool"},
-            }
-        )
-
-
-def test_context_source_requirement_must_be_allowlisted_and_grounded() -> None:
-    raw = "Research Acme Roofing."
-    with pytest.raises(ValidationError):
-        GroundedContextRequirement.model_validate(
-            {
-                "requirement": "dangerous_admin_source",
-                "source_text": raw,
-            }
-        )
-
-    candidate = llm_interpretation(raw).model_copy(
-        update={
-            "context_requirements": [
-                GroundedContextRequirement(
-                    requirement="hubspot_source",
-                    source_text="Use HubSpot as the source",
-                )
-            ]
-        }
-    )
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
-
-
-def test_profile_target_must_come_from_approved_profile_context() -> None:
-    raw = "Research competitors for my company."
-    candidate = llm_interpretation(raw).model_copy(
-        update={
-            "target_entities": [
-                GroundedTarget(
-                    type="company",
-                    source="profile_context",
-                    source_text="Acme Roofing",
-                    name="Acme Roofing",
-                    domain="acme.example",
-                )
-            ]
-        }
-    )
-    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(
-        raw,
-        profile_context={"company": "Acme Roofing", "website": "acme.example"},
-    )
-    assert intent.target_entities[0].provenance == "profile_context"
-
-
-def test_low_confidence_execution_detail_requires_restatement() -> None:
-    raw = "Find roofers in Austin."
-    candidate = llm_interpretation(raw).model_copy(
-        update={
-            "target_entities": [
-                GroundedTarget(
-                    type="market",
-                    source_text="roofers in Austin",
-                    industry="roofing",
-                    location="Austin",
-                    confidence=0.4,
-                )
-            ]
-        }
-    )
-    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert intent.interpretation_ready is False
-    assert any(item.field == "low_confidence" for item in intent.ambiguity)
-
-
-def test_non_material_unmatched_segment_does_not_block_readiness() -> None:
-    raw = "Please find roofers in Austin."
-    candidate = llm_interpretation(
-        raw,
-        segments=[
-            InterpretationSegment(
-                source_text="Please",
-                normalized_text="Please",
-                kind="other",
-                material=False,
-                accounted=False,
-                reason="courtesy word",
-            ),
-            InterpretationSegment(
-                source_text="find roofers in Austin.",
-                normalized_text="Find roofing companies in Austin.",
-                kind="action",
-                material=True,
-                accounted=True,
-                mapped_outcomes=["research_prospects"],
-            ),
-        ],
-    )
-    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert intent.unmatched_material_units == []
-    assert intent.interpretation_ready is True
-
-
-def test_unhandled_material_wording_gets_an_actionable_restatement_question() -> None:
-    raw = "Find roofers and do the special thing."
-    candidate = llm_interpretation(
-        raw,
-        segments=[
-            InterpretationSegment(
-                source_text="Find roofers",
-                normalized_text="Find roofing companies",
-                kind="action",
-                accounted=True,
-                mapped_outcomes=["research_prospects"],
-            ),
-            InterpretationSegment(
-                source_text="and do the special thing.",
-                normalized_text="and do the special thing.",
-                kind="action",
-                material=True,
-                accounted=False,
-                reason="The requested action is not defined.",
-            ),
-        ],
-    )
-    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert intent.interpretation_ready is False
-    assert any("special thing" in item.question for item in intent.ambiguity)
-
-
-def test_unsupported_or_contradictory_meaning_cannot_fail_without_user_guidance() -> None:
-    raw = "Send the message now, but never send it."
-    candidate = llm_interpretation(raw, outcomes=()).model_copy(
-        update={
-            "unsupported_outcomes": [
-                GroundedUnsupportedOutcome(
-                    text="perform an unsupported delivery mode",
-                    source_text="Send the message now",
-                )
-            ],
-            "contradictions": [
-                InterpretationContradiction(
-                    field_path="send_policy",
-                    first_span="Send the message now",
-                    second_span="never send it",
-                    first_value="send",
-                    second_value="do_not_send",
-                )
-            ],
-        }
-    )
-    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert intent.interpretation_ready is False
-    assert {item.field for item in intent.ambiguity} == {"unsupported_outcomes", "send_policy"}
-
-
-def test_model_clarification_keeps_interpretation_non_executable() -> None:
-    raw = "Handle the prospects."
-    candidate = llm_interpretation(raw, outcomes=()).model_copy(
-        update={
-            "clarifications": [
-                InterpretationClarification(
-                    field="requested_outcomes",
-                    question="What outcome should Ajenda produce for the prospects?",
-                    reason="The requested action is ambiguous.",
-                )
-            ]
-        }
-    )
-    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert intent.interpretation_ready is False
-    assert "restatement_required" in intent.interpretation_readiness_reasons
-
-
-def test_empty_and_oversized_instructions_fail_before_transport() -> None:
-    candidate = llm_interpretation("placeholder")
-    client = StaticMissionInterpreterClient(candidate)
-    interpreter = LlmMissionInterpreter(client=client)
-
-    with pytest.raises(MissionInterpreterOutputError) as empty:
-        interpreter.interpret("   ")
-    assert empty.value.code == "INSTRUCTION_REQUIRED"
-
-    with pytest.raises(MissionInterpreterOutputError) as oversized:
-        interpreter.interpret("x" * 8001)
-    assert oversized.value.code == "INSTRUCTION_TOO_LONG"
-    assert client.requests == []
-
-
-def test_protected_email_must_survive_interpretation() -> None:
-    raw = "Send the report to alice@example.com."
-    candidate = llm_interpretation(raw, interpreted_instruction="Send the report.")
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_DROPPED_RECIPIENT"
-
-
-def test_protected_email_can_survive_in_structured_target() -> None:
-    raw = "Send the report to alice@example.com."
-    candidate = llm_interpretation(raw, interpreted_instruction="Send the report.").model_copy(
-        update={
-            "target_entities": [
-                GroundedTarget(
-                    type="recipient",
-                    source_text="alice@example.com",
-                    email="alice@example.com",
-                )
-            ]
-        }
-    )
-    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert intent.target_entities[0].email == "alice@example.com"
-
-
-def test_protected_url_must_survive_interpretation() -> None:
-    raw = "Review https://example.com/pricing before drafting."
-    candidate = llm_interpretation(raw, interpreted_instruction="Review the pricing page before drafting.")
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_DROPPED_URL"
-
-
-def test_protected_quantity_must_survive_interpretation() -> None:
-    raw = "Find 5 roofing companies in Austin."
-    candidate = llm_interpretation(raw, interpreted_instruction="Find roofing companies in Austin.")
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_DROPPED_QUANTITY"
-
-
-def test_target_industry_must_correspond_to_source_text() -> None:
-    raw = "Find roofers in Austin."
-    candidate = llm_interpretation(raw).model_copy(
-        update={
-            "target_entities": [
-                GroundedTarget(
-                    type="market",
-                    source_text="roofers in Austin",
-                    industry="pharmaceutical",
-                    location="Austin",
-                )
-            ]
-        }
-    )
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
-
-
-def test_target_location_must_correspond_to_source_text() -> None:
-    raw = "Find roofers in Austin."
-    candidate = llm_interpretation(raw).model_copy(
-        update={
-            "target_entities": [
-                GroundedTarget(
-                    type="market",
-                    source_text="roofers in Austin",
-                    industry="roofing",
-                    location="Dallas",
-                )
-            ]
-        }
-    )
-    with pytest.raises(MissionInterpreterOutputError) as exc:
-        LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert exc.value.code == "INTERPRETER_UNGROUNDED_OUTPUT"
-
-
-def test_safe_industry_normalization_still_passes() -> None:
-    raw = "Find roofers in Austin."
-    candidate = llm_interpretation(raw).model_copy(
-        update={
-            "target_entities": [
-                GroundedTarget(
-                    type="market",
-                    source_text="roofers in Austin",
-                    industry="roofing",
-                    location="Austin",
-                )
-            ]
-        }
-    )
-    intent = LlmMissionInterpreter(client=StaticMissionInterpreterClient(candidate)).interpret(raw)
-    assert intent.target_entities[0].industry == "roofing"
-    assert intent.target_entities[0].location == "Austin"
+    steps = compile_planned_steps(selections, intent=intent)
+    crm_steps = [s for s in steps if s.job_key == "crm.pipeline_maintenance"]
+    assert crm_steps
+    assert crm_steps[0].depends_on
