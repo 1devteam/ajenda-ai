@@ -33,6 +33,10 @@ def evaluate_interpretation_readiness(intent: MissionIntent) -> InterpretationRe
             "read_email",
             "read_crm",
             "query_salesforce",
+            "read_calendar",
+            "read_linkedin",
+            "read_github",
+            "read_contacts",
         }
         for outcome in intent.requested_outcomes
     )

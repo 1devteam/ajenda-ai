@@ -58,6 +58,23 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     # Calendar read
     "check my calendar": "read_calendar",
     "calendar for": "read_calendar",
+    # Operator reads (Wave A)
+    "linkedin profile": "read_linkedin",
+    "my linkedin profile": "read_linkedin",
+    "read my linkedin": "read_linkedin",
+    "check linkedin": "read_linkedin",
+    "linkedin profile read": "read_linkedin",
+    "github repo": "read_github",
+    "github repository": "read_github",
+    "read github": "read_github",
+    "check github": "read_github",
+    "read github repo": "read_github",
+    "google contacts": "read_contacts",
+    "my google contacts": "read_contacts",
+    "read my contacts": "read_contacts",
+    "list my contacts": "read_contacts",
+    "check my contacts": "read_contacts",
+    "read google contacts": "read_contacts",
 }
 
 # Regex patterns that map a clause/window to a canonical outcome (deterministic).
@@ -92,6 +109,14 @@ OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     (r"\btop (?:three|five)\b", "qualify_prospects"),
     (r"\bpick the (?:strongest|best)\b", "qualify_prospects"),
     (r"\bidentify .* (?:strong|best|top)\b", "qualify_prospects"),
+    # Wave A operator reads — read intent only (not publish / CRM write).
+    (r"\b(?:check|read|show|fetch|get)\b.{0,40}\blinkedin\b.{0,24}\bprofile\b", "read_linkedin"),
+    (r"\blinkedin\b.{0,24}\bprofile\b", "read_linkedin"),
+    (r"\b(?:my|the)\s+linkedin\s+profile\b", "read_linkedin"),
+    (r"\b(?:check|read|show|fetch|get)\b.{0,40}\bgithub\b.{0,32}\b(?:repo|repository)\b", "read_github"),
+    (r"\bgithub\b.{0,24}\b(?:repo|repository)\b", "read_github"),
+    (r"\b(?:check|read|list|show|fetch)\b.{0,40}\b(?:google\s+)?contacts?\b", "read_contacts"),
+    (r"\b(?:my|the)\s+(?:google\s+)?contacts?\b", "read_contacts"),
 )
 
 

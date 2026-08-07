@@ -1,0 +1,170 @@
+"""Resolve business jobs to governed abilities with readiness.
+
+Deterministic selection only. Never queues work or grants runtime authority.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.mission_composition.contracts import (
+    CAPABILITY_RESOLVER_VERSION,
+    AbilityAlternative,
+    AbilitySelection,
+    BusinessJob,
+    JobDependency,
+    MissionIntent,
+)
+from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY, list_business_jobs
+from backend.services.operating_charter import (
+    OperatingCharter,
+    OperatingCharterViolation,
+    assert_action_allowed,
+    default_operating_charter,
+)
+from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.schemas import SideEffectClass
+
+# Preferred order when multiple candidates are ready.
+_ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
+    "research.discover_prospects": ("web.research", "sales.research", "web.search", "web.page_read", "crm.research"),
+    "sales.research_context": ("sales.research", "crm.research", "web.research", "web.search"),
+    "sales.qualify_prospects": ("sales.qualify", "sales.score_lead"),
+    "gtm.enrich_contacts": ("gtm.lead_enrich",),
+    "email.prepare_outreach": ("gtm.email_draft", "sales.draft_followup"),
+    "email.deliver_outreach": ("gtm.email_send",),
+    "email.read_messages": ("gtm.email_check",),
+    "crm.read_records": ("sales.research",),
+    "crm.query_salesforce": ("salesforce.soql_read",),
+    "crm.pipeline_maintenance": ("gtm.crm_upsert",),
+    "ops.calendar_briefing": ("google_calendar.events_read",),
+    "ops.linkedin_profile_read": ("linkedin.profile_read",),
+    "ops.github_repo_read": ("github.repo_read",),
+    "ops.google_contacts_read": ("provider.external_read",),
+    "gtm.publish_content": ("gtm.social_publish",),
+}
+
+_CONNECTION_HINTS: dict[str, dict[str, str]] = {
+    "crm.research": {
+        "provider": "external_crm",
+        "integration": "hubspot",
+        "credential_id": "hubspot-crm",
+    },
+    "gtm.crm_upsert": {
+        "provider": "external_crm",
+        "integration": "hubspot",
+        "credential_id": "hubspot-crm",
+    },
+    "gtm.email_send": {
+        "provider": "external_email",
+        "integration": "gmail",
+        "credential_id": "gmail-email",
+    },
+    "gtm.email_check": {
+        "provider": "external_email",
+        "integration": "gmail",
+        "credential_id": "gmail-email",
+    },
+    "google_calendar.events_read": {
+        "provider": "external_read_provider",
+        "integration": "google_calendar",
+        "credential_id": "google-calendar-read",
+    },
+    "salesforce.soql_read": {
+        "provider": "external_read_provider",
+        "integration": "salesforce",
+        "credential_id": "salesforce-read",
+    },
+    "gtm.social_publish": {
+        "provider": "external_social",
+        "integration": "linkedin",
+        "credential_id": "linkedin-social",
+    },
+    "linkedin.profile_read": {
+        "provider": "external_read_provider",
+        "integration": "linkedin",
+        "credential_id": "linkedin-read",
+    },
+    "github.repo_read": {
+        "provider": "external_read_provider",
+        "integration": "github",
+        "credential_id": "github-read",
+    },
+}
+
+# Some hybrid actions are connector-bound only for a specific business job.
+# Keeping this job-scoped preserves Ajenda-brain fallback for ordinary sales research.
+_JOB_CONNECTION_HINTS: dict[tuple[str, str], dict[str, str]] = {
+    ("crm.read_records", "sales.research"): {
+        "provider": "external_crm",
+        "integration": "hubspot",
+        "credential_id": "hubspot-crm",
+    },
+    ("ops.google_contacts_read", "provider.external_read"): {
+        "provider": "external_read_provider",
+        "integration": "google_contacts",
+        "credential_id": "google-contacts-read",
+    },
+}
+
+_SOURCE_CONNECTION_HINTS: dict[tuple[str, str], dict[str, str]] = {
+    # Applied only when the intent explicitly requires HubSpot as its source.
+    ("research.discover_prospects", "sales.research"): {
+        "provider": "external_crm",
+        "integration": "hubspot",
+        "credential_id": "hubspot-crm",
+    },
+    ("research.discover_prospects", "crm.research"): {
+        "provider": "external_crm",
+        "integration": "hubspot",
+        "credential_id": "hubspot-crm",
+    },
+}
+
+
+def intent_requires_hubspot_research_source(intent: MissionIntent) -> bool:
+    """True when the user required HubSpot/CRM as the research source of truth."""
+
+    if "hubspot_source" in {str(item) for item in intent.context_requirements}:
+        return True
+    for entity in intent.target_entities:
+        attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+        if attrs.get("research_source") == "hubspot":
+            return True
+    return False
+
+
+def _intent_input_sources(intent: MissionIntent) -> set[str]:
+    """What structured inputs the intent already satisfies (no invented work)."""
+
+    sources: set[str] = set()
+    if intent.has_recipient_context():
+        sources.update({"recipient_context", "explicit_recipient", "explicit_email"})
+    for entity in intent.target_entities:
+        # Industry/location market targeting is not a concrete prospect list.
+        if entity.name and entity.type in {"company", "person", "contact", "recipient"}:
+            sources.add("named_company")
+            sources.add("explicit_company")
+        if entity.industry or entity.location:
+            sources.add("market_scope")
+        if entity.email:
+            sources.add("explicit_email")
+            sources.add("recipient_context")
+        if (entity.attributes or {}).get("crm_record_id"):
+            sources.add("crm_record")
+        if entity.domain or entity.url:
+            sources.add("explicit_company")
+            sources.add("named_company")
+    if intent.requested_quantity is not None:
+        sources.add("quantity")
+    # Standalone publish copy is available unless the instruction says "post the results".
+    if "publish_content" in {str(o) for o in intent.requested_outcomes}:
+        result_based = any(
+            isinstance(entity.attributes, dict) and entity.attributes.get("publish_result_based")
+            for entity in intent.target_entities
+        )
+        if not result_based:
+            sources.add("standalone_publish_content")
+            sources.add("publish_payload")
+    return sources

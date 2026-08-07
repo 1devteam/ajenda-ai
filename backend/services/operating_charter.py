@@ -33,6 +33,8 @@ DEFAULT_MAY_PREPARE: tuple[str, ...] = (
     "crm.read",
     "salesforce.soql_read",
     "provider.external_read",
+    "linkedin.profile_read",
+    "github.repo_read",
     "gtm.email_check",
     "google_calendar.events_read",
     "calendar.read",

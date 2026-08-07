@@ -96,7 +96,22 @@ CONNECTOR_CAPABILITIES: tuple[ConnectorCapability, ...] = (
         maturity="partial",
         notes=(
             "Default OAuth is openid/profile/email. Member publish (w_member_social) is not "
-            "default; gtm.social_publish is generic external_social and may simulate without creds."
+            "default; gtm.social_publish is generic external_social and may simulate without creds. "
+            "Composition maps read_linkedin to linkedin.profile_read only."
+        ),
+    ),
+    ConnectorCapability(
+        connector_id="github",
+        display_name="GitHub",
+        provider="external_read_provider",
+        operations=frozenset({"read"}),
+        deferred_operations=frozenset({"write"}),
+        oauth_scopes=("read:user", "repo"),
+        runtime_actions=("github.repo_read",),
+        maturity="partial",
+        notes=(
+            "GitHub composition path is github.repo_read only. Repo create/update/delete and "
+            "issue mutations stay deferred and fail-closed."
         ),
     ),
     ConnectorCapability(

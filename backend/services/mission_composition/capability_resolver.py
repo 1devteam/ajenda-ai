@@ -39,6 +39,9 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "crm.query_salesforce": ("salesforce.soql_read",),
     "crm.pipeline_maintenance": ("gtm.crm_upsert",),
     "ops.calendar_briefing": ("google_calendar.events_read",),
+    "ops.linkedin_profile_read": ("linkedin.profile_read",),
+    "ops.github_repo_read": ("github.repo_read",),
+    "ops.google_contacts_read": ("provider.external_read",),
     "gtm.publish_content": ("gtm.social_publish",),
 }
 
@@ -78,6 +81,16 @@ _CONNECTION_HINTS: dict[str, dict[str, str]] = {
         "integration": "linkedin",
         "credential_id": "linkedin-social",
     },
+    "linkedin.profile_read": {
+        "provider": "external_read_provider",
+        "integration": "linkedin",
+        "credential_id": "linkedin-read",
+    },
+    "github.repo_read": {
+        "provider": "external_read_provider",
+        "integration": "github",
+        "credential_id": "github-read",
+    },
 }
 
 # Some hybrid actions are connector-bound only for a specific business job.
@@ -87,6 +100,11 @@ _JOB_CONNECTION_HINTS: dict[tuple[str, str], dict[str, str]] = {
         "provider": "external_crm",
         "integration": "hubspot",
         "credential_id": "hubspot-crm",
+    },
+    ("ops.google_contacts_read", "provider.external_read"): {
+        "provider": "external_read_provider",
+        "integration": "google_contacts",
+        "credential_id": "google-contacts-read",
     },
 }
 
