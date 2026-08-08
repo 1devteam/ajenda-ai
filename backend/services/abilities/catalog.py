@@ -791,6 +791,29 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         readback_deferred_reason="Open-write targets are arbitrary HTTPS endpoints; durable readback is target-specific.",
         enabled_by_default=False,
     ),
+    # Evidence Intelligence / Decision Support (Slice 1)
+    AbilityManifest(
+        ability_id="decision-recommend-next-action",
+        display_name="Decision Recommend Next Action (evidence-backed)",
+        action_name="decision.recommend_next_action",
+        provider="ajenda_decision",
+        capability_name="decision",
+        capability_version="1",
+        adapter_name="ajenda-decision",
+        adapter_version="1",
+        input_schema_ref="backend.services.tools.schemas.DecisionRecommendInput",
+        output_schema_ref=ACTION_RESULT_SCHEMA_REF,
+        side_effect_class=SideEffectClass.NONE,
+        risk_level=AbilityRiskLevel.LOW,
+        required_permissions=[],
+        required_tools=[],
+        approval_required=False,
+        idempotency_required=False,
+        evidence_required=True,
+        evidence_expectations=("action_result_evidence",),
+        readback_required=False,
+        enabled_by_default=False,
+    ),
 )
 
 ABILITY_MANIFESTS_BY_ACTION: dict[str, AbilityManifest] = {

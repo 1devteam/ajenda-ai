@@ -457,3 +457,89 @@ class WebOpenWriteInput(BaseModel):
             if "session" in normalized or "cookie" in normalized:
                 raise ValueError(f"web.open_write headers must not include credential-like header {key!r}")
         return value
+
+
+# Evidence Intelligence / Decision Support (Slice 1) — explicit evidence-backed recommendation.
+# Deterministic algorithm: weighted_criterion_evidence_v1. Does not execute recommendations.
+
+
+class EvidenceFactStatus(StrEnum):
+    KNOWN = "known"
+    INFERRED = "inferred"
+    MISSING = "missing"
+
+
+class EvidenceFact(BaseModel):
+    """A single evidence fact linked to options and/or criteria for decision scoring."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_id: str = Field(min_length=1, max_length=160)
+    claim: str = Field(min_length=1, max_length=2000)
+    status: EvidenceFactStatus = EvidenceFactStatus.KNOWN
+    source: str = Field(default="unspecified", max_length=240)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    supports_option_ids: list[str] = Field(default_factory=list)
+    supports_criterion_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("evidence_id", "claim")
+    @classmethod
+    def normalize_required(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("evidence fields must be non-empty")
+        return normalized
+
+
+class DecisionCriterion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    criterion_id: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=240)
+    weight: float = Field(default=1.0, gt=0, le=100)
+    required: bool = False
+
+    @field_validator("criterion_id", "label")
+    @classmethod
+    def normalize_required(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("criterion fields must be non-empty")
+        return normalized
+
+
+class DecisionOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    option_id: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=240)
+    description: str = Field(default="", max_length=1000)
+
+    @field_validator("option_id", "label")
+    @classmethod
+    def normalize_required(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("option fields must be non-empty")
+        return normalized
+
+
+class DecisionRecommendInput(BaseModel):
+    """Input for decision.recommend_next_action — goal, options, criteria, evidence, constraints."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    goal: str = Field(min_length=1, max_length=1000)
+    options: list[DecisionOption] = Field(default_factory=list)
+    criteria: list[DecisionCriterion] = Field(default_factory=list)
+    evidence: list[EvidenceFact] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("goal")
+    @classmethod
+    def normalize_goal(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("goal must be non-empty")
+        return normalized
