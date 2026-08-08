@@ -23,12 +23,13 @@ ingest runtime events, or introduce a graph database.
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.services.ontology.types import BusinessObjectRef
+from backend.services.ontology.types import BusinessObjectRef, OntologyRelationshipSpec
 
 COMMERCIAL_STATE_SCHEMA_VERSION = 1
 
@@ -66,10 +67,9 @@ class Goal(BaseModel):
     description: str = Field(default="", max_length=2000)
     subject_refs: list[BusinessObjectRef] = Field(default_factory=list)
     status: GoalStatus = GoalStatus.ACTIVE
-    target_date: str | None = Field(
+    target_date: date | None = Field(
         default=None,
-        max_length=40,
-        description="Optional ISO-8601 calendar or datetime target",
+        description="Optional calendar target (ISO-8601 date strings accepted)",
     )
 
     @field_validator("goal_id", "name")
@@ -80,20 +80,14 @@ class Goal(BaseModel):
             raise ValueError("goal fields must be non-empty")
         return normalized
 
-    @field_validator("target_date")
-    @classmethod
-    def normalize_optional_date(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        return normalized or None
-
 
 class Kpi(BaseModel):
     """Measurable indicator attached to a Goal.
 
     current_value / target_value are optional so a KPI can be declared before
     the first measurement. direction defines what "better" means for algorithms.
+    required marks contribution to goal progress aggregation.
+    maintain_tolerance is used only when direction=maintain.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -110,11 +104,24 @@ class Kpi(BaseModel):
     direction: KpiDirection = KpiDirection.INCREASE
     target_value: float | None = None
     current_value: float | None = None
+    previous_value: float | None = Field(
+        default=None,
+        description="Optional prior measurement for change delta in evaluation",
+    )
     unit: str = Field(default="", max_length=40)
+    required: bool = Field(
+        default=True,
+        description="Whether this KPI participates as required for goal progress status",
+    )
+    maintain_tolerance: float | None = Field(
+        default=None,
+        ge=0,
+        description="Absolute tolerance around target when direction=maintain",
+    )
 
     @field_validator("kpi_id", "goal_id", "name", "metric")
     @classmethod
-    def normalize_required(cls, value: str) -> str:
+    def normalize_required_str(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
             raise ValueError("kpi fields must be non-empty")
@@ -134,10 +141,8 @@ class BusinessStateSnapshot(BaseModel):
     schema_version: Literal[1] = 1
     snapshot_id: str = Field(min_length=1, max_length=160)
     subject_ref: BusinessObjectRef
-    captured_at: str = Field(
-        min_length=1,
-        max_length=40,
-        description="ISO-8601 timestamp when this representation was formed",
+    captured_at: datetime = Field(
+        description="When this representation was formed (ISO-8601 datetime accepted)",
     )
     attributes: dict[str, Any] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(
@@ -146,7 +151,7 @@ class BusinessStateSnapshot(BaseModel):
     )
     confidence: float | None = Field(default=None, ge=0, le=1)
 
-    @field_validator("snapshot_id", "captured_at")
+    @field_validator("snapshot_id")
     @classmethod
     def normalize_required(cls, value: str) -> str:
         normalized = value.strip()
@@ -176,12 +181,12 @@ class BusinessEvent(BaseModel):
         ),
     )
     subject_refs: list[BusinessObjectRef] = Field(default_factory=list)
-    occurred_at: str = Field(min_length=1, max_length=40, description="ISO-8601")
+    occurred_at: datetime = Field(description="When the event occurred (ISO-8601 accepted)")
     evidence_ids: list[str] = Field(default_factory=list)
     payload: dict[str, Any] = Field(default_factory=dict)
     summary: str = Field(default="", max_length=1000)
 
-    @field_validator("event_id", "event_type", "occurred_at")
+    @field_validator("event_id", "event_type")
     @classmethod
     def normalize_required(cls, value: str) -> str:
         normalized = value.strip()
@@ -190,49 +195,48 @@ class BusinessEvent(BaseModel):
         return normalized
 
 
-# Declarative cross-type relationships for documentation / future validation.
-# Not a graph runtime.
-COMMERCIAL_RELATIONSHIP_SPECS: tuple[dict[str, str], ...] = (
-    {
-        "name": "goal_concerns_subjects",
-        "from": "Goal",
-        "to": "BusinessObjectRef",
-        "cardinality": "many_to_many",
-        "description": "A goal may name one or more business objects as subjects.",
-    },
-    {
-        "name": "kpi_belongs_to_goal",
-        "from": "Kpi",
-        "to": "Goal",
-        "cardinality": "many_to_one",
-        "description": "Each KPI is owned by exactly one Goal via goal_id.",
-    },
-    {
-        "name": "snapshot_of_subject",
-        "from": "BusinessStateSnapshot",
-        "to": "BusinessObjectRef",
-        "cardinality": "many_to_one",
-        "description": "A snapshot describes one subject at one captured_at.",
-    },
-    {
-        "name": "event_involves_subjects",
-        "from": "BusinessEvent",
-        "to": "BusinessObjectRef",
-        "cardinality": "many_to_many",
-        "description": "An event may involve one or more business objects.",
-    },
-    {
-        "name": "snapshot_supported_by_evidence",
-        "from": "BusinessStateSnapshot",
-        "to": "Evidence",
-        "cardinality": "many_to_many",
-        "description": "State attributes may cite evidence ids; evidence is not state.",
-    },
-    {
-        "name": "event_supported_by_evidence",
-        "from": "BusinessEvent",
-        "to": "Evidence",
-        "cardinality": "many_to_many",
-        "description": "Events may cite evidence ids proving occurrence; event is not evidence.",
-    },
+# Declarative cross-type relationships (typed). Not a graph runtime.
+COMMERCIAL_RELATIONSHIP_SPECS: tuple[OntologyRelationshipSpec, ...] = (
+    OntologyRelationshipSpec(
+        name="goal_concerns_subjects",
+        from_endpoint="Goal",
+        to_endpoint="BusinessObjectRef",
+        cardinality="many_to_many",
+        description="A goal may name one or more business objects as subjects.",
+    ),
+    OntologyRelationshipSpec(
+        name="kpi_belongs_to_goal",
+        from_endpoint="Kpi",
+        to_endpoint="Goal",
+        cardinality="many_to_one",
+        description="Each KPI is owned by exactly one Goal via goal_id.",
+    ),
+    OntologyRelationshipSpec(
+        name="snapshot_of_subject",
+        from_endpoint="BusinessStateSnapshot",
+        to_endpoint="BusinessObjectRef",
+        cardinality="many_to_one",
+        description="A snapshot describes one subject at one captured_at.",
+    ),
+    OntologyRelationshipSpec(
+        name="event_involves_subjects",
+        from_endpoint="BusinessEvent",
+        to_endpoint="BusinessObjectRef",
+        cardinality="many_to_many",
+        description="An event may involve one or more business objects.",
+    ),
+    OntologyRelationshipSpec(
+        name="snapshot_supported_by_evidence",
+        from_endpoint="BusinessStateSnapshot",
+        to_endpoint="Evidence",
+        cardinality="many_to_many",
+        description="State attributes may cite evidence ids; evidence is not state.",
+    ),
+    OntologyRelationshipSpec(
+        name="event_supported_by_evidence",
+        from_endpoint="BusinessEvent",
+        to_endpoint="Evidence",
+        cardinality="many_to_many",
+        description="Events may cite evidence ids proving occurrence; event is not evidence.",
+    ),
 )

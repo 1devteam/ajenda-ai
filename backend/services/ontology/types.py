@@ -90,6 +90,22 @@ class RelationshipSpec(BaseModel):
     description: str = Field(min_length=1, max_length=500)
 
 
+class OntologyRelationshipSpec(BaseModel):
+    """Declarative relationship across ontology concepts (objects, goals, evidence, etc.).
+
+    Endpoints are stable string labels (e.g. "Goal", "Kpi", "Evidence") so
+    commercial and evaluation relationships are not forced into BusinessObjectType.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    from_endpoint: str = Field(min_length=1, max_length=80)
+    to_endpoint: str = Field(min_length=1, max_length=80)
+    cardinality: Literal["one_to_one", "one_to_many", "many_to_one", "many_to_many"]
+    description: str = Field(min_length=1, max_length=500)
+
+
 RELATIONSHIP_SPECS: tuple[RelationshipSpec, ...] = (
     RelationshipSpec(
         name="contact_belongs_to_account",
