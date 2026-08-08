@@ -77,9 +77,7 @@ def _commercial_context(payload: DecisionRecommendInput) -> dict[str, Any] | Non
         "subject_refs": [ref.model_dump(mode="json") for ref in payload.subject_refs],
         "goal_ref": payload.goal_ref.model_dump(mode="json") if payload.goal_ref else None,
         "kpis": [kpi.model_dump(mode="json") for kpi in payload.kpis],
-        "state_snapshot": (
-            payload.state_snapshot.model_dump(mode="json") if payload.state_snapshot else None
-        ),
+        "state_snapshot": (payload.state_snapshot.model_dump(mode="json") if payload.state_snapshot else None),
         "recent_events": [evt.model_dump(mode="json") for evt in payload.recent_events],
     }
 
@@ -122,8 +120,7 @@ def _score_option(
         linked = [
             f
             for f in facts
-            if cid in f.supports_criterion_ids
-            and (not f.supports_option_ids or option_id in f.supports_option_ids)
+            if cid in f.supports_criterion_ids and (not f.supports_option_ids or option_id in f.supports_option_ids)
         ]
         if not linked:
             dim_score = 0.0

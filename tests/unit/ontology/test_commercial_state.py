@@ -175,9 +175,7 @@ def test_decision_recommend_with_opportunity_goal_kpi() -> None:
                         "confidence": 0.9,
                         "supports_option_ids": ["map_stakeholders"],
                         "supports_criterion_ids": ["authority_gap"],
-                        "about_object_refs": [
-                            {"object_type": "opportunity", "object_id": "opp_123"}
-                        ],
+                        "about_object_refs": [{"object_type": "opportunity", "object_id": "opp_123"}],
                     }
                 ],
             },
