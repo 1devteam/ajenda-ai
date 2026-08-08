@@ -45,7 +45,10 @@ def _evidence(
         summary=summary,
         structured_payload=payload,
         confidence=confidence,
-        provenance={"runtime_path": "TaskDispatcher -> tool.invoke -> ActionRegistry", "cluster": "evidence_intelligence"},
+        provenance={
+            "runtime_path": "TaskDispatcher -> tool.invoke -> ActionRegistry",
+            "cluster": "evidence_intelligence",
+        },
         side_effect_class=SideEffectClass.NONE,
     )
 
@@ -92,8 +95,7 @@ def _score_option(
         linked = [
             f
             for f in facts
-            if cid in f.supports_criterion_ids
-            and (not f.supports_option_ids or option_id in f.supports_option_ids)
+            if cid in f.supports_criterion_ids and (not f.supports_option_ids or option_id in f.supports_option_ids)
         ]
         if not linked:
             dim_score = 0.0
@@ -236,7 +238,7 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
                 "Remove or satisfy blocking constraints.",
                 "Add alternative options if the current set is infeasible.",
             ]
-            uncertainty = ["no_feasible_option"] + list(chosen["gaps"])[:5]
+            uncertainty = ["no_feasible_option", *list(chosen["gaps"])[:5]]
         else:
             recommendation = chosen["option_id"]
             rationale = (
@@ -258,7 +260,9 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
                     f"Evidence that raises '{scored[1]['label']}' by more than {delta} could change the ranking."
                 )
             if not what_would_change:
-                what_would_change.append("Contradictory known evidence against the leading dimensions could reverse this recommendation.")
+                what_would_change.append(
+                    "Contradictory known evidence against the leading dimensions could reverse this recommendation."
+                )
             uncertainty = []
             if any(d["status"] == "inferred" for d in chosen["dimension_scores"]):
                 uncertainty.append("relies_on_inferred_evidence")
@@ -281,10 +285,7 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
             "known_weight": 1.0,
             "inferred_weight": 0.6,
             "missing_weight": 0.0,
-            "notes": (
-                "Deterministic scoring from explicit evidence linkage. "
-                "Does not execute the recommendation."
-            ),
+            "notes": ("Deterministic scoring from explicit evidence linkage. Does not execute the recommendation."),
         },
     }
     summary = f"Recommended next action: {recommendation} (confidence={confidence})."
