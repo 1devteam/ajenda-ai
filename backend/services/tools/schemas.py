@@ -470,7 +470,11 @@ class EvidenceFactStatus(StrEnum):
 
 
 class EvidenceFact(BaseModel):
-    """A single evidence fact linked to options and/or criteria for decision scoring."""
+    """A single evidence fact linked to options and/or criteria for decision scoring.
+
+    Optional about_object_refs (Business Ontology Slice 1) name which business
+    objects the claim is about. Callers may omit refs; scoring does not require them.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -481,6 +485,7 @@ class EvidenceFact(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
     supports_option_ids: list[str] = Field(default_factory=list)
     supports_criterion_ids: list[str] = Field(default_factory=list)
+    about_object_refs: list[Any] = Field(default_factory=list)
 
     @field_validator("evidence_id", "claim")
     @classmethod
@@ -489,6 +494,17 @@ class EvidenceFact(BaseModel):
         if not normalized:
             raise ValueError("evidence fields must be non-empty")
         return normalized
+
+    @field_validator("about_object_refs", mode="before")
+    @classmethod
+    def coerce_about_object_refs(cls, value: Any) -> list[Any]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("about_object_refs must be a list")
+        from backend.services.ontology.types import BusinessObjectRef
+
+        return [BusinessObjectRef.model_validate(item) for item in value]
 
 
 class DecisionCriterion(BaseModel):
