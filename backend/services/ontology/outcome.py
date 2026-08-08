@@ -331,17 +331,13 @@ def _aggregate_status(
         return OutcomeStatus.INSUFFICIENT_EVIDENCE, 0.3, ["no_kpi_pairs"]
 
     required_deltas = [d for d in deltas if d.required]
-    required_unknown = [
-        d for d in required_deltas if d.direction_assessment == DirectionAssessment.INSUFFICIENT_DATA
-    ]
+    required_unknown = [d for d in required_deltas if d.direction_assessment == DirectionAssessment.INSUFFICIENT_DATA]
     if required_unknown:
         codes.append("required_kpi_insufficient_data")
         if any("kpi_definition_mismatch" in d.explanation_codes for d in required_unknown):
             codes.append("kpi_definition_mismatch")
         measurable_optional = [
-            d
-            for d in deltas
-            if not d.required and d.direction_assessment != DirectionAssessment.INSUFFICIENT_DATA
+            d for d in deltas if not d.required and d.direction_assessment != DirectionAssessment.INSUFFICIENT_DATA
         ]
         if not measurable_optional:
             return OutcomeStatus.INSUFFICIENT_EVIDENCE, 0.35, codes
