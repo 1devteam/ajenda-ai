@@ -209,12 +209,8 @@ def test_action_registry_evaluate_outcome() -> None:
             action="analysis.evaluate_outcome",
             input={
                 "goal": _goal().model_dump(mode="json"),
-                "baseline_kpis": [
-                    _kpi(kpi_id="qualification_score", current=61, target=80).model_dump(mode="json")
-                ],
-                "observed_kpis": [
-                    _kpi(kpi_id="qualification_score", current=74, target=80).model_dump(mode="json")
-                ],
+                "baseline_kpis": [_kpi(kpi_id="qualification_score", current=61, target=80).model_dump(mode="json")],
+                "observed_kpis": [_kpi(kpi_id="qualification_score", current=74, target=80).model_dump(mode="json")],
             },
         ),
         context,
