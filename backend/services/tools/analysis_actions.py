@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from backend.services.ontology.commercial_state import (
     BusinessEvent,
     BusinessStateSnapshot,
@@ -36,6 +34,7 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EvaluateGoalProgressInput(BaseModel):

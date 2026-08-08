@@ -19,8 +19,6 @@ from enum import StrEnum
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from backend.services.ontology.commercial_state import (
     BusinessEvent,
     BusinessStateSnapshot,
@@ -39,6 +37,7 @@ from backend.services.ontology.evaluation import (
     evaluate_kpi,
 )
 from backend.services.ontology.types import BusinessObjectRef
+from pydantic import BaseModel, ConfigDict, Field
 
 OUTCOME_SCHEMA_VERSION = 1
 
@@ -411,9 +410,7 @@ def evaluate_outcome(
         if status == OutcomeStatus.ACHIEVED and code not in gap_codes:
             criteria_results.append(CriteriaResult(code=code, satisfied=True, explanation_code="criteria_met"))
         elif status in {OutcomeStatus.INSUFFICIENT_EVIDENCE, OutcomeStatus.INCONCLUSIVE}:
-            criteria_results.append(
-                CriteriaResult(code=code, satisfied=None, explanation_code="criteria_unassessable")
-            )
+            criteria_results.append(CriteriaResult(code=code, satisfied=None, explanation_code="criteria_unassessable"))
         else:
             criteria_results.append(CriteriaResult(code=code, satisfied=False, explanation_code="criteria_not_met"))
 
