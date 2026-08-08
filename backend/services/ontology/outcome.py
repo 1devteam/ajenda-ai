@@ -453,7 +453,13 @@ def evaluate_outcome(
     )
     observed_kpis_for_evaluation = list(observed.observed_kpis)
     observed_kpis_for_evaluation.extend(
-        base.model_copy(update={"current_value": None, "previous_value": base.current_value})
+        base.model_copy(
+            update={
+                "goal_id": goal.goal_id,
+                "current_value": None,
+                "previous_value": base.current_value,
+            }
+        )
         for base in expectation.baseline_kpis
         if base.required and base.kpi_id not in observed_ids
     )

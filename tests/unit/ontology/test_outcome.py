@@ -258,6 +258,39 @@ def test_required_baseline_kpi_omitted_from_observed_blocks_achieved() -> None:
     assert missing_evaluation.status == "insufficient_data"
 
 
+def test_foreign_required_baseline_kpi_omitted_from_observed_blocks_nested_achieved() -> None:
+    """A foreign goal ID must not hide an omitted required KPI from the nested result."""
+    expectation = OutcomeExpectation(
+        goal=_goal(),
+        baseline_kpis=[
+            _kpi(kpi_id="qualification_score", current=61, target=80, required=True),
+            _kpi(
+                kpi_id="reply_rate",
+                current=0.1,
+                target=0.4,
+                required=True,
+                goal_id="goal_foreign",
+            ),
+        ],
+    )
+    observed = ObservedOutcome(
+        observed_kpis=[
+            _kpi(kpi_id="qualification_score", current=80, target=80, required=True),
+        ],
+    )
+
+    result = evaluate_outcome(expectation=expectation, observed=observed)
+
+    assert result.status != OutcomeStatus.ACHIEVED
+    assert "required_kpi_insufficient_data" in result.explanation_codes
+    assert result.observed_evaluation is not None
+    assert result.observed_evaluation.status == GoalProgressStatus.INSUFFICIENT_DATA
+    missing_evaluation = next(
+        evaluation for evaluation in result.observed_evaluation.kpi_evaluations if evaluation.kpi_id == "reply_rate"
+    )
+    assert missing_evaluation.status == "insufficient_data"
+
+
 def test_achieved_blocked_by_required_evidence_gap() -> None:
     """All KPIs at target + declared evidence gaps → not ACHIEVED."""
     expectation = OutcomeExpectation(
