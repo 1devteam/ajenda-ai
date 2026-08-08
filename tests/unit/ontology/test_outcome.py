@@ -166,8 +166,7 @@ def test_negative_state_transition_still_neutral() -> None:
     result = evaluate_outcome(expectation=expectation, observed=observed)
     assert result.state_changes is not None
     assert any(
-        c.key == "decision_maker_identified" and c.change_type == "changed"
-        for c in result.state_changes.changes
+        c.key == "decision_maker_identified" and c.change_type == "changed" for c in result.state_changes.changes
     )
     assert "state_transition_observed" in result.explanation_codes
     assert "desired_state_transition_observed" not in result.explanation_codes
