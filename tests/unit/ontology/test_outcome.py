@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 
 from backend.services.ontology.commercial_state import (
@@ -198,20 +199,28 @@ def test_action_registry_evaluate_outcome() -> None:
     registry = get_default_action_registry(rebuild=True)
     definition = registry.get("analysis.evaluate_outcome")
     assert definition.side_effect_class.value == "none"
-    invocation = ToolInvocation(
-        action="analysis.evaluate_outcome",
-        input={
-            "goal": _goal().model_dump(mode="json"),
-            "baseline_kpis": [_kpi(kpi_id="qualification_score", current=61, target=80).model_dump(mode="json")],
-            "observed_kpis": [_kpi(kpi_id="qualification_score", current=74, target=80).model_dump(mode="json")],
-        },
-    )
     context = ActionRuntimeContext(
-        tenant_id="t1",
-        task_id="00000000-0000-0000-0000-000000000001",
-        mission_id=None,
+        tenant_id=str(uuid.uuid4()),
+        task_id=uuid.uuid4(),
+        mission_id=uuid.uuid4(),
+        worker_id="worker",
+        lease_id=str(uuid.uuid4()),
     )
-    result = registry.invoke(invocation, context)
+    result = registry.invoke(
+        ToolInvocation(
+            action="analysis.evaluate_outcome",
+            input={
+                "goal": _goal().model_dump(mode="json"),
+                "baseline_kpis": [
+                    _kpi(kpi_id="qualification_score", current=61, target=80).model_dump(mode="json")
+                ],
+                "observed_kpis": [
+                    _kpi(kpi_id="qualification_score", current=74, target=80).model_dump(mode="json")
+                ],
+            },
+        ),
+        context,
+    )
     assert result.action == "analysis.evaluate_outcome"
     assert result.output["status"] == "partial_progress"
     assert result.evidence
