@@ -236,7 +236,7 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
                 "Remove or satisfy blocking constraints.",
                 "Add alternative options if the current set is infeasible.",
             ]
-            uncertainty = ["no_feasible_option"] + list(chosen["gaps"])[:5]
+            uncertainty = ["no_feasible_option", *list(chosen["gaps"])[:5]]
         else:
             recommendation = chosen["option_id"]
             rationale = (
