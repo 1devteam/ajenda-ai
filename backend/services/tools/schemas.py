@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
+from backend.services.ontology.types import BusinessObjectRef
 from backend.services.security.redaction import contains_sensitive_key
 
 TOOL_INVOCATION_SCHEMA_VERSION = 1
@@ -470,7 +471,11 @@ class EvidenceFactStatus(StrEnum):
 
 
 class EvidenceFact(BaseModel):
-    """A single evidence fact linked to options and/or criteria for decision scoring."""
+    """A single evidence fact linked to options and/or criteria for decision scoring.
+
+    Optional about_object_refs (Business Ontology Slice 1) name which business
+    objects the claim is about. Callers may omit refs; scoring does not require them.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -481,6 +486,7 @@ class EvidenceFact(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
     supports_option_ids: list[str] = Field(default_factory=list)
     supports_criterion_ids: list[str] = Field(default_factory=list)
+    about_object_refs: list[BusinessObjectRef] = Field(default_factory=list)
 
     @field_validator("evidence_id", "claim")
     @classmethod
