@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from math import isclose
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -329,11 +330,16 @@ def evaluate_goal_progress(
         for k, e in required_pairs:
             if e.target_reached:
                 continue
-            if e.change is not None:
-                any_measured_change = any_measured_change or e.change != 0
-                if k.direction == KpiDirection.INCREASE and e.change < 0:
+            raw_change = (
+                k.current_value - k.previous_value
+                if k.current_value is not None and k.previous_value is not None
+                else None
+            )
+            if raw_change is not None:
+                any_measured_change = any_measured_change or raw_change != 0
+                if k.direction == KpiDirection.INCREASE and raw_change < 0:
                     moving_against = True
-                elif k.direction == KpiDirection.DECREASE and e.change > 0:
+                elif k.direction == KpiDirection.DECREASE and raw_change > 0:
                     moving_against = True
                 elif (
                     k.direction == KpiDirection.MAINTAIN
@@ -341,6 +347,12 @@ def evaluate_goal_progress(
                     and e.previous_value is not None
                     and e.target_value is not None
                     and abs(e.current_value - e.target_value) > abs(e.previous_value - e.target_value)
+                    and not isclose(
+                        abs(e.current_value - e.target_value),
+                        abs(e.previous_value - e.target_value),
+                        rel_tol=1e-9,
+                        abs_tol=1e-12,
+                    )
                 ):
                     moving_against = True
                 elif e.improving:

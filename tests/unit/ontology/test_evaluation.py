@@ -291,6 +291,25 @@ def test_measured_regression_is_off_track() -> None:
     assert any("against" in e.lower() for e in result.explanations)
 
 
+def test_sub_precision_increase_regression_is_off_track() -> None:
+    """Presentation rounding must not erase a real directional regression."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Score",
+        metric="score",
+        direction=KpiDirection.INCREASE,
+        current_value=0.4999999,
+        target_value=1.0,
+        previous_value=0.5,
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.kpi_evaluations[0].change == -0.0
+    assert result.status == GoalProgressStatus.OFF_TRACK
+
+
 def test_state_comparison_rejects_different_subjects() -> None:
     earlier = BusinessStateSnapshot(
         snapshot_id="s0",
@@ -384,3 +403,21 @@ def test_maintain_kpi_farther_from_target_is_off_track() -> None:
     )
     result = evaluate_goal_progress(goal=goal, kpis=[kpi])
     assert result.status == GoalProgressStatus.OFF_TRACK
+
+
+def test_maintain_decimal_equal_distance_is_at_risk() -> None:
+    """Binary-float noise must not turn equal MAINTAIN distances into regression."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Rate",
+        metric="rate",
+        direction=KpiDirection.MAINTAIN,
+        current_value=0.5,
+        target_value=0.3,
+        previous_value=0.1,
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.status == GoalProgressStatus.AT_RISK
