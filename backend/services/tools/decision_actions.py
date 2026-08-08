@@ -1,9 +1,13 @@
-"""Evidence Intelligence — decision support abilities (Slice 1).
+"""Evidence Intelligence — decision support abilities (Slice 1 + commercial context).
 
 Real abilities, not a StrategyEngine. This module implements
 ``decision.recommend_next_action``: given a goal, options, criteria, and
 evidence facts, produce a defensible next-action recommendation with
 supporting evidence, confidence, uncertainty, and change conditions.
+
+Optional Commercial State Slice 2 fields (subject_refs, goal_ref, kpis,
+state_snapshot, recent_events) are accepted and echoed for structured framing;
+they do not alter weighted_criterion_evidence_v1 scoring.
 
 Does not execute the recommendation, enqueue work, or wire composition.
 """
@@ -55,6 +59,27 @@ def _evidence(
 
 def _normalize_facts(raw: list[EvidenceFact]) -> list[EvidenceFact]:
     return list(raw)
+
+
+def _commercial_context(payload: DecisionRecommendInput) -> dict[str, Any] | None:
+    """Serialize optional Slice 2 commercial framing when any field is present."""
+
+    has_any = (
+        bool(payload.subject_refs)
+        or payload.goal_ref is not None
+        or bool(payload.kpis)
+        or payload.state_snapshot is not None
+        or bool(payload.recent_events)
+    )
+    if not has_any:
+        return None
+    return {
+        "subject_refs": [ref.model_dump(mode="json") for ref in payload.subject_refs],
+        "goal_ref": payload.goal_ref.model_dump(mode="json") if payload.goal_ref else None,
+        "kpis": [kpi.model_dump(mode="json") for kpi in payload.kpis],
+        "state_snapshot": (payload.state_snapshot.model_dump(mode="json") if payload.state_snapshot else None),
+        "recent_events": [evt.model_dump(mode="json") for evt in payload.recent_events],
+    }
 
 
 def _score_option(
@@ -285,9 +310,17 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
             "known_weight": 1.0,
             "inferred_weight": 0.6,
             "missing_weight": 0.0,
-            "notes": ("Deterministic scoring from explicit evidence linkage. Does not execute the recommendation."),
+            "notes": (
+                "Deterministic scoring from explicit evidence linkage. "
+                "Does not execute the recommendation. Commercial context is "
+                "echoed when supplied but does not alter v1 scores."
+            ),
         },
     }
+    commercial = _commercial_context(payload)
+    if commercial is not None:
+        output["commercial_context"] = commercial
+
     summary = f"Recommended next action: {recommendation} (confidence={confidence})."
     return ActionResult(
         action="decision.recommend_next_action",
