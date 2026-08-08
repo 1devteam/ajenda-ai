@@ -7,6 +7,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
+from backend.services.ontology.commercial_state import (
+    BusinessEvent,
+    BusinessStateSnapshot,
+    Goal,
+    Kpi,
+)
 from backend.services.ontology.types import BusinessObjectRef
 from backend.services.security.redaction import contains_sensitive_key
 
@@ -531,7 +537,13 @@ class DecisionOption(BaseModel):
 
 
 class DecisionRecommendInput(BaseModel):
-    """Input for decision.recommend_next_action — goal, options, criteria, evidence, constraints."""
+    """Input for decision.recommend_next_action.
+
+    Slice 1: goal (string), options, criteria, evidence, constraints.
+    Slice 2 (optional): structured Goal / subject refs / KPI / state / events.
+    Optional commercial fields do not change scoring; they frame the decision
+    for evaluation intelligence later. Old callers remain valid.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -541,6 +553,27 @@ class DecisionRecommendInput(BaseModel):
     evidence: list[EvidenceFact] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
+    # Commercial State Slice 2 — all optional, non-breaking
+    subject_refs: list[BusinessObjectRef] = Field(
+        default_factory=list,
+        description="Business objects this recommendation concerns",
+    )
+    goal_ref: Goal | None = Field(
+        default=None,
+        description="Structured Goal; complements the free-text goal field",
+    )
+    kpis: list[Kpi] = Field(
+        default_factory=list,
+        description="KPI measurements/targets relevant to the goal",
+    )
+    state_snapshot: BusinessStateSnapshot | None = Field(
+        default=None,
+        description="Current believed state of the primary subject",
+    )
+    recent_events: list[BusinessEvent] = Field(
+        default_factory=list,
+        description="Recent change events; not scored in v1 algorithm",
+    )
 
     @field_validator("goal")
     @classmethod
