@@ -28,9 +28,7 @@ def _goal() -> Goal:
     return Goal(
         goal_id="goal_qual",
         name="Qualify opportunity",
-        subject_refs=[
-            BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp_1")
-        ],
+        subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp_1")],
     )
 
 
