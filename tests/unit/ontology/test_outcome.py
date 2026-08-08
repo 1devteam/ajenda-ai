@@ -11,6 +11,7 @@ from backend.services.ontology.commercial_state import (
     Kpi,
     KpiDirection,
 )
+from backend.services.ontology.evaluation import GoalProgressStatus
 from backend.services.ontology.outcome import (
     AttributionAssessment,
     DirectionAssessment,
@@ -249,6 +250,12 @@ def test_required_baseline_kpi_omitted_from_observed_blocks_achieved() -> None:
     assert missing_delta.required is True
     assert missing_delta.direction_assessment == DirectionAssessment.INSUFFICIENT_DATA
     assert missing_delta.explanation_codes == ["observed_kpi_missing"]
+    assert result.observed_evaluation is not None
+    assert result.observed_evaluation.status == GoalProgressStatus.INSUFFICIENT_DATA
+    missing_evaluation = next(
+        evaluation for evaluation in result.observed_evaluation.kpi_evaluations if evaluation.kpi_id == "reply_rate"
+    )
+    assert missing_evaluation.status == "insufficient_data"
 
 
 def test_achieved_blocked_by_required_evidence_gap() -> None:

@@ -451,9 +451,15 @@ def evaluate_outcome(
         evidence_ids=[],
         missing_evidence_codes=[],
     )
+    observed_kpis_for_evaluation = list(observed.observed_kpis)
+    observed_kpis_for_evaluation.extend(
+        base.model_copy(update={"current_value": None, "previous_value": base.current_value})
+        for base in expectation.baseline_kpis
+        if base.required and base.kpi_id not in observed_ids
+    )
     observed_eval = evaluate_goal_progress(
         goal=goal,
-        kpis=list(observed.observed_kpis),
+        kpis=observed_kpis_for_evaluation,
         current_state=observed.observed_snapshot,
         previous_state=expectation.baseline_snapshot,
         events=list(observed.events),
