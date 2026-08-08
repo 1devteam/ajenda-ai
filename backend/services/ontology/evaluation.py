@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from math import isclose
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -164,7 +165,18 @@ def evaluate_kpi(kpi: Kpi) -> KpiEvaluation:
         gap = abs(current - target)
         target_reached = gap <= tol
         attainment = 1.0 if target_reached else max(0.0, 1.0 - (gap / (abs(target) + 1e-9)))
-        improving = change is not None and abs(current - target) < abs((previous or current) - target)
+        # previous_value=0 is a legitimate measurement; never use truthiness
+        improving = (
+            change is not None
+            and previous is not None
+            and abs(current - target) < abs(previous - target)
+            and not isclose(
+                abs(current - target),
+                abs(previous - target),
+                rel_tol=1e-9,
+                abs_tol=1e-12,
+            )
+        )
         if target_reached:
             status = "within_tolerance" if gap > 0 else "ok"
             explanation = f"current {current} within ±{tol} of target {target}"
@@ -193,7 +205,27 @@ def compare_state_snapshots(
     earlier: BusinessStateSnapshot,
     later: BusinessStateSnapshot,
 ) -> StateComparison:
-    """Explicit attribute deltas between two snapshots."""
+    """Explicit attribute deltas between two snapshots of the same subject.
+
+    Rejects different subjects and reversed chronology. Unknown is not
+    regression; different subjects are not comparable state.
+    """
+
+    if earlier.subject_ref.object_type != later.subject_ref.object_type or (
+        earlier.subject_ref.object_id != later.subject_ref.object_id
+    ):
+        raise ValueError(
+            "state comparison requires identical subject_ref on both snapshots; "
+            f"got {earlier.subject_ref.object_type}:{earlier.subject_ref.object_id} vs "
+            f"{later.subject_ref.object_type}:{later.subject_ref.object_id}"
+        )
+
+    if later.captured_at < earlier.captured_at:
+        raise ValueError(
+            "state comparison requires chronological order: later.captured_at must be "
+            f">= earlier.captured_at; got later={later.captured_at.isoformat()} "
+            f"earlier={earlier.captured_at.isoformat()}"
+        )
 
     before = dict(earlier.attributes)
     after = dict(later.attributes)
@@ -232,22 +264,23 @@ def evaluate_goal_progress(
 ) -> EvaluationResult:
     """Aggregate KPI evaluations into goal progress status with inspectable gaps.
 
-    Conservative V1 rules:
+    Conservative V1 rules (hardened):
+    - Only KPIs whose goal_id matches the requested Goal are evaluated.
+    - Foreign-goal KPIs never influence status.
+    - No matching goal-scoped KPIs → INSUFFICIENT_DATA (explicit mismatch explanation).
+    - OFF_TRACK only when measured movement is against the target direction.
+    - Unknown / missing previous is not regression; below-target with no prior
+      measurement uses AT_RISK (or INSUFFICIENT_DATA when values themselves are missing).
     - achieved: all required KPIs target_reached
-    - off_track: required KPI moved against target, or gaps with no improvement
-    - on_track: required metrics improving / met, no evidence gaps
-    - at_risk: some progress but required gaps remain
-    - insufficient_data: cannot justify a stronger status
+    - on_track / at_risk follow measured improvement + remaining gaps
     """
 
     events = events or []
     evidence_ids = list(evidence_ids or [])
     missing_evidence_codes = list(missing_evidence_codes or [])
 
+    # Strict goal scoping — no fallback to foreign KPIs
     scoped = [k for k in kpis if k.goal_id == goal.goal_id]
-    if not scoped:
-        scoped = list(kpis)
-
     kpi_evals = [evaluate_kpi(k) for k in scoped]
     eval_by_id = {e.kpi_id: e for e in kpi_evals}
     required_pairs = [(k, eval_by_id[k.kpi_id]) for k in scoped if k.required and k.kpi_id in eval_by_id]
@@ -284,10 +317,14 @@ def evaluate_goal_progress(
         state_cmp = compare_state_snapshots(previous_state, current_state)
         explanations.append(state_cmp.explanation)
 
-    if not required_pairs:
+    if not scoped:
         status = GoalProgressStatus.INSUFFICIENT_DATA
         confidence = 0.3
-        explanations.append("No required KPIs supplied for goal")
+        explanations.append(f"No KPIs scoped to goal_id={goal.goal_id}; foreign or empty KPI list cannot drive status")
+    elif not required_pairs:
+        status = GoalProgressStatus.INSUFFICIENT_DATA
+        confidence = 0.3
+        explanations.append(f"No required KPIs matched goal_id={goal.goal_id}; cannot evaluate progress")
     elif any(e.status == "insufficient_data" for _, e in required_pairs):
         status = GoalProgressStatus.INSUFFICIENT_DATA
         confidence = 0.4
@@ -299,18 +336,40 @@ def evaluate_goal_progress(
     else:
         moving_against = False
         any_improving = False
+        any_measured_change = False
         for k, e in required_pairs:
             if e.target_reached:
                 continue
-            if e.change is not None:
-                if k.direction == KpiDirection.INCREASE and e.change < 0:
+            raw_change = (
+                k.current_value - k.previous_value
+                if k.current_value is not None and k.previous_value is not None
+                else None
+            )
+            if raw_change is not None:
+                any_measured_change = any_measured_change or raw_change != 0
+                if k.direction == KpiDirection.INCREASE and raw_change < 0:
                     moving_against = True
-                elif k.direction == KpiDirection.DECREASE and e.change > 0:
+                elif k.direction == KpiDirection.DECREASE and raw_change > 0:
+                    moving_against = True
+                elif (
+                    k.direction == KpiDirection.MAINTAIN
+                    and e.current_value is not None
+                    and e.previous_value is not None
+                    and e.target_value is not None
+                    and abs(e.current_value - e.target_value) > abs(e.previous_value - e.target_value)
+                    and not isclose(
+                        abs(e.current_value - e.target_value),
+                        abs(e.previous_value - e.target_value),
+                        rel_tol=1e-9,
+                        abs_tol=1e-12,
+                    )
+                ):
                     moving_against = True
                 elif e.improving:
                     any_improving = True
             elif e.improving:
                 any_improving = True
+
         if moving_against:
             status = GoalProgressStatus.OFF_TRACK
             confidence = 0.75
@@ -323,10 +382,17 @@ def evaluate_goal_progress(
             status = GoalProgressStatus.ON_TRACK
             confidence = 0.7
             explanations.append("Required metrics improving without evidence blockers")
-        elif progress_gaps and not any_improving:
-            status = GoalProgressStatus.OFF_TRACK
-            confidence = 0.6
-            explanations.append("Required gaps with no measured improvement")
+        elif progress_gaps and not any_measured_change:
+            status = GoalProgressStatus.AT_RISK
+            confidence = 0.55
+            explanations.append(
+                "Required gaps present; no movement against target was measured "
+                "(flat or unknown trend is not regression)"
+            )
+        elif progress_gaps:
+            status = GoalProgressStatus.AT_RISK
+            confidence = 0.55
+            explanations.append("Required gaps remain; measured change did not move farther from target")
         else:
             status = GoalProgressStatus.AT_RISK
             confidence = 0.55

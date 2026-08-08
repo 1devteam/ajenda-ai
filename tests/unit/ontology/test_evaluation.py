@@ -1,9 +1,11 @@
-"""Unit tests for Evaluation Intelligence Slice 1."""
+"""Unit tests for Evaluation Intelligence Slice 1 (hardened contracts)."""
 
 from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+
+import pytest
 
 from backend.services.ontology import (
     BusinessObjectType,
@@ -95,6 +97,7 @@ def test_goal_progress_insufficient_without_kpi() -> None:
     goal = Goal(goal_id="g1", name="Qualify")
     result = evaluate_goal_progress(goal=goal, kpis=[])
     assert result.status == GoalProgressStatus.INSUFFICIENT_DATA
+    assert any("No KPIs scoped" in e or "goal_id" in e for e in result.explanations)
 
 
 def test_commercial_relationship_specs_typed() -> None:
@@ -169,3 +172,260 @@ def test_typed_temporal_fields() -> None:
     )
     assert isinstance(snap.captured_at, datetime)
     assert snap.captured_at.tzinfo is not None or snap.captured_at == datetime(2026, 8, 8, 12, 0)
+
+
+# --- #411 hardening adversarial contracts ---
+
+
+def test_foreign_goal_kpi_ignored() -> None:
+    """KPI from another goal_id must not affect the requested goal."""
+    goal = Goal(goal_id="g-target", name="Target goal")
+    foreign = Kpi(
+        kpi_id="k-foreign",
+        goal_id="g-other",
+        name="Foreign",
+        metric="x",
+        direction=KpiDirection.INCREASE,
+        current_value=10,
+        target_value=100,
+        previous_value=50,  # measured regression on foreign goal
+        required=True,
+    )
+    own = Kpi(
+        kpi_id="k-own",
+        goal_id="g-target",
+        name="Own",
+        metric="y",
+        direction=KpiDirection.INCREASE,
+        current_value=80,
+        target_value=80,
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[foreign, own])
+    assert result.status == GoalProgressStatus.ACHIEVED
+    assert len(result.kpi_evaluations) == 1
+    assert result.kpi_evaluations[0].kpi_id == "k-own"
+    assert all(g.kpi_id != "k-foreign" for g in result.progress_gaps)
+
+
+def test_no_matching_goal_scoped_kpis_insufficient() -> None:
+    """No matching goal-scoped KPIs returns INSUFFICIENT_DATA with explicit explanation."""
+    goal = Goal(goal_id="g1", name="G1")
+    foreign_only = Kpi(
+        kpi_id="k1",
+        goal_id="g-other",
+        name="Foreign",
+        metric="m",
+        current_value=50,
+        target_value=80,
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[foreign_only])
+    assert result.status == GoalProgressStatus.INSUFFICIENT_DATA
+    assert result.kpi_evaluations == []
+    assert any("No KPIs scoped" in e or "goal_id=g1" in e for e in result.explanations)
+
+
+def test_below_target_no_previous_not_off_track() -> None:
+    """Below-target KPI with previous_value=None must not become OFF_TRACK."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Score",
+        metric="score",
+        direction=KpiDirection.INCREASE,
+        current_value=40,
+        target_value=80,
+        previous_value=None,  # unknown prior
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.status == GoalProgressStatus.AT_RISK
+    assert result.status != GoalProgressStatus.OFF_TRACK
+    assert any("unknown trend is not regression" in e.lower() or "no prior" in e.lower() for e in result.explanations)
+
+
+@pytest.mark.parametrize(
+    ("direction", "current", "target"),
+    [
+        (KpiDirection.INCREASE, 40.0, 80.0),
+        (KpiDirection.DECREASE, 80.0, 40.0),
+    ],
+)
+def test_flat_below_target_is_at_risk(direction: KpiDirection, current: float, target: float) -> None:
+    """A measured zero change with a remaining gap is risk, not regression."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Score",
+        metric="score",
+        direction=direction,
+        current_value=current,
+        target_value=target,
+        previous_value=current,
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.status == GoalProgressStatus.AT_RISK
+    assert result.status != GoalProgressStatus.OFF_TRACK
+
+
+@pytest.mark.parametrize(
+    ("previous", "current"),
+    [
+        (0.1, 0.5),
+        (0.5, 0.1),
+    ],
+)
+def test_maintain_decimal_equal_distance_is_at_risk(previous: float, current: float) -> None:
+    """Binary-float noise must not give equal MAINTAIN distances a trend."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Rate",
+        metric="rate",
+        direction=KpiDirection.MAINTAIN,
+        current_value=current,
+        target_value=0.3,
+        previous_value=previous,
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.kpi_evaluations[0].improving is False
+    assert result.status == GoalProgressStatus.AT_RISK
+
+
+def test_measured_regression_is_off_track() -> None:
+    """Measured movement against target direction still becomes OFF_TRACK."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Score",
+        metric="score",
+        direction=KpiDirection.INCREASE,
+        current_value=40,
+        target_value=80,
+        previous_value=55,  # measured decline
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.status == GoalProgressStatus.OFF_TRACK
+    assert any("against" in e.lower() for e in result.explanations)
+
+
+def test_sub_precision_increase_regression_is_off_track() -> None:
+    """Presentation rounding must not erase a real directional regression."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Score",
+        metric="score",
+        direction=KpiDirection.INCREASE,
+        current_value=0.4999999,
+        target_value=1.0,
+        previous_value=0.5,
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.kpi_evaluations[0].change == -0.0
+    assert result.status == GoalProgressStatus.OFF_TRACK
+
+
+def test_state_comparison_rejects_different_subjects() -> None:
+    earlier = BusinessStateSnapshot(
+        snapshot_id="s0",
+        subject_ref={"object_type": "opportunity", "object_id": "opp1"},
+        captured_at="2026-08-01T00:00:00+00:00",
+        attributes={"stage": "discovery"},
+    )
+    later = BusinessStateSnapshot(
+        snapshot_id="s1",
+        subject_ref={"object_type": "opportunity", "object_id": "opp2"},
+        captured_at="2026-08-08T00:00:00+00:00",
+        attributes={"stage": "qualified"},
+    )
+    with pytest.raises(ValueError, match="identical subject_ref"):
+        compare_state_snapshots(earlier, later)
+
+
+def test_state_comparison_rejects_reversed_chronology() -> None:
+    earlier = BusinessStateSnapshot(
+        snapshot_id="s0",
+        subject_ref={"object_type": "opportunity", "object_id": "opp1"},
+        captured_at="2026-08-08T00:00:00+00:00",
+        attributes={"stage": "discovery"},
+    )
+    later = BusinessStateSnapshot(
+        snapshot_id="s1",
+        subject_ref={"object_type": "opportunity", "object_id": "opp1"},
+        captured_at="2026-08-01T00:00:00+00:00",
+        attributes={"stage": "qualified"},
+    )
+    with pytest.raises(ValueError, match="chronological order"):
+        compare_state_snapshots(earlier, later)
+
+
+def test_maintain_kpi_previous_zero_is_value() -> None:
+    """previous_value=0 is a legitimate measurement; truthiness must not treat it as absence."""
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Latency",
+        metric="p99_ms",
+        direction=KpiDirection.MAINTAIN,
+        current_value=5.0,
+        target_value=10.0,
+        previous_value=0.0,
+        maintain_tolerance=2.0,
+    )
+    ev = evaluate_kpi(kpi)
+    assert ev.previous_value == 0.0
+    assert ev.change == 5.0
+    # moved from 0 toward 10 → improving (closer to target)
+    assert ev.improving is True
+    assert abs(ev.gap or 0) == 5.0
+
+
+def test_maintain_kpi_previous_zero_equal_distance() -> None:
+    """Crossing a MAINTAIN target by equal distance is neither improvement nor regression."""
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Latency",
+        metric="p99_ms",
+        direction=KpiDirection.MAINTAIN,
+        current_value=20.0,
+        target_value=10.0,
+        previous_value=0.0,
+        maintain_tolerance=1.0,
+    )
+    ev = evaluate_kpi(kpi)
+    assert ev.previous_value == 0.0
+    assert ev.improving is False
+    assert ev.target_reached is False
+
+    result = evaluate_goal_progress(goal=Goal(goal_id="g1", name="G1"), kpis=[kpi])
+    assert result.status == GoalProgressStatus.AT_RISK
+
+
+def test_maintain_kpi_farther_from_target_is_off_track() -> None:
+    """MAINTAIN regression compares target distance before and after."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Latency",
+        metric="p99_ms",
+        direction=KpiDirection.MAINTAIN,
+        current_value=20.0,
+        target_value=10.0,
+        previous_value=5.0,
+        maintain_tolerance=1.0,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.status == GoalProgressStatus.OFF_TRACK
