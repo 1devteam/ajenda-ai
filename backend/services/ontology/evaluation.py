@@ -166,7 +166,17 @@ def evaluate_kpi(kpi: Kpi) -> KpiEvaluation:
         target_reached = gap <= tol
         attainment = 1.0 if target_reached else max(0.0, 1.0 - (gap / (abs(target) + 1e-9)))
         # previous_value=0 is a legitimate measurement; never use truthiness
-        improving = change is not None and previous is not None and abs(current - target) < abs(previous - target)
+        improving = (
+            change is not None
+            and previous is not None
+            and abs(current - target) < abs(previous - target)
+            and not isclose(
+                abs(current - target),
+                abs(previous - target),
+                rel_tol=1e-9,
+                abs_tol=1e-12,
+            )
+        )
         if target_reached:
             status = "within_tolerance" if gap > 0 else "ok"
             explanation = f"current {current} within ±{tol} of target {target}"

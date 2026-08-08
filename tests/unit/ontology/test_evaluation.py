@@ -272,6 +272,32 @@ def test_flat_below_target_is_at_risk(direction: KpiDirection, current: float, t
     assert result.status != GoalProgressStatus.OFF_TRACK
 
 
+@pytest.mark.parametrize(
+    ("previous", "current"),
+    [
+        (0.1, 0.5),
+        (0.5, 0.1),
+    ],
+)
+def test_maintain_decimal_equal_distance_is_at_risk(previous: float, current: float) -> None:
+    """Binary-float noise must not give equal MAINTAIN distances a trend."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Rate",
+        metric="rate",
+        direction=KpiDirection.MAINTAIN,
+        current_value=current,
+        target_value=0.3,
+        previous_value=previous,
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.kpi_evaluations[0].improving is False
+    assert result.status == GoalProgressStatus.AT_RISK
+
+
 def test_measured_regression_is_off_track() -> None:
     """Measured movement against target direction still becomes OFF_TRACK."""
     goal = Goal(goal_id="g1", name="G1")
@@ -403,21 +429,3 @@ def test_maintain_kpi_farther_from_target_is_off_track() -> None:
     )
     result = evaluate_goal_progress(goal=goal, kpis=[kpi])
     assert result.status == GoalProgressStatus.OFF_TRACK
-
-
-def test_maintain_decimal_equal_distance_is_at_risk() -> None:
-    """Binary-float noise must not turn equal MAINTAIN distances into regression."""
-    goal = Goal(goal_id="g1", name="G1")
-    kpi = Kpi(
-        kpi_id="k1",
-        goal_id="g1",
-        name="Rate",
-        metric="rate",
-        direction=KpiDirection.MAINTAIN,
-        current_value=0.5,
-        target_value=0.3,
-        previous_value=0.1,
-        required=True,
-    )
-    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
-    assert result.status == GoalProgressStatus.AT_RISK
