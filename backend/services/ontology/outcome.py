@@ -409,17 +409,13 @@ def evaluate_outcome(
     gap_codes = {g.code for g in evidence_gaps}
     for code in expectation.success_criteria_codes:
         if status == OutcomeStatus.ACHIEVED and code not in gap_codes:
-            criteria_results.append(
-                CriteriaResult(code=code, satisfied=True, explanation_code="criteria_met")
-            )
+            criteria_results.append(CriteriaResult(code=code, satisfied=True, explanation_code="criteria_met"))
         elif status in {OutcomeStatus.INSUFFICIENT_EVIDENCE, OutcomeStatus.INCONCLUSIVE}:
             criteria_results.append(
                 CriteriaResult(code=code, satisfied=None, explanation_code="criteria_unassessable")
             )
         else:
-            criteria_results.append(
-                CriteriaResult(code=code, satisfied=False, explanation_code="criteria_not_met")
-            )
+            criteria_results.append(CriteriaResult(code=code, satisfied=False, explanation_code="criteria_not_met"))
 
     subject_refs = list(expectation.subject_refs) or list(goal.subject_refs)
     if observed.observed_snapshot is not None:
