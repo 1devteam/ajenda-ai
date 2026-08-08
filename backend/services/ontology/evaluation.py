@@ -52,7 +52,7 @@ class KpiEvaluation(BaseModel):
     previous_value: float | None = None
     gap: float | None = None
     change: float | None = None
-    attainment: float | None = Field(default=None, description="0–1 ratio when computable")
+    attainment: float | None = Field(default=None, description="0-1 ratio when computable")
     target_reached: bool | None = None
     improving: bool | None = None
     status: Literal["ok", "gap", "exceeded", "insufficient_data", "within_tolerance"] = "insufficient_data"
@@ -146,9 +146,12 @@ def evaluate_kpi(kpi: Kpi) -> KpiEvaluation:
     elif kpi.direction == KpiDirection.DECREASE:
         gap = current - target
         target_reached = current <= target
-        attainment = None if current == 0 else max(0.0, min(1.0, target / current if current else 0.0))
-        if target == 0 and current == 0:
+        if current == 0 and target == 0:
             attainment = 1.0
+        elif current == 0:
+            attainment = 0.0
+        else:
+            attainment = max(0.0, min(1.0, target / current))
         improving = change is not None and change < 0
         if target_reached:
             status = "exceeded" if current < target else "ok"
@@ -176,7 +179,7 @@ def evaluate_kpi(kpi: Kpi) -> KpiEvaluation:
         current_value=current,
         target_value=target,
         previous_value=previous,
-        gap=round(gap, 6) if gap is not None else None,
+        gap=round(gap, 6),
         change=round(change, 6) if change is not None else None,
         attainment=round(attainment, 6) if attainment is not None else None,
         target_reached=target_reached,
@@ -233,8 +236,8 @@ def evaluate_goal_progress(
 
     Conservative V1 rules:
     - achieved: all required KPIs target_reached
-    - off_track: any required KPI not improving while still in gap, or moving against target
-    - on_track: all required KPIs improving or target_reached, no evidence gaps
+    - off_track: required KPI moved against target, or gaps with no improvement
+    - on_track: required metrics improving / met, no evidence gaps
     - at_risk: some progress but required gaps remain
     - insufficient_data: cannot justify a stronger status
     """
@@ -242,10 +245,14 @@ def evaluate_goal_progress(
     events = events or []
     evidence_ids = list(evidence_ids or [])
     missing_evidence_codes = list(missing_evidence_codes or [])
-    kpi_evals = [evaluate_kpi(k) for k in kpis if k.goal_id == goal.goal_id or not k.goal_id]
-    # Prefer KPIs matching goal; if none matched, evaluate all supplied
-    if not kpi_evals and kpis:
-        kpi_evals = [evaluate_kpi(k) for k in kpis]
+
+    scoped = [k for k in kpis if k.goal_id == goal.goal_id]
+    if not scoped:
+        scoped = list(kpis)
+
+    kpi_evals = [evaluate_kpi(k) for k in scoped]
+    eval_by_id = {e.kpi_id: e for e in kpi_evals}
+    required_pairs = [(k, eval_by_id[k.kpi_id]) for k in scoped if k.required and k.kpi_id in eval_by_id]
 
     progress_gaps: list[ProgressGap] = []
     evidence_gaps: list[ProgressGap] = []
@@ -256,18 +263,7 @@ def evaluate_goal_progress(
             ProgressGap(kind=GapKind.EVIDENCE, code=code, message=f"Missing evidence: {code}")
         )
 
-    required_evals = [
-        (k, e)
-        for k, e in zip((k for k in kpis if k.goal_id == goal.goal_id or True), kpi_evals, strict=False)
-        if k.required
-    ]
-    # Rebuild required from kpi_evals by id
-    kpi_by_id = {k.kpi_id: k for k in kpis}
-    required_evals = [(kpi_by_id[e.kpi_id], e) for e in kpi_evals if kpi_by_id.get(e.kpi_id, Kpi(
-        kpi_id=e.kpi_id, goal_id=goal.goal_id, name=e.metric, metric=e.metric
-    )).required]
-
-    for _k, ev in required_evals:
+    for _k, ev in required_pairs:
         if ev.status == "insufficient_data":
             progress_gaps.append(
                 ProgressGap(
@@ -292,22 +288,22 @@ def evaluate_goal_progress(
         state_cmp = compare_state_snapshots(previous_state, current_state)
         explanations.append(state_cmp.explanation)
 
-    if not required_evals:
+    if not required_pairs:
         status = GoalProgressStatus.INSUFFICIENT_DATA
         confidence = 0.3
         explanations.append("No required KPIs supplied for goal")
-    elif any(e.status == "insufficient_data" for _, e in required_evals):
+    elif any(e.status == "insufficient_data" for _, e in required_pairs):
         status = GoalProgressStatus.INSUFFICIENT_DATA
         confidence = 0.4
         explanations.append("One or more required KPIs lack current or target values")
-    elif all(e.target_reached for _, e in required_evals):
+    elif all(e.target_reached for _, e in required_pairs):
         status = GoalProgressStatus.ACHIEVED
         confidence = 0.9
         explanations.append("All required KPIs meet targets")
     else:
         moving_against = False
         any_improving = False
-        for k, e in required_evals:
+        for k, e in required_pairs:
             if e.target_reached:
                 continue
             if e.change is not None:
@@ -346,8 +342,10 @@ def evaluate_goal_progress(
         confidence = min(confidence, 0.55)
 
     subject_refs = list(goal.subject_refs)
-    if current_state is not None and current_state.subject_ref not in subject_refs:
-        subject_refs.append(current_state.subject_ref)
+    if current_state is not None:
+        ref = current_state.subject_ref
+        if not any(r.object_type == ref.object_type and r.object_id == ref.object_id for r in subject_refs):
+            subject_refs.append(ref)
 
     supporting = list(dict.fromkeys(evidence_ids))
     if current_state is not None:
