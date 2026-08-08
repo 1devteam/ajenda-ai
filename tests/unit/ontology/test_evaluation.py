@@ -243,7 +243,33 @@ def test_below_target_no_previous_not_off_track() -> None:
     result = evaluate_goal_progress(goal=goal, kpis=[kpi])
     assert result.status == GoalProgressStatus.AT_RISK
     assert result.status != GoalProgressStatus.OFF_TRACK
-    assert any("unknown is not regression" in e.lower() or "no prior" in e.lower() for e in result.explanations)
+    assert any("unknown trend is not regression" in e.lower() or "no prior" in e.lower() for e in result.explanations)
+
+
+@pytest.mark.parametrize(
+    ("direction", "current", "target"),
+    [
+        (KpiDirection.INCREASE, 40.0, 80.0),
+        (KpiDirection.DECREASE, 80.0, 40.0),
+    ],
+)
+def test_flat_below_target_is_at_risk(direction: KpiDirection, current: float, target: float) -> None:
+    """A measured zero change with a remaining gap is risk, not regression."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Score",
+        metric="score",
+        direction=direction,
+        current_value=current,
+        target_value=target,
+        previous_value=current,
+        required=True,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.status == GoalProgressStatus.AT_RISK
+    assert result.status != GoalProgressStatus.OFF_TRACK
 
 
 def test_measured_regression_is_off_track() -> None:
@@ -320,8 +346,8 @@ def test_maintain_kpi_previous_zero_is_value() -> None:
     assert abs(ev.gap or 0) == 5.0
 
 
-def test_maintain_kpi_previous_zero_regression() -> None:
-    """MAINTAIN with previous=0 that moves farther from target is not improving."""
+def test_maintain_kpi_previous_zero_equal_distance() -> None:
+    """Crossing a MAINTAIN target by equal distance is neither improvement nor regression."""
     kpi = Kpi(
         kpi_id="k1",
         goal_id="g1",
@@ -337,3 +363,24 @@ def test_maintain_kpi_previous_zero_regression() -> None:
     assert ev.previous_value == 0.0
     assert ev.improving is False
     assert ev.target_reached is False
+
+    result = evaluate_goal_progress(goal=Goal(goal_id="g1", name="G1"), kpis=[kpi])
+    assert result.status == GoalProgressStatus.AT_RISK
+
+
+def test_maintain_kpi_farther_from_target_is_off_track() -> None:
+    """MAINTAIN regression compares target distance before and after."""
+    goal = Goal(goal_id="g1", name="G1")
+    kpi = Kpi(
+        kpi_id="k1",
+        goal_id="g1",
+        name="Latency",
+        metric="p99_ms",
+        direction=KpiDirection.MAINTAIN,
+        current_value=20.0,
+        target_value=10.0,
+        previous_value=5.0,
+        maintain_tolerance=1.0,
+    )
+    result = evaluate_goal_progress(goal=goal, kpis=[kpi])
+    assert result.status == GoalProgressStatus.OFF_TRACK

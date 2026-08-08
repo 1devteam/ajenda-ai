@@ -330,13 +330,18 @@ def evaluate_goal_progress(
             if e.target_reached:
                 continue
             if e.change is not None:
-                any_measured_change = True
+                any_measured_change = any_measured_change or e.change != 0
                 if k.direction == KpiDirection.INCREASE and e.change < 0:
                     moving_against = True
                 elif k.direction == KpiDirection.DECREASE and e.change > 0:
                     moving_against = True
-                elif k.direction == KpiDirection.MAINTAIN and e.improving is False and e.change != 0:
-                    # Measured movement away from target under maintain
+                elif (
+                    k.direction == KpiDirection.MAINTAIN
+                    and e.current_value is not None
+                    and e.previous_value is not None
+                    and e.target_value is not None
+                    and abs(e.current_value - e.target_value) > abs(e.previous_value - e.target_value)
+                ):
                     moving_against = True
                 elif e.improving:
                     any_improving = True
@@ -356,17 +361,16 @@ def evaluate_goal_progress(
             confidence = 0.7
             explanations.append("Required metrics improving without evidence blockers")
         elif progress_gaps and not any_measured_change:
-            # Below target but no previous measurement → unknown is not regression
             status = GoalProgressStatus.AT_RISK
             confidence = 0.55
             explanations.append(
-                "Required gaps present; no prior measurement so improvement cannot be assessed "
-                "(unknown is not regression)"
+                "Required gaps present; no movement against target was measured "
+                "(flat or unknown trend is not regression)"
             )
-        elif progress_gaps and not any_improving:
-            status = GoalProgressStatus.OFF_TRACK
-            confidence = 0.6
-            explanations.append("Required gaps with measured movement that is not improving")
+        elif progress_gaps:
+            status = GoalProgressStatus.AT_RISK
+            confidence = 0.55
+            explanations.append("Required gaps remain; measured change did not move farther from target")
         else:
             status = GoalProgressStatus.AT_RISK
             confidence = 0.55
