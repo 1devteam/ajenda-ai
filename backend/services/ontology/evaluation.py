@@ -165,11 +165,7 @@ def evaluate_kpi(kpi: Kpi) -> KpiEvaluation:
         target_reached = gap <= tol
         attainment = 1.0 if target_reached else max(0.0, 1.0 - (gap / (abs(target) + 1e-9)))
         # previous_value=0 is a legitimate measurement; never use truthiness
-        improving = (
-            change is not None
-            and previous is not None
-            and abs(current - target) < abs(previous - target)
-        )
+        improving = change is not None and previous is not None and abs(current - target) < abs(previous - target)
         if target_reached:
             status = "within_tolerance" if gap > 0 else "ok"
             explanation = f"current {current} within ±{tol} of target {target}"
@@ -229,11 +225,7 @@ def compare_state_snapshots(
         elif key not in after:
             changes.append(StateAttributeChange(key=key, change_type="removed", before=before[key]))
         elif before[key] != after[key]:
-            changes.append(
-                StateAttributeChange(
-                    key=key, change_type="changed", before=before[key], after=after[key]
-                )
-            )
+            changes.append(StateAttributeChange(key=key, change_type="changed", before=before[key], after=after[key]))
     explanation = (
         f"{len(changes)} attribute change(s) from {earlier.snapshot_id} → {later.snapshot_id}"
         if changes
@@ -317,15 +309,11 @@ def evaluate_goal_progress(
     if not scoped:
         status = GoalProgressStatus.INSUFFICIENT_DATA
         confidence = 0.3
-        explanations.append(
-            f"No KPIs scoped to goal_id={goal.goal_id}; foreign or empty KPI list cannot drive status"
-        )
+        explanations.append(f"No KPIs scoped to goal_id={goal.goal_id}; foreign or empty KPI list cannot drive status")
     elif not required_pairs:
         status = GoalProgressStatus.INSUFFICIENT_DATA
         confidence = 0.3
-        explanations.append(
-            f"No required KPIs matched goal_id={goal.goal_id}; cannot evaluate progress"
-        )
+        explanations.append(f"No required KPIs matched goal_id={goal.goal_id}; cannot evaluate progress")
     elif any(e.status == "insufficient_data" for _, e in required_pairs):
         status = GoalProgressStatus.INSUFFICIENT_DATA
         confidence = 0.4
