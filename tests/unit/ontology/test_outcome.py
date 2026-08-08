@@ -228,6 +228,29 @@ def test_required_kpi_unknown_blocks_achieved() -> None:
     assert "required_kpi_insufficient_data" in result.explanation_codes
 
 
+def test_required_baseline_kpi_omitted_from_observed_blocks_achieved() -> None:
+    """An omitted required observation must remain visible and prevent ACHIEVED."""
+    expectation = OutcomeExpectation(
+        goal=_goal(),
+        baseline_kpis=[
+            _kpi(kpi_id="qualification_score", current=61, target=80, required=True),
+            _kpi(kpi_id="reply_rate", current=0.1, target=0.4, required=True),
+        ],
+    )
+    observed = ObservedOutcome(
+        observed_kpis=[
+            _kpi(kpi_id="qualification_score", current=80, target=80, required=True),
+        ],
+    )
+    result = evaluate_outcome(expectation=expectation, observed=observed)
+    assert result.status != OutcomeStatus.ACHIEVED
+    assert "required_kpi_insufficient_data" in result.explanation_codes
+    missing_delta = next(delta for delta in result.kpi_deltas if delta.kpi_id == "reply_rate")
+    assert missing_delta.required is True
+    assert missing_delta.direction_assessment == DirectionAssessment.INSUFFICIENT_DATA
+    assert missing_delta.explanation_codes == ["observed_kpi_missing"]
+
+
 def test_achieved_blocked_by_required_evidence_gap() -> None:
     """All KPIs at target + declared evidence gaps → not ACHIEVED."""
     expectation = OutcomeExpectation(

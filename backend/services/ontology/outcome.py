@@ -399,6 +399,23 @@ def evaluate_outcome(
     pairs = _pair_kpis(expectation.baseline_kpis, observed.observed_kpis)
     deltas = [_kpi_outcome_delta(baseline=b, observed=o) for b, o in pairs]
 
+    observed_ids = {k.kpi_id for k in observed.observed_kpis}
+    for base in expectation.baseline_kpis:
+        if base.kpi_id not in observed_ids:
+            deltas.append(
+                KpiOutcomeDelta(
+                    kpi_id=base.kpi_id,
+                    metric=base.metric,
+                    direction=base.direction,
+                    required=bool(base.required),
+                    before=base.current_value,
+                    after=None,
+                    target=base.target_value,
+                    direction_assessment=DirectionAssessment.INSUFFICIENT_DATA,
+                    explanation_codes=["observed_kpi_missing"],
+                )
+            )
+
     baseline_ids = {k.kpi_id for k in expectation.baseline_kpis}
     for obs in observed.observed_kpis:
         if obs.kpi_id not in baseline_ids:

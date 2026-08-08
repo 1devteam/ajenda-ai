@@ -28,7 +28,7 @@ Not OutcomeReview persistence. Not autonomous learning. Not causation.
 
 `outcome_delta_v1`:
 
-1. Pair baseline KPIs with observed KPIs by `kpi_id`
+1. Pair baseline KPIs with observed KPIs by `kpi_id`; retain unmatched KPIs as insufficient data
 2. Validate semantic identity of each pair (`metric`, `direction`, `goal_id`); mismatch → `kpi_definition_mismatch`
 3. For each valid pair: absolute change, previous/remaining gap, gap closed, direction assessment
 4. Compare state snapshots via existing `compare_state_snapshots` (observation only)
