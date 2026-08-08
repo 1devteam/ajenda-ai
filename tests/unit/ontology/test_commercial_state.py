@@ -80,7 +80,7 @@ def test_business_event_aligns_with_activity_vocabulary() -> None:
 
 
 def test_commercial_relationship_specs_present() -> None:
-    names = {spec["name"] for spec in COMMERCIAL_RELATIONSHIP_SPECS}
+    names = {spec.name for spec in COMMERCIAL_RELATIONSHIP_SPECS}
     assert "kpi_belongs_to_goal" in names
     assert "snapshot_supported_by_evidence" in names
     assert "event_supported_by_evidence" in names

@@ -230,6 +230,7 @@ _DEFAULT_REGISTRY: ActionRegistry | None = None
 
 
 def build_default_action_registry() -> ActionRegistry:
+    from backend.services.tools.analysis_actions import register_analysis_actions
     from backend.services.tools.calendar_actions import register_calendar_actions
     from backend.services.tools.decision_actions import register_decision_actions
     from backend.services.tools.document_actions import register_document_actions
@@ -262,6 +263,7 @@ def build_default_action_registry() -> ActionRegistry:
     register_standalone_actions(registry)
     register_web_actions(registry)
     register_decision_actions(registry)
+    register_analysis_actions(registry)
     registry.freeze()
     return registry
 

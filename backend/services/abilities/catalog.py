@@ -814,6 +814,29 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         readback_required=False,
         enabled_by_default=False,
     ),
+    # Evaluation Intelligence Slice 1
+    AbilityManifest(
+        ability_id="analysis-evaluate-goal-progress",
+        display_name="Analysis Evaluate Goal Progress (deterministic)",
+        action_name="analysis.evaluate_goal_progress",
+        provider="ajenda_analysis",
+        capability_name="analysis",
+        capability_version="1",
+        adapter_name="ajenda-analysis",
+        adapter_version="1",
+        input_schema_ref="backend.services.tools.analysis_actions.EvaluateGoalProgressInput",
+        output_schema_ref=ACTION_RESULT_SCHEMA_REF,
+        side_effect_class=SideEffectClass.NONE,
+        risk_level=AbilityRiskLevel.LOW,
+        required_permissions=[],
+        required_tools=[],
+        approval_required=False,
+        idempotency_required=False,
+        evidence_required=True,
+        evidence_expectations=("action_result_evidence",),
+        readback_required=False,
+        enabled_by_default=False,
+    ),
 )
 
 ABILITY_MANIFESTS_BY_ACTION: dict[str, AbilityManifest] = {
