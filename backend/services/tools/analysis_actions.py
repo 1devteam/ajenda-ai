@@ -73,9 +73,7 @@ def _evidence(
     )
 
 
-def analysis_evaluate_goal_progress(
-    invocation: ToolInvocation, context: ActionRuntimeContext
-) -> ActionResult:
+def analysis_evaluate_goal_progress(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = EvaluateGoalProgressInput.model_validate(invocation.input)
     result = evaluate_goal_progress(
         goal=payload.goal,

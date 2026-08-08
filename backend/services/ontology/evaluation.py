@@ -204,9 +204,7 @@ def compare_state_snapshots(
         elif key not in after:
             changes.append(StateAttributeChange(key=key, change_type="removed", before=before[key]))
         elif before[key] != after[key]:
-            changes.append(
-                StateAttributeChange(key=key, change_type="changed", before=before[key], after=after[key])
-            )
+            changes.append(StateAttributeChange(key=key, change_type="changed", before=before[key], after=after[key]))
     explanation = (
         f"{len(changes)} attribute change(s) from {earlier.snapshot_id} → {later.snapshot_id}"
         if changes
@@ -259,9 +257,7 @@ def evaluate_goal_progress(
     explanations: list[str] = []
 
     for code in missing_evidence_codes:
-        evidence_gaps.append(
-            ProgressGap(kind=GapKind.EVIDENCE, code=code, message=f"Missing evidence: {code}")
-        )
+        evidence_gaps.append(ProgressGap(kind=GapKind.EVIDENCE, code=code, message=f"Missing evidence: {code}"))
 
     for _k, ev in required_pairs:
         if ev.status == "insufficient_data":
