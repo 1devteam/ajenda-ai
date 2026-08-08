@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from pydantic import ValidationError
 
@@ -15,7 +17,6 @@ from backend.services.ontology import (
 )
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, EvidenceFact, ToolInvocation
-import uuid
 
 
 def test_canonical_types_are_exactly_slice_1_set() -> None:
