@@ -147,9 +147,7 @@ def test_decision_recommend_required_gap_lowers_or_gathers() -> None:
             input={
                 "goal": "Select vendor",
                 "options": [{"option_id": "vendor_a", "label": "Vendor A"}],
-                "criteria": [
-                    {"criterion_id": "security", "label": "Security review", "weight": 1.0, "required": True}
-                ],
+                "criteria": [{"criterion_id": "security", "label": "Security review", "weight": 1.0, "required": True}],
                 "evidence": [],
             },
         ),
