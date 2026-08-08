@@ -30,6 +30,7 @@ from backend.services.ontology.commercial_state import (
 )
 from backend.services.ontology.evaluation import (
     EvaluationResult,
+    GapKind,
     GoalProgressStatus,
     ProgressGap,
     StateComparison,
@@ -200,7 +201,6 @@ def _kpi_outcome_delta(*, baseline: Kpi, observed: Kpi) -> KpiOutcomeDelta:
     else:
         gap_closure_ratio = gap_closed / previous_gap
 
-    # Target reached on observed measurement (reuse evaluate_kpi semantics).
     observed_for_eval = observed.model_copy(
         update={
             "current_value": after,
@@ -345,7 +345,6 @@ def evaluate_outcome(
     pairs = _pair_kpis(expectation.baseline_kpis, observed.observed_kpis)
     deltas = [_kpi_outcome_delta(baseline=b, observed=o) for b, o in pairs]
 
-    # Also evaluate unpaired observed KPIs as insufficient if baseline missing.
     baseline_ids = {k.kpi_id for k in expectation.baseline_kpis}
     for obs in observed.observed_kpis:
         if obs.kpi_id not in baseline_ids:
@@ -365,20 +364,12 @@ def evaluate_outcome(
     state_cmp: StateComparison | None = None
     if expectation.baseline_snapshot is not None and observed.observed_snapshot is not None:
         state_cmp = compare_state_snapshots(expectation.baseline_snapshot, observed.observed_snapshot)
-        if state_cmp.changes:
-            # Surface desired-state transitions as codes only when attributes changed.
-            for change in state_cmp.changes:
-                if change.change_type in {"added", "changed"} and change.after is not None:
-                    # Opaque code; caller interprets domain meaning.
-                    pass
 
-    evidence_gaps: list[ProgressGap] = []
-    for code in observed.missing_evidence_codes:
-        evidence_gaps.append(
-            ProgressGap(kind="evidence", code=code, message=f"Missing evidence: {code}")  # type: ignore[arg-type]
-        )
+    evidence_gaps = [
+        ProgressGap(kind=GapKind.EVIDENCE, code=code, message=f"Missing evidence: {code}")
+        for code in observed.missing_evidence_codes
+    ]
 
-    # Re-run goal progress on baseline and observed for inspectable before/after status.
     baseline_eval = evaluate_goal_progress(
         goal=goal,
         kpis=list(expectation.baseline_kpis),
@@ -398,17 +389,7 @@ def evaluate_outcome(
         missing_evidence_codes=list(observed.missing_evidence_codes),
     )
 
-    # Fix evidence_gaps kind — use GapKind properly via import path above.
-    from backend.services.ontology.evaluation import GapKind
-
-    evidence_gaps = [
-        ProgressGap(kind=GapKind.EVIDENCE, code=code, message=f"Missing evidence: {code}")
-        for code in observed.missing_evidence_codes
-    ]
-
-    required_pair_count = sum(
-        1 for b, o in pairs if b.required or o.required
-    )
+    required_pair_count = sum(1 for b, o in pairs if b.required or o.required)
     status, confidence, explanation_codes = _aggregate_status(
         deltas=deltas,
         evidence_gaps=evidence_gaps,
@@ -419,16 +400,14 @@ def evaluate_outcome(
         explanation_codes.append("desired_state_transition_observed")
 
     if observed_eval.status == GoalProgressStatus.ACHIEVED and status != OutcomeStatus.ACHIEVED:
-        # Observed evaluation says achieved; prefer that when deltas agree partially.
         if any(d.target_reached for d in deltas):
             status = OutcomeStatus.ACHIEVED
             explanation_codes.append("observed_goal_achieved")
             confidence = max(confidence, 0.85)
 
     criteria_results: list[CriteriaResult] = []
+    gap_codes = {g.code for g in evidence_gaps}
     for code in expectation.success_criteria_codes:
-        # V1: criteria satisfied only when ACHIEVED and code not in evidence gaps.
-        gap_codes = {g.code for g in evidence_gaps}
         if status == OutcomeStatus.ACHIEVED and code not in gap_codes:
             criteria_results.append(
                 CriteriaResult(code=code, satisfied=True, explanation_code="criteria_met")
@@ -452,9 +431,7 @@ def evaluate_outcome(
     if observed.observed_snapshot is not None:
         supporting.extend(eid for eid in observed.observed_snapshot.evidence_ids if eid not in supporting)
 
-    # Never claim causation from this algorithm.
     if attribution == AttributionAssessment.SUPPORTED_CONTRIBUTION:
-        # Caller may assert contribution; algorithm records it but does not invent it.
         explanation_codes.append("attribution_supported_contribution_caller_asserted")
     elif attribution == AttributionAssessment.TEMPORAL_ASSOCIATION:
         explanation_codes.append("attribution_temporal_association")
