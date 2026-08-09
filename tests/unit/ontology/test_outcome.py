@@ -191,7 +191,7 @@ def test_attribution_never_invented() -> None:
         attribution=AttributionAssessment.TEMPORAL_ASSOCIATION,
     )
     assert result2.attribution == AttributionAssessment.TEMPORAL_ASSOCIATION
-    assert "attribution_temporal_association" in result2.explanation_codes
+    assert "attribution_temporal_association_caller_asserted" in result2.explanation_codes
 
 
 def test_explicit_observation_time_is_preserved_separately_from_evaluation_time() -> None:
@@ -210,6 +210,7 @@ def test_explicit_observation_time_is_preserved_separately_from_evaluation_time(
     )
 
     assert result.observed_at == observed_at
+    assert result.observation_timing.provenance.value == "caller_asserted"
     assert result.evaluated_at == evaluated_at
 
 

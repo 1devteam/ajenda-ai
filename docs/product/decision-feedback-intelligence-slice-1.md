@@ -34,9 +34,11 @@ or permission to modify future behavior.
 
 ## Time contract
 
-`OutcomeEvaluation.observed_at` is the caller-supplied time when the outcome was
-actually observed. `OutcomeEvaluation.evaluated_at` is when the evaluation artifact was
-produced. They are not interchangeable.
+`OutcomeEvaluation.observed_at` is the strongest resolved observation time and
+`OutcomeEvaluation.observation_timing` preserves whether it was source-verified, derived,
+caller-asserted, or unknown. `OutcomeEvaluation.evaluated_at` is when the evaluation artifact
+was produced. They are not interchangeable. Caller-asserted chronology cannot earn supported
+contribution.
 
 Decision Feedback never infers an observation time from `evaluated_at`, unrelated event
 times, or the current clock. For an executed recommendation, missing execution time,
@@ -63,13 +65,14 @@ The algorithm applies gates in this order:
 2. Unknown or impossible chronology is not evaluable.
 3. Insufficient outcome evidence fails closed.
 4. Materially varied execution cannot evaluate the original recommendation.
-5. Missing or conflicting attribution prevents effectiveness claims.
+5. Missing, unearned, or conflicting attribution prevents effectiveness claims.
 6. Partial execution with less than supported contribution is not evaluable as the
    original recommendation. Supported partial execution is capped at partial effectiveness.
 7. Weak or unsupported decision quality caps a positive episode at partial effectiveness;
    inconclusive quality blocks strong positive effectiveness entirely.
 8. Only exact execution, achieved outcome, supported contribution, and sufficiently
-   supported decide-time quality can become `highly_effective`.
+supported decide-time quality can become `highly_effective`. The outcome contract requires
+the supported contribution level to match an earned attribution evidence artifact.
 9. Negative outcomes remain observable: exact execution plus supported contribution and
    regression can become `counterproductive` without becoming knowledge or policy.
 

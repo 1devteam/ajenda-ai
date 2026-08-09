@@ -34,13 +34,16 @@ Not OutcomeReview persistence. Not autonomous learning. Not causation.
 4. Compare state snapshots via existing `compare_state_snapshots` (observation only)
 5. Run `evaluate_goal_progress` on baseline and observed for inspectable before/after
 6. Aggregate conservative `OutcomeStatus` under the gates below
-7. Record caller-supplied `AttributionAssessment` without inventing causation
+7. Resolve observation chronology with explicit provenance and earn supported attribution
+   from `AttributionAssessmentEvidence` without inventing causation
 8. Record `success_criteria_codes` without independently evaluating satisfaction (V1)
 
 ### Observation time vs evaluation time
 
-`ObservedOutcome.observed_at` is an optional, caller-supplied timestamp for when the
-outcome was actually observed. It is copied to `OutcomeEvaluation.observed_at`.
+`ObservedOutcome.observed_at` remains a legacy caller assertion. New callers distinguish
+`source_observed_at`, `captured_at`, and `asserted_observed_at`; the strongest available
+value is resolved into `OutcomeEvaluation.observation_timing` and copied to the compatibility
+field `OutcomeEvaluation.observed_at`.
 `OutcomeEvaluation.evaluated_at` records when the evaluation artifact was produced and
 must not be used as proof of outcome chronology. When `observed_at` is absent, chronology
 remains unknown; the algorithm does not infer it from evaluation time or unrelated events.
@@ -68,11 +71,14 @@ Any non-empty state comparison yields `state_transition_observed`. V1 does **not
 
 - `not_assessed` (default)
 - `temporal_association`
-- `supported_contribution` (caller-asserted only)
+- `supported_contribution` (earned from structured attribution evidence only)
 - `conflicting_evidence`
 - `insufficient_evidence`
 
 **No `caused` value.** Causation is out of scope.
+
+Caller-supplied `supported_contribution` without matching earned evidence is downgraded to
+`insufficient_evidence`. See `observation-attribution-integrity-slice-1.md`.
 
 ## Relationship to OutcomeReview
 
