@@ -191,6 +191,16 @@ def test_observation_before_execution_is_conflicting_not_causal() -> None:
     assert result.causal_claim is False
 
 
+def test_observation_at_execution_time_cannot_earn_supported_contribution() -> None:
+    timing = resolve_observation_timing(source_observed_at=EXECUTED_AT)
+    result = evaluate_attribution_evidence(evidence=_evidence(), observation_timing=timing)
+
+    assert result.ordering == AttributionOrdering.UNVERIFIABLE
+    assert result.resulting_attribution == AttributionAssessment.INSUFFICIENT_EVIDENCE
+    assert "observation_not_strictly_after_execution" in result.explanation_codes
+    assert result.causal_claim is False
+
+
 def test_caller_supplied_supported_contribution_is_downgraded_without_evidence() -> None:
     result = evaluate_outcome(
         expectation=_expectation(),
@@ -225,6 +235,46 @@ def test_supported_contribution_cannot_be_forged_on_outcome_evaluation() -> None
             confidence=0.9,
             evaluated_at=datetime(2026, 8, 4, tzinfo=UTC),
         )
+
+
+def test_attribution_artifact_chronology_must_match_outcome_chronology() -> None:
+    artifact = evaluate_attribution_evidence(
+        evidence=_evidence(),
+        observation_timing=resolve_observation_timing(source_observed_at=OBSERVED_AT),
+    )
+    replayed_timing = resolve_observation_timing(
+        source_observed_at=datetime(2026, 8, 4, 9, tzinfo=UTC),
+    )
+
+    with pytest.raises(ValidationError, match="observation timing must match"):
+        OutcomeEvaluation(
+            outcome_evaluation_id="outcome_1",
+            status=OutcomeStatus.ACHIEVED,
+            attribution=AttributionAssessment.SUPPORTED_CONTRIBUTION,
+            attribution_evidence=artifact,
+            confidence=0.9,
+            observed_at=replayed_timing.resolved_observed_at,
+            observation_timing=replayed_timing,
+            evaluated_at=datetime(2026, 8, 5, tzinfo=UTC),
+        )
+
+
+def test_legacy_v1_observed_at_deserializes_as_caller_asserted_timing() -> None:
+    result = OutcomeEvaluation.model_validate(
+        {
+            "schema_version": 1,
+            "outcome_evaluation_id": "legacy_outcome_1",
+            "status": "partial_progress",
+            "attribution": "not_assessed",
+            "confidence": 0.6,
+            "observed_at": ASSERTED_AT.isoformat(),
+            "evaluated_at": datetime(2026, 8, 4, tzinfo=UTC).isoformat(),
+        }
+    )
+
+    assert result.observed_at == ASSERTED_AT
+    assert result.observation_timing.resolved_observed_at == ASSERTED_AT
+    assert result.observation_timing.provenance == ObservationTimeProvenance.CALLER_ASSERTED
 
 
 def test_attribution_artifact_result_cannot_be_forged_during_deserialization() -> None:

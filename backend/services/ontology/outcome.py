@@ -214,11 +214,29 @@ class OutcomeEvaluation(BaseModel):
     evaluated_at: datetime
     algorithm: str = "outcome_delta_v1"
 
+    @model_validator(mode="before")
+    @classmethod
+    def preserve_legacy_observation_timing(cls, value: object) -> object:
+        """Map legacy V1 observed_at payloads to explicit caller-asserted timing."""
+
+        if isinstance(value, dict) and value.get("observed_at") is not None and "observation_timing" not in value:
+            migrated = dict(value)
+            migrated["observation_timing"] = {
+                "asserted_observed_at": value["observed_at"],
+                "resolved_observed_at": value["observed_at"],
+                "provenance": "caller_asserted",
+                "explanation_codes": ["legacy_observed_at_mapped_to_caller_asserted"],
+            }
+            return migrated
+        return value
+
     @model_validator(mode="after")
     def validate_earned_attribution(self) -> OutcomeEvaluation:
         if self.attribution_evidence is not None:
             if self.attribution != self.attribution_evidence.resulting_attribution:
                 raise ValueError("attribution must match attribution_evidence.resulting_attribution")
+            if self.attribution_evidence.observation_timing != self.observation_timing:
+                raise ValueError("attribution_evidence observation timing must match outcome observation timing")
         elif self.attribution == AttributionAssessment.SUPPORTED_CONTRIBUTION:
             raise ValueError("supported_contribution requires earned attribution_evidence")
         if self.observed_at != self.observation_timing.resolved_observed_at:

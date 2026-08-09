@@ -150,6 +150,9 @@ def _derive_attribution(
     elif observed_at < evidence.executed_at:
         ordering = AttributionOrdering.CONTRADICTED
         codes.append("observation_precedes_execution")
+    elif observed_at == evidence.executed_at:
+        ordering = AttributionOrdering.UNVERIFIABLE
+        codes.append("observation_not_strictly_after_execution")
     elif observation_timing.provenance == ObservationTimeProvenance.DERIVED:
         ordering = AttributionOrdering.DERIVED_AFTER_EXECUTION
         codes.append("derived_capture_follows_execution")
