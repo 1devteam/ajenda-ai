@@ -1,15 +1,17 @@
-"""Evaluation + Outcome Intelligence — analysis abilities.
+"""Evaluation + Outcome + Decision Feedback Intelligence — analysis abilities.
 
-``analysis.evaluate_goal_progress``: deterministic assessment of Goal/KPI/State
-under explicit rules.
+``analysis.evaluate_goal_progress``: deterministic Goal/KPI/State assessment.
+``analysis.evaluate_outcome``: expected vs observed outcome delta.
+``analysis.evaluate_decision_effectiveness``: one decision episode effectiveness.
+``analysis.extract_decision_learning_signal``: candidate lesson from one episode.
 
-``analysis.evaluate_outcome``: expected vs observed outcome delta. Does not
-persist OutcomeReview, recommend next actions, or execute work.
-Does not modify weighted_criterion_evidence_v1.
+Does not persist reviews, recommend next actions, execute work, or modify
+weighted_criterion_evidence_v1. Observation ≠ pattern ≠ knowledge ≠ policy.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,10 +22,16 @@ from backend.services.ontology.commercial_state import (
     Goal,
     Kpi,
 )
+from backend.services.ontology.decision_feedback import (
+    DecisionExecutionObservation,
+    DecisionSnapshot,
+    evaluate_decision_feedback,
+)
 from backend.services.ontology.evaluation import evaluate_goal_progress
 from backend.services.ontology.outcome import (
     AttributionAssessment,
     ObservedOutcome,
+    OutcomeEvaluation,
     OutcomeExpectation,
     evaluate_outcome,
 )
@@ -67,10 +75,39 @@ class EvaluateOutcomeInput(BaseModel):
     success_criteria_codes: list[str] = Field(default_factory=list)
     observed_kpis: list[Kpi] = Field(default_factory=list)
     observed_snapshot: BusinessStateSnapshot | None = None
+    observed_at: datetime | None = Field(
+        default=None,
+        description="Actual outcome observation time; distinct from evaluation time",
+    )
     events: list[BusinessEvent] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     missing_evidence_codes: list[str] = Field(default_factory=list)
     attribution: AttributionAssessment = AttributionAssessment.NOT_ASSESSED
+
+
+class EvaluateDecisionEffectivenessInput(BaseModel):
+    """Input for analysis.evaluate_decision_effectiveness."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot: DecisionSnapshot
+    execution: DecisionExecutionObservation
+    outcome: OutcomeEvaluation
+    information_learned_after: list[str] = Field(
+        default_factory=list,
+        description="Post-decision information; never upgrades decision quality",
+    )
+
+
+class ExtractDecisionLearningSignalInput(BaseModel):
+    """Input for analysis.extract_decision_learning_signal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot: DecisionSnapshot
+    execution: DecisionExecutionObservation
+    outcome: OutcomeEvaluation
+    information_learned_after: list[str] = Field(default_factory=list)
 
 
 def _evidence(
@@ -151,6 +188,7 @@ def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntime
     observed = ObservedOutcome(
         observed_kpis=list(payload.observed_kpis),
         observed_snapshot=payload.observed_snapshot,
+        observed_at=payload.observed_at,
         events=list(payload.events),
         evidence_ids=list(payload.evidence_ids),
         missing_evidence_codes=list(payload.missing_evidence_codes),
@@ -187,6 +225,81 @@ def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntime
     )
 
 
+def analysis_evaluate_decision_effectiveness(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = EvaluateDecisionEffectivenessInput.model_validate(invocation.input)
+    result = evaluate_decision_feedback(
+        snapshot=payload.snapshot,
+        execution=payload.execution,
+        outcome=payload.outcome,
+        information_learned_after=list(payload.information_learned_after),
+    )
+    output = result.model_dump(mode="json")
+    summary = (
+        f"Decision {result.decision_id} effectiveness={result.effectiveness.status.value} "
+        f"quality={result.quality.status.value} "
+        f"calibration={result.calibration.status.value} "
+        f"signal={result.learning_signal.signal_strength.value}"
+    )
+    return ActionResult(
+        action="analysis.evaluate_decision_effectiveness",
+        provider="ajenda_analysis",
+        side_effect_class=SideEffectClass.NONE,
+        output=output,
+        evidence=[
+            _evidence(
+                context=context,
+                action="analysis.evaluate_decision_effectiveness",
+                provider="ajenda_analysis",
+                summary=summary,
+                payload=output,
+                confidence=result.effectiveness.confidence,
+                cluster="decision_feedback_intelligence",
+            )
+        ],
+        summary=summary,
+        confidence=result.effectiveness.confidence,
+    )
+
+
+def analysis_extract_decision_learning_signal(
+    invocation: ToolInvocation, context: ActionRuntimeContext
+) -> ActionResult:
+    payload = ExtractDecisionLearningSignalInput.model_validate(invocation.input)
+    # Full episode evaluation first (quality/effectiveness/calibration), then signal
+    feedback = evaluate_decision_feedback(
+        snapshot=payload.snapshot,
+        execution=payload.execution,
+        outcome=payload.outcome,
+        information_learned_after=list(payload.information_learned_after),
+    )
+    signal = feedback.learning_signal
+    output = signal.model_dump(mode="json")
+    summary = (
+        f"Learning signal {signal.signal_id} decision={signal.decision_id} "
+        f"strength={signal.signal_strength.value} "
+        f"is_knowledge={signal.is_knowledge} is_policy={signal.is_policy}"
+    )
+    return ActionResult(
+        action="analysis.extract_decision_learning_signal",
+        provider="ajenda_analysis",
+        side_effect_class=SideEffectClass.NONE,
+        output=output,
+        evidence=[
+            _evidence(
+                context=context,
+                action="analysis.extract_decision_learning_signal",
+                provider="ajenda_analysis",
+                summary=summary,
+                payload=output,
+                confidence=signal.effectiveness.confidence,
+                cluster="decision_feedback_intelligence",
+            )
+        ],
+        summary=summary,
+        confidence=signal.effectiveness.confidence,
+    )
+
+
 def register_analysis_actions(registry: ActionRegistry) -> None:
     registry.register(
         ActionDefinition(
@@ -203,6 +316,24 @@ def register_analysis_actions(registry: ActionRegistry) -> None:
             handler=analysis_evaluate_outcome,
             provider="ajenda_analysis",
             input_model=EvaluateOutcomeInput,
+            side_effect_class=SideEffectClass.NONE,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="analysis.evaluate_decision_effectiveness",
+            handler=analysis_evaluate_decision_effectiveness,
+            provider="ajenda_analysis",
+            input_model=EvaluateDecisionEffectivenessInput,
+            side_effect_class=SideEffectClass.NONE,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="analysis.extract_decision_learning_signal",
+            handler=analysis_extract_decision_learning_signal,
+            provider="ajenda_analysis",
+            input_model=ExtractDecisionLearningSignalInput,
             side_effect_class=SideEffectClass.NONE,
         )
     )

@@ -37,6 +37,14 @@ Not OutcomeReview persistence. Not autonomous learning. Not causation.
 7. Record caller-supplied `AttributionAssessment` without inventing causation
 8. Record `success_criteria_codes` without independently evaluating satisfaction (V1)
 
+### Observation time vs evaluation time
+
+`ObservedOutcome.observed_at` is an optional, caller-supplied timestamp for when the
+outcome was actually observed. It is copied to `OutcomeEvaluation.observed_at`.
+`OutcomeEvaluation.evaluated_at` records when the evaluation artifact was produced and
+must not be used as proof of outcome chronology. When `observed_at` is absent, chronology
+remains unknown; the algorithm does not infer it from evaluation time or unrelated events.
+
 ### OutcomeStatus (V1) — accuracy gates
 
 - **achieved** — every measurable KPI `target_reached`, **and** no required KPI with insufficient data / definition mismatch, **and** no declared required evidence gaps

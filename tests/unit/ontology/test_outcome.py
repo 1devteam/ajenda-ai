@@ -194,6 +194,48 @@ def test_attribution_never_invented() -> None:
     assert "attribution_temporal_association" in result2.explanation_codes
 
 
+def test_explicit_observation_time_is_preserved_separately_from_evaluation_time() -> None:
+    observed_at = datetime(2026, 8, 3, tzinfo=UTC)
+    evaluated_at = datetime(2026, 8, 4, tzinfo=UTC)
+    result = evaluate_outcome(
+        expectation=OutcomeExpectation(
+            goal=_goal(),
+            baseline_kpis=[_kpi(kpi_id="qualification_score", current=61, target=80)],
+        ),
+        observed=ObservedOutcome(
+            observed_kpis=[_kpi(kpi_id="qualification_score", current=74, target=80)],
+            observed_at=observed_at,
+        ),
+        evaluated_at=evaluated_at,
+    )
+
+    assert result.observed_at == observed_at
+    assert result.evaluated_at == evaluated_at
+
+
+def test_outcome_observation_time_remains_unknown_when_not_supplied() -> None:
+    result = evaluate_outcome(
+        expectation=OutcomeExpectation(
+            goal=_goal(),
+            baseline_kpis=[_kpi(kpi_id="qualification_score", current=61, target=80)],
+        ),
+        observed=ObservedOutcome(
+            observed_kpis=[_kpi(kpi_id="qualification_score", current=74, target=80)],
+            events=[
+                {
+                    "event_id": "event_1",
+                    "event_type": "stage_changed",
+                    "occurred_at": "2026-08-03T00:00:00+00:00",
+                }
+            ],
+        ),
+    )
+
+    # A recorded event has its own actual occurred_at, but it is not automatically
+    # proof of when the aggregate KPI outcome was observed.
+    assert result.observed_at is None
+
+
 def test_insufficient_evidence_without_kpi_values() -> None:
     expectation = OutcomeExpectation(
         goal=_goal(),
