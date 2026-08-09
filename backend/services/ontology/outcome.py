@@ -131,6 +131,13 @@ class ObservedOutcome(BaseModel):
 
     observed_kpis: list[Kpi] = Field(default_factory=list)
     observed_snapshot: BusinessStateSnapshot | None = None
+    observed_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Caller-supplied time when the outcome was actually observed. "
+            "Distinct from OutcomeEvaluation.evaluated_at and never inferred from it."
+        ),
+    )
     events: list[BusinessEvent] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     missing_evidence_codes: list[str] = Field(default_factory=list)
@@ -166,6 +173,13 @@ class OutcomeEvaluation(BaseModel):
     attribution: AttributionAssessment = AttributionAssessment.NOT_ASSESSED
     confidence: float = Field(ge=0, le=1)
     explanation_codes: list[str] = Field(default_factory=list)
+    observed_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Time the outcome was actually observed, when explicitly supplied by the caller. "
+            "None means outcome chronology is unknown."
+        ),
+    )
     evaluated_at: datetime
     algorithm: str = "outcome_delta_v1"
 
@@ -530,5 +544,6 @@ def evaluate_outcome(
         attribution=attribution,
         confidence=round(confidence, 4),
         explanation_codes=list(dict.fromkeys(explanation_codes)),
+        observed_at=observed.observed_at,
         evaluated_at=evaluated_at or datetime.now(UTC),
     )

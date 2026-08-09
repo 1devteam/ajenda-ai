@@ -177,7 +177,7 @@ class ConsequenceInventory(BaseModel):
 class DecisionLearningSignal(BaseModel):
     """Observation from one episode. NOT knowledge or policy."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1] = 1
     signal_id: str
@@ -257,30 +257,26 @@ def validate_decision_feedback_inputs(
     codes: list[str] = []
     if snapshot.goal_id is not None and outcome.goal_id is not None:
         if snapshot.goal_id != outcome.goal_id:
-            raise ValueError(
-                f"decision goal_id={snapshot.goal_id} must match outcome goal_id={outcome.goal_id}"
-            )
+            raise ValueError(f"decision goal_id={snapshot.goal_id} must match outcome goal_id={outcome.goal_id}")
     if not _subjects_compatible(snapshot.subject_refs, outcome.subject_refs):
-        raise ValueError(
-            "decision subjects are incompatible with outcome subjects; foreign context rejected"
-        )
+        raise ValueError("decision subjects are incompatible with outcome subjects; foreign context rejected")
     if execution.executed_at is not None and execution.executed_at < snapshot.decided_at:
         raise ValueError(
             "execution cannot precede decision: "
             f"executed_at={execution.executed_at.isoformat()} "
             f"decided_at={snapshot.decided_at.isoformat()}"
         )
-    if (
-        execution.fidelity
-        in {
-            ExecutionFidelity.EXECUTED_AS_RECOMMENDED,
-            ExecutionFidelity.PARTIALLY_EXECUTED,
-            ExecutionFidelity.EXECUTED_WITH_MATERIAL_VARIATION,
-        }
-        and execution.executed_at is not None
-        and outcome.evaluated_at < execution.executed_at
-    ):
-        codes.append("outcome_precedes_execution_observation")
+    if execution.fidelity in {
+        ExecutionFidelity.EXECUTED_AS_RECOMMENDED,
+        ExecutionFidelity.PARTIALLY_EXECUTED,
+        ExecutionFidelity.EXECUTED_WITH_MATERIAL_VARIATION,
+    }:
+        if execution.executed_at is None:
+            codes.append("execution_time_unknown")
+        if outcome.observed_at is None:
+            codes.append("outcome_observation_time_unknown")
+        elif execution.executed_at is not None and outcome.observed_at < execution.executed_at:
+            codes.append("outcome_observation_precedes_execution")
     return codes
 
 
@@ -311,14 +307,25 @@ def assess_decision_quality(snapshot: DecisionSnapshot) -> DecisionQualityAssess
     if scores:
         chosen = next(
             (row for row in scores if row.get("option_id") == snapshot.recommendation),
-            scores[0],
+            None,
         )
+        if chosen is None:
+            codes.append("selected_option_not_found")
+            return DecisionQualityAssessment(
+                status=DecisionQualityStatus.INCONCLUSIVE,
+                confidence=0.2,
+                required_criteria_supported_ratio=None,
+                relied_on_inferred_evidence=relied_on_inferred,
+                material_gaps_acknowledged=material_gaps_acknowledged,
+                alternatives_compared=alternatives_compared,
+                confidence_consistent_with_evidence=False,
+                selected_was_strongest_scored=None,
+                explanation_codes=_dedupe(codes),
+            )
         dims = list(chosen.get("dimension_scores") or [])
         if dims:
             supported = [
-                d
-                for d in dims
-                if d.get("status") in {"known", "inferred", "ok"} or float(d.get("score") or 0) > 0
+                d for d in dims if d.get("status") in {"known", "inferred", "ok"} or float(d.get("score") or 0) > 0
             ]
             support_ratio = round(len(supported) / len(dims), 4)
         if chosen.get("missing_criterion_ids"):
@@ -353,9 +360,7 @@ def assess_decision_quality(snapshot: DecisionSnapshot) -> DecisionQualityAssess
         status = DecisionQualityStatus.WELL_SUPPORTED
         quality_conf = 0.85
     elif support_ratio is not None and support_ratio >= 0.6 and alternatives_compared:
-        status = (
-            DecisionQualityStatus.SUPPORTED_WITH_GAPS if gaps else DecisionQualityStatus.WELL_SUPPORTED
-        )
+        status = DecisionQualityStatus.SUPPORTED_WITH_GAPS if gaps else DecisionQualityStatus.WELL_SUPPORTED
         quality_conf = 0.7 if not gaps else 0.6
         if gaps:
             codes.append("supported_with_acknowledged_gaps")
@@ -427,8 +432,26 @@ def assess_decision_effectiveness(
             explanation_codes=["execution_unknown_fail_closed"],
         )
 
-    if fidelity == ExecutionFidelity.EXECUTED_WITH_MATERIAL_VARIATION:
-        codes.append("material_variation_blocks_direct_recommendation_evaluation")
+    chronology_codes: list[str] = []
+    if execution.executed_at is None:
+        chronology_codes.append("execution_time_unknown")
+    if outcome.observed_at is None:
+        chronology_codes.append("outcome_observation_time_unknown")
+    elif execution.executed_at is not None and outcome.observed_at < execution.executed_at:
+        chronology_codes.append("outcome_observation_precedes_execution")
+    if chronology_codes:
+        return DecisionEffectivenessEvaluation(
+            status=DecisionEffectivenessStatus.NOT_EVALUABLE,
+            confidence=0.2,
+            dimensions=EffectivenessDimensions(
+                goal_progress=outcome.status.value,
+                execution_fidelity=fidelity,
+                attribution_strength=attribution,
+                evidence_completeness="chronology_unknown_or_invalid",
+                regression_observed=outcome.status == OutcomeStatus.REGRESSED,
+            ),
+            explanation_codes=[*chronology_codes, "chronology_fail_closed"],
+        )
 
     if outcome.status == OutcomeStatus.INSUFFICIENT_EVIDENCE:
         return DecisionEffectivenessEvaluation(
@@ -441,6 +464,23 @@ def assess_decision_effectiveness(
                 evidence_completeness="outcome_insufficient",
             ),
             explanation_codes=["outcome_insufficient_evidence"],
+        )
+
+    if fidelity == ExecutionFidelity.EXECUTED_WITH_MATERIAL_VARIATION:
+        return DecisionEffectivenessEvaluation(
+            status=DecisionEffectivenessStatus.NOT_EVALUABLE,
+            confidence=0.4,
+            dimensions=EffectivenessDimensions(
+                goal_progress=outcome.status.value,
+                execution_fidelity=fidelity,
+                attribution_strength=attribution,
+                evidence_completeness="materially_varied_execution",
+                regression_observed=outcome.status == OutcomeStatus.REGRESSED,
+            ),
+            explanation_codes=[
+                "material_variation_blocks_direct_recommendation_evaluation",
+                "observed_episode_not_original_recommendation",
+            ],
         )
 
     if attribution in {
@@ -458,7 +498,6 @@ def assess_decision_effectiveness(
                     execution_fidelity=fidelity,
                     attribution_strength=attribution,
                     evidence_completeness="attribution_weak",
-                    regression_observed=outcome.status == OutcomeStatus.REGRESSED,
                 ),
                 explanation_codes=_dedupe(codes),
             )
@@ -479,9 +518,7 @@ def assess_decision_effectiveness(
         )
 
     regression = outcome.status == OutcomeStatus.REGRESSED
-    kpi_toward = any(
-        d.direction_assessment.value in {"toward_target", "target_reached"} for d in outcome.kpi_deltas
-    )
+    kpi_toward = any(d.direction_assessment.value in {"toward_target", "target_reached"} for d in outcome.kpi_deltas)
     kpi_away = any(d.direction_assessment.value == "away_from_target" for d in outcome.kpi_deltas)
 
     if kpi_toward and not kpi_away:
@@ -501,7 +538,28 @@ def assess_decision_effectiveness(
 
     exact = fidelity == ExecutionFidelity.EXECUTED_AS_RECOMMENDED
     partial = fidelity == ExecutionFidelity.PARTIALLY_EXECUTED
-    varied = fidelity == ExecutionFidelity.EXECUTED_WITH_MATERIAL_VARIATION
+
+    if partial and attribution != AttributionAssessment.SUPPORTED_CONTRIBUTION:
+        return DecisionEffectivenessEvaluation(
+            status=DecisionEffectivenessStatus.NOT_EVALUABLE,
+            confidence=0.35,
+            dimensions=EffectivenessDimensions(
+                goal_progress=outcome.status.value,
+                kpi_gap_closure=gap_closure,
+                state_movement=state_movement,
+                regression_observed=regression,
+                execution_fidelity=fidelity,
+                attribution_strength=attribution,
+                evidence_completeness="partial_execution_weak_attribution",
+            ),
+            explanation_codes=_dedupe(
+                [
+                    *codes,
+                    "partial_execution_with_weak_attribution_not_evaluable",
+                    "observed_episode_not_original_recommendation",
+                ]
+            ),
+        )
 
     if regression and strong_attr and exact:
         status = DecisionEffectivenessStatus.COUNTERPRODUCTIVE
@@ -511,42 +569,6 @@ def assess_decision_effectiveness(
         status = DecisionEffectivenessStatus.INEFFECTIVE
         conf = 0.65
         codes.append("regression_associated")
-    elif outcome.status == OutcomeStatus.ACHIEVED and strong_attr and exact:
-        status = DecisionEffectivenessStatus.HIGHLY_EFFECTIVE
-        conf = 0.85
-        codes.append("achieved_exact_supported")
-    elif (
-        outcome.status in {OutcomeStatus.ACHIEVED, OutcomeStatus.PARTIAL_PROGRESS}
-        and strong_attr
-        and exact
-    ):
-        status = DecisionEffectivenessStatus.EFFECTIVE
-        conf = 0.75
-        codes.append("progress_exact_supported")
-    elif (
-        outcome.status in {OutcomeStatus.ACHIEVED, OutcomeStatus.PARTIAL_PROGRESS}
-        and temporal_only
-        and exact
-    ):
-        status = DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE
-        conf = 0.55
-        codes.append("progress_temporal_only_capped")
-    elif outcome.status == OutcomeStatus.PARTIAL_PROGRESS and (exact or partial) and strong_attr:
-        status = DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE
-        conf = 0.65
-        codes.append("partial_progress_supported")
-    elif varied:
-        status = DecisionEffectivenessStatus.NOT_EVALUABLE
-        conf = 0.45
-        codes.append("material_variation_not_evaluable_as_original")
-    elif partial and outcome.status in {OutcomeStatus.ACHIEVED, OutcomeStatus.PARTIAL_PROGRESS}:
-        status = DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE
-        conf = 0.55
-        codes.append("partial_execution_caps_effectiveness")
-    elif outcome.status == OutcomeStatus.NO_MATERIAL_CHANGE:
-        status = DecisionEffectivenessStatus.INEFFECTIVE
-        conf = 0.6
-        codes.append("no_material_change")
     elif quality.status in {
         DecisionQualityStatus.UNSUPPORTED,
         DecisionQualityStatus.WEAKLY_SUPPORTED,
@@ -554,6 +576,42 @@ def assess_decision_effectiveness(
         status = DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE
         conf = 0.45
         codes.append("weak_decision_lucky_outcome_not_great_decision")
+    elif quality.status == DecisionQualityStatus.INCONCLUSIVE and outcome.status in {
+        OutcomeStatus.ACHIEVED,
+        OutcomeStatus.PARTIAL_PROGRESS,
+    }:
+        status = DecisionEffectivenessStatus.NOT_EVALUABLE
+        conf = 0.35
+        codes.append("inconclusive_decision_quality_blocks_strong_effectiveness")
+    elif outcome.status == OutcomeStatus.ACHIEVED and strong_attr and exact:
+        status = DecisionEffectivenessStatus.HIGHLY_EFFECTIVE
+        conf = 0.85
+        codes.append("achieved_exact_supported")
+    elif outcome.status in {OutcomeStatus.ACHIEVED, OutcomeStatus.PARTIAL_PROGRESS} and strong_attr and exact:
+        status = DecisionEffectivenessStatus.EFFECTIVE
+        conf = 0.75
+        codes.append("progress_exact_supported")
+    elif outcome.status in {OutcomeStatus.ACHIEVED, OutcomeStatus.PARTIAL_PROGRESS} and temporal_only and exact:
+        status = DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE
+        conf = 0.55
+        codes.append("progress_temporal_only_capped")
+    elif outcome.status == OutcomeStatus.PARTIAL_PROGRESS and (exact or partial) and strong_attr:
+        status = DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE
+        conf = 0.65
+        codes.append("partial_progress_supported")
+    elif partial and outcome.status in {OutcomeStatus.ACHIEVED, OutcomeStatus.PARTIAL_PROGRESS}:
+        status = DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE
+        conf = 0.55
+        codes.extend(
+            [
+                "partial_execution_caps_effectiveness",
+                "observed_episode_not_original_recommendation",
+            ]
+        )
+    elif outcome.status == OutcomeStatus.NO_MATERIAL_CHANGE:
+        status = DecisionEffectivenessStatus.INEFFECTIVE
+        conf = 0.6
+        codes.append("no_material_change")
     else:
         status = DecisionEffectivenessStatus.NOT_EVALUABLE
         conf = 0.4
@@ -634,9 +692,7 @@ def assess_confidence_calibration(
         status = ConfidenceCalibrationStatus.UNDERCONFIDENT
         codes.append("low_confidence_strong_result")
     elif 0.45 < conf < 0.85 and (
-        strong_positive
-        or effectiveness.status == DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE
-        or strong_negative
+        strong_positive or effectiveness.status == DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE or strong_negative
     ):
         status = ConfidenceCalibrationStatus.WELL_CALIBRATED
         codes.append("confidence_band_aligned_with_result")
@@ -723,11 +779,15 @@ def extract_decision_learning_signal(
         strength = LearningSignalStrength.WEAK
     elif attribution == AttributionAssessment.TEMPORAL_ASSOCIATION:
         strength = LearningSignalStrength.CANDIDATE
-    elif effectiveness.status in {
-        DecisionEffectivenessStatus.HIGHLY_EFFECTIVE,
-        DecisionEffectivenessStatus.EFFECTIVE,
-        DecisionEffectivenessStatus.COUNTERPRODUCTIVE,
-    } and attribution == AttributionAssessment.SUPPORTED_CONTRIBUTION:
+    elif (
+        effectiveness.status
+        in {
+            DecisionEffectivenessStatus.HIGHLY_EFFECTIVE,
+            DecisionEffectivenessStatus.EFFECTIVE,
+            DecisionEffectivenessStatus.COUNTERPRODUCTIVE,
+        }
+        and attribution == AttributionAssessment.SUPPORTED_CONTRIBUTION
+    ):
         strength = LearningSignalStrength.SUPPORTED
     else:
         strength = LearningSignalStrength.CANDIDATE
@@ -752,17 +812,13 @@ def extract_decision_learning_signal(
         f"effectiveness={effectiveness.status.value}."
     ]
     if quality.status in {DecisionQualityStatus.UNSUPPORTED, DecisionQualityStatus.WEAKLY_SUPPORTED}:
-        lesson_parts.append(
-            "Investigate whether similar weakly-supported recommendations recur under comparable gaps."
-        )
+        lesson_parts.append("Investigate whether similar weakly-supported recommendations recur under comparable gaps.")
     if effectiveness.status == DecisionEffectivenessStatus.COUNTERPRODUCTIVE:
         lesson_parts.append(
             "Investigate conditions where exact execution of this recommendation class correlates with regression."
         )
     if calibration.status == ConfidenceCalibrationStatus.OVERCONFIDENT:
-        lesson_parts.append(
-            "Investigate whether confidence is systematically high relative to evidence completeness."
-        )
+        lesson_parts.append("Investigate whether confidence is systematically high relative to evidence completeness.")
     if calibration.status == ConfidenceCalibrationStatus.UNDERCONFIDENT:
         lesson_parts.append(
             "Investigate whether confidence is systematically low relative to post-hoc supported outcomes."
@@ -834,9 +890,7 @@ def evaluate_decision_feedback(
     """
 
     now = evaluated_at or datetime.now(UTC)
-    validation_codes = validate_decision_feedback_inputs(
-        snapshot=snapshot, execution=execution, outcome=outcome
-    )
+    validation_codes = validate_decision_feedback_inputs(snapshot=snapshot, execution=execution, outcome=outcome)
 
     quality = assess_decision_quality(snapshot)
     if information_learned_after:
@@ -849,9 +903,9 @@ def evaluate_decision_feedback(
         quality=quality,
     )
     consequences = inventory_consequences(snapshot=snapshot, outcome=outcome)
-    effectiveness.dimensions.unexpected_consequence_count = len(
-        consequences.unexpected_positive_changes
-    ) + len(consequences.unexpected_negative_changes)
+    effectiveness.dimensions.unexpected_consequence_count = len(consequences.unexpected_positive_changes) + len(
+        consequences.unexpected_negative_changes
+    )
 
     calibration = assess_confidence_calibration(
         snapshot=snapshot,

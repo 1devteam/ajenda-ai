@@ -78,3 +78,15 @@ def test_external_write_send_manifests_require_idempotency() -> None:
             SideEffectClass.EXTERNAL_PUBLISH,
         }:
             assert manifest.idempotency_required is True
+
+
+def test_decision_feedback_actions_have_non_side_effecting_manifests() -> None:
+    for action in (
+        "analysis.evaluate_decision_effectiveness",
+        "analysis.extract_decision_learning_signal",
+    ):
+        manifest = ABILITY_MANIFESTS_BY_ACTION[action]
+        assert manifest.provider == "ajenda_analysis"
+        assert manifest.side_effect_class == SideEffectClass.NONE
+        assert manifest.evidence_required is True
+        assert manifest.evidence_expectations == ("action_result_evidence",)

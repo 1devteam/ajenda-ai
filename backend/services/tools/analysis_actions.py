@@ -11,6 +11,7 @@ weighted_criterion_evidence_v1. Observation ≠ pattern ≠ knowledge ≠ policy
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,7 +26,6 @@ from backend.services.ontology.decision_feedback import (
     DecisionExecutionObservation,
     DecisionSnapshot,
     evaluate_decision_feedback,
-    extract_decision_learning_signal,
 )
 from backend.services.ontology.evaluation import evaluate_goal_progress
 from backend.services.ontology.outcome import (
@@ -75,6 +75,10 @@ class EvaluateOutcomeInput(BaseModel):
     success_criteria_codes: list[str] = Field(default_factory=list)
     observed_kpis: list[Kpi] = Field(default_factory=list)
     observed_snapshot: BusinessStateSnapshot | None = None
+    observed_at: datetime | None = Field(
+        default=None,
+        description="Actual outcome observation time; distinct from evaluation time",
+    )
     events: list[BusinessEvent] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     missing_evidence_codes: list[str] = Field(default_factory=list)
@@ -184,6 +188,7 @@ def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntime
     observed = ObservedOutcome(
         observed_kpis=list(payload.observed_kpis),
         observed_snapshot=payload.observed_snapshot,
+        observed_at=payload.observed_at,
         events=list(payload.events),
         evidence_ids=list(payload.evidence_ids),
         missing_evidence_codes=list(payload.missing_evidence_codes),
@@ -220,9 +225,7 @@ def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntime
     )
 
 
-def analysis_evaluate_decision_effectiveness(
-    invocation: ToolInvocation, context: ActionRuntimeContext
-) -> ActionResult:
+def analysis_evaluate_decision_effectiveness(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = EvaluateDecisionEffectivenessInput.model_validate(invocation.input)
     result = evaluate_decision_feedback(
         snapshot=payload.snapshot,
