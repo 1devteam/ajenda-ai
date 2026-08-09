@@ -18,6 +18,11 @@ from backend.services.ontology.decision_feedback import (
     LearningSignalStrength,
     evaluate_decision_feedback,
 )
+from backend.services.ontology.observation_attribution import (
+    AttributionEvidenceInput,
+    evaluate_attribution_evidence,
+    resolve_observation_timing,
+)
 from backend.services.ontology.outcome import (
     AttributionAssessment,
     OutcomeEvaluation,
@@ -96,15 +101,31 @@ def _outcome(
     observed_at: datetime | None = OBSERVED_AT,
     evaluated_at: datetime = EVALUATED_AT,
 ) -> OutcomeEvaluation:
+    timing = resolve_observation_timing(source_observed_at=observed_at)
+    attribution_evidence = None
+    if attribution == AttributionAssessment.SUPPORTED_CONTRIBUTION:
+        attribution_evidence = evaluate_attribution_evidence(
+            evidence=AttributionEvidenceInput(
+                executed_at=EXECUTED_AT,
+                execution_evidence_ids=["execution_evidence"],
+                expected_change_dimensions=["qualification_score"],
+                observed_change_dimensions=["qualification_score"],
+                confidence=0.9,
+            ),
+            observation_timing=timing,
+        )
+        attribution = attribution_evidence.resulting_attribution
     return OutcomeEvaluation(
         outcome_evaluation_id="outcome_1",
         subject_refs=[{"object_type": "opportunity", "object_id": "opp_1"}],
         goal_id="goal_1",
         status=status,
         attribution=attribution,
+        attribution_evidence=attribution_evidence,
         confidence=0.9,
         supporting_evidence_ids=["outcome_evidence"],
         observed_at=observed_at,
+        observation_timing=timing,
         evaluated_at=evaluated_at,
     )
 

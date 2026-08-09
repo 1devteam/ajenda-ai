@@ -26,7 +26,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.services.ontology.commercial_state import (
     BusinessEvent,
@@ -45,6 +45,12 @@ from backend.services.ontology.evaluation import (
     evaluate_goal_progress,
     evaluate_kpi,
 )
+from backend.services.ontology.observation_attribution import AttributionAssessment as AttributionAssessment
+from backend.services.ontology.observation_attribution import (
+    AttributionAssessmentEvidence,
+    AttributionEvidenceInput,
+    ObservationTiming,
+)
 from backend.services.ontology.types import BusinessObjectRef
 
 OUTCOME_SCHEMA_VERSION = 1
@@ -58,16 +64,6 @@ class OutcomeStatus(StrEnum):
     NO_MATERIAL_CHANGE = "no_material_change"
     REGRESSED = "regressed"
     INCONCLUSIVE = "inconclusive"
-    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
-
-
-class AttributionAssessment(StrEnum):
-    """Explicit non-causal attribution of observed change to a prior decision/action."""
-
-    NOT_ASSESSED = "not_assessed"
-    TEMPORAL_ASSOCIATION = "temporal_association"
-    SUPPORTED_CONTRIBUTION = "supported_contribution"
-    CONFLICTING_EVIDENCE = "conflicting_evidence"
     INSUFFICIENT_EVIDENCE = "insufficient_evidence"
 
 
@@ -138,9 +134,39 @@ class ObservedOutcome(BaseModel):
             "Distinct from OutcomeEvaluation.evaluated_at and never inferred from it."
         ),
     )
+    source_observed_at: datetime | None = Field(
+        default=None,
+        description="Observation time reported by the authoritative source",
+    )
+    captured_at: datetime | None = Field(
+        default=None,
+        description="Time Ajenda captured the observation; used only as derived chronology",
+    )
+    asserted_observed_at: datetime | None = Field(
+        default=None,
+        description="Explicit caller assertion when no stronger observation time exists",
+    )
     events: list[BusinessEvent] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     missing_evidence_codes: list[str] = Field(default_factory=list)
+
+    @field_validator("observed_at", "source_observed_at", "captured_at", "asserted_observed_at")
+    @classmethod
+    def require_timezone(cls, value: datetime | None, info: object) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            field_name = getattr(info, "field_name", "timestamp")
+            raise ValueError(f"{field_name} must include timezone information")
+        return value
+
+    @model_validator(mode="after")
+    def validate_legacy_assertion(self) -> ObservedOutcome:
+        if (
+            self.observed_at is not None
+            and self.asserted_observed_at is not None
+            and self.observed_at != self.asserted_observed_at
+        ):
+            raise ValueError("observed_at and asserted_observed_at must match when both are supplied")
+        return self
 
 
 class CriteriaResult(BaseModel):
@@ -171,6 +197,7 @@ class OutcomeEvaluation(BaseModel):
     supporting_evidence_ids: list[str] = Field(default_factory=list)
     evidence_gaps: list[ProgressGap] = Field(default_factory=list)
     attribution: AttributionAssessment = AttributionAssessment.NOT_ASSESSED
+    attribution_evidence: AttributionAssessmentEvidence | None = None
     confidence: float = Field(ge=0, le=1)
     explanation_codes: list[str] = Field(default_factory=list)
     observed_at: datetime | None = Field(
@@ -180,8 +207,23 @@ class OutcomeEvaluation(BaseModel):
             "None means outcome chronology is unknown."
         ),
     )
+    observation_timing: ObservationTiming = Field(
+        default_factory=lambda: ObservationTiming(),
+        description="Resolved observation timestamp and its explicit provenance",
+    )
     evaluated_at: datetime
     algorithm: str = "outcome_delta_v1"
+
+    @model_validator(mode="after")
+    def validate_earned_attribution(self) -> OutcomeEvaluation:
+        if self.attribution_evidence is not None:
+            if self.attribution != self.attribution_evidence.resulting_attribution:
+                raise ValueError("attribution must match attribution_evidence.resulting_attribution")
+        elif self.attribution == AttributionAssessment.SUPPORTED_CONTRIBUTION:
+            raise ValueError("supported_contribution requires earned attribution_evidence")
+        if self.observed_at != self.observation_timing.resolved_observed_at:
+            raise ValueError("observed_at must match observation_timing.resolved_observed_at")
+        return self
 
 
 def _signed_gap(*, value: float | None, target: float | None, direction: KpiDirection) -> float | None:
@@ -400,14 +442,28 @@ def evaluate_outcome(
     expectation: OutcomeExpectation,
     observed: ObservedOutcome,
     attribution: AttributionAssessment = AttributionAssessment.NOT_ASSESSED,
+    attribution_evidence: AttributionEvidenceInput | None = None,
     outcome_evaluation_id: str | None = None,
     evaluated_at: datetime | None = None,
 ) -> OutcomeEvaluation:
     """Deterministic expected-vs-observed outcome assessment.
 
     Reuses Evaluation Intelligence primitives. Does not write OutcomeReview.
-    Attribution is caller-supplied; this function never upgrades it to causation.
+    Supported contribution is earned from structured evidence. This function
+    never upgrades temporal association or repeated association to causation.
     """
+
+    from backend.services.ontology.observation_attribution import (
+        evaluate_attribution_evidence,
+        resolve_observation_timing,
+    )
+
+    asserted_observed_at = observed.asserted_observed_at or observed.observed_at
+    observation_timing = resolve_observation_timing(
+        source_observed_at=observed.source_observed_at,
+        captured_at=observed.captured_at,
+        asserted_observed_at=asserted_observed_at,
+    )
 
     goal = expectation.goal
     pairs = _pair_kpis(expectation.baseline_kpis, observed.observed_kpis)
@@ -524,10 +580,24 @@ def evaluate_outcome(
     if observed.observed_snapshot is not None:
         supporting.extend(eid for eid in observed.observed_snapshot.evidence_ids if eid not in supporting)
 
-    if attribution == AttributionAssessment.SUPPORTED_CONTRIBUTION:
-        explanation_codes.append("attribution_supported_contribution_caller_asserted")
+    assessment_evidence: AttributionAssessmentEvidence | None = None
+    if attribution_evidence is not None:
+        assessment_evidence = evaluate_attribution_evidence(
+            evidence=attribution_evidence,
+            observation_timing=observation_timing,
+        )
+        attribution = assessment_evidence.resulting_attribution
+        explanation_codes.extend(assessment_evidence.explanation_codes)
+    elif attribution == AttributionAssessment.SUPPORTED_CONTRIBUTION:
+        attribution = AttributionAssessment.INSUFFICIENT_EVIDENCE
+        explanation_codes.extend(
+            [
+                "caller_asserted_supported_contribution_rejected",
+                "attribution_evidence_required",
+            ]
+        )
     elif attribution == AttributionAssessment.TEMPORAL_ASSOCIATION:
-        explanation_codes.append("attribution_temporal_association")
+        explanation_codes.append("attribution_temporal_association_caller_asserted")
 
     return OutcomeEvaluation(
         outcome_evaluation_id=outcome_evaluation_id or f"out_{uuid4().hex[:12]}",
@@ -542,8 +612,10 @@ def evaluate_outcome(
         supporting_evidence_ids=supporting,
         evidence_gaps=evidence_gaps,
         attribution=attribution,
+        attribution_evidence=assessment_evidence,
         confidence=round(confidence, 4),
         explanation_codes=list(dict.fromkeys(explanation_codes)),
-        observed_at=observed.observed_at,
+        observed_at=observation_timing.resolved_observed_at,
+        observation_timing=observation_timing,
         evaluated_at=evaluated_at or datetime.now(UTC),
     )

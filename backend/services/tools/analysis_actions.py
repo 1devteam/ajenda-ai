@@ -2,6 +2,7 @@
 
 ``analysis.evaluate_goal_progress``: deterministic Goal/KPI/State assessment.
 ``analysis.evaluate_outcome``: expected vs observed outcome delta.
+``analysis.assess_attribution_integrity``: earned, non-causal attribution.
 ``analysis.evaluate_decision_effectiveness``: one decision episode effectiveness.
 ``analysis.extract_decision_learning_signal``: candidate lesson from one episode.
 
@@ -28,6 +29,12 @@ from backend.services.ontology.decision_feedback import (
     evaluate_decision_feedback,
 )
 from backend.services.ontology.evaluation import evaluate_goal_progress
+from backend.services.ontology.observation_attribution import (
+    AttributionAssessmentEvidence,
+    AttributionEvidenceInput,
+    evaluate_attribution_evidence,
+    resolve_observation_timing,
+)
 from backend.services.ontology.outcome import (
     AttributionAssessment,
     ObservedOutcome,
@@ -77,12 +84,27 @@ class EvaluateOutcomeInput(BaseModel):
     observed_snapshot: BusinessStateSnapshot | None = None
     observed_at: datetime | None = Field(
         default=None,
-        description="Actual outcome observation time; distinct from evaluation time",
+        description="Legacy caller assertion; prefer asserted_observed_at",
     )
+    source_observed_at: datetime | None = None
+    captured_at: datetime | None = None
+    asserted_observed_at: datetime | None = None
     events: list[BusinessEvent] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     missing_evidence_codes: list[str] = Field(default_factory=list)
     attribution: AttributionAssessment = AttributionAssessment.NOT_ASSESSED
+    attribution_evidence: AttributionEvidenceInput | None = None
+
+
+class AssessAttributionIntegrityInput(BaseModel):
+    """Input for analysis.assess_attribution_integrity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_observed_at: datetime | None = None
+    captured_at: datetime | None = None
+    asserted_observed_at: datetime | None = None
+    evidence: AttributionEvidenceInput
 
 
 class EvaluateDecisionEffectivenessInput(BaseModel):
@@ -189,6 +211,9 @@ def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntime
         observed_kpis=list(payload.observed_kpis),
         observed_snapshot=payload.observed_snapshot,
         observed_at=payload.observed_at,
+        source_observed_at=payload.source_observed_at,
+        captured_at=payload.captured_at,
+        asserted_observed_at=payload.asserted_observed_at,
         events=list(payload.events),
         evidence_ids=list(payload.evidence_ids),
         missing_evidence_codes=list(payload.missing_evidence_codes),
@@ -197,6 +222,7 @@ def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntime
         expectation=expectation,
         observed=observed,
         attribution=payload.attribution,
+        attribution_evidence=payload.attribution_evidence,
     )
     output = result.model_dump(mode="json")
     summary = (
@@ -222,6 +248,45 @@ def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntime
         ],
         summary=summary,
         confidence=result.confidence,
+    )
+
+
+def analysis_assess_attribution_integrity(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = AssessAttributionIntegrityInput.model_validate(invocation.input)
+    timing = resolve_observation_timing(
+        source_observed_at=payload.source_observed_at,
+        captured_at=payload.captured_at,
+        asserted_observed_at=payload.asserted_observed_at,
+    )
+    result: AttributionAssessmentEvidence = evaluate_attribution_evidence(
+        evidence=payload.evidence,
+        observation_timing=timing,
+    )
+    output = result.model_dump(mode="json")
+    summary = (
+        f"Attribution={result.resulting_attribution.value} "
+        f"chronology={result.observation_timing.provenance.value} "
+        f"ordering={result.ordering.value} causal_claim={result.causal_claim}"
+    )
+    return ActionResult(
+        action="analysis.assess_attribution_integrity",
+        provider="ajenda_analysis",
+        side_effect_class=SideEffectClass.NONE,
+        output=output,
+        evidence=[
+            _evidence(
+                context=context,
+                action="analysis.assess_attribution_integrity",
+                provider="ajenda_analysis",
+                summary=summary,
+                payload=output,
+                confidence=result.confidence,
+                cluster="observation_attribution_integrity",
+            )
+        ],
+        summary=summary,
+        confidence=result.confidence,
+        limitations=["Non-causal structural assessment; source truth is not independently verified."],
     )
 
 
@@ -301,6 +366,15 @@ def analysis_extract_decision_learning_signal(
 
 
 def register_analysis_actions(registry: ActionRegistry) -> None:
+    registry.register(
+        ActionDefinition(
+            name="analysis.assess_attribution_integrity",
+            handler=analysis_assess_attribution_integrity,
+            provider="ajenda_analysis",
+            input_model=AssessAttributionIntegrityInput,
+            side_effect_class=SideEffectClass.NONE,
+        )
+    )
     registry.register(
         ActionDefinition(
             name="analysis.evaluate_goal_progress",
