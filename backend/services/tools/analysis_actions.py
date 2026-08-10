@@ -1,10 +1,12 @@
-"""Evaluation + Outcome + Decision Feedback Intelligence — analysis abilities.
+"""Evaluation + Outcome + Decision Feedback + Experience Intelligence — analysis abilities.
 
 ``analysis.evaluate_goal_progress``: deterministic Goal/KPI/State assessment.
 ``analysis.evaluate_outcome``: expected vs observed outcome delta.
 ``analysis.assess_attribution_integrity``: earned, non-causal attribution.
 ``analysis.evaluate_decision_effectiveness``: one decision episode effectiveness.
 ``analysis.extract_decision_learning_signal``: candidate lesson from one episode.
+``analysis.compare_experiences``: multi-episode comparability + independence.
+``analysis.assess_experience_recurrence``: recurrence candidate from episode set.
 
 Does not persist reviews, recommend next actions, execute work, or modify
 weighted_criterion_evidence_v1. Observation ≠ pattern ≠ knowledge ≠ policy.
@@ -29,6 +31,10 @@ from backend.services.ontology.decision_feedback import (
     evaluate_decision_feedback,
 )
 from backend.services.ontology.evaluation import evaluate_goal_progress
+from backend.services.ontology.experience_intelligence import (
+    ExperienceEpisodeInput,
+    evaluate_experience_set,
+)
 from backend.services.ontology.observation_attribution import (
     AttributionAssessmentEvidence,
     AttributionEvidenceInput,
@@ -130,6 +136,22 @@ class ExtractDecisionLearningSignalInput(BaseModel):
     execution: DecisionExecutionObservation
     outcome: OutcomeEvaluation
     information_learned_after: list[str] = Field(default_factory=list)
+
+
+class CompareExperiencesInput(BaseModel):
+    """Input for analysis.compare_experiences."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    episodes: list[ExperienceEpisodeInput] = Field(min_length=1)
+
+
+class AssessExperienceRecurrenceInput(BaseModel):
+    """Input for analysis.assess_experience_recurrence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    episodes: list[ExperienceEpisodeInput] = Field(min_length=1)
 
 
 def _evidence(
@@ -330,7 +352,6 @@ def analysis_extract_decision_learning_signal(
     invocation: ToolInvocation, context: ActionRuntimeContext
 ) -> ActionResult:
     payload = ExtractDecisionLearningSignalInput.model_validate(invocation.input)
-    # Full episode evaluation first (quality/effectiveness/calibration), then signal
     feedback = evaluate_decision_feedback(
         snapshot=payload.snapshot,
         execution=payload.execution,
@@ -362,6 +383,84 @@ def analysis_extract_decision_learning_signal(
         ],
         summary=summary,
         confidence=signal.effectiveness.confidence,
+    )
+
+
+def analysis_compare_experiences(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = CompareExperiencesInput.model_validate(invocation.input)
+    result = evaluate_experience_set(episodes=list(payload.episodes))
+    comparison = result.comparison
+    output = comparison.model_dump(mode="json")
+    summary = (
+        f"Experience comparison {comparison.comparison_id} "
+        f"episodes={comparison.episode_count} "
+        f"comparability={comparison.comparability.status.value} "
+        f"independence={comparison.independence.status.value}"
+    )
+    return ActionResult(
+        action="analysis.compare_experiences",
+        provider="ajenda_analysis",
+        side_effect_class=SideEffectClass.NONE,
+        output=output,
+        evidence=[
+            _evidence(
+                context=context,
+                action="analysis.compare_experiences",
+                provider="ajenda_analysis",
+                summary=summary,
+                payload=output,
+                confidence=min(
+                    comparison.comparability.confidence,
+                    comparison.independence.confidence,
+                ),
+                cluster="experience_intelligence",
+            )
+        ],
+        summary=summary,
+        confidence=min(comparison.comparability.confidence, comparison.independence.confidence),
+    )
+
+
+def analysis_assess_experience_recurrence(
+    invocation: ToolInvocation, context: ActionRuntimeContext
+) -> ActionResult:
+    payload = AssessExperienceRecurrenceInput.model_validate(invocation.input)
+    result = evaluate_experience_set(episodes=list(payload.episodes))
+    output = result.model_dump(mode="json")
+    pattern = result.pattern_candidate
+    if pattern is not None:
+        summary = (
+            f"Experience recurrence {pattern.pattern_id} "
+            f"status={pattern.recurrence.status.value} "
+            f"supporting={pattern.recurrence.supporting_count} "
+            f"contradicting={pattern.recurrence.contradicting_count} "
+            f"is_knowledge={pattern.is_knowledge} is_policy={pattern.is_policy}"
+        )
+        confidence = pattern.recurrence.confidence
+    else:
+        summary = (
+            f"Experience recurrence suppressed comparison={result.comparison.comparison_id} "
+            f"comparability={result.comparison.comparability.status.value}"
+        )
+        confidence = result.comparison.comparability.confidence
+    return ActionResult(
+        action="analysis.assess_experience_recurrence",
+        provider="ajenda_analysis",
+        side_effect_class=SideEffectClass.NONE,
+        output=output,
+        evidence=[
+            _evidence(
+                context=context,
+                action="analysis.assess_experience_recurrence",
+                provider="ajenda_analysis",
+                summary=summary,
+                payload=output,
+                confidence=confidence,
+                cluster="experience_intelligence",
+            )
+        ],
+        summary=summary,
+        confidence=confidence,
     )
 
 
@@ -408,6 +507,24 @@ def register_analysis_actions(registry: ActionRegistry) -> None:
             handler=analysis_extract_decision_learning_signal,
             provider="ajenda_analysis",
             input_model=ExtractDecisionLearningSignalInput,
+            side_effect_class=SideEffectClass.NONE,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="analysis.compare_experiences",
+            handler=analysis_compare_experiences,
+            provider="ajenda_analysis",
+            input_model=CompareExperiencesInput,
+            side_effect_class=SideEffectClass.NONE,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="analysis.assess_experience_recurrence",
+            handler=analysis_assess_experience_recurrence,
+            provider="ajenda_analysis",
+            input_model=AssessExperienceRecurrenceInput,
             side_effect_class=SideEffectClass.NONE,
         )
     )
