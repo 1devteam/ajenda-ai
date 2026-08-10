@@ -7,12 +7,13 @@ runtime authority.
 
 from __future__ import annotations
 
+from backend.services.abilities.experience_manifests import EXPERIENCE_ABILITY_MANIFESTS
 from backend.services.abilities.manifest import AbilityManifest, AbilityRiskLevel
 from backend.services.tools.schemas import SideEffectClass
 
 ACTION_RESULT_SCHEMA_REF = "backend.services.tools.schemas.ActionResult"
 
-INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
+_BASE_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
     AbilityManifest(
         ability_id="calendar-create-event",
         display_name="Calendar Create Event",
@@ -448,7 +449,6 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         ),
         enabled_by_default=False,
     ),
-    # PR6 GTM expansion (internal drafts first, feature gated)
     AbilityManifest(
         ability_id="gtm-lead-enrich",
         display_name="GTM Lead Enrich",
@@ -581,7 +581,6 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         readback_required=False,
         enabled_by_default=False,
     ),
-    # EXTERNAL GTM (high risk, approval, gated)
     AbilityManifest(
         ability_id="gtm-email-send",
         display_name="GTM Email Send",
@@ -791,7 +790,6 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         readback_deferred_reason="Open-write targets are arbitrary HTTPS endpoints; durable readback is target-specific.",
         enabled_by_default=False,
     ),
-    # Evidence Intelligence / Decision Support (Slice 1)
     AbilityManifest(
         ability_id="decision-recommend-next-action",
         display_name="Decision Recommend Next Action (evidence-backed)",
@@ -814,7 +812,6 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         readback_required=False,
         enabled_by_default=False,
     ),
-    # Evaluation Intelligence Slice 1
     AbilityManifest(
         ability_id="analysis-evaluate-goal-progress",
         display_name="Analysis Evaluate Goal Progress (deterministic)",
@@ -837,7 +834,6 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         readback_required=False,
         enabled_by_default=False,
     ),
-    # Outcome Intelligence Slice 1
     AbilityManifest(
         ability_id="analysis-evaluate-outcome",
         display_name="Analysis Evaluate Outcome (expected vs observed)",
@@ -860,7 +856,6 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         readback_required=False,
         enabled_by_default=False,
     ),
-    # Observation & Attribution Integrity Slice 1
     AbilityManifest(
         ability_id="analysis-assess-attribution-integrity",
         display_name="Analysis Assess Attribution Integrity (non-causal)",
@@ -883,7 +878,6 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         readback_required=False,
         enabled_by_default=False,
     ),
-    # Decision Feedback Intelligence Slice 1
     AbilityManifest(
         ability_id="analysis-evaluate-decision-effectiveness",
         display_name="Analysis Evaluate Decision Effectiveness (single episode)",
@@ -929,6 +923,8 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         enabled_by_default=False,
     ),
 )
+
+INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = _BASE_ABILITY_MANIFESTS + EXPERIENCE_ABILITY_MANIFESTS
 
 ABILITY_MANIFESTS_BY_ACTION: dict[str, AbilityManifest] = {
     manifest.action_name: manifest for manifest in INTERNAL_ABILITY_MANIFESTS
