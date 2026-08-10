@@ -279,9 +279,7 @@ def assess_experience_comparability(
         non_empty_eff = [d for d in all_eff if d]
         if non_empty_eff:
             dim_overlap = (
-                sorted(set.intersection(*non_empty_eff))
-                if len(non_empty_eff) > 1
-                else sorted(non_empty_eff[0])
+                sorted(set.intersection(*non_empty_eff)) if len(non_empty_eff) > 1 else sorted(non_empty_eff[0])
             )
 
     if blocking:
@@ -441,14 +439,10 @@ def assess_experience_recurrence(
             codes.append("temporal_association_capped")
 
         if sig.signal_strength == LearningSignalStrength.SUPPORTED and (
-            sig.effectiveness.status.value
-            in {"highly_effective", "effective", "counterproductive"}
+            sig.effectiveness.status.value in {"highly_effective", "effective", "counterproductive"}
         ):
             if sig.effectiveness.status.value == "counterproductive" or sig.ineffective_dimensions:
-                if (
-                    "regression" in sig.ineffective_dimensions
-                    or sig.effectiveness.status.value == "counterproductive"
-                ):
+                if "regression" in sig.ineffective_dimensions or sig.effectiveness.status.value == "counterproductive":
                     contradicting.append(sig.signal_id)
                     codes.append("supported_counterexample")
                 else:
@@ -640,9 +634,7 @@ def extract_experience_pattern_candidate(
                 seen_subj.add(key)
                 subject_refs.append(r)
 
-    goal_id = comparison.comparability.shared_goal_id or next(
-        (s.goal_id for s in signals if s.goal_id), None
-    )
+    goal_id = comparison.comparability.shared_goal_id or next((s.goal_id for s in signals if s.goal_id), None)
 
     return ExperiencePatternCandidate(
         pattern_id=pattern_id or f"pat_{uuid4().hex[:12]}",
@@ -695,9 +687,7 @@ def evaluate_experience_set(
         comparability=comparability,
         independence=independence,
         evaluated_at=now,
-        explanation_codes=_dedupe(
-            comparability.explanation_codes[:4] + independence.explanation_codes[:4]
-        ),
+        explanation_codes=_dedupe(comparability.explanation_codes[:4] + independence.explanation_codes[:4]),
     )
 
     recurrence = assess_experience_recurrence(
