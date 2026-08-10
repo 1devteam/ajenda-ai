@@ -7,6 +7,7 @@ runtime authority.
 
 from __future__ import annotations
 
+from backend.services.abilities.experience_manifests import EXPERIENCE_ABILITY_MANIFESTS
 from backend.services.abilities.manifest import AbilityManifest, AbilityRiskLevel
 from backend.services.tools.schemas import SideEffectClass
 
@@ -929,6 +930,8 @@ INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
         enabled_by_default=False,
     ),
 )
+
+INTERNAL_ABILITY_MANIFESTS = (*INTERNAL_ABILITY_MANIFESTS, *EXPERIENCE_ABILITY_MANIFESTS)
 
 ABILITY_MANIFESTS_BY_ACTION: dict[str, AbilityManifest] = {
     manifest.action_name: manifest for manifest in INTERNAL_ABILITY_MANIFESTS
