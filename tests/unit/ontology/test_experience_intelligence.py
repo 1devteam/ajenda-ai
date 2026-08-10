@@ -98,7 +98,8 @@ def _signal(
         confidence_calibration=_calibration(),
         evidence_gaps_at_decision_time=[],
         information_learned_after_decision=[],
-        effective_dimensions=effective_dims or (["goal_progress"] if effectiveness != DecisionEffectivenessStatus.COUNTERPRODUCTIVE else []),
+        effective_dimensions=effective_dims
+        or (["goal_progress"] if effectiveness != DecisionEffectivenessStatus.COUNTERPRODUCTIVE else []),
         ineffective_dimensions=ineffective_dims
         or (["regression"] if effectiveness == DecisionEffectivenessStatus.COUNTERPRODUCTIVE else []),
         consequences=ConsequenceInventory(),
@@ -199,9 +200,7 @@ def test_duplicate_decision_id_is_dependent_and_weak() -> None:
     assert result.comparison.independence.status == IndependenceStatus.DEPENDENT
     assert result.pattern_candidate is not None
     assert result.pattern_candidate.recurrence.status == RecurrenceStrength.WEAK
-    assert "dependent_episodes_cannot_establish_recurrence" in (
-        result.pattern_candidate.recurrence.explanation_codes
-    )
+    assert "dependent_episodes_cannot_establish_recurrence" in (result.pattern_candidate.recurrence.explanation_codes)
 
 
 def test_overlapping_evidence_reduces_independence() -> None:
