@@ -421,9 +421,7 @@ def analysis_compare_experiences(invocation: ToolInvocation, context: ActionRunt
     )
 
 
-def analysis_assess_experience_recurrence(
-    invocation: ToolInvocation, context: ActionRuntimeContext
-) -> ActionResult:
+def analysis_assess_experience_recurrence(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = AssessExperienceRecurrenceInput.model_validate(invocation.input)
     result = evaluate_experience_set(episodes=list(payload.episodes))
     output = result.model_dump(mode="json")
