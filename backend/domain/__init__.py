@@ -14,6 +14,7 @@ from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_branch import ExecutionBranch
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.governance_event import GovernanceEvent
+from backend.domain.knowledge import KnowledgeArtifactRecord, KnowledgeQualificationRecord
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.domain.mission_composition_proposal import MissionCompositionProposal
@@ -36,6 +37,8 @@ __all__ = [
     "ExecutionTask",
     "ExecutionTaskState",
     "GovernanceEvent",
+    "KnowledgeArtifactRecord",
+    "KnowledgeQualificationRecord",
     "LineageRecord",
     "Mission",
     "MissionCompositionProposal",

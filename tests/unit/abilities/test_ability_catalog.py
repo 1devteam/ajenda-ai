@@ -122,3 +122,14 @@ def test_knowledge_qualification_action_has_non_side_effecting_manifest() -> Non
     assert manifest.evidence_required is True
     assert manifest.evidence_expectations == ("action_result_evidence",)
     assert manifest.enabled_by_default is False
+
+
+def test_knowledge_persistence_manifest_is_governed_internal_write() -> None:
+    manifest = ABILITY_MANIFESTS_BY_ACTION["knowledge.record_qualification"]
+    assert manifest.ability_id == "knowledge-record-qualification"
+    assert manifest.provider == "ajenda_knowledge"
+    assert manifest.side_effect_class == SideEffectClass.INTERNAL_WRITE
+    assert manifest.approval_required is True
+    assert manifest.idempotency_required is False
+    assert manifest.evidence_expectations == ("action_result_evidence",)
+    assert manifest.enabled_by_default is False

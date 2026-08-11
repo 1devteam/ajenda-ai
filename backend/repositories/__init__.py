@@ -3,6 +3,7 @@ from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.execution_branch_repository import ExecutionBranchRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.governance_event_repository import GovernanceEventRepository
+from backend.repositories.knowledge_repository import KnowledgeRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
 from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
@@ -17,6 +18,7 @@ __all__ = [
     "ExecutionBranchRepository",
     "ExecutionTaskRepository",
     "GovernanceEventRepository",
+    "KnowledgeRepository",
     "LineageRecordRepository",
     "MissionPlanRepository",
     "MissionRepository",

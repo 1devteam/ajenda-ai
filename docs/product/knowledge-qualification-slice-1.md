@@ -24,6 +24,9 @@ KPI-only or inherited Goal meaning, legacy intervention fallback, emerging recur
 
 Only `QUALIFIED` emits `QualifiedKnowledgeArtifact(is_knowledge=True)`. Every result and artifact has `is_policy=False`; the artifact also has `is_persisted=False`.
 
+Qualified artifacts may subsequently be recorded by the Durable Knowledge Ledger. Qualification itself remains pure,
+and its immutable artifact retains `is_persisted=False`; the ledger creates separate durable record references.
+
 ## Ability surface
 
 `analysis.qualify_pattern_knowledge` accepts an explicitly supplied serialized candidate and returns the serialized qualification result with `action_result_evidence`. The `ajenda_analysis` action is `SideEffectClass.NONE`, low risk, approval-free, readback-free, and disabled by default. Experience and Knowledge abilities are not automatically composed.
