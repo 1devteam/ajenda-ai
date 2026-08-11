@@ -81,9 +81,7 @@ class ExperienceEpisodeInput(BaseModel):
     recommendation_class: str | None = Field(default=None, max_length=160)
     objective_dimensions: tuple[str, ...] = ()
     attribution_evidence_ids: tuple[str, ...] = ()
-    observation_time_provenance: ObservationTimeProvenance = (
-        ObservationTimeProvenance.UNKNOWN
-    )
+    observation_time_provenance: ObservationTimeProvenance = ObservationTimeProvenance.UNKNOWN
     lineage_ids: tuple[str, ...] = ()
 
 
@@ -171,9 +169,7 @@ class ExperiencePatternCandidate(BaseModel):
     @model_validator(mode="after")
     def enforce_safety_flags(self) -> ExperiencePatternCandidate:
         if self.is_knowledge is not False or self.is_policy is not False:
-            raise ValueError(
-                "experience pattern candidates cannot be knowledge or policy"
-            )
+            raise ValueError("experience pattern candidates cannot be knowledge or policy")
         return self
 
 
@@ -257,9 +253,7 @@ def _canonical_identifiers(items: list[str] | tuple[str, ...]) -> tuple[str, ...
 
 
 def _subject_ref_key(ref: object) -> str:
-    object_type = getattr(
-        getattr(ref, "object_type", None), "value", getattr(ref, "object_type", "")
-    )
+    object_type = getattr(getattr(ref, "object_type", None), "value", getattr(ref, "object_type", ""))
     object_id = getattr(ref, "object_id", "")
     return f"{str(object_type).strip().casefold()}:{str(object_id).strip()}"
 
@@ -272,32 +266,20 @@ def derive_context_signature(
         episode_id=episode.episode_id,
         exact_signal_id=signal.signal_id,
         exact_decision_id=signal.decision_id,
-        exact_subject_refs=tuple(
-            sorted({_subject_ref_key(ref) for ref in signal.subject_refs})
-        ),
-        exact_goal_id=signal.goal_id.strip()
-        if signal.goal_id and signal.goal_id.strip()
-        else None,
-        semantic_subject_types=_canonical_semantic_values(
-            tuple(ref.object_type.value for ref in signal.subject_refs)
-        ),
+        exact_subject_refs=tuple(sorted({_subject_ref_key(ref) for ref in signal.subject_refs})),
+        exact_goal_id=signal.goal_id.strip() if signal.goal_id and signal.goal_id.strip() else None,
+        semantic_subject_types=_canonical_semantic_values(tuple(ref.object_type.value for ref in signal.subject_refs)),
         recommendation_class=_norm(episode.recommendation_class),
         objective_dimensions=_canonical_semantic_values(episode.objective_dimensions),
         learning_signal_algorithm=signal.algorithm,
-        effective_dimensions=_canonical_semantic_values(
-            tuple(signal.effective_dimensions)
-        ),
-        ineffective_dimensions=_canonical_semantic_values(
-            tuple(signal.ineffective_dimensions)
-        ),
+        effective_dimensions=_canonical_semantic_values(tuple(signal.effective_dimensions)),
+        ineffective_dimensions=_canonical_semantic_values(tuple(signal.ineffective_dimensions)),
         attribution_assessment=signal.attribution_strength,
         observation_time_provenance=episode.observation_time_provenance,
         execution_fidelity=signal.execution_fidelity,
         learning_signal_strength=signal.signal_strength,
         scope_conditions=_canonical_semantic_values(tuple(signal.scope_conditions)),
-        invalidation_conditions=_canonical_semantic_values(
-            tuple(signal.invalidation_conditions)
-        ),
+        invalidation_conditions=_canonical_semantic_values(tuple(signal.invalidation_conditions)),
         supporting_evidence_ids=_canonical_identifiers(
             tuple(signal.supporting_evidence_ids) + episode.attribution_evidence_ids
         ),
@@ -336,18 +318,13 @@ def _partition_key(sig: ExperienceContextSignature) -> str | None:
     return _stable_key(payload)
 
 
-def _compare(
-    a: ExperienceContextSignature, b: ExperienceContextSignature
-) -> ExperienceComparison:
+def _compare(a: ExperienceContextSignature, b: ExperienceContextSignature) -> ExperienceComparison:
     left, right = sorted((a, b), key=lambda sig: sig.episode_id)
     codes: list[str] = []
     if not left.recommendation_class or not right.recommendation_class:
         codes.append("missing_recommendation_class_unclassified")
         comp = ComparabilityStatus.INSUFFICIENT_CONTEXT
-    elif (
-        left.recommendation_class == "unknown"
-        or right.recommendation_class == "unknown"
-    ):
+    elif left.recommendation_class == "unknown" or right.recommendation_class == "unknown":
         codes.append("unknown_recommendation_class_unclassified")
         comp = ComparabilityStatus.INSUFFICIENT_CONTEXT
     elif left.recommendation_class != right.recommendation_class:
@@ -454,9 +431,7 @@ def _eligibility(
 
     direction = _base_direction(signal)
     tier = EvidenceContributionTier.STRONG
-    if sig.invalidation_conditions and set(sig.invalidation_conditions) & set(
-        active_scope_conditions
-    ):
+    if sig.invalidation_conditions and set(sig.invalidation_conditions) & set(active_scope_conditions):
         codes.append("active_scope_matches_invalidation_condition")
         return _Eligibility(
             episode_id=sig.episode_id,
@@ -525,9 +500,7 @@ def _eligibility(
         ObservationTimeProvenance.DERIVED,
     }:
         tier = EvidenceContributionTier.LIMITED
-        codes.append(
-            f"{sig.observation_time_provenance.value}_chronology_limited_evidence"
-        )
+        codes.append(f"{sig.observation_time_provenance.value}_chronology_limited_evidence")
 
     if sig.learning_signal_strength == LearningSignalStrength.WEAK:
         tier = EvidenceContributionTier.LIMITED
@@ -551,25 +524,17 @@ def _build_hard_components(
     ids = sorted(sig.episode_id for sig in sigs)
     uf = _UnionFind(ids)
     for comparison in comparisons:
-        if (
-            comparison.left_episode_id not in uf.parent
-            or comparison.right_episode_id not in uf.parent
-        ):
+        if comparison.left_episode_id not in uf.parent or comparison.right_episode_id not in uf.parent:
             continue
         if comparison.independence == IndependenceStatus.DEPENDENT:
             uf.union(comparison.left_episode_id, comparison.right_episode_id)
     groups: dict[str, list[str]] = defaultdict(list)
     for episode_id in ids:
         groups[uf.find(episode_id)].append(episode_id)
-    return tuple(
-        tuple(sorted(group))
-        for group in sorted(groups.values(), key=lambda group: group[0])
-    )
+    return tuple(tuple(sorted(group)) for group in sorted(groups.values(), key=lambda group: group[0]))
 
 
-def _component_independence(
-    component: tuple[str, ...], comparisons: list[ExperienceComparison]
-) -> IndependenceStatus:
+def _component_independence(component: tuple[str, ...], comparisons: list[ExperienceComparison]) -> IndependenceStatus:
     if len(component) > 1:
         return IndependenceStatus.DEPENDENT
     episode_id = component[0]
@@ -577,8 +542,7 @@ def _component_independence(
         c.independence
         for c in comparisons
         if episode_id in {c.left_episode_id, c.right_episode_id}
-        and c.independence
-        in {IndependenceStatus.PARTIALLY_INDEPENDENT, IndependenceStatus.INDETERMINATE}
+        and c.independence in {IndependenceStatus.PARTIALLY_INDEPENDENT, IndependenceStatus.INDETERMINATE}
     ]
     if IndependenceStatus.PARTIALLY_INDEPENDENT in statuses:
         return IndependenceStatus.PARTIALLY_INDEPENDENT
@@ -612,24 +576,14 @@ def _build_evidence_units(
 ) -> tuple[_EvidenceUnit, ...]:
     units: list[_EvidenceUnit] = []
     for component in components:
-        component_eligibilities = [
-            eligibilities[episode_id] for episode_id in component
-        ]
-        usable = [
-            item
-            for item in component_eligibilities
-            if item.tier != EvidenceContributionTier.INELIGIBLE
-        ]
+        component_eligibilities = [eligibilities[episode_id] for episode_id in component]
+        usable = [item for item in component_eligibilities if item.tier != EvidenceContributionTier.INELIGIBLE]
         if not usable:
             continue
         direction = _merge_directions({item.direction for item in usable})
         tier = _merge_tiers({item.tier for item in usable})
         independence = _component_independence(component, comparisons)
-        codes = tuple(
-            sorted(
-                {code for item in component_eligibilities for code in item.reason_codes}
-            )
-        )
+        codes = tuple(sorted({code for item in component_eligibilities for code in item.reason_codes}))
         units.append(
             _EvidenceUnit(
                 episode_ids=component,
@@ -646,10 +600,7 @@ def _assessment_from_units(
     units: tuple[_EvidenceUnit, ...],
 ) -> RecurrenceAssessment | None:
     directional_units = [
-        u
-        for u in units
-        if u.direction
-        in {EvidenceUnitDirection.SUPPORT, EvidenceUnitDirection.CONTRADICTION}
+        u for u in units if u.direction in {EvidenceUnitDirection.SUPPORT, EvidenceUnitDirection.CONTRADICTION}
     ]
     if len(directional_units) < 2:
         return None
@@ -662,9 +613,7 @@ def _assessment_from_units(
         and u.independence == IndependenceStatus.INDEPENDENT
     ]
     support_units = [u for u in units if u.direction == EvidenceUnitDirection.SUPPORT]
-    limited_support_units = [
-        u for u in support_units if u.tier == EvidenceContributionTier.LIMITED
-    ]
+    limited_support_units = [u for u in support_units if u.tier == EvidenceContributionTier.LIMITED]
     dependent_support_units = [
         u
         for u in support_units
@@ -675,18 +624,13 @@ def _assessment_from_units(
             IndependenceStatus.INDETERMINATE,
         }
     ]
-    contradiction_units = [
-        u for u in units if u.direction == EvidenceUnitDirection.CONTRADICTION
-    ]
+    contradiction_units = [u for u in units if u.direction == EvidenceUnitDirection.CONTRADICTION]
     strong_independent_contradictions = [
         u
         for u in contradiction_units
-        if u.tier == EvidenceContributionTier.STRONG
-        and u.independence == IndependenceStatus.INDEPENDENT
+        if u.tier == EvidenceContributionTier.STRONG and u.independence == IndependenceStatus.INDEPENDENT
     ]
-    limited_contradiction_units = [
-        u for u in contradiction_units if u.tier == EvidenceContributionTier.LIMITED
-    ]
+    limited_contradiction_units = [u for u in contradiction_units if u.tier == EvidenceContributionTier.LIMITED]
     dependent_contradiction_units = [
         u
         for u in contradiction_units
@@ -697,9 +641,7 @@ def _assessment_from_units(
             IndependenceStatus.INDETERMINATE,
         }
     ]
-    ambiguous_units = [
-        u for u in units if u.direction == EvidenceUnitDirection.AMBIGUOUS
-    ]
+    ambiguous_units = [u for u in units if u.direction == EvidenceUnitDirection.AMBIGUOUS]
     codes = sorted({code for unit in units for code in unit.reason_codes})
     if limited_support_units:
         codes.append("limited_support_does_not_create_supported_recurrence")
@@ -710,9 +652,9 @@ def _assessment_from_units(
     if ambiguous_units:
         codes.append("dependent_component_contains_conflicting_directions")
 
-    if len(strong_independent_contradictions) >= 2 and len(
-        strong_independent_contradictions
-    ) >= len(strong_independent_support):
+    if len(strong_independent_contradictions) >= 2 and len(strong_independent_contradictions) >= len(
+        strong_independent_support
+    ):
         strength = RecurrenceStrength.INVALIDATED
         codes.append("repeated_strong_independent_contradictions")
     elif strong_independent_contradictions and (support_units or ambiguous_units):
@@ -721,11 +663,7 @@ def _assessment_from_units(
     elif len(strong_independent_support) >= 3:
         strength = RecurrenceStrength.SUPPORTED
     elif len(support_units) >= 2:
-        strength = (
-            RecurrenceStrength.EMERGING
-            if strong_independent_support
-            else RecurrenceStrength.WEAK
-        )
+        strength = RecurrenceStrength.EMERGING if strong_independent_support else RecurrenceStrength.WEAK
     elif contradiction_units:
         strength = RecurrenceStrength.WEAK
     else:
@@ -762,29 +700,21 @@ def _validate_unique_episode_ids(episodes: list[ExperienceEpisodeInput]) -> None
     ids = [episode.episode_id for episode in episodes]
     duplicates = sorted({episode_id for episode_id in ids if ids.count(episode_id) > 1})
     if duplicates:
-        raise ValueError(
-            f"duplicate episode_id values are not allowed: {', '.join(duplicates)}"
-        )
+        raise ValueError(f"duplicate episode_id values are not allowed: {', '.join(duplicates)}")
 
 
 def _active_scope_conditions(sigs: list[ExperienceContextSignature]) -> tuple[str, ...]:
-    return tuple(
-        sorted({condition for sig in sigs for condition in sig.scope_conditions})
-    )
+    return tuple(sorted({condition for sig in sigs for condition in sig.scope_conditions}))
 
 
 def evaluate_experience_set(
     episodes: list[ExperienceEpisodeInput],
 ) -> ExperienceIntelligenceResult:
     _validate_unique_episode_ids(episodes)
-    signatures = sorted(
-        (derive_context_signature(e) for e in episodes), key=lambda sig: sig.episode_id
-    )
+    signatures = sorted((derive_context_signature(e) for e in episodes), key=lambda sig: sig.episode_id)
     by_id = {e.episode_id: e for e in episodes}
     comparisons = tuple(
-        _compare(signatures[i], signatures[j])
-        for i in range(len(signatures))
-        for j in range(i + 1, len(signatures))
+        _compare(signatures[i], signatures[j]) for i in range(len(signatures)) for j in range(i + 1, len(signatures))
     )
     partition_payloads: dict[str, dict[str, object]] = {}
     partitions: dict[str, list[ExperienceContextSignature]] = defaultdict(list)
@@ -836,8 +766,7 @@ def evaluate_experience_set(
         partition_comparisons = [
             c
             for c in comparisons
-            if c.left_episode_id in {s.episode_id for s in sigs}
-            and c.right_episode_id in {s.episode_id for s in sigs}
+            if c.left_episode_id in {s.episode_id for s in sigs} and c.right_episode_id in {s.episode_id for s in sigs}
         ]
         components = _build_hard_components(sigs, partition_comparisons)
         dependence_groups = tuple(group for group in components if len(group) > 1)
@@ -850,33 +779,19 @@ def evaluate_experience_set(
         )
         assessment = _assessment_from_units(units)
         partition_episode_ids = tuple(sig.episode_id for sig in sigs)
-        partition_excluded = tuple(
-            sorted(
-                eid for eid in partition_episode_ids if eligibility_by_id[eid].excluded
-            )
-        )
+        partition_excluded = tuple(sorted(eid for eid in partition_episode_ids if eligibility_by_id[eid].excluded))
         non_candidate_codes: list[str] = []
         if assessment is None:
             non_candidate_codes.append("partition_did_not_earn_recurrence_candidate")
-            if (
-                len([u for u in units if u.direction != EvidenceUnitDirection.NEUTRAL])
-                < 2
-            ):
-                non_candidate_codes.append(
-                    "fewer_than_two_directional_recurrence_units"
-                )
+            if len([u for u in units if u.direction != EvidenceUnitDirection.NEUTRAL]) < 2:
+                non_candidate_codes.append("fewer_than_two_directional_recurrence_units")
             if len(sigs) == 1:
                 non_candidate_codes.append("singleton_partition_not_candidate")
             partition_explanations[key] = tuple(non_candidate_codes)
             continue
 
         support_ids = tuple(
-            sorted(
-                eid
-                for unit in units
-                if unit.direction == EvidenceUnitDirection.SUPPORT
-                for eid in unit.episode_ids
-            )
+            sorted(eid for unit in units if unit.direction == EvidenceUnitDirection.SUPPORT for eid in unit.episode_ids)
         )
         contradiction_ids = tuple(
             sorted(
@@ -887,58 +802,37 @@ def evaluate_experience_set(
             )
         )
         neutral_ids = tuple(
-            sorted(
-                eid
-                for unit in units
-                if unit.direction == EvidenceUnitDirection.NEUTRAL
-                for eid in unit.episode_ids
-            )
+            sorted(eid for unit in units if unit.direction == EvidenceUnitDirection.NEUTRAL for eid in unit.episode_ids)
         )
         ambiguous_ids = tuple(
             sorted(
-                eid
-                for unit in units
-                if unit.direction == EvidenceUnitDirection.AMBIGUOUS
-                for eid in unit.episode_ids
+                eid for unit in units if unit.direction == EvidenceUnitDirection.AMBIGUOUS for eid in unit.episode_ids
             )
         )
-        evaluated_times = [
-            by_id[eid].signal.evaluated_at for eid in partition_episode_ids
-        ]
+        evaluated_times = [by_id[eid].signal.evaluated_at for eid in partition_episode_ids]
         common_scope = (
-            sigs[0].scope_conditions
-            if all(sig.scope_conditions == sigs[0].scope_conditions for sig in sigs)
-            else ()
+            sigs[0].scope_conditions if all(sig.scope_conditions == sigs[0].scope_conditions for sig in sigs) else ()
         )
         conflicting_scope = tuple(
-            sorted(
-                {condition for sig in sigs for condition in sig.scope_conditions}
-                - set(common_scope)
-            )
+            sorted({condition for sig in sigs for condition in sig.scope_conditions} - set(common_scope))
         )
-        invalidations = tuple(
-            sorted(
-                {condition for sig in sigs for condition in sig.invalidation_conditions}
-            )
-        )
+        invalidations = tuple(sorted({condition for sig in sigs for condition in sig.invalidation_conditions}))
         common_objective_dimensions = (
             sigs[0].objective_dimensions
-            if all(
-                sig.objective_dimensions == sigs[0].objective_dimensions for sig in sigs
-            )
+            if all(sig.objective_dimensions == sigs[0].objective_dimensions for sig in sigs)
             else ()
         )
         candidate_explanation_codes = list(assessment.reason_codes)
-        if not common_objective_dimensions and any(
-            sig.objective_dimensions for sig in sigs
-        ):
+        if not common_objective_dimensions and any(sig.objective_dimensions for sig in sigs):
             candidate_explanation_codes.append("caller_objective_context_diverged")
         payload = partition_payloads[key]
         candidate_payload = {
             "partition_key": key,
             "recurrence_algorithm": EXPERIENCE_INTELLIGENCE_ALGORITHM,
         }
-        candidate_id = f"experience-pattern-v1:{hashlib.sha256(_stable_json(candidate_payload).encode('utf-8')).hexdigest()[:16]}"
+        candidate_id = (
+            f"experience-pattern-v1:{hashlib.sha256(_stable_json(candidate_payload).encode('utf-8')).hexdigest()[:16]}"
+        )
         candidates.append(
             ExperiencePatternCandidate(
                 candidate_id=candidate_id,
@@ -967,16 +861,10 @@ def evaluate_experience_set(
     return ExperienceIntelligenceResult(
         signatures=tuple(signatures),
         comparisons=comparisons,
-        pattern_candidates=tuple(
-            sorted(candidates, key=lambda candidate: candidate.partition_key)
-        ),
+        pattern_candidates=tuple(sorted(candidates, key=lambda candidate: candidate.partition_key)),
         excluded_episode_ids=tuple(sorted(excluded)),
         unclassified_episode_ids=tuple(sorted(unclassified)),
         dependent_episode_groups=tuple(sorted(all_dependent_groups)),
-        partition_explanations={
-            key: partition_explanations[key] for key in sorted(partition_explanations)
-        },
-        episode_explanations={
-            key: episode_explanations[key] for key in sorted(episode_explanations)
-        },
+        partition_explanations={key: partition_explanations[key] for key in sorted(partition_explanations)},
+        episode_explanations={key: episode_explanations[key] for key in sorted(episode_explanations)},
     )
