@@ -97,3 +97,7 @@ Candidates preserve earliest and latest deterministic `evaluated_at` timestamps 
 ## Explicit non-goals
 
 This slice consumes cross-layer semantic coherence but still does not add independent source verification, Knowledge Qualification, experience-to-knowledge promotion, memory persistence, decision-weight adaptation, StrategyEngine, ability graph, planner/replanner wiring, LLM classification, causal inference, or behavior changes.
+
+## Typed downstream semantic boundary
+
+Experience now emits an additive, frozen `ExperiencePatternSemanticContext` on each produced candidate. It preserves typed Business Ontology subject classes, Decision intervention authority basis, Goal objective/KPI authority basis (including inherited and exact-instance compatibility distinctions), exact Goal provenance, common scope, and invalidation conditions. This context describes the same population used for partitioning and remains Experience-owned. Compatibility fields are unchanged, but downstream Knowledge Qualification must consume the typed boundary and fail closed when it is absent rather than reconstructing semantics from strings. Experience itself remains candidate-only and does not qualify knowledge.

@@ -112,3 +112,13 @@ def test_experience_intelligence_actions_have_non_side_effecting_manifests() -> 
         assert manifest.evidence_required is True
         assert manifest.evidence_expectations == ("action_result_evidence",)
         assert manifest.enabled_by_default is False
+
+
+def test_knowledge_qualification_action_has_non_side_effecting_manifest() -> None:
+    manifest = ABILITY_MANIFESTS_BY_ACTION["analysis.qualify_pattern_knowledge"]
+    assert manifest.ability_id == "analysis-qualify-pattern-knowledge"
+    assert manifest.provider == "ajenda_analysis"
+    assert manifest.side_effect_class == SideEffectClass.NONE
+    assert manifest.evidence_required is True
+    assert manifest.evidence_expectations == ("action_result_evidence",)
+    assert manifest.enabled_by_default is False

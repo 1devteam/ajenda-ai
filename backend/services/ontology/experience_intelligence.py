@@ -16,11 +16,12 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.services.ontology.commercial_state import (
     GoalSemanticComparisonStatus,
     GoalSemanticSignature,
+    KpiSemanticSignature,
     compare_goal_semantics,
 )
 from backend.services.ontology.decision_feedback import (
@@ -32,6 +33,7 @@ from backend.services.ontology.decision_feedback import (
 from backend.services.ontology.evidence_lineage import EvidenceLineageResolution
 from backend.services.ontology.observation_attribution import ObservationTimeProvenance
 from backend.services.ontology.outcome import AttributionAssessment
+from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 
 EXPERIENCE_INTELLIGENCE_SCHEMA_VERSION = 1
 EXPERIENCE_INTELLIGENCE_ALGORITHM = "experience_equivalence_recurrence_v1"
@@ -72,6 +74,65 @@ class EvidenceUnitDirection(StrEnum):
     AMBIGUOUS = "ambiguous"
 
 
+class InterventionSemanticBasis(StrEnum):
+    DECISION_OWNER = "decision_owner"
+    LEGACY_EXPERIENCE_FALLBACK = "legacy_experience_fallback"
+
+
+class GoalSemanticBasis(StrEnum):
+    OWNER_EXPLICIT_OBJECTIVE = "owner_explicit_objective"
+    INHERITED_EXPLICIT_OBJECTIVE = "inherited_explicit_objective"
+    OWNER_KPI_ONLY = "owner_kpi_only"
+    INHERITED_KPI_ONLY = "inherited_kpi_only"
+    EXACT_GOAL_INSTANCE_FALLBACK = "exact_goal_instance_fallback"
+
+
+class ExperiencePatternSemanticContext(BaseModel):
+    """Experience-owned canonical semantic boundary for downstream consumers."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    subject_semantic_signatures: tuple[BusinessObjectSemanticSignature, ...]
+    intervention_key: str
+    intervention_semantic_bases: tuple[InterventionSemanticBasis, ...]
+    objective_key: str | None = None
+    common_kpi_semantic_signatures: tuple[KpiSemanticSignature, ...] = ()
+    goal_semantic_bases: tuple[GoalSemanticBasis, ...]
+    exact_goal_ids: tuple[str, ...] = ()
+    scope_conditions: tuple[str, ...] = ()
+    invalidation_conditions: tuple[str, ...] = ()
+
+    @field_validator("subject_semantic_signatures")
+    @classmethod
+    def canonicalize_subjects(
+        cls, value: tuple[BusinessObjectSemanticSignature, ...]
+    ) -> tuple[BusinessObjectSemanticSignature, ...]:
+        return tuple(sorted(set(value), key=lambda item: item.object_type.value))
+
+    @field_validator("common_kpi_semantic_signatures")
+    @classmethod
+    def canonicalize_kpis(cls, value: tuple[KpiSemanticSignature, ...]) -> tuple[KpiSemanticSignature, ...]:
+        return tuple(
+            sorted(set(value), key=lambda item: (item.metric, item.direction.value, item.normalized_unit or ""))
+        )
+
+    @field_validator("intervention_semantic_bases", "goal_semantic_bases")
+    @classmethod
+    def canonicalize_bases(cls, value: tuple[StrEnum, ...]) -> tuple[StrEnum, ...]:
+        return tuple(sorted(set(value), key=lambda item: item.value))
+
+    @field_validator("scope_conditions", "invalidation_conditions")
+    @classmethod
+    def canonicalize_semantic_conditions(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _canonical_semantic_values(value)
+
+    @field_validator("exact_goal_ids")
+    @classmethod
+    def canonicalize_exact_goal_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _canonical_identifiers(value)
+
+
 class ExperienceEpisodeInput(BaseModel):
     """One episode plus explicit V1 recurrence metadata.
 
@@ -106,9 +167,11 @@ class ExperienceContextSignature(BaseModel):
     resolved_goal_partition_identity: str | None = None
     goal_semantic_conflict: bool = False
     goal_semantics_partial: bool = False
+    goal_semantic_basis: GoalSemanticBasis | None = None
     semantic_subject_types: tuple[str, ...] = ()
     subject_semantic_conflict: bool = False
     recommendation_class: str | None = None
+    intervention_semantic_basis: InterventionSemanticBasis | None = None
     intervention_semantic_conflict: bool = False
     objective_dimensions: tuple[str, ...] = ()
     learning_signal_algorithm: str
@@ -176,6 +239,7 @@ class ExperiencePatternCandidate(BaseModel):
     latest_evaluated_at: datetime | None = None
     recurrence: RecurrenceAssessment
     explanation_codes: tuple[str, ...] = ()
+    semantic_context: ExperiencePatternSemanticContext | None = None
     algorithm: str = EXPERIENCE_INTELLIGENCE_ALGORITHM
     is_knowledge: Literal[False] = False
     is_policy: Literal[False] = False
@@ -184,6 +248,14 @@ class ExperiencePatternCandidate(BaseModel):
     def enforce_safety_flags(self) -> ExperiencePatternCandidate:
         if self.is_knowledge is not False or self.is_policy is not False:
             raise ValueError("experience pattern candidates cannot be knowledge or policy")
+        context = self.semantic_context
+        if context is not None and (
+            context.intervention_key != self.recommendation_class
+            or tuple(item.object_type.value for item in context.subject_semantic_signatures) != self.subject_types
+            or context.scope_conditions != self.common_scope_conditions
+            or context.invalidation_conditions != self.invalidation_conditions
+        ):
+            raise ValueError("semantic context must describe the candidate partition")
         return self
 
 
@@ -308,6 +380,13 @@ def derive_context_signature(
         subject_semantic_conflict=subject_conflict,
         goal_semantic_signature=signal.goal_semantic_signature,
         recommendation_class=intervention,
+        intervention_semantic_basis=(
+            InterventionSemanticBasis.DECISION_OWNER
+            if owner_intervention
+            else InterventionSemanticBasis.LEGACY_EXPERIENCE_FALLBACK
+            if compatibility_intervention
+            else None
+        ),
         intervention_semantic_conflict=conflict,
         objective_dimensions=_canonical_semantic_values(episode.objective_dimensions),
         learning_signal_algorithm=signal.algorithm,
@@ -361,6 +440,10 @@ def _resolve_goal_authority(
     resolved: list[ExperienceContextSignature] = []
     for signature in signatures:
         identity, partial = _goal_signature_identity(signature.goal_semantic_signature)
+        owner_has_objective = bool(
+            signature.goal_semantic_signature and signature.goal_semantic_signature.objective_key
+        )
+        owner_has_kpis = bool(signature.goal_semantic_signature and signature.goal_semantic_signature.kpis)
         conflict = False
         if signature.exact_goal_id is not None:
             objectives = objectives_by_goal[signature.exact_goal_id]
@@ -381,12 +464,25 @@ def _resolve_goal_authority(
                 partial = True
             elif identity is None:
                 identity = f"instance:{signature.exact_goal_id}"
+        if identity and identity.startswith("objective:"):
+            basis = (
+                GoalSemanticBasis.OWNER_EXPLICIT_OBJECTIVE
+                if owner_has_objective
+                else GoalSemanticBasis.INHERITED_EXPLICIT_OBJECTIVE
+            )
+        elif identity and identity.startswith("kpis:"):
+            basis = GoalSemanticBasis.OWNER_KPI_ONLY if owner_has_kpis else GoalSemanticBasis.INHERITED_KPI_ONLY
+        elif identity and identity.startswith("instance:"):
+            basis = GoalSemanticBasis.EXACT_GOAL_INSTANCE_FALLBACK
+        else:
+            basis = None
         resolved.append(
             signature.model_copy(
                 update={
                     "resolved_goal_partition_identity": identity,
                     "goal_semantic_conflict": conflict,
                     "goal_semantics_partial": partial,
+                    "goal_semantic_basis": basis,
                 }
             )
         )
@@ -864,6 +960,46 @@ def _active_scope_conditions(sigs: list[ExperienceContextSignature]) -> tuple[st
     return tuple(sorted({condition for sig in sigs for condition in sig.scope_conditions}))
 
 
+def _pattern_semantic_context(
+    sigs: list[ExperienceContextSignature],
+    *,
+    common_scope: tuple[str, ...],
+    invalidations: tuple[str, ...],
+) -> ExperiencePatternSemanticContext:
+    identity = sigs[0].resolved_goal_partition_identity
+    objective_key = identity.removeprefix("objective:") if identity and identity.startswith("objective:") else None
+    kpi_sets = {
+        tuple(signature.goal_semantic_signature.kpis)
+        for signature in sigs
+        if signature.goal_semantic_signature and signature.goal_semantic_signature.kpis
+    }
+    common_kpis = next(iter(kpi_sets)) if len(kpi_sets) == 1 else ()
+    return ExperiencePatternSemanticContext(
+        subject_semantic_signatures=tuple(
+            BusinessObjectSemanticSignature(object_type=BusinessObjectType(subject_type))
+            for subject_type in sigs[0].semantic_subject_types
+        ),
+        intervention_key=cast(str, sigs[0].recommendation_class),
+        intervention_semantic_bases=tuple(
+            sorted(
+                {cast(InterventionSemanticBasis, sig.intervention_semantic_basis) for sig in sigs},
+                key=lambda item: item.value,
+            )
+        ),
+        objective_key=objective_key,
+        common_kpi_semantic_signatures=common_kpis,
+        goal_semantic_bases=tuple(
+            sorted(
+                {cast(GoalSemanticBasis, sig.goal_semantic_basis) for sig in sigs},
+                key=lambda item: item.value,
+            )
+        ),
+        exact_goal_ids=tuple(sorted({sig.exact_goal_id for sig in sigs if sig.exact_goal_id})),
+        scope_conditions=common_scope,
+        invalidation_conditions=invalidations,
+    )
+
+
 def evaluate_experience_set(
     episodes: list[ExperienceEpisodeInput],
 ) -> ExperienceIntelligenceResult:
@@ -1013,6 +1149,11 @@ def evaluate_experience_set(
                 latest_evaluated_at=max(evaluated_times) if evaluated_times else None,
                 recurrence=assessment,
                 explanation_codes=tuple(candidate_explanation_codes),
+                semantic_context=_pattern_semantic_context(
+                    sigs,
+                    common_scope=common_scope,
+                    invalidations=invalidations,
+                ),
             )
         )
         partition_explanations[key] = tuple(candidate_explanation_codes)
