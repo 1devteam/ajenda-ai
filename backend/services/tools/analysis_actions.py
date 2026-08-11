@@ -17,8 +17,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from backend.services.ontology.commercial_state import (
     BusinessEvent,
     BusinessStateSnapshot,
@@ -57,6 +55,7 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EvaluateGoalProgressInput(BaseModel):
@@ -183,7 +182,9 @@ def _evidence(
     )
 
 
-def analysis_evaluate_goal_progress(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+def analysis_evaluate_goal_progress(
+    invocation: ToolInvocation, context: ActionRuntimeContext
+) -> ActionResult:
     payload = EvaluateGoalProgressInput.model_validate(invocation.input)
     result = evaluate_goal_progress(
         goal=payload.goal,
@@ -220,7 +221,9 @@ def analysis_evaluate_goal_progress(invocation: ToolInvocation, context: ActionR
     )
 
 
-def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+def analysis_evaluate_outcome(
+    invocation: ToolInvocation, context: ActionRuntimeContext
+) -> ActionResult:
     payload = EvaluateOutcomeInput.model_validate(invocation.input)
     expectation = OutcomeExpectation(
         goal=payload.goal,
@@ -273,7 +276,9 @@ def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntime
     )
 
 
-def analysis_assess_attribution_integrity(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+def analysis_assess_attribution_integrity(
+    invocation: ToolInvocation, context: ActionRuntimeContext
+) -> ActionResult:
     payload = AssessAttributionIntegrityInput.model_validate(invocation.input)
     timing = resolve_observation_timing(
         source_observed_at=payload.source_observed_at,
@@ -308,11 +313,15 @@ def analysis_assess_attribution_integrity(invocation: ToolInvocation, context: A
         ],
         summary=summary,
         confidence=result.confidence,
-        limitations=["Non-causal structural assessment; source truth is not independently verified."],
+        limitations=[
+            "Non-causal structural assessment; source truth is not independently verified."
+        ],
     )
 
 
-def analysis_evaluate_decision_effectiveness(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+def analysis_evaluate_decision_effectiveness(
+    invocation: ToolInvocation, context: ActionRuntimeContext
+) -> ActionResult:
     payload = EvaluateDecisionEffectivenessInput.model_validate(invocation.input)
     result = evaluate_decision_feedback(
         snapshot=payload.snapshot,
@@ -387,7 +396,9 @@ def analysis_extract_decision_learning_signal(
     )
 
 
-def analysis_compare_experiences(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+def analysis_compare_experiences(
+    invocation: ToolInvocation, context: ActionRuntimeContext
+) -> ActionResult:
     payload = CompareExperiencesInput.model_validate(invocation.input)
     result = evaluate_experience_set(list(payload.episodes))
     output = {
@@ -424,7 +435,9 @@ def analysis_compare_experiences(invocation: ToolInvocation, context: ActionRunt
     )
 
 
-def analysis_assess_experience_recurrence(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+def analysis_assess_experience_recurrence(
+    invocation: ToolInvocation, context: ActionRuntimeContext
+) -> ActionResult:
     payload = AssessExperienceRecurrenceInput.model_validate(invocation.input)
     result = evaluate_experience_set(list(payload.episodes))
     output = result.model_dump(mode="json")
