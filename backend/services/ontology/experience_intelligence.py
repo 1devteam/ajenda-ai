@@ -968,12 +968,11 @@ def _pattern_semantic_context(
 ) -> ExperiencePatternSemanticContext:
     identity = sigs[0].resolved_goal_partition_identity
     objective_key = identity.removeprefix("objective:") if identity and identity.startswith("objective:") else None
-    kpi_sets = {
-        tuple(signature.goal_semantic_signature.kpis)
+    kpi_sets = [
+        tuple(signature.goal_semantic_signature.kpis) if signature.goal_semantic_signature is not None else ()
         for signature in sigs
-        if signature.goal_semantic_signature and signature.goal_semantic_signature.kpis
-    }
-    common_kpis = next(iter(kpi_sets)) if len(kpi_sets) == 1 else ()
+    ]
+    common_kpis = kpi_sets[0] if kpi_sets and kpi_sets[0] and all(kpis == kpi_sets[0] for kpis in kpi_sets) else ()
     return ExperiencePatternSemanticContext(
         subject_semantic_signatures=tuple(
             BusinessObjectSemanticSignature(object_type=BusinessObjectType(subject_type))

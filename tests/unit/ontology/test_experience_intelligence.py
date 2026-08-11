@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from backend.services.ontology.commercial_state import GoalSemanticSignature, KpiDirection, KpiSemanticSignature
 from backend.services.ontology.decision_feedback import (
     ConfidenceCalibrationAssessment,
     ConfidenceCalibrationStatus,
@@ -122,6 +123,67 @@ def ep(i: int, **kw) -> ExperienceEpisodeInput:
 
 def recurrence_dump(episodes: list[ExperienceEpisodeInput]) -> dict:
     return evaluate_experience_set(episodes).model_dump(mode="json", exclude={"comparisons", "signatures"})
+
+
+def semantic_goal_episode(
+    i: int,
+    goal_semantics: GoalSemanticSignature | None,
+    *,
+    goal: str = "goal-semantic-context",
+) -> ExperienceEpisodeInput:
+    return ExperienceEpisodeInput(
+        episode_id=f"semantic-ep-{i}",
+        signal=signal(i, goal=goal).model_copy(
+            update={
+                "intervention_key": "sales.schedule_discovery",
+                "goal_semantic_signature": goal_semantics,
+            }
+        ),
+        observation_time_provenance=ObservationTimeProvenance.SOURCE_VERIFIED,
+    )
+
+
+def test_pattern_kpis_require_same_non_empty_semantics_from_every_signature() -> None:
+    reply_rate = KpiSemanticSignature(metric="reply_rate", direction=KpiDirection.INCREASE)
+    with_kpi = GoalSemanticSignature(objective_key="increase_reply_rate", kpis=(reply_rate,))
+    without_kpi = GoalSemanticSignature(objective_key="increase_reply_rate")
+
+    candidate = evaluate_experience_set(
+        [
+            semantic_goal_episode(1, with_kpi),
+            semantic_goal_episode(2, with_kpi),
+            semantic_goal_episode(3, without_kpi),
+        ]
+    ).pattern_candidates[0]
+
+    assert candidate.semantic_context is not None
+    assert candidate.semantic_context.common_kpi_semantic_signatures == ()
+
+
+def test_pattern_kpis_are_exposed_when_every_signature_has_the_same_kpi() -> None:
+    reply_rate = KpiSemanticSignature(metric="reply_rate", direction=KpiDirection.INCREASE)
+    with_kpi = GoalSemanticSignature(objective_key="increase_reply_rate", kpis=(reply_rate,))
+
+    candidate = evaluate_experience_set([semantic_goal_episode(i, with_kpi) for i in (1, 2, 3)]).pattern_candidates[0]
+
+    assert candidate.semantic_context is not None
+    assert candidate.semantic_context.common_kpi_semantic_signatures == (reply_rate,)
+
+
+def test_inherited_blank_goal_observation_does_not_promote_donor_kpis() -> None:
+    reply_rate = KpiSemanticSignature(metric="reply_rate", direction=KpiDirection.INCREASE)
+    with_kpi = GoalSemanticSignature(objective_key="increase_reply_rate", kpis=(reply_rate,))
+
+    candidate = evaluate_experience_set(
+        [
+            semantic_goal_episode(1, with_kpi),
+            semantic_goal_episode(2, with_kpi),
+            semantic_goal_episode(3, None),
+        ]
+    ).pattern_candidates[0]
+
+    assert candidate.semantic_context is not None
+    assert candidate.semantic_context.common_kpi_semantic_signatures == ()
 
 
 def test_same_subject_type_different_instances_comparable_supported_and_permutation_invariant() -> None:
