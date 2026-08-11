@@ -130,10 +130,12 @@ class RecurrenceAssessment(BaseModel):
     independence: IndependenceStatus
     independent_support_count: int
     dependent_support_count: int
-    independent_contradiction_count: int
+    strong_independent_contradiction_count: int
     limited_support_count: int = 0
+    limited_contradiction_count: int = 0
+    dependent_contradiction_count: int = 0
     ambiguous_unit_count: int = 0
-    attribution_cap: str | None = None
+    evidence_limitation: str | None = None
     reason_codes: tuple[str, ...] = ()
 
 
@@ -240,8 +242,14 @@ def _norm(value: str | None) -> str | None:
     return stripped or None
 
 
-def _canonical_strings(items: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+def _canonical_semantic_values(items: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted({i.strip().casefold() for i in items if i and i.strip()}))
+
+
+def _canonical_identifiers(items: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    """Canonicalize opaque IDs without changing their identity semantics."""
+
+    return tuple(sorted({i.strip() for i in items if i and i.strip()}))
 
 
 def _subject_ref_key(ref: object) -> str:
@@ -258,22 +266,22 @@ def derive_context_signature(episode: ExperienceEpisodeInput) -> ExperienceConte
         exact_decision_id=signal.decision_id,
         exact_subject_refs=tuple(sorted({_subject_ref_key(ref) for ref in signal.subject_refs})),
         exact_goal_id=signal.goal_id.strip() if signal.goal_id and signal.goal_id.strip() else None,
-        semantic_subject_types=_canonical_strings(tuple(ref.object_type.value for ref in signal.subject_refs)),
+        semantic_subject_types=_canonical_semantic_values(tuple(ref.object_type.value for ref in signal.subject_refs)),
         recommendation_class=_norm(episode.recommendation_class),
-        objective_dimensions=_canonical_strings(episode.objective_dimensions),
+        objective_dimensions=_canonical_semantic_values(episode.objective_dimensions),
         learning_signal_algorithm=signal.algorithm,
-        effective_dimensions=_canonical_strings(tuple(signal.effective_dimensions)),
-        ineffective_dimensions=_canonical_strings(tuple(signal.ineffective_dimensions)),
+        effective_dimensions=_canonical_semantic_values(tuple(signal.effective_dimensions)),
+        ineffective_dimensions=_canonical_semantic_values(tuple(signal.ineffective_dimensions)),
         attribution_assessment=signal.attribution_strength,
         observation_time_provenance=episode.observation_time_provenance,
         execution_fidelity=signal.execution_fidelity,
         learning_signal_strength=signal.signal_strength,
-        scope_conditions=_canonical_strings(tuple(signal.scope_conditions)),
-        invalidation_conditions=_canonical_strings(tuple(signal.invalidation_conditions)),
-        supporting_evidence_ids=_canonical_strings(
+        scope_conditions=_canonical_semantic_values(tuple(signal.scope_conditions)),
+        invalidation_conditions=_canonical_semantic_values(tuple(signal.invalidation_conditions)),
+        supporting_evidence_ids=_canonical_identifiers(
             tuple(signal.supporting_evidence_ids) + episode.attribution_evidence_ids
         ),
-        lineage_ids=_canonical_strings(episode.lineage_ids),
+        lineage_ids=_canonical_identifiers(episode.lineage_ids),
     )
 
 
@@ -605,29 +613,50 @@ def _assessment_from_units(units: tuple[_EvidenceUnit, ...]) -> RecurrenceAssess
         if u.independence
         in {IndependenceStatus.DEPENDENT, IndependenceStatus.PARTIALLY_INDEPENDENT, IndependenceStatus.INDETERMINATE}
     ]
-    independent_contradictions = [
+    contradiction_units = [u for u in units if u.direction == EvidenceUnitDirection.CONTRADICTION]
+    strong_independent_contradictions = [
         u
-        for u in units
-        if u.direction == EvidenceUnitDirection.CONTRADICTION and u.independence == IndependenceStatus.INDEPENDENT
+        for u in contradiction_units
+        if u.tier == EvidenceContributionTier.STRONG
+        and u.independence == IndependenceStatus.INDEPENDENT
+    ]
+    limited_contradiction_units = [
+        u for u in contradiction_units if u.tier == EvidenceContributionTier.LIMITED
+    ]
+    dependent_contradiction_units = [
+        u
+        for u in contradiction_units
+        if u.independence
+        in {
+            IndependenceStatus.DEPENDENT,
+            IndependenceStatus.PARTIALLY_INDEPENDENT,
+            IndependenceStatus.INDETERMINATE,
+        }
     ]
     ambiguous_units = [u for u in units if u.direction == EvidenceUnitDirection.AMBIGUOUS]
     codes = sorted({code for unit in units for code in unit.reason_codes})
     if limited_support_units:
         codes.append("limited_support_does_not_create_supported_recurrence")
+    if limited_contradiction_units:
+        codes.append("limited_contradiction_does_not_create_strong_invalidation")
+    if dependent_contradiction_units:
+        codes.append("dependent_contradiction_does_not_create_strong_invalidation")
     if ambiguous_units:
         codes.append("dependent_component_contains_conflicting_directions")
 
-    if len(independent_contradictions) >= 2 and len(independent_contradictions) >= len(strong_independent_support):
+    if len(strong_independent_contradictions) >= 2 and len(strong_independent_contradictions) >= len(
+        strong_independent_support
+    ):
         strength = RecurrenceStrength.INVALIDATED
-        codes.append("repeated_independent_contradictions")
-    elif independent_contradictions and (support_units or ambiguous_units):
+        codes.append("repeated_strong_independent_contradictions")
+    elif strong_independent_contradictions and (support_units or ambiguous_units):
         strength = RecurrenceStrength.CONTESTED
-        codes.append("independent_comparable_counterexample_present")
+        codes.append("strong_independent_comparable_counterexample_present")
     elif len(strong_independent_support) >= 3:
         strength = RecurrenceStrength.SUPPORTED
     elif len(support_units) >= 2:
         strength = RecurrenceStrength.EMERGING if strong_independent_support else RecurrenceStrength.WEAK
-    elif independent_contradictions:
+    elif contradiction_units:
         strength = RecurrenceStrength.WEAK
     else:
         return None
@@ -641,17 +670,20 @@ def _assessment_from_units(units: tuple[_EvidenceUnit, ...]) -> RecurrenceAssess
     else:
         independence = IndependenceStatus.INDEPENDENT
 
-    cap = "limited_evidence_present" if limited_support_units else None
+    has_limited_evidence = bool(limited_support_units or limited_contradiction_units)
+    evidence_limitation = "limited_evidence_present" if has_limited_evidence else None
     return RecurrenceAssessment(
         strength=strength,
         comparability=ComparabilityStatus.COMPARABLE,
         independence=independence,
         independent_support_count=len(strong_independent_support),
         dependent_support_count=len(dependent_support_units),
-        independent_contradiction_count=len(independent_contradictions),
+        strong_independent_contradiction_count=len(strong_independent_contradictions),
         limited_support_count=len(limited_support_units),
+        limited_contradiction_count=len(limited_contradiction_units),
+        dependent_contradiction_count=len(dependent_contradiction_units),
         ambiguous_unit_count=len(ambiguous_units),
-        attribution_cap=cap,
+        evidence_limitation=evidence_limitation,
         reason_codes=tuple(dict.fromkeys(codes)),
     )
 
@@ -773,6 +805,14 @@ def evaluate_experience_set(episodes: list[ExperienceEpisodeInput]) -> Experienc
             sorted({condition for sig in sigs for condition in sig.scope_conditions} - set(common_scope))
         )
         invalidations = tuple(sorted({condition for sig in sigs for condition in sig.invalidation_conditions}))
+        common_objective_dimensions = (
+            sigs[0].objective_dimensions
+            if all(sig.objective_dimensions == sigs[0].objective_dimensions for sig in sigs)
+            else ()
+        )
+        candidate_explanation_codes = list(assessment.reason_codes)
+        if not common_objective_dimensions and any(sig.objective_dimensions for sig in sigs):
+            candidate_explanation_codes.append("caller_objective_context_diverged")
         payload = partition_payloads[key]
         candidate_payload = {"partition_key": key, "recurrence_algorithm": EXPERIENCE_INTELLIGENCE_ALGORITHM}
         candidate_id = (
@@ -785,7 +825,7 @@ def evaluate_experience_set(episodes: list[ExperienceEpisodeInput]) -> Experienc
                 recommendation_class=str(payload["recommendation_class"]),
                 subject_types=tuple(cast(list[str], payload["subject_types"])),
                 goal_id=str(payload["goal_id"]),
-                objective_dimensions=sigs[0].objective_dimensions,
+                objective_dimensions=common_objective_dimensions,
                 supporting_episode_ids=support_ids,
                 contradicting_episode_ids=contradiction_ids,
                 neutral_episode_ids=neutral_ids,
@@ -798,10 +838,10 @@ def evaluate_experience_set(episodes: list[ExperienceEpisodeInput]) -> Experienc
                 earliest_evaluated_at=min(evaluated_times) if evaluated_times else None,
                 latest_evaluated_at=max(evaluated_times) if evaluated_times else None,
                 recurrence=assessment,
-                explanation_codes=assessment.reason_codes,
+                explanation_codes=tuple(candidate_explanation_codes),
             )
         )
-        partition_explanations[key] = assessment.reason_codes
+        partition_explanations[key] = tuple(candidate_explanation_codes)
 
     return ExperienceIntelligenceResult(
         signatures=tuple(signatures),

@@ -400,7 +400,9 @@ def analysis_compare_experiences(invocation: ToolInvocation, context: ActionRunt
         "algorithm": result.algorithm,
     }
     summary = (
-        f"Compared {len(result.signatures)} experience episodes across {len(result.pattern_candidates)} partitions"
+        f"Compared {len(result.signatures)} experience episodes across "
+        f"{len(result.partition_explanations)} semantic partitions; "
+        f"candidates={len(result.pattern_candidates)}"
     )
     return ActionResult(
         action="analysis.compare_experiences",

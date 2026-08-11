@@ -57,15 +57,17 @@ Independence is assessed separately from comparability and before outcome direct
 
 ## Attribution, provenance, execution, and counterexamples
 
-Attribution and provenance quality survive aggregation per episode. Caller-asserted or unknown chronology cannot manufacture `SUPPORTED` recurrence through repetition. Temporal association and weak/candidate learning signals can contribute limited evidence but not strong support.
+Attribution and provenance quality survive aggregation per episode. Caller-asserted or unknown chronology cannot manufacture `SUPPORTED` recurrence through repetition. Temporal association and weak/candidate learning signals can contribute limited evidence but not strong support. Recurrence assessments expose these cross-cutting constraints through `evidence_limitation`; the field is not narrowly or misleadingly labeled as an attribution-only cap.
 
 Execution fidelity is part of recurrence eligibility. `NOT_EXECUTED` is not a counterexample to intervention effectiveness; it is excluded as non-execution. Execution unknown and material variation are also excluded from same-intervention recurrence evidence. Partial execution is limited evidence.
 
-Counterexamples are partition-local and dependence-resolved. Independent support plus independent contradiction yields contested recurrence. Repeated independent contradictions can invalidate a candidate. Incompatible or singleton contradictions do not poison unrelated partitions.
+Counterexamples are partition-local, dependence-resolved, and quality-tiered symmetrically with support. Strong independent support plus a strong independent contradiction yields contested recurrence. Only repeated strong independent contradictions can invalidate a candidate. Limited or dependent contradictions remain inspectable but cannot gain invalidation authority through repetition. Incompatible or singleton contradictions do not poison unrelated partitions.
 
 ## Candidate output and safety
 
-`ExperienceIntelligenceResult.pattern_candidates` is a list. Each candidate exposes supporting, contradicting, neutral, ambiguous, excluded, dependent, scope, invalidation, and evaluation-time-span fields. `unclassified_episode_ids`, `excluded_episode_ids`, dependent groups, partition explanations, and episode explanations remain inspectable at the result level.
+`ExperienceIntelligenceResult.pattern_candidates` is a list. Each candidate exposes supporting, contradicting, neutral, ambiguous, excluded, dependent, scope, invalidation, and evaluation-time-span fields. Caller-supplied `objective_dimensions` are emitted only when identical across the entire partition; divergent caller context is omitted and explained rather than inherited from an arbitrary first episode. `unclassified_episode_ids`, `excluded_episode_ids`, dependent groups, partition explanations, and episode explanations remain inspectable at the result level.
+
+Opaque evidence and lineage identifiers are trimmed, deduplicated, and sorted without case folding. Semantic labels use canonical case-insensitive normalization, but identity-bearing values preserve exact case unless their owning contract explicitly defines otherwise.
 
 Every `ExperiencePatternCandidate` is frozen and enforces:
 
@@ -78,7 +80,7 @@ These flags cannot be overridden through deserialization. Candidates remain boun
 
 Slice 1 registers non-side-effecting analysis actions:
 
-- `analysis.compare_experiences` returns signatures, comparisons, unclassified IDs, excluded IDs, dependent groups, and partition explanations without requiring any candidate to exist.
+- `analysis.compare_experiences` returns signatures, comparisons, unclassified IDs, excluded IDs, dependent groups, and partition explanations without requiring any candidate to exist. Its summary reports semantic partitions separately from emitted candidates.
 - `analysis.assess_experience_recurrence` returns the complete multi-candidate `ExperienceIntelligenceResult`.
 
 Both use provider `ajenda_analysis`, `SideEffectClass.NONE`, `evidence_required=true`, and `action_result_evidence`.

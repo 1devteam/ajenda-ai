@@ -89,11 +89,13 @@ def ep(i: int, **kw) -> ExperienceEpisodeInput:
     provenance = kw.pop("provenance", ObservationTimeProvenance.SOURCE_VERIFIED)
     objectives = kw.pop("objective_dimensions", ("increase_conversion",))
     lineage = kw.pop("lineage_ids", ())
+    attribution_evidence_ids = kw.pop("attribution_evidence_ids", ())
     return ExperienceEpisodeInput(
         episode_id=f"ep-{i}",
         signal=signal(i, **kw),
         recommendation_class=rec,
         objective_dimensions=objectives,
+        attribution_evidence_ids=attribution_evidence_ids,
         observation_time_provenance=provenance,
         lineage_ids=lineage,
     )
@@ -131,6 +133,20 @@ def test_set_like_signature_fields_are_order_invariant() -> None:
     assert result.signatures[0].semantic_subject_types == result.signatures[1].semantic_subject_types
     assert result.signatures[0].scope_conditions == result.signatures[1].scope_conditions
     assert result.pattern_candidates[0].partition_key.startswith("experience-partition-v1:")
+
+
+def test_opaque_evidence_and_lineage_ids_preserve_case_identity() -> None:
+    result = evaluate_experience_set(
+        [
+            ep(1, evidence=["Evidence-A"], lineage_ids=("Lineage-A",)),
+            ep(2, evidence=["evidence-a"], lineage_ids=("lineage-a",)),
+        ]
+    )
+    assert result.signatures[0].supporting_evidence_ids == ("Evidence-A",)
+    assert result.signatures[1].supporting_evidence_ids == ("evidence-a",)
+    assert result.signatures[0].lineage_ids == ("Lineage-A",)
+    assert result.signatures[1].lineage_ids == ("lineage-a",)
+    assert result.comparisons[0].independence == IndependenceStatus.INDEPENDENT
 
 
 def test_heterogeneous_singleton_partitions_do_not_emit_candidates() -> None:
@@ -228,6 +244,7 @@ def test_weak_attribution_and_caller_asserted_provenance_do_not_create_supported
     )
     assert asserted.pattern_candidates[0].recurrence.strength != RecurrenceStrength.SUPPORTED
     assert asserted.pattern_candidates[0].recurrence.limited_support_count == 3
+    assert asserted.pattern_candidates[0].recurrence.evidence_limitation == "limited_evidence_present"
 
 
 def test_unrelated_weak_episode_does_not_downgrade_three_strong_supported_observations() -> None:
@@ -299,6 +316,77 @@ def test_counterexamples_are_partition_local_and_repeated_independent_contradict
     assert mixed.pattern_candidates[0].contradicting_episode_ids == ()
 
 
+def test_limited_contradictions_cannot_manufacture_invalidation() -> None:
+    limited_only = evaluate_experience_set(
+        [
+            ep(
+                1,
+                status=DecisionEffectivenessStatus.INEFFECTIVE,
+                provenance=ObservationTimeProvenance.CALLER_ASSERTED,
+            ),
+            ep(
+                2,
+                status=DecisionEffectivenessStatus.COUNTERPRODUCTIVE,
+                provenance=ObservationTimeProvenance.CALLER_ASSERTED,
+            ),
+        ]
+    ).pattern_candidates[0]
+    assert limited_only.recurrence.strength == RecurrenceStrength.WEAK
+    assert limited_only.recurrence.strong_independent_contradiction_count == 0
+    assert limited_only.recurrence.limited_contradiction_count == 2
+    assert limited_only.recurrence.evidence_limitation == "limited_evidence_present"
+
+    strong_with_limited_counterexamples = evaluate_experience_set(
+        [
+            ep(1),
+            ep(2),
+            ep(3),
+            ep(
+                4,
+                status=DecisionEffectivenessStatus.INEFFECTIVE,
+                provenance=ObservationTimeProvenance.CALLER_ASSERTED,
+            ),
+            ep(
+                5,
+                status=DecisionEffectivenessStatus.COUNTERPRODUCTIVE,
+                provenance=ObservationTimeProvenance.CALLER_ASSERTED,
+            ),
+        ]
+    ).pattern_candidates[0]
+    assert strong_with_limited_counterexamples.recurrence.strength == RecurrenceStrength.SUPPORTED
+    assert strong_with_limited_counterexamples.recurrence.independent_support_count == 3
+    assert strong_with_limited_counterexamples.recurrence.limited_contradiction_count == 2
+
+
+def test_strong_independent_contradictions_retain_invalidation_authority() -> None:
+    candidate = evaluate_experience_set(
+        [
+            ep(1, status=DecisionEffectivenessStatus.INEFFECTIVE),
+            ep(2, status=DecisionEffectivenessStatus.COUNTERPRODUCTIVE),
+        ]
+    ).pattern_candidates[0]
+    assert candidate.recurrence.strength == RecurrenceStrength.INVALIDATED
+    assert candidate.recurrence.strong_independent_contradiction_count == 2
+    assert candidate.recurrence.limited_contradiction_count == 0
+
+
+def test_candidate_objective_context_is_common_only_and_order_invariant() -> None:
+    common = evaluate_experience_set(
+        [ep(1, objective_dimensions=("increase_conversion",)), ep(2, objective_dimensions=("increase_conversion",))]
+    ).pattern_candidates[0]
+    assert common.objective_dimensions == ("increase_conversion",)
+
+    divergent_episodes = [
+        ep(1, objective_dimensions=("increase_conversion",)),
+        ep(2, objective_dimensions=("reduce_churn",)),
+    ]
+    divergent = evaluate_experience_set(divergent_episodes).pattern_candidates[0]
+    reversed_divergent = evaluate_experience_set(list(reversed(divergent_episodes))).pattern_candidates[0]
+    assert divergent.objective_dimensions == ()
+    assert "caller_objective_context_diverged" in divergent.explanation_codes
+    assert divergent.model_dump(mode="json") == reversed_divergent.model_dump(mode="json")
+
+
 def test_heterogeneous_groups_with_enough_observations_emit_multiple_stable_candidates() -> None:
     episodes = [
         ep(1),
@@ -339,3 +427,21 @@ def test_action_registry_experience_actions_have_evidence_and_no_side_effects() 
         assert result.evidence and result.evidence[0].evidence_type == "action_result_evidence"
         if action == "analysis.assess_experience_recurrence":
             assert result.output["pattern_candidates"]
+
+
+def test_compare_action_reports_partitions_separately_from_candidates() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    ctx = ActionRuntimeContext(tenant_id="t", task_id=uuid4(), worker_id="w", lease_id="l")
+    episodes = [
+        ep(1),
+        ep(2, subject_type=BusinessObjectType.ACCOUNT),
+        ep(3, recommendation_class="email_nudge"),
+    ]
+    result = registry.invoke(
+        ToolInvocation(
+            action="analysis.compare_experiences",
+            input={"episodes": [episode.model_dump(mode="json") for episode in episodes]},
+        ),
+        ctx,
+    )
+    assert "across 3 semantic partitions; candidates=0" in result.summary
