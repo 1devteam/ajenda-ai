@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.tenant_session import activate_tenant_session
 from backend.services.knowledge.knowledge_ledger import record_knowledge_qualification
+from backend.services.knowledge.knowledge_lifecycle import resolve_current_knowledge_state
 from backend.services.ontology.knowledge_qualification import KnowledgeQualificationResult
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.schemas import (
@@ -22,6 +23,12 @@ class RecordKnowledgeQualificationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     result: KnowledgeQualificationResult
+
+
+class ResolveCurrentKnowledgeStateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposition_key: str
 
 
 def knowledge_record_qualification(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
@@ -77,6 +84,65 @@ def knowledge_record_qualification(invocation: ToolInvocation, context: ActionRu
     )
 
 
+def knowledge_resolve_current_state(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = ResolveCurrentKnowledgeStateInput.model_validate(invocation.input)
+    if context.session_factory is None:
+        raise RuntimeError("knowledge lifecycle resolution requires a primary session factory")
+    session = context.session_factory()
+    try:
+        activate_tenant_session(session, context.tenant_id)
+        state = resolve_current_knowledge_state(
+            session, tenant_id=context.tenant_id, proposition_key=payload.proposition_key
+        )
+    finally:
+        session.close()
+
+    output = state.model_dump(mode="json")
+    evidence_payload = {
+        key: output[key]
+        for key in (
+            "proposition_key",
+            "lifecycle_status",
+            "evaluation_frontier",
+            "authoritative_qualification_ids",
+            "authoritative_knowledge_ids",
+            "historical_qualification_count",
+            "reason_codes",
+            "epistemic_limits",
+            "algorithm",
+        )
+    }
+    records_inspected = [
+        *(f"knowledge_qualification:{item}" for item in state.authoritative_qualification_ids),
+        *(f"knowledge_artifact:{item}" for item in state.authoritative_knowledge_ids),
+    ]
+    summary = f"Current knowledge lifecycle state: {state.lifecycle_status.value}"
+    evidence = EvidenceItem(
+        evidence_type="action_result_evidence",
+        evidence_source="knowledge_lifecycle_resolution",
+        action_name="knowledge.resolve_current_state",
+        tool_provider="ajenda_knowledge",
+        tenant_id=context.tenant_id,
+        task_id=str(context.task_id),
+        mission_id=str(context.mission_id) if context.mission_id else None,
+        summary=summary,
+        structured_payload=evidence_payload,
+        records_inspected=records_inspected,
+        limitations=list(state.epistemic_limits),
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+    )
+    return ActionResult(
+        action="knowledge.resolve_current_state",
+        provider="ajenda_knowledge",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+        output=output,
+        evidence=[evidence],
+        records_inspected=records_inspected,
+        summary=summary,
+        limitations=list(state.epistemic_limits),
+    )
+
+
 class _NoMutationSession:
     """Sentinel proving proposition-less results cannot access persistence."""
 
@@ -92,5 +158,14 @@ def register_knowledge_actions(registry: ActionRegistry) -> None:
             provider="ajenda_knowledge",
             input_model=RecordKnowledgeQualificationInput,
             side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="knowledge.resolve_current_state",
+            handler=knowledge_resolve_current_state,
+            provider="ajenda_knowledge",
+            input_model=ResolveCurrentKnowledgeStateInput,
+            side_effect_class=SideEffectClass.INTERNAL_READ,
         )
     )

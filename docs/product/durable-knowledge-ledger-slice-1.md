@@ -4,7 +4,9 @@
 
 The Durable Knowledge Ledger records proposition-bearing `KnowledgeQualificationResult` history and the exact
 `QualifiedKnowledgeArtifact` emitted by Knowledge Qualification. Qualification remains the epistemic authority;
-persistence neither requalifies a result nor establishes which historical assessment is current.
+persistence neither requalifies a result nor establishes which historical assessment is current. The separate
+[Knowledge Lifecycle Resolution](knowledge-lifecycle-resolution-slice-1.md) read model determines current authority
+from complete proposition history without mutating the ledger.
 
 The primary relational ledger contains tenant-owned, append-only qualification records and, only for qualified
 results, immutable artifact records. Database row IDs, proposition keys, qualification IDs, and knowledge IDs remain
@@ -31,5 +33,5 @@ from qualification evidence; database creation time is only persistence chronolo
 
 ## Explicit non-goals
 
-This slice adds no lifecycle resolution, supersession, deletion, retrieval, embeddings, TTL, policy generation,
-planner integration, or automatic qualification-to-persistence orchestration.
+The ledger itself adds no lifecycle mutation or materialization, supersession writes, deletion, retrieval,
+embeddings, TTL, policy generation, planner integration, or automatic qualification-to-persistence orchestration.

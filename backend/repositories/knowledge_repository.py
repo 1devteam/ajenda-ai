@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,6 +39,32 @@ class KnowledgeRepository:
             select(KnowledgeArtifactRecord).where(
                 KnowledgeArtifactRecord.tenant_id == tenant_id,
                 KnowledgeArtifactRecord.knowledge_id == knowledge_id,
+            )
+        )
+
+    def list_qualifications_for_proposition(
+        self, *, tenant_id: str, proposition_key: str
+    ) -> list[KnowledgeQualificationRecord]:
+        return list(
+            self._session.scalars(
+                select(KnowledgeQualificationRecord).where(
+                    KnowledgeQualificationRecord.tenant_id == tenant_id,
+                    KnowledgeQualificationRecord.proposition_key == proposition_key,
+                )
+            )
+        )
+
+    def list_artifacts_for_qualification_ids(
+        self, *, tenant_id: str, qualification_ids: Sequence[str]
+    ) -> list[KnowledgeArtifactRecord]:
+        if not qualification_ids:
+            return []
+        return list(
+            self._session.scalars(
+                select(KnowledgeArtifactRecord).where(
+                    KnowledgeArtifactRecord.tenant_id == tenant_id,
+                    KnowledgeArtifactRecord.qualification_id.in_(tuple(qualification_ids)),
+                )
             )
         )
 
