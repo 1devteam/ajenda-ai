@@ -7,6 +7,7 @@
 ``analysis.extract_decision_learning_signal``: candidate lesson from one episode.
 ``analysis.compare_experiences``: semantic partition/comparison only.
 ``analysis.assess_experience_recurrence``: multi-candidate recurrence eligibility.
+``analysis.qualify_pattern_knowledge``: deterministic bounded knowledge qualification.
 
 Does not persist reviews, recommend next actions, execute work, or modify
 weighted_criterion_evidence_v1. Observation ≠ pattern ≠ knowledge ≠ policy.
@@ -33,8 +34,10 @@ from backend.services.ontology.decision_feedback import (
 from backend.services.ontology.evaluation import evaluate_goal_progress
 from backend.services.ontology.experience_intelligence import (
     ExperienceEpisodeInput,
+    ExperiencePatternCandidate,
     evaluate_experience_set,
 )
+from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
 from backend.services.ontology.observation_attribution import (
     AttributionAssessmentEvidence,
     AttributionEvidenceInput,
@@ -141,6 +144,13 @@ class AssessExperienceRecurrenceInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     episodes: list[ExperienceEpisodeInput] = Field(default_factory=list)
+
+
+class QualifyPatternKnowledgeInput(BaseModel):
+    """Input for analysis.qualify_pattern_knowledge."""
+
+    model_config = ConfigDict(extra="forbid")
+    candidate: ExperiencePatternCandidate
 
 
 class ExtractDecisionLearningSignalInput(BaseModel):
@@ -450,6 +460,32 @@ def analysis_assess_experience_recurrence(invocation: ToolInvocation, context: A
     )
 
 
+def analysis_qualify_pattern_knowledge(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = QualifyPatternKnowledgeInput.model_validate(invocation.input)
+    result = qualify_pattern_knowledge(payload.candidate)
+    output = result.model_dump(mode="json")
+    summary = f"Qualified Experience candidate {result.source_candidate_id}: {result.status.value}"
+    return ActionResult(
+        action="analysis.qualify_pattern_knowledge",
+        provider="ajenda_analysis",
+        side_effect_class=SideEffectClass.NONE,
+        output=output,
+        evidence=[
+            _evidence(
+                context=context,
+                action="analysis.qualify_pattern_knowledge",
+                provider="ajenda_analysis",
+                summary=summary,
+                payload=output,
+                confidence=None,
+                cluster="knowledge_qualification",
+            )
+        ],
+        summary=summary,
+        limitations=list(result.epistemic_limits),
+    )
+
+
 def register_analysis_actions(registry: ActionRegistry) -> None:
     registry.register(
         ActionDefinition(
@@ -511,6 +547,15 @@ def register_analysis_actions(registry: ActionRegistry) -> None:
             handler=analysis_extract_decision_learning_signal,
             provider="ajenda_analysis",
             input_model=ExtractDecisionLearningSignalInput,
+            side_effect_class=SideEffectClass.NONE,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="analysis.qualify_pattern_knowledge",
+            handler=analysis_qualify_pattern_knowledge,
+            provider="ajenda_analysis",
+            input_model=QualifyPatternKnowledgeInput,
             side_effect_class=SideEffectClass.NONE,
         )
     )
