@@ -75,6 +75,13 @@ def _tool_output(*, task: ExecutionTask, lease: WorkerLease) -> dict[str, object
                 "confidence": 1.0,
                 "limitations": ["local proof provider"],
                 "provenance": {"provider": "LocalRecordProvider"},
+                "lineage": {
+                    "artifact_evidence_id": "emitted-action-evidence",
+                    "origin_type": "source_observation",
+                    "source_identity": {"source_system": "local_records", "source_record_id": "acct-1"},
+                    "root_evidence_ids": ["record:acct-1"],
+                    "resolution": "known",
+                },
                 "side_effect_class": SideEffectClass.NONE.value,
                 "collection_status": "collected",
             }
@@ -123,6 +130,16 @@ def test_build_tool_action_evidence_records_maps_evidence_to_durable_contract() 
     )
     assert record.provenance_metadata["tool_evidence_type"] == "action_result"
     assert record.provenance_metadata["records_inspected"] == ["acct-1"]
+    assert record.provenance_metadata["evidence_lineage"] == {
+        "schema_version": 1,
+        "artifact_evidence_id": str(record.id),
+        "origin_type": "source_observation",
+        "source_identity": {"source_system": "local_records", "source_record_id": "acct-1"},
+        "root_evidence_ids": ["record:acct-1"],
+        "parent_evidence_ids": [],
+        "ancestor_evidence_ids": [],
+        "resolution": "known",
+    }
     assert record.trust_signal == {
         "confidence": 1.0,
         "side_effect_class": SideEffectClass.NONE.value,

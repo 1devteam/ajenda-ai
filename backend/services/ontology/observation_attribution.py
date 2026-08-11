@@ -24,6 +24,16 @@ class ObservationTimeProvenance(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ObservationVerificationBasis(StrEnum):
+    """Truthfully states how a timestamp was obtained, independent of legacy naming."""
+
+    SOURCE_SUPPLIED_UNDER_CONTRACT = "source_supplied_under_contract"
+    INDEPENDENTLY_VERIFIED = "independently_verified"
+    SYSTEM_DERIVED = "system_derived"
+    CALLER_ASSERTED = "caller_asserted"
+    UNKNOWN = "unknown"
+
+
 class AttributionAssessment(StrEnum):
     """Bounded non-causal attribution of observed change to an action."""
 
@@ -58,7 +68,22 @@ class ObservationTiming(BaseModel):
     asserted_observed_at: datetime | None = None
     resolved_observed_at: datetime | None = None
     provenance: ObservationTimeProvenance = ObservationTimeProvenance.UNKNOWN
+    verification_basis: ObservationVerificationBasis = ObservationVerificationBasis.UNKNOWN
     explanation_codes: tuple[str, ...] = ()
+
+    @model_validator(mode="before")
+    @classmethod
+    def preserve_legacy_verification_basis(cls, value: object) -> object:
+        if isinstance(value, dict) and "verification_basis" not in value:
+            migrated = dict(value)
+            migrated["verification_basis"] = {
+                "source_verified": "source_supplied_under_contract",
+                "derived": "system_derived",
+                "caller_asserted": "caller_asserted",
+                "unknown": "unknown",
+            }.get(str(value.get("provenance", "unknown")), "unknown")
+            return migrated
+        return value
 
     @field_validator(
         "source_observed_at",
@@ -92,6 +117,15 @@ class ObservationTiming(BaseModel):
             raise ValueError(f"{self.provenance.value} chronology requires its timestamp")
         if self.resolved_observed_at != expected:
             raise ValueError("resolved_observed_at must match the strongest available chronology")
+        allowed = {
+            ObservationTimeProvenance.SOURCE_VERIFIED: ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
+            ObservationTimeProvenance.DERIVED: ObservationVerificationBasis.SYSTEM_DERIVED,
+            ObservationTimeProvenance.CALLER_ASSERTED: ObservationVerificationBasis.CALLER_ASSERTED,
+            ObservationTimeProvenance.UNKNOWN: ObservationVerificationBasis.UNKNOWN,
+        }
+        # INDEPENDENTLY_VERIFIED is reserved for a future verifier and cannot be earned here.
+        if self.verification_basis != allowed[self.provenance]:
+            raise ValueError("verification_basis must truthfully match chronology provenance")
         return self
 
 
@@ -281,6 +315,12 @@ def resolve_observation_timing(
         asserted_observed_at=asserted_observed_at,
         resolved_observed_at=resolved,
         provenance=provenance,
+        verification_basis={
+            ObservationTimeProvenance.SOURCE_VERIFIED: ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
+            ObservationTimeProvenance.DERIVED: ObservationVerificationBasis.SYSTEM_DERIVED,
+            ObservationTimeProvenance.CALLER_ASSERTED: ObservationVerificationBasis.CALLER_ASSERTED,
+            ObservationTimeProvenance.UNKNOWN: ObservationVerificationBasis.UNKNOWN,
+        }[provenance],
         explanation_codes=tuple(codes),
     )
 

@@ -32,8 +32,11 @@ from backend.services.ontology.commercial_state import (
     BusinessEvent,
     BusinessStateSnapshot,
     Goal,
+    GoalSemanticSignature,
     Kpi,
     KpiDirection,
+    KpiSemanticSignature,
+    goal_semantic_signature,
 )
 from backend.services.ontology.evaluation import (
     EvaluationResult,
@@ -51,7 +54,11 @@ from backend.services.ontology.observation_attribution import (
     AttributionEvidenceInput,
     ObservationTiming,
 )
-from backend.services.ontology.types import BusinessObjectRef
+from backend.services.ontology.types import (
+    BusinessObjectRef,
+    BusinessObjectSemanticSignature,
+    business_object_semantic_signature,
+)
 
 OUTCOME_SCHEMA_VERSION = 1
 
@@ -188,6 +195,9 @@ class OutcomeEvaluation(BaseModel):
     outcome_evaluation_id: str
     subject_refs: list[BusinessObjectRef] = Field(default_factory=list)
     goal_id: str | None = None
+    goal_semantic_signature: GoalSemanticSignature | None = None
+    subject_semantic_signatures: tuple[BusinessObjectSemanticSignature, ...] = ()
+    kpi_semantic_signatures: tuple[KpiSemanticSignature, ...] = ()
     status: OutcomeStatus
     kpi_deltas: list[KpiOutcomeDelta] = Field(default_factory=list)
     state_changes: StateComparison | None = None
@@ -617,10 +627,20 @@ def evaluate_outcome(
     elif attribution == AttributionAssessment.TEMPORAL_ASSOCIATION:
         explanation_codes.append("attribution_temporal_association_caller_asserted")
 
+    owned_baseline_kpis = tuple(kpi for kpi in expectation.baseline_kpis if kpi.goal_id == goal.goal_id)
+    semantic_signature = goal_semantic_signature(goal, owned_baseline_kpis)
     return OutcomeEvaluation(
         outcome_evaluation_id=outcome_evaluation_id or f"out_{uuid4().hex[:12]}",
         subject_refs=subject_refs,
         goal_id=goal.goal_id,
+        goal_semantic_signature=semantic_signature,
+        subject_semantic_signatures=tuple(
+            sorted(
+                {business_object_semantic_signature(ref) for ref in subject_refs},
+                key=lambda signature: signature.object_type.value,
+            )
+        ),
+        kpi_semantic_signatures=semantic_signature.kpis,
         status=status,
         kpi_deltas=deltas,
         state_changes=state_cmp,

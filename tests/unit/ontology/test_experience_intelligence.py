@@ -20,6 +20,11 @@ from backend.services.ontology.decision_feedback import (
     ExecutionFidelity,
     LearningSignalStrength,
 )
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+)
 from backend.services.ontology.experience_intelligence import (
     ComparabilityStatus,
     ExperienceEpisodeInput,
@@ -58,6 +63,7 @@ def signal(
 ) -> DecisionLearningSignal:
     now = datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=i)
     refs = subject_refs or [BusinessObjectRef(object_type=subject_type, object_id=subject_id or f"obj-{i}")]
+    evidence_ids = evidence or [f"ev-{i}"]
     return DecisionLearningSignal(
         signal_id=signal_id or f"sig-{i}",
         decision_id=decision_id or f"dec-{i}",
@@ -79,7 +85,16 @@ def signal(
         ),
         consequences=ConsequenceInventory(),
         attribution_strength=attr,
-        supporting_evidence_ids=evidence or [f"ev-{i}"],
+        supporting_evidence_ids=evidence_ids,
+        evidence_lineages=tuple(
+            EvidenceLineage(
+                artifact_evidence_id=evidence_id,
+                origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+                root_evidence_ids=(evidence_id,),
+                resolution=EvidenceLineageResolution.KNOWN,
+            )
+            for evidence_id in evidence_ids
+        ),
         signal_strength=strength,
         evaluated_at=now,
         effective_dimensions=["conversion"],

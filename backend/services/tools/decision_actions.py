@@ -16,6 +16,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+)
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.schemas import (
     ActionResult,
@@ -38,6 +43,8 @@ def _evidence(
     payload: dict[str, Any],
     confidence: float | None,
 ) -> EvidenceItem:
+    supporting_ids = payload.get("supporting_evidence_ids", [])
+    parent_ids = tuple(item for item in supporting_ids if isinstance(item, str) and item.strip())
     return EvidenceItem(
         evidence_type="action_result_evidence",
         evidence_source="decision_actions",
@@ -52,7 +59,14 @@ def _evidence(
         provenance={
             "runtime_path": "TaskDispatcher -> tool.invoke -> ActionRegistry",
             "cluster": "evidence_intelligence",
+            "evidence_role": "decision_recommendation_result",
         },
+        lineage=EvidenceLineage(
+            artifact_evidence_id=f"decision-result:{context.task_id}",
+            origin_type=EvidenceOriginType.SYSTEM_COMPUTATION,
+            parent_evidence_ids=parent_ids,
+            resolution=(EvidenceLineageResolution.PARTIAL if parent_ids else EvidenceLineageResolution.UNKNOWN),
+        ),
         side_effect_class=SideEffectClass.NONE,
     )
 
@@ -218,6 +232,7 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
         feas = _feasibility(option.option_id, constraints, facts)
         score_row["label"] = option.label
         score_row["description"] = option.description
+        score_row["intervention_key"] = option.intervention_key
         score_row["feasible"] = feas["feasible"]
         score_row["blocking_constraints"] = feas["blocking_constraints"]
         # Confidence: mean of linked known/inferred fact confidences, penalize gaps
@@ -299,6 +314,9 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
     output: dict[str, Any] = {
         "goal": payload.goal,
         "recommendation": recommendation,
+        "intervention_key": chosen.get("intervention_key")
+        if chosen is not None and recommendation == chosen["option_id"]
+        else None,
         "rationale": rationale,
         "confidence": confidence,
         "uncertainty": uncertainty,
@@ -307,6 +325,7 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
         "option_scores": scored,
         "algorithm": {
             "name": "weighted_criterion_evidence_v1",
+            "version": "1",
             "known_weight": 1.0,
             "inferred_weight": 0.6,
             "missing_weight": 0.0,
