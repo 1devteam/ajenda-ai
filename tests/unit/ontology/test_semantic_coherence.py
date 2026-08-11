@@ -1,6 +1,9 @@
 import uuid
 from datetime import UTC, datetime
 
+import pytest
+
+from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.worker_lease import WorkerLease
@@ -45,6 +48,7 @@ from backend.services.ontology.observation_attribution import AttributionAssessm
 from backend.services.ontology.outcome import ObservedOutcome, OutcomeExpectation, evaluate_outcome
 from backend.services.ontology.types import (
     BusinessObjectRef,
+    BusinessObjectSemanticSignature,
     BusinessObjectType,
     same_business_object_class,
     same_business_object_instance,
@@ -52,6 +56,7 @@ from backend.services.ontology.types import (
 from backend.services.tools.decision_actions import decision_recommend_next_action
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.schemas import (
+    ActionResult,
     ActionRuntimeContext,
     DecisionCriterion,
     DecisionOption,
@@ -73,9 +78,10 @@ def _signal(
     index: int,
     *,
     goal_id: str,
-    goal_signature,
+    goal_signature=None,
     intervention_key: str | None = "sales.schedule_discovery",
     lineage: EvidenceLineage | None = None,
+    lineages: tuple[EvidenceLineage, ...] | None = None,
 ) -> DecisionLearningSignal:
     fidelity = ExecutionFidelity.EXECUTED_AS_RECOMMENDED
     attribution = AttributionAssessment.SUPPORTED_CONTRIBUTION
@@ -85,9 +91,9 @@ def _signal(
         subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id=f"opp-{index}")],
         goal_id=goal_id,
         goal_semantic_signature=goal_signature,
-        kpi_semantic_signatures=goal_signature.kpis,
+        kpi_semantic_signatures=goal_signature.kpis if goal_signature is not None else (),
         intervention_key=intervention_key,
-        evidence_lineages=(lineage,) if lineage else (),
+        evidence_lineages=lineages if lineages is not None else ((lineage,) if lineage else ()),
         decision_algorithm_name="weighted_criterion_evidence_v1",
         decision_algorithm_version="1",
         decision_quality=DecisionQualityAssessment(
@@ -125,6 +131,79 @@ def _source_lineage(record_id: str) -> EvidenceLineage:
     )
 
 
+def _snapshot_from_fact(
+    *,
+    fact_id: str,
+    source_record_id: str | None = None,
+    fact_lineage: EvidenceLineage | None = None,
+    tenant_id: str = "tenant",
+    extra_records: list[EvidenceRecord] | None = None,
+) -> DecisionSnapshot:
+    fact_lineage = fact_lineage or EvidenceLineage(
+        artifact_evidence_id=fact_id,
+        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+        source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id=source_record_id or fact_id),
+        resolution=EvidenceLineageResolution.KNOWN,
+    )
+    recommendation_input = DecisionRecommendInput(
+        goal="Improve reply rate",
+        options=[DecisionOption(option_id="send", label="Send", intervention_key="sales.send_followup")],
+        criteria=[DecisionCriterion(criterion_id="fit", label="Fit")],
+        evidence=[
+            EvidenceFact(
+                evidence_id=fact_id,
+                claim="Fit",
+                supports_option_ids=["send"],
+                supports_criterion_ids=["fit"],
+                lineage=fact_lineage,
+            )
+        ],
+    )
+    output = {
+        "recommendation": "send",
+        "intervention_key": "sales.send_followup",
+        "supporting_evidence_ids": [fact_id],
+        "option_scores": [{"option_id": "send"}],
+        "uncertainty": [],
+        "algorithm": {"name": "weighted_criterion_evidence_v1", "version": "1"},
+    }
+    result = ActionResult(
+        action="decision.recommend_next_action",
+        provider="ajenda_decision",
+        output=output,
+        summary="Recommended send",
+        confidence=0.8,
+    )
+    result_id = uuid.uuid4()
+    result_lineage = EvidenceLineage(
+        artifact_evidence_id=str(result_id),
+        origin_type=EvidenceOriginType.SYSTEM_COMPUTATION,
+        parent_evidence_ids=(fact_id,),
+        resolution=EvidenceLineageResolution.PARTIAL,
+    )
+    result_record = EvidenceRecord(
+        id=result_id,
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        evidence_type="execution_trace",
+        evidence_source="decision_actions",
+        summary="Recommended send",
+        structured_payload=output,
+        provenance_metadata={
+            "evidence_role": "decision_recommendation_result",
+            "evidence_lineage": result_lineage.model_dump(mode="json"),
+        },
+    )
+    return build_decision_snapshot_from_recommendation(
+        decision_id=f"decision-{fact_id}",
+        tenant_id=tenant_id,
+        recommendation_input=recommendation_input,
+        recommendation_result=result,
+        evidence_records=[result_record, *(extra_records or [])],
+        decided_at=datetime(2026, 4, 1, tzinfo=UTC),
+    )
+
+
 def test_business_object_instance_and_class_are_distinct_contracts() -> None:
     left = BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="A")
     right = BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="B")
@@ -147,6 +226,84 @@ def test_goal_semantics_use_objective_then_canonical_kpis_without_none_equality(
     empty_b = goal_semantic_signature(_goal("B", None))
     assert compare_goal_semantics(missing_a, missing_b).status == GoalSemanticComparisonStatus.PARTIALLY_EQUIVALENT
     assert compare_goal_semantics(empty_a, empty_b).status == GoalSemanticComparisonStatus.INSUFFICIENT_SEMANTICS
+
+
+def test_same_outcome_status_never_overrides_different_objective_semantics() -> None:
+    reply_goal = _goal("reply", "increase_reply_rate")
+    score_goal = _goal("score", "increase_qualification_score")
+    reply_outcome = evaluate_outcome(
+        expectation=OutcomeExpectation(goal=reply_goal),
+        observed=ObservedOutcome(),
+        evaluated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    score_outcome = evaluate_outcome(
+        expectation=OutcomeExpectation(goal=score_goal),
+        observed=ObservedOutcome(),
+        evaluated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    assert reply_outcome.status == score_outcome.status
+    assert reply_outcome.goal_semantic_signature is not None
+    assert score_outcome.goal_semantic_signature is not None
+    assert (
+        compare_goal_semantics(reply_outcome.goal_semantic_signature, score_outcome.goal_semantic_signature).status
+        == GoalSemanticComparisonStatus.NOT_EQUIVALENT
+    )
+
+
+def test_goal_authority_resolution_unifies_enriched_and_legacy_same_instance() -> None:
+    goal = _goal("shared-goal", "increase_reply_rate")
+    owned = goal_semantic_signature(goal, [_kpi(goal.goal_id, "reply_rate")])
+    episodes = [
+        ExperienceEpisodeInput(
+            episode_id="owned",
+            signal=_signal(1, goal_id=goal.goal_id, goal_signature=owned, lineage=_source_lineage("owned")),
+            observation_time_provenance=ObservationTimeProvenance.SOURCE_VERIFIED,
+        ),
+        ExperienceEpisodeInput(
+            episode_id="legacy",
+            signal=_signal(2, goal_id=goal.goal_id, lineage=_source_lineage("legacy")),
+            observation_time_provenance=ObservationTimeProvenance.SOURCE_VERIFIED,
+        ),
+    ]
+    result = evaluate_experience_set(episodes)
+    assert result.comparisons[0].comparability == ComparabilityStatus.COMPARABLE
+    assert {signature.resolved_goal_partition_identity for signature in result.signatures} == {
+        "objective:increase_reply_rate"
+    }
+    assert len(result.partition_explanations) == 1
+
+
+def test_goal_authority_resolution_preserves_legacy_and_kpi_only_rules() -> None:
+    legacy = evaluate_experience_set(
+        [
+            ExperienceEpisodeInput(
+                episode_id=f"legacy-{index}",
+                signal=_signal(index, goal_id="legacy-goal", lineage=_source_lineage(f"legacy-{index}")),
+            )
+            for index in (1, 2)
+        ]
+    )
+    assert {signature.resolved_goal_partition_identity for signature in legacy.signatures} == {"instance:legacy-goal"}
+
+    kpi_goal = _goal("kpi-goal", None)
+    kpi_signature = goal_semantic_signature(kpi_goal, [_kpi(kpi_goal.goal_id)])
+    kpi_result = evaluate_experience_set(
+        [
+            ExperienceEpisodeInput(
+                episode_id="kpi-owned",
+                signal=_signal(
+                    3, goal_id=kpi_goal.goal_id, goal_signature=kpi_signature, lineage=_source_lineage("k1")
+                ),
+            ),
+            ExperienceEpisodeInput(
+                episode_id="kpi-legacy",
+                signal=_signal(4, goal_id=kpi_goal.goal_id, lineage=_source_lineage("k2")),
+            ),
+        ]
+    )
+    assert len({signature.resolved_goal_partition_identity for signature in kpi_result.signatures}) == 1
+    assert all(signature.goal_semantics_partial for signature in kpi_result.signatures)
+    assert kpi_result.pattern_candidates[0].recurrence.strength != RecurrenceStrength.SUPPORTED
 
 
 def test_cross_instance_recurrence_uses_owner_semantics_and_separate_roots() -> None:
@@ -204,6 +361,53 @@ def test_derived_or_unknown_lineage_never_manufactures_independence() -> None:
     assert unknown.comparisons[0].independence == IndependenceStatus.INDETERMINATE
 
 
+def test_partial_lineage_requires_clue_and_overlap_precedes_partial_status() -> None:
+    with pytest.raises(ValueError, match="partial lineage requires"):
+        EvidenceLineage(
+            artifact_evidence_id="empty-partial",
+            origin_type=EvidenceOriginType.DERIVED_FACT,
+            resolution=EvidenceLineageResolution.PARTIAL,
+        )
+    source = EvidenceLineage(
+        artifact_evidence_id="A",
+        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+        source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="deal:A"),
+        resolution=EvidenceLineageResolution.KNOWN,
+    )
+    overlaps = EvidenceLineage(
+        artifact_evidence_id="B",
+        origin_type=EvidenceOriginType.DERIVED_FACT,
+        parent_evidence_ids=("A",),
+        resolution=EvidenceLineageResolution.PARTIAL,
+    )
+    separate = EvidenceLineage(
+        artifact_evidence_id="C",
+        origin_type=EvidenceOriginType.DERIVED_FACT,
+        parent_evidence_ids=("other",),
+        resolution=EvidenceLineageResolution.PARTIAL,
+    )
+    goal = _goal("partial-goal", "increase_reply_rate")
+    signature = goal_semantic_signature(goal, [_kpi(goal.goal_id, "reply_rate")])
+
+    def independence(right: EvidenceLineage) -> IndependenceStatus:
+        result = evaluate_experience_set(
+            [
+                ExperienceEpisodeInput(
+                    episode_id="source",
+                    signal=_signal(1, goal_id=goal.goal_id, goal_signature=signature, lineage=source),
+                ),
+                ExperienceEpisodeInput(
+                    episode_id="right",
+                    signal=_signal(2, goal_id=goal.goal_id, goal_signature=signature, lineage=right),
+                ),
+            ]
+        )
+        return result.comparisons[0].independence
+
+    assert independence(overlaps) == IndependenceStatus.DEPENDENT
+    assert independence(separate) == IndependenceStatus.PARTIALLY_INDEPENDENT
+
+
 def test_source_to_derived_to_derived_forms_one_lineage_family_without_repeated_roots() -> None:
     goal = _goal("goal-family", "increase_reply_rate")
     signature = goal_semantic_signature(goal, [_kpi(goal.goal_id, "reply_rate")])
@@ -246,6 +450,127 @@ def test_source_to_derived_to_derived_forms_one_lineage_family_without_repeated_
     assert result.pattern_candidates == ()
 
 
+def test_snapshot_preserves_supporting_fact_roots_across_decisions() -> None:
+    goal = _goal("lineage-goal", "increase_reply_rate")
+    signature = goal_semantic_signature(goal, [_kpi(goal.goal_id, "reply_rate")])
+
+    def comparison(source_a: str, source_b: str) -> IndependenceStatus:
+        snapshot_a = _snapshot_from_fact(fact_id="fact-A", source_record_id=source_a)
+        snapshot_b = _snapshot_from_fact(fact_id="fact-B", source_record_id=source_b)
+        result = evaluate_experience_set(
+            [
+                ExperienceEpisodeInput(
+                    episode_id="decision-A",
+                    signal=_signal(
+                        1,
+                        goal_id=goal.goal_id,
+                        goal_signature=signature,
+                        lineages=snapshot_a.evidence_lineages,
+                    ),
+                ),
+                ExperienceEpisodeInput(
+                    episode_id="decision-B",
+                    signal=_signal(
+                        2,
+                        goal_id=goal.goal_id,
+                        goal_signature=signature,
+                        lineages=snapshot_b.evidence_lineages,
+                    ),
+                ),
+            ]
+        )
+        return result.comparisons[0].independence
+
+    assert comparison("deal:123", "deal:123") == IndependenceStatus.DEPENDENT
+    assert comparison("deal:123", "deal:456") == IndependenceStatus.INDEPENDENT
+
+
+def test_snapshot_preserves_direct_derivation_across_decisions() -> None:
+    source = EvidenceLineage(
+        artifact_evidence_id="A",
+        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+        source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="deal:123"),
+        resolution=EvidenceLineageResolution.KNOWN,
+    )
+    derived = EvidenceLineage(
+        artifact_evidence_id="B",
+        origin_type=EvidenceOriginType.DERIVED_FACT,
+        parent_evidence_ids=("A",),
+        resolution=EvidenceLineageResolution.KNOWN,
+    )
+    snapshot_a = _snapshot_from_fact(fact_id="A", fact_lineage=source)
+    snapshot_b = _snapshot_from_fact(fact_id="B", fact_lineage=derived)
+    goal = _goal("derived-goal", "increase_reply_rate")
+    signature = goal_semantic_signature(goal, [_kpi(goal.goal_id, "reply_rate")])
+    result = evaluate_experience_set(
+        [
+            ExperienceEpisodeInput(
+                episode_id="uses-A",
+                signal=_signal(
+                    1, goal_id=goal.goal_id, goal_signature=signature, lineages=snapshot_a.evidence_lineages
+                ),
+            ),
+            ExperienceEpisodeInput(
+                episode_id="uses-B",
+                signal=_signal(
+                    2, goal_id=goal.goal_id, goal_signature=signature, lineages=snapshot_b.evidence_lineages
+                ),
+            ),
+        ]
+    )
+    assert result.comparisons[0].independence == IndependenceStatus.DEPENDENT
+
+
+def test_snapshot_excludes_unrelated_same_tenant_records_and_rejects_foreign_tenant() -> None:
+    supporting_id = uuid.uuid4()
+    supporting_lineage = EvidenceLineage(
+        artifact_evidence_id=str(supporting_id),
+        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+        source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="deal:123"),
+        resolution=EvidenceLineageResolution.KNOWN,
+    )
+    supporting = EvidenceRecord(
+        id=supporting_id,
+        tenant_id="tenant",
+        mission_id=uuid.uuid4(),
+        evidence_type="observation",
+        evidence_source="crm",
+        summary="Supporting A",
+        provenance_metadata={
+            "source_evidence_id": "fact-A",
+            "evidence_lineage": supporting_lineage.model_dump(mode="json"),
+        },
+    )
+    unrelated_id = uuid.uuid4()
+    unrelated_lineage = EvidenceLineage(
+        artifact_evidence_id=str(unrelated_id),
+        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+        source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="unrelated"),
+        resolution=EvidenceLineageResolution.KNOWN,
+    )
+    unrelated = EvidenceRecord(
+        id=unrelated_id,
+        tenant_id="tenant",
+        mission_id=uuid.uuid4(),
+        evidence_type="observation",
+        evidence_source="crm",
+        summary="Unrelated",
+        provenance_metadata={
+            "evidence_role": "decision_recommendation_result",
+            "source_evidence_id": "unrelated-B",
+            "evidence_lineage": unrelated_lineage.model_dump(mode="json"),
+        },
+    )
+    snapshot = _snapshot_from_fact(fact_id="fact-A", source_record_id="deal:123", extra_records=[supporting, unrelated])
+    assert supporting_lineage in snapshot.evidence_lineages
+    assert unrelated_lineage not in snapshot.evidence_lineages
+
+    foreign = unrelated.model_copy() if hasattr(unrelated, "model_copy") else unrelated
+    foreign.tenant_id = "foreign-tenant"
+    with pytest.raises(ValueError, match="decision tenant"):
+        _snapshot_from_fact(fact_id="fact-A", source_record_id="deal:123", extra_records=[foreign])
+
+
 def test_owner_and_compatibility_intervention_conflict_fails_closed() -> None:
     goal = _goal("goal", "increase_reply_rate")
     signature = goal_semantic_signature(goal, [_kpi("goal", "reply_rate")])
@@ -257,6 +582,23 @@ def test_owner_and_compatibility_intervention_conflict_fails_closed() -> None:
     result = evaluate_experience_set([episode])
     assert result.unclassified_episode_ids == ("conflict",)
     assert "intervention_semantic_conflict" in result.episode_explanations["conflict"]
+
+
+def test_subject_semantic_conflict_is_rejected_and_defensively_excluded() -> None:
+    goal = _goal("subject-goal", "increase_reply_rate")
+    signature = goal_semantic_signature(goal, [_kpi(goal.goal_id, "reply_rate")])
+    valid = _signal(1, goal_id=goal.goal_id, goal_signature=signature, lineage=_source_lineage("subject"))
+    conflicting_signatures = (BusinessObjectSemanticSignature(object_type=BusinessObjectType.ACCOUNT),)
+    with pytest.raises(ValueError, match="must match subject_refs"):
+        DecisionLearningSignal.model_validate(
+            {**valid.model_dump(mode="json"), "subject_semantic_signatures": conflicting_signatures}
+        )
+
+    malformed = valid.model_copy(update={"subject_semantic_signatures": conflicting_signatures})
+    malformed_episode = ExperienceEpisodeInput.model_construct(episode_id="malformed", signal=malformed)
+    result = evaluate_experience_set([malformed_episode])
+    assert result.unclassified_episode_ids == ("malformed",)
+    assert "subject_semantic_conflict" in result.episode_explanations["malformed"]
 
 
 def test_same_goal_instance_with_conflicting_owner_objectives_is_incompatible() -> None:
@@ -286,7 +628,9 @@ def test_same_goal_instance_with_conflicting_owner_objectives_is_incompatible() 
     )
     comparison = result.comparisons[0]
     assert comparison.comparability == ComparabilityStatus.INCOMPATIBLE
-    assert "same_goal_instance_has_conflicting_owner_semantics" in comparison.reason_codes
+    assert "goal_semantic_conflict" in comparison.reason_codes
+    assert result.unclassified_episode_ids == ("left", "right")
+    assert result.pattern_candidates == ()
 
 
 def test_goal_decision_outcome_feedback_semantics_survive_end_to_end() -> None:

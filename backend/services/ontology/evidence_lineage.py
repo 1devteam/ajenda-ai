@@ -78,6 +78,8 @@ class EvidenceLineage(BaseModel):
         )
         if self.resolution == EvidenceLineageResolution.KNOWN and not has_identity:
             raise ValueError("known lineage requires source, root, parent, or ancestor identity")
+        if self.resolution == EvidenceLineageResolution.PARTIAL and not has_identity:
+            raise ValueError("partial lineage requires source, root, parent, or ancestor identity")
         if self.resolution == EvidenceLineageResolution.UNKNOWN and has_identity:
             raise ValueError("unknown lineage cannot contain resolved lineage identity")
         return self

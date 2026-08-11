@@ -59,6 +59,7 @@ def _evidence(
         provenance={
             "runtime_path": "TaskDispatcher -> tool.invoke -> ActionRegistry",
             "cluster": "evidence_intelligence",
+            "evidence_role": "decision_recommendation_result",
         },
         lineage=EvidenceLineage(
             artifact_evidence_id=f"decision-result:{context.task_id}",

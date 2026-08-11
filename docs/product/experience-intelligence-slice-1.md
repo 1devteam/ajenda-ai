@@ -43,6 +43,9 @@ The result is stable under episode ordering and subject/scope/evidence set order
 - The same exact goal is strongly comparable. Different goal IDs compare through equal explicit `objective_key`; identical owned KPI signatures earn partial comparison only and cap recurrence. Missing semantics remain insufficient.
 - When both owner Goal signatures exist, they are compared before exact `goal_id`. Conflicting
   explicit objective keys fail closed even when the artifacts name the same goal instance.
+- Goal partition identity is resolved once before comparison and partitioning. Legacy observations
+  may inherit one unambiguous owner identity from the same exact goal instance; conflicts are
+  unclassified rather than split into misleading partitions.
 - Exact scope-condition sets are part of V1 partitioning. Different non-empty scopes do not silently aggregate. Unscoped episodes do not strengthen scoped claims to `SUPPORTED`.
 
 ## Eligibility, independence, and evidence units

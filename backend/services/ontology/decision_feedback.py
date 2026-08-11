@@ -21,7 +21,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.services.ontology.commercial_state import GoalSemanticSignature, KpiSemanticSignature
 from backend.services.ontology.evidence_lineage import EvidenceLineage
@@ -225,6 +225,15 @@ class DecisionLearningSignal(BaseModel):
         "A DecisionLearningSignal is an observation from one episode. "
         "It is not knowledge, policy, or a globally valid rule."
     )
+
+    @model_validator(mode="after")
+    def validate_subject_semantic_consistency(self) -> DecisionLearningSignal:
+        if self.subject_refs and self.subject_semantic_signatures:
+            exact_classes = {ref.object_type for ref in self.subject_refs}
+            semantic_classes = {signature.object_type for signature in self.subject_semantic_signatures}
+            if exact_classes != semantic_classes:
+                raise ValueError("subject_semantic_signatures must match subject_refs object classes")
+        return self
 
 
 class DecisionFeedbackResult(BaseModel):

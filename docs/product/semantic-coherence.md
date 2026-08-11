@@ -41,8 +41,11 @@ No database migration is required for evidence lineage: durable `EvidenceRecord`
 `provenance_metadata` as JSONB, and the evidence bridge serializes the typed lineage contract into
 that existing field. The bridge assigns the durable `EvidenceRecord.id` as the lineage artifact
 identity. The canonical post-materialization snapshot adapter then validates tenant ownership and
-maps the selected option, structured Goal/KPIs, durable evidence lineage, and originating decision
-algorithm/version into `DecisionSnapshot`; callers do not reassert those semantics. Goal, Decision
+selects exactly one matching recommendation-result record plus only supporting records referenced
+by explicit `source_evidence_id`. It also preserves the referenced `EvidenceFact` lineage contracts,
+so different fact IDs from one source remain dependent without flattening their artifacts. The
+adapter maps the selected option, structured Goal/KPIs, relevant lineage closure, and originating
+decision algorithm/version into `DecisionSnapshot`; callers do not reassert those semantics. Goal, Decision
 feedback, Outcome, and Experience contracts in this slice are
 serialized Pydantic artifacts rather than dedicated relational columns.
 
@@ -52,3 +55,9 @@ Same status ≠ same semantics. Same prose ≠ same intervention. Different IDs 
 Same type ≠ same instance. Same source label ≠ same lineage. Unknown ≠ equivalent. Unknown ≠
 independent. Relationship traversal and LLM/prose inference are intentionally outside this slice.
 Experience consumes owner-produced signatures and lineage; it does not own substitutes for them.
+
+Before partitioning, Experience resolves the strongest unambiguous Goal identity for each exact
+goal instance. One explicit objective enriches legacy observations of that same instance; otherwise
+one KPI-only signature may enrich them with the LIMITED ceiling. Conflicting owner semantics fail
+closed, while an instance ID remains the fallback only when owner semantics are absent. Subject
+semantic signatures must agree with the classes derivable from exact subject references.

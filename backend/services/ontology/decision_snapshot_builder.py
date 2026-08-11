@@ -14,7 +14,7 @@ from typing import Any
 from backend.domain.evidence import EvidenceRecord
 from backend.services.ontology.commercial_state import goal_semantic_signature
 from backend.services.ontology.decision_feedback import DecisionSnapshot
-from backend.services.ontology.evidence_lineage import EvidenceLineage
+from backend.services.ontology.evidence_lineage import EvidenceLineage, EvidenceLineageResolution
 from backend.services.tools.schemas import ActionResult, DecisionRecommendInput
 
 
@@ -31,19 +31,67 @@ def _algorithm_identity(output: dict[str, Any]) -> tuple[str, str]:
     return name.strip(), version.strip()
 
 
-def _durable_lineages(*, evidence_records: list[EvidenceRecord], tenant_id: str) -> tuple[EvidenceLineage, ...]:
-    lineages: list[EvidenceLineage] = []
+def _record_lineage(record: EvidenceRecord) -> EvidenceLineage | None:
+    raw = record.provenance_metadata.get("evidence_lineage")
+    if raw is None:
+        return None
+    lineage = EvidenceLineage.model_validate(raw)
+    if record.id is not None and lineage.artifact_evidence_id != str(record.id):
+        raise ValueError("durable evidence lineage artifact identity must match EvidenceRecord.id")
+    return lineage
+
+
+def _relevant_lineages(
+    *,
+    evidence_records: list[EvidenceRecord],
+    tenant_id: str,
+    recommendation_output: dict[str, Any],
+    supporting_ids: set[str],
+    recommendation_input: DecisionRecommendInput,
+) -> tuple[EvidenceLineage, ...]:
+    """Select the result plus referenced supporting lineage; ignore unrelated records."""
+
+    result_lineages: list[EvidenceLineage] = []
+    supporting_lineages: list[EvidenceLineage] = []
     for record in evidence_records:
         if record.tenant_id != tenant_id:
             raise ValueError("decision snapshot evidence must belong to the decision tenant")
-        raw = record.provenance_metadata.get("evidence_lineage")
-        if raw is None:
+        lineage = _record_lineage(record)
+        if lineage is None:
             continue
-        lineage = EvidenceLineage.model_validate(raw)
-        if record.id is not None and lineage.artifact_evidence_id != str(record.id):
-            raise ValueError("durable evidence lineage artifact identity must match EvidenceRecord.id")
-        lineages.append(lineage)
-    return tuple(sorted(lineages, key=lambda lineage: lineage.artifact_evidence_id))
+        role = record.provenance_metadata.get("evidence_role")
+        source_evidence_id = record.provenance_metadata.get("source_evidence_id")
+        if role == "decision_recommendation_result" and record.structured_payload == recommendation_output:
+            result_lineages.append(lineage)
+        elif isinstance(source_evidence_id, str) and source_evidence_id in supporting_ids:
+            supporting_lineages.append(lineage)
+
+    if len(result_lineages) != 1:
+        raise ValueError("decision snapshot requires exactly one matching durable recommendation result")
+
+    input_lineages = [
+        fact.lineage
+        for fact in recommendation_input.evidence
+        if fact.evidence_id in supporting_ids and fact.lineage is not None
+    ]
+    lineages = [*result_lineages, *supporting_lineages, *input_lineages]
+    by_artifact: dict[str, EvidenceLineage] = {}
+    for lineage in lineages:
+        existing = by_artifact.get(lineage.artifact_evidence_id)
+        if existing is not None and existing != lineage:
+            raise ValueError("conflicting lineage contracts for one evidence artifact")
+        by_artifact[lineage.artifact_evidence_id] = lineage
+    for artifact_id, lineage in tuple(by_artifact.items()):
+        if (
+            lineage.resolution == EvidenceLineageResolution.PARTIAL
+            and lineage.parent_evidence_ids
+            and all(
+                parent_id in by_artifact and by_artifact[parent_id].resolution == EvidenceLineageResolution.KNOWN
+                for parent_id in lineage.parent_evidence_ids
+            )
+        ):
+            by_artifact[artifact_id] = lineage.model_copy(update={"resolution": EvidenceLineageResolution.KNOWN})
+    return tuple(by_artifact[key] for key in sorted(by_artifact))
 
 
 def build_decision_snapshot_from_recommendation(
@@ -108,7 +156,13 @@ def build_decision_snapshot_from_recommendation(
         option_scores=option_scores,
         original_confidence=recommendation_result.confidence or 0.0,
         supporting_evidence_ids=supporting_ids,
-        evidence_lineages=_durable_lineages(evidence_records=evidence_records, tenant_id=tenant_id),
+        evidence_lineages=_relevant_lineages(
+            evidence_records=evidence_records,
+            tenant_id=tenant_id,
+            recommendation_output=output,
+            supporting_ids=set(supporting_ids),
+            recommendation_input=recommendation_input,
+        ),
         known_evidence_gaps=list(uncertainty),
         constraints=list(recommendation_input.constraints),
         uncertainty=list(uncertainty),
