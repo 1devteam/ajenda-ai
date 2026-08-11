@@ -310,7 +310,7 @@ class StripeBillingService:
             stripe.SignatureVerificationError: if the signature is invalid.
             StripeWebhookProcessingError: if processing should fail (retryable).
         """
-        event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
+        event = stripe.Webhook.construct_event(
             payload,
             sig_header,
             self._webhook_secret,
