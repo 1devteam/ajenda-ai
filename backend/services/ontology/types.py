@@ -78,6 +78,35 @@ class BusinessObjectRef(BaseModel):
         return normalized
 
 
+class BusinessObjectSemanticSignature(BaseModel):
+    """Canonical object class, deliberately excluding exact instance identity."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    object_type: BusinessObjectType
+
+
+def business_object_instance_identity(ref: BusinessObjectRef) -> tuple[BusinessObjectType, str]:
+    """Return exact opaque instance identity without normalizing the object id."""
+
+    return ref.object_type, ref.object_id
+
+
+def business_object_semantic_signature(ref: BusinessObjectRef) -> BusinessObjectSemanticSignature:
+    """Return owner-defined semantic class for a business-object reference."""
+
+    return BusinessObjectSemanticSignature(object_type=ref.object_type)
+
+
+def same_business_object_instance(left: BusinessObjectRef, right: BusinessObjectRef) -> bool:
+    return business_object_instance_identity(left) == business_object_instance_identity(right)
+
+
+def same_business_object_class(left: BusinessObjectRef, right: BusinessObjectRef) -> bool:
+    return business_object_semantic_signature(left) == business_object_semantic_signature(right)
+
+
 class RelationshipSpec(BaseModel):
     """Declarative relationship between canonical object types (documentation + validation aid)."""
 

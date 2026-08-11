@@ -218,6 +218,7 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
         feas = _feasibility(option.option_id, constraints, facts)
         score_row["label"] = option.label
         score_row["description"] = option.description
+        score_row["intervention_key"] = option.intervention_key
         score_row["feasible"] = feas["feasible"]
         score_row["blocking_constraints"] = feas["blocking_constraints"]
         # Confidence: mean of linked known/inferred fact confidences, penalize gaps
@@ -299,6 +300,9 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
     output: dict[str, Any] = {
         "goal": payload.goal,
         "recommendation": recommendation,
+        "intervention_key": chosen.get("intervention_key")
+        if chosen is not None and recommendation == chosen["option_id"]
+        else None,
         "rationale": rationale,
         "confidence": confidence,
         "uncertainty": uncertainty,

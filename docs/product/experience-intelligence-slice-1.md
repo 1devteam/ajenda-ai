@@ -5,18 +5,18 @@ Experience Intelligence Slice 1 ships deterministic **Experience Equivalence & R
 Protected invariants:
 
 - `episode ≠ recurrence ≠ pattern candidate ≠ knowledge ≠ policy`
-- `instance identity ≠ semantic identity ≠ context ≠ equivalence ≠ independence`
+- `instance identity ≠ semantic identity ≠ lineage ≠ context ≠ equivalence ≠ independence`
 
 ## Runtime shape
 
-`ExperienceEpisodeInput` wraps a `DecisionLearningSignal` with explicit V1 recurrence metadata: `recommendation_class`, caller-context `objective_dimensions`, attribution evidence IDs, observation-time provenance, and lineage IDs. `recommendation_class` is accepted as transitional V1 intervention classification metadata. Decision-owned intervention identity belongs to the follow-up semantic-coherence PR.
+`ExperienceEpisodeInput` wraps a `DecisionLearningSignal` with explicit V1 recurrence metadata: `recommendation_class`, caller-context `objective_dimensions`, attribution evidence IDs, observation-time provenance, and lineage IDs. Decision-owned `intervention_key` is authoritative; `recommendation_class` remains transitional V1 metadata and conflicts fail closed.
 
 Each episode derives an `ExperienceContextSignature` with separate surfaces for:
 
 - Exact identity: signal ID, decision ID, subject instance refs, and exact goal ID.
-- Semantic identity: canonical subject types, recommendation class, exact goal ID, scope, invalidation conditions, learning-signal algorithm, learning-signal strength, execution fidelity, attribution, and observation provenance.
+- Semantic identity: owner-produced subject, Goal/KPI, intervention, and evidence-lineage semantics, plus scope, algorithm identity, execution fidelity, attribution, and observation provenance.
 
-`objective_dimensions` are preserved as caller context only. Slice 1 does not treat them as owned Goal/KPI semantic identity and does not infer cross-goal equivalence from arbitrary strings or free-form prose.
+`objective_dimensions` are preserved as caller context only. They never outrank owned Goal/KPI signatures and cannot infer equivalence from arbitrary strings or prose.
 
 ## Deterministic processing order
 
@@ -24,7 +24,7 @@ The implementation performs:
 
 1. Input validation, including duplicate `episode_id` rejection.
 2. Canonical signature derivation with sorted set-like fields.
-3. Conservative semantic partitioning by recommendation class, subject type set, exact goal ID, and exact scope set.
+3. Conservative semantic partitioning by authoritative intervention key, subject class, owner Goal/KPI semantics, and exact scope set.
 4. Per-episode recurrence eligibility classification.
 5. Dependence graph construction across each full partition before support/contradiction classification.
 6. Dependence-resolved evidence-unit classification as support, contradiction, neutral, or ambiguous.
@@ -38,9 +38,9 @@ The result is stable under episode ordering and subject/scope/evidence set order
 - Subject type/class is part of comparability. Different instances of the same canonical type, such as `opportunity:A` and `opportunity:B`, can be comparable.
 - Subject instance identity is a dependence/correlation signal. Repeated observations of the same exact object are inspectable and do not become stronger recurrence just by repetition.
 - Different canonical subject types, such as `opportunity` and `account`, are incompatible unless future structured contracts explicitly earn equivalence.
-- `recommendation_class` is required, normalized, and never inferred from recommendation prose. Missing or `"unknown"` values are unclassified and cannot support or contradict a candidate.
-- Different recommendation classes create separate partitions.
-- Same exact `goal_id` is required for recurrence eligibility in Slice 1. Different goal IDs are blocked, and missing goal IDs are insufficient semantics. Goal-owned semantic objective keys are deferred to the cross-layer coherence PR.
+- Decision-owned `intervention_key` is preferred and never inferred from recommendation prose. Transitional `recommendation_class` is used only when owner semantics are absent; disagreement is ineligible.
+- Different intervention keys create separate partitions.
+- The same exact goal is strongly comparable. Different goal IDs compare through equal explicit `objective_key`; identical owned KPI signatures earn partial comparison only and cap recurrence. Missing semantics remain insufficient.
 - Exact scope-condition sets are part of V1 partitioning. Different non-empty scopes do not silently aggregate. Unscoped episodes do not strengthen scoped claims to `SUPPORTED`.
 
 ## Eligibility, independence, and evidence units
@@ -53,7 +53,7 @@ Per-episode eligibility distinguishes:
 - Limited recurrence evidence: temporal association, caller-asserted/unknown/derived chronology, partial execution, weak or candidate learning-signal strength.
 - Ineligible evidence: non-execution, execution unknown, material variation, conflicting/insufficient/not-assessed attribution, or active invalidation conflicts.
 
-Independence is assessed separately from comparability and before outcome direction. Duplicate signal IDs, duplicate decision IDs, and reused lineage form hard-dependent components. Shared evidence and repeated exact subject instances are partial/correlation signals. A hard-dependent component with positive and negative recomputations is ambiguous, not independent support plus an independent counterexample.
+Independence is assessed separately from comparability and before outcome direction. Duplicate signal IDs, duplicate decision IDs, shared lineage roots/sources/ancestors, and derivation form hard-dependent components. Partially resolved lineage and repeated exact subject instances are partial/correlation signals; unknown lineage is indeterminate, never independent. A hard-dependent component with positive and negative recomputations is ambiguous, not independent support plus an independent counterexample.
 
 ## Attribution, provenance, execution, and counterexamples
 
@@ -91,4 +91,4 @@ Candidates preserve earliest and latest deterministic `evaluated_at` timestamps 
 
 ## Explicit non-goals
 
-This slice does not add cross-layer semantic coherence, global evidence lineage redesign, new goal objective-key persistence, formal KPI semantic identity, Decision-owned intervention keys, originating decision algorithm/version lineage, Outcome semantic identity propagation, richer structured scope ontology, independent source verification, Knowledge Qualification, experience-to-knowledge promotion, memory persistence, decision-weight adaptation, StrategyEngine, ability graph, planner/replanner wiring, LLM classification, causal inference, or DB migrations.
+This slice consumes cross-layer semantic coherence but still does not add independent source verification, Knowledge Qualification, experience-to-knowledge promotion, memory persistence, decision-weight adaptation, StrategyEngine, ability graph, planner/replanner wiring, LLM classification, causal inference, or behavior changes.

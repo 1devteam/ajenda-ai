@@ -13,6 +13,7 @@ from backend.services.ontology.commercial_state import (
     Goal,
     Kpi,
 )
+from backend.services.ontology.evidence_lineage import EvidenceLineage
 from backend.services.ontology.types import BusinessObjectRef
 from backend.services.security.redaction import contains_sensitive_key
 
@@ -115,6 +116,7 @@ class EvidenceItem(BaseModel):
     confidence: float | None = Field(default=None, ge=0, le=1)
     limitations: list[str] = Field(default_factory=list)
     provenance: dict[str, Any] = Field(default_factory=dict)
+    lineage: EvidenceLineage | None = None
     side_effect_class: SideEffectClass = SideEffectClass.NONE
     collection_status: str = Field(default="collected", min_length=1, max_length=80)
 
@@ -493,6 +495,7 @@ class EvidenceFact(BaseModel):
     supports_option_ids: list[str] = Field(default_factory=list)
     supports_criterion_ids: list[str] = Field(default_factory=list)
     about_object_refs: list[BusinessObjectRef] = Field(default_factory=list)
+    lineage: EvidenceLineage | None = None
 
     @field_validator("evidence_id", "claim")
     @classmethod
@@ -526,10 +529,13 @@ class DecisionOption(BaseModel):
     option_id: str = Field(min_length=1, max_length=120)
     label: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=1000)
+    intervention_key: str | None = Field(default=None, min_length=1, max_length=160)
 
-    @field_validator("option_id", "label")
+    @field_validator("option_id", "label", "intervention_key")
     @classmethod
     def normalize_required(cls, value: str) -> str:
+        if value is None:
+            return value
         normalized = value.strip()
         if not normalized:
             raise ValueError("option fields must be non-empty")

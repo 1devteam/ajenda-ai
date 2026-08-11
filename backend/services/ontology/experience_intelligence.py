@@ -18,12 +18,18 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.services.ontology.commercial_state import (
+    GoalSemanticComparisonStatus,
+    GoalSemanticSignature,
+    compare_goal_semantics,
+)
 from backend.services.ontology.decision_feedback import (
     DecisionEffectivenessStatus,
     DecisionLearningSignal,
     ExecutionFidelity,
     LearningSignalStrength,
 )
+from backend.services.ontology.evidence_lineage import EvidenceLineageResolution
 from backend.services.ontology.observation_attribution import ObservationTimeProvenance
 from backend.services.ontology.outcome import AttributionAssessment
 
@@ -96,8 +102,10 @@ class ExperienceContextSignature(BaseModel):
     exact_decision_id: str
     exact_subject_refs: tuple[str, ...] = ()
     exact_goal_id: str | None = None
+    goal_semantic_signature: GoalSemanticSignature | None = None
     semantic_subject_types: tuple[str, ...] = ()
     recommendation_class: str | None = None
+    intervention_semantic_conflict: bool = False
     objective_dimensions: tuple[str, ...] = ()
     learning_signal_algorithm: str
     effective_dimensions: tuple[str, ...] = ()
@@ -110,6 +118,8 @@ class ExperienceContextSignature(BaseModel):
     invalidation_conditions: tuple[str, ...] = ()
     supporting_evidence_ids: tuple[str, ...] = ()
     lineage_ids: tuple[str, ...] = ()
+    lineage_dependence_keys: tuple[str, ...] = ()
+    lineage_resolution: EvidenceLineageResolution = EvidenceLineageResolution.UNKNOWN
 
 
 class ExperienceComparison(BaseModel):
@@ -262,14 +272,36 @@ def derive_context_signature(
     episode: ExperienceEpisodeInput,
 ) -> ExperienceContextSignature:
     signal = episode.signal
+    owner_intervention = _norm(signal.intervention_key)
+    compatibility_intervention = _norm(episode.recommendation_class)
+    conflict = bool(
+        owner_intervention and compatibility_intervention and owner_intervention != compatibility_intervention
+    )
+    intervention = owner_intervention or compatibility_intervention
+    lineage_keys = {key for lineage in signal.evidence_lineages for key in lineage.dependence_keys()}
+    resolutions = {lineage.resolution for lineage in signal.evidence_lineages}
+    if episode.lineage_ids:
+        lineage_keys.update(f"legacy-root:{item}" for item in _canonical_identifiers(episode.lineage_ids))
+        resolutions.add(EvidenceLineageResolution.KNOWN)
+    if EvidenceLineageResolution.UNKNOWN in resolutions or not resolutions:
+        lineage_resolution = EvidenceLineageResolution.UNKNOWN
+    elif EvidenceLineageResolution.PARTIAL in resolutions:
+        lineage_resolution = EvidenceLineageResolution.PARTIAL
+    else:
+        lineage_resolution = EvidenceLineageResolution.KNOWN
     return ExperienceContextSignature(
         episode_id=episode.episode_id,
         exact_signal_id=signal.signal_id,
         exact_decision_id=signal.decision_id,
         exact_subject_refs=tuple(sorted({_subject_ref_key(ref) for ref in signal.subject_refs})),
         exact_goal_id=signal.goal_id.strip() if signal.goal_id and signal.goal_id.strip() else None,
-        semantic_subject_types=_canonical_semantic_values(tuple(ref.object_type.value for ref in signal.subject_refs)),
-        recommendation_class=_norm(episode.recommendation_class),
+        semantic_subject_types=_canonical_semantic_values(
+            tuple(signature.object_type.value for signature in signal.subject_semantic_signatures)
+            or tuple(ref.object_type.value for ref in signal.subject_refs)
+        ),
+        goal_semantic_signature=signal.goal_semantic_signature,
+        recommendation_class=intervention,
+        intervention_semantic_conflict=conflict,
         objective_dimensions=_canonical_semantic_values(episode.objective_dimensions),
         learning_signal_algorithm=signal.algorithm,
         effective_dimensions=_canonical_semantic_values(tuple(signal.effective_dimensions)),
@@ -284,18 +316,26 @@ def derive_context_signature(
             tuple(signal.supporting_evidence_ids) + episode.attribution_evidence_ids
         ),
         lineage_ids=_canonical_identifiers(episode.lineage_ids),
+        lineage_dependence_keys=tuple(sorted(lineage_keys)),
+        lineage_resolution=lineage_resolution,
     )
 
 
 def _partition_payload(sig: ExperienceContextSignature) -> dict[str, object] | None:
-    if not sig.recommendation_class or sig.recommendation_class == "unknown":
+    if sig.intervention_semantic_conflict or not sig.recommendation_class or sig.recommendation_class == "unknown":
         return None
     if not sig.semantic_subject_types:
         return None
-    if sig.exact_goal_id is None:
+    if sig.goal_semantic_signature and sig.goal_semantic_signature.objective_key:
+        goal_semantic_key = f"objective:{sig.goal_semantic_signature.objective_key}"
+    elif sig.goal_semantic_signature and sig.goal_semantic_signature.kpis:
+        goal_semantic_key = "kpis:" + _stable_json(sig.goal_semantic_signature.model_dump(mode="json")["kpis"])
+    elif sig.exact_goal_id is not None:
+        goal_semantic_key = f"instance:{sig.exact_goal_id}"
+    else:
         return None
     return {
-        "goal_id": sig.exact_goal_id,
+        "goal_id": goal_semantic_key,
         "recommendation_class": sig.recommendation_class,
         "scope_conditions": list(sig.scope_conditions),
         "subject_types": list(sig.semantic_subject_types),
@@ -321,7 +361,10 @@ def _partition_key(sig: ExperienceContextSignature) -> str | None:
 def _compare(a: ExperienceContextSignature, b: ExperienceContextSignature) -> ExperienceComparison:
     left, right = sorted((a, b), key=lambda sig: sig.episode_id)
     codes: list[str] = []
-    if not left.recommendation_class or not right.recommendation_class:
+    if left.intervention_semantic_conflict or right.intervention_semantic_conflict:
+        codes.append("intervention_semantic_conflict")
+        comp = ComparabilityStatus.INCOMPATIBLE
+    elif not left.recommendation_class or not right.recommendation_class:
         codes.append("missing_recommendation_class_unclassified")
         comp = ComparabilityStatus.INSUFFICIENT_CONTEXT
     elif left.recommendation_class == "unknown" or right.recommendation_class == "unknown":
@@ -333,18 +376,29 @@ def _compare(a: ExperienceContextSignature, b: ExperienceContextSignature) -> Ex
     elif left.semantic_subject_types != right.semantic_subject_types:
         codes.append("different_subject_type")
         comp = ComparabilityStatus.INCOMPATIBLE
+    elif left.exact_goal_id is not None and left.exact_goal_id == right.exact_goal_id:
+        codes.append("same_exact_goal_instance")
+        comp = ComparabilityStatus.COMPARABLE
+    elif left.goal_semantic_signature is not None and right.goal_semantic_signature is not None:
+        goal_comparison = compare_goal_semantics(left.goal_semantic_signature, right.goal_semantic_signature)
+        codes.extend(goal_comparison.reason_codes)
+        comp = {
+            GoalSemanticComparisonStatus.EQUIVALENT: ComparabilityStatus.COMPARABLE,
+            GoalSemanticComparisonStatus.PARTIALLY_EQUIVALENT: ComparabilityStatus.PARTIALLY_COMPARABLE,
+            GoalSemanticComparisonStatus.NOT_EQUIVALENT: ComparabilityStatus.INCOMPATIBLE,
+            GoalSemanticComparisonStatus.INSUFFICIENT_SEMANTICS: ComparabilityStatus.INSUFFICIENT_CONTEXT,
+        }[goal_comparison.status]
     elif left.exact_goal_id is None or right.exact_goal_id is None:
         codes.append("goal_semantics_insufficient")
         comp = ComparabilityStatus.INSUFFICIENT_CONTEXT
-    elif left.exact_goal_id != right.exact_goal_id:
+    else:
         codes.append("different_goal_id_without_owned_semantic_equivalence")
         comp = ComparabilityStatus.INCOMPATIBLE
-    elif left.scope_conditions != right.scope_conditions:
+    if comp == ComparabilityStatus.COMPARABLE and left.scope_conditions != right.scope_conditions:
         codes.append("different_scope_conditions_partition")
         comp = ComparabilityStatus.PARTIALLY_COMPARABLE
-    else:
+    elif comp == ComparabilityStatus.COMPARABLE:
         codes.append("same_semantic_partition")
-        comp = ComparabilityStatus.COMPARABLE
     indep, indep_codes = _pair_independence(left, right)
     return ExperienceComparison(
         left_episode_id=left.episode_id,
@@ -367,7 +421,7 @@ def _pair_independence(
     if a.exact_decision_id == b.exact_decision_id:
         hard = True
         codes.append("duplicate_decision_id")
-    if set(a.lineage_ids) & set(b.lineage_ids):
+    if set(a.lineage_dependence_keys) & set(b.lineage_dependence_keys):
         hard = True
         codes.append("reused_lineage")
     if set(a.supporting_evidence_ids) & set(b.supporting_evidence_ids):
@@ -380,6 +434,16 @@ def _pair_independence(
         return IndependenceStatus.DEPENDENT, codes
     if partial:
         return IndependenceStatus.PARTIALLY_INDEPENDENT, codes
+    if (
+        a.lineage_resolution == EvidenceLineageResolution.UNKNOWN
+        or b.lineage_resolution == EvidenceLineageResolution.UNKNOWN
+    ):
+        return IndependenceStatus.INDETERMINATE, [*codes, "unknown_lineage_not_independent"]
+    if (
+        a.lineage_resolution == EvidenceLineageResolution.PARTIAL
+        or b.lineage_resolution == EvidenceLineageResolution.PARTIAL
+    ):
+        return IndependenceStatus.PARTIALLY_INDEPENDENT, [*codes, "partially_resolved_lineage"]
     if not a.supporting_evidence_ids or not b.supporting_evidence_ids:
         return IndependenceStatus.INDETERMINATE, [
             *codes,
@@ -412,6 +476,8 @@ def _eligibility(
 ) -> _Eligibility:
     codes: list[str] = []
     if partition_key is None:
+        if sig.intervention_semantic_conflict:
+            codes.append("intervention_semantic_conflict")
         if not sig.recommendation_class:
             codes.append("missing_recommendation_class")
         elif sig.recommendation_class == "unknown":
@@ -431,6 +497,9 @@ def _eligibility(
 
     direction = _base_direction(signal)
     tier = EvidenceContributionTier.STRONG
+    if sig.goal_semantic_signature is not None and sig.goal_semantic_signature.objective_key is None:
+        tier = EvidenceContributionTier.LIMITED
+        codes.append("kpi_only_goal_semantics_cap_recurrence")
     if sig.invalidation_conditions and set(sig.invalidation_conditions) & set(active_scope_conditions):
         codes.append("active_scope_matches_invalidation_condition")
         return _Eligibility(

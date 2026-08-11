@@ -83,6 +83,11 @@ def build_tool_action_evidence_records(
                 ],
                 provenance_metadata={
                     **evidence_item.provenance,
+                    **(
+                        {"evidence_lineage": evidence_item.lineage.model_dump(mode="json")}
+                        if evidence_item.lineage is not None
+                        else {}
+                    ),
                     "runtime_path": "TaskDispatcher -> WorkerRuntimeService.complete -> EvidenceRecord",
                     "action_name": evidence_item.action_name,
                     "tool_provider": evidence_item.tool_provider,

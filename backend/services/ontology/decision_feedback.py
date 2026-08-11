@@ -23,12 +23,19 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.services.ontology.commercial_state import GoalSemanticSignature, KpiSemanticSignature
+from backend.services.ontology.evidence_lineage import EvidenceLineage
+from backend.services.ontology.observation_attribution import ObservationVerificationBasis
 from backend.services.ontology.outcome import (
     AttributionAssessment,
     OutcomeEvaluation,
     OutcomeStatus,
 )
-from backend.services.ontology.types import BusinessObjectRef
+from backend.services.ontology.types import (
+    BusinessObjectRef,
+    BusinessObjectSemanticSignature,
+    business_object_semantic_signature,
+)
 
 DECISION_FEEDBACK_SCHEMA_VERSION = 1
 
@@ -82,10 +89,13 @@ class DecisionSnapshot(BaseModel):
     goal_id: str | None = None
     subject_refs: list[BusinessObjectRef] = Field(default_factory=list)
     recommendation: str = Field(min_length=1, max_length=240)
+    intervention_key: str | None = Field(default=None, min_length=1, max_length=160)
+    goal_semantic_signature: GoalSemanticSignature | None = None
     alternatives_considered: list[str] = Field(default_factory=list)
     option_scores: list[dict[str, Any]] = Field(default_factory=list)
     original_confidence: float = Field(ge=0, le=1)
     supporting_evidence_ids: list[str] = Field(default_factory=list)
+    evidence_lineages: tuple[EvidenceLineage, ...] = ()
     known_evidence_gaps: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     uncertainty: list[str] = Field(default_factory=list)
@@ -184,6 +194,14 @@ class DecisionLearningSignal(BaseModel):
     decision_id: str
     subject_refs: list[BusinessObjectRef] = Field(default_factory=list)
     goal_id: str | None = None
+    subject_semantic_signatures: tuple[BusinessObjectSemanticSignature, ...] = ()
+    goal_semantic_signature: GoalSemanticSignature | None = None
+    kpi_semantic_signatures: tuple[KpiSemanticSignature, ...] = ()
+    intervention_key: str | None = None
+    evidence_lineages: tuple[EvidenceLineage, ...] = ()
+    decision_algorithm_name: str | None = None
+    decision_algorithm_version: str | None = None
+    observation_verification_basis: ObservationVerificationBasis = ObservationVerificationBasis.UNKNOWN
     decision_quality: DecisionQualityAssessment
     execution_fidelity: ExecutionFidelity
     effectiveness: DecisionEffectivenessEvaluation
@@ -856,6 +874,20 @@ def extract_decision_learning_signal(
         decision_id=snapshot.decision_id,
         subject_refs=list(snapshot.subject_refs) or list(outcome.subject_refs),
         goal_id=snapshot.goal_id or outcome.goal_id,
+        subject_semantic_signatures=tuple(
+            sorted(
+                outcome.subject_semantic_signatures
+                or {business_object_semantic_signature(ref) for ref in (snapshot.subject_refs or outcome.subject_refs)},
+                key=lambda signature: signature.object_type.value,
+            )
+        ),
+        goal_semantic_signature=snapshot.goal_semantic_signature or outcome.goal_semantic_signature,
+        kpi_semantic_signatures=outcome.kpi_semantic_signatures,
+        intervention_key=snapshot.intervention_key,
+        evidence_lineages=snapshot.evidence_lineages,
+        decision_algorithm_name=snapshot.algorithm_name,
+        decision_algorithm_version=snapshot.algorithm_version,
+        observation_verification_basis=outcome.observation_timing.verification_basis,
         decision_quality=quality,
         execution_fidelity=execution.fidelity,
         effectiveness=effectiveness,

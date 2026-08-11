@@ -52,6 +52,41 @@ class KpiDirection(StrEnum):
     MAINTAIN = "maintain"
 
 
+class KpiSemanticSignature(BaseModel):
+    """Stable measurement meaning; changing measurement values are excluded."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    metric: str
+    direction: KpiDirection
+    normalized_unit: str | None = None
+
+
+class GoalSemanticSignature(BaseModel):
+    """Owner-produced objective and canonical KPI semantics."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    objective_key: str | None = None
+    kpis: tuple[KpiSemanticSignature, ...] = ()
+
+
+class GoalSemanticComparisonStatus(StrEnum):
+    EQUIVALENT = "equivalent"
+    PARTIALLY_EQUIVALENT = "partially_equivalent"
+    NOT_EQUIVALENT = "not_equivalent"
+    INSUFFICIENT_SEMANTICS = "insufficient_semantics"
+
+
+class GoalSemanticComparison(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: GoalSemanticComparisonStatus
+    reason_codes: tuple[str, ...] = ()
+
+
 class Goal(BaseModel):
     """A desired business outcome — direction of change, not an identity object.
 
@@ -63,6 +98,7 @@ class Goal(BaseModel):
 
     schema_version: Literal[1] = 1
     goal_id: str = Field(min_length=1, max_length=160)
+    objective_key: str | None = Field(default=None, min_length=1, max_length=160)
     name: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=2000)
     subject_refs: list[BusinessObjectRef] = Field(default_factory=list)
@@ -72,9 +108,11 @@ class Goal(BaseModel):
         description="Optional calendar target (ISO-8601 date strings accepted)",
     )
 
-    @field_validator("goal_id", "name")
+    @field_validator("goal_id", "name", "objective_key")
     @classmethod
     def normalize_required(cls, value: str) -> str:
+        if value is None:
+            return value
         normalized = value.strip()
         if not normalized:
             raise ValueError("goal fields must be non-empty")
@@ -126,6 +164,54 @@ class Kpi(BaseModel):
         if not normalized:
             raise ValueError("kpi fields must be non-empty")
         return normalized
+
+
+def kpi_semantic_signature(kpi: Kpi) -> KpiSemanticSignature:
+    """Build conservative KPI semantics; only whitespace normalization is earned."""
+
+    unit = kpi.unit.strip() or None
+    return KpiSemanticSignature(metric=kpi.metric, direction=kpi.direction, normalized_unit=unit)
+
+
+def goal_semantic_signature(goal: Goal, kpis: list[Kpi] | tuple[Kpi, ...] = ()) -> GoalSemanticSignature:
+    """Build a deterministic goal signature, rejecting KPIs owned by another goal."""
+
+    if any(kpi.goal_id != goal.goal_id for kpi in kpis):
+        raise ValueError("all KPI semantics must belong to the supplied goal")
+    signatures = {kpi_semantic_signature(kpi) for kpi in kpis}
+    ordered = tuple(
+        sorted(signatures, key=lambda item: (item.metric, item.direction.value, item.normalized_unit or ""))
+    )
+    return GoalSemanticSignature(objective_key=goal.objective_key, kpis=ordered)
+
+
+def compare_goal_semantics(left: GoalSemanticSignature, right: GoalSemanticSignature) -> GoalSemanticComparison:
+    """Compare owner semantics without treating two missing values as equal."""
+
+    if left.objective_key is not None and right.objective_key is not None:
+        if left.objective_key == right.objective_key:
+            return GoalSemanticComparison(
+                status=GoalSemanticComparisonStatus.EQUIVALENT,
+                reason_codes=("matching_explicit_objective_key",),
+            )
+        return GoalSemanticComparison(
+            status=GoalSemanticComparisonStatus.NOT_EQUIVALENT,
+            reason_codes=("different_explicit_objective_key",),
+        )
+    if left.kpis and right.kpis:
+        if left.kpis == right.kpis:
+            return GoalSemanticComparison(
+                status=GoalSemanticComparisonStatus.PARTIALLY_EQUIVALENT,
+                reason_codes=("matching_kpi_semantics_without_complete_objective_identity",),
+            )
+        return GoalSemanticComparison(
+            status=GoalSemanticComparisonStatus.NOT_EQUIVALENT,
+            reason_codes=("different_kpi_semantics",),
+        )
+    return GoalSemanticComparison(
+        status=GoalSemanticComparisonStatus.INSUFFICIENT_SEMANTICS,
+        reason_codes=("objective_and_kpi_semantics_insufficient",),
+    )
 
 
 class BusinessStateSnapshot(BaseModel):
