@@ -50,12 +50,21 @@ class EvidenceLineage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1] = 1
+    artifact_evidence_id: str = Field(min_length=1, max_length=240)
     origin_type: EvidenceOriginType = EvidenceOriginType.UNKNOWN
     source_identity: EvidenceSourceIdentity | None = None
     root_evidence_ids: tuple[str, ...] = ()
     parent_evidence_ids: tuple[str, ...] = ()
     ancestor_evidence_ids: tuple[str, ...] = ()
     resolution: EvidenceLineageResolution = EvidenceLineageResolution.UNKNOWN
+
+    @field_validator("artifact_evidence_id")
+    @classmethod
+    def normalize_artifact_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("artifact_evidence_id must be non-empty")
+        return normalized
 
     @field_validator("root_evidence_ids", "parent_evidence_ids", "ancestor_evidence_ids")
     @classmethod
@@ -73,15 +82,16 @@ class EvidenceLineage(BaseModel):
             raise ValueError("unknown lineage cannot contain resolved lineage identity")
         return self
 
-    def dependence_keys(self, artifact_id: str | None = None) -> frozenset[str]:
+    def dependence_keys(self) -> frozenset[str]:
         """Return opaque keys that establish a known shared lineage."""
 
-        keys = {
-            f"evidence:{item}"
-            for item in (*self.root_evidence_ids, *self.parent_evidence_ids, *self.ancestor_evidence_ids)
-        }
+        keys = {f"evidence:{self.artifact_evidence_id}"}
+        keys.update(
+            {
+                f"evidence:{item}"
+                for item in (*self.root_evidence_ids, *self.parent_evidence_ids, *self.ancestor_evidence_ids)
+            }
+        )
         if self.source_identity is not None:
             keys.add(f"source:{self.source_identity.source_system}:{self.source_identity.source_record_id}")
-        if artifact_id:
-            keys.add(f"evidence:{artifact_id}")
         return frozenset(keys)

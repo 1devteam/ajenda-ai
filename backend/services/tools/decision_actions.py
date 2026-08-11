@@ -16,6 +16,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+)
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.schemas import (
     ActionResult,
@@ -38,6 +43,8 @@ def _evidence(
     payload: dict[str, Any],
     confidence: float | None,
 ) -> EvidenceItem:
+    supporting_ids = payload.get("supporting_evidence_ids", [])
+    parent_ids = tuple(item for item in supporting_ids if isinstance(item, str) and item.strip())
     return EvidenceItem(
         evidence_type="action_result_evidence",
         evidence_source="decision_actions",
@@ -53,6 +60,12 @@ def _evidence(
             "runtime_path": "TaskDispatcher -> tool.invoke -> ActionRegistry",
             "cluster": "evidence_intelligence",
         },
+        lineage=EvidenceLineage(
+            artifact_evidence_id=f"decision-result:{context.task_id}",
+            origin_type=EvidenceOriginType.SYSTEM_COMPUTATION,
+            parent_evidence_ids=parent_ids,
+            resolution=(EvidenceLineageResolution.PARTIAL if parent_ids else EvidenceLineageResolution.UNKNOWN),
+        ),
         side_effect_class=SideEffectClass.NONE,
     )
 
@@ -311,6 +324,7 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
         "option_scores": scored,
         "algorithm": {
             "name": "weighted_criterion_evidence_v1",
+            "version": "1",
             "known_weight": 1.0,
             "inferred_weight": 0.6,
             "missing_weight": 0.0,

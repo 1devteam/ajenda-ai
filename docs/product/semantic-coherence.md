@@ -18,7 +18,9 @@ equivalent nor independent.
 - **Context** records the conditions under which an observation applies. Context can restrict a
   comparison but cannot manufacture semantic identity.
 - **Lineage** records evidence origin, source identity, roots, parents, ancestors, and resolution.
-  Evidence owns this contract and preserves derivation through summaries and aggregations.
+  Every lineage contract identifies its own evidence artifact, so `A → B → C` remains one connected
+  lineage family even when each derived artifact records only its immediate parent. Evidence owns
+  this contract and preserves derivation through summaries and aggregations.
 - **Equivalence** is a deterministic comparison of owner-produced semantic signatures. An equal
   explicit objective key earns goal equivalence; identical KPI semantics without complete objective
   identity earn partial equivalence only.
@@ -37,7 +39,11 @@ Ajenda independently verified the source.
 
 No database migration is required for evidence lineage: durable `EvidenceRecord` already persists
 `provenance_metadata` as JSONB, and the evidence bridge serializes the typed lineage contract into
-that existing field. Goal, Decision feedback, Outcome, and Experience contracts in this slice are
+that existing field. The bridge assigns the durable `EvidenceRecord.id` as the lineage artifact
+identity. The canonical post-materialization snapshot adapter then validates tenant ownership and
+maps the selected option, structured Goal/KPIs, durable evidence lineage, and originating decision
+algorithm/version into `DecisionSnapshot`; callers do not reassert those semantics. Goal, Decision
+feedback, Outcome, and Experience contracts in this slice are
 serialized Pydantic artifacts rather than dedicated relational columns.
 
 ## Guardrails

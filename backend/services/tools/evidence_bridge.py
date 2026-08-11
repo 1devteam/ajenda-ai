@@ -54,8 +54,15 @@ def build_tool_action_evidence_records(
             raise ValueError("tool.invoke evidence items must be objects")
         evidence_item = EvidenceItem.model_validate(dict(raw_item))
         _validate_evidence_scope(task=task, evidence_item=evidence_item)
+        evidence_record_id = uuid.uuid4()
+        durable_lineage = (
+            evidence_item.lineage.model_copy(update={"artifact_evidence_id": str(evidence_record_id)})
+            if evidence_item.lineage is not None
+            else None
+        )
         records.append(
             EvidenceRecord(
+                id=evidence_record_id,
                 tenant_id=task.tenant_id,
                 mission_id=task.mission_id,
                 task_graph_node_key=_optional_string(task.metadata_json.get("task_graph_node_key")),
@@ -84,8 +91,8 @@ def build_tool_action_evidence_records(
                 provenance_metadata={
                     **evidence_item.provenance,
                     **(
-                        {"evidence_lineage": evidence_item.lineage.model_dump(mode="json")}
-                        if evidence_item.lineage is not None
+                        {"evidence_lineage": durable_lineage.model_dump(mode="json")}
+                        if durable_lineage is not None
                         else {}
                     ),
                     "runtime_path": "TaskDispatcher -> WorkerRuntimeService.complete -> EvidenceRecord",

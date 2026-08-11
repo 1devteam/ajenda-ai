@@ -1,5 +1,9 @@
+import uuid
 from datetime import UTC, datetime
 
+from backend.domain.execution_task import ExecutionTask
+from backend.domain.lineage_record import LineageRecord
+from backend.domain.worker_lease import WorkerLease
 from backend.services.ontology.commercial_state import (
     Goal,
     GoalSemanticComparisonStatus,
@@ -23,6 +27,7 @@ from backend.services.ontology.decision_feedback import (
     LearningSignalStrength,
     evaluate_decision_feedback,
 )
+from backend.services.ontology.decision_snapshot_builder import build_decision_snapshot_from_recommendation
 from backend.services.ontology.evidence_lineage import (
     EvidenceLineage,
     EvidenceLineageResolution,
@@ -43,6 +48,16 @@ from backend.services.ontology.types import (
     BusinessObjectType,
     same_business_object_class,
     same_business_object_instance,
+)
+from backend.services.tools.decision_actions import decision_recommend_next_action
+from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
+from backend.services.tools.schemas import (
+    ActionRuntimeContext,
+    DecisionCriterion,
+    DecisionOption,
+    DecisionRecommendInput,
+    EvidenceFact,
+    ToolInvocation,
 )
 
 
@@ -102,6 +117,7 @@ def _signal(
 
 def _source_lineage(record_id: str) -> EvidenceLineage:
     return EvidenceLineage(
+        artifact_evidence_id=f"root-{record_id}",
         origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
         source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id=record_id),
         root_evidence_ids=(f"root-{record_id}",),
@@ -161,6 +177,7 @@ def test_derived_or_unknown_lineage_never_manufactures_independence() -> None:
     signature = goal_semantic_signature(goal, [_kpi("goal", "reply_rate")])
     root = _source_lineage("deal-123")
     derived = EvidenceLineage(
+        artifact_evidence_id="derived-deal-123",
         origin_type=EvidenceOriginType.DERIVED_FACT,
         parent_evidence_ids=("root-deal-123",),
         ancestor_evidence_ids=("root-deal-123",),
@@ -187,6 +204,48 @@ def test_derived_or_unknown_lineage_never_manufactures_independence() -> None:
     assert unknown.comparisons[0].independence == IndependenceStatus.INDETERMINATE
 
 
+def test_source_to_derived_to_derived_forms_one_lineage_family_without_repeated_roots() -> None:
+    goal = _goal("goal-family", "increase_reply_rate")
+    signature = goal_semantic_signature(goal, [_kpi(goal.goal_id, "reply_rate")])
+    lineages = (
+        EvidenceLineage(
+            artifact_evidence_id="A",
+            origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+            source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="deal-123"),
+            resolution=EvidenceLineageResolution.KNOWN,
+        ),
+        EvidenceLineage(
+            artifact_evidence_id="B",
+            origin_type=EvidenceOriginType.DERIVED_FACT,
+            parent_evidence_ids=("A",),
+            resolution=EvidenceLineageResolution.KNOWN,
+        ),
+        EvidenceLineage(
+            artifact_evidence_id="C",
+            origin_type=EvidenceOriginType.DERIVED_FACT,
+            parent_evidence_ids=("B",),
+            resolution=EvidenceLineageResolution.KNOWN,
+        ),
+    )
+    result = evaluate_experience_set(
+        [
+            ExperienceEpisodeInput(
+                episode_id=f"episode-{lineage.artifact_evidence_id}",
+                signal=_signal(
+                    index,
+                    goal_id=goal.goal_id,
+                    goal_signature=signature,
+                    lineage=lineage,
+                ),
+                observation_time_provenance=ObservationTimeProvenance.SOURCE_VERIFIED,
+            )
+            for index, lineage in enumerate(lineages, start=1)
+        ]
+    )
+    assert result.dependent_episode_groups == (("episode-A", "episode-B", "episode-C"),)
+    assert result.pattern_candidates == ()
+
+
 def test_owner_and_compatibility_intervention_conflict_fails_closed() -> None:
     goal = _goal("goal", "increase_reply_rate")
     signature = goal_semantic_signature(goal, [_kpi("goal", "reply_rate")])
@@ -198,6 +257,36 @@ def test_owner_and_compatibility_intervention_conflict_fails_closed() -> None:
     result = evaluate_experience_set([episode])
     assert result.unclassified_episode_ids == ("conflict",)
     assert "intervention_semantic_conflict" in result.episode_explanations["conflict"]
+
+
+def test_same_goal_instance_with_conflicting_owner_objectives_is_incompatible() -> None:
+    left_goal = _goal("same-goal", "increase_reply_rate")
+    right_goal = _goal("same-goal", "increase_qualification_score")
+    result = evaluate_experience_set(
+        [
+            ExperienceEpisodeInput(
+                episode_id="left",
+                signal=_signal(
+                    1,
+                    goal_id="same-goal",
+                    goal_signature=goal_semantic_signature(left_goal, [_kpi("same-goal", "reply_rate")]),
+                    lineage=_source_lineage("left"),
+                ),
+            ),
+            ExperienceEpisodeInput(
+                episode_id="right",
+                signal=_signal(
+                    2,
+                    goal_id="same-goal",
+                    goal_signature=goal_semantic_signature(right_goal, [_kpi("same-goal")]),
+                    lineage=_source_lineage("right"),
+                ),
+            ),
+        ]
+    )
+    comparison = result.comparisons[0]
+    assert comparison.comparability == ComparabilityStatus.INCOMPATIBLE
+    assert "same_goal_instance_has_conflicting_owner_semantics" in comparison.reason_codes
 
 
 def test_goal_decision_outcome_feedback_semantics_survive_end_to_end() -> None:
@@ -241,3 +330,125 @@ def test_goal_decision_outcome_feedback_semantics_survive_end_to_end() -> None:
     assert signal.decision_algorithm_name == "weighted_criterion_evidence_v1"
     assert signal.decision_algorithm_version == "1"
     assert signal.algorithm == "decision_learning_signal_v1"
+
+
+def test_owner_artifacts_flow_through_recommendation_evidence_snapshot_feedback_and_experience() -> None:
+    tenant_id = "tenant-semantic-chain"
+    task = ExecutionTask(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        mission_id=uuid.uuid4(),
+        title="semantic recommendation",
+        description="semantic recommendation",
+        status="running",
+        metadata_json={"task_type": "tool.invoke"},
+        compliance_category="operational",
+        jurisdiction="US-ALL",
+        requires_human_review=False,
+    )
+    lease = WorkerLease(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        task_id=task.id,
+        status="active",
+        holder_identity="worker",
+    )
+    runtime_context = ActionRuntimeContext(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        mission_id=task.mission_id,
+        worker_id="worker",
+        lease_id=str(lease.id),
+    )
+    goal = Goal(
+        goal_id="goal-production-chain",
+        objective_key="increase_qualification_score",
+        name="Increase score",
+        subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp-production")],
+    )
+    kpi = _kpi(goal.goal_id)
+    recommendation_input = DecisionRecommendInput(
+        goal="Increase qualification score",
+        goal_ref=goal,
+        subject_refs=goal.subject_refs,
+        kpis=[kpi],
+        options=[
+            DecisionOption(
+                option_id="schedule",
+                label="Schedule discovery",
+                intervention_key="sales.schedule_discovery",
+            )
+        ],
+        criteria=[DecisionCriterion(criterion_id="fit", label="Fit")],
+        evidence=[
+            EvidenceFact(
+                evidence_id="fact-fit",
+                claim="Qualified fit",
+                confidence=0.9,
+                supports_option_ids=["schedule"],
+                supports_criterion_ids=["fit"],
+                lineage=EvidenceLineage(
+                    artifact_evidence_id="fact-fit",
+                    origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+                    source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="owner-fact"),
+                    resolution=EvidenceLineageResolution.KNOWN,
+                ),
+            )
+        ],
+    )
+    recommendation_result = decision_recommend_next_action(
+        ToolInvocation(action="decision.recommend_next_action", input=recommendation_input.model_dump(mode="json")),
+        runtime_context,
+    )
+    task_output = recommendation_result.model_dump(mode="json")
+    task_output.update({"handler": "tool.invoke", "status": "completed"})
+    runtime_lineage = LineageRecord(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        mission_id=task.mission_id,
+        task_id=task.id,
+        worker_lease_id=lease.id,
+        relationship_type="task_output",
+        relationship_reason="recommendation completed",
+        metadata_json={},
+    )
+    evidence_records = build_tool_action_evidence_records(
+        task=task,
+        lease=lease,
+        task_output=task_output,
+        lineage_record=runtime_lineage,
+    )
+    snapshot = build_decision_snapshot_from_recommendation(
+        decision_id="decision-production-chain",
+        tenant_id=tenant_id,
+        recommendation_input=recommendation_input,
+        recommendation_result=recommendation_result,
+        evidence_records=evidence_records,
+        decided_at=datetime(2026, 3, 1, tzinfo=UTC),
+    )
+    baseline = kpi.model_copy(update={"current_value": 60, "target_value": 80})
+    observed = baseline.model_copy(update={"current_value": 80, "previous_value": 60})
+    outcome = evaluate_outcome(
+        expectation=OutcomeExpectation(goal=goal, baseline_kpis=[baseline]),
+        observed=ObservedOutcome(observed_kpis=[observed], evidence_ids=["fact-fit"]),
+        evaluated_at=datetime(2026, 3, 2, tzinfo=UTC),
+    )
+    feedback = evaluate_decision_feedback(
+        snapshot=snapshot,
+        execution=DecisionExecutionObservation(fidelity=ExecutionFidelity.NOT_EXECUTED),
+        outcome=outcome,
+        evaluated_at=datetime(2026, 3, 3, tzinfo=UTC),
+    )
+    experience = evaluate_experience_set(
+        [ExperienceEpisodeInput(episode_id="production-chain", signal=feedback.learning_signal)]
+    )
+    signal = feedback.learning_signal
+    assert snapshot.intervention_key == "sales.schedule_discovery"
+    assert snapshot.goal_semantic_signature == goal_semantic_signature(goal, [kpi])
+    assert snapshot.evidence_lineages[0].artifact_evidence_id == str(evidence_records[0].id)
+    assert snapshot.algorithm_name == "weighted_criterion_evidence_v1"
+    assert snapshot.algorithm_version == "1"
+    assert signal.intervention_key == snapshot.intervention_key
+    assert signal.evidence_lineages == snapshot.evidence_lineages
+    assert experience.signatures[0].recommendation_class == "sales.schedule_discovery"
+    assert experience.signatures[0].goal_semantic_signature == snapshot.goal_semantic_signature

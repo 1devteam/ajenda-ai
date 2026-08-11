@@ -376,9 +376,6 @@ def _compare(a: ExperienceContextSignature, b: ExperienceContextSignature) -> Ex
     elif left.semantic_subject_types != right.semantic_subject_types:
         codes.append("different_subject_type")
         comp = ComparabilityStatus.INCOMPATIBLE
-    elif left.exact_goal_id is not None and left.exact_goal_id == right.exact_goal_id:
-        codes.append("same_exact_goal_instance")
-        comp = ComparabilityStatus.COMPARABLE
     elif left.goal_semantic_signature is not None and right.goal_semantic_signature is not None:
         goal_comparison = compare_goal_semantics(left.goal_semantic_signature, right.goal_semantic_signature)
         codes.extend(goal_comparison.reason_codes)
@@ -388,6 +385,15 @@ def _compare(a: ExperienceContextSignature, b: ExperienceContextSignature) -> Ex
             GoalSemanticComparisonStatus.NOT_EQUIVALENT: ComparabilityStatus.INCOMPATIBLE,
             GoalSemanticComparisonStatus.INSUFFICIENT_SEMANTICS: ComparabilityStatus.INSUFFICIENT_CONTEXT,
         }[goal_comparison.status]
+        if (
+            comp == ComparabilityStatus.INCOMPATIBLE
+            and left.exact_goal_id is not None
+            and left.exact_goal_id == right.exact_goal_id
+        ):
+            codes.append("same_goal_instance_has_conflicting_owner_semantics")
+    elif left.exact_goal_id is not None and left.exact_goal_id == right.exact_goal_id:
+        codes.append("same_exact_goal_instance_without_complete_owner_semantics")
+        comp = ComparabilityStatus.COMPARABLE
     elif left.exact_goal_id is None or right.exact_goal_id is None:
         codes.append("goal_semantics_insufficient")
         comp = ComparabilityStatus.INSUFFICIENT_CONTEXT

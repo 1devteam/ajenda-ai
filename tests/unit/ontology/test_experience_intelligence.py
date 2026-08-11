@@ -88,6 +88,7 @@ def signal(
         supporting_evidence_ids=evidence_ids,
         evidence_lineages=tuple(
             EvidenceLineage(
+                artifact_evidence_id=evidence_id,
                 origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
                 root_evidence_ids=(evidence_id,),
                 resolution=EvidenceLineageResolution.KNOWN,

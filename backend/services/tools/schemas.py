@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from backend.services.ontology.commercial_state import (
     BusinessEvent,
@@ -504,6 +504,12 @@ class EvidenceFact(BaseModel):
         if not normalized:
             raise ValueError("evidence fields must be non-empty")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_lineage_artifact_identity(self) -> EvidenceFact:
+        if self.lineage is not None and self.lineage.artifact_evidence_id != self.evidence_id:
+            raise ValueError("EvidenceFact lineage artifact_evidence_id must match evidence_id")
+        return self
 
 
 class DecisionCriterion(BaseModel):

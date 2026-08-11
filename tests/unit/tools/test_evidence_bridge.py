@@ -76,6 +76,7 @@ def _tool_output(*, task: ExecutionTask, lease: WorkerLease) -> dict[str, object
                 "limitations": ["local proof provider"],
                 "provenance": {"provider": "LocalRecordProvider"},
                 "lineage": {
+                    "artifact_evidence_id": "emitted-action-evidence",
                     "origin_type": "source_observation",
                     "source_identity": {"source_system": "local_records", "source_record_id": "acct-1"},
                     "root_evidence_ids": ["record:acct-1"],
@@ -131,6 +132,7 @@ def test_build_tool_action_evidence_records_maps_evidence_to_durable_contract() 
     assert record.provenance_metadata["records_inspected"] == ["acct-1"]
     assert record.provenance_metadata["evidence_lineage"] == {
         "schema_version": 1,
+        "artifact_evidence_id": str(record.id),
         "origin_type": "source_observation",
         "source_identity": {"source_system": "local_records", "source_record_id": "acct-1"},
         "root_evidence_ids": ["record:acct-1"],
