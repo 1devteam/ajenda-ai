@@ -97,3 +97,29 @@ class EvidenceLineage(BaseModel):
         if self.source_identity is not None:
             keys.add(f"source:{self.source_identity.source_system}:{self.source_identity.source_record_id}")
         return frozenset(keys)
+
+
+def derived_evidence_lineage(*, artifact_evidence_id: str, parent: EvidenceLineage) -> EvidenceLineage:
+    """Create a derived artifact while preserving its parent's transitive family."""
+
+    ancestors = {
+        parent.artifact_evidence_id,
+        *parent.parent_evidence_ids,
+        *parent.ancestor_evidence_ids,
+    }
+    roots = parent.root_evidence_ids
+    if not roots and parent.origin_type == EvidenceOriginType.SOURCE_OBSERVATION:
+        roots = (parent.artifact_evidence_id,)
+    return EvidenceLineage(
+        artifact_evidence_id=artifact_evidence_id,
+        origin_type=EvidenceOriginType.DERIVED_FACT,
+        source_identity=parent.source_identity,
+        root_evidence_ids=roots,
+        parent_evidence_ids=(parent.artifact_evidence_id,),
+        ancestor_evidence_ids=tuple(ancestors),
+        resolution=(
+            EvidenceLineageResolution.PARTIAL
+            if parent.resolution == EvidenceLineageResolution.UNKNOWN
+            else parent.resolution
+        ),
+    )

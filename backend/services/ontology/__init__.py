@@ -68,6 +68,7 @@ from backend.services.ontology.evidence_lineage import (
     EvidenceLineageResolution,
     EvidenceOriginType,
     EvidenceSourceIdentity,
+    derived_evidence_lineage,
 )
 from backend.services.ontology.experience_intelligence import (
     EXPERIENCE_INTELLIGENCE_SCHEMA_VERSION,
@@ -208,6 +209,7 @@ __all__ = [
     "compare_goal_semantics",
     "compare_state_snapshots",
     "derive_context_signature",
+    "derived_evidence_lineage",
     "evaluate_attribution_evidence",
     "evaluate_decision_feedback",
     "evaluate_experience_set",

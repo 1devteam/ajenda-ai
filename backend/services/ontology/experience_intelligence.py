@@ -348,8 +348,15 @@ def _resolve_goal_authority(
     for signature in signatures:
         identity, partial = _goal_signature_identity(signature.goal_semantic_signature)
         if signature.exact_goal_id is not None and identity is not None:
-            target = kpis_by_goal if partial else objectives_by_goal
-            target[signature.exact_goal_id].add(identity)
+            if partial:
+                kpis_by_goal[signature.exact_goal_id].add(identity)
+            else:
+                objectives_by_goal[signature.exact_goal_id].add(identity)
+                if signature.goal_semantic_signature and signature.goal_semantic_signature.kpis:
+                    kpi_identity = "kpis:" + _stable_json(
+                        signature.goal_semantic_signature.model_dump(mode="json")["kpis"]
+                    )
+                    kpis_by_goal[signature.exact_goal_id].add(kpi_identity)
 
     resolved: list[ExperienceContextSignature] = []
     for signature in signatures:
@@ -358,7 +365,7 @@ def _resolve_goal_authority(
         if signature.exact_goal_id is not None:
             objectives = objectives_by_goal[signature.exact_goal_id]
             kpis = kpis_by_goal[signature.exact_goal_id]
-            if len(objectives) > 1:
+            if len(objectives) > 1 or (objectives and len(kpis) > 1):
                 identity = None
                 partial = False
                 conflict = True

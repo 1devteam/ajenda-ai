@@ -36,6 +36,7 @@ from backend.services.ontology.evidence_lineage import (
     EvidenceLineageResolution,
     EvidenceOriginType,
     EvidenceSourceIdentity,
+    derived_evidence_lineage,
 )
 from backend.services.ontology.experience_intelligence import (
     ComparabilityStatus,
@@ -273,6 +274,37 @@ def test_goal_authority_resolution_unifies_enriched_and_legacy_same_instance() -
     assert len(result.partition_explanations) == 1
 
 
+def test_same_goal_explicit_objective_and_contradictory_legacy_kpi_fail_closed() -> None:
+    explicit_goal = _goal("shared-goal", "increase_reply_rate")
+    legacy_goal = _goal("shared-goal", None)
+    result = evaluate_experience_set(
+        [
+            ExperienceEpisodeInput(
+                episode_id="explicit-kpi-a",
+                signal=_signal(
+                    1,
+                    goal_id="shared-goal",
+                    goal_signature=goal_semantic_signature(explicit_goal, [_kpi("shared-goal", "reply_rate")]),
+                    lineage=_source_lineage("explicit"),
+                ),
+            ),
+            ExperienceEpisodeInput(
+                episode_id="legacy-kpi-b",
+                signal=_signal(
+                    2,
+                    goal_id="shared-goal",
+                    goal_signature=goal_semantic_signature(legacy_goal, [_kpi("shared-goal", "qualification_score")]),
+                    lineage=_source_lineage("legacy"),
+                ),
+            ),
+        ]
+    )
+    assert result.comparisons[0].comparability == ComparabilityStatus.INCOMPATIBLE
+    assert "goal_semantic_conflict" in result.comparisons[0].reason_codes
+    assert result.unclassified_episode_ids == ("explicit-kpi-a", "legacy-kpi-b")
+    assert result.pattern_candidates == ()
+
+
 def test_goal_authority_resolution_preserves_legacy_and_kpi_only_rules() -> None:
     legacy = evaluate_experience_set(
         [
@@ -447,6 +479,35 @@ def test_source_to_derived_to_derived_forms_one_lineage_family_without_repeated_
         ]
     )
     assert result.dependent_episode_groups == (("episode-A", "episode-B", "episode-C"),)
+    assert result.pattern_candidates == ()
+
+
+def test_transitive_lineage_remains_dependent_when_intermediate_artifact_is_not_evaluated() -> None:
+    source = EvidenceLineage(
+        artifact_evidence_id="A",
+        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+        source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="deal:123"),
+        resolution=EvidenceLineageResolution.KNOWN,
+    )
+    derived_b = derived_evidence_lineage(artifact_evidence_id="B", parent=source)
+    derived_c = derived_evidence_lineage(artifact_evidence_id="C", parent=derived_b)
+    goal = _goal("transitive-goal", "increase_reply_rate")
+    signature = goal_semantic_signature(goal, [_kpi(goal.goal_id, "reply_rate")])
+    result = evaluate_experience_set(
+        [
+            ExperienceEpisodeInput(
+                episode_id="source-A",
+                signal=_signal(1, goal_id=goal.goal_id, goal_signature=signature, lineage=source),
+            ),
+            ExperienceEpisodeInput(
+                episode_id="derived-C",
+                signal=_signal(2, goal_id=goal.goal_id, goal_signature=signature, lineage=derived_c),
+            ),
+        ]
+    )
+    assert derived_c.parent_evidence_ids == ("B",)
+    assert "A" in derived_c.ancestor_evidence_ids
+    assert result.comparisons[0].independence == IndependenceStatus.DEPENDENT
     assert result.pattern_candidates == ()
 
 
