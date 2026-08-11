@@ -99,3 +99,16 @@ def test_attribution_integrity_action_has_non_side_effecting_manifest() -> None:
     assert manifest.side_effect_class == SideEffectClass.NONE
     assert manifest.evidence_required is True
     assert manifest.evidence_expectations == ("action_result_evidence",)
+
+
+def test_experience_intelligence_actions_have_non_side_effecting_manifests() -> None:
+    for action in (
+        "analysis.compare_experiences",
+        "analysis.assess_experience_recurrence",
+    ):
+        manifest = ABILITY_MANIFESTS_BY_ACTION[action]
+        assert manifest.provider == "ajenda_analysis"
+        assert manifest.side_effect_class == SideEffectClass.NONE
+        assert manifest.evidence_required is True
+        assert manifest.evidence_expectations == ("action_result_evidence",)
+        assert manifest.enabled_by_default is False
