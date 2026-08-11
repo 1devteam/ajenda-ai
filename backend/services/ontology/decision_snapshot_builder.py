@@ -86,6 +86,7 @@ def _relevant_lineages(
     if (
         result_lineage.resolution == EvidenceLineageResolution.PARTIAL
         and result_lineage.parent_evidence_ids
+        and set(result_lineage.parent_evidence_ids) == supporting_ids
         and all(
             parent_id in by_artifact and by_artifact[parent_id].resolution == EvidenceLineageResolution.KNOWN
             for parent_id in result_lineage.parent_evidence_ids

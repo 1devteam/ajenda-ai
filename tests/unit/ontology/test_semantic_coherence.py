@@ -139,6 +139,8 @@ def _snapshot_from_fact(
     fact_lineage: EvidenceLineage | None = None,
     tenant_id: str = "tenant",
     extra_records: list[EvidenceRecord] | None = None,
+    additional_fact_lineages: tuple[EvidenceLineage, ...] = (),
+    result_parent_ids: tuple[str, ...] | None = None,
 ) -> DecisionSnapshot:
     fact_lineage = fact_lineage or EvidenceLineage(
         artifact_evidence_id=fact_id,
@@ -146,24 +148,27 @@ def _snapshot_from_fact(
         source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id=source_record_id or fact_id),
         resolution=EvidenceLineageResolution.KNOWN,
     )
+    fact_lineages = (fact_lineage, *additional_fact_lineages)
     recommendation_input = DecisionRecommendInput(
         goal="Improve reply rate",
         options=[DecisionOption(option_id="send", label="Send", intervention_key="sales.send_followup")],
         criteria=[DecisionCriterion(criterion_id="fit", label="Fit")],
         evidence=[
             EvidenceFact(
-                evidence_id=fact_id,
+                evidence_id=lineage.artifact_evidence_id,
                 claim="Fit",
                 supports_option_ids=["send"],
                 supports_criterion_ids=["fit"],
-                lineage=fact_lineage,
+                lineage=lineage,
             )
+            for lineage in fact_lineages
         ],
     )
+    supporting_ids = [lineage.artifact_evidence_id for lineage in fact_lineages]
     output = {
         "recommendation": "send",
         "intervention_key": "sales.send_followup",
-        "supporting_evidence_ids": [fact_id],
+        "supporting_evidence_ids": supporting_ids,
         "option_scores": [{"option_id": "send"}],
         "uncertainty": [],
         "algorithm": {"name": "weighted_criterion_evidence_v1", "version": "1"},
@@ -179,7 +184,7 @@ def _snapshot_from_fact(
     result_lineage = EvidenceLineage(
         artifact_evidence_id=str(result_id),
         origin_type=EvidenceOriginType.SYSTEM_COMPUTATION,
-        parent_evidence_ids=(fact_id,),
+        parent_evidence_ids=result_parent_ids or tuple(supporting_ids),
         resolution=EvidenceLineageResolution.PARTIAL,
     )
     result_record = EvidenceRecord(
@@ -462,6 +467,40 @@ def test_arbitrary_partial_supporting_lineage_remains_partial_in_snapshot() -> N
         lineage for lineage in snapshot.evidence_lineages if lineage.artifact_evidence_id == "partial-fact"
     )
     assert preserved.resolution == EvidenceLineageResolution.PARTIAL
+
+
+def test_recommendation_result_stays_partial_when_parent_set_omits_supporting_fact() -> None:
+    fact_a = _source_lineage("A").model_copy(update={"artifact_evidence_id": "A"})
+    fact_b = _source_lineage("B").model_copy(update={"artifact_evidence_id": "B"})
+    snapshot = _snapshot_from_fact(
+        fact_id="A",
+        fact_lineage=fact_a,
+        additional_fact_lineages=(fact_b,),
+        result_parent_ids=("A",),
+    )
+    result_lineage = next(
+        lineage
+        for lineage in snapshot.evidence_lineages
+        if lineage.origin_type == EvidenceOriginType.SYSTEM_COMPUTATION
+    )
+    assert result_lineage.resolution == EvidenceLineageResolution.PARTIAL
+
+
+def test_recommendation_result_becomes_known_when_complete_parent_set_is_known() -> None:
+    fact_a = _source_lineage("A").model_copy(update={"artifact_evidence_id": "A"})
+    fact_b = _source_lineage("B").model_copy(update={"artifact_evidence_id": "B"})
+    snapshot = _snapshot_from_fact(
+        fact_id="A",
+        fact_lineage=fact_a,
+        additional_fact_lineages=(fact_b,),
+        result_parent_ids=("A", "B"),
+    )
+    result_lineage = next(
+        lineage
+        for lineage in snapshot.evidence_lineages
+        if lineage.origin_type == EvidenceOriginType.SYSTEM_COMPUTATION
+    )
+    assert result_lineage.resolution == EvidenceLineageResolution.KNOWN
 
 
 def test_source_to_derived_to_derived_forms_one_lineage_family_without_repeated_roots() -> None:
