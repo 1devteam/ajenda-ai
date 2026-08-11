@@ -5,6 +5,8 @@ from itertools import permutations
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
+
 from backend.services.ontology.decision_feedback import (
     ConfidenceCalibrationAssessment,
     ConfidenceCalibrationStatus,
@@ -35,7 +37,6 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
-from pydantic import ValidationError
 
 
 def signal(

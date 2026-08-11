@@ -16,6 +16,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal, cast
 
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 from backend.services.ontology.decision_feedback import (
     DecisionEffectivenessStatus,
     DecisionLearningSignal,
@@ -24,7 +26,6 @@ from backend.services.ontology.decision_feedback import (
 )
 from backend.services.ontology.observation_attribution import ObservationTimeProvenance
 from backend.services.ontology.outcome import AttributionAssessment
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 EXPERIENCE_INTELLIGENCE_SCHEMA_VERSION = 1
 EXPERIENCE_INTELLIGENCE_ALGORITHM = "experience_equivalence_recurrence_v1"
