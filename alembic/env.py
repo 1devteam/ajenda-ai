@@ -17,6 +17,8 @@ from backend.domain import (  # noqa: F401
     ExecutionBranch,
     ExecutionTask,
     GovernanceEvent,
+    KnowledgeArtifactRecord,
+    KnowledgeQualificationRecord,
     LineageRecord,
     Mission,
     OutcomeReview,

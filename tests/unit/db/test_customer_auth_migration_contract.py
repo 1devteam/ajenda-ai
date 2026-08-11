@@ -13,7 +13,7 @@ def test_customer_auth_migration_is_current_head_and_short_revision_id() -> None
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0036_composition_thread"]
+    assert heads == ["0037_knowledge_ledger"]
     assert len(heads[0]) <= 32
 
 

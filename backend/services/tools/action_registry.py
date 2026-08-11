@@ -238,6 +238,7 @@ def build_default_action_registry() -> ActionRegistry:
     from backend.services.tools.google_calendar_actions import register_google_calendar_actions
     from backend.services.tools.gtm_actions import register_gtm_actions
     from backend.services.tools.http_actions import register_http_actions
+    from backend.services.tools.knowledge_actions import register_knowledge_actions
     from backend.services.tools.linkedin_actions import register_linkedin_actions
     from backend.services.tools.provider_read_actions import register_provider_read_actions
     from backend.services.tools.retrieval_actions import register_retrieval_actions
@@ -264,6 +265,7 @@ def build_default_action_registry() -> ActionRegistry:
     register_web_actions(registry)
     register_decision_actions(registry)
     register_analysis_actions(registry)
+    register_knowledge_actions(registry)
     registry.freeze()
     return registry
 
