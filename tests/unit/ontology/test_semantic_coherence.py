@@ -440,29 +440,41 @@ def test_partial_lineage_requires_clue_and_overlap_precedes_partial_status() -> 
     assert independence(separate) == IndependenceStatus.PARTIALLY_INDEPENDENT
 
 
+def test_parent_only_known_derived_lineage_is_rejected() -> None:
+    with pytest.raises(ValueError, match="known derived lineage requires"):
+        EvidenceLineage(
+            artifact_evidence_id="derived",
+            origin_type=EvidenceOriginType.DERIVED_FACT,
+            parent_evidence_ids=("parent",),
+            resolution=EvidenceLineageResolution.KNOWN,
+        )
+
+
+def test_arbitrary_partial_supporting_lineage_remains_partial_in_snapshot() -> None:
+    partial = EvidenceLineage(
+        artifact_evidence_id="partial-fact",
+        origin_type=EvidenceOriginType.DERIVED_FACT,
+        parent_evidence_ids=("unresolved-parent",),
+        resolution=EvidenceLineageResolution.PARTIAL,
+    )
+    snapshot = _snapshot_from_fact(fact_id="partial-fact", fact_lineage=partial)
+    preserved = next(
+        lineage for lineage in snapshot.evidence_lineages if lineage.artifact_evidence_id == "partial-fact"
+    )
+    assert preserved.resolution == EvidenceLineageResolution.PARTIAL
+
+
 def test_source_to_derived_to_derived_forms_one_lineage_family_without_repeated_roots() -> None:
     goal = _goal("goal-family", "increase_reply_rate")
     signature = goal_semantic_signature(goal, [_kpi(goal.goal_id, "reply_rate")])
-    lineages = (
-        EvidenceLineage(
-            artifact_evidence_id="A",
-            origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
-            source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="deal-123"),
-            resolution=EvidenceLineageResolution.KNOWN,
-        ),
-        EvidenceLineage(
-            artifact_evidence_id="B",
-            origin_type=EvidenceOriginType.DERIVED_FACT,
-            parent_evidence_ids=("A",),
-            resolution=EvidenceLineageResolution.KNOWN,
-        ),
-        EvidenceLineage(
-            artifact_evidence_id="C",
-            origin_type=EvidenceOriginType.DERIVED_FACT,
-            parent_evidence_ids=("B",),
-            resolution=EvidenceLineageResolution.KNOWN,
-        ),
+    source = EvidenceLineage(
+        artifact_evidence_id="A",
+        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+        source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="deal-123"),
+        resolution=EvidenceLineageResolution.KNOWN,
     )
+    derived_b = derived_evidence_lineage(artifact_evidence_id="B", parent=source)
+    lineages = (source, derived_b, derived_evidence_lineage(artifact_evidence_id="C", parent=derived_b))
     result = evaluate_experience_set(
         [
             ExperienceEpisodeInput(
@@ -553,12 +565,7 @@ def test_snapshot_preserves_direct_derivation_across_decisions() -> None:
         source_identity=EvidenceSourceIdentity(source_system="crm", source_record_id="deal:123"),
         resolution=EvidenceLineageResolution.KNOWN,
     )
-    derived = EvidenceLineage(
-        artifact_evidence_id="B",
-        origin_type=EvidenceOriginType.DERIVED_FACT,
-        parent_evidence_ids=("A",),
-        resolution=EvidenceLineageResolution.KNOWN,
-    )
+    derived = derived_evidence_lineage(artifact_evidence_id="B", parent=source)
     snapshot_a = _snapshot_from_fact(fact_id="A", fact_lineage=source)
     snapshot_b = _snapshot_from_fact(fact_id="B", fact_lineage=derived)
     goal = _goal("derived-goal", "increase_reply_rate")

@@ -68,6 +68,7 @@ def _relevant_lineages(
 
     if len(result_lineages) != 1:
         raise ValueError("decision snapshot requires exactly one matching durable recommendation result")
+    result_artifact_id = result_lineages[0].artifact_evidence_id
 
     input_lineages = [
         fact.lineage
@@ -81,16 +82,41 @@ def _relevant_lineages(
         if existing is not None and existing != lineage:
             raise ValueError("conflicting lineage contracts for one evidence artifact")
         by_artifact[lineage.artifact_evidence_id] = lineage
-    for artifact_id, lineage in tuple(by_artifact.items()):
-        if (
-            lineage.resolution == EvidenceLineageResolution.PARTIAL
-            and lineage.parent_evidence_ids
-            and all(
-                parent_id in by_artifact and by_artifact[parent_id].resolution == EvidenceLineageResolution.KNOWN
-                for parent_id in lineage.parent_evidence_ids
+    result_lineage = by_artifact[result_artifact_id]
+    if (
+        result_lineage.resolution == EvidenceLineageResolution.PARTIAL
+        and result_lineage.parent_evidence_ids
+        and all(
+            parent_id in by_artifact and by_artifact[parent_id].resolution == EvidenceLineageResolution.KNOWN
+            for parent_id in result_lineage.parent_evidence_ids
+        )
+    ):
+        parents = [by_artifact[parent_id] for parent_id in result_lineage.parent_evidence_ids]
+        roots = tuple(sorted({root for parent in parents for root in parent.root_evidence_ids}))
+        ancestors = tuple(
+            sorted(
+                {
+                    identity
+                    for parent in parents
+                    for identity in (
+                        parent.artifact_evidence_id,
+                        *parent.parent_evidence_ids,
+                        *parent.ancestor_evidence_ids,
+                    )
+                }
             )
-        ):
-            by_artifact[artifact_id] = lineage.model_copy(update={"resolution": EvidenceLineageResolution.KNOWN})
+        )
+        source_identities = {parent.source_identity for parent in parents if parent.source_identity is not None}
+        source_identity = next(iter(source_identities)) if len(source_identities) == 1 else None
+        by_artifact[result_artifact_id] = EvidenceLineage(
+            **result_lineage.model_dump(
+                exclude={"source_identity", "root_evidence_ids", "ancestor_evidence_ids", "resolution"}
+            ),
+            source_identity=source_identity,
+            root_evidence_ids=roots,
+            ancestor_evidence_ids=ancestors,
+            resolution=EvidenceLineageResolution.KNOWN,
+        )
     return tuple(by_artifact[key] for key in sorted(by_artifact))
 
 

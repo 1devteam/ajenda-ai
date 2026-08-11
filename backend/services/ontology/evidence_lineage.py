@@ -78,6 +78,14 @@ class EvidenceLineage(BaseModel):
         )
         if self.resolution == EvidenceLineageResolution.KNOWN and not has_identity:
             raise ValueError("known lineage requires source, root, parent, or ancestor identity")
+        derived_like = self.origin_type in {
+            EvidenceOriginType.DERIVED_FACT,
+            EvidenceOriginType.AGGREGATION,
+            EvidenceOriginType.SYSTEM_COMPUTATION,
+        }
+        has_closure = bool(self.source_identity or self.root_evidence_ids or self.ancestor_evidence_ids)
+        if self.resolution == EvidenceLineageResolution.KNOWN and derived_like and not has_closure:
+            raise ValueError("known derived lineage requires source, root, or ancestor closure")
         if self.resolution == EvidenceLineageResolution.PARTIAL and not has_identity:
             raise ValueError("partial lineage requires source, root, parent, or ancestor identity")
         if self.resolution == EvidenceLineageResolution.UNKNOWN and has_identity:
