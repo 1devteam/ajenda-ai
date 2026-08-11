@@ -38,6 +38,7 @@ def knowledge_record_qualification(invocation: ToolInvocation, context: ActionRu
             activate_tenant_session(session, context.tenant_id)
             write = record_knowledge_qualification(session, tenant_id=context.tenant_id, result=payload.result)
             session.commit()
+            write = write.model_copy(update={"persistence_committed": True})
         except Exception:
             session.rollback()
             raise

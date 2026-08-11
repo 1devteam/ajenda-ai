@@ -17,6 +17,9 @@ PostgreSQL tenant session, and commits the qualification and optional artifact i
 replay returns the existing row references. Reusing an identity for a different owner-model payload fails closed.
 A result without a proposition is not ledger eligible and performs no database operation.
 
+The ledger service reports writes as staged (`persistence_committed=false`) because it does not own its caller's
+transaction. Only the action boundary changes that flag to true, and only after the primary-session commit succeeds.
+
 The action is a disabled-by-default, approval-required `INTERNAL_WRITE`. Its `action_result_evidence` reports only
 what persistence changed; it makes no claim about lifecycle authority, recommendation, policy, or behavior.
 

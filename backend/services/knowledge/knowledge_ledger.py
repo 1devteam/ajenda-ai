@@ -145,5 +145,5 @@ def record_knowledge_qualification(
         artifact_record_id=artifact_record.id if artifact_record else None,
         qualification_created=qualification_append.created,
         artifact_created=artifact_created,
-        persistence_committed=True,
+        persistence_committed=False,
     )

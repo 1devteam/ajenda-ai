@@ -1,7 +1,9 @@
+from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
 
+from backend.services.knowledge import KnowledgeLedgerWriteResult, KnowledgeLedgerWriteStatus
 from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
@@ -46,3 +48,66 @@ def test_propositionless_result_is_reported_ineligible_without_session() -> None
     assert action_result.output["persistence_committed"] is False
     assert action_result.records_changed == []
     assert action_result.evidence[0].evidence_type == "action_result_evidence"
+
+
+def test_successful_action_commit_is_the_only_source_of_committed_truth(monkeypatch) -> None:
+    result = qualify_pattern_knowledge(candidate())
+    session = Mock()
+    staged = KnowledgeLedgerWriteResult(
+        status=KnowledgeLedgerWriteStatus.RECORDED,
+        qualification_id=result.qualification_id,
+        proposition_key=result.proposition.proposition_key,
+        qualification_record_id=uuid4(),
+        knowledge_id=result.qualified_knowledge.knowledge_id,
+        artifact_record_id=uuid4(),
+        qualification_created=True,
+        artifact_created=True,
+        persistence_committed=False,
+    )
+    monkeypatch.setattr(
+        "backend.services.tools.knowledge_actions.record_knowledge_qualification", Mock(return_value=staged)
+    )
+    invocation = ToolInvocation(
+        action="knowledge.record_qualification", input={"result": result.model_dump(mode="json")}
+    )
+
+    action_result = get_default_action_registry(rebuild=True).invoke(
+        invocation, _context(session_factory=Mock(return_value=session))
+    )
+
+    session.commit.assert_called_once_with()
+    session.rollback.assert_not_called()
+    session.close.assert_called_once_with()
+    assert action_result.output["persistence_committed"] is True
+    assert action_result.evidence[0].structured_payload["persistence_committed"] is True
+
+
+def test_commit_failure_rolls_back_and_returns_no_success(monkeypatch) -> None:
+    result = qualify_pattern_knowledge(candidate())
+    session = Mock()
+    session.commit.side_effect = RuntimeError("commit failed")
+    staged = KnowledgeLedgerWriteResult(
+        status=KnowledgeLedgerWriteStatus.RECORDED,
+        qualification_id=result.qualification_id,
+        proposition_key=result.proposition.proposition_key,
+        qualification_record_id=uuid4(),
+        knowledge_id=result.qualified_knowledge.knowledge_id,
+        artifact_record_id=uuid4(),
+        qualification_created=True,
+        artifact_created=True,
+        persistence_committed=False,
+    )
+    monkeypatch.setattr(
+        "backend.services.tools.knowledge_actions.record_knowledge_qualification", Mock(return_value=staged)
+    )
+    invocation = ToolInvocation(
+        action="knowledge.record_qualification", input={"result": result.model_dump(mode="json")}
+    )
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        get_default_action_registry(rebuild=True).invoke(
+            invocation, _context(session_factory=Mock(return_value=session))
+        )
+
+    session.rollback.assert_called_once_with()
+    session.close.assert_called_once_with()
