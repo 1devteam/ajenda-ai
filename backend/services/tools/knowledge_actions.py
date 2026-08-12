@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from backend.db.tenant_session import activate_tenant_session
 from backend.services.knowledge.knowledge_ledger import record_knowledge_qualification
 from backend.services.knowledge.knowledge_lifecycle import resolve_current_knowledge_state
+from backend.services.knowledge.knowledge_retrieval import KnowledgeRetrievalQuery, retrieve_current_knowledge
 from backend.services.ontology.knowledge_qualification import KnowledgeQualificationResult
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.schemas import (
@@ -29,6 +30,12 @@ class ResolveCurrentKnowledgeStateInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     proposition_key: str
+
+
+class RetrieveCurrentKnowledgeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: KnowledgeRetrievalQuery
 
 
 def knowledge_record_qualification(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
@@ -143,6 +150,65 @@ def knowledge_resolve_current_state(invocation: ToolInvocation, context: ActionR
     )
 
 
+def knowledge_retrieve_current(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = RetrieveCurrentKnowledgeInput.model_validate(invocation.input)
+    if context.session_factory is None:
+        raise RuntimeError("knowledge retrieval requires a primary session factory")
+    session = context.session_factory()
+    try:
+        activate_tenant_session(session, context.tenant_id)
+        result = retrieve_current_knowledge(session, tenant_id=context.tenant_id, query=payload.query)
+    finally:
+        session.close()
+    output = result.model_dump(mode="json")
+    proposition_keys = [item.proposition.proposition_key for item in result.matches]
+    knowledge_ids = [artifact.knowledge_id for item in result.matches for artifact in item.authoritative_artifacts]
+    qualification_ids = [
+        artifact.qualification_id for item in result.matches for artifact in item.authoritative_artifacts
+    ]
+    records_inspected = [
+        *(f"knowledge_proposition:{item}" for item in proposition_keys),
+        *(f"knowledge_qualification:{item}" for item in qualification_ids),
+        *(f"knowledge_artifact:{item}" for item in knowledge_ids),
+    ]
+    evidence_payload = {
+        "retrieval_id": result.retrieval_id,
+        "candidate_proposition_count": result.candidate_proposition_count,
+        "active_proposition_count": result.active_proposition_count,
+        "semantic_match_count": result.semantic_match_count,
+        "matched_proposition_keys": proposition_keys,
+        "authoritative_knowledge_ids": knowledge_ids,
+        "goal_comparison_statuses": [item.goal_comparison.status.value for item in result.matches],
+        "algorithm": result.algorithm,
+        "epistemic_limits": list(result.epistemic_limits),
+    }
+    summary = f"Current semantic knowledge matches: {result.semantic_match_count}"
+    evidence = EvidenceItem(
+        evidence_type="action_result_evidence",
+        evidence_source="knowledge_retrieval",
+        action_name="knowledge.retrieve_current",
+        tool_provider="ajenda_knowledge",
+        tenant_id=context.tenant_id,
+        task_id=str(context.task_id),
+        mission_id=str(context.mission_id) if context.mission_id else None,
+        summary=summary,
+        structured_payload=evidence_payload,
+        records_inspected=records_inspected,
+        limitations=list(result.epistemic_limits),
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+    )
+    return ActionResult(
+        action="knowledge.retrieve_current",
+        provider="ajenda_knowledge",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+        output=output,
+        evidence=[evidence],
+        records_inspected=records_inspected,
+        summary=summary,
+        limitations=list(result.epistemic_limits),
+    )
+
+
 class _NoMutationSession:
     """Sentinel proving proposition-less results cannot access persistence."""
 
@@ -158,6 +224,15 @@ def register_knowledge_actions(registry: ActionRegistry) -> None:
             provider="ajenda_knowledge",
             input_model=RecordKnowledgeQualificationInput,
             side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="knowledge.retrieve_current",
+            handler=knowledge_retrieve_current,
+            provider="ajenda_knowledge",
+            input_model=RetrieveCurrentKnowledgeInput,
+            side_effect_class=SideEffectClass.INTERNAL_READ,
         )
     )
     registry.register(

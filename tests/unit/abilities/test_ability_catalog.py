@@ -143,3 +143,13 @@ def test_knowledge_lifecycle_manifest_is_governed_internal_read() -> None:
     assert manifest.approval_required is False
     assert manifest.evidence_required is True
     assert manifest.enabled_by_default is False
+
+
+def test_knowledge_retrieval_manifest_is_disabled_internal_read() -> None:
+    manifest = ABILITY_MANIFESTS_BY_ACTION["knowledge.retrieve_current"]
+    assert manifest.ability_id == "knowledge-retrieve-current"
+    assert manifest.provider == "ajenda_knowledge"
+    assert manifest.side_effect_class == SideEffectClass.INTERNAL_READ
+    assert manifest.approval_required is False
+    assert manifest.evidence_required is True
+    assert manifest.enabled_by_default is False

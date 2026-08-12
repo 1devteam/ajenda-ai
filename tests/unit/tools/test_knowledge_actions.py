@@ -8,8 +8,12 @@ from backend.services.knowledge import (
     KnowledgeLedgerWriteResult,
     KnowledgeLedgerWriteStatus,
     KnowledgeLifecycleStatus,
+    KnowledgeRetrievalQuery,
+    KnowledgeRetrievalResult,
 )
+from backend.services.ontology.commercial_state import GoalSemanticSignature
 from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
+from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
 from tests.unit.ontology.test_knowledge_qualification import candidate
@@ -35,6 +39,35 @@ def test_knowledge_lifecycle_action_is_registered_as_internal_read() -> None:
     definition = get_default_action_registry(rebuild=True).get("knowledge.resolve_current_state")
     assert definition.provider == "ajenda_knowledge"
     assert definition.side_effect_class == SideEffectClass.INTERNAL_READ
+
+
+def test_knowledge_retrieval_action_is_read_only_and_uses_context_tenant(monkeypatch) -> None:
+    query = KnowledgeRetrievalQuery(
+        subject_semantic_signatures=(BusinessObjectSemanticSignature(object_type=BusinessObjectType.OPPORTUNITY),),
+        goal_semantic_signature=GoalSemanticSignature(objective_key="increase_conversion"),
+    )
+    retrieval = KnowledgeRetrievalResult(
+        query=query,
+        matches=(),
+        candidate_proposition_count=0,
+        active_proposition_count=0,
+        semantic_match_count=0,
+        retrieval_id="knowledge-retrieval-v1:test",
+        reason_codes=("no_current_semantic_knowledge_match",),
+    )
+    service = Mock(return_value=retrieval)
+    monkeypatch.setattr("backend.services.tools.knowledge_actions.retrieve_current_knowledge", service)
+    session = Mock()
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(action="knowledge.retrieve_current", input={"query": query.model_dump(mode="json")}),
+        _context(session_factory=Mock(return_value=session)),
+    )
+    service.assert_called_once_with(session, tenant_id="tenant-A", query=query)
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+    session.close.assert_called_once_with()
+    assert result.side_effect_class == SideEffectClass.INTERNAL_READ
+    assert result.evidence[0].structured_payload["retrieval_id"] == retrieval.retrieval_id
 
 
 def test_knowledge_lifecycle_action_uses_context_tenant_and_emits_evidence(monkeypatch) -> None:

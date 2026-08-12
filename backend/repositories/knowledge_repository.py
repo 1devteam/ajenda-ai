@@ -10,6 +10,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from backend.domain.knowledge import KnowledgeArtifactRecord, KnowledgeQualificationRecord
+from backend.services.ontology.commercial_state import GoalSemanticSignature
+from backend.services.ontology.knowledge_qualification import KnowledgeRelationshipType
+from backend.services.ontology.types import BusinessObjectSemanticSignature
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +70,67 @@ class KnowledgeRepository:
                     KnowledgeArtifactRecord.tenant_id == tenant_id,
                     KnowledgeArtifactRecord.qualification_record_id.in_(tuple(qualification_record_ids)),
                 )
+            )
+        )
+
+    def list_candidate_proposition_keys_for_retrieval(
+        self,
+        *,
+        tenant_id: str,
+        subject_semantic_signatures: Sequence[BusinessObjectSemanticSignature],
+        goal_semantic_signature: GoalSemanticSignature,
+        intervention_keys: Sequence[str],
+        relationship_types: Sequence[KnowledgeRelationshipType],
+    ) -> list[str]:
+        """Mechanically narrow candidates; semantic inclusion remains service-owned."""
+
+        clauses = [
+            KnowledgeArtifactRecord.tenant_id == tenant_id,
+            KnowledgeArtifactRecord.proposition_payload.contains(
+                {"subject_semantic_signatures": [item.model_dump(mode="json") for item in subject_semantic_signatures]}
+            ),
+        ]
+        clauses.append(
+            KnowledgeArtifactRecord.proposition_payload["relationship_type"].astext.in_(
+                tuple(item.value for item in relationship_types)
+            )
+        )
+        if goal_semantic_signature.objective_key is not None:
+            clauses.append(
+                KnowledgeArtifactRecord.proposition_payload["objective_key"].astext
+                == goal_semantic_signature.objective_key
+            )
+        else:
+            clauses.append(
+                KnowledgeArtifactRecord.proposition_payload.contains(
+                    {"kpi_semantic_signatures": [item.model_dump(mode="json") for item in goal_semantic_signature.kpis]}
+                )
+            )
+        if intervention_keys:
+            clauses.append(
+                KnowledgeArtifactRecord.proposition_payload["intervention_key"].astext.in_(tuple(intervention_keys))
+            )
+        statement = (
+            select(KnowledgeArtifactRecord.proposition_key)
+            .where(*clauses)
+            .distinct()
+            .order_by(KnowledgeArtifactRecord.proposition_key)
+        )
+        return list(self._session.scalars(statement))
+
+    def list_artifacts_for_knowledge_ids(
+        self, *, tenant_id: str, knowledge_ids: Sequence[str]
+    ) -> list[KnowledgeArtifactRecord]:
+        if not knowledge_ids:
+            return []
+        return list(
+            self._session.scalars(
+                select(KnowledgeArtifactRecord)
+                .where(
+                    KnowledgeArtifactRecord.tenant_id == tenant_id,
+                    KnowledgeArtifactRecord.knowledge_id.in_(tuple(knowledge_ids)),
+                )
+                .order_by(KnowledgeArtifactRecord.knowledge_id)
             )
         )
 
