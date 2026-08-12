@@ -24,7 +24,7 @@ Route / service admission
 
 The system also has intentional non-runtime lanes. These include declarative contracts, read models, staged mission bridge routes, and future provider boundaries. These should not be treated as bugs merely because they do not execute work.
 
-Mission queue authority is consolidated behind `MissionRuntimeQueueAdmissionService.admit()`. `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical authority surface. `POST /v1/missions/{mission_id}/queue` remains only as a deprecated compatibility wrapper: it invokes the same canonical service, persists the same admission metadata, and projects only the legacy three-field response.
+Mission queue authority is consolidated in `MissionRuntimeQueueAdmissionService.admit()`. `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical API entrypoint, not a second authority. `POST /v1/missions/{mission_id}/queue` remains only as a deprecated compatibility adapter: it invokes the same service, persists the same admission metadata through that service, and projects only the legacy three-field response.
 
 ## Classification vocabulary
 
@@ -165,7 +165,7 @@ This section defines the fourteen subsystem lanes used for future Ajenda impleme
 - **Current status:** live runtime-authoritative admission.
 - **Authority layer(s):** `runtime_authoritative`.
 - **Source-of-truth files:** `backend/services/execution_coordinator.py`, `backend/queue/base.py`, `backend/queue/local_adapter.py`, `docs/contracts/authority-ledger.v1.yaml`.
-- **Entry points:** `ExecutionCoordinator.queue_task()`, `MissionExecutor.queue_all_planned_tasks()`, `MissionRuntimeQueueAdmissionService.admit()`, `/v1/tasks/*` queue routes, and mission queue/admission routes.
+- **Entry points:** `ExecutionCoordinator.queue_task()`, `MissionRuntimeQueueAdmissionService.admit()`, `/v1/tasks/*` queue routes, and mission queue/admission routes. `MissionExecutor.queue_all_planned_tasks()` remains library code but has no supported mission API caller and is not a mission admission authority.
 - **Allowed effects:** evaluate runtime governor/policy, move eligible planned tasks to queued, call `QueueAdapter.enqueue_task()`, persist denial/pending-review/queue outcomes and audit/governance events.
 - **Forbidden effects:** bypassing `ExecutionCoordinator`, treating denial/pending-review as broken runtime, leaving false queued DB state after enqueue failure, direct route/service `QueueAdapter` calls outside explicit authority, or collapsing success/denial/review/failure into one result.
 - **Contract chain:** planned task -> coordinator policy/governor -> DB queued transition and queue enqueue -> compensation on enqueue failure -> queued work becomes claimable.
@@ -507,7 +507,7 @@ Payload-provided `allowed_hosts` remains an explicit request constraint, but it 
 
 ## Mission queue authority
 
-There are two API surfaces backed by one canonical mission queue-admission implementation.
+There are two API surfaces backed by one mission queue-admission authority. In this section, **runtime authority** means the service that enforces and mutates admission, **adapter** means an HTTP surface that authenticates and translates, and **metadata contract** means the receipt describing the completed decision. None of those terms describes a future boundary unless it is explicitly labelled as such.
 
 ### `POST /v1/missions/{mission_id}/queue` compatibility wrapper
 
@@ -519,7 +519,7 @@ Current meaning:
 - It adapts the canonical result to the legacy `queued_task_ids`, `pending_review_task_ids`, and `denied_tasks` response only.
 - It does not create execution tasks, create or mutate leases, dispatch workers, invoke `TaskDispatcher`, or execute handlers/adapters.
 
-### `POST /v1/missions/{mission_id}/runtime-queue-admission` owned by `backend/services/mission_runtime_queue_admission_service.py::MissionRuntimeQueueAdmissionService.admit`
+### `POST /v1/missions/{mission_id}/runtime-queue-admission` canonical API adapter to `MissionRuntimeQueueAdmissionService.admit`
 
 Current meaning:
 
@@ -533,13 +533,13 @@ Current meaning:
 
 ### Shared queue authority gate
 
-This is not a queue-authority overlap: both routes invoke the same canonical service, which reaches `ExecutionCoordinator.queue_task()`.
+This is not a queue-authority overlap: both routes invoke the same authoritative service, which reaches `ExecutionCoordinator.queue_task()`.
 
 `ExecutionCoordinator.queue_task()` remains the shared queue authority gate. It owns RuntimeGovernor denial, PolicyGuardian pending-review routing, and DB-to-queue consistency for enqueue success or enqueue failure. Queue success is the only true queued result; governed non-queue outcomes are not broken runtime.
 
 ### Correct interpretation
 
-The product decision is implemented: `POST /v1/missions/{mission_id}/runtime-queue-admission` is canonical, while `POST /v1/missions/{mission_id}/queue` is a response-compatibility wrapper over the same authority implementation.
+The product decision is implemented: `MissionRuntimeQueueAdmissionService.admit()` owns mission lookup under a tenant-scoped row lock, current-materialization eligibility, one quota decision for newly queueable tasks, coordinator-backed queue transitions, already-queued idempotency, and the persisted/returned admission receipt. `POST /v1/missions/{mission_id}/runtime-queue-admission` is canonical only as an API entrypoint; `POST /v1/missions/{mission_id}/queue` is a response-compatibility adapter over the same authority.
 
 ## Known drift candidates and decisions needed
 
@@ -645,10 +645,10 @@ Use this checklist to open or reconcile repo issues before implementation.
 ### Mission queue authority
 
 - Preserve dedicated authority-ledger coverage for `POST /v1/missions/{mission_id}/queue`.
-- Preserve tests proving `POST /v1/missions/{mission_id}/queue` reaches `ExecutionCoordinator.queue_task()`.
-- Preserve tests proving `POST /v1/missions/{mission_id}/queue` does not write staged runtime queue admission metadata.
-- Preserve tests proving `POST /v1/missions/{mission_id}/runtime-queue-admission` owns staged metadata, receipts, blockers, admitted IDs, already queued IDs, and runtime authority details.
-- Preserve the product decision that `POST /v1/missions/{mission_id}/queue` is retained as a compatibility/convenience mission launch shortcut and is not a competing runtime engine.
+- Preserve tests proving both mission API entrypoints delegate to `MissionRuntimeQueueAdmissionService.admit()`.
+- Preserve tests proving the compatibility route only projects the canonical result and cannot perform a second quota decision or queue transition.
+- Preserve tests proving the service owns staged metadata, receipts, blockers, admitted IDs, already queued IDs, and runtime authority details.
+- Preserve the product decision that `POST /v1/missions/{mission_id}/queue` is retained as a response compatibility adapter and is not a competing runtime engine.
 
 ### Runtime bridge invariants
 

@@ -159,8 +159,11 @@ def test_post_v1_missions_mission_id_queue_route_has_dedicated_authority_coverag
 
     assert "id: post_v1_missions_mission_id_queue_compatibility_wrapper_contract" in block
     assert "side_effect_class: tenant_scoped_queue_admission_compatibility_wrapper" in block
+    assert "enforcement_role: api_adapter_only" in block
     assert "API compatibility wrapper" in block
     assert "MissionRuntimeQueueAdmissionService.admit()" in block
+    assert "sole runtime enforcement authority" in block
+    assert "route itself is only an authenticated API adapter" in block
     assert "call MissionExecutor.queue_all_planned_tasks()" in block
     assert "ExecutionCoordinator.queue_task()" in block
     assert "persists the same runtime_queue_admission metadata" in block
@@ -171,6 +174,8 @@ def test_post_v1_missions_mission_id_queue_route_has_dedicated_authority_coverag
 
     assert block != runtime_block
     assert "tenant_scoped_queue_admission_mutation" in runtime_block
+    assert "enforcement_role: canonical_api_adapter_to_service_authority" in runtime_block
+    assert "sole runtime admission authority" in runtime_block
     assert "persists runtime_queue_admission metadata, receipts, blockers" in runtime_block
     assert "MissionExecutor.queue_all_planned_tasks()" not in runtime_block
 
