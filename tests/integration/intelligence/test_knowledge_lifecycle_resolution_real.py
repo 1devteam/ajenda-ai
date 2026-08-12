@@ -48,8 +48,16 @@ def test_real_ledger_to_current_state_is_read_only_and_tenant_scoped(pg_engine) 
     with factory() as session:
         activate_tenant_session(session, tenant)
         before = (
-            session.scalar(select(func.count()).select_from(KnowledgeQualificationRecord)),
-            session.scalar(select(func.count()).select_from(KnowledgeArtifactRecord)),
+            session.scalar(
+                select(func.count())
+                .select_from(KnowledgeQualificationRecord)
+                .where(KnowledgeQualificationRecord.tenant_id == tenant)
+            ),
+            session.scalar(
+                select(func.count())
+                .select_from(KnowledgeArtifactRecord)
+                .where(KnowledgeArtifactRecord.tenant_id == tenant)
+            ),
         )
 
     resolved = registry.invoke(
@@ -78,7 +86,15 @@ def test_real_ledger_to_current_state_is_read_only_and_tenant_scoped(pg_engine) 
     with factory() as session:
         activate_tenant_session(session, tenant)
         after = (
-            session.scalar(select(func.count()).select_from(KnowledgeQualificationRecord)),
-            session.scalar(select(func.count()).select_from(KnowledgeArtifactRecord)),
+            session.scalar(
+                select(func.count())
+                .select_from(KnowledgeQualificationRecord)
+                .where(KnowledgeQualificationRecord.tenant_id == tenant)
+            ),
+            session.scalar(
+                select(func.count())
+                .select_from(KnowledgeArtifactRecord)
+                .where(KnowledgeArtifactRecord.tenant_id == tenant)
+            ),
         )
     assert after == before == (2, 1)
