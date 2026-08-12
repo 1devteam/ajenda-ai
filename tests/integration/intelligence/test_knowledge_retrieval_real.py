@@ -15,7 +15,11 @@ from backend.services.ontology.commercial_state import (
     KpiSemanticSignature,
 )
 from backend.services.ontology.experience_intelligence import ExperienceEpisodeInput, evaluate_experience_set
-from backend.services.ontology.knowledge_qualification import KnowledgeRelationshipType, qualify_pattern_knowledge
+from backend.services.ontology.knowledge_qualification import (
+    KnowledgeQualificationStatus,
+    KnowledgeRelationshipType,
+    qualify_pattern_knowledge,
+)
 from backend.services.ontology.observation_attribution import ObservationTimeProvenance
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
@@ -35,13 +39,19 @@ def _context(tenant: str, factory) -> ActionRuntimeContext:
     )
 
 
-def _qualification(*, intervention: str, indexes: tuple[int, ...], effective: bool = True):
+def _qualification(
+    *,
+    intervention: str,
+    indexes: tuple[int, ...],
+    effective: bool = True,
+    goal_semantics: GoalSemanticSignature | None = None,
+):
     episodes = []
     for index in indexes:
         owner_signal = signal(index, scope=("segment=smb",), invalidation=("market_changed",)).model_copy(
             update={
                 "intervention_key": intervention,
-                "goal_semantic_signature": GoalSemanticSignature(objective_key="increase_conversion"),
+                "goal_semantic_signature": goal_semantics or GoalSemanticSignature(objective_key="increase_conversion"),
             }
         )
         if not effective:
@@ -163,7 +173,7 @@ def test_real_intelligence_ledger_lifecycle_retrieval_path_is_current_read_only_
     assert hidden.output["candidate_proposition_count"] == 0
 
 
-def test_real_jsonb_goal_discovery_is_semantic_superset_and_preserves_partial_equivalence(pg_engine) -> None:
+def test_real_jsonb_goal_discovery_and_owner_produced_kpi_only_boundary(pg_engine) -> None:
     tenant = f"tenant-{uuid.uuid4()}"
     factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
     registry = get_default_action_registry(rebuild=True)
@@ -175,10 +185,10 @@ def test_real_jsonb_goal_discovery_is_semantic_superset_and_preserves_partial_eq
         objective_key="increase_conversion",
         kpi_semantic_signatures=(unrelated_kpi,),
     )
-    partial = _replace_proposition(
-        _qualification(intervention="partial_kpi", indexes=(40, 41, 42)),
-        objective_key=None,
-        kpi_semantic_signatures=(kpi,),
+    partial = _qualification(
+        intervention="partial_kpi",
+        indexes=(40, 41, 42),
+        goal_semantics=GoalSemanticSignature(kpis=(kpi,)),
     )
     overselected = _replace_proposition(
         _qualification(intervention="conflicting_objective", indexes=(50, 51, 52)),
@@ -191,6 +201,12 @@ def test_real_jsonb_goal_discovery_is_semantic_superset_and_preserves_partial_eq
         objective_key="unrelated",
         kpi_semantic_signatures=(unrelated_kpi,),
     )
+    assert partial.status == KnowledgeQualificationStatus.PROVISIONAL
+    assert partial.proposition is not None
+    assert partial.proposition.objective_key is None
+    assert partial.proposition.kpi_semantic_signatures == (kpi,)
+    assert partial.qualified_knowledge is None
+
     for qualification in (exact, partial, overselected, unrelated):
         registry.invoke(
             ToolInvocation(
@@ -199,6 +215,7 @@ def test_real_jsonb_goal_discovery_is_semantic_superset_and_preserves_partial_eq
             ),
             _context(tenant, factory),
         )
+    assert _tenant_counts(factory, tenant) == (4, 3)
 
     goal = GoalSemanticSignature(objective_key="increase_conversion", kpis=(kpi,))
     subjects = (BusinessObjectSemanticSignature(object_type=BusinessObjectType.OPPORTUNITY),)
@@ -214,7 +231,6 @@ def test_real_jsonb_goal_discovery_is_semantic_superset_and_preserves_partial_eq
     assert candidates == sorted(
         [
             exact.proposition.proposition_key,
-            partial.proposition.proposition_key,
             overselected.proposition.proposition_key,
         ]
     )
@@ -232,8 +248,9 @@ def test_real_jsonb_goal_discovery_is_semantic_superset_and_preserves_partial_eq
         _context(tenant, factory),
     )
     matched = {item["proposition"]["proposition_key"]: item for item in result.output["matches"]}
-    assert set(matched) == {exact.proposition.proposition_key, partial.proposition.proposition_key}
-    assert matched[partial.proposition.proposition_key]["goal_comparison"]["status"] == "partially_equivalent"
+    assert set(matched) == {exact.proposition.proposition_key}
+    assert partial.proposition.proposition_key not in candidates
+    assert partial.proposition.proposition_key not in matched
     assert result.output["inspection_trace"]["candidate_proposition_keys"] == candidates
-    assert result.output["semantic_match_count"] == 2
+    assert result.output["semantic_match_count"] == 1
     assert set(result.evidence[0].structured_payload["inspected_candidate_proposition_keys"]) == set(candidates)
