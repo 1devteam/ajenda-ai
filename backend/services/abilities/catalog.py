@@ -11,6 +11,7 @@ from backend.services.abilities.experience_manifests import EXPERIENCE_ABILITY_M
 from backend.services.abilities.knowledge_lifecycle_manifests import KNOWLEDGE_LIFECYCLE_ABILITY_MANIFESTS
 from backend.services.abilities.knowledge_manifests import KNOWLEDGE_ABILITY_MANIFESTS
 from backend.services.abilities.knowledge_persistence_manifests import KNOWLEDGE_PERSISTENCE_ABILITY_MANIFESTS
+from backend.services.abilities.knowledge_retrieval_manifests import KNOWLEDGE_RETRIEVAL_ABILITY_MANIFESTS
 from backend.services.abilities.manifest import AbilityManifest, AbilityRiskLevel
 from backend.services.tools.schemas import SideEffectClass
 
@@ -940,6 +941,7 @@ INTERNAL_ABILITY_MANIFESTS = (
     *KNOWLEDGE_ABILITY_MANIFESTS,
     *KNOWLEDGE_LIFECYCLE_ABILITY_MANIFESTS,
     *KNOWLEDGE_PERSISTENCE_ABILITY_MANIFESTS,
+    *KNOWLEDGE_RETRIEVAL_ABILITY_MANIFESTS,
 )
 
 ABILITY_MANIFESTS_BY_ACTION: dict[str, AbilityManifest] = {

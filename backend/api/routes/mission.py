@@ -18,7 +18,7 @@ from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_ses
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.permissions import Permission
 from backend.domain.compliance import is_supported_compliance_category, is_supported_jurisdiction
-from backend.domain.enums import ExecutionTaskState, MissionPlanStatus, MissionState
+from backend.domain.enums import MissionPlanStatus, MissionState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
@@ -107,7 +107,7 @@ from backend.services.mission_bridge.worker_start import (
     worker_start_admission_to_read as _worker_start_admission_to_read,
 )
 from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
-from backend.services.mission_executor import MissionExecutor
+from backend.services.mission_executor import MissionExecutor  # noqa: F401 - legacy test/patch compatibility
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
     validate_mission_intake_prompt,
@@ -2787,6 +2787,19 @@ def runtime_queue_admission(
 ) -> dict[str, object]:
     """Queue eligible planned tasks from the current runtime task materialization."""
     require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
+    return _admit_mission_runtime_queue(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        db=db,
+        queue=queue,
+    )
+
+
+def _admit_mission_runtime_queue(
+    *, mission_id: UUID, tenant_id: _uuid.UUID, db: Session, queue: QueueAdapter
+) -> dict[str, object]:
+    """Invoke the single canonical mission runtime queue-admission authority."""
+
     return MissionRuntimeQueueAdmissionService(
         db,
         queue,
@@ -2837,7 +2850,7 @@ def provision_mission_bridge_runtime_authority(
     "/{mission_id}/queue",
     response_model=MissionQueueResponse,
     deprecated=True,
-    summary="[Legacy] Queue planned tasks without staged runtime admission",
+    summary="[Legacy] Compatibility wrapper for runtime queue admission",
 )
 def queue_mission(
     mission_id: UUID,
@@ -2846,63 +2859,22 @@ def queue_mission(
     db: Session = Depends(get_tenant_db_session),
     queue: QueueAdapter = Depends(get_queue_adapter),
 ) -> dict[str, object]:
-    """Queue all planned tasks for a mission (legacy compat).
-
-    Prefer ``POST /v1/missions/{id}/runtime-queue-admission`` for staged missions
-    or ``POST /v1/ability-runtime/tasks`` for collapsed product launches.
-
-    Enforces task creation quota before queuing. The quota check uses the
-    actual number of tenant-owned planned tasks that will be enqueued — not a
-    flat 1 — so that tenants cannot bypass max_tasks_per_month by batching
-    large missions into a single call.
-
-    Returns HTTP 429 with structured body if the tenant has reached their
-    plan limit.
-    """
+    """Delegate to canonical runtime queue admission and project the legacy response."""
     logger.info(
         "legacy_mission_queue_route_used",
         extra={"mission_id": str(mission_id), "tenant_id": str(tenant_id), "legacy_route": "missions.queue"},
     )
     require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
-    # --- Count tenant-owned planned tasks that will actually be enqueued ---
-    task_repo = ExecutionTaskRepository(db)
-    all_tasks = task_repo.list_for_mission(mission_id=mission_id)
-    tenant_id_str = str(tenant_id)
-    planned_tasks = [
-        t for t in all_tasks if t.tenant_id == tenant_id_str and t.status == ExecutionTaskState.PLANNED.value
-    ]
-    planned_count = len(planned_tasks)
-
-    # --- Early return: no tenant-owned planned tasks, nothing to do ---
-    if planned_count == 0:
-        return {
-            "queued_task_ids": [],
-            "pending_review_task_ids": [],
-            "denied_tasks": [],
-        }
-
-    # --- Quota check: consume N quota units for N tenant-owned planned tasks ---
-    try:
-        QuotaEnforcementService(db).check_and_record_task_creation(tenant_id, count=planned_count)
-    except QuotaExceededError as exc:
-        raise _quota_exceeded_response(exc) from exc
-
-    executor = MissionExecutor(db, ExecutionCoordinator(db, queue))
-    try:
-        summary = executor.queue_all_planned_tasks(tenant_id=tenant_id_str, mission_id=mission_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    admission = _admit_mission_runtime_queue(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        db=db,
+        queue=queue,
+    )
     return {
-        "queued_task_ids": [str(task_id) for task_id in summary.queued_task_ids],
-        "pending_review_task_ids": [str(task_id) for task_id in summary.pending_review_task_ids],
-        "denied_tasks": [
-            {
-                "task_id": str(item.task_id),
-                "state": item.state,
-                "reason": item.reason,
-            }
-            for item in summary.denied_tasks
-        ],
+        "queued_task_ids": admission["queued_task_ids"],
+        "pending_review_task_ids": admission["pending_review_task_ids"],
+        "denied_tasks": admission["denied_tasks"],
     }
 
 

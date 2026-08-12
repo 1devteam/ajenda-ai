@@ -11,7 +11,7 @@ def test_outcome_review_migration_has_single_head_and_short_revision_id() -> Non
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0037_knowledge_ledger"]
+    assert heads == ["0038_knowledge_retrieval"]
     assert len(heads[0]) <= 32
 
 
