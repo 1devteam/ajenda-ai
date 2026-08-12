@@ -133,3 +133,13 @@ def test_knowledge_persistence_manifest_is_governed_internal_write() -> None:
     assert manifest.idempotency_required is False
     assert manifest.evidence_expectations == ("action_result_evidence",)
     assert manifest.enabled_by_default is False
+
+
+def test_knowledge_lifecycle_manifest_is_governed_internal_read() -> None:
+    manifest = ABILITY_MANIFESTS_BY_ACTION["knowledge.resolve_current_state"]
+    assert manifest.ability_id == "knowledge-resolve-current-state"
+    assert manifest.provider == "ajenda_knowledge"
+    assert manifest.side_effect_class == SideEffectClass.INTERNAL_READ
+    assert manifest.approval_required is False
+    assert manifest.evidence_required is True
+    assert manifest.enabled_by_default is False

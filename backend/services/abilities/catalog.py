@@ -8,6 +8,7 @@ runtime authority.
 from __future__ import annotations
 
 from backend.services.abilities.experience_manifests import EXPERIENCE_ABILITY_MANIFESTS
+from backend.services.abilities.knowledge_lifecycle_manifests import KNOWLEDGE_LIFECYCLE_ABILITY_MANIFESTS
 from backend.services.abilities.knowledge_manifests import KNOWLEDGE_ABILITY_MANIFESTS
 from backend.services.abilities.knowledge_persistence_manifests import KNOWLEDGE_PERSISTENCE_ABILITY_MANIFESTS
 from backend.services.abilities.manifest import AbilityManifest, AbilityRiskLevel
@@ -937,6 +938,7 @@ INTERNAL_ABILITY_MANIFESTS = (
     *INTERNAL_ABILITY_MANIFESTS,
     *EXPERIENCE_ABILITY_MANIFESTS,
     *KNOWLEDGE_ABILITY_MANIFESTS,
+    *KNOWLEDGE_LIFECYCLE_ABILITY_MANIFESTS,
     *KNOWLEDGE_PERSISTENCE_ABILITY_MANIFESTS,
 )
 

@@ -3,7 +3,12 @@ from uuid import uuid4
 
 import pytest
 
-from backend.services.knowledge import KnowledgeLedgerWriteResult, KnowledgeLedgerWriteStatus
+from backend.services.knowledge import (
+    CurrentKnowledgeState,
+    KnowledgeLedgerWriteResult,
+    KnowledgeLedgerWriteStatus,
+    KnowledgeLifecycleStatus,
+)
 from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
@@ -24,6 +29,46 @@ def test_knowledge_action_is_registered_as_governed_internal_write() -> None:
     definition = get_default_action_registry(rebuild=True).get("knowledge.record_qualification")
     assert definition.provider == "ajenda_knowledge"
     assert definition.side_effect_class == SideEffectClass.INTERNAL_WRITE
+
+
+def test_knowledge_lifecycle_action_is_registered_as_internal_read() -> None:
+    definition = get_default_action_registry(rebuild=True).get("knowledge.resolve_current_state")
+    assert definition.provider == "ajenda_knowledge"
+    assert definition.side_effect_class == SideEffectClass.INTERNAL_READ
+
+
+def test_knowledge_lifecycle_action_uses_context_tenant_and_emits_evidence(monkeypatch) -> None:
+    session = Mock()
+    state = CurrentKnowledgeState(
+        proposition_key="proposition-A",
+        lifecycle_status=KnowledgeLifecycleStatus.ABSENT,
+        evaluation_frontier=None,
+        authoritative_qualification_ids=(),
+        authoritative_knowledge_ids=(),
+        historical_qualification_count=0,
+        reason_codes=("no_qualification_history",),
+        lifecycle_projection_id="knowledge-lifecycle-v1:test",
+    )
+    resolver = Mock(return_value=state)
+    monkeypatch.setattr("backend.services.tools.knowledge_actions.resolve_current_knowledge_state", resolver)
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(action="knowledge.resolve_current_state", input={"proposition_key": "proposition-A"}),
+        _context(session_factory=Mock(return_value=session)),
+    )
+
+    resolver.assert_called_once_with(session, tenant_id="tenant-A", proposition_key="proposition-A")
+    session.commit.assert_not_called()
+    session.close.assert_called_once_with()
+    assert result.output["lifecycle_status"] == "absent"
+    assert result.evidence[0].structured_payload["algorithm"] == "knowledge_lifecycle_resolution_v1"
+    assert result.side_effect_class == SideEffectClass.INTERNAL_READ
+
+
+def test_knowledge_lifecycle_action_fails_closed_without_primary_session_factory() -> None:
+    invocation = ToolInvocation(action="knowledge.resolve_current_state", input={"proposition_key": "proposition-A"})
+    with pytest.raises(RuntimeError, match="primary session factory"):
+        get_default_action_registry(rebuild=True).invoke(invocation, _context())
 
 
 def test_knowledge_action_fails_closed_without_primary_session_factory() -> None:
