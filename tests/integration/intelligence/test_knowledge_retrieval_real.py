@@ -201,7 +201,7 @@ def test_real_jsonb_goal_discovery_and_owner_produced_kpi_only_boundary(pg_engin
         objective_key="unrelated",
         kpi_semantic_signatures=(unrelated_kpi,),
     )
-    assert partial.status == KnowledgeQualificationStatus.PROVISIONAL
+    assert partial.status == KnowledgeQualificationStatus.INSUFFICIENT
     assert partial.proposition is not None
     assert partial.proposition.objective_key is None
     assert partial.proposition.kpi_semantic_signatures == (kpi,)
