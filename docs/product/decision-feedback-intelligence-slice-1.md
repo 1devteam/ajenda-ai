@@ -94,12 +94,14 @@ belong to Experience Intelligence, not this slice.
 
 ## Abilities
 
-- `analysis.evaluate_decision_effectiveness`
-- `analysis.extract_decision_learning_signal`
+- `analysis.materialize_decision_learning_signal`
 
-Both are registered with `SideEffectClass.NONE`, require action-result evidence, and have
-matching `AbilityManifest` entries. They do not persist, execute, dispatch, compose, or
-alter runtime behavior.
+The registered production action accepts durable evidence identities, delegates historical
+reconstruction to `DecisionEpisodeMaterializationService`, and emits the existing learning
+signal through action-result evidence. The earlier typed-object handlers remain pure helper
+functions but are intentionally absent from the production registry because caller-supplied
+snapshots and outcomes are not historical authority. The materialization action has
+`SideEffectClass.INTERNAL_READ`; persistence remains owned by the runtime EvidenceBridge path.
 
 ## Boundaries
 
