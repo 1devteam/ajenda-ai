@@ -42,12 +42,41 @@ class DecisionEpisodeMaterializationRequest(BaseModel):
     execution_evidence_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
 
 
+class DecisionEpisodeInspectionTrace(BaseModel):
+    """Immutable inventory of repository records read during materialization."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    recommendation_evidence_id: str
+    recommendation_execution_task_id: str
+    supporting_evidence_ids: tuple[str, ...] = ()
+    outcome_evaluation_evidence_id: str
+    execution_evidence_ids: tuple[str, ...] = ()
+
+    def resource_references(self) -> list[str]:
+        """Return deterministic, typed, de-duplicated inspection references."""
+
+        evidence_ids = sorted(
+            {
+                self.recommendation_evidence_id,
+                *self.supporting_evidence_ids,
+                self.outcome_evaluation_evidence_id,
+                *self.execution_evidence_ids,
+            }
+        )
+        return [
+            *(f"evidence:{evidence_id}" for evidence_id in evidence_ids),
+            f"execution_task:{self.recommendation_execution_task_id}",
+        ]
+
+
 class DecisionEpisodeMaterializationResult(BaseModel):
     """The canonical feedback result and the durable artifacts that establish it."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     episode_reference: DecisionEpisodeReference
+    inspection_trace: DecisionEpisodeInspectionTrace
     feedback: DecisionFeedbackResult
 
 
@@ -140,9 +169,10 @@ class DecisionEpisodeMaterializationService:
         raw_supporting_ids = recommendation.structured_payload.get("supporting_evidence_ids", [])
         if not isinstance(raw_supporting_ids, list) or not all(isinstance(item, str) for item in raw_supporting_ids):
             raise ValueError("recommendation supporting evidence identities must be a list of UUID strings")
+        supporting_ids = sorted({self._uuid(item) for item in raw_supporting_ids}, key=str)
         supporting = [
-            self._required_evidence(tenant_id=tenant_id, evidence_id=self._uuid(item), role="supporting")
-            for item in raw_supporting_ids
+            self._required_evidence(tenant_id=tenant_id, evidence_id=evidence_id, role="supporting")
+            for evidence_id in supporting_ids
         ]
         self._require_same_mission(recommendation, supporting, "supporting evidence")
         facts_by_id = {fact.evidence_id: fact for fact in recommendation_input.evidence}
@@ -188,9 +218,10 @@ class DecisionEpisodeMaterializationService:
         if outcome.observed_at is not None and outcome.observed_at < decided_at:
             raise ValueError("outcome observation cannot precede the durable decision event")
 
+        execution_ids_to_resolve = sorted(set(request.execution_evidence_ids), key=str)
         execution_records = [
-            self._required_evidence(tenant_id=tenant_id, evidence_id=item, role="execution")
-            for item in request.execution_evidence_ids
+            self._required_evidence(tenant_id=tenant_id, evidence_id=evidence_id, role="execution")
+            for evidence_id in execution_ids_to_resolve
         ]
         self._require_same_mission(recommendation, execution_records, "execution evidence")
         execution = self._execution_observation(snapshot.intervention_key, execution_records)
@@ -227,7 +258,18 @@ class DecisionEpisodeMaterializationService:
             episode_reference=reference,
             evaluated_at=outcome.evaluated_at,
         )
-        return DecisionEpisodeMaterializationResult(episode_reference=reference, feedback=feedback)
+        inspection_trace = DecisionEpisodeInspectionTrace(
+            recommendation_evidence_id=str(recommendation.id),
+            recommendation_execution_task_id=str(recommendation.execution_task_id),
+            supporting_evidence_ids=tuple(sorted({str(record.id) for record in supporting})),
+            outcome_evaluation_evidence_id=str(outcome_record.id),
+            execution_evidence_ids=execution_ids,
+        )
+        return DecisionEpisodeMaterializationResult(
+            episode_reference=reference,
+            inspection_trace=inspection_trace,
+            feedback=feedback,
+        )
 
     def _required_evidence(self, *, tenant_id: str, evidence_id: uuid.UUID, role: str) -> EvidenceRecord:
         record = self._evidence.get_for_tenant(evidence_id=evidence_id, tenant_id=tenant_id)

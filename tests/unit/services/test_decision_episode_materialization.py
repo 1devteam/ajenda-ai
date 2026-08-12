@@ -11,6 +11,7 @@ import pytest
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.services.decision_episode_materialization import (
+    DecisionEpisodeInspectionTrace,
     DecisionEpisodeMaterializationRequest,
     DecisionEpisodeMaterializationService,
     decision_id_for_recommendation,
@@ -22,7 +23,7 @@ from backend.services.ontology.evidence_lineage import (
 )
 from backend.services.ontology.outcome import AttributionAssessment, OutcomeEvaluation, OutcomeStatus
 from backend.services.tools.action_registry import get_default_action_registry
-from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
+from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
 
 TENANT = "tenant-a"
 MISSION = uuid.uuid4()
@@ -249,6 +250,25 @@ def test_request_contract_has_no_caller_authored_semantic_identity() -> None:
         )
 
 
+def test_inspection_trace_is_deterministic_typed_and_deduplicated() -> None:
+    trace = DecisionEpisodeInspectionTrace(
+        recommendation_evidence_id="recommendation",
+        recommendation_execution_task_id="task",
+        supporting_evidence_ids=("support-b", "support-a", "support-a"),
+        outcome_evaluation_evidence_id="outcome",
+        execution_evidence_ids=("execution", "support-b"),
+    )
+
+    assert trace.resource_references() == [
+        "evidence:execution",
+        "evidence:outcome",
+        "evidence:recommendation",
+        "evidence:support-a",
+        "evidence:support-b",
+        "execution_task:task",
+    ]
+
+
 def test_registered_action_emits_existing_signal_for_evidence_bridge() -> None:
     service, request, _ = _fixture()
     materialized = service.materialize(tenant_id=TENANT, request=request)
@@ -277,7 +297,15 @@ def test_registered_action_emits_existing_signal_for_evidence_bridge() -> None:
         )
 
     assert result.output == materialized.feedback.learning_signal.model_dump(mode="json")
+    assert result.side_effect_class == SideEffectClass.INTERNAL_READ
+    assert result.evidence[0].side_effect_class == SideEffectClass.INTERNAL_READ
     assert result.evidence[0].structured_payload == result.output
     assert result.evidence[0].provenance["evidence_role"] == "decision_learning_signal"
     assert result.evidence[0].records_inspected == result.records_inspected
+    assert result.records_inspected == materialized.inspection_trace.resource_references()
+    assert f"evidence:{request.recommendation_evidence_id}" in result.records_inspected
+    assert (
+        f"execution_task:{materialized.episode_reference.recommendation_execution_task_id}" in result.records_inspected
+    )
+    session.execute.assert_called_once()
     session.close.assert_called_once_with()

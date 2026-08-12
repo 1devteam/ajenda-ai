@@ -1316,7 +1316,7 @@ authority_entries:
       - backend/services/tools/analysis_actions.py
     route_scope: []
     authority_class: read_model
-    side_effect_class: tenant_scoped_durable_evidence_read_and_deterministic_projection
+    side_effect_class: internal_read_tenant_scoped_durable_evidence_and_deterministic_projection
     allowed_side_effects:
       - resolve tenant-owned recommendation, execution, and outcome EvidenceRecords
       - act as the sole owner of durable decision-to-learning episode reconstruction
@@ -1328,5 +1328,6 @@ authority_entries:
       - dispatch work or bypass TaskDispatcher, WorkerRuntimeService, queue, or lease authority
     required_proofs:
       - tests/unit/services/test_decision_episode_materialization.py
+      - tests/integration/intelligence/test_decision_episode_materialization_real.py
       - tests/unit/architecture/test_authority_ledger_contract.py
       - tests/unit/tools/test_evidence_bridge.py

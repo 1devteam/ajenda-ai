@@ -101,7 +101,7 @@ reconstruction to `DecisionEpisodeMaterializationService`, and emits the existin
 signal through action-result evidence. The earlier typed-object handlers remain pure helper
 functions but are intentionally absent from the production registry because caller-supplied
 snapshots and outcomes are not historical authority. The materialization action has
-`SideEffectClass.NONE`; persistence remains owned by the runtime EvidenceBridge path.
+`SideEffectClass.INTERNAL_READ`; persistence remains owned by the runtime EvidenceBridge path.
 
 ## Boundaries
 

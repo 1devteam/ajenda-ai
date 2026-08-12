@@ -80,10 +80,10 @@ def test_external_write_send_manifests_require_idempotency() -> None:
             assert manifest.idempotency_required is True
 
 
-def test_decision_feedback_actions_have_non_side_effecting_manifests() -> None:
+def test_decision_materialization_manifest_declares_internal_read() -> None:
     manifest = ABILITY_MANIFESTS_BY_ACTION["analysis.materialize_decision_learning_signal"]
     assert manifest.provider == "ajenda_analysis"
-    assert manifest.side_effect_class == SideEffectClass.NONE
+    assert manifest.side_effect_class == SideEffectClass.INTERNAL_READ
     assert manifest.evidence_required is True
     assert manifest.evidence_expectations == ("action_result_evidence",)
     assert "analysis.evaluate_decision_effectiveness" not in ABILITY_MANIFESTS_BY_ACTION

@@ -19,6 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.decision_episode_materialization import (
@@ -148,6 +149,7 @@ def analysis_materialize_decision_learning_signal(
     payload = DecisionEpisodeMaterializationRequest.model_validate(invocation.input)
     session = context.session_factory()
     try:
+        activate_tenant_session(session, context.tenant_id)
         materialized = DecisionEpisodeMaterializationService(
             evidence=EvidenceRepository(session),
             tasks=ExecutionTaskRepository(session),
@@ -157,12 +159,13 @@ def analysis_materialize_decision_learning_signal(
     if context.mission_id is None or str(context.mission_id) != materialized.episode_reference.mission_id:
         raise ValueError("materialization task mission must match the durable decision episode mission")
     signal = materialized.feedback.learning_signal
+    records_inspected = materialized.inspection_trace.resource_references()
     output = signal.model_dump(mode="json")
     summary = f"Materialized authoritative learning signal {signal.signal_id} for decision {signal.decision_id}."
     return ActionResult(
         action="analysis.materialize_decision_learning_signal",
         provider="ajenda_analysis",
-        side_effect_class=SideEffectClass.NONE,
+        side_effect_class=SideEffectClass.INTERNAL_READ,
         output=output,
         evidence=[
             EvidenceItem(
@@ -175,11 +178,7 @@ def analysis_materialize_decision_learning_signal(
                 mission_id=str(context.mission_id) if context.mission_id is not None else None,
                 summary=summary,
                 structured_payload=output,
-                records_inspected=[
-                    materialized.episode_reference.recommendation_evidence_id,
-                    materialized.episode_reference.outcome_evaluation_evidence_id,
-                    *materialized.episode_reference.execution_evidence_ids,
-                ],
+                records_inspected=records_inspected,
                 confidence=signal.effectiveness.confidence,
                 provenance={
                     "runtime_path": "TaskDispatcher -> tool.invoke -> DecisionEpisodeMaterializationService",
@@ -187,14 +186,10 @@ def analysis_materialize_decision_learning_signal(
                     "evidence_role": "decision_learning_signal",
                     "episode_id": materialized.episode_reference.episode_id,
                 },
-                side_effect_class=SideEffectClass.NONE,
+                side_effect_class=SideEffectClass.INTERNAL_READ,
             )
         ],
-        records_inspected=[
-            materialized.episode_reference.recommendation_evidence_id,
-            materialized.episode_reference.outcome_evaluation_evidence_id,
-            *materialized.episode_reference.execution_evidence_ids,
-        ],
+        records_inspected=records_inspected,
         summary=summary,
         confidence=signal.effectiveness.confidence,
     )
@@ -454,7 +449,7 @@ def register_analysis_actions(registry: ActionRegistry) -> None:
             handler=analysis_materialize_decision_learning_signal,
             provider="ajenda_analysis",
             input_model=DecisionEpisodeMaterializationRequest,
-            side_effect_class=SideEffectClass.NONE,
+            side_effect_class=SideEffectClass.INTERNAL_READ,
         )
     )
     registry.register(
