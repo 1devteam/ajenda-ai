@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -95,17 +95,19 @@ class KnowledgeRepository:
                 tuple(item.value for item in relationship_types)
             )
         )
+        goal_candidate_clauses = []
         if goal_semantic_signature.objective_key is not None:
-            clauses.append(
+            goal_candidate_clauses.append(
                 KnowledgeArtifactRecord.proposition_payload["objective_key"].astext
                 == goal_semantic_signature.objective_key
             )
-        else:
-            clauses.append(
+        if goal_semantic_signature.kpis:
+            goal_candidate_clauses.append(
                 KnowledgeArtifactRecord.proposition_payload.contains(
                     {"kpi_semantic_signatures": [item.model_dump(mode="json") for item in goal_semantic_signature.kpis]}
                 )
             )
+        clauses.append(or_(*goal_candidate_clauses))
         if intervention_keys:
             clauses.append(
                 KnowledgeArtifactRecord.proposition_payload["intervention_key"].astext.in_(tuple(intervention_keys))

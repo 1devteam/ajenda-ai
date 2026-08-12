@@ -163,13 +163,11 @@ def knowledge_retrieve_current(invocation: ToolInvocation, context: ActionRuntim
     output = result.model_dump(mode="json")
     proposition_keys = [item.proposition.proposition_key for item in result.matches]
     knowledge_ids = [artifact.knowledge_id for item in result.matches for artifact in item.authoritative_artifacts]
-    qualification_ids = [
-        artifact.qualification_id for item in result.matches for artifact in item.authoritative_artifacts
-    ]
+    trace = result.inspection_trace
     records_inspected = [
-        *(f"knowledge_proposition:{item}" for item in proposition_keys),
-        *(f"knowledge_qualification:{item}" for item in qualification_ids),
-        *(f"knowledge_artifact:{item}" for item in knowledge_ids),
+        *(f"knowledge_proposition:{item}" for item in trace.candidate_proposition_keys),
+        *(f"knowledge_qualification:{item}" for item in trace.authoritative_qualification_ids),
+        *(f"knowledge_artifact:{item}" for item in trace.artifact_knowledge_ids_loaded),
     ]
     evidence_payload = {
         "retrieval_id": result.retrieval_id,
@@ -181,6 +179,10 @@ def knowledge_retrieve_current(invocation: ToolInvocation, context: ActionRuntim
         "goal_comparison_statuses": [item.goal_comparison.status.value for item in result.matches],
         "algorithm": result.algorithm,
         "epistemic_limits": list(result.epistemic_limits),
+        "inspected_candidate_proposition_keys": list(trace.candidate_proposition_keys),
+        "inspected_lifecycle_projection_ids": list(trace.lifecycle_projection_ids),
+        "inspected_authoritative_qualification_ids": list(trace.authoritative_qualification_ids),
+        "inspected_artifact_knowledge_ids": list(trace.artifact_knowledge_ids_loaded),
     }
     summary = f"Current semantic knowledge matches: {result.semantic_match_count}"
     evidence = EvidenceItem(

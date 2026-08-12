@@ -8,6 +8,7 @@ from backend.services.knowledge import (
     KnowledgeLedgerWriteResult,
     KnowledgeLedgerWriteStatus,
     KnowledgeLifecycleStatus,
+    KnowledgeRetrievalInspectionTrace,
     KnowledgeRetrievalQuery,
     KnowledgeRetrievalResult,
 )
@@ -53,6 +54,12 @@ def test_knowledge_retrieval_action_is_read_only_and_uses_context_tenant(monkeyp
         active_proposition_count=0,
         semantic_match_count=0,
         retrieval_id="knowledge-retrieval-v1:test",
+        inspection_trace=KnowledgeRetrievalInspectionTrace(
+            candidate_proposition_keys=("candidate-rejected", "candidate-match"),
+            lifecycle_projection_ids=("projection-rejected", "projection-match"),
+            authoritative_qualification_ids=("qualification-rejected", "qualification-match"),
+            artifact_knowledge_ids_loaded=("artifact-rejected", "artifact-match"),
+        ),
         reason_codes=("no_current_semantic_knowledge_match",),
     )
     service = Mock(return_value=retrieval)
@@ -68,6 +75,18 @@ def test_knowledge_retrieval_action_is_read_only_and_uses_context_tenant(monkeyp
     session.close.assert_called_once_with()
     assert result.side_effect_class == SideEffectClass.INTERNAL_READ
     assert result.evidence[0].structured_payload["retrieval_id"] == retrieval.retrieval_id
+    assert result.records_inspected == [
+        "knowledge_proposition:candidate-match",
+        "knowledge_proposition:candidate-rejected",
+        "knowledge_qualification:qualification-match",
+        "knowledge_qualification:qualification-rejected",
+        "knowledge_artifact:artifact-match",
+        "knowledge_artifact:artifact-rejected",
+    ]
+    assert result.evidence[0].structured_payload["inspected_lifecycle_projection_ids"] == [
+        "projection-match",
+        "projection-rejected",
+    ]
 
 
 def test_knowledge_lifecycle_action_uses_context_tenant_and_emits_evidence(monkeypatch) -> None:

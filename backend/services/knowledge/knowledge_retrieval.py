@@ -7,7 +7,7 @@ import json
 from collections.abc import Sequence
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from backend.domain.knowledge import KnowledgeArtifactRecord
@@ -44,6 +44,36 @@ class KnowledgeRetrievalQuery(BaseModel):
         KnowledgeRelationshipType.ASSOCIATED_WITH_FAVORABLE_OUTCOME,
     )
 
+    @field_validator("subject_semantic_signatures")
+    @classmethod
+    def canonicalize_subjects(
+        cls, values: tuple[BusinessObjectSemanticSignature, ...]
+    ) -> tuple[BusinessObjectSemanticSignature, ...]:
+        return tuple(sorted(set(values), key=lambda item: item.object_type.value))
+
+    @field_validator("goal_semantic_signature")
+    @classmethod
+    def canonicalize_goal(cls, value: GoalSemanticSignature) -> GoalSemanticSignature:
+        kpis = tuple(
+            sorted(
+                set(value.kpis),
+                key=lambda item: (item.metric, item.direction.value, item.normalized_unit or ""),
+            )
+        )
+        return GoalSemanticSignature(objective_key=value.objective_key, kpis=kpis)
+
+    @field_validator("intervention_keys")
+    @classmethod
+    def canonicalize_interventions(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(values)))
+
+    @field_validator("relationship_types")
+    @classmethod
+    def canonicalize_relationships(
+        cls, values: tuple[KnowledgeRelationshipType, ...]
+    ) -> tuple[KnowledgeRelationshipType, ...]:
+        return tuple(sorted(set(values), key=lambda item: item.value))
+
     @model_validator(mode="after")
     def validate_semantic_bounds(self) -> KnowledgeRetrievalQuery:
         if not self.subject_semantic_signatures:
@@ -72,6 +102,26 @@ class RetrievedKnowledgeMatch(BaseModel):
     is_decision_instruction: Literal[False] = False
 
 
+class KnowledgeRetrievalInspectionTrace(BaseModel):
+    """Deterministic identifiers at Retrieval's owned composition boundaries."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    candidate_proposition_keys: tuple[str, ...] = ()
+    lifecycle_projection_ids: tuple[str, ...] = ()
+    authoritative_qualification_ids: tuple[str, ...] = ()
+    artifact_knowledge_ids_loaded: tuple[str, ...] = ()
+
+    @field_validator(
+        "candidate_proposition_keys",
+        "lifecycle_projection_ids",
+        "authoritative_qualification_ids",
+        "artifact_knowledge_ids_loaded",
+    )
+    @classmethod
+    def canonicalize_identifiers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(values)))
+
+
 class KnowledgeRetrievalResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     schema_version: Literal[1] = 1
@@ -81,6 +131,7 @@ class KnowledgeRetrievalResult(BaseModel):
     active_proposition_count: int
     semantic_match_count: int
     retrieval_id: str
+    inspection_trace: KnowledgeRetrievalInspectionTrace
     reason_codes: tuple[str, ...] = ()
     epistemic_limits: tuple[str, ...] = ()
     algorithm: str = KNOWLEDGE_RETRIEVAL_ALGORITHM
@@ -150,15 +201,9 @@ def match_current_knowledge(
 
 
 def _retrieval_id(query: KnowledgeRetrievalQuery, matches: Sequence[RetrievedKnowledgeMatch]) -> str:
-    query_payload = query.model_dump(mode="json")
-    query_payload["subject_semantic_signatures"] = sorted(
-        query_payload["subject_semantic_signatures"], key=lambda item: json.dumps(item, sort_keys=True)
-    )
-    query_payload["intervention_keys"] = sorted(set(query_payload["intervention_keys"]))
-    query_payload["relationship_types"] = sorted(set(query_payload["relationship_types"]))
     payload = {
         "algorithm": KNOWLEDGE_RETRIEVAL_ALGORITHM,
-        "query": query_payload,
+        "query": query.model_dump(mode="json"),
         "matches": [
             {
                 "proposition_key": item.proposition.proposition_key,
@@ -202,14 +247,21 @@ def retrieve_current_knowledge(
     )
     matches: list[RetrievedKnowledgeMatch] = []
     active_count = 0
-    for key in sorted(set(keys)):
+    candidate_keys = tuple(sorted(set(keys)))
+    lifecycle_projection_ids: list[str] = []
+    authoritative_qualification_ids: list[str] = []
+    artifact_knowledge_ids_loaded: list[str] = []
+    for key in candidate_keys:
         state = resolve_current_knowledge_state(session, tenant_id=tenant_id, proposition_key=key)
+        lifecycle_projection_ids.append(state.lifecycle_projection_id)
+        authoritative_qualification_ids.extend(state.authoritative_qualification_ids)
         if state.lifecycle_status != KnowledgeLifecycleStatus.ACTIVE or not state.authoritative_knowledge_ids:
             continue
         active_count += 1
         records = repository.list_artifacts_for_knowledge_ids(
             tenant_id=tenant_id, knowledge_ids=state.authoritative_knowledge_ids
         )
+        artifact_knowledge_ids_loaded.extend(record.knowledge_id for record in records)
         artifacts = [_validate_artifact_record(record) for record in records]
         match = match_current_knowledge(query=query, current_state=state, artifacts=artifacts)
         if match is not None:
@@ -220,10 +272,16 @@ def retrieve_current_knowledge(
     return KnowledgeRetrievalResult(
         query=query,
         matches=ordered,
-        candidate_proposition_count=len(set(keys)),
+        candidate_proposition_count=len(candidate_keys),
         active_proposition_count=active_count,
         semantic_match_count=len(ordered),
         retrieval_id=_retrieval_id(query, ordered),
+        inspection_trace=KnowledgeRetrievalInspectionTrace(
+            candidate_proposition_keys=candidate_keys,
+            lifecycle_projection_ids=tuple(lifecycle_projection_ids),
+            authoritative_qualification_ids=tuple(authoritative_qualification_ids),
+            artifact_knowledge_ids_loaded=tuple(artifact_knowledge_ids_loaded),
+        ),
         reason_codes=reasons,
         epistemic_limits=limits,
     )
