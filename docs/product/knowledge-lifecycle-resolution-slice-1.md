@@ -12,6 +12,12 @@ The pure resolver accepts frozen `KnowledgeLifecycleHistoryItem` values and retu
 proposition and its qualification-linked artifacts, fails closed on corrupt payloads or linkage, and invokes the
 pure resolver.
 
+Artifact discovery follows `qualification_record_id`, the database foreign-key relationship, rather than copied
+semantic identity columns. After discovery, the adapter validates every copied qualification, proposition, source,
+algorithm, and artifact identity against the linked qualification and owner payloads. Empty history must be resolved
+with an explicit `proposition_key`; absence therefore retains the identity of the proposition that is absent and
+produces a proposition-specific projection identity.
+
 ## Deterministic chronology
 
 `evaluation_watermark` is the sole epistemic chronology. The maximum known watermark defines the current frontier;

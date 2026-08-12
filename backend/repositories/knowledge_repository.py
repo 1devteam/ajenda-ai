@@ -54,16 +54,18 @@ class KnowledgeRepository:
             )
         )
 
-    def list_artifacts_for_qualification_ids(
-        self, *, tenant_id: str, qualification_ids: Sequence[str]
+    def list_artifacts_for_qualification_record_ids(
+        self, *, tenant_id: str, qualification_record_ids: Sequence[uuid.UUID]
     ) -> list[KnowledgeArtifactRecord]:
-        if not qualification_ids:
+        """Find artifacts through their authoritative relational linkage."""
+
+        if not qualification_record_ids:
             return []
         return list(
             self._session.scalars(
                 select(KnowledgeArtifactRecord).where(
                     KnowledgeArtifactRecord.tenant_id == tenant_id,
-                    KnowledgeArtifactRecord.qualification_id.in_(tuple(qualification_ids)),
+                    KnowledgeArtifactRecord.qualification_record_id.in_(tuple(qualification_record_ids)),
                 )
             )
         )

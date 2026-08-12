@@ -115,20 +115,22 @@ def _projection_id(
 
 
 def _resolve(
-    history: Sequence[KnowledgeLifecycleHistoryItem], *, empty_proposition_key: str = ""
+    history: Sequence[KnowledgeLifecycleHistoryItem], *, proposition_key: str | None = None
 ) -> CurrentKnowledgeState:
     items = tuple(KnowledgeLifecycleHistoryItem.model_validate(item) for item in history)
     if not items:
+        if proposition_key is None:
+            raise ValueError("proposition_key is required when lifecycle history is empty")
         status = KnowledgeLifecycleStatus.ABSENT
         return CurrentKnowledgeState(
-            proposition_key=empty_proposition_key,
+            proposition_key=proposition_key,
             lifecycle_status=status,
             evaluation_frontier=None,
             authoritative_qualification_ids=(),
             authoritative_knowledge_ids=(),
             historical_qualification_count=0,
             reason_codes=("no_qualification_history",),
-            lifecycle_projection_id=_projection_id(empty_proposition_key, None, (), (), status),
+            lifecycle_projection_id=_projection_id(proposition_key, None, (), (), status),
         )
 
     proposition_keys = {
@@ -136,7 +138,10 @@ def _resolve(
     }
     if len(proposition_keys) != 1:
         raise ValueError("lifecycle history must contain exactly one proposition")
-    proposition_key = next(iter(proposition_keys))
+    history_proposition_key = next(iter(proposition_keys))
+    if proposition_key is not None and proposition_key != history_proposition_key:
+        raise ValueError("supplied proposition_key disagrees with lifecycle history")
+    proposition_key = history_proposition_key
 
     # A repeated semantic identity is a replay only when its complete semantic input agrees.
     distinct: dict[str, KnowledgeLifecycleHistoryItem] = {}
@@ -205,10 +210,12 @@ def _resolve(
     )
 
 
-def resolve_knowledge_lifecycle(history: Sequence[KnowledgeLifecycleHistoryItem]) -> CurrentKnowledgeState:
+def resolve_knowledge_lifecycle(
+    history: Sequence[KnowledgeLifecycleHistoryItem], *, proposition_key: str | None = None
+) -> CurrentKnowledgeState:
     """Resolve one proposition's current state without I/O, clocks, or mutation."""
 
-    return _resolve(history)
+    return _resolve(history, proposition_key=proposition_key)
 
 
 def _validate_record_payload(record: KnowledgeQualificationRecord) -> KnowledgeQualificationResult:
@@ -238,9 +245,13 @@ def _validate_artifact_record(
         raise KnowledgeLedgerIntegrityError("stored artifact payload violates its owner contract") from exc
     if (
         record.qualification_record_id != qualification_record.id
+        or record.qualification_id != qualification_record.qualification_id
+        or artifact.qualification_id != qualification_record.qualification_id
         or record.qualification_id != artifact.qualification_id
         or record.knowledge_id != artifact.knowledge_id
+        or record.proposition_key != qualification_record.proposition_key
         or record.proposition_key != artifact.proposition.proposition_key
+        or record.source_candidate_id != qualification_record.source_candidate_id
         or record.source_candidate_id != artifact.source_candidate_id
         or record.qualified_through_evaluated_at != artifact.qualified_through_evaluated_at
         or record.algorithm != artifact.algorithm
@@ -257,20 +268,20 @@ def resolve_current_knowledge_state(session: Session, *, tenant_id: str, proposi
     qualifications = repository.list_qualifications_for_proposition(
         tenant_id=tenant_id, proposition_key=proposition_key
     )
-    artifacts = repository.list_artifacts_for_qualification_ids(
+    artifacts = repository.list_artifacts_for_qualification_record_ids(
         tenant_id=tenant_id,
-        qualification_ids=[record.qualification_id for record in qualifications],
+        qualification_record_ids=[record.id for record in qualifications],
     )
-    artifacts_by_qualification: dict[str, KnowledgeArtifactRecord] = {}
+    artifacts_by_qualification_record: dict[uuid.UUID, KnowledgeArtifactRecord] = {}
     for artifact in artifacts:
-        if artifact.qualification_id in artifacts_by_qualification:
-            raise KnowledgeLedgerIntegrityError("qualification has multiple artifact records")
-        artifacts_by_qualification[artifact.qualification_id] = artifact
+        if artifact.qualification_record_id in artifacts_by_qualification_record:
+            raise KnowledgeLedgerIntegrityError("qualification record has multiple artifact records")
+        artifacts_by_qualification_record[artifact.qualification_record_id] = artifact
 
     history: list[KnowledgeLifecycleHistoryItem] = []
     for record in qualifications:
         qualification = _validate_record_payload(record)
-        artifact_record = artifacts_by_qualification.pop(record.qualification_id, None)
+        artifact_record = artifacts_by_qualification_record.pop(record.id, None)
         validated_artifact = _validate_artifact_record(artifact_record, record) if artifact_record else None
         try:
             history.append(
@@ -284,6 +295,6 @@ def resolve_current_knowledge_state(session: Session, *, tenant_id: str, proposi
             )
         except ValueError as exc:
             raise KnowledgeLedgerIntegrityError("ledger structure violates lifecycle contract") from exc
-    if artifacts_by_qualification:
+    if artifacts_by_qualification_record:
         raise KnowledgeLedgerIntegrityError("artifact rows are not linked to selected qualification history")
-    return _resolve(history, empty_proposition_key=proposition_key)
+    return resolve_knowledge_lifecycle(history, proposition_key=proposition_key)
