@@ -24,12 +24,7 @@ Route / service admission
 
 The system also has intentional non-runtime lanes. These include declarative contracts, read models, staged mission bridge routes, and future provider boundaries. These should not be treated as bugs merely because they do not execute work.
 
-The main verified drift risk is mission queue authority overlap:
-
-- `POST /v1/missions/{mission_id}/queue`, owned by `backend/api/routes/mission.py::queue_mission` and `backend/services/mission_executor.py::MissionExecutor.queue_all_planned_tasks`
-- `POST /v1/missions/{mission_id}/runtime-queue-admission`, owned by `backend/services/mission_runtime_queue_admission_service.py::MissionRuntimeQueueAdmissionService.admit`
-
-Both reach `ExecutionCoordinator.queue_task()`, so this is not a queue-authority bypass. The risk is semantic drift: `POST /v1/missions/{mission_id}/queue` is a compatibility/convenience mission launch shortcut that queues tenant-owned planned mission tasks without writing staged runtime admission metadata, while `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical staged runtime queue admission path and writes runtime_queue_admission receipts, blockers, admitted task IDs, already queued task IDs, and runtime authority metadata.
+Mission queue authority is consolidated behind `MissionRuntimeQueueAdmissionService.admit()`. `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical authority surface. `POST /v1/missions/{mission_id}/queue` remains only as a deprecated compatibility wrapper: it invokes the same canonical service, persists the same admission metadata, and projects only the legacy three-field response.
 
 ## Classification vocabulary
 
@@ -512,21 +507,17 @@ Payload-provided `allowed_hosts` remains an explicit request constraint, but it 
 
 ## Mission queue authority
 
-There are two active mission queue/admission paths with intentionally different ownership and outputs.
+There are two API surfaces backed by one canonical mission queue-admission implementation.
 
-### `POST /v1/missions/{mission_id}/queue` owned by `backend/api/routes/mission.py::queue_mission` and `backend/services/mission_executor.py::MissionExecutor.queue_all_planned_tasks`
+### `POST /v1/missions/{mission_id}/queue` compatibility wrapper
 
 Current meaning:
 
-- `POST /v1/missions/{mission_id}/queue` is a compatibility/convenience mission launch shortcut for old or simple clients that need to say “queue this mission’s planned work.”
-- `POST /v1/missions/{mission_id}/queue` requires `EXECUTION_QUEUE` before task repository, quota, or executor side effects.
-- `POST /v1/missions/{mission_id}/queue` counts and queues tenant-owned `PLANNED` mission tasks.
-- `POST /v1/missions/{mission_id}/queue` calls `MissionExecutor.queue_all_planned_tasks()`, which delegates each task queue attempt to `ExecutionCoordinator.queue_task()`.
-- `POST /v1/missions/{mission_id}/queue` returns only `queued_task_ids`, `pending_review_task_ids`, and `denied_tasks`.
-- `POST /v1/missions/{mission_id}/queue` remains coordinator-governed by RuntimeGovernor denial, PolicyGuardian pending-review routing, and queue/DB consistency in `ExecutionCoordinator.queue_task()`.
-- `POST /v1/missions/{mission_id}/queue` does not write `runtime_queue_admission` metadata or staged runtime admission receipts.
-- `POST /v1/missions/{mission_id}/queue` does not create worker leases, dispatch workers, invoke `TaskDispatcher`, or execute handlers/adapters.
-- `POST /v1/missions/{mission_id}/queue` must not be expanded into a competing runtime engine, CRM/GTM execution system, or replacement for `POST /v1/missions/{mission_id}/runtime-queue-admission`.
+- The route requires `EXECUTION_QUEUE`, then delegates to the same `MissionRuntimeQueueAdmissionService.admit()` implementation as the canonical endpoint.
+- It has no independent task selection, quota enforcement, `MissionExecutor`, or `ExecutionCoordinator` logic.
+- It therefore queues only current tenant/mission-owned materialized planned tasks and persists the same `runtime_queue_admission` receipts, blockers, and authority metadata.
+- It adapts the canonical result to the legacy `queued_task_ids`, `pending_review_task_ids`, and `denied_tasks` response only.
+- It does not create execution tasks, create or mutate leases, dispatch workers, invoke `TaskDispatcher`, or execute handlers/adapters.
 
 ### `POST /v1/missions/{mission_id}/runtime-queue-admission` owned by `backend/services/mission_runtime_queue_admission_service.py::MissionRuntimeQueueAdmissionService.admit`
 
@@ -542,20 +533,20 @@ Current meaning:
 
 ### Shared queue authority gate
 
-This is not a queue-authority bypass because both paths go through `ExecutionCoordinator.queue_task()`.
+This is not a queue-authority overlap: both routes invoke the same canonical service, which reaches `ExecutionCoordinator.queue_task()`.
 
 `ExecutionCoordinator.queue_task()` remains the shared queue authority gate. It owns RuntimeGovernor denial, PolicyGuardian pending-review routing, and DB-to-queue consistency for enqueue success or enqueue failure. Queue success is the only true queued result; governed non-queue outcomes are not broken runtime.
 
 ### Correct interpretation
 
-This is a semantic overlap / drift risk because the two paths have different meanings, metadata behavior, receipt behavior, blocker behavior, and downstream readiness implications. The product decision is to retain `POST /v1/missions/{mission_id}/queue` as a compatibility/convenience mission launch shortcut while preserving `POST /v1/missions/{mission_id}/runtime-queue-admission` as the canonical staged runtime queue admission path.
+The product decision is implemented: `POST /v1/missions/{mission_id}/runtime-queue-admission` is canonical, while `POST /v1/missions/{mission_id}/queue` is a response-compatibility wrapper over the same authority implementation.
 
 ## Known drift candidates and decisions needed
 
 | Area | Current status | Needed decision |
 |---|---|---|
-| `POST /v1/missions/{mission_id}/queue` and `POST /v1/missions/{mission_id}/runtime-queue-admission` | Verified overlap. Both call `ExecutionCoordinator.queue_task()`, but only `POST /v1/missions/{mission_id}/runtime-queue-admission` writes staged runtime_queue_admission metadata. | Product decision recorded: `POST /v1/missions/{mission_id}/queue` is retained as a compatibility/convenience mission launch shortcut, and `POST /v1/missions/{mission_id}/runtime-queue-admission` remains canonical staged runtime queue admission. |
-| `POST /v1/missions/{mission_id}/queue` authority ledger | `POST /v1/missions/{mission_id}/queue` is live and tested, and it reaches `ExecutionCoordinator.queue_task()` through `MissionExecutor.queue_all_planned_tasks()`. Dedicated authority-ledger coverage now records that it does not write runtime_queue_admission metadata, create worker leases, or dispatch handlers. | Preserve the distinction in tests and docs whenever either endpoint changes. |
+| Mission queue API surfaces | Authority is consolidated: both routes call `MissionRuntimeQueueAdmissionService.admit()` and write the same admission metadata; `/queue` only adapts the response. | Preserve delegation and response-projection tests. |
+| `POST /v1/missions/{mission_id}/queue` authority ledger | The route is classified as a compatibility wrapper over canonical runtime queue admission, not separate queue authority. | Preserve the wrapper boundary and legacy response shape. |
 | Mission task graph cleanup | Graph persistence is declarative, but replacement cleanup may cancel superseded planned materialized `ExecutionTask` rows. | Keep graph persistence tests separate from cleanup mutation tests and ensure UPG/runtime-state invariants cover cleanup. |
 | Mission route concentration | Runtime bridge mutation lanes now delegate to explicit services: `MissionRuntimeTaskMaterializationService`, `MissionRuntimeQueueAdmissionService`, `WorkerClaimAdmissionService`, `WorkerStartAdmissionService`, and `WorkerRunAdmissionService`; `backend/api/routes/mission.py` remains the route/auth/request/response wrapper. | Continue moving remaining response/read-model helpers out of the route when their contracts are separated. |
 | Declarative mutation audit policy | Business Profile explicitly appends audit events; other declarative contract lanes generally do not. | Decide whether this is intentional or whether all declarative mutations require audit events. |
@@ -589,9 +580,9 @@ Actions:
 
 1. Compare `POST /v1/missions/{mission_id}/queue` and `POST /v1/missions/{mission_id}/runtime-queue-admission`.
 2. Declare `POST /v1/missions/{mission_id}/runtime-queue-admission` canonical for staged runtime queue admission.
-3. Record that `POST /v1/missions/{mission_id}/queue` is retained with compatibility/convenience mission launch shortcut semantics.
+3. Record that `POST /v1/missions/{mission_id}/queue` is retained only as a compatibility response wrapper.
 4. Preserve authority-ledger coverage for `POST /v1/missions/{mission_id}/queue`.
-5. Preserve regression tests proving the compatibility/convenience mission launch shortcut and canonical staged runtime queue admission path stay distinct.
+5. Preserve regression tests proving both routes delegate to the same canonical implementation while their response envelopes remain compatible.
 
 ### Phase 2 — Lock current hardening gaps
 

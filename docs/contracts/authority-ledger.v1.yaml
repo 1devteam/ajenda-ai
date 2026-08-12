@@ -358,34 +358,34 @@ authority_entries:
       - tests/contract/api/test_task_queue_contract.py
       - tests/unit/services/test_mission_runtime_projection.py
 
-  - id: post_v1_missions_mission_id_queue_compatibility_convenience_contract
-    area: POST /v1/missions/{mission_id}/queue compatibility/convenience mission launch shortcut
+  - id: post_v1_missions_mission_id_queue_compatibility_wrapper_contract
+    area: POST /v1/missions/{mission_id}/queue compatibility wrapper for canonical runtime queue admission
     source_of_truth:
       - backend/api/routes/mission.py::queue_mission
-      - backend/services/mission_executor.py::MissionExecutor.queue_all_planned_tasks
+      - backend/api/routes/mission.py::_admit_mission_runtime_queue
+      - backend/services/mission_runtime_queue_admission_service.py::MissionRuntimeQueueAdmissionService.admit
       - backend/services/execution_coordinator.py::ExecutionCoordinator.queue_task
     route_scope:
       - POST /v1/missions/{mission_id}/queue
     authority_class: runtime_authoritative
-    side_effect_class: tenant_scoped_mission_queue_admission_mutation
+    side_effect_class: tenant_scoped_queue_admission_compatibility_wrapper
     status: live
     required_permission: EXECUTION_QUEUE
     allowed_side_effects:
-      - POST /v1/missions/{mission_id}/queue is a compatibility/convenience mission launch shortcut for old or simple clients to queue planned mission work.
-      - POST /v1/missions/{mission_id}/queue queues tenant-owned planned mission tasks at the mission level after EXECUTION_QUEUE route permission checks.
-      - POST /v1/missions/{mission_id}/queue delegates through MissionExecutor.queue_all_planned_tasks().
-      - MissionExecutor.queue_all_planned_tasks() delegates each task queue attempt to ExecutionCoordinator.queue_task().
-      - POST /v1/missions/{mission_id}/queue remains coordinator-governed by ExecutionCoordinator.queue_task(), including RuntimeGovernor denial and PolicyGuardian pending-review routing.
-      - POST /v1/missions/{mission_id}/queue returns only a simple queue summary of queued_task_ids, pending_review_task_ids, and denied_tasks.
-      - POST /v1/missions/{mission_id}/runtime-queue-admission remains the canonical staged runtime queue admission path.
+      - POST /v1/missions/{mission_id}/queue is an API compatibility wrapper around the canonical MissionRuntimeQueueAdmissionService.admit() implementation.
+      - POST /v1/missions/{mission_id}/queue performs the same current-materialization, tenant, quota, policy, RuntimeGovernor, and ExecutionCoordinator checks as POST /v1/missions/{mission_id}/runtime-queue-admission.
+      - POST /v1/missions/{mission_id}/queue persists the same runtime_queue_admission metadata, receipts, blockers, and admitted authority as the canonical endpoint.
+      - POST /v1/missions/{mission_id}/queue adapts the canonical result to the legacy queued_task_ids, pending_review_task_ids, and denied_tasks response shape only.
+      - POST /v1/missions/{mission_id}/runtime-queue-admission is the sole canonical mission queue admission authority.
     forbidden_side_effects:
       - create execution task rows
-      - write runtime_queue_admission staged metadata, receipts, blockers, admitted IDs, already queued IDs, or runtime authority information
+      - maintain independent task selection, quota enforcement, queueing, or ExecutionCoordinator logic outside MissionRuntimeQueueAdmissionService.admit()
+      - call MissionExecutor.queue_all_planned_tasks()
       - bypass ExecutionCoordinator.queue_task() with a direct QueueAdapter enqueue
       - create or mutate worker leases
       - dispatch workers or invoke TaskDispatcher handlers/adapters
       - execute providers, tool actions, or action registry handlers as part of POST /v1/missions/{mission_id}/queue
-      - expand POST /v1/missions/{mission_id}/queue into a competing runtime engine, CRM/GTM execution system, or replacement for POST /v1/missions/{mission_id}/runtime-queue-admission
+      - diverge from the task eligibility or queue authority used by POST /v1/missions/{mission_id}/runtime-queue-admission
     required_proofs:
       - tests/contract/api/test_mission_queue_contract.py
       - tests/unit/architecture/test_authority_ledger_contract.py
@@ -412,7 +412,7 @@ authority_entries:
       - create execution task rows
       - dispatch workers or invoke TaskDispatcher handlers/adapters
       - mutate worker leases or bypass current materialization, quota, tenant, policy, RuntimeGovernor, or PolicyGuardian checks
-      - collapse POST /v1/missions/{mission_id}/runtime-queue-admission into POST /v1/missions/{mission_id}/queue
+      - delegate canonical authority to the compatibility response adapter in POST /v1/missions/{mission_id}/queue
     required_proofs:
       - tests/contract/api/test_mission_queue_contract.py
       - tests/contract/api/test_task_queue_contract.py

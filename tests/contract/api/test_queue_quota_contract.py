@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes import mission as mission_module
@@ -11,7 +11,6 @@ from backend.api.routes import task as task_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
-from backend.services.quota_enforcement import QuotaExceededError
 
 
 def _build_task_app(tenant_id: uuid.UUID) -> FastAPI:
@@ -107,27 +106,20 @@ def test_mission_queue_contract_returns_structured_429_on_quota_exceeded() -> No
     app = _build_mission_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
 
-    task = MagicMock()
-    task.id = uuid.uuid4()
-    task.tenant_id = str(tenant_id)
-    task.mission_id = mission_id
-    task.status = "planned"
-
-    task_repo = MagicMock()
-    task_repo.list_for_mission.return_value = [task]
-
-    quota_svc = MagicMock()
-    quota_svc.check_and_record_task_creation.side_effect = QuotaExceededError(
-        field="tasks_per_month",
-        limit=50,
-        current=49,
-        plan="free",
+    service = MagicMock()
+    service.return_value.admit.side_effect = HTTPException(
+        status_code=402,
+        detail={
+            "code": "QUOTA_EXCEEDED",
+            "field": "tasks_per_month",
+            "limit": 50,
+            "current": 49,
+            "plan": "free",
+            "message": "You have reached the tasks_per_month limit (50) for the 'free' plan. Upgrade to continue.",
+        },
     )
 
-    with (
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-    ):
+    with patch("backend.api.routes.mission.MissionRuntimeQueueAdmissionService", service):
         response = client.post(f"/v1/missions/{mission_id}/queue")
 
     assert response.status_code == 402
@@ -141,3 +133,4 @@ def test_mission_queue_contract_returns_structured_429_on_quota_exceeded() -> No
             "message": "You have reached the tasks_per_month limit (50) for the 'free' plan. Upgrade to continue.",
         }
     }
+    service.return_value.admit.assert_called_once_with(mission_id=mission_id, tenant_id=tenant_id)

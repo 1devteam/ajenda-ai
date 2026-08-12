@@ -168,7 +168,7 @@ Do not implement the following before this finish contract stabilizes and the ne
 
 - **Title:** Clarify Canonical Mission Queue Admission Path
 - **Branch name:** `docs/clarify-canonical-mission-queue-path`
-- **Goal:** Document that `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical mission runtime queue authority, while `POST /v1/missions/{mission_id}/queue` remains legacy/general queue routing unless separately governed.
+- **Goal:** Document that `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical mission runtime queue authority, while `POST /v1/missions/{mission_id}/queue` is a deprecated compatibility wrapper over that same canonical implementation.
 - **Files likely touched:** `docs/product/mission-based-ai-core.md`; `docs/product/mission-v1-finish-contract.md`; `README.md`; `docs/contracts/authority-ledger.v1.yaml`
 - **Smallest proof set:** `python scripts/validation/contract_drift_check.py`; `pytest tests/unit/architecture/test_authority_ledger_contract.py`
 - **Broader validation set:** `ruff check docs scripts tests`; `ruff format --check backend/ tests/`; `pytest tests/contract/api/test_mission_queue_contract.py tests/contract/api/test_task_queue_contract.py`

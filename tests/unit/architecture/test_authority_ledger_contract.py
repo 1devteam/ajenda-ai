@@ -157,11 +157,13 @@ def test_post_v1_missions_mission_id_queue_route_has_dedicated_authority_coverag
     block = _block_for_route_scope(POST_V1_MISSIONS_MISSION_ID_QUEUE_ROUTE)
     runtime_block = _block_for_route_scope(POST_V1_MISSIONS_MISSION_ID_RUNTIME_QUEUE_ADMISSION_ROUTE)
 
-    assert "id: post_v1_missions_mission_id_queue_compatibility_convenience_contract" in block
-    assert "side_effect_class: tenant_scoped_mission_queue_admission_mutation" in block
-    assert "MissionExecutor.queue_all_planned_tasks()" in block
+    assert "id: post_v1_missions_mission_id_queue_compatibility_wrapper_contract" in block
+    assert "side_effect_class: tenant_scoped_queue_admission_compatibility_wrapper" in block
+    assert "API compatibility wrapper" in block
+    assert "MissionRuntimeQueueAdmissionService.admit()" in block
+    assert "call MissionExecutor.queue_all_planned_tasks()" in block
     assert "ExecutionCoordinator.queue_task()" in block
-    assert "runtime_queue_admission staged metadata" in block
+    assert "persists the same runtime_queue_admission metadata" in block
     assert "direct QueueAdapter enqueue" in block
     assert "TaskDispatcher" in block
     assert "worker leases" in block
