@@ -110,20 +110,29 @@ def test_materialization_action_reads_real_tenant_artifacts_without_mutation(pg_
         activate_tenant_session(setup, tenant_a)
         setup.add(Mission(id=mission_id, tenant_id=tenant_a, objective="Decision episode proof"))
         setup.flush()
-        setup.add(
-            ExecutionTask(
-                id=recommendation_task_id,
-                tenant_id=tenant_a,
-                mission_id=mission_id,
-                title="Recommend",
-                description="Create durable recommendation",
-                metadata_json={
-                    "tool_invocation": {
-                        "action": "decision.recommend_next_action",
-                        "input": recommendation_input,
-                    }
-                },
-            )
+        setup.add_all(
+            [
+                ExecutionTask(
+                    id=recommendation_task_id,
+                    tenant_id=tenant_a,
+                    mission_id=mission_id,
+                    title="Recommend",
+                    description="Create durable recommendation",
+                    metadata_json={
+                        "tool_invocation": {
+                            "action": "decision.recommend_next_action",
+                            "input": recommendation_input,
+                        }
+                    },
+                ),
+                ExecutionTask(
+                    id=execution_task_id,
+                    tenant_id=tenant_a,
+                    mission_id=mission_id,
+                    title="Execute",
+                    description="Schedule discovery",
+                ),
+            ]
         )
         setup.flush()
         setup.add_all(
@@ -181,15 +190,6 @@ def test_materialization_action_reads_real_tenant_artifacts_without_mutation(pg_
                     created_at=datetime(2026, 8, 12, 13, tzinfo=UTC),
                 ),
             ]
-        )
-        setup.add(
-            ExecutionTask(
-                id=execution_task_id,
-                tenant_id=tenant_a,
-                mission_id=mission_id,
-                title="Execute",
-                description="Schedule discovery",
-            )
         )
         setup.commit()
 
