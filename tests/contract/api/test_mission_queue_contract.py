@@ -4,6 +4,7 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -137,6 +138,59 @@ def test_both_queue_routes_delegate_to_same_canonical_implementation_and_queue_s
     legacy_queue.assert_not_called()
     dispatcher.assert_not_called()
     action_invoke.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "paths",
+    [
+        ("/runtime-queue-admission", "/queue"),
+        ("/queue", "/runtime-queue-admission"),
+    ],
+)
+def test_cross_entrypoint_repeat_uses_one_quota_consumption_and_one_queue_transition(
+    paths: tuple[str, str],
+) -> None:
+    """The second API representation observes the first admission; it cannot re-admit."""
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task = _make_task(tenant_id=str(tenant_id), mission_id=mission_id)
+    mission = _make_runtime_materialized_mission(
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        task_ids=[task.id],
+    )
+    mission_repo = MagicMock()
+    mission_repo.lock_for_tenant.return_value = mission
+    task_repo = MagicMock()
+    task_repo.list_for_mission.return_value = [task]
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+
+    def _queue_once(*, tenant_id: str, task_id: uuid.UUID) -> CoordinationResult:
+        task.status = "queued"
+        return CoordinationResult(ok=True, task_id=task_id, state="queued", reason=None)
+
+    coordinator.queue_task.side_effect = _queue_once
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+    ):
+        first = client.post(f"/v1/missions/{mission_id}{paths[0]}")
+        second = client.post(f"/v1/missions/{mission_id}{paths[1]}")
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["queued_task_ids"] == [str(task.id)]
+    assert second.json()["queued_task_ids"] == []
+    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id, count=1)
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task.id)
+    latest_receipt = mission_repo.update_metadata.call_args.kwargs["metadata_json"]["runtime_queue_admission"]
+    assert latest_receipt["admitted_execution_task_ids"] == [str(task.id)]
+    assert latest_receipt["already_queued_execution_task_ids"] == [str(task.id)]
 
 
 def test_post_v1_missions_mission_id_runtime_queue_admission_contract_charges_quota_for_eligible_planned_materialized_tasks_only() -> (

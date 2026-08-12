@@ -1,5 +1,5 @@
 version: 1
-last_reviewed: 2026-07-31
+last_reviewed: 2026-08-12
 owner: architecture-runtime-governance
 
 notes:
@@ -369,6 +369,7 @@ authority_entries:
       - POST /v1/missions/{mission_id}/queue
     authority_class: runtime_authoritative
     side_effect_class: tenant_scoped_queue_admission_compatibility_wrapper
+    enforcement_role: api_adapter_only
     status: live
     required_permission: EXECUTION_QUEUE
     allowed_side_effects:
@@ -376,7 +377,8 @@ authority_entries:
       - POST /v1/missions/{mission_id}/queue performs the same current-materialization, tenant, quota, policy, RuntimeGovernor, and ExecutionCoordinator checks as POST /v1/missions/{mission_id}/runtime-queue-admission.
       - POST /v1/missions/{mission_id}/queue persists the same runtime_queue_admission metadata, receipts, blockers, and admitted authority as the canonical endpoint.
       - POST /v1/missions/{mission_id}/queue adapts the canonical result to the legacy queued_task_ids, pending_review_task_ids, and denied_tasks response shape only.
-      - POST /v1/missions/{mission_id}/runtime-queue-admission is the sole canonical mission queue admission authority.
+      - MissionRuntimeQueueAdmissionService.admit() is the sole runtime enforcement authority for mission queue eligibility, applicable quota enforcement, queue transition orchestration, idempotent already-queued classification, and admission metadata.
+      - The runtime_authoritative classification describes the mutation reached through this route; the route itself is only an authenticated API adapter and cannot decide admission.
     forbidden_side_effects:
       - create execution task rows
       - maintain independent task selection, quota enforcement, queueing, or ExecutionCoordinator logic outside MissionRuntimeQueueAdmissionService.admit()
@@ -401,13 +403,15 @@ authority_entries:
       - POST /v1/missions/{mission_id}/runtime-queue-admission
     authority_class: runtime_authoritative
     side_effect_class: tenant_scoped_queue_admission_mutation
+    enforcement_role: canonical_api_adapter_to_service_authority
     status: live
     required_permission: EXECUTION_QUEUE
     allowed_side_effects:
-      - POST /v1/missions/{mission_id}/runtime-queue-admission is the canonical staged runtime queue admission path.
+      - POST /v1/missions/{mission_id}/runtime-queue-admission is the canonical staged API entrypoint; MissionRuntimeQueueAdmissionService.admit() is the sole runtime admission authority.
       - POST /v1/missions/{mission_id}/runtime-queue-admission queues current tenant/mission-owned planned materialized execution tasks through MissionRuntimeQueueAdmissionService.admit() and ExecutionCoordinator.queue_task().
       - POST /v1/missions/{mission_id}/runtime-queue-admission persists runtime_queue_admission metadata, receipts, blockers, admitted IDs, already queued IDs, denied and pending-review outcomes, and runtime authority details on mission metadata.
       - POST /v1/missions/{mission_id}/runtime-queue-admission classifies already queued materialized tasks as admitted without requeueing.
+      - MissionRuntimeQueueAdmissionService.admit() performs one applicable quota check before any queue transition and derives persisted and response admission metadata from the same result.
     forbidden_side_effects:
       - create execution task rows
       - dispatch workers or invoke TaskDispatcher handlers/adapters

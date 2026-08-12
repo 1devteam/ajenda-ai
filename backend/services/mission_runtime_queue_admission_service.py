@@ -17,7 +17,14 @@ from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExc
 
 
 class MissionRuntimeQueueAdmissionService:
-    """Owns runtime queue admission business logic for materialized mission tasks."""
+    """Sole authority for materialized mission task queue admission.
+
+    The service serializes admission on the tenant-owned mission, selects the
+    current materialization, enforces quota once for newly eligible tasks,
+    delegates queue transitions to ``ExecutionCoordinator``, persists the
+    authoritative admission receipt, and returns the projection consumed by
+    every mission-level API adapter.
+    """
 
     def __init__(
         self,
