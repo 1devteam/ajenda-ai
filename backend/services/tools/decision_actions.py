@@ -14,6 +14,7 @@ Does not execute the recommendation, enqueue work, or wire composition.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from backend.services.ontology.evidence_lineage import (
@@ -217,6 +218,7 @@ def _feasibility(option_id: str, constraints: list[str], facts: list[EvidenceFac
 
 
 def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    decided_at = datetime.now(UTC)
     payload = DecisionRecommendInput.model_validate(invocation.input)
     facts = _normalize_facts(list(payload.evidence))
     criteria = list(payload.criteria)
@@ -312,6 +314,7 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
                 uncertainty.append("low_confidence")
 
     output: dict[str, Any] = {
+        "decided_at": decided_at.isoformat(),
         "goal": payload.goal,
         "recommendation": recommendation,
         "intervention_key": chosen.get("intervention_key")

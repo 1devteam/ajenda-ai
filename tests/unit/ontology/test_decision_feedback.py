@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -29,7 +28,6 @@ from backend.services.ontology.outcome import (
     OutcomeStatus,
 )
 from backend.services.tools.action_registry import get_default_action_registry
-from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
 
 DECIDED_AT = datetime(2026, 8, 1, 9, tzinfo=UTC)
 EXECUTED_AT = datetime(2026, 8, 2, 9, tzinfo=UTC)
@@ -127,16 +125,6 @@ def _outcome(
         observed_at=observed_at,
         observation_timing=timing,
         evaluated_at=evaluated_at,
-    )
-
-
-def _context() -> ActionRuntimeContext:
-    return ActionRuntimeContext(
-        tenant_id=str(uuid.uuid4()),
-        task_id=uuid.uuid4(),
-        mission_id=uuid.uuid4(),
-        worker_id="worker",
-        lease_id=str(uuid.uuid4()),
     )
 
 
@@ -307,28 +295,9 @@ def test_learning_signal_flags_are_immutable_after_creation() -> None:
 
 @pytest.mark.parametrize(
     "action",
-    [
-        "analysis.evaluate_decision_effectiveness",
-        "analysis.extract_decision_learning_signal",
-    ],
+    ["analysis.evaluate_decision_effectiveness", "analysis.extract_decision_learning_signal"],
 )
-def test_decision_feedback_actions_are_registered_and_evidence_backed(action: str) -> None:
+def test_caller_authored_decision_feedback_actions_are_not_production_registered(action: str) -> None:
     registry = get_default_action_registry(rebuild=True)
-    definition = registry.get(action)
-    invocation = ToolInvocation(
-        action=action,
-        input={
-            "snapshot": _snapshot().model_dump(mode="json"),
-            "execution": _execution().model_dump(mode="json"),
-            "outcome": _outcome().model_dump(mode="json"),
-        },
-    )
-
-    result = registry.invoke(invocation, _context())
-
-    assert definition.side_effect_class.value == "none"
-    assert result.side_effect_class.value == "none"
-    assert result.evidence
-    if action == "analysis.extract_decision_learning_signal":
-        assert result.output["is_knowledge"] is False
-        assert result.output["is_policy"] is False
+    with pytest.raises(ValueError, match="unknown action"):
+        registry.get(action)

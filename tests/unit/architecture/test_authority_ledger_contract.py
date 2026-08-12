@@ -98,6 +98,15 @@ def test_authority_ledger_entries_include_required_contract_fields() -> None:
             assert key in block
 
 
+def test_decision_episode_materialization_has_one_declared_owner() -> None:
+    blocks = [block for block in _ledger_blocks() if block.startswith("id: decision_episode_materialization\n")]
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert "backend/services/decision_episode_materialization.py" in block
+    assert "sole owner of durable decision-to-learning episode reconstruction" in block
+    assert "caller-authored decision identity" in block
+
+
 def test_route_scope_item_parser_finds_second_or_later_route_scope_items() -> None:
     block = """id: example_contract
     area: example

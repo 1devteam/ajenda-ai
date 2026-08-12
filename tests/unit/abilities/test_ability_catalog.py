@@ -81,15 +81,13 @@ def test_external_write_send_manifests_require_idempotency() -> None:
 
 
 def test_decision_feedback_actions_have_non_side_effecting_manifests() -> None:
-    for action in (
-        "analysis.evaluate_decision_effectiveness",
-        "analysis.extract_decision_learning_signal",
-    ):
-        manifest = ABILITY_MANIFESTS_BY_ACTION[action]
-        assert manifest.provider == "ajenda_analysis"
-        assert manifest.side_effect_class == SideEffectClass.NONE
-        assert manifest.evidence_required is True
-        assert manifest.evidence_expectations == ("action_result_evidence",)
+    manifest = ABILITY_MANIFESTS_BY_ACTION["analysis.materialize_decision_learning_signal"]
+    assert manifest.provider == "ajenda_analysis"
+    assert manifest.side_effect_class == SideEffectClass.NONE
+    assert manifest.evidence_required is True
+    assert manifest.evidence_expectations == ("action_result_evidence",)
+    assert "analysis.evaluate_decision_effectiveness" not in ABILITY_MANIFESTS_BY_ACTION
+    assert "analysis.extract_decision_learning_signal" not in ABILITY_MANIFESTS_BY_ACTION
 
 
 def test_attribution_integrity_action_has_non_side_effecting_manifest() -> None:

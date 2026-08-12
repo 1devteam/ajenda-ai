@@ -184,6 +184,21 @@ class ConsequenceInventory(BaseModel):
     unresolved_changes: list[str] = Field(default_factory=list)
 
 
+class DecisionEpisodeReference(BaseModel):
+    """Durable provenance envelope for one reconstructed decision episode."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    episode_id: str = Field(min_length=1, max_length=160)
+    decision_id: str = Field(min_length=1, max_length=160)
+    recommendation_evidence_id: str = Field(min_length=1, max_length=160)
+    mission_id: str = Field(min_length=1, max_length=160)
+    recommendation_execution_task_id: str = Field(min_length=1, max_length=160)
+    outcome_evaluation_evidence_id: str = Field(min_length=1, max_length=160)
+    execution_evidence_ids: tuple[str, ...] = ()
+
+
 class DecisionLearningSignal(BaseModel):
     """Observation from one episode. NOT knowledge or policy."""
 
@@ -192,6 +207,7 @@ class DecisionLearningSignal(BaseModel):
     schema_version: Literal[1] = 1
     signal_id: str
     decision_id: str
+    episode_reference: DecisionEpisodeReference | None = None
     subject_refs: list[BusinessObjectRef] = Field(default_factory=list)
     goal_id: str | None = None
     subject_semantic_signatures: tuple[BusinessObjectSemanticSignature, ...] = ()
@@ -923,6 +939,8 @@ def evaluate_decision_feedback(
     outcome: OutcomeEvaluation,
     information_learned_after: list[str] | None = None,
     feedback_id: str | None = None,
+    signal_id: str | None = None,
+    episode_reference: DecisionEpisodeReference | None = None,
     evaluated_at: datetime | None = None,
 ) -> DecisionFeedbackResult:
     """Compose one complete decision-episode feedback artifact.
@@ -964,8 +982,13 @@ def evaluate_decision_feedback(
         calibration=calibration,
         consequences=consequences,
         information_learned_after=information_learned_after,
+        signal_id=signal_id,
         evaluated_at=now,
     )
+    if episode_reference is not None:
+        if episode_reference.decision_id != snapshot.decision_id:
+            raise ValueError("episode reference decision identity must match the snapshot")
+        signal = signal.model_copy(update={"episode_reference": episode_reference})
 
     return DecisionFeedbackResult(
         feedback_id=feedback_id or f"dfb_{uuid4().hex[:12]}",

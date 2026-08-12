@@ -1306,3 +1306,27 @@ authority_entries:
       - tests/unit/services/test_vertical_ops_phase_c.py
       - tests/contract/runtime/test_vertical_ops_execution_path_contract.py
       - tests/integration/runtime/test_vertical_ops_research_template_runtime_real.py
+
+  - id: decision_episode_materialization
+    area: authoritative durable decision episode reconstruction
+    source_of_truth:
+      - backend/services/decision_episode_materialization.py
+      - backend/services/ontology/decision_snapshot_builder.py
+      - backend/services/ontology/decision_feedback.py
+      - backend/services/tools/analysis_actions.py
+    route_scope: []
+    authority_class: read_model
+    side_effect_class: tenant_scoped_durable_evidence_read_and_deterministic_projection
+    allowed_side_effects:
+      - resolve tenant-owned recommendation, execution, and outcome EvidenceRecords
+      - act as the sole owner of durable decision-to-learning episode reconstruction
+      - emit DecisionLearningSignal evidence through the existing tool runtime and EvidenceBridge path
+    forbidden_side_effects:
+      - accept caller-authored decision identity, execution fidelity, outcome semantics, or learning identity
+      - infer semantic intervention identity from option labels or recommendation prose
+      - create decision, experience, or learning-signal persistence tables
+      - dispatch work or bypass TaskDispatcher, WorkerRuntimeService, queue, or lease authority
+    required_proofs:
+      - tests/unit/services/test_decision_episode_materialization.py
+      - tests/unit/architecture/test_authority_ledger_contract.py
+      - tests/unit/tools/test_evidence_bridge.py

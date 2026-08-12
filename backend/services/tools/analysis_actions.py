@@ -3,8 +3,7 @@
 ``analysis.evaluate_goal_progress``: deterministic Goal/KPI/State assessment.
 ``analysis.evaluate_outcome``: expected vs observed outcome delta.
 ``analysis.assess_attribution_integrity``: earned, non-causal attribution.
-``analysis.evaluate_decision_effectiveness``: one decision episode effectiveness.
-``analysis.extract_decision_learning_signal``: candidate lesson from one episode.
+``analysis.materialize_decision_learning_signal``: durable decision episode authority.
 ``analysis.compare_experiences``: semantic partition/comparison only.
 ``analysis.assess_experience_recurrence``: multi-candidate recurrence eligibility.
 ``analysis.qualify_pattern_knowledge``: deterministic bounded knowledge qualification.
@@ -20,16 +19,17 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.repositories.evidence_repository import EvidenceRepository
+from backend.repositories.execution_task_repository import ExecutionTaskRepository
+from backend.services.decision_episode_materialization import (
+    DecisionEpisodeMaterializationRequest,
+    DecisionEpisodeMaterializationService,
+)
 from backend.services.ontology.commercial_state import (
     BusinessEvent,
     BusinessStateSnapshot,
     Goal,
     Kpi,
-)
-from backend.services.ontology.decision_feedback import (
-    DecisionExecutionObservation,
-    DecisionSnapshot,
-    evaluate_decision_feedback,
 )
 from backend.services.ontology.evaluation import evaluate_goal_progress
 from backend.services.ontology.experience_intelligence import (
@@ -47,7 +47,6 @@ from backend.services.ontology.observation_attribution import (
 from backend.services.ontology.outcome import (
     AttributionAssessment,
     ObservedOutcome,
-    OutcomeEvaluation,
     OutcomeExpectation,
     evaluate_outcome,
 )
@@ -116,20 +115,6 @@ class AssessAttributionIntegrityInput(BaseModel):
     evidence: AttributionEvidenceInput
 
 
-class EvaluateDecisionEffectivenessInput(BaseModel):
-    """Input for analysis.evaluate_decision_effectiveness."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    snapshot: DecisionSnapshot
-    execution: DecisionExecutionObservation
-    outcome: OutcomeEvaluation
-    information_learned_after: list[str] = Field(
-        default_factory=list,
-        description="Post-decision information; never upgrades decision quality",
-    )
-
-
 class CompareExperiencesInput(BaseModel):
     """Input for analysis.compare_experiences."""
 
@@ -153,15 +138,66 @@ class QualifyPatternKnowledgeInput(BaseModel):
     candidate: ExperiencePatternCandidate
 
 
-class ExtractDecisionLearningSignalInput(BaseModel):
-    """Input for analysis.extract_decision_learning_signal."""
+def analysis_materialize_decision_learning_signal(
+    invocation: ToolInvocation, context: ActionRuntimeContext
+) -> ActionResult:
+    """Adapt the queue-authoritative tool path to durable episode authority."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    snapshot: DecisionSnapshot
-    execution: DecisionExecutionObservation
-    outcome: OutcomeEvaluation
-    information_learned_after: list[str] = Field(default_factory=list)
+    if context.session_factory is None:
+        raise ValueError("decision episode materialization requires durable repository access")
+    payload = DecisionEpisodeMaterializationRequest.model_validate(invocation.input)
+    session = context.session_factory()
+    try:
+        materialized = DecisionEpisodeMaterializationService(
+            evidence=EvidenceRepository(session),
+            tasks=ExecutionTaskRepository(session),
+        ).materialize(tenant_id=context.tenant_id, request=payload)
+    finally:
+        session.close()
+    if context.mission_id is None or str(context.mission_id) != materialized.episode_reference.mission_id:
+        raise ValueError("materialization task mission must match the durable decision episode mission")
+    signal = materialized.feedback.learning_signal
+    output = signal.model_dump(mode="json")
+    summary = f"Materialized authoritative learning signal {signal.signal_id} for decision {signal.decision_id}."
+    return ActionResult(
+        action="analysis.materialize_decision_learning_signal",
+        provider="ajenda_analysis",
+        side_effect_class=SideEffectClass.NONE,
+        output=output,
+        evidence=[
+            EvidenceItem(
+                evidence_type="action_result_evidence",
+                evidence_source="decision_episode_materialization",
+                action_name="analysis.materialize_decision_learning_signal",
+                tool_provider="ajenda_analysis",
+                tenant_id=context.tenant_id,
+                task_id=str(context.task_id),
+                mission_id=str(context.mission_id) if context.mission_id is not None else None,
+                summary=summary,
+                structured_payload=output,
+                records_inspected=[
+                    materialized.episode_reference.recommendation_evidence_id,
+                    materialized.episode_reference.outcome_evaluation_evidence_id,
+                    *materialized.episode_reference.execution_evidence_ids,
+                ],
+                confidence=signal.effectiveness.confidence,
+                provenance={
+                    "runtime_path": "TaskDispatcher -> tool.invoke -> DecisionEpisodeMaterializationService",
+                    "cluster": "decision_feedback_intelligence",
+                    "evidence_role": "decision_learning_signal",
+                    "episode_id": materialized.episode_reference.episode_id,
+                },
+                side_effect_class=SideEffectClass.NONE,
+            )
+        ],
+        records_inspected=[
+            materialized.episode_reference.recommendation_evidence_id,
+            materialized.episode_reference.outcome_evaluation_evidence_id,
+            *materialized.episode_reference.execution_evidence_ids,
+        ],
+        summary=summary,
+        confidence=signal.effectiveness.confidence,
+    )
 
 
 def _evidence(
@@ -322,81 +358,6 @@ def analysis_assess_attribution_integrity(invocation: ToolInvocation, context: A
     )
 
 
-def analysis_evaluate_decision_effectiveness(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
-    payload = EvaluateDecisionEffectivenessInput.model_validate(invocation.input)
-    result = evaluate_decision_feedback(
-        snapshot=payload.snapshot,
-        execution=payload.execution,
-        outcome=payload.outcome,
-        information_learned_after=list(payload.information_learned_after),
-    )
-    output = result.model_dump(mode="json")
-    summary = (
-        f"Decision {result.decision_id} effectiveness={result.effectiveness.status.value} "
-        f"quality={result.quality.status.value} "
-        f"calibration={result.calibration.status.value} "
-        f"signal={result.learning_signal.signal_strength.value}"
-    )
-    return ActionResult(
-        action="analysis.evaluate_decision_effectiveness",
-        provider="ajenda_analysis",
-        side_effect_class=SideEffectClass.NONE,
-        output=output,
-        evidence=[
-            _evidence(
-                context=context,
-                action="analysis.evaluate_decision_effectiveness",
-                provider="ajenda_analysis",
-                summary=summary,
-                payload=output,
-                confidence=result.effectiveness.confidence,
-                cluster="decision_feedback_intelligence",
-            )
-        ],
-        summary=summary,
-        confidence=result.effectiveness.confidence,
-    )
-
-
-def analysis_extract_decision_learning_signal(
-    invocation: ToolInvocation, context: ActionRuntimeContext
-) -> ActionResult:
-    payload = ExtractDecisionLearningSignalInput.model_validate(invocation.input)
-    # Full episode evaluation first (quality/effectiveness/calibration), then signal
-    feedback = evaluate_decision_feedback(
-        snapshot=payload.snapshot,
-        execution=payload.execution,
-        outcome=payload.outcome,
-        information_learned_after=list(payload.information_learned_after),
-    )
-    signal = feedback.learning_signal
-    output = signal.model_dump(mode="json")
-    summary = (
-        f"Learning signal {signal.signal_id} decision={signal.decision_id} "
-        f"strength={signal.signal_strength.value} "
-        f"is_knowledge={signal.is_knowledge} is_policy={signal.is_policy}"
-    )
-    return ActionResult(
-        action="analysis.extract_decision_learning_signal",
-        provider="ajenda_analysis",
-        side_effect_class=SideEffectClass.NONE,
-        output=output,
-        evidence=[
-            _evidence(
-                context=context,
-                action="analysis.extract_decision_learning_signal",
-                provider="ajenda_analysis",
-                summary=summary,
-                payload=output,
-                confidence=signal.effectiveness.confidence,
-                cluster="decision_feedback_intelligence",
-            )
-        ],
-        summary=summary,
-        confidence=signal.effectiveness.confidence,
-    )
-
-
 def analysis_compare_experiences(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = CompareExperiencesInput.model_validate(invocation.input)
     result = evaluate_experience_set(list(payload.episodes))
@@ -489,6 +450,15 @@ def analysis_qualify_pattern_knowledge(invocation: ToolInvocation, context: Acti
 def register_analysis_actions(registry: ActionRegistry) -> None:
     registry.register(
         ActionDefinition(
+            name="analysis.materialize_decision_learning_signal",
+            handler=analysis_materialize_decision_learning_signal,
+            provider="ajenda_analysis",
+            input_model=DecisionEpisodeMaterializationRequest,
+            side_effect_class=SideEffectClass.NONE,
+        )
+    )
+    registry.register(
+        ActionDefinition(
             name="analysis.assess_attribution_integrity",
             handler=analysis_assess_attribution_integrity,
             provider="ajenda_analysis",
@@ -516,15 +486,6 @@ def register_analysis_actions(registry: ActionRegistry) -> None:
     )
     registry.register(
         ActionDefinition(
-            name="analysis.evaluate_decision_effectiveness",
-            handler=analysis_evaluate_decision_effectiveness,
-            provider="ajenda_analysis",
-            input_model=EvaluateDecisionEffectivenessInput,
-            side_effect_class=SideEffectClass.NONE,
-        )
-    )
-    registry.register(
-        ActionDefinition(
             name="analysis.compare_experiences",
             handler=analysis_compare_experiences,
             provider="ajenda_analysis",
@@ -538,15 +499,6 @@ def register_analysis_actions(registry: ActionRegistry) -> None:
             handler=analysis_assess_experience_recurrence,
             provider="ajenda_analysis",
             input_model=AssessExperienceRecurrenceInput,
-            side_effect_class=SideEffectClass.NONE,
-        )
-    )
-    registry.register(
-        ActionDefinition(
-            name="analysis.extract_decision_learning_signal",
-            handler=analysis_extract_decision_learning_signal,
-            provider="ajenda_analysis",
-            input_model=ExtractDecisionLearningSignalInput,
             side_effect_class=SideEffectClass.NONE,
         )
     )

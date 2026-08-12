@@ -23,6 +23,15 @@ class ExecutionTaskRepository:
     def get(self, task_id: uuid.UUID) -> ExecutionTask | None:
         return self._session.get(ExecutionTask, task_id)
 
+    def get_for_tenant(self, *, task_id: uuid.UUID, tenant_id: str) -> ExecutionTask | None:
+        """Resolve a task without exposing the existence of another tenant's row."""
+
+        stmt = select(ExecutionTask).where(
+            ExecutionTask.id == task_id,
+            ExecutionTask.tenant_id == tenant_id,
+        )
+        return self._session.scalar(stmt)
+
     def get_for_update(self, task_id: uuid.UUID) -> ExecutionTask | None:
         stmt = select(ExecutionTask).where(ExecutionTask.id == task_id).with_for_update()
         return self._session.scalar(stmt)
