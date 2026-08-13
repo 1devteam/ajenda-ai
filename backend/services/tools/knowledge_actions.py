@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from backend.db.tenant_session import activate_tenant_session
+from backend.repositories.durable_learning_signal_repository import DurableLearningSignalRepository
+from backend.services.durable_experience_consolidation import DurableExperienceConsolidationService
 from backend.services.knowledge.knowledge_ledger import record_knowledge_qualification
 from backend.services.knowledge.knowledge_lifecycle import resolve_current_knowledge_state
 from backend.services.knowledge.knowledge_retrieval import KnowledgeRetrievalQuery, retrieve_current_knowledge
@@ -36,6 +38,82 @@ class RetrieveCurrentKnowledgeInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: KnowledgeRetrievalQuery
+
+
+class ConsolidateLearningHistoryInput(BaseModel):
+    """No-input contract: active runtime tenant is the sole history authority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+def knowledge_consolidate_learning_history(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    """Compose durable tenant history through Experience, Qualification, and Ledger."""
+
+    ConsolidateLearningHistoryInput.model_validate(invocation.input)
+    if context.session_factory is None:
+        raise RuntimeError("durable experience consolidation requires a primary session factory")
+    session = context.session_factory()
+    try:
+        activate_tenant_session(session, context.tenant_id)
+        result = DurableExperienceConsolidationService(history=DurableLearningSignalRepository(session)).consolidate(
+            session, tenant_id=context.tenant_id
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    output = result.model_dump(mode="json")
+    records_inspected = [f"evidence:{item}" for item in result.records_inspected]
+    records_changed = [
+        reference
+        for item in result.qualifications
+        for reference in (
+            f"knowledge_qualification:{item.ledger_write.qualification_record_id}"
+            if item.ledger_write.qualification_created and item.ledger_write.qualification_record_id
+            else None,
+            f"knowledge_artifact:{item.ledger_write.artifact_record_id}"
+            if item.ledger_write.artifact_created and item.ledger_write.artifact_record_id
+            else None,
+        )
+        if reference is not None
+    ]
+    summary = (
+        f"Consolidated {len(result.valid_learning_signal_ids)} durable learning signals into "
+        f"{len(result.qualifications)} qualification results."
+    )
+    evidence = EvidenceItem(
+        evidence_type="action_result_evidence",
+        evidence_source="durable_experience_consolidation",
+        action_name="knowledge.consolidate_learning_history",
+        tool_provider="ajenda_knowledge",
+        tenant_id=context.tenant_id,
+        task_id=str(context.task_id),
+        mission_id=str(context.mission_id) if context.mission_id else None,
+        summary=summary,
+        structured_payload=output,
+        records_inspected=records_inspected,
+        records_changed=records_changed,
+        limitations=list(result.limitations),
+        provenance={
+            "runtime_path": "TaskDispatcher -> tool.invoke -> DurableExperienceConsolidationService",
+            "evidence_role": "experience_consolidation_result",
+        },
+        side_effect_class=SideEffectClass.INTERNAL_WRITE,
+    )
+    return ActionResult(
+        action="knowledge.consolidate_learning_history",
+        provider="ajenda_knowledge",
+        side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        output=output,
+        evidence=[evidence],
+        records_inspected=records_inspected,
+        records_changed=records_changed,
+        summary=summary,
+        limitations=list(result.limitations),
+    )
 
 
 def knowledge_record_qualification(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
@@ -219,6 +297,15 @@ class _NoMutationSession:
 
 
 def register_knowledge_actions(registry: ActionRegistry) -> None:
+    registry.register(
+        ActionDefinition(
+            name="knowledge.consolidate_learning_history",
+            handler=knowledge_consolidate_learning_history,
+            provider="ajenda_knowledge",
+            input_model=ConsolidateLearningHistoryInput,
+            side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        )
+    )
     registry.register(
         ActionDefinition(
             name="knowledge.record_qualification",
