@@ -1,7 +1,7 @@
 # Ajenda AI — System Architecture (Code-Aligned)
 
 **Status:** Active  
-**Last verified against `main`:** 2026-08-01
+**Last verified against `main@7c97bb1be7c09a61e9cc0cc78808ddd8cfbdbfec`:** 2026-08-13
 **Source of truth:** implementation files, migrations, tests — not aspirational product docs.
 
 This document is the canonical visual and narrative map of what exists in the repository today. When docs conflict with code, code wins.
@@ -340,6 +340,28 @@ Root (unversioned): `/health`, `/readiness`
 ---
 
 ## 14. Related docs
+
+### Intelligence authority chain
+
+```mermaid
+flowchart LR
+    E[Experience] --> Q[Knowledge Qualification]
+    Q --> L[Knowledge Ledger]
+    L --> LC[Knowledge Lifecycle]
+    LC --> R[Knowledge Retrieval]
+    R --> A[Knowledge Applicability]
+    A --> DS[Knowledge-Informed Decision Support]
+    DS --> D[Decision authority]
+    D -. recommendation only .-> RT[Governed Runtime]
+```
+
+- **Knowledge** is a learned, non-causal proposition.
+- **Applicability** establishes whether that proposition applies to typed current context.
+- **Decision Support** states what applicable knowledge supports, limits, or leaves unresolved about exactly identified options and criteria. Its evidence is derived provenance, never an independent world observation.
+- **Decision** remains the sole owner of criterion weighting, scoring, and recommendation selection.
+- **Runtime** executes only through the existing queue, dispatcher, and worker-lease authorities; neither Knowledge nor Decision Support grants execution authority.
+
+The production composition is `Knowledge Ledger → Lifecycle → Retrieval → Applicability → Decision Support → decision.recommend_next_action`. It performs tenant-scoped reads, preserves the original Decision request's weights, forbids prose semantic inference, and creates no persistence table.
 
 - `README.md` — repository entry point
 - `PROJECT_SPEC.md` — canonical specification

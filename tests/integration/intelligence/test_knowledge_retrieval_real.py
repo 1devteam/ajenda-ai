@@ -29,10 +29,11 @@ from tests.unit.ontology.test_experience_intelligence import signal
 pytestmark = pytest.mark.integration
 
 
-def _context(tenant: str, factory) -> ActionRuntimeContext:
+def _context(tenant: str, factory, *, mission_id: uuid.UUID | None = None) -> ActionRuntimeContext:
     return ActionRuntimeContext(
         tenant_id=tenant,
         task_id=uuid.uuid4(),
+        mission_id=mission_id,
         worker_id="worker",
         lease_id="lease",
         session_factory=factory,

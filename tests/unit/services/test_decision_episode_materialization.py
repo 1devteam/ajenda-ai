@@ -188,6 +188,37 @@ def test_same_artifacts_materialize_the_same_episode_and_learning_identity() -> 
     assert first.feedback.feedback_id == second.feedback.feedback_id
 
 
+def test_materializes_canonical_decision_nested_in_knowledge_support_artifact() -> None:
+    service, request, records = _fixture()
+    recommendation = records[0]
+    canonical_output = dict(recommendation.structured_payload)
+    task = service._tasks.tasks[recommendation.execution_task_id]
+    decision_input = task.metadata_json["tool_invocation"]["input"]
+    recommendation.structured_payload = {
+        "support": {"support_id": "knowledge-decision-support-v1:audit"},
+        "decision_input": decision_input,
+        "decision_result": canonical_output,
+    }
+    recommendation.provenance_metadata.update(
+        {
+            "action_name": "knowledge.inform_decision",
+            "delegated_decision_action": "decision.recommend_next_action",
+        }
+    )
+    task.metadata_json["tool_invocation"] = {
+        "action": "knowledge.inform_decision",
+        "input": {"decision": decision_input},
+    }
+
+    result = service.materialize(tenant_id=TENANT, request=request)
+
+    assert result.feedback.learning_signal.intervention_key == "sales.schedule_discovery"
+    assert all(
+        not identity.startswith("knowledge-influence-v1:")
+        for identity in result.feedback.learning_signal.supporting_evidence_ids
+    )
+
+
 def test_execution_mismatch_is_preserved_without_prose_inference() -> None:
     service, request, _ = _fixture(executed_action="sales.send_pricing")
 

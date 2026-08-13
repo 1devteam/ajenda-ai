@@ -9,6 +9,15 @@ from backend.services.knowledge.knowledge_applicability import (
     resolve_knowledge_applicability,
     validate_context_for_query,
 )
+from backend.services.knowledge.knowledge_decision_support import (
+    KnowledgeDecisionCriterion,
+    KnowledgeDecisionInfluence,
+    KnowledgeDecisionOption,
+    KnowledgeDecisionSupportResult,
+    KnowledgeInfluenceDirection,
+    build_knowledge_decision_evidence,
+    evaluate_knowledge_decision_support,
+)
 from backend.services.knowledge.knowledge_ledger import (
     KnowledgeLedgerIntegrityError,
     KnowledgeLedgerWriteResult,
@@ -39,6 +48,11 @@ __all__ = [
     "KnowledgeApplicabilityResolutionResult",
     "KnowledgeApplicabilityResult",
     "KnowledgeApplicabilityStatus",
+    "KnowledgeDecisionCriterion",
+    "KnowledgeDecisionInfluence",
+    "KnowledgeDecisionOption",
+    "KnowledgeDecisionSupportResult",
+    "KnowledgeInfluenceDirection",
     "KnowledgeLedgerIntegrityError",
     "KnowledgeLedgerWriteResult",
     "KnowledgeLedgerWriteStatus",
@@ -48,7 +62,9 @@ __all__ = [
     "KnowledgeRetrievalQuery",
     "KnowledgeRetrievalResult",
     "RetrievedKnowledgeMatch",
+    "build_knowledge_decision_evidence",
     "evaluate_knowledge_applicability",
+    "evaluate_knowledge_decision_support",
     "match_current_knowledge",
     "record_knowledge_qualification",
     "resolve_current_knowledge_state",

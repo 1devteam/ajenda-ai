@@ -61,7 +61,11 @@ def _relevant_lineages(
             continue
         role = record.provenance_metadata.get("evidence_role")
         source_evidence_id = record.provenance_metadata.get("source_evidence_id")
-        if role == "decision_recommendation_result" and record.structured_payload == recommendation_output:
+        durable_recommendation_output = record.structured_payload or {}
+        nested_output = durable_recommendation_output.get("decision_result")
+        if isinstance(nested_output, dict):
+            durable_recommendation_output = nested_output
+        if role == "decision_recommendation_result" and durable_recommendation_output == recommendation_output:
             result_lineages.append(lineage)
         elif isinstance(source_evidence_id, str) and source_evidence_id in supporting_ids:
             supporting_lineages.append(lineage)

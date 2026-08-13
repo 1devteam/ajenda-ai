@@ -319,6 +319,47 @@ def test_duplicate_artifacts_and_shared_lineage_are_order_invariant_dependence()
     assert candidate.recurrence.strength != RecurrenceStrength.SUPPORTED
 
 
+def test_knowledge_derived_decision_support_cannot_recursively_manufacture_independent_support() -> None:
+    """Evidence A → Knowledge → support D retains A; a new world outcome B remains independent."""
+
+    original = ep(1, evidence=["world-a"])
+    derived_signal = signal(2, evidence=["knowledge-support-d"]).model_copy(
+        update={
+            "evidence_lineages": (
+                EvidenceLineage(
+                    artifact_evidence_id="knowledge-support-d",
+                    origin_type=EvidenceOriginType.DERIVED_FACT,
+                    root_evidence_ids=("world-a",),
+                    parent_evidence_ids=("knowledge-k",),
+                    ancestor_evidence_ids=("world-a",),
+                    resolution=EvidenceLineageResolution.KNOWN,
+                ),
+            )
+        }
+    )
+    derived = ExperienceEpisodeInput(
+        episode_id="ep-derived-support",
+        signal=derived_signal,
+        recommendation_class="discount_offer",
+        objective_dimensions=("increase_conversion",),
+        observation_time_provenance=ObservationTimeProvenance.DERIVED,
+    )
+    new_world_outcome = ep(3, evidence=["world-b"])
+
+    result = evaluate_experience_set([original, derived, new_world_outcome])
+    comparison = next(
+        item
+        for item in result.comparisons
+        if {item.left_episode_id, item.right_episode_id} == {"ep-1", "ep-derived-support"}
+    )
+    assert comparison.independence == IndependenceStatus.DEPENDENT
+    assert "reused_lineage" in comparison.reason_codes
+    candidate = result.pattern_candidates[0]
+    assert candidate.recurrence.independent_support_count == 1
+    assert candidate.recurrence.dependent_support_count == 1
+    assert candidate.recurrence.strength != RecurrenceStrength.SUPPORTED
+
+
 def test_same_decision_positive_and_negative_is_ambiguous_not_contested() -> None:
     result = evaluate_experience_set(
         [

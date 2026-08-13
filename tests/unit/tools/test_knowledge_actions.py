@@ -20,7 +20,9 @@ from backend.services.ontology.knowledge_qualification import qualify_pattern_kn
 from backend.services.ontology.observation_attribution import ObservationVerificationBasis
 from backend.services.ontology.types import BusinessObjectRef, BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.knowledge_actions import _normalize_decision_evidence_ids
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
+from tests.unit.knowledge.test_knowledge_decision_support import NOW, _resolution
 from tests.unit.ontology.test_knowledge_qualification import candidate
 
 
@@ -38,6 +40,135 @@ def test_knowledge_action_is_registered_as_governed_internal_write() -> None:
     definition = get_default_action_registry(rebuild=True).get("knowledge.record_qualification")
     assert definition.provider == "ajenda_knowledge"
     assert definition.side_effect_class == SideEffectClass.INTERNAL_WRITE
+
+
+def test_knowledge_synthetic_ids_are_normalized_in_every_decision_evidence_field() -> None:
+    root_a, root_b = str(uuid4()), str(uuid4())
+    synthetic = "knowledge-influence-v1:synthetic"
+    output, applied = _normalize_decision_evidence_ids(
+        {
+            "supporting_evidence_ids": ["ordinary", synthetic],
+            "option_scores": [
+                {
+                    "option_id": "a",
+                    "supporting_evidence_ids": [synthetic],
+                    "dimension_scores": [{"criterion_id": "c", "evidence_ids": [synthetic]}],
+                }
+            ],
+        },
+        ancestry_by_derived_id={synthetic: (root_a, root_b)},
+    )
+
+    assert output["supporting_evidence_ids"] == ["ordinary", root_a, root_b]
+    score = output["option_scores"][0]
+    assert score["supporting_evidence_ids"] == [root_a, root_b]
+    assert score["dimension_scores"][0]["evidence_ids"] == [root_a, root_b]
+    assert score["knowledge_influence_ids"] == [synthetic]
+    assert applied == (synthetic,)
+
+
+def test_knowledge_action_injects_fact_into_canonical_decision_and_preserves_base_evidence(
+    monkeypatch,
+) -> None:
+    match, resolution = _resolution()
+    durable_root = str(uuid4())
+    retrieval = resolution.retrieval
+    monkeypatch.setattr(
+        "backend.services.tools.knowledge_actions.retrieve_current_knowledge",
+        Mock(return_value=retrieval),
+    )
+    monkeypatch.setattr(
+        "backend.services.tools.knowledge_actions._durable_knowledge_ancestry",
+        lambda _session, **kwargs: {
+            influence.influence_id: (durable_root,)
+            for influence in kwargs["support"].influences
+            if influence.direction.value == "supports"
+        },
+    )
+    options = [
+        {
+            "option_id": "aligned",
+            "label": "Discovery",
+            "intervention_key": match.proposition.intervention_key,
+        },
+        {"option_id": "other", "label": "Pricing", "intervention_key": "sales.send_pricing"},
+    ]
+    base_id = str(uuid4())
+    decision = {
+        "goal": "Increase conversion",
+        "options": options,
+        "criteria": [{"criterion_id": "outcome", "label": "Outcome", "weight": 1.0}],
+        "evidence": [
+            {
+                "evidence_id": base_id,
+                "claim": "Pricing has bounded base support",
+                "confidence": 0.2,
+                "supports_option_ids": ["other"],
+                "supports_criterion_ids": ["outcome"],
+            }
+        ],
+    }
+    context = _context(session_factory=Mock(return_value=Mock()))
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="knowledge.inform_decision",
+            input={
+                "decision_id": "decision-430",
+                "decision": decision,
+                "options": options,
+                "criteria": [
+                    {
+                        "criterion_id": "outcome",
+                        "label": "Outcome",
+                        "weight": 1.0,
+                        "objective_key": match.proposition.objective_key,
+                    }
+                ],
+                "query": retrieval.query.model_dump(mode="json"),
+                "applicability_context": resolution.evaluations
+                and {
+                    "subject_refs": [{"object_type": "opportunity", "object_id": "opp-123"}],
+                    "subject_semantic_signatures": retrieval.query.subject_semantic_signatures,
+                    "goal_semantic_signature": retrieval.query.goal_semantic_signature,
+                    "condition_assertions": [
+                        {
+                            "condition_key": "segment:smb",
+                            "state": "active",
+                            "subject_refs": [{"object_type": "opportunity", "object_id": "opp-123"}],
+                            "evidence_ids": [durable_root],
+                            "observed_at": NOW,
+                            "verification_basis": "independently_verified",
+                        },
+                        {
+                            "condition_key": "pricing_model_changed",
+                            "state": "inactive",
+                            "subject_refs": [{"object_type": "opportunity", "object_id": "opp-123"}],
+                            "observed_at": NOW,
+                            "verification_basis": "independently_verified",
+                        },
+                    ],
+                    "evaluated_at": NOW,
+                },
+            },
+        ),
+        context,
+    )
+
+    decision_result = result.output["decision_result"]
+    assert decision_result["recommendation"] == "aligned"
+    assert decision_result["algorithm"]["name"] == "weighted_criterion_evidence_v1"
+    assert decision_result["knowledge_decision_support"]["applied_influence_ids"]
+    assert all(
+        not identity.startswith("knowledge-influence-v1:")
+        for score in decision_result["option_scores"]
+        for identity in score["supporting_evidence_ids"]
+    )
+    assert any(fact["evidence_id"] == base_id for fact in result.output["decision_input"]["evidence"])
+    assert result.output["decision_input"]["criteria"][0]["weight"] == decision["criteria"][0]["weight"]
+    assert result.evidence[0].lineage is not None
+    assert result.evidence[0].lineage.origin_type.value == "derived_fact"
+    assert result.evidence[0].lineage.root_evidence_ids == (durable_root,)
+    assert result.evidence[0].provenance["is_independent_observation"] is False
 
 
 def test_consolidation_action_is_registered_as_governed_internal_write() -> None:

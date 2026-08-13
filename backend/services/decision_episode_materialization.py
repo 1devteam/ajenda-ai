@@ -27,6 +27,7 @@ from backend.services.ontology.outcome import OutcomeEvaluation
 from backend.services.tools.schemas import ActionResult, DecisionRecommendInput, SideEffectClass
 
 RECOMMENDATION_ACTION = "decision.recommend_next_action"
+KNOWLEDGE_INFORMED_RECOMMENDATION_ACTION = "knowledge.inform_decision"
 OUTCOME_ACTION = "analysis.evaluate_outcome"
 MATERIALIZATION_ACTION = "analysis.materialize_decision_learning_signal"
 _IDENTITY_NAMESPACE = uuid.NAMESPACE_URL
@@ -109,8 +110,10 @@ def _artifact_action(record: EvidenceRecord) -> str | None:
     return resolved if isinstance(resolved, str) and resolved else None
 
 
-def _parse_event_time(record: EvidenceRecord, field: str) -> datetime | None:
-    raw = record.structured_payload.get(field)
+def _parse_event_time(
+    record: EvidenceRecord, field: str, *, payload: dict[str, object] | None = None
+) -> datetime | None:
+    raw = (payload or record.structured_payload).get(field)
     if raw is None:
         raw = record.provenance_metadata.get(field)
     if raw is None:
@@ -141,7 +144,15 @@ class DecisionEpisodeMaterializationService:
             evidence_id=request.recommendation_evidence_id,
             role="recommendation",
         )
-        self._require_action(recommendation, RECOMMENDATION_ACTION)
+        recommendation_action = _artifact_action(recommendation)
+        if recommendation_action not in {
+            RECOMMENDATION_ACTION,
+            KNOWLEDGE_INFORMED_RECOMMENDATION_ACTION,
+        }:
+            raise ValueError(
+                "durable artifact does not represent decision.recommend_next_action "
+                "or its governed knowledge-informed composition"
+            )
         if recommendation.provenance_metadata.get("evidence_role") != "decision_recommendation_result":
             raise ValueError("recommendation artifact has the wrong durable evidence role")
         if recommendation.execution_task_id is None:
@@ -156,17 +167,26 @@ class DecisionEpisodeMaterializationService:
         if recommendation_task.mission_id != recommendation.mission_id:
             raise ValueError("recommendation task and evidence mission provenance disagree")
         invocation = recommendation_task.metadata_json.get("tool_invocation")
-        if not isinstance(invocation, dict) or invocation.get("action") != RECOMMENDATION_ACTION:
+        if not isinstance(invocation, dict) or invocation.get("action") != recommendation_action:
             raise ValueError("recommendation task does not prove the expected decision action")
+        recommendation_payload = recommendation.structured_payload
         raw_input = invocation.get("input")
+        if recommendation_action == KNOWLEDGE_INFORMED_RECOMMENDATION_ACTION:
+            if recommendation.provenance_metadata.get("delegated_decision_action") != RECOMMENDATION_ACTION:
+                raise ValueError("knowledge-informed recommendation lacks canonical Decision delegation")
+            raw_input = recommendation_payload.get("decision_input")
+            nested_result = recommendation_payload.get("decision_result")
+            if not isinstance(nested_result, dict):
+                raise ValueError("knowledge-informed recommendation lacks canonical Decision output")
+            recommendation_payload = nested_result
         if not isinstance(raw_input, dict):
             raise ValueError("recommendation task does not contain durable structured input")
         recommendation_input = DecisionRecommendInput.model_validate(raw_input)
-        decided_at = _parse_event_time(recommendation, "decided_at")
+        decided_at = _parse_event_time(recommendation, "decided_at", payload=recommendation_payload)
         if decided_at is None:
             raise ValueError("recommendation artifact does not establish decision chronology")
 
-        raw_supporting_ids = recommendation.structured_payload.get("supporting_evidence_ids", [])
+        raw_supporting_ids = recommendation_payload.get("supporting_evidence_ids", [])
         if not isinstance(raw_supporting_ids, list) or not all(isinstance(item, str) for item in raw_supporting_ids):
             raise ValueError("recommendation supporting evidence identities must be a list of UUID strings")
         supporting_ids = sorted({self._uuid(item) for item in raw_supporting_ids}, key=str)
@@ -192,7 +212,7 @@ class DecisionEpisodeMaterializationService:
             action=RECOMMENDATION_ACTION,
             provider=str(recommendation.provenance_metadata.get("tool_provider") or "ajenda_decision"),
             side_effect_class=SideEffectClass.NONE,
-            output=recommendation.structured_payload,
+            output=recommendation_payload,
             summary=recommendation.summary,
             confidence=recommendation.confidence,
         )
