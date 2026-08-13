@@ -1386,3 +1386,36 @@ authority_entries:
       - tests/unit/abilities/test_ability_catalog.py
       - tests/unit/architecture/test_authority_ledger_contract.py
       - docs/planning/pr-429-knowledge-applicability-acceptance.md
+
+  - id: knowledge_informed_decision_support
+    area: applicable knowledge to bounded decision evidence
+    source_of_truth:
+      - backend/services/knowledge/knowledge_decision_support.py
+      - backend/services/knowledge/knowledge_retrieval.py
+      - backend/services/knowledge/knowledge_applicability.py
+      - backend/services/tools/knowledge_actions.py
+      - backend/services/tools/decision_actions.py
+      - backend/services/ontology/evidence_lineage.py
+    route_scope: []
+    authority_class: read_model
+    side_effect_class: internal_read_tenant_scoped_knowledge_and_decision_composition
+    allowed_side_effects:
+      - act as the sole production owner translating current-context applicable knowledge into bounded provenance-preserving evidence about explicitly typed options and criteria
+      - invoke canonical tenant-scoped Knowledge Retrieval and Applicability and pass bounded support context to the existing Decision authority
+      - emit deterministic derived evidence that preserves knowledge, proposition, applicability, limitation, chronology, and provenance identities
+    forbidden_side_effects:
+      - select an option, create a competing recommendation or Decision ontology, or directly execute work
+      - mutate Decision criteria, weights, scores, Knowledge Ledger, Knowledge Lifecycle, Applicability, missions, tasks, queues, or runtime state
+      - introduce hidden weighting, applicability-to-number conversion, causal inference, policy, or execution authority
+      - infer option or criterion semantics from prose, labels, fuzzy matching, LLM judgment, or guessed equivalence
+      - treat knowledge-derived support as a new independent world observation or permit recursive self-reinforcement
+      - trust caller-authored Retrieval, Applicability, qualification, or lifecycle artifacts as production authority
+    required_proofs:
+      - tests/unit/knowledge/test_knowledge_decision_support.py
+      - tests/unit/tools/test_knowledge_actions.py
+      - tests/unit/tools/test_evidence_bridge.py
+      - tests/unit/ontology/test_experience_intelligence.py
+      - tests/integration/intelligence/test_knowledge_decision_support_real.py
+      - tests/unit/abilities/test_ability_catalog.py
+      - tests/unit/architecture/test_authority_ledger_contract.py
+      - docs/planning/pr-430-knowledge-decision-support-acceptance.md

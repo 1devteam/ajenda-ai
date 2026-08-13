@@ -13,14 +13,26 @@ from backend.services.knowledge.knowledge_applicability import (
     resolve_knowledge_applicability,
     validate_context_for_query,
 )
+from backend.services.knowledge.knowledge_decision_support import (
+    KnowledgeDecisionCriterion,
+    KnowledgeDecisionOption,
+    evaluate_knowledge_decision_support,
+)
 from backend.services.knowledge.knowledge_ledger import record_knowledge_qualification
 from backend.services.knowledge.knowledge_lifecycle import resolve_current_knowledge_state
 from backend.services.knowledge.knowledge_retrieval import KnowledgeRetrievalQuery, retrieve_current_knowledge
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+)
 from backend.services.ontology.knowledge_qualification import KnowledgeQualificationResult
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.decision_actions import decision_recommend_next_action
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
+    DecisionRecommendInput,
     EvidenceItem,
     SideEffectClass,
     ToolInvocation,
@@ -52,6 +64,19 @@ class EvaluateKnowledgeApplicabilityInput(BaseModel):
 
     query: KnowledgeRetrievalQuery
     context: KnowledgeApplicabilityContext
+
+
+class KnowledgeInformedDecisionSupportInput(BaseModel):
+    """Production input: owner artifacts are recomputed, never caller-authored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision_id: str
+    decision: DecisionRecommendInput
+    options: tuple[KnowledgeDecisionOption, ...]
+    criteria: tuple[KnowledgeDecisionCriterion, ...]
+    query: KnowledgeRetrievalQuery
+    applicability_context: KnowledgeApplicabilityContext
 
 
 class ConsolidateLearningHistoryInput(BaseModel):
@@ -364,6 +389,100 @@ def knowledge_evaluate_applicability(invocation: ToolInvocation, context: Action
     )
 
 
+def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    """Compose Retrieval → Applicability → bounded support → canonical Decision."""
+
+    payload = KnowledgeInformedDecisionSupportInput.model_validate(invocation.input)
+    validate_context_for_query(query=payload.query, context=payload.applicability_context)
+    support_criteria = [
+        item.model_dump(exclude={"objective_key", "kpi_semantic_signature"}) for item in payload.criteria
+    ]
+    decision_criteria = [item.model_dump() for item in payload.decision.criteria]
+    if [item.model_dump() for item in payload.options] != [
+        item.model_dump() for item in payload.decision.options
+    ] or support_criteria != decision_criteria:
+        raise ValueError("typed support options/criteria must exactly match the Decision-owned request")
+    if context.session_factory is None:
+        raise RuntimeError("knowledge-informed decision support requires a primary session factory")
+    session = context.session_factory()
+    try:
+        activate_tenant_session(session, context.tenant_id)
+        retrieval = retrieve_current_knowledge(session, tenant_id=context.tenant_id, query=payload.query)
+        applicability = resolve_knowledge_applicability(retrieval=retrieval, context=payload.applicability_context)
+    finally:
+        session.close()
+    support = evaluate_knowledge_decision_support(
+        decision_id=payload.decision_id,
+        options=payload.options,
+        criteria=payload.criteria,
+        applicability=applicability,
+        evaluated_at=payload.applicability_context.evaluated_at,
+    )
+    decision_payload = payload.decision.model_dump(mode="json")
+    decision_payload["context"] = {
+        **decision_payload["context"],
+        "knowledge_decision_support": {
+            "support_id": support.support_id,
+            "influence_ids": [item.influence_id for item in support.influences],
+            "provenance_class": support.provenance_class,
+            "is_independent_observation": False,
+        },
+    }
+    decision_result = decision_recommend_next_action(
+        ToolInvocation(action="decision.recommend_next_action", input=decision_payload), context
+    )
+    output = {
+        "support": support.model_dump(mode="json"),
+        "decision_result": decision_result.output,
+    }
+    records_inspected = [
+        *(f"knowledge_proposition:{item}" for item in retrieval.inspection_trace.candidate_proposition_keys),
+        *(f"knowledge_qualification:{item}" for item in retrieval.inspection_trace.authoritative_qualification_ids),
+        *(f"knowledge_artifact:{item}" for item in retrieval.inspection_trace.artifact_knowledge_ids_loaded),
+    ]
+    parent_ids = tuple(sorted({*support.knowledge_ids_considered, *support.supporting_evidence_ids}))
+    lineage = EvidenceLineage(
+        artifact_evidence_id=support.support_id,
+        origin_type=EvidenceOriginType.DERIVED_FACT,
+        parent_evidence_ids=parent_ids,
+        resolution=(EvidenceLineageResolution.PARTIAL if parent_ids else EvidenceLineageResolution.UNKNOWN),
+    )
+    summary = f"Bounded knowledge influences evaluated: {len(support.influences)}"
+    evidence = EvidenceItem(
+        evidence_type="action_result_evidence",
+        evidence_source="knowledge_decision_support",
+        action_name="knowledge.inform_decision",
+        tool_provider="ajenda_knowledge",
+        tenant_id=context.tenant_id,
+        task_id=str(context.task_id),
+        mission_id=str(context.mission_id) if context.mission_id else None,
+        summary=summary,
+        structured_payload=output,
+        records_inspected=records_inspected,
+        limitations=list(support.epistemic_limits),
+        provenance={
+            "runtime_path": (
+                "TaskDispatcher -> tool.invoke -> Knowledge Retrieval -> Knowledge Applicability "
+                "-> Knowledge Decision Support -> decision.recommend_next_action"
+            ),
+            "provenance_class": "derived_knowledge_influence",
+            "is_independent_observation": False,
+        },
+        lineage=lineage,
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+    )
+    return ActionResult(
+        action="knowledge.inform_decision",
+        provider="ajenda_knowledge",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+        output=output,
+        evidence=[evidence],
+        records_inspected=records_inspected,
+        summary=summary,
+        limitations=list(support.epistemic_limits),
+    )
+
+
 class _NoMutationSession:
     """Sentinel proving proposition-less results cannot access persistence."""
 
@@ -372,6 +491,15 @@ class _NoMutationSession:
 
 
 def register_knowledge_actions(registry: ActionRegistry) -> None:
+    registry.register(
+        ActionDefinition(
+            name="knowledge.inform_decision",
+            handler=knowledge_inform_decision,
+            provider="ajenda_knowledge",
+            input_model=KnowledgeInformedDecisionSupportInput,
+            side_effect_class=SideEffectClass.INTERNAL_READ,
+        )
+    )
     registry.register(
         ActionDefinition(
             name="knowledge.evaluate_applicability",
