@@ -133,6 +133,13 @@ def test_knowledge_persistence_manifest_is_governed_internal_write() -> None:
     assert manifest.enabled_by_default is False
 
 
+def test_durable_experience_consolidation_manifest_is_governed_internal_write() -> None:
+    manifest = ABILITY_MANIFESTS_BY_ACTION["knowledge.consolidate_learning_history"]
+    assert manifest.side_effect_class == SideEffectClass.INTERNAL_WRITE
+    assert manifest.approval_required is True
+    assert manifest.enabled_by_default is False
+
+
 def test_knowledge_lifecycle_manifest_is_governed_internal_read() -> None:
     manifest = ABILITY_MANIFESTS_BY_ACTION["knowledge.resolve_current_state"]
     assert manifest.ability_id == "knowledge-resolve-current-state"

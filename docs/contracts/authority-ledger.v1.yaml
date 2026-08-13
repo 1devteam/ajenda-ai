@@ -1331,3 +1331,31 @@ authority_entries:
       - tests/integration/intelligence/test_decision_episode_materialization_real.py
       - tests/unit/architecture/test_authority_ledger_contract.py
       - tests/unit/tools/test_evidence_bridge.py
+
+  - id: durable_experience_consolidation
+    area: durable experience consolidation and knowledge refresh
+    source_of_truth:
+      - backend/services/durable_experience_consolidation.py
+      - backend/repositories/durable_learning_signal_repository.py
+      - backend/services/ontology/experience_intelligence.py
+      - backend/services/ontology/knowledge_qualification.py
+      - backend/services/knowledge/knowledge_ledger.py
+      - backend/services/tools/knowledge_actions.py
+    route_scope: []
+    authority_class: governed_mutation
+    side_effect_class: internal_write_tenant_scoped_knowledge_ledger
+    allowed_side_effects:
+      - discover tenant-owned canonical DecisionLearningSignal EvidenceRecords across missions
+      - validate and adapt owner-produced signals for existing Experience and Knowledge Qualification authorities
+      - delegate qualification history persistence exclusively to Knowledge Ledger
+    forbidden_side_effects:
+      - redefine decision semantics, Experience comparability, recurrence, or Qualification rules
+      - accept caller-authored episode semantics or use EvidenceRecord.created_at as epistemic chronology
+      - directly mutate lifecycle state, infer applicability, alter decision weights, or execute actions
+      - create an Experience database, learning-signal table, or alternate Knowledge store
+    required_proofs:
+      - tests/unit/services/test_durable_experience_consolidation.py
+      - tests/integration/intelligence/test_durable_experience_consolidation_real.py
+      - tests/unit/tools/test_knowledge_actions.py
+      - tests/unit/abilities/test_ability_catalog.py
+      - docs/planning/pr-428-durable-experience-consolidation-acceptance.md

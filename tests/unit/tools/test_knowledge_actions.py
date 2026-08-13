@@ -36,6 +36,12 @@ def test_knowledge_action_is_registered_as_governed_internal_write() -> None:
     assert definition.side_effect_class == SideEffectClass.INTERNAL_WRITE
 
 
+def test_consolidation_action_is_registered_as_governed_internal_write() -> None:
+    definition = get_default_action_registry(rebuild=True).get("knowledge.consolidate_learning_history")
+    assert definition.provider == "ajenda_knowledge"
+    assert definition.side_effect_class == SideEffectClass.INTERNAL_WRITE
+
+
 def test_knowledge_lifecycle_action_is_registered_as_internal_read() -> None:
     definition = get_default_action_registry(rebuild=True).get("knowledge.resolve_current_state")
     assert definition.provider == "ajenda_knowledge"
