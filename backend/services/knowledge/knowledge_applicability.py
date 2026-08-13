@@ -155,6 +155,8 @@ class KnowledgeApplicabilityContext(BaseModel):
             asserted = {(item.object_type, item.object_id) for item in assertion.subject_refs}
             if not asserted.issubset(exact):
                 raise ValueError("condition assertion subjects fall outside the current context")
+            if assertion.observed_at > self.evaluated_at:
+                raise ValueError("condition assertion observation cannot occur after applicability evaluation")
         return self
 
 
