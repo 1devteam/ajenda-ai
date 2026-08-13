@@ -1359,3 +1359,30 @@ authority_entries:
       - tests/unit/tools/test_knowledge_actions.py
       - tests/unit/abilities/test_ability_catalog.py
       - docs/planning/pr-428-durable-experience-consolidation-acceptance.md
+
+  - id: knowledge_applicability_resolution
+    area: current-context knowledge applicability resolution
+    source_of_truth:
+      - backend/services/knowledge/knowledge_applicability.py
+      - backend/services/knowledge/knowledge_retrieval.py
+      - backend/services/tools/knowledge_actions.py
+    route_scope: []
+    authority_class: read_model
+    side_effect_class: internal_read_tenant_scoped_knowledge
+    allowed_side_effects:
+      - act as the sole production owner for evaluating whether lifecycle-current semantically retrieved knowledge applies to typed current-context assertions
+      - compare exact canonical scope and invalidation condition tokens against explicit ACTIVE, INACTIVE, or UNKNOWN assertion truth
+      - invoke canonical Knowledge Retrieval once under the active runtime tenant and emit deterministic action evidence
+    forbidden_side_effects:
+      - redefine Knowledge Lifecycle authority, Knowledge Qualification, Retrieval semantics, Goal semantics, or Business Object semantics
+      - infer condition truth from prose, fuzzy matching, LLM judgment, free-form BusinessStateSnapshot attributes, or absence of evidence
+      - treat missing context as false or upgrade partial Goal equivalence to full applicability
+      - mutate Knowledge Ledger or global Knowledge Lifecycle state, decisions, scores, missions, queues, or runtime authority
+      - rank recommendations, generate policy, infer causality, or execute actions
+    required_proofs:
+      - tests/unit/knowledge/test_knowledge_applicability.py
+      - tests/unit/tools/test_knowledge_actions.py
+      - tests/integration/intelligence/test_knowledge_applicability_real.py
+      - tests/unit/abilities/test_ability_catalog.py
+      - tests/unit/architecture/test_authority_ledger_contract.py
+      - docs/planning/pr-429-knowledge-applicability-acceptance.md

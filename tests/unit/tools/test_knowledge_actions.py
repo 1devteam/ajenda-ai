@@ -4,7 +4,10 @@ from uuid import uuid4
 import pytest
 
 from backend.services.knowledge import (
+    ContextConditionAssertion,
+    ContextConditionState,
     CurrentKnowledgeState,
+    KnowledgeApplicabilityContext,
     KnowledgeLedgerWriteResult,
     KnowledgeLedgerWriteStatus,
     KnowledgeLifecycleStatus,
@@ -14,7 +17,8 @@ from backend.services.knowledge import (
 )
 from backend.services.ontology.commercial_state import GoalSemanticSignature
 from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
-from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
+from backend.services.ontology.observation_attribution import ObservationVerificationBasis
+from backend.services.ontology.types import BusinessObjectRef, BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
 from tests.unit.ontology.test_knowledge_qualification import candidate
@@ -93,6 +97,60 @@ def test_knowledge_retrieval_action_is_read_only_and_uses_context_tenant(monkeyp
         "projection-match",
         "projection-rejected",
     ]
+
+
+def test_knowledge_applicability_runs_canonical_retrieval_as_tenant_read(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    query = KnowledgeRetrievalQuery(
+        subject_semantic_signatures=(BusinessObjectSemanticSignature(object_type=BusinessObjectType.OPPORTUNITY),),
+        goal_semantic_signature=GoalSemanticSignature(objective_key="increase_conversion"),
+    )
+    retrieval = KnowledgeRetrievalResult(
+        query=query,
+        matches=(),
+        candidate_proposition_count=0,
+        active_proposition_count=0,
+        semantic_match_count=0,
+        retrieval_id="knowledge-retrieval-v1:none",
+        inspection_trace=KnowledgeRetrievalInspectionTrace(candidate_proposition_keys=("candidate",)),
+        reason_codes=("no_current_semantic_knowledge_match",),
+    )
+    context = KnowledgeApplicabilityContext(
+        subject_refs=(BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp-123"),),
+        subject_semantic_signatures=query.subject_semantic_signatures,
+        goal_semantic_signature=query.goal_semantic_signature,
+        condition_assertions=(
+            ContextConditionAssertion(
+                condition_key="segment:smb",
+                state=ContextConditionState.ACTIVE,
+                evidence_ids=("ev-context",),
+                observed_at=datetime(2026, 8, 13, tzinfo=UTC),
+                verification_basis=ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
+            ),
+        ),
+        evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+    )
+    service = Mock(return_value=retrieval)
+    monkeypatch.setattr("backend.services.tools.knowledge_actions.retrieve_current_knowledge", service)
+    session = Mock()
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="knowledge.evaluate_applicability",
+            input={"query": query.model_dump(mode="json"), "context": context.model_dump(mode="json")},
+        ),
+        _context(session_factory=Mock(return_value=session)),
+    )
+    service.assert_called_once_with(session, tenant_id="tenant-A", query=query)
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+    session.close.assert_called_once_with()
+    assert result.side_effect_class == SideEffectClass.INTERNAL_READ
+    assert result.output["evaluations"] == []
+    assert result.records_changed == []
+    assert result.records_inspected == ["knowledge_proposition:candidate"]
+    assert result.evidence[0].evidence_source == "knowledge_applicability"
+    assert result.evidence[0].provenance["referenced_evidence_not_inspected"] == []
 
 
 def test_knowledge_lifecycle_action_uses_context_tenant_and_emits_evidence(monkeypatch) -> None:

@@ -107,6 +107,16 @@ def test_decision_episode_materialization_has_one_declared_owner() -> None:
     assert "caller-authored decision identity" in block
 
 
+def test_knowledge_applicability_has_one_declared_owner() -> None:
+    blocks = [block for block in _ledger_blocks() if block.startswith("id: knowledge_applicability_resolution\n")]
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert "sole production owner" in block
+    assert "typed current-context assertions" in block
+    assert "treat missing context as false" in block
+    assert "mutate Knowledge Ledger or global Knowledge Lifecycle state" in block
+
+
 def test_route_scope_item_parser_finds_second_or_later_route_scope_items() -> None:
     block = """id: example_contract
     area: example
