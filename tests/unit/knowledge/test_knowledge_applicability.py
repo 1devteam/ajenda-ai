@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
@@ -58,13 +58,20 @@ def _match(*, scope=("segment:smb",), invalidation=("pricing_model_changed",)):
     return query, match
 
 
-def _assertion(key, state, *, basis=ObservationVerificationBasis.INDEPENDENTLY_VERIFIED, evidence=()):
+def _assertion(
+    key,
+    state,
+    *,
+    basis=ObservationVerificationBasis.INDEPENDENTLY_VERIFIED,
+    evidence=(),
+    observed_at=NOW,
+):
     return ContextConditionAssertion(
         condition_key=key,
         state=state,
         subject_refs=(BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp-123"),),
         evidence_ids=evidence,
-        observed_at=NOW,
+        observed_at=observed_at,
         verification_basis=basis,
     )
 
@@ -162,6 +169,32 @@ def test_context_rejects_duplicate_conditions_and_subject_contradictions() -> No
             subject_semantic_signatures=query.subject_semantic_signatures,
             goal_semantic_signature=query.goal_semantic_signature,
             evaluated_at=NOW,
+        )
+
+
+def test_context_accepts_assertions_observed_before_evaluation() -> None:
+    query, match = _match(invalidation=())
+    context = _context(
+        query,
+        _assertion("segment:smb", ContextConditionState.ACTIVE, observed_at=NOW - timedelta(seconds=1)),
+    )
+    result = evaluate_knowledge_applicability(retrieval_id="retrieval:test", match=match, context=context)
+    assert result.status == KnowledgeApplicabilityStatus.APPLICABLE
+
+
+def test_context_accepts_assertions_observed_at_evaluation() -> None:
+    query, match = _match(invalidation=())
+    context = _context(query, _assertion("segment:smb", ContextConditionState.ACTIVE, observed_at=NOW))
+    result = evaluate_knowledge_applicability(retrieval_id="retrieval:test", match=match, context=context)
+    assert result.status == KnowledgeApplicabilityStatus.APPLICABLE
+
+
+def test_context_rejects_future_assertions_before_they_can_determine_applicability() -> None:
+    query, _ = _match(invalidation=())
+    with pytest.raises(ValidationError, match="observation cannot occur after applicability evaluation"):
+        _context(
+            query,
+            _assertion("segment:smb", ContextConditionState.ACTIVE, observed_at=NOW + timedelta(seconds=1)),
         )
 
 
