@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.durable_learning_signal_repository import DurableLearningSignalRepository
 from backend.services.durable_experience_consolidation import DurableExperienceConsolidationService
+from backend.services.knowledge.knowledge_applicability import (
+    KnowledgeApplicabilityContext,
+    resolve_knowledge_applicability,
+    validate_context_for_query,
+)
 from backend.services.knowledge.knowledge_ledger import record_knowledge_qualification
 from backend.services.knowledge.knowledge_lifecycle import resolve_current_knowledge_state
 from backend.services.knowledge.knowledge_retrieval import KnowledgeRetrievalQuery, retrieve_current_knowledge
@@ -38,6 +43,15 @@ class RetrieveCurrentKnowledgeInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: KnowledgeRetrievalQuery
+
+
+class EvaluateKnowledgeApplicabilityInput(BaseModel):
+    """Production composition input; Retrieval output is never caller-authored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: KnowledgeRetrievalQuery
+    context: KnowledgeApplicabilityContext
 
 
 class ConsolidateLearningHistoryInput(BaseModel):
@@ -289,6 +303,67 @@ def knowledge_retrieve_current(invocation: ToolInvocation, context: ActionRuntim
     )
 
 
+def knowledge_evaluate_applicability(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    """Retrieve tenant-current knowledge and evaluate explicit present context."""
+
+    payload = EvaluateKnowledgeApplicabilityInput.model_validate(invocation.input)
+    validate_context_for_query(query=payload.query, context=payload.context)
+    if context.session_factory is None:
+        raise RuntimeError("knowledge applicability requires a primary session factory")
+    session = context.session_factory()
+    try:
+        activate_tenant_session(session, context.tenant_id)
+        retrieval = retrieve_current_knowledge(session, tenant_id=context.tenant_id, query=payload.query)
+        result = resolve_knowledge_applicability(retrieval=retrieval, context=payload.context)
+    finally:
+        session.close()
+
+    output = result.model_dump(mode="json")
+    trace = retrieval.inspection_trace
+    records_inspected = [
+        *(f"knowledge_proposition:{item}" for item in trace.candidate_proposition_keys),
+        *(f"knowledge_qualification:{item}" for item in trace.authoritative_qualification_ids),
+        *(f"knowledge_artifact:{item}" for item in trace.artifact_knowledge_ids_loaded),
+    ]
+    referenced_evidence = [f"evidence:{item}" for item in result.referenced_evidence_ids]
+    summary = f"Current knowledge applicability evaluations: {len(result.evaluations)}"
+    evidence = EvidenceItem(
+        evidence_type="action_result_evidence",
+        evidence_source="knowledge_applicability",
+        action_name="knowledge.evaluate_applicability",
+        tool_provider="ajenda_knowledge",
+        tenant_id=context.tenant_id,
+        task_id=str(context.task_id),
+        mission_id=str(context.mission_id) if context.mission_id else None,
+        summary=summary,
+        structured_payload={
+            "resolution_id": result.resolution_id,
+            "retrieval_id": retrieval.retrieval_id,
+            "evaluations": [item.model_dump(mode="json") for item in result.evaluations],
+            "referenced_evidence_ids": list(result.referenced_evidence_ids),
+            "reason_codes": list(result.reason_codes),
+            "algorithm": result.algorithm,
+        },
+        records_inspected=records_inspected,
+        limitations=list(result.epistemic_limits),
+        provenance={
+            "runtime_path": "TaskDispatcher -> tool.invoke -> Knowledge Retrieval -> Knowledge Applicability",
+            "referenced_evidence_not_inspected": referenced_evidence,
+        },
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+    )
+    return ActionResult(
+        action="knowledge.evaluate_applicability",
+        provider="ajenda_knowledge",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+        output=output,
+        evidence=[evidence],
+        records_inspected=records_inspected,
+        summary=summary,
+        limitations=list(result.epistemic_limits),
+    )
+
+
 class _NoMutationSession:
     """Sentinel proving proposition-less results cannot access persistence."""
 
@@ -297,6 +372,15 @@ class _NoMutationSession:
 
 
 def register_knowledge_actions(registry: ActionRegistry) -> None:
+    registry.register(
+        ActionDefinition(
+            name="knowledge.evaluate_applicability",
+            handler=knowledge_evaluate_applicability,
+            provider="ajenda_knowledge",
+            input_model=EvaluateKnowledgeApplicabilityInput,
+            side_effect_class=SideEffectClass.INTERNAL_READ,
+        )
+    )
     registry.register(
         ActionDefinition(
             name="knowledge.consolidate_learning_history",
