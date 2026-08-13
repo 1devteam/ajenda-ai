@@ -23,7 +23,10 @@ from backend.services.knowledge.knowledge_applicability import (
     KnowledgeApplicabilityStatus,
 )
 from backend.services.ontology.commercial_state import KpiSemanticSignature
-from backend.services.ontology.knowledge_qualification import KnowledgeRelationshipType
+from backend.services.ontology.knowledge_qualification import (
+    KnowledgeProposition,
+    KnowledgeRelationshipType,
+)
 from backend.services.tools.schemas import DecisionCriterion, DecisionOption
 
 KNOWLEDGE_DECISION_SUPPORT_ALGORITHM = "knowledge_decision_support_v1"
@@ -116,7 +119,7 @@ def _identity(prefix: str, payload: object) -> str:
     return f"{prefix}:{hashlib.sha256(encoded).hexdigest()}"
 
 
-def _criterion_matches(*, criterion: KnowledgeDecisionCriterion, proposition: object) -> bool:
+def _criterion_matches(*, criterion: KnowledgeDecisionCriterion, proposition: KnowledgeProposition) -> bool:
     objective_key = proposition.objective_key
     kpis = proposition.kpi_semantic_signatures
     if criterion.objective_key is not None:
