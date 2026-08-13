@@ -11,6 +11,9 @@ from backend.services.abilities.experience_manifests import EXPERIENCE_ABILITY_M
 from backend.services.abilities.knowledge_applicability_manifests import (
     KNOWLEDGE_APPLICABILITY_ABILITY_MANIFESTS,
 )
+from backend.services.abilities.knowledge_decision_support_manifests import (
+    KNOWLEDGE_DECISION_SUPPORT_ABILITY_MANIFESTS,
+)
 from backend.services.abilities.knowledge_lifecycle_manifests import KNOWLEDGE_LIFECYCLE_ABILITY_MANIFESTS
 from backend.services.abilities.knowledge_manifests import KNOWLEDGE_ABILITY_MANIFESTS
 from backend.services.abilities.knowledge_persistence_manifests import KNOWLEDGE_PERSISTENCE_ABILITY_MANIFESTS
@@ -22,6 +25,7 @@ ACTION_RESULT_SCHEMA_REF = "backend.services.tools.schemas.ActionResult"
 
 INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
     *KNOWLEDGE_APPLICABILITY_ABILITY_MANIFESTS,
+    *KNOWLEDGE_DECISION_SUPPORT_ABILITY_MANIFESTS,
     AbilityManifest(
         ability_id="calendar-create-event",
         display_name="Calendar Create Event",
