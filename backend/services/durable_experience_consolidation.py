@@ -84,7 +84,7 @@ def _artifact_action(record: EvidenceRecord) -> str:
             "durable learning artifact has contradictory action provenance", evidence_ids=[record.id]
         )
     action = provenance_action or materialization_action
-    if action != MATERIALIZATION_ACTION:
+    if not isinstance(action, str) or action != MATERIALIZATION_ACTION:
         raise DurableLearningHistoryError(
             "candidate is not owned by the canonical materialization action", evidence_ids=[record.id]
         )
