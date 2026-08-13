@@ -71,10 +71,10 @@ def test_real_cross_mission_history_is_tenant_isolated_late_arrival_safe_and_rep
     replay = registry.invoke(invocation, context)
 
     assert len(first.output["records_inspected"]) == 3
-    assert (
-        first.output["experience"]["pattern_candidates"][0]["earliest_evaluated_at"]
-        == (evaluated + timedelta(hours=1)).isoformat()
+    earliest = datetime.fromisoformat(
+        first.output["experience"]["pattern_candidates"][0]["earliest_evaluated_at"].replace("Z", "+00:00")
     )
+    assert earliest == evaluated + timedelta(hours=1)
     assert first.output["qualifications"][0]["qualification"]["status"] == "qualified"
     assert first.output["qualifications"][0]["ledger_write"]["status"] == "recorded"
     assert replay.output["qualifications"][0]["ledger_write"]["status"] == "already_recorded"
