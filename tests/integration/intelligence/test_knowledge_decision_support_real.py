@@ -11,6 +11,7 @@ from backend.domain.mission import Mission
 from backend.repositories.durable_learning_signal_repository import MATERIALIZATION_ACTION
 from backend.services.ontology.commercial_state import GoalSemanticSignature
 from backend.services.ontology.decision_feedback import DecisionEpisodeReference
+from backend.services.ontology.evidence_lineage import EvidenceLineage, EvidenceOriginType
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ToolInvocation
@@ -40,6 +41,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     setup = factory()
     try:
         setup.add(Mission(id=mission_id, tenant_id=tenant, objective="Knowledge Decision reconciliation proof"))
+        setup.flush()
         setup.add(
             EvidenceRecord(
                 id=source_evidence_id,
@@ -49,6 +51,12 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 evidence_source="integration_test",
                 summary="Independent current-condition observation",
                 structured_payload={"observed_at": datetime(2026, 8, 13, tzinfo=UTC).isoformat()},
+                provenance_metadata={
+                    "evidence_lineage": EvidenceLineage(
+                        artifact_evidence_id=str(source_evidence_id),
+                        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+                    ).model_dump(mode="json")
+                },
             )
         )
         for index, episode_id in zip(
@@ -77,6 +85,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 }
             )
             setup.add(Mission(id=historical_mission_id, tenant_id=tenant, objective=f"Historical episode {index}"))
+            setup.flush()
             setup.add(
                 EvidenceRecord(
                     id=learning_evidence_id,
@@ -120,7 +129,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
             "intervention_key": "sales.send_pricing",
         },
     ]
-    decision_criteria = [{"criterion_id": "conversion", "label": "Conversion", "weight": 1.0}]
+    decision_criteria = [{"criterion_id": "conversion", "label": "Conversion", "weight": 1.0, "required": False}]
     support_criteria = [
         {
             **decision_criteria[0],
