@@ -40,6 +40,11 @@ is introduced.
   validated as the existing `OutcomeEvaluation`.
 - Persistence: the existing tool `EvidenceItem` → `EvidenceBridge` →
   `EvidenceRecord` path.
+- Historical learning ownership: a claimed learning-signal EvidenceRecord is
+  accepted for Decision influence only when it is the unique, exact
+  EvidenceBridge projection of a completed `tool.invoke` task, released worker
+  lease, and matching append-only `task_output` lineage record. Caller-authored
+  action/role/materialization JSON does not establish runtime provenance.
 - Tenant authority: tenant-filtered Evidence and ExecutionTask repositories.
 
 ### Possible pitfalls
@@ -60,6 +65,9 @@ historical learning signals remain explicitly non-independent lineage inputs.
 - The same ordered artifact set owns one stable episode, feedback, and signal ID.
 - Different recommendation artifacts remain different decisions even with equal prose.
 - Repository reads are tenant-scoped and foreign UUIDs appear inaccessible.
+- Historical Knowledge may cross mission boundaries within its tenant, but each
+  source signal must prove its own mission-scoped task, lease, lineage, and bridge
+  ownership chain.
 - Recommended and executed intervention identities are compared, never inferred
   from outcome success.
 - Owner event timestamps govern chronology; `created_at` does not.
@@ -80,9 +88,12 @@ historical learning signals remain explicitly non-independent lineage inputs.
 
 The adversarial service suite proves identity, tenant isolation, artifact role,
 execution mismatch/unknown behavior, chronology, idempotency, and attribution
-preservation. Registry, ability rollout, evidence bridge, ontology, and authority
-ledger suites prove composition. This change does not aggregate experience,
-qualify knowledge, infer causality, dispatch runtime work, or add persistence.
+preservation. The real Knowledge-to-Decision integration produces historical
+signals through queue, lease, dispatcher, materialization action, and EvidenceBridge,
+then proves that an otherwise valid caller-forged learning record is rejected.
+Registry, ability rollout, evidence bridge, ontology, and authority ledger suites
+prove composition. This change does not aggregate experience, qualify knowledge,
+infer causality, dispatch runtime work, or add persistence.
 
 ## Compatibility and rollback
 

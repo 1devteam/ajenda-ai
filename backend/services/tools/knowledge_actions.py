@@ -34,6 +34,7 @@ from backend.services.ontology.evidence_lineage import (
 from backend.services.ontology.knowledge_qualification import KnowledgeQualificationResult
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.decision_actions import decision_recommend_next_action
+from backend.services.tools.evidence_bridge import require_canonical_tool_action_evidence
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -584,6 +585,12 @@ def _resolve_historical_episode_evidence(
         episode_id = reference.episode_id if reference is not None else f"legacy:{signal.signal_id}"
         if episode_id not in episode_ids:
             continue
+        require_canonical_tool_action_evidence(
+            session=session,
+            record=record,
+            expected_action="analysis.materialize_decision_learning_signal",
+            expected_role="decision_learning_signal",
+        )
         existing = resolved.get(episode_id)
         candidate = (str(record.id), signal)
         if existing is not None and existing[1] != signal:
