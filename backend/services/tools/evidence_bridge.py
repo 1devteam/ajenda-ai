@@ -12,6 +12,7 @@ from backend.domain.evidence import EVIDENCE_CONTRACT_SCHEMA_VERSION, EvidenceRe
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.worker_lease import WorkerLease
+from backend.services.ontology.evidence_lineage import EvidenceOriginType
 from backend.services.tools.schemas import EvidenceItem
 
 _TOOL_INVOKE_HANDLER = "tool.invoke"
@@ -81,8 +82,8 @@ def require_canonical_tool_action_evidence(
     session: Session,
     record: EvidenceRecord,
     expected_action: str,
-    expected_role: str,
-) -> None:
+    expected_role: str | None,
+) -> EvidenceItem:
     """Prove a durable row is the unique runtime projection of task-output lineage.
 
     Public Evidence API callers can author declarative JSON, so JSON labels alone
@@ -143,7 +144,9 @@ def require_canonical_tool_action_evidence(
     if not isinstance(raw_item, Mapping):
         raise CanonicalToolEvidenceError("canonical tool evidence item is malformed")
     evidence_item = EvidenceItem.model_validate(dict(raw_item))
-    if evidence_item.action_name != expected_action or evidence_item.provenance.get("evidence_role") != expected_role:
+    if evidence_item.action_name != expected_action or (
+        expected_role is not None and evidence_item.provenance.get("evidence_role") != expected_role
+    ):
         raise CanonicalToolEvidenceError("canonical tool evidence semantic owner disagrees")
     _validate_evidence_scope(task=task, evidence_item=evidence_item)
     expected = _build_tool_action_evidence_record(
@@ -167,6 +170,33 @@ def require_canonical_tool_action_evidence(
     ]
     if len(same_projection) != 1 or same_projection[0].id != record.id:
         raise CanonicalToolEvidenceError("canonical tool evidence projection is not unique")
+    return evidence_item
+
+
+def require_canonical_source_observation_evidence(
+    *,
+    session: Session,
+    record: EvidenceRecord,
+) -> EvidenceItem:
+    """Prove source-observation semantics were emitted by the runtime action owner."""
+
+    reference = record.materialization_reference
+    if not isinstance(reference, Mapping):
+        raise CanonicalToolEvidenceError("source observation requires canonical runtime provenance")
+    expected_action = reference.get("action")
+    if not isinstance(expected_action, str) or not expected_action.strip():
+        raise CanonicalToolEvidenceError("source observation requires a canonical action owner")
+    evidence_item = require_canonical_tool_action_evidence(
+        session=session,
+        record=record,
+        expected_action=expected_action,
+        expected_role=None,
+    )
+    if evidence_item.lineage is None or evidence_item.lineage.origin_type != EvidenceOriginType.SOURCE_OBSERVATION:
+        raise CanonicalToolEvidenceError("runtime action did not establish source-observation authority")
+    if evidence_item.side_effect_class.has_side_effect:
+        raise CanonicalToolEvidenceError("source observation must be produced by a non-mutating authority")
+    return evidence_item
 
 
 def _build_tool_action_evidence_record(

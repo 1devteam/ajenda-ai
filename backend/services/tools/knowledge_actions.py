@@ -12,6 +12,7 @@ from backend.repositories.durable_learning_signal_repository import DurableLearn
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.services.durable_experience_consolidation import DurableExperienceConsolidationService
 from backend.services.knowledge.knowledge_applicability import (
+    ContextConditionAssertion,
     KnowledgeApplicabilityContext,
     resolve_knowledge_applicability,
     validate_context_for_query,
@@ -19,6 +20,7 @@ from backend.services.knowledge.knowledge_applicability import (
 from backend.services.knowledge.knowledge_decision_support import (
     KnowledgeDecisionCriterion,
     KnowledgeDecisionOption,
+    KnowledgeInfluenceDirection,
     evaluate_knowledge_decision_support,
     knowledge_support_evidence_facts,
 )
@@ -32,9 +34,13 @@ from backend.services.ontology.evidence_lineage import (
     EvidenceOriginType,
 )
 from backend.services.ontology.knowledge_qualification import KnowledgeQualificationResult
+from backend.services.ontology.observation_attribution import ObservationVerificationBasis
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.decision_actions import decision_recommend_next_action
-from backend.services.tools.evidence_bridge import require_canonical_tool_action_evidence
+from backend.services.tools.evidence_bridge import (
+    require_canonical_source_observation_evidence,
+    require_canonical_tool_action_evidence,
+)
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -422,12 +428,26 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
             applicability=applicability,
             evaluated_at=payload.applicability_context.evaluated_at,
         )
+        scoring_applicability_ids = {
+            item.applicability_id
+            for item in support.influences
+            if item.direction == KnowledgeInfluenceDirection.SUPPORTS and item.criterion_id is not None
+        }
+        scoring_evaluations = tuple(
+            item for item in applicability.evaluations if item.applicability_id in scoring_applicability_ids
+        )
         _validate_applicability_evidence(
-            repository=EvidenceRepository(session),
+            session=session,
             tenant_id=context.tenant_id,
             mission_id=context.mission_id,
             evaluated_at=payload.applicability_context.evaluated_at,
-            evidence_ids=set(support.applicability_evidence_ids),
+            evidence_ids={evidence_id for item in scoring_evaluations for evidence_id in item.evidence_ids},
+            assertions=payload.applicability_context.condition_assertions,
+            required_condition_keys={
+                condition_key
+                for item in scoring_evaluations
+                for condition_key in (*item.required_scope_conditions, *item.invalidation_conditions)
+            },
         )
         episode_evidence_ids = _resolve_historical_episode_evidence(
             session=session,
@@ -517,16 +537,38 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
 
 def _validate_applicability_evidence(
     *,
-    repository: EvidenceRepository,
+    session: Session,
     tenant_id: str,
     mission_id: uuid.UUID | None,
     evaluated_at: datetime,
     evidence_ids: set[str],
+    assertions: tuple[ContextConditionAssertion, ...],
+    required_condition_keys: set[str],
 ) -> None:
-    """Validate current-condition proof without treating it as Knowledge ancestry."""
+    """Require owner-produced current-condition proof before Decision scoring."""
 
     if evidence_ids and mission_id is None:
         raise ValueError("Knowledge applicability evidence requires mission provenance")
+    assertions_by_key = {assertion.condition_key: assertion for assertion in assertions}
+    required_assertions = tuple(
+        assertions_by_key[key] for key in sorted(required_condition_keys) if key in assertions_by_key
+    )
+    if len(required_assertions) != len(required_condition_keys) or any(
+        not assertion.evidence_ids for assertion in required_assertions
+    ):
+        raise ValueError("Knowledge applicability scoring requires evidence for every resolved condition")
+    if any(
+        assertion.verification_basis != ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT
+        for assertion in required_assertions
+    ):
+        raise ValueError(
+            "Knowledge applicability scoring requires source-supplied evidence; "
+            "independent verification cannot be caller-asserted"
+        )
+    authoritative_ids = {evidence_id for assertion in required_assertions for evidence_id in assertion.evidence_ids}
+    if evidence_ids != authoritative_ids:
+        raise ValueError("Knowledge applicability scoring evidence disagrees with resolved conditions")
+    repository = EvidenceRepository(session)
     for raw_id in sorted(evidence_ids):
         try:
             evidence_id = uuid.UUID(raw_id)
@@ -556,6 +598,7 @@ def _validate_applicability_evidence(
             raise ValueError("Knowledge applicability evidence lineage identity disagrees")
         if durable_lineage.origin_type != EvidenceOriginType.SOURCE_OBSERVATION:
             raise ValueError("derived evidence cannot establish fresh Knowledge applicability")
+        require_canonical_source_observation_evidence(session=session, record=record)
 
 
 def _resolve_historical_episode_evidence(

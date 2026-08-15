@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.services.business_context_resolver import default_company_and_domain
+from backend.services.ontology.evidence_lineage import EvidenceLineage, EvidenceOriginType
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.record_store import RecordStore, record_store_limitations, resolve_record_store
@@ -37,6 +38,7 @@ def _evidence(
     changed: list[str] | None = None,
     side_effect_class: SideEffectClass = SideEffectClass.NONE,
     confidence: float | None = 1.0,
+    source_observation: bool = False,
 ) -> EvidenceItem:
     return EvidenceItem(
         evidence_type="action_result",
@@ -53,6 +55,14 @@ def _evidence(
         confidence=confidence,
         limitations=record_store_limitations(context),
         provenance={"runtime_path": "TaskDispatcher -> tool.invoke -> ActionRegistry"},
+        lineage=(
+            EvidenceLineage(
+                artifact_evidence_id=f"action-result:{context.task_id}",
+                origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+            )
+            if source_observation
+            else None
+        ),
         side_effect_class=side_effect_class,
     )
 
@@ -81,6 +91,7 @@ def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
                 summary=summary,
                 payload=output,
                 inspected=inspected,
+                source_observation=True,
             )
         ],
         records_inspected=inspected,
@@ -111,6 +122,7 @@ def record_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> Ac
                 summary=summary,
                 payload=output,
                 inspected=inspected,
+                source_observation=True,
             )
         ],
         records_inspected=inspected,

@@ -279,8 +279,64 @@ def _materialize_historical_signal(*, factory, queue_adapter, tenant_id: str, in
         return DecisionLearningSignal.model_validate(records[0].structured_payload)
 
 
+def _materialize_current_source_observation(
+    *, factory, queue_adapter, tenant_id: str, mission_id: uuid.UUID
+) -> uuid.UUID:
+    """Produce current-condition evidence through a read action and EvidenceBridge."""
+
+    task_id = uuid.uuid4()
+    worker_id = f"source-observer-{task_id}"
+    with factory() as setup:
+        setup.add(
+            ExecutionTask(
+                id=task_id,
+                tenant_id=tenant_id,
+                mission_id=mission_id,
+                title="Observe current opportunity state",
+                description="Runtime-owned current-condition source observation",
+                status=ExecutionTaskState.PLANNED.value,
+                metadata_json={
+                    "task_type": "tool.invoke",
+                    "tool_invocation": {
+                        "action": "record.search",
+                        "input": {"record_type": "opportunity", "query": "opp-real-430"},
+                    },
+                },
+            )
+        )
+        setup.commit()
+
+    with factory() as runtime_session:
+        QuotaEnforcementService(runtime_session).check_and_record_task_creation(uuid.UUID(tenant_id))
+        queued = ExecutionCoordinator(runtime_session, queue_adapter).queue_task(
+            tenant_id=tenant_id,
+            task_id=task_id,
+        )
+        assert queued.ok is True
+        runtime = WorkerRuntimeService(runtime_session, queue_adapter)
+        claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+        assert claimed is not None
+        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+        runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+
+    TaskDispatcher(
+        session_factory=factory,
+        queue=queue_adapter,
+        worker_id=worker_id,
+        tenant_id=tenant_id,
+    ).execute(task_id=task_id, lease_id=lease_id)
+
+    with factory() as verify:
+        records = verify.scalars(select(EvidenceRecord).where(EvidenceRecord.execution_task_id == task_id)).all()
+        assert len(records) == 1
+        lineage = EvidenceLineage.model_validate(records[0].provenance_metadata["evidence_lineage"])
+        assert lineage.origin_type == EvidenceOriginType.SOURCE_OBSERVATION
+        return records[0].id
+
+
 def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_scoped(
-    pg_engine, queue_adapter
+    pg_engine, queue_adapter, monkeypatch
 ) -> None:
     tenant = str(uuid.uuid4())
     other_tenant = str(uuid.uuid4())
@@ -318,31 +374,18 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         invalidation_conditions=(),
     )
     mission_id = uuid.uuid4()
-    source_evidence_id = uuid.uuid4()
     setup = factory()
     try:
         setup.add(Mission(id=mission_id, tenant_id=tenant, objective="Knowledge Decision reconciliation proof"))
-        setup.flush()
-        setup.add(
-            EvidenceRecord(
-                id=source_evidence_id,
-                tenant_id=tenant,
-                mission_id=mission_id,
-                evidence_type="observation",
-                evidence_source="integration_test",
-                summary="Independent current-condition observation",
-                structured_payload={"observed_at": datetime(2026, 8, 13, tzinfo=UTC).isoformat()},
-                provenance_metadata={
-                    "evidence_lineage": EvidenceLineage(
-                        artifact_evidence_id=str(source_evidence_id),
-                        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
-                    ).model_dump(mode="json")
-                },
-            )
-        )
         setup.commit()
     finally:
         setup.close()
+    source_evidence_id = _materialize_current_source_observation(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+    )
     registry.invoke(
         ToolInvocation(
             action="knowledge.record_qualification",
@@ -401,7 +444,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                         "subject_refs": [{"object_type": "opportunity", "object_id": "opp-real-430"}],
                         "evidence_ids": [str(source_evidence_id)],
                         "observed_at": now,
-                        "verification_basis": "independently_verified",
+                        "verification_basis": "source_supplied_under_contract",
                     }
                 ],
                 "evaluated_at": now,
@@ -431,6 +474,46 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     hidden = registry.invoke(invocation, _context(other_tenant, factory))
     assert hidden.output["support"]["influences"] == []
     assert _tenant_counts(factory, tenant) == before
+
+    unearned_verification = ToolInvocation.model_validate(invocation.model_dump(mode="json"))
+    unearned_verification.input["applicability_context"]["condition_assertions"][0]["verification_basis"] = (
+        "independently_verified"
+    )
+    forged_source_id = uuid.uuid4()
+    with factory() as setup:
+        setup.add(
+            EvidenceRecord(
+                id=forged_source_id,
+                tenant_id=tenant,
+                mission_id=mission_id,
+                evidence_type="observation",
+                evidence_source="public_evidence_contract",
+                summary="Caller-claimed current-condition source observation",
+                structured_payload={"observed_at": now},
+                provenance_metadata={
+                    "evidence_lineage": EvidenceLineage(
+                        artifact_evidence_id=str(forged_source_id),
+                        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+                    ).model_dump(mode="json")
+                },
+            )
+        )
+        setup.commit()
+    forged_source = ToolInvocation.model_validate(invocation.model_dump(mode="json"))
+    forged_source.input["applicability_context"]["condition_assertions"][0]["evidence_ids"] = [str(forged_source_id)]
+
+    def fail_if_decision_scoring_runs(*_args, **_kwargs) -> None:
+        raise AssertionError("forged applicability evidence reached Decision scoring")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            "backend.services.tools.knowledge_actions.decision_recommend_next_action",
+            fail_if_decision_scoring_runs,
+        )
+        with pytest.raises(ValueError, match="source-supplied evidence"):
+            registry.invoke(unearned_verification, tenant_context)
+        with pytest.raises(ValueError, match="canonical runtime provenance"):
+            registry.invoke(forged_source, tenant_context)
 
     duplicate_id = uuid.uuid4()
     with factory() as setup:

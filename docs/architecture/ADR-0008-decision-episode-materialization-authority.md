@@ -45,6 +45,12 @@ is introduced.
   EvidenceBridge projection of a completed `tool.invoke` task, released worker
   lease, and matching append-only `task_output` lineage record. Caller-authored
   action/role/materialization JSON does not establish runtime provenance.
+- Current-condition ownership: an applicability EvidenceRecord may affect
+  Decision scoring only when it is the unique, exact EvidenceBridge projection
+  of a completed runtime action whose owner emitted `SOURCE_OBSERVATION`
+  lineage. Every resolved scope or invalidation condition must cite such
+  evidence and use `source_supplied_under_contract`; caller assertions and the
+  reserved `independently_verified` label cannot acquire scoring authority.
 - Tenant authority: tenant-filtered Evidence and ExecutionTask repositories.
 
 ### Possible pitfalls
@@ -56,7 +62,7 @@ order all fail closed. Missing execution proof remains `execution_unknown`; weak
 attribution is preserved rather than rejected or upgraded.
 Knowledge IDs, episode IDs, current applicability evidence, and synthetic influence
 IDs are never substituted for historical durable learning-signal EvidenceRecords.
-Derived or computed EvidenceRecords cannot establish fresh current applicability;
+Declarative, derived, or computed EvidenceRecords cannot establish fresh current applicability;
 historical learning signals remain explicitly non-independent lineage inputs.
 
 ### Invariants
@@ -80,7 +86,9 @@ historical learning signals remain explicitly non-independent lineage inputs.
 - Durable-source substitution is valid only for a known `DERIVED_FACT` whose
   canonical EvidenceRecord UUIDs exactly equal its root, parent, and ancestor
   assertions. Current applicability evidence must carry explicit, identity-matched
-  `SOURCE_OBSERVATION` lineage; missing lineage never implies independence.
+  `SOURCE_OBSERVATION` lineage and prove the runtime task, released lease,
+  task-output lineage, action-owned EvidenceItem, and exact bridge projection.
+  Missing lineage or caller-authored provenance never implies independence.
 - The output remains `DecisionLearningSignal` with `is_knowledge = false` and
   `is_policy = false`.
 
@@ -91,6 +99,9 @@ execution mismatch/unknown behavior, chronology, idempotency, and attribution
 preservation. The real Knowledge-to-Decision integration produces historical
 signals through queue, lease, dispatcher, materialization action, and EvidenceBridge,
 then proves that an otherwise valid caller-forged learning record is rejected.
+The same integration produces current applicability evidence through a canonical
+read action and proves that both a declarative forged `SOURCE_OBSERVATION` record
+and a caller-claimed `independently_verified` basis fail before Decision scoring.
 Registry, ability rollout, evidence bridge, ontology, and authority ledger suites
 prove composition. This change does not aggregate experience, qualify knowledge,
 infer causality, dispatch runtime work, or add persistence.

@@ -30,6 +30,8 @@ def test_sales_and_record_actions_return_evidence_shaped_output() -> None:
     assert result.output["count"] >= 1
     assert result.evidence[0].action_name == "record.search"
     assert result.evidence[0].tenant_id == context.tenant_id
+    assert result.evidence[0].lineage is not None
+    assert result.evidence[0].lineage.origin_type.value == "source_observation"
     assert "profile-account-primary" in result.evidence[0].records_inspected
 
 

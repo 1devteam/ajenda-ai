@@ -304,20 +304,29 @@ def test_applicability_evidence_requires_explicit_matching_source_observation_li
         structured_payload={"observed_at": datetime(2026, 8, 13, tzinfo=UTC).isoformat()},
         provenance_metadata=provenance,
     )
-    repository = Mock()
-    repository.get_for_tenant.return_value = record
+    session = Mock()
+    session.scalar.return_value = record
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        evidence_ids=(str(evidence_id),),
+        observed_at=datetime(2026, 8, 13, tzinfo=UTC),
+        verification_basis=ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
+    )
 
     with pytest.raises(ValueError, match=r"lineage|derived evidence"):
         _validate_applicability_evidence(
-            repository=repository,
+            session=session,
             tenant_id="tenant-A",
             mission_id=mission_id,
             evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
             evidence_ids={str(evidence_id)},
+            assertions=(assertion,),
+            required_condition_keys={"segment:smb"},
         )
 
 
-def test_applicability_evidence_accepts_matching_source_observation_lineage() -> None:
+def test_applicability_evidence_accepts_runtime_owned_source_observation(monkeypatch) -> None:
     evidence_id = uuid4()
     mission_id = uuid4()
     record = SimpleNamespace(
@@ -332,13 +341,78 @@ def test_applicability_evidence_accepts_matching_source_observation_lineage() ->
             ).model_dump(mode="json")
         },
     )
-    repository = Mock()
-    repository.get_for_tenant.return_value = record
+    session = Mock()
+    session.scalar.return_value = record
+    require_canonical = Mock()
+    monkeypatch.setattr(
+        "backend.services.tools.knowledge_actions.require_canonical_source_observation_evidence",
+        require_canonical,
+    )
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        evidence_ids=(str(evidence_id),),
+        observed_at=datetime(2026, 8, 13, tzinfo=UTC),
+        verification_basis=ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
+    )
 
     _validate_applicability_evidence(
-        repository=repository,
+        session=session,
         tenant_id="tenant-A",
         mission_id=mission_id,
         evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
         evidence_ids={str(evidence_id)},
+        assertions=(assertion,),
+        required_condition_keys={"segment:smb"},
     )
+    require_canonical.assert_called_once_with(session=session, record=record)
+
+
+@pytest.mark.parametrize(
+    "basis",
+    [
+        ObservationVerificationBasis.INDEPENDENTLY_VERIFIED,
+        ObservationVerificationBasis.CALLER_ASSERTED,
+        ObservationVerificationBasis.UNKNOWN,
+    ],
+)
+def test_applicability_evidence_rejects_unearned_verification_basis(basis: ObservationVerificationBasis) -> None:
+    evidence_id = uuid4()
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        evidence_ids=(str(evidence_id),),
+        observed_at=datetime(2026, 8, 13, tzinfo=UTC),
+        verification_basis=basis,
+    )
+
+    with pytest.raises(ValueError, match="source-supplied evidence"):
+        _validate_applicability_evidence(
+            session=Mock(),
+            tenant_id="tenant-A",
+            mission_id=uuid4(),
+            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+            evidence_ids={str(evidence_id)},
+            assertions=(assertion,),
+            required_condition_keys={"segment:smb"},
+        )
+
+
+def test_applicability_scoring_rejects_caller_assertion_without_evidence() -> None:
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        observed_at=datetime(2026, 8, 13, tzinfo=UTC),
+        verification_basis=ObservationVerificationBasis.CALLER_ASSERTED,
+    )
+
+    with pytest.raises(ValueError, match="evidence for every resolved condition"):
+        _validate_applicability_evidence(
+            session=Mock(),
+            tenant_id="tenant-A",
+            mission_id=uuid4(),
+            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+            evidence_ids=set(),
+            assertions=(assertion,),
+            required_condition_keys={"segment:smb"},
+        )
