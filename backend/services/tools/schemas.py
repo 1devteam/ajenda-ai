@@ -13,7 +13,11 @@ from backend.services.ontology.commercial_state import (
     Goal,
     Kpi,
 )
-from backend.services.ontology.evidence_lineage import EvidenceLineage
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+)
 from backend.services.ontology.types import BusinessObjectRef
 from backend.services.security.redaction import contains_sensitive_key
 
@@ -496,6 +500,13 @@ class EvidenceFact(BaseModel):
     supports_criterion_ids: list[str] = Field(default_factory=list)
     about_object_refs: list[BusinessObjectRef] = Field(default_factory=list)
     lineage: EvidenceLineage | None = None
+    durable_source_evidence_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Durable EvidenceRecord UUIDs cited by a derived fact. The fact identity remains "
+            "distinct from the records that establish its world-evidence ancestry."
+        ),
+    )
 
     @field_validator("evidence_id", "claim")
     @classmethod
@@ -509,7 +520,30 @@ class EvidenceFact(BaseModel):
     def validate_lineage_artifact_identity(self) -> EvidenceFact:
         if self.lineage is not None and self.lineage.artifact_evidence_id != self.evidence_id:
             raise ValueError("EvidenceFact lineage artifact_evidence_id must match evidence_id")
+        if not self.durable_source_evidence_ids:
+            return self
+        if self.lineage is None or self.lineage.origin_type != EvidenceOriginType.DERIVED_FACT:
+            raise ValueError("durable source evidence requires DERIVED_FACT lineage")
+        if self.lineage.resolution != EvidenceLineageResolution.KNOWN:
+            raise ValueError("durable source evidence requires known lineage")
+        durable_sources = tuple(self.durable_source_evidence_ids)
+        if any(str(uuid.UUID(value)) != value for value in durable_sources):
+            raise ValueError("durable source evidence IDs must be canonical UUIDs")
+        if not all(
+            asserted_ids == durable_sources
+            for asserted_ids in (
+                self.lineage.root_evidence_ids,
+                self.lineage.parent_evidence_ids,
+                self.lineage.ancestor_evidence_ids,
+            )
+        ):
+            raise ValueError("durable source evidence IDs must exactly match derived lineage ancestry")
         return self
+
+    @field_validator("durable_source_evidence_ids")
+    @classmethod
+    def canonicalize_durable_sources(cls, values: list[str]) -> list[str]:
+        return sorted({value.strip() for value in values if value.strip()})
 
 
 class DecisionCriterion(BaseModel):

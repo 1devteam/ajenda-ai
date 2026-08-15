@@ -5,6 +5,7 @@ from backend.services.knowledge.knowledge_applicability import (
     KnowledgeApplicabilityResolutionResult,
     KnowledgeApplicabilityResult,
     KnowledgeApplicabilityStatus,
+    SourceConditionObservation,
     evaluate_knowledge_applicability,
     resolve_knowledge_applicability,
     validate_context_for_query,
@@ -16,6 +17,7 @@ from backend.services.knowledge.knowledge_decision_support import (
     KnowledgeDecisionSupportResult,
     KnowledgeInfluenceDirection,
     evaluate_knowledge_decision_support,
+    knowledge_support_evidence_facts,
 )
 from backend.services.knowledge.knowledge_ledger import (
     KnowledgeLedgerIntegrityError,
@@ -61,8 +63,10 @@ __all__ = [
     "KnowledgeRetrievalQuery",
     "KnowledgeRetrievalResult",
     "RetrievedKnowledgeMatch",
+    "SourceConditionObservation",
     "evaluate_knowledge_applicability",
     "evaluate_knowledge_decision_support",
+    "knowledge_support_evidence_facts",
     "match_current_knowledge",
     "record_knowledge_qualification",
     "resolve_current_knowledge_state",

@@ -41,6 +41,46 @@ class ContextConditionState(StrEnum):
     UNKNOWN = "unknown"
 
 
+class SourceConditionObservation(BaseModel):
+    """Condition semantics emitted by the owner of a source observation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal[1] = 1
+    condition_key: str
+    state: ContextConditionState
+    subject_refs: tuple[BusinessObjectRef, ...]
+    observed_at: datetime
+    verification_basis: ObservationVerificationBasis
+
+    @field_validator("condition_key")
+    @classmethod
+    def validate_condition_key(cls, value: str) -> str:
+        if not value or value != value.strip() or any(character.isspace() for character in value):
+            raise ValueError("condition_key must be a non-empty canonical token without whitespace")
+        return value
+
+    @field_validator("subject_refs")
+    @classmethod
+    def require_canonical_subject_refs(cls, values: tuple[BusinessObjectRef, ...]) -> tuple[BusinessObjectRef, ...]:
+        identities = {(item.object_type.value, item.object_id): item for item in values}
+        if not identities:
+            raise ValueError("source condition observation requires subject identity")
+        return tuple(identities[key] for key in sorted(identities))
+
+    @field_validator("observed_at")
+    @classmethod
+    def require_aware_observed_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
+        return value
+
+    @model_validator(mode="after")
+    def require_source_supplied_basis(self) -> SourceConditionObservation:
+        if self.verification_basis != ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT:
+            raise ValueError("source condition observation must use source-supplied verification")
+        return self
+
+
 class KnowledgeApplicabilityStatus(StrEnum):
     APPLICABLE = "applicable"
     PARTIALLY_APPLICABLE = "partially_applicable"

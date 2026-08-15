@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -16,10 +18,16 @@ from backend.services.knowledge import (
     KnowledgeRetrievalResult,
 )
 from backend.services.ontology.commercial_state import GoalSemanticSignature
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+)
 from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
 from backend.services.ontology.observation_attribution import ObservationVerificationBasis
 from backend.services.ontology.types import BusinessObjectRef, BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.knowledge_actions import _validate_applicability_evidence
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
 from tests.unit.ontology.test_knowledge_qualification import candidate
 
@@ -272,3 +280,216 @@ def test_commit_failure_rolls_back_and_returns_no_success(monkeypatch) -> None:
 
     session.rollback.assert_called_once_with()
     session.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize("lineage_kind", ["missing", "derived", "wrong_identity"])
+def test_applicability_evidence_requires_explicit_matching_source_observation_lineage(lineage_kind: str) -> None:
+    evidence_id = uuid4()
+    mission_id = uuid4()
+    provenance = {}
+    if lineage_kind != "missing":
+        provenance["evidence_lineage"] = EvidenceLineage(
+            artifact_evidence_id=str(uuid4()) if lineage_kind == "wrong_identity" else str(evidence_id),
+            origin_type=(
+                EvidenceOriginType.DERIVED_FACT if lineage_kind == "derived" else EvidenceOriginType.SOURCE_OBSERVATION
+            ),
+            root_evidence_ids=(str(uuid4()),) if lineage_kind == "derived" else (),
+            resolution=(
+                EvidenceLineageResolution.KNOWN if lineage_kind == "derived" else EvidenceLineageResolution.UNKNOWN
+            ),
+        ).model_dump(mode="json")
+    record = SimpleNamespace(
+        id=evidence_id,
+        mission_id=mission_id,
+        structured_payload={"observed_at": datetime(2026, 8, 13, tzinfo=UTC).isoformat()},
+        provenance_metadata=provenance,
+    )
+    session = Mock()
+    session.scalar.return_value = record
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        evidence_ids=(str(evidence_id),),
+        observed_at=datetime(2026, 8, 13, tzinfo=UTC),
+        verification_basis=ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
+    )
+
+    with pytest.raises(ValueError, match=r"lineage|derived evidence"):
+        _validate_applicability_evidence(
+            session=session,
+            tenant_id="tenant-A",
+            mission_id=mission_id,
+            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+            evidence_ids={str(evidence_id)},
+            assertions=(assertion,),
+            required_condition_keys={"segment:smb"},
+        )
+
+
+def test_applicability_evidence_accepts_runtime_owned_source_observation(monkeypatch) -> None:
+    evidence_id = uuid4()
+    mission_id = uuid4()
+    record = SimpleNamespace(
+        id=evidence_id,
+        mission_id=mission_id,
+        structured_payload={"observed_at": datetime(2026, 8, 13, tzinfo=UTC).isoformat()},
+        provenance_metadata={
+            "evidence_lineage": EvidenceLineage(
+                artifact_evidence_id=str(evidence_id),
+                origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+                resolution=EvidenceLineageResolution.UNKNOWN,
+            ).model_dump(mode="json")
+        },
+    )
+    session = Mock()
+    session.scalar.return_value = record
+    subject_refs = (BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp-1"),)
+    observed_at = datetime(2026, 8, 13, tzinfo=UTC)
+    require_canonical = Mock(
+        return_value=SimpleNamespace(
+            structured_payload={
+                "condition_observations": [
+                    {
+                        "condition_key": "segment:smb",
+                        "state": "active",
+                        "subject_refs": [item.model_dump(mode="json") for item in subject_refs],
+                        "observed_at": observed_at.isoformat(),
+                        "verification_basis": "source_supplied_under_contract",
+                    }
+                ]
+            }
+        )
+    )
+    monkeypatch.setattr(
+        "backend.services.tools.knowledge_actions.require_canonical_source_observation_evidence",
+        require_canonical,
+    )
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        subject_refs=subject_refs,
+        evidence_ids=(str(evidence_id),),
+        observed_at=observed_at,
+        verification_basis=ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
+    )
+
+    _validate_applicability_evidence(
+        session=session,
+        tenant_id="tenant-A",
+        mission_id=mission_id,
+        evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+        evidence_ids={str(evidence_id)},
+        assertions=(assertion,),
+        required_condition_keys={"segment:smb"},
+    )
+    require_canonical.assert_called_once_with(session=session, record=record)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("condition_key", "segment:enterprise"),
+        ("state", "inactive"),
+        ("subject_refs", [{"object_type": "opportunity", "object_id": "opp-other"}]),
+        ("observed_at", (datetime(2026, 8, 13, tzinfo=UTC) - timedelta(seconds=1)).isoformat()),
+    ],
+)
+def test_applicability_evidence_rejects_unrelated_owner_semantics(monkeypatch, field: str, value: object) -> None:
+    evidence_id = uuid4()
+    mission_id = uuid4()
+    observed_at = datetime(2026, 8, 13, tzinfo=UTC)
+    subject_refs = (BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp-1"),)
+    owner_observation = {
+        "condition_key": "segment:smb",
+        "state": "active",
+        "subject_refs": [item.model_dump(mode="json") for item in subject_refs],
+        "observed_at": observed_at.isoformat(),
+        "verification_basis": "source_supplied_under_contract",
+    }
+    owner_observation[field] = value
+    record = SimpleNamespace(
+        id=evidence_id,
+        mission_id=mission_id,
+        structured_payload={},
+        provenance_metadata={
+            "evidence_lineage": EvidenceLineage(
+                artifact_evidence_id=str(evidence_id),
+                origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+            ).model_dump(mode="json")
+        },
+    )
+    session = Mock()
+    session.scalar.return_value = record
+    monkeypatch.setattr(
+        "backend.services.tools.knowledge_actions.require_canonical_source_observation_evidence",
+        Mock(return_value=SimpleNamespace(structured_payload={"condition_observations": [owner_observation]})),
+    )
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        subject_refs=subject_refs,
+        evidence_ids=(str(evidence_id),),
+        observed_at=observed_at,
+        verification_basis=ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
+    )
+
+    with pytest.raises(ValueError, match="does not establish the asserted condition semantics"):
+        _validate_applicability_evidence(
+            session=session,
+            tenant_id="tenant-A",
+            mission_id=mission_id,
+            evaluated_at=observed_at,
+            evidence_ids={str(evidence_id)},
+            assertions=(assertion,),
+            required_condition_keys={"segment:smb"},
+        )
+
+
+@pytest.mark.parametrize(
+    "basis",
+    [
+        ObservationVerificationBasis.INDEPENDENTLY_VERIFIED,
+        ObservationVerificationBasis.CALLER_ASSERTED,
+        ObservationVerificationBasis.UNKNOWN,
+    ],
+)
+def test_applicability_evidence_rejects_unearned_verification_basis(basis: ObservationVerificationBasis) -> None:
+    evidence_id = uuid4()
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        evidence_ids=(str(evidence_id),),
+        observed_at=datetime(2026, 8, 13, tzinfo=UTC),
+        verification_basis=basis,
+    )
+
+    with pytest.raises(ValueError, match="source-supplied evidence"):
+        _validate_applicability_evidence(
+            session=Mock(),
+            tenant_id="tenant-A",
+            mission_id=uuid4(),
+            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+            evidence_ids={str(evidence_id)},
+            assertions=(assertion,),
+            required_condition_keys={"segment:smb"},
+        )
+
+
+def test_applicability_scoring_rejects_caller_assertion_without_evidence() -> None:
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        observed_at=datetime(2026, 8, 13, tzinfo=UTC),
+        verification_basis=ObservationVerificationBasis.CALLER_ASSERTED,
+    )
+
+    with pytest.raises(ValueError, match="evidence for every resolved condition"):
+        _validate_applicability_evidence(
+            session=Mock(),
+            tenant_id="tenant-A",
+            mission_id=uuid4(),
+            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+            evidence_ids=set(),
+            assertions=(assertion,),
+            required_condition_keys={"segment:smb"},
+        )

@@ -15,6 +15,7 @@ from backend.services.knowledge import (
     KnowledgeRetrievalInspectionTrace,
     KnowledgeRetrievalQuery,
     KnowledgeRetrievalResult,
+    SourceConditionObservation,
     evaluate_knowledge_applicability,
     match_current_knowledge,
     resolve_knowledge_applicability,
@@ -40,6 +41,12 @@ def _match(*, scope=("segment:smb",), invalidation=("pricing_model_changed",)):
         update={"scope_conditions": scope, "invalidation_conditions": invalidation}
     )
     artifact = artifact.model_copy(update={"proposition": proposition})
+    qualification = qualification.model_copy(
+        update={
+            "proposition": proposition,
+            "qualified_knowledge": artifact,
+        }
+    )
     state = CurrentKnowledgeState(
         proposition_key=proposition.proposition_key,
         lifecycle_status=KnowledgeLifecycleStatus.ACTIVE,
@@ -53,7 +60,12 @@ def _match(*, scope=("segment:smb",), invalidation=("pricing_model_changed",)):
         subject_semantic_signatures=proposition.subject_semantic_signatures,
         goal_semantic_signature=GoalSemanticSignature(objective_key=proposition.objective_key),
     )
-    match = match_current_knowledge(query=query, current_state=state, artifacts=(artifact,))
+    match = match_current_knowledge(
+        query=query,
+        current_state=state,
+        artifacts=(artifact,),
+        qualifications=(qualification,),
+    )
     assert match is not None
     return query, match
 
@@ -84,6 +96,28 @@ def _context(query, *assertions):
         condition_assertions=assertions,
         evaluated_at=NOW,
     )
+
+
+def test_source_condition_observation_requires_explicit_source_basis_and_subject() -> None:
+    base = {
+        "condition_key": "segment:smb",
+        "state": "active",
+        "subject_refs": [{"object_type": "opportunity", "object_id": "opp-123"}],
+        "observed_at": NOW.isoformat(),
+    }
+
+    with pytest.raises(ValidationError, match="verification_basis"):
+        SourceConditionObservation.model_validate(base)
+    with pytest.raises(ValidationError, match="source-supplied verification"):
+        SourceConditionObservation.model_validate({**base, "verification_basis": "independently_verified"})
+    with pytest.raises(ValidationError, match="requires subject identity"):
+        SourceConditionObservation.model_validate(
+            {
+                **base,
+                "subject_refs": [],
+                "verification_basis": "source_supplied_under_contract",
+            }
+        )
 
 
 @pytest.mark.parametrize(

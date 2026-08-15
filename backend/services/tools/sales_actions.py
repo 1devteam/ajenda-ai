@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from backend.services.business_context_resolver import default_company_and_domain
+from backend.services.knowledge.knowledge_applicability import SourceConditionObservation
+from backend.services.ontology.evidence_lineage import EvidenceLineage, EvidenceOriginType
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.record_store import RecordStore, record_store_limitations, resolve_record_store
@@ -37,6 +39,7 @@ def _evidence(
     changed: list[str] | None = None,
     side_effect_class: SideEffectClass = SideEffectClass.NONE,
     confidence: float | None = 1.0,
+    source_observation: bool = False,
 ) -> EvidenceItem:
     return EvidenceItem(
         evidence_type="action_result",
@@ -53,6 +56,14 @@ def _evidence(
         confidence=confidence,
         limitations=record_store_limitations(context),
         provenance={"runtime_path": "TaskDispatcher -> tool.invoke -> ActionRegistry"},
+        lineage=(
+            EvidenceLineage(
+                artifact_evidence_id=f"action-result:{context.task_id}",
+                origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+            )
+            if source_observation
+            else None
+        ),
         side_effect_class=side_effect_class,
     )
 
@@ -81,6 +92,7 @@ def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
                 summary=summary,
                 payload=output,
                 inspected=inspected,
+                source_observation=True,
             )
         ],
         records_inspected=inspected,
@@ -96,7 +108,27 @@ def record_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> Ac
         record_type=payload.record_type,
         record_id=payload.record_id,
     )
-    output = {"record_type": payload.record_type, "record": record, "found": record is not None}
+    raw_condition_observations = record.get("condition_observations", []) if record is not None else []
+    if not isinstance(raw_condition_observations, list):
+        raise ValueError("record condition_observations must be a list")
+    condition_observations = tuple(
+        SourceConditionObservation.model_validate(item) for item in raw_condition_observations
+    )
+    observation_keys = [
+        (
+            item.condition_key,
+            tuple((subject.object_type.value, subject.object_id) for subject in item.subject_refs),
+        )
+        for item in condition_observations
+    ]
+    if len(observation_keys) != len(set(observation_keys)):
+        raise ValueError("record condition_observations must be unique per condition and subject")
+    output = {
+        "record_type": payload.record_type,
+        "record": record,
+        "found": record is not None,
+        "condition_observations": [item.model_dump(mode="json") for item in condition_observations],
+    }
     summary = f"Read {payload.record_type} record {payload.record_id}: {'found' if record else 'not found'}."
     inspected = [payload.record_id] if record else []
     return ActionResult(
@@ -111,6 +143,7 @@ def record_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> Ac
                 summary=summary,
                 payload=output,
                 inspected=inspected,
+                source_observation=True,
             )
         ],
         records_inspected=inspected,
