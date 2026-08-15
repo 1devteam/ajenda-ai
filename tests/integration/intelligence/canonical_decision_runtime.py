@@ -73,7 +73,7 @@ def seed_execution_authority(*, factory: Any, tenant_id: str) -> dict[str, objec
                 authority_session,
                 tenant_id=tenant_id,
                 action_name=EXECUTION_ACTION,
-                side_effect_classification="internal_write",
+                side_effect_classification="non_idempotent_write",
             )
             authority_session.commit()
         else:
