@@ -334,7 +334,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     next_signal = DecisionLearningSignal.model_validate(next_signal_record.structured_payload)
     assert next_signal.episode_reference is not None
     assert next_signal.intervention_key == EXECUTION_ACTION
-    assert next_signal.supporting_evidence_ids == historical_ids
+    assert next_signal.supporting_evidence_ids == [*historical_ids, str(canonical_execution.id)]
     assert next_signal_record.provenance_metadata["evidence_role"] == "decision_learning_signal"
 
     forged_composed_id = uuid.uuid4()
