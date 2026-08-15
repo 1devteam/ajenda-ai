@@ -668,7 +668,9 @@ def test_rg_started_work_interrupted_before_completion_recovers_safely(
     assert summary.dead_lettered_count == 0
     assert task.status == ExecutionTaskState.QUEUED.value
     assert task.retry_count == 1
-    assert lease.status == WorkerLeaseState.EXPIRED.value
+    assert lease.status == WorkerLeaseState.EXPIRED.value, (
+        "releasing the Redis processing claim must not relabel the expired database lease as released"
+    )
     assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
     assert "lease_expired_task_requeued" in actions
     assert "task_completed" not in actions
