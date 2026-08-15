@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from backend.services.business_context_resolver import default_company_and_domain
@@ -181,7 +182,12 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         data=payload.data,
     )
     changed = [str(record["id"])]
-    output = {"record_type": payload.record_type, "record": record}
+    output = {
+        "record_type": payload.record_type,
+        "record": record,
+        # Owner-authoritative event time: captured only after the write returns.
+        "executed_at": datetime.now(UTC).isoformat(),
+    }
     summary = f"Wrote {payload.record_type} record {record['id']} in local proof provider."
     return ActionResult(
         action="record.write",

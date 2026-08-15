@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
 
+from backend.domain.capability import Capability
+from backend.domain.capability_adapter import CapabilityAdapter
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
@@ -21,8 +23,12 @@ from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
+from tests.integration.credentials._invoke_authority_helpers import (
+    seed_capability_adapter_authority,
+    side_effect_authorization,
+)
 
-EXECUTION_ACTION = "sales.recommend_next_action"
+EXECUTION_ACTION = "record.write"
 MATERIALIZATION_ACTION = "analysis.materialize_decision_learning_signal"
 
 
@@ -40,6 +46,48 @@ class CanonicalDecisionEpisode:
     learning_signal: DecisionLearningSignal
 
 
+def seed_execution_authority(*, factory: Any, tenant_id: str) -> dict[str, object]:
+    """Create exact record.write promotion and side-effect authority for one tenant."""
+
+    with factory() as authority_session:
+        capability = authority_session.scalar(
+            select(Capability).where(
+                Capability.tenant_id == tenant_id,
+                Capability.name == "integration_record_write",
+                Capability.version == "1.0.0",
+            )
+        )
+        adapter = (
+            authority_session.scalar(
+                select(CapabilityAdapter).where(
+                    CapabilityAdapter.tenant_id == tenant_id,
+                    CapabilityAdapter.capability_id == capability.id,
+                    CapabilityAdapter.name == "integration_record_write_adapter",
+                )
+            )
+            if capability is not None
+            else None
+        )
+        if capability is None:
+            references = seed_capability_adapter_authority(
+                authority_session,
+                tenant_id=tenant_id,
+                action_name=EXECUTION_ACTION,
+                side_effect_classification="internal_write",
+            )
+            authority_session.commit()
+        else:
+            assert adapter is not None
+            references = {
+                "capability_reference": {"capability_id": str(capability.id)},
+                "adapter_reference": {"adapter_id": str(adapter.id)},
+            }
+    return {
+        **references,
+        **side_effect_authorization(allowed_actions=[EXECUTION_ACTION]),
+    }
+
+
 def execute_canonical_action(
     *,
     factory: Any,
@@ -49,6 +97,7 @@ def execute_canonical_action(
     action: str,
     action_input: dict[str, object],
     worker_label: str,
+    runtime_authority_metadata: dict[str, object] | None = None,
 ) -> EvidenceRecord:
     """Run one action through queue, lease, dispatcher, lineage, and EvidenceBridge."""
 
@@ -66,6 +115,7 @@ def execute_canonical_action(
                 metadata_json={
                     "task_type": "tool.invoke",
                     "tool_invocation": {"schema_version": 1, "action": action, "input": action_input},
+                    **(runtime_authority_metadata or {}),
                 },
             )
         )
@@ -106,6 +156,8 @@ def execute_canonical_action(
         record = records[0]
         assert record.materialization_reference["lineage_record_id"] == str(lineage[0].id)
         assert record.materialization_reference["evidence_index"] == 0
+        assert queue_adapter.pending_depth(tenant_id=tenant_id) == 0
+        assert not queue_adapter.list_processing(tenant_id=tenant_id)
         verify.expunge(record)
         return record
 
@@ -183,16 +235,22 @@ def materialize_canonical_decision_episode(
         action_input=recommendation_input,
         worker_label=f"decision-{index}",
     )
+    execution_authority = seed_execution_authority(factory=factory, tenant_id=tenant_id)
     execution = execute_canonical_action(
         factory=factory,
         queue_adapter=queue_adapter,
         tenant_id=tenant_id,
         mission_id=mission_id,
         action=EXECUTION_ACTION,
-        action_input={"lead": {"company": f"Opportunity {index}", "role": "VP", "intent": "expansion"}},
+        action_input={
+            "record_type": "activity",
+            "record_id": f"decision-execution-{index}",
+            "data": {"status": "completed", "subject_id": subject_id},
+        },
         worker_label=f"execution-{index}",
+        runtime_authority_metadata=execution_authority,
     )
-    executed_at = datetime.now(UTC)
+    executed_at = datetime.fromisoformat(str(execution.structured_payload["executed_at"]))
     observed_at = executed_at + timedelta(milliseconds=1)
     outcome = execute_canonical_action(
         factory=factory,

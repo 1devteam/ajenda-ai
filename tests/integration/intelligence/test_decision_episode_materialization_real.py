@@ -17,6 +17,7 @@ from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
 from tests.integration.intelligence.canonical_decision_runtime import (
+    EXECUTION_ACTION,
     MATERIALIZATION_ACTION,
     materialize_canonical_decision_episode,
 )
@@ -38,7 +39,9 @@ def _row_counts(factory, tenant_id: str) -> tuple[int, int, int]:
         )
 
 
-def test_materialization_uses_real_runtime_artifacts_and_rejects_declarative_forgery(pg_engine, queue_adapter) -> None:
+def test_materialization_uses_real_runtime_artifacts_and_rejects_declarative_forgery(
+    pg_engine, queue_adapter, redis_client
+) -> None:
     tenant_a = str(uuid.uuid4())
     tenant_b = str(uuid.uuid4())
     factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
@@ -113,7 +116,7 @@ def test_materialization_uses_real_runtime_artifacts_and_rejects_declarative_for
                         "decided_at": episode.learning_signal.evaluated_at.isoformat(),
                         "goal": "Increase conversion",
                         "recommendation": "followup",
-                        "intervention_key": "sales.recommend_next_action",
+                        "intervention_key": EXECUTION_ACTION,
                         "supporting_evidence_ids": [],
                         "option_scores": [],
                         "uncertainty": [],
@@ -143,17 +146,17 @@ def test_materialization_uses_real_runtime_artifacts_and_rejects_declarative_for
                     evidence_source="public_evidence_contract",
                     summary="Caller-forged execution",
                     structured_payload=canonical_execution.structured_payload,
-                    provenance_metadata={"action_name": "sales.recommend_next_action"},
+                    provenance_metadata={"action_name": EXECUTION_ACTION},
                 ),
             ]
         )
         setup.commit()
 
     forged_requests = (
-        {**request, "recommendation_evidence_id": str(forged_recommendation_id)},
-        {**request, "outcome_evaluation_evidence_id": str(forged_outcome_id)},
-        {**request, "execution_evidence_ids": [str(forged_execution_id)]},
+        ({**request, "recommendation_evidence_id": str(forged_recommendation_id)}, "materialization reference"),
+        ({**request, "outcome_evaluation_evidence_id": str(forged_outcome_id)}, "execution-task provenance"),
+        ({**request, "execution_evidence_ids": [str(forged_execution_id)]}, "execution-task provenance"),
     )
-    for forged_request in forged_requests:
-        with pytest.raises(CanonicalToolEvidenceError, match="materialization reference"):
+    for forged_request, expected_failure in forged_requests:
+        with pytest.raises(CanonicalToolEvidenceError, match=expected_failure):
             registry.invoke(ToolInvocation(action=MATERIALIZATION_ACTION, input=forged_request), context)

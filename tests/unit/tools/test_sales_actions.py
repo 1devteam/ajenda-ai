@@ -144,6 +144,9 @@ def test_record_write_is_observable_by_read() -> None:
     )
 
     assert write_result.records_changed == ["contact-new"]
+    executed_at = datetime.fromisoformat(write_result.output["executed_at"])
+    assert executed_at.tzinfo is not None and executed_at.utcoffset() is not None
+    assert write_result.evidence[0].structured_payload["executed_at"] == write_result.output["executed_at"]
     assert read_result.output["found"] is True
     assert read_result.output["record"]["name"] == "New Contact"
 

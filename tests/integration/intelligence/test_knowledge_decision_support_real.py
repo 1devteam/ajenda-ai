@@ -7,14 +7,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EvidenceRecord
-from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.repositories.durable_learning_signal_repository import MATERIALIZATION_ACTION
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
-from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.ontology.commercial_state import GoalSemanticSignature
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.ontology.evidence_lineage import EvidenceLineage, EvidenceOriginType
@@ -22,16 +19,14 @@ from backend.services.ontology.experience_intelligence import ExperienceEpisodeI
 from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
 from backend.services.ontology.observation_attribution import ObservationTimeProvenance
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
 from backend.services.tools.schemas import ToolInvocation
-from backend.services.worker_runtime_service import WorkerRuntimeService
-from backend.workers.task_dispatcher import TaskDispatcher
 from tests.integration.intelligence.canonical_decision_runtime import (
     EXECUTION_ACTION,
     execute_canonical_action,
     materialize_canonical_decision_episode,
+    seed_execution_authority,
 )
 from tests.integration.intelligence.test_knowledge_retrieval_real import (
     _context,
@@ -64,59 +59,22 @@ def _materialize_source_observation(
 ) -> uuid.UUID:
     """Produce source evidence through a queued read action and EvidenceBridge."""
 
-    task_id = uuid.uuid4()
-    worker_id = f"source-observer-{task_id}"
-    with factory() as setup:
-        setup.add(
-            ExecutionTask(
-                id=task_id,
-                tenant_id=tenant_id,
-                mission_id=mission_id,
-                title="Observe current opportunity state",
-                description="Runtime-owned current-condition source observation",
-                status=ExecutionTaskState.PLANNED.value,
-                metadata_json={
-                    "task_type": "tool.invoke",
-                    "tool_invocation": {
-                        "action": action,
-                        "input": action_input,
-                    },
-                },
-            )
-        )
-        setup.commit()
-
-    with factory() as runtime_session:
-        QuotaEnforcementService(runtime_session).check_and_record_task_creation(uuid.UUID(tenant_id))
-        queued = ExecutionCoordinator(runtime_session, queue_adapter).queue_task(
-            tenant_id=tenant_id,
-            task_id=task_id,
-        )
-        assert queued.ok is True
-        runtime = WorkerRuntimeService(runtime_session, queue_adapter)
-        claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
-        assert claimed is not None
-        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
-        runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
-        runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
-
-    TaskDispatcher(
-        session_factory=factory,
-        queue=queue_adapter,
-        worker_id=worker_id,
+    record = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
         tenant_id=tenant_id,
-    ).execute(task_id=task_id, lease_id=lease_id)
-
-    with factory() as verify:
-        records = verify.scalars(select(EvidenceRecord).where(EvidenceRecord.execution_task_id == task_id)).all()
-        assert len(records) == 1
-        lineage = EvidenceLineage.model_validate(records[0].provenance_metadata["evidence_lineage"])
-        assert lineage.origin_type == EvidenceOriginType.SOURCE_OBSERVATION
-        return records[0].id
+        mission_id=mission_id,
+        action=action,
+        action_input=action_input,
+        worker_label="source-observer",
+    )
+    lineage = EvidenceLineage.model_validate(record.provenance_metadata["evidence_lineage"])
+    assert lineage.origin_type == EvidenceOriginType.SOURCE_OBSERVATION
+    return record.id
 
 
 def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_scoped(
-    pg_engine, queue_adapter, monkeypatch
+    pg_engine, queue_adapter, redis_client, monkeypatch
 ) -> None:
     tenant = str(uuid.uuid4())
     other_tenant = str(uuid.uuid4())
@@ -297,16 +255,22 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         action_input=invocation.input,
         worker_label="knowledge-decision",
     )
+    execution_authority = seed_execution_authority(factory=factory, tenant_id=tenant)
     canonical_execution = execute_canonical_action(
         factory=factory,
         queue_adapter=queue_adapter,
         tenant_id=tenant,
         mission_id=mission_id,
         action=EXECUTION_ACTION,
-        action_input={"lead": {"company": "Opportunity 430", "role": "VP", "intent": "expansion"}},
+        action_input={
+            "record_type": "activity",
+            "record_id": "knowledge-decision-execution",
+            "data": {"status": "completed", "subject_id": "opp-real-430"},
+        },
         worker_label="knowledge-execution",
+        runtime_authority_metadata=execution_authority,
     )
-    executed_at = datetime.now(UTC)
+    executed_at = datetime.fromisoformat(str(canonical_execution.structured_payload["executed_at"]))
     observed_at = executed_at + timedelta(milliseconds=1)
     canonical_outcome = execute_canonical_action(
         factory=factory,

@@ -43,7 +43,9 @@ def _ledger_counts(factory, tenant_id: str) -> tuple[int, int]:
         )
 
 
-def test_real_cross_mission_history_is_canonical_tenant_isolated_and_replayable(pg_engine, queue_adapter) -> None:
+def test_real_cross_mission_history_is_canonical_tenant_isolated_and_replayable(
+    pg_engine, queue_adapter, redis_client
+) -> None:
     tenant_a, tenant_b = str(uuid.uuid4()), str(uuid.uuid4())
     factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
     with factory() as setup:
