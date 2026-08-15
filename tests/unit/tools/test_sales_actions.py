@@ -73,6 +73,11 @@ def test_record_read_emits_typed_source_condition_semantics() -> None:
     assert observation.state == ContextConditionState.ACTIVE
     assert observation.subject_refs[0].object_id == "opp-1"
     assert observation.observed_at == datetime(2026, 8, 13, tzinfo=UTC)
+    assert result.evidence[0].lineage is not None
+    assert result.evidence[0].lineage.resolution.value == "known"
+    assert result.evidence[0].lineage.source_identity is not None
+    assert result.evidence[0].lineage.source_identity.source_system == "tenant_record_store"
+    assert result.evidence[0].lineage.source_identity.source_record_id == "opportunity:opp-1"
 
 
 def test_sales_qualify_score_and_recommendation_are_deterministic() -> None:

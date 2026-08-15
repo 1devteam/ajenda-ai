@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -20,19 +20,19 @@ from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.ontology.evidence_lineage import EvidenceLineage, EvidenceOriginType
 from backend.services.ontology.experience_intelligence import ExperienceEpisodeInput, evaluate_experience_set
 from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
-from backend.services.ontology.observation_attribution import (
-    AttributionEvidenceInput,
-    ObservationTimeProvenance,
-    evaluate_attribution_evidence,
-    resolve_observation_timing,
-)
-from backend.services.ontology.outcome import AttributionAssessment, OutcomeEvaluation, OutcomeStatus
+from backend.services.ontology.observation_attribution import ObservationTimeProvenance
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
 from backend.services.tools.schemas import ToolInvocation
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
+from tests.integration.intelligence.canonical_decision_runtime import (
+    EXECUTION_ACTION,
+    execute_canonical_action,
+    materialize_canonical_decision_episode,
+)
 from tests.integration.intelligence.test_knowledge_retrieval_real import (
     _context,
     _replace_proposition,
@@ -43,241 +43,14 @@ pytestmark = pytest.mark.integration
 
 
 def _materialize_historical_signal(*, factory, queue_adapter, tenant_id: str, index: int) -> DecisionLearningSignal:
-    """Produce one learning signal through queue, lease, action, and EvidenceBridge."""
+    """Produce a whole canonical episode and return its runtime-owned learning signal."""
 
-    minute = index - 200
-    decided_at = datetime(2026, 8, 10, 9, minute, tzinfo=UTC)
-    executed_at = datetime(2026, 8, 10, 10, minute, tzinfo=UTC)
-    observed_at = datetime(2026, 8, 10, 11, minute, tzinfo=UTC)
-    subject_ref = {"object_type": "opportunity", "object_id": f"opp-history-{index}"}
-    mission_id = uuid.uuid4()
-    recommendation_task_id = uuid.uuid4()
-    execution_task_id = uuid.uuid4()
-    materialization_task_id = uuid.uuid4()
-    supporting_id = uuid.uuid4()
-    recommendation_id = uuid.uuid4()
-    outcome_id = uuid.uuid4()
-    execution_id = uuid.uuid4()
-    supporting_lineage = EvidenceLineage(
-        artifact_evidence_id=str(supporting_id),
-        origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
-        root_evidence_ids=(str(supporting_id),),
-        resolution="known",
-    )
-    recommendation_input = {
-        "goal": "Increase conversion",
-        "goal_ref": {
-            "goal_id": "goal-increase-conversion",
-            "objective_key": "increase_conversion",
-            "name": "Increase conversion",
-            "subject_refs": [subject_ref],
-        },
-        "subject_refs": [subject_ref],
-        "options": [
-            {
-                "option_id": "discovery",
-                "label": "Schedule discovery",
-                "intervention_key": "sales.schedule_discovery",
-            },
-            {"option_id": "pricing", "label": "Send pricing", "intervention_key": "sales.send_pricing"},
-        ],
-        "criteria": [{"criterion_id": "conversion", "label": "Conversion", "required": False}],
-        "evidence": [
-            {
-                "evidence_id": str(supporting_id),
-                "claim": "Discovery is supported",
-                "confidence": 0.9,
-                "supports_option_ids": ["discovery"],
-                "supports_criterion_ids": ["conversion"],
-                "lineage": supporting_lineage.model_dump(mode="json"),
-            }
-        ],
-    }
-    recommendation_payload = {
-        "decided_at": decided_at.isoformat(),
-        "goal": "Increase conversion",
-        "recommendation": "discovery",
-        "intervention_key": "sales.schedule_discovery",
-        "supporting_evidence_ids": [str(supporting_id)],
-        "option_scores": [
-            {
-                "option_id": "discovery",
-                "total_score": 0.9,
-                "feasible": True,
-                "dimension_scores": [{"criterion_id": "conversion", "score": 0.9, "status": "known"}],
-            },
-            {"option_id": "pricing", "total_score": 0.0, "feasible": True, "dimension_scores": []},
-        ],
-        "uncertainty": [],
-        "algorithm": {"name": "weighted_criterion_evidence_v1", "version": "1"},
-    }
-    recommendation_lineage = EvidenceLineage(
-        artifact_evidence_id=str(recommendation_id),
-        origin_type=EvidenceOriginType.SYSTEM_COMPUTATION,
-        parent_evidence_ids=(str(supporting_id),),
-        resolution="partial",
-    )
-    observation_timing = resolve_observation_timing(source_observed_at=observed_at)
-    attribution_evidence = evaluate_attribution_evidence(
-        evidence=AttributionEvidenceInput(
-            executed_at=executed_at,
-            execution_evidence_ids=[str(execution_id)],
-            expected_change_dimensions=["conversion"],
-            observed_change_dimensions=["conversion"],
-            confidence=0.9,
-        ),
-        observation_timing=observation_timing,
-    )
-    assert attribution_evidence.resulting_attribution == AttributionAssessment.SUPPORTED_CONTRIBUTION
-    outcome = OutcomeEvaluation(
-        outcome_evaluation_id=f"outcome-{index}",
-        subject_refs=[subject_ref],
-        goal_id="goal-increase-conversion",
-        goal_semantic_signature=GoalSemanticSignature(objective_key="increase_conversion"),
-        status=OutcomeStatus.ACHIEVED,
-        supporting_evidence_ids=[str(outcome_id)],
-        attribution=attribution_evidence.resulting_attribution,
-        attribution_evidence=attribution_evidence,
-        confidence=0.9,
-        observed_at=observed_at,
-        observation_timing=observation_timing,
-        evaluated_at=observed_at,
-    )
-    request = {
-        "recommendation_evidence_id": str(recommendation_id),
-        "outcome_evaluation_evidence_id": str(outcome_id),
-        "execution_evidence_ids": [str(execution_id)],
-    }
-
-    with factory() as setup:
-        setup.add(Mission(id=mission_id, tenant_id=tenant_id, objective=f"Historical episode {index}"))
-        setup.flush()
-        setup.add_all(
-            [
-                ExecutionTask(
-                    id=recommendation_task_id,
-                    tenant_id=tenant_id,
-                    mission_id=mission_id,
-                    title="Recommend discovery",
-                    description="Canonical recommendation owner",
-                    status=ExecutionTaskState.COMPLETED.value,
-                    metadata_json={
-                        "tool_invocation": {
-                            "action": "decision.recommend_next_action",
-                            "input": recommendation_input,
-                        }
-                    },
-                ),
-                ExecutionTask(
-                    id=execution_task_id,
-                    tenant_id=tenant_id,
-                    mission_id=mission_id,
-                    title="Schedule discovery",
-                    description="Canonical execution owner",
-                    status=ExecutionTaskState.COMPLETED.value,
-                ),
-                ExecutionTask(
-                    id=materialization_task_id,
-                    tenant_id=tenant_id,
-                    mission_id=mission_id,
-                    title="Materialize learning signal",
-                    description="Queue-authoritative historical learning materialization",
-                    status=ExecutionTaskState.PLANNED.value,
-                    metadata_json={
-                        "task_type": "tool.invoke",
-                        "tool_invocation": {
-                            "action": MATERIALIZATION_ACTION,
-                            "input": request,
-                        },
-                    },
-                ),
-            ]
-        )
-        setup.flush()
-        setup.add_all(
-            [
-                EvidenceRecord(
-                    id=supporting_id,
-                    tenant_id=tenant_id,
-                    mission_id=mission_id,
-                    evidence_type="observation",
-                    evidence_source="historical_source",
-                    summary="Qualified opportunity observation",
-                    structured_payload={"qualified": True},
-                    provenance_metadata={"evidence_lineage": supporting_lineage.model_dump(mode="json")},
-                ),
-                EvidenceRecord(
-                    id=recommendation_id,
-                    tenant_id=tenant_id,
-                    mission_id=mission_id,
-                    execution_task_id=recommendation_task_id,
-                    evidence_type="execution_trace",
-                    evidence_source="decision_actions",
-                    summary="Recommended discovery",
-                    structured_payload=recommendation_payload,
-                    provenance_metadata={
-                        "action_name": "decision.recommend_next_action",
-                        "tool_provider": "ajenda_decision",
-                        "evidence_role": "decision_recommendation_result",
-                        "evidence_lineage": recommendation_lineage.model_dump(mode="json"),
-                    },
-                    confidence=0.9,
-                ),
-                EvidenceRecord(
-                    id=outcome_id,
-                    tenant_id=tenant_id,
-                    mission_id=mission_id,
-                    evidence_type="execution_trace",
-                    evidence_source="analysis_actions",
-                    summary="Outcome achieved",
-                    structured_payload=outcome.model_dump(mode="json"),
-                    provenance_metadata={"action_name": "analysis.evaluate_outcome"},
-                ),
-                EvidenceRecord(
-                    id=execution_id,
-                    tenant_id=tenant_id,
-                    mission_id=mission_id,
-                    execution_task_id=execution_task_id,
-                    evidence_type="execution_trace",
-                    evidence_source="sales_actions",
-                    summary="Discovery scheduled",
-                    structured_payload={"executed_at": executed_at.isoformat()},
-                    provenance_metadata={"action_name": "sales.schedule_discovery"},
-                ),
-            ]
-        )
-        setup.commit()
-
-    with factory() as runtime_session:
-        QuotaEnforcementService(runtime_session).check_and_record_task_creation(uuid.UUID(tenant_id))
-        queued = ExecutionCoordinator(runtime_session, queue_adapter).queue_task(
-            tenant_id=tenant_id,
-            task_id=materialization_task_id,
-        )
-        assert queued.ok is True
-        runtime = WorkerRuntimeService(runtime_session, queue_adapter)
-        claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=f"worker-{index}")
-        assert claimed is not None
-        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
-        runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=f"worker-{index}")
-        runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=f"worker-{index}")
-
-    TaskDispatcher(
-        session_factory=factory,
-        queue=queue_adapter,
-        worker_id=f"worker-{index}",
+    return materialize_canonical_decision_episode(
+        factory=factory,
+        queue_adapter=queue_adapter,
         tenant_id=tenant_id,
-    ).execute(task_id=materialization_task_id, lease_id=lease_id)
-
-    with factory() as verify:
-        records = verify.scalars(
-            select(EvidenceRecord).where(
-                EvidenceRecord.execution_task_id == materialization_task_id,
-                EvidenceRecord.provenance_metadata["evidence_role"].astext == "decision_learning_signal",
-            )
-        ).all()
-        assert len(records) == 1
-        return DecisionLearningSignal.model_validate(records[0].structured_payload)
+        index=index,
+    ).learning_signal
 
 
 def _materialize_source_observation(
@@ -381,7 +154,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         invalidation_conditions=(),
     )
     mission_id = uuid.uuid4()
-    now = datetime(2026, 8, 13, tzinfo=UTC).isoformat()
+    now = datetime.now(UTC).isoformat()
     setup = factory()
     try:
         setup.add(Mission(id=mission_id, tenant_id=tenant, objective="Knowledge Decision reconciliation proof"))
@@ -447,7 +220,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         {
             "option_id": "discovery",
             "label": "Schedule discovery",
-            "intervention_key": "sales.schedule_discovery",
+            "intervention_key": EXECUTION_ACTION,
         },
         {
             "option_id": "pricing",
@@ -514,6 +287,126 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     assert len(historical_ids) == 3
     assert first.output["decision_input"]["criteria"] == decision_criteria
     assert _tenant_counts(factory, tenant) == before == (1, 1)
+
+    canonical_recommendation = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action="knowledge.inform_decision",
+        action_input=invocation.input,
+        worker_label="knowledge-decision",
+    )
+    canonical_execution = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action=EXECUTION_ACTION,
+        action_input={"lead": {"company": "Opportunity 430", "role": "VP", "intent": "expansion"}},
+        worker_label="knowledge-execution",
+    )
+    executed_at = datetime.now(UTC)
+    observed_at = executed_at + timedelta(milliseconds=1)
+    canonical_outcome = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action="analysis.evaluate_outcome",
+        action_input={
+            "goal": {
+                "goal_id": "goal-increase-conversion",
+                "objective_key": "increase_conversion",
+                "name": "Increase conversion",
+                "subject_refs": [{"object_type": "opportunity", "object_id": "opp-real-430"}],
+            },
+            "subject_refs": [{"object_type": "opportunity", "object_id": "opp-real-430"}],
+            "baseline_kpis": [
+                {
+                    "kpi_id": "conversion",
+                    "goal_id": "goal-increase-conversion",
+                    "name": "Conversion",
+                    "metric": "conversion",
+                    "current_value": 0.5,
+                    "target_value": 1.0,
+                }
+            ],
+            "observed_kpis": [
+                {
+                    "kpi_id": "conversion",
+                    "goal_id": "goal-increase-conversion",
+                    "name": "Conversion",
+                    "metric": "conversion",
+                    "current_value": 1.0,
+                    "target_value": 1.0,
+                }
+            ],
+            "source_observed_at": observed_at.isoformat(),
+            "evidence_ids": [str(canonical_execution.id)],
+            "attribution_evidence": {
+                "executed_at": executed_at.isoformat(),
+                "execution_evidence_ids": [str(canonical_execution.id)],
+                "expected_change_dimensions": ["conversion"],
+                "observed_change_dimensions": ["conversion"],
+                "confidence": 0.9,
+            },
+        },
+        worker_label="knowledge-outcome",
+    )
+    next_signal_record = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action=MATERIALIZATION_ACTION,
+        action_input={
+            "recommendation_evidence_id": str(canonical_recommendation.id),
+            "outcome_evaluation_evidence_id": str(canonical_outcome.id),
+            "execution_evidence_ids": [str(canonical_execution.id)],
+        },
+        worker_label="knowledge-materialization",
+    )
+    next_signal = DecisionLearningSignal.model_validate(next_signal_record.structured_payload)
+    assert next_signal.episode_reference is not None
+    assert next_signal.intervention_key == EXECUTION_ACTION
+    assert next_signal.supporting_evidence_ids == historical_ids
+    assert next_signal_record.provenance_metadata["evidence_role"] == "decision_learning_signal"
+
+    forged_composed_id = uuid.uuid4()
+    with factory() as setup:
+        setup.add(
+            EvidenceRecord(
+                id=forged_composed_id,
+                tenant_id=tenant,
+                mission_id=mission_id,
+                execution_task_id=canonical_recommendation.execution_task_id,
+                evidence_type="execution_trace",
+                evidence_source="public_evidence_contract",
+                summary="Caller-forged Knowledge composition",
+                structured_payload=canonical_recommendation.structured_payload,
+                provenance_metadata={
+                    "action_name": "knowledge.inform_decision",
+                    "tool_provider": "ajenda_knowledge",
+                    "evidence_role": "decision_recommendation_result",
+                    "composed_action": "decision.recommend_next_action",
+                    "composition_schema_version": 1,
+                },
+            )
+        )
+        setup.commit()
+    with pytest.raises(CanonicalToolEvidenceError, match="materialization reference"):
+        registry.invoke(
+            ToolInvocation(
+                action=MATERIALIZATION_ACTION,
+                input={
+                    "recommendation_evidence_id": str(forged_composed_id),
+                    "outcome_evaluation_evidence_id": str(canonical_outcome.id),
+                    "execution_evidence_ids": [str(canonical_execution.id)],
+                },
+            ),
+            tenant_context,
+        )
 
     hidden = registry.invoke(invocation, _context(other_tenant, factory))
     assert hidden.output["support"]["influences"] == []
