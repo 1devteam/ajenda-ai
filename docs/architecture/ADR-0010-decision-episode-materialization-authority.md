@@ -1,4 +1,4 @@
-# ADR-0008: Decision Episode Materialization Authority
+# ADR-0010: Decision Episode Materialization Authority
 
 **Status:** Accepted  
 **Date:** 2026-08-12  
@@ -40,11 +40,20 @@ is introduced.
   validated as the existing `OutcomeEvaluation`.
 - Persistence: the existing tool `EvidenceItem` → `EvidenceBridge` →
   `EvidenceRecord` path.
+- Episode artifact ownership: recommendation (including the outer
+  `knowledge.inform_decision` composition), outcome, and each dynamically resolved
+  execution action must be the unique exact EvidenceBridge projection of its
+  completed task, released lease, and task-output lineage. Shape and action labels
+  alone cannot become a canonical episode.
 - Historical learning ownership: a claimed learning-signal EvidenceRecord is
   accepted for Decision influence only when it is the unique, exact
   EvidenceBridge projection of a completed `tool.invoke` task, released worker
   lease, and matching append-only `task_output` lineage record. Caller-authored
   action/role/materialization JSON does not establish runtime provenance.
+- Experience ingestion repeats that canonical learning-signal proof before
+  `DecisionLearningSignal` validation, recurrence analysis, qualification, or any
+  Knowledge Ledger write; the public declarative Evidence API therefore cannot
+  author learning history.
 - Current-condition ownership: an applicability EvidenceRecord may affect
   Decision scoring only when it is the unique, exact EvidenceBridge projection
   of a completed runtime action whose owner emitted `SOURCE_OBSERVATION`

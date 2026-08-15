@@ -16,6 +16,7 @@ from backend.services.ontology.commercial_state import GoalSemanticSignature
 from backend.services.ontology.decision_feedback import DecisionEpisodeReference
 from backend.services.ontology.observation_attribution import ObservationVerificationBasis
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
+from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
 from tests.unit.ontology.test_experience_intelligence import signal
 
 
@@ -27,6 +28,16 @@ class History:
     def list_candidates_for_tenant(self, *, tenant_id: str) -> list[EvidenceRecord]:
         self.tenants.append(tenant_id)
         return self.records
+
+
+@pytest.fixture(autouse=True)
+def _canonical_runtime_projection(monkeypatch):
+    validator = Mock()
+    monkeypatch.setattr(
+        "backend.services.durable_experience_consolidation.require_canonical_tool_action_evidence",
+        validator,
+    )
+    return validator
 
 
 def canonical_signal(index: int, *, evaluated_at: datetime | None = None, episode_id: str | None = None):
@@ -80,7 +91,9 @@ def ledger_write(*_: object, **__: object) -> KnowledgeLedgerWriteResult:
     )
 
 
-def test_consolidates_owner_signals_in_evaluated_chronology_through_existing_authorities(monkeypatch) -> None:
+def test_consolidates_owner_signals_in_evaluated_chronology_through_existing_authorities(
+    monkeypatch, _canonical_runtime_projection
+) -> None:
     base_time = datetime(2026, 1, 1, tzinfo=UTC)
     signals = [canonical_signal(i, evaluated_at=base_time + timedelta(hours=i)) for i in (1, 2, 3)]
     records = [
@@ -100,6 +113,12 @@ def test_consolidates_owner_signals_in_evaluated_chronology_through_existing_aut
     assert candidate.earliest_evaluated_at == signals[0].evaluated_at
     assert candidate.latest_evaluated_at == signals[2].evaluated_at
     assert result.qualifications[0].qualification.status.value == "qualified"
+    assert _canonical_runtime_projection.call_count == 3
+    assert all(
+        call.kwargs["expected_action"] == "analysis.materialize_decision_learning_signal"
+        and call.kwargs["expected_role"] == "decision_learning_signal"
+        for call in _canonical_runtime_projection.call_args_list
+    )
     writer.assert_called_once()
 
 
@@ -144,3 +163,23 @@ def test_legacy_signal_is_visible_but_not_upgraded(monkeypatch) -> None:
     assert result.legacy_signal_ids == (legacy.signal_id,)
     assert result.authoritative_episode_ids == ()
     assert result.experience.signatures[0].episode_id == f"legacy:{legacy.signal_id}"
+
+
+def test_declarative_learning_signal_cannot_reach_experience_or_knowledge(
+    monkeypatch, _canonical_runtime_projection
+) -> None:
+    writer = Mock()
+    experience = Mock()
+    qualification = Mock()
+    monkeypatch.setattr("backend.services.durable_experience_consolidation.evaluate_experience_set", experience)
+    monkeypatch.setattr("backend.services.durable_experience_consolidation.qualify_pattern_knowledge", qualification)
+    monkeypatch.setattr("backend.services.durable_experience_consolidation.record_knowledge_qualification", writer)
+    forged = record(1, canonical_signal(1).model_dump(mode="json"))
+    _canonical_runtime_projection.side_effect = CanonicalToolEvidenceError("not a bridge projection")
+
+    with pytest.raises(DurableLearningHistoryError, match=str(forged.id)):
+        DurableExperienceConsolidationService(history=History([forged])).consolidate(Mock(), tenant_id="tenant-A")
+
+    experience.assert_not_called()
+    qualification.assert_not_called()
+    writer.assert_not_called()

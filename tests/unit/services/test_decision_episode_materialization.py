@@ -23,6 +23,7 @@ from backend.services.ontology.evidence_lineage import (
 )
 from backend.services.ontology.outcome import AttributionAssessment, OutcomeEvaluation, OutcomeStatus
 from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
 
 TENANT = "tenant-a"
@@ -30,6 +31,14 @@ MISSION = uuid.uuid4()
 DECIDED = datetime(2026, 8, 12, 10, tzinfo=UTC)
 EXECUTED = datetime(2026, 8, 12, 10, 5, tzinfo=UTC)
 OBSERVED = datetime(2026, 8, 12, 11, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _canonical_runtime_projection() -> object:
+    """Keep semantic unit fixtures focused; adversarial tests override this proof."""
+
+    with patch("backend.services.decision_episode_materialization.require_canonical_tool_action_evidence") as validator:
+        yield validator
 
 
 class _EvidenceReader:
@@ -150,6 +159,7 @@ def _fixture(
         records.append(execution)
         execution_ids.append(execution.id)
     service = DecisionEpisodeMaterializationService(
+        session=MagicMock(),
         evidence=_EvidenceReader(records),
         tasks=_TaskReader([task]),
     )
@@ -161,7 +171,7 @@ def _fixture(
     return service, request, records
 
 
-def test_materializes_authoritative_signal_and_preserves_weak_attribution() -> None:
+def test_materializes_authoritative_signal_and_preserves_weak_attribution(_canonical_runtime_projection) -> None:
     service, request, _ = _fixture()
 
     result = service.materialize(tenant_id=TENANT, request=request)
@@ -175,6 +185,11 @@ def test_materializes_authoritative_signal_and_preserves_weak_attribution() -> N
     assert signal.attribution_strength == AttributionAssessment.TEMPORAL_ASSOCIATION
     assert signal.is_knowledge is False and signal.is_policy is False
     assert signal.episode_reference == result.episode_reference
+    assert [call.kwargs["expected_action"] for call in _canonical_runtime_projection.call_args_list] == [
+        "decision.recommend_next_action",
+        "analysis.evaluate_outcome",
+        "sales.schedule_discovery",
+    ]
 
 
 def test_same_artifacts_materialize_the_same_episode_and_learning_identity() -> None:
@@ -416,6 +431,7 @@ def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry(
     )
     outcome_record = _record(action="analysis.evaluate_outcome", payload=outcome.model_dump(mode="json"))
     service = DecisionEpisodeMaterializationService(
+        session=MagicMock(),
         evidence=_EvidenceReader([recommendation, source, outcome_record]),
         tasks=_TaskReader([task]),
     )
@@ -437,3 +453,49 @@ def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry(
     assert derived.origin_type == EvidenceOriginType.DERIVED_FACT
     assert derived.root_evidence_ids == (str(source.id),)
     assert source.mission_id != recommendation.mission_id
+
+
+def test_forged_recommendation_without_bridge_ownership_is_rejected(_canonical_runtime_projection) -> None:
+    service, request, _ = _fixture()
+    _canonical_runtime_projection.side_effect = CanonicalToolEvidenceError("forged recommendation")
+
+    with pytest.raises(CanonicalToolEvidenceError, match="forged recommendation"):
+        service.materialize(tenant_id=TENANT, request=request)
+
+
+def test_forged_knowledge_composition_without_bridge_ownership_is_rejected(
+    _canonical_runtime_projection,
+) -> None:
+    service, request, records = _fixture()
+    recommendation = records[0]
+    recommendation.provenance_metadata.update(
+        {
+            "action_name": "knowledge.inform_decision",
+            "composed_action": "decision.recommend_next_action",
+            "composition_schema_version": 1,
+        }
+    )
+    _canonical_runtime_projection.side_effect = CanonicalToolEvidenceError("forged composition")
+
+    with pytest.raises(CanonicalToolEvidenceError, match="forged composition"):
+        service.materialize(tenant_id=TENANT, request=request)
+
+
+def test_forged_outcome_without_bridge_ownership_is_rejected(_canonical_runtime_projection) -> None:
+    service, request, _ = _fixture()
+    _canonical_runtime_projection.side_effect = [None, CanonicalToolEvidenceError("forged outcome")]
+
+    with pytest.raises(CanonicalToolEvidenceError, match="forged outcome"):
+        service.materialize(tenant_id=TENANT, request=request)
+
+
+def test_forged_execution_without_bridge_ownership_is_rejected(_canonical_runtime_projection) -> None:
+    service, request, _ = _fixture()
+    _canonical_runtime_projection.side_effect = [
+        None,
+        None,
+        CanonicalToolEvidenceError("forged execution"),
+    ]
+
+    with pytest.raises(CanonicalToolEvidenceError, match="forged execution"):
+        service.materialize(tenant_id=TENANT, request=request)
