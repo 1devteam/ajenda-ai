@@ -1360,6 +1360,32 @@ authority_entries:
       - tests/unit/abilities/test_ability_catalog.py
       - docs/planning/pr-428-durable-experience-consolidation-acceptance.md
 
+  - id: temporal_intelligence_advancement
+    area: bounded post-commit intelligence lifecycle advancement
+    source_of_truth:
+      - backend/services/temporal_intelligence_advancement.py
+      - backend/services/worker_runtime_service.py
+      - backend/services/execution_coordinator.py
+      - docs/architecture/ADR-0011-bounded-temporal-intelligence-advancement.md
+    route_scope: []
+    authority_class: governed_mutation
+    side_effect_class: deterministic_internal_runtime_task_admission
+    allowed_side_effects:
+      - evaluate canonical Outcome and DecisionLearningSignal evidence after owner commit
+      - schedule only analysis.materialize_decision_learning_signal or knowledge.consolidate_learning_history through ExecutionCoordinator
+      - persist an inspectable advancement result on the completed upstream task and in audit
+    forbidden_side_effects:
+      - redefine Decision, Outcome, Experience, Qualification, Knowledge Ledger, mission planning, or execution semantics
+      - infer missing evidence, chronology, tenant ancestry, recommendation identity, or execution identity
+      - invoke action handlers directly, extend mission task graphs, queue business work, or authorize autonomous execution
+      - create a generic workflow engine, scheduler, event bus, temporal DSL, or duplicate intelligence persistence model
+    required_proofs:
+      - tests/unit/services/test_temporal_intelligence_advancement.py
+      - tests/integration/intelligence/canonical_decision_runtime.py
+      - tests/integration/intelligence/test_knowledge_decision_support_real.py
+      - tests/unit/tools/test_evidence_bridge.py
+      - tests/unit/architecture/test_authority_ledger_contract.py
+
   - id: knowledge_applicability_resolution
     area: current-context knowledge applicability resolution
     source_of_truth:

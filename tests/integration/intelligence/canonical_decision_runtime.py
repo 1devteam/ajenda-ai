@@ -98,6 +98,7 @@ def execute_canonical_action(
     action_input: dict[str, object],
     worker_label: str,
     runtime_authority_metadata: dict[str, object] | None = None,
+    expect_temporal_successor: bool = False,
 ) -> EvidenceRecord:
     """Run one action through queue, lease, dispatcher, lineage, and EvidenceBridge."""
 
@@ -156,10 +157,38 @@ def execute_canonical_action(
         record = records[0]
         assert record.materialization_reference["lineage_record_id"] == str(lineage[0].id)
         assert record.materialization_reference["evidence_index"] == 0
-        assert queue_adapter.pending_depth(tenant_id=tenant_id) == 0
+        assert queue_adapter.pending_depth(tenant_id=tenant_id) == (1 if expect_temporal_successor else 0)
         assert not queue_adapter.list_processing(tenant_id=tenant_id)
         verify.expunge(record)
         return record
+
+
+def execute_temporal_successor(
+    *, factory: Any, queue_adapter: Any, tenant_id: str, worker_label: str
+) -> EvidenceRecord:
+    """Claim and execute the one task admitted by bounded temporal composition."""
+
+    worker_id = f"{worker_label}-{uuid.uuid4()}"
+    with factory() as setup:
+        runtime = WorkerRuntimeService(setup, queue_adapter)
+        claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+        assert claimed is not None
+        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+        runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        task_id = claimed.id
+        setup.commit()
+    TaskDispatcher(
+        session_factory=factory,
+        queue=queue_adapter,
+        worker_id=worker_id,
+        tenant_id=tenant_id,
+    ).execute(task_id=task_id, lease_id=lease_id)
+    with factory() as verify:
+        records = verify.scalars(select(EvidenceRecord).where(EvidenceRecord.execution_task_id == task_id)).all()
+        assert len(records) == 1
+        verify.expunge(records[0])
+        return records[0]
 
 
 def materialize_canonical_decision_episode(
@@ -297,20 +326,21 @@ def materialize_canonical_decision_episode(
             },
         },
         worker_label=f"outcome-{index}",
+        expect_temporal_successor=True,
     )
-    materialized = execute_canonical_action(
+    materialized = execute_temporal_successor(
         factory=factory,
         queue_adapter=queue_adapter,
         tenant_id=tenant_id,
-        mission_id=mission_id,
-        action=MATERIALIZATION_ACTION,
-        action_input={
-            "recommendation_evidence_id": str(recommendation.id),
-            "outcome_evaluation_evidence_id": str(outcome.id),
-            "execution_evidence_ids": [str(execution.id)],
-        },
         worker_label=f"materialization-{index}",
     )
+    consolidation = execute_temporal_successor(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        worker_label=f"consolidation-{index}",
+    )
+    assert consolidation.provenance_metadata["action_name"] == "knowledge.consolidate_learning_history"
     signal = DecisionLearningSignal.model_validate(materialized.structured_payload)
     assert signal.episode_reference is not None
     assert recommendation.execution_task_id is not None

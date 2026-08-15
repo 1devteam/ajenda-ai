@@ -97,6 +97,14 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Staging HTTP proof: `deploy/scripts/paid-customer-loop-staging-proof.sh`
 - **CI Live Runtime Proof:** `.github/workflows/ci.yml` on `main` push (run #1041 @ `efe332b` passed)
 
+### 2.8 Temporal intelligence composition
+
+- Post-commit canonical Outcome evidence is evaluated for bounded Decision Episode materialization eligibility.
+- Post-commit canonical DecisionLearningSignal evidence is evaluated for bounded Experience/Knowledge consolidation eligibility.
+- Successors use deterministic `ExecutionTask` identities and the existing coordinator, queue, lease, dispatcher, action, EvidenceBridge, Experience, Qualification, and Knowledge Ledger owners.
+- Missing, ambiguous, forged, cross-tenant, or chronologically invalid ancestry fails closed; upstream canonical artifacts remain committed and retryable.
+- The coordinator does not alter mission graphs, queue business work, authorize execution from Knowledge, or own intelligence semantics.
+
 ---
 
 ## 3. What is not implemented / remaining gaps

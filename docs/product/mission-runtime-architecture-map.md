@@ -24,6 +24,18 @@ Route / service admission
 
 The system also has intentional non-runtime lanes. These include declarative contracts, read models, staged mission bridge routes, and future provider boundaries. These should not be treated as bugs merely because they do not execute work.
 
+The intelligence lane includes one bounded post-commit coordinator. After
+EvidenceBridge durability, `TemporalIntelligenceAdvancementService` decides only
+whether canonical Outcome evidence may schedule Decision Episode materialization,
+or canonical DecisionLearningSignal evidence may schedule Experience consolidation.
+It creates no mission graph node and queues no business action. Successors enter
+through `ExecutionCoordinator` and retain queue, lease, dispatcher, action-owner,
+tenant, provenance, and evidence authority.
+
+Temporal Composition coordinates existing intelligence authorities and determines
+transition eligibility. It does not own Decision, Outcome, Experience, Knowledge,
+mission planning, or execution semantics.
+
 Mission queue authority is consolidated in `MissionRuntimeQueueAdmissionService.admit()`. `POST /v1/missions/{mission_id}/runtime-queue-admission` is the canonical API entrypoint, not a second authority. `POST /v1/missions/{mission_id}/queue` remains only as a deprecated compatibility adapter: it invokes the same service, persists the same admission metadata through that service, and projects only the legacy three-field response.
 
 ## Classification vocabulary
