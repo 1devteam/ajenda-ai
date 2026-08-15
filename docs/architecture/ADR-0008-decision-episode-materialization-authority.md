@@ -69,6 +69,10 @@ historical learning signals remain explicitly non-independent lineage inputs.
   numeric authority.
 - Knowledge-derived facts remain non-independent across Decision snapshot and
   learning-signal lineage, rooted in the source EvidenceRecords they cite.
+- Durable-source substitution is valid only for a known `DERIVED_FACT` whose
+  canonical EvidenceRecord UUIDs exactly equal its root, parent, and ancestor
+  assertions. Current applicability evidence must carry explicit, identity-matched
+  `SOURCE_OBSERVATION` lineage; missing lineage never implies independence.
 - The output remains `DecisionLearningSignal` with `is_knowledge = false` and
   `is_policy = false`.
 

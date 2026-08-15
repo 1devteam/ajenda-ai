@@ -548,10 +548,13 @@ def _validate_applicability_evidence(
             if event_time > evaluated_at:
                 raise ValueError("future evidence cannot establish earlier Knowledge applicability")
         raw_lineage = record.provenance_metadata.get("evidence_lineage")
-        if raw_lineage is not None:
-            durable_lineage = EvidenceLineage.model_validate(raw_lineage)
-            if durable_lineage.origin_type != EvidenceOriginType.SOURCE_OBSERVATION:
-                raise ValueError("derived evidence cannot establish fresh Knowledge applicability")
+        if raw_lineage is None:
+            raise ValueError("Knowledge applicability evidence requires explicit source-observation lineage")
+        durable_lineage = EvidenceLineage.model_validate(raw_lineage)
+        if durable_lineage.artifact_evidence_id != str(record.id):
+            raise ValueError("Knowledge applicability evidence lineage identity disagrees")
+        if durable_lineage.origin_type != EvidenceOriginType.SOURCE_OBSERVATION:
+            raise ValueError("derived evidence cannot establish fresh Knowledge applicability")
 
 
 def _resolve_historical_episode_evidence(

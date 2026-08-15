@@ -4,6 +4,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from pydantic import ValidationError
 
 from backend.services.knowledge import (
     ContextConditionState,
@@ -15,7 +16,7 @@ from backend.services.knowledge import (
     resolve_knowledge_applicability,
 )
 from backend.services.tools.decision_actions import decision_recommend_next_action
-from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
+from backend.services.tools.schemas import ActionRuntimeContext, EvidenceFact, ToolInvocation
 from tests.unit.knowledge.test_knowledge_applicability import NOW, _assertion, _context, _match
 
 
@@ -193,3 +194,41 @@ def test_eligible_support_becomes_bounded_derived_facts_consumed_by_decision() -
 def test_neutral_unresolved_and_inapplicable_support_never_become_scoring_facts() -> None:
     _, support = _evaluate(scope_state=ContextConditionState.UNKNOWN)
     assert knowledge_support_evidence_facts(support, episode_evidence_ids={}) == ()
+
+
+def test_durable_source_substitution_requires_exact_known_derived_uuid_ancestry() -> None:
+    durable_id = str(uuid.uuid4())
+    fact_id = "derived-fact"
+    valid_lineage = {
+        "artifact_evidence_id": fact_id,
+        "origin_type": "derived_fact",
+        "root_evidence_ids": [durable_id],
+        "parent_evidence_ids": [durable_id],
+        "ancestor_evidence_ids": [durable_id],
+        "resolution": "known",
+    }
+    fact = EvidenceFact(
+        evidence_id=fact_id,
+        claim="Bounded derived support",
+        durable_source_evidence_ids=[durable_id],
+        lineage=valid_lineage,
+    )
+    assert fact.durable_source_evidence_ids == [durable_id]
+
+    invalid_overrides = (
+        {"lineage": None},
+        {"lineage": {**valid_lineage, "origin_type": "source_observation"}},
+        {"lineage": {**valid_lineage, "resolution": "partial"}},
+        {"durable_source_evidence_ids": ["not-a-uuid"]},
+        {"lineage": {**valid_lineage, "ancestor_evidence_ids": [str(uuid.uuid4())]}},
+    )
+    for override in invalid_overrides:
+        payload = {
+            "evidence_id": fact_id,
+            "claim": "Untrusted provenance override",
+            "durable_source_evidence_ids": [durable_id],
+            "lineage": valid_lineage,
+            **override,
+        }
+        with pytest.raises((ValidationError, ValueError)):
+            EvidenceFact.model_validate(payload)

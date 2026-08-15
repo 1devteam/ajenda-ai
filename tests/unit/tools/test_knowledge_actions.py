@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -16,10 +18,16 @@ from backend.services.knowledge import (
     KnowledgeRetrievalResult,
 )
 from backend.services.ontology.commercial_state import GoalSemanticSignature
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+)
 from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
 from backend.services.ontology.observation_attribution import ObservationVerificationBasis
 from backend.services.ontology.types import BusinessObjectRef, BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.knowledge_actions import _validate_applicability_evidence
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
 from tests.unit.ontology.test_knowledge_qualification import candidate
 
@@ -272,3 +280,65 @@ def test_commit_failure_rolls_back_and_returns_no_success(monkeypatch) -> None:
 
     session.rollback.assert_called_once_with()
     session.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize("lineage_kind", ["missing", "derived", "wrong_identity"])
+def test_applicability_evidence_requires_explicit_matching_source_observation_lineage(lineage_kind: str) -> None:
+    evidence_id = uuid4()
+    mission_id = uuid4()
+    provenance = {}
+    if lineage_kind != "missing":
+        provenance["evidence_lineage"] = EvidenceLineage(
+            artifact_evidence_id=str(uuid4()) if lineage_kind == "wrong_identity" else str(evidence_id),
+            origin_type=(
+                EvidenceOriginType.DERIVED_FACT if lineage_kind == "derived" else EvidenceOriginType.SOURCE_OBSERVATION
+            ),
+            root_evidence_ids=(str(uuid4()),) if lineage_kind == "derived" else (),
+            resolution=(
+                EvidenceLineageResolution.KNOWN if lineage_kind == "derived" else EvidenceLineageResolution.UNKNOWN
+            ),
+        ).model_dump(mode="json")
+    record = SimpleNamespace(
+        id=evidence_id,
+        mission_id=mission_id,
+        structured_payload={"observed_at": datetime(2026, 8, 13, tzinfo=UTC).isoformat()},
+        provenance_metadata=provenance,
+    )
+    repository = Mock()
+    repository.get_for_tenant.return_value = record
+
+    with pytest.raises(ValueError, match=r"lineage|derived evidence"):
+        _validate_applicability_evidence(
+            repository=repository,
+            tenant_id="tenant-A",
+            mission_id=mission_id,
+            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+            evidence_ids={str(evidence_id)},
+        )
+
+
+def test_applicability_evidence_accepts_matching_source_observation_lineage() -> None:
+    evidence_id = uuid4()
+    mission_id = uuid4()
+    record = SimpleNamespace(
+        id=evidence_id,
+        mission_id=mission_id,
+        structured_payload={"observed_at": datetime(2026, 8, 13, tzinfo=UTC).isoformat()},
+        provenance_metadata={
+            "evidence_lineage": EvidenceLineage(
+                artifact_evidence_id=str(evidence_id),
+                origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+                resolution=EvidenceLineageResolution.UNKNOWN,
+            ).model_dump(mode="json")
+        },
+    )
+    repository = Mock()
+    repository.get_for_tenant.return_value = record
+
+    _validate_applicability_evidence(
+        repository=repository,
+        tenant_id="tenant-A",
+        mission_id=mission_id,
+        evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+        evidence_ids={str(evidence_id)},
+    )
