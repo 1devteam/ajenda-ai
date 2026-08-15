@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
 
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
@@ -25,6 +26,7 @@ from backend.services.ontology.decision_feedback import (
 from backend.services.ontology.decision_snapshot_builder import build_decision_snapshot_from_recommendation
 from backend.services.ontology.evidence_lineage import EvidenceOriginType
 from backend.services.ontology.outcome import OutcomeEvaluation
+from backend.services.tools.evidence_bridge import require_canonical_tool_action_evidence
 from backend.services.tools.schemas import ActionResult, DecisionRecommendInput, SideEffectClass
 
 RECOMMENDATION_ACTION = "decision.recommend_next_action"
@@ -127,7 +129,8 @@ def _parse_event_time(record: EvidenceRecord, field: str) -> datetime | None:
 class DecisionEpisodeMaterializationService:
     """Sole owner of durable decision-to-learning-episode reconstruction."""
 
-    def __init__(self, *, evidence: EvidenceReader, tasks: TaskReader) -> None:
+    def __init__(self, *, session: Session, evidence: EvidenceReader, tasks: TaskReader) -> None:
+        self._session = session
         self._evidence = evidence
         self._tasks = tasks
 
@@ -146,8 +149,15 @@ class DecisionEpisodeMaterializationService:
         composed = artifact_action == "knowledge.inform_decision"
         if artifact_action != RECOMMENDATION_ACTION and not composed:
             raise ValueError(f"durable artifact does not represent {RECOMMENDATION_ACTION}")
+        expected_task_action = "knowledge.inform_decision" if composed else RECOMMENDATION_ACTION
         if recommendation.provenance_metadata.get("evidence_role") != "decision_recommendation_result":
             raise ValueError("recommendation artifact has the wrong durable evidence role")
+        require_canonical_tool_action_evidence(
+            session=self._session,
+            record=recommendation,
+            expected_action=expected_task_action,
+            expected_role="decision_recommendation_result",
+        )
         if composed and (
             recommendation.provenance_metadata.get("composed_action") != RECOMMENDATION_ACTION
             or recommendation.provenance_metadata.get("composition_schema_version") != 1
@@ -165,7 +175,6 @@ class DecisionEpisodeMaterializationService:
         if recommendation_task.mission_id != recommendation.mission_id:
             raise ValueError("recommendation task and evidence mission provenance disagree")
         invocation = recommendation_task.metadata_json.get("tool_invocation")
-        expected_task_action = "knowledge.inform_decision" if composed else RECOMMENDATION_ACTION
         if not isinstance(invocation, dict) or invocation.get("action") != expected_task_action:
             raise ValueError("recommendation task does not prove the expected decision action")
         raw_input = invocation.get("input")
@@ -221,6 +230,13 @@ class DecisionEpisodeMaterializationService:
                 or record.provenance_metadata.get("evidence_role") != "decision_learning_signal"
             ):
                 raise ValueError("Knowledge ancestry is not a durable Decision learning signal")
+            if historical_knowledge_source:
+                require_canonical_tool_action_evidence(
+                    session=self._session,
+                    record=record,
+                    expected_action=MATERIALIZATION_ACTION,
+                    expected_role="decision_learning_signal",
+                )
             if not historical_knowledge_source and record.mission_id != recommendation.mission_id:
                 raise ValueError("supporting evidence mission provenance disagrees with the recommendation")
             durable_lineage = record.provenance_metadata.get("evidence_lineage")
@@ -259,6 +275,12 @@ class DecisionEpisodeMaterializationService:
             role="outcome",
         )
         self._require_action(outcome_record, OUTCOME_ACTION)
+        require_canonical_tool_action_evidence(
+            session=self._session,
+            record=outcome_record,
+            expected_action=OUTCOME_ACTION,
+            expected_role=None,
+        )
         self._require_same_mission(recommendation, [outcome_record], "outcome evidence")
         outcome = OutcomeEvaluation.model_validate(outcome_record.structured_payload)
         if outcome.evaluated_at < decided_at:
@@ -272,6 +294,16 @@ class DecisionEpisodeMaterializationService:
             for evidence_id in execution_ids_to_resolve
         ]
         self._require_same_mission(recommendation, execution_records, "execution evidence")
+        for record in execution_records:
+            executed_action = _artifact_action(record)
+            if executed_action is None:
+                raise ValueError("execution artifact does not establish an action owner")
+            require_canonical_tool_action_evidence(
+                session=self._session,
+                record=record,
+                expected_action=executed_action,
+                expected_role=None,
+            )
         execution = self._execution_observation(snapshot.intervention_key, execution_records)
         if (
             execution.executed_at is not None

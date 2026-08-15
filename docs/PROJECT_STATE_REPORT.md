@@ -2,7 +2,7 @@
 
 **Date:** August 1, 2026
 **Branch:** `main`  
-**Alembic head:** `0036_composition_thread`
+**Alembic head:** `0038_knowledge_retrieval`
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
 
 This report reflects implementation-backed truth on `main`. For visual flows, see the Mermaid diagrams in `SYSTEM_ARCHITECTURE.md`.
@@ -86,6 +86,8 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - `email_send_idempotency_receipts` — migration `0034`
 - `mission_composition_proposals` — migration `0035` (includes `actor_id` and `status`; declarative history only)
 - `interpretation_thread_id`, `proposal_kind`, and tenant/actor/thread index — migration `0036`
+- `knowledge_qualification_records` and `knowledge_artifact_records` — Knowledge Ledger migration `0037`
+- Knowledge Retrieval JSONB candidate-discovery index — migration `0038`
 
 ### 2.7 Tests and proof
 

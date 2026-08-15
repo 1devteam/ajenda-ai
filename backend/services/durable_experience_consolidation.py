@@ -29,6 +29,7 @@ from backend.services.ontology.observation_attribution import (
     ObservationTimeProvenance,
     ObservationVerificationBasis,
 )
+from backend.services.tools.evidence_bridge import require_canonical_tool_action_evidence
 
 LEARNING_SIGNAL_EVIDENCE_ROLE = "decision_learning_signal"
 
@@ -129,6 +130,12 @@ class DurableExperienceConsolidationService:
                 _artifact_action(record)
                 if record.provenance_metadata.get("evidence_role") != LEARNING_SIGNAL_EVIDENCE_ROLE:
                     raise ValueError("canonical learning artifact role is absent")
+                require_canonical_tool_action_evidence(
+                    session=session,
+                    record=record,
+                    expected_action=MATERIALIZATION_ACTION,
+                    expected_role=LEARNING_SIGNAL_EVIDENCE_ROLE,
+                )
                 parsed.append((record, DecisionLearningSignal.model_validate(record.structured_payload)))
             except DurableLearningHistoryError:
                 raise

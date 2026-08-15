@@ -120,6 +120,7 @@ def _score_option(
             "supporting_evidence_ids": [],
             "missing_criterion_ids": [],
             "gaps": ["no_criteria_supplied"],
+            "_contributing_facts": [],
         }
 
     total_weight = sum(float(c.weight) for c in criteria) or float(len(criteria))
@@ -128,6 +129,7 @@ def _score_option(
     missing: list[str] = []
     gaps: list[str] = []
     weighted_sum = 0.0
+    contributing_facts: list[EvidenceFact] = []
 
     for criterion in criteria:
         cid = criterion.criterion_id
@@ -160,6 +162,7 @@ def _score_option(
                         gaps.append(f"required_evidence_missing:{cid}:{fact.evidence_id}")
             contribs.sort(key=lambda item: item[0], reverse=True)
             dim_score, best = contribs[0]
+            contributing_facts.append(best)
             status = best.status.value
             reason = best.claim
             fact_ids = [f.evidence_id for f in linked]
@@ -195,6 +198,7 @@ def _score_option(
         "supporting_evidence_ids": unique_supporting,
         "missing_criterion_ids": sorted(set(missing)),
         "gaps": gaps,
+        "_contributing_facts": contributing_facts,
     }
 
 
@@ -240,11 +244,8 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
         score_row["feasible"] = feas["feasible"]
         score_row["blocking_constraints"] = feas["blocking_constraints"]
         # Confidence: mean of linked known/inferred fact confidences, penalize gaps
-        linked_conf = [
-            float(f.confidence)
-            for f in facts
-            if f.evidence_id in score_row["supporting_evidence_ids"] and f.status != EvidenceFactStatus.MISSING
-        ]
+        contributing_facts = score_row.pop("_contributing_facts")
+        linked_conf = [float(f.confidence) for f in contributing_facts if f.status != EvidenceFactStatus.MISSING]
         base_conf = sum(linked_conf) / len(linked_conf) if linked_conf else 0.35
         gap_penalty = min(0.4, 0.08 * len(score_row["gaps"]))
         score_row["confidence"] = round(max(0.05, base_conf - gap_penalty), 4)

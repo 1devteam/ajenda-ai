@@ -266,7 +266,7 @@ Root (unversioned): `/health`, `/readiness`
 
 ## 9. Database migrations (Alembic head)
 
-**Head revision:** `0036_composition_thread`
+**Head revision:** `0038_knowledge_retrieval`
 
 | Rev | Description |
 |-----|-------------|
@@ -286,6 +286,8 @@ Root (unversioned): `/health`, `/readiness`
 | 0034 | email_send_idempotency_receipts (SMTP replay protection) |
 | 0035 | mission_composition_proposals (including actor/status history fields) |
 | 0036 | interpretation thread/proposal-kind fields and tenant/actor/thread index |
+| 0037 | tenant-scoped durable Knowledge qualification and artifact ledger tables |
+| 0038 | JSONB GIN index for Knowledge Retrieval candidate discovery |
 
 ---
 

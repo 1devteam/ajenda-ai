@@ -642,6 +642,12 @@ def _resolve_historical_episode_evidence(
     for record in DurableLearningSignalRepository(session).list_candidates_for_tenant(tenant_id=tenant_id):
         if record.provenance_metadata.get("evidence_role") != "decision_learning_signal":
             continue
+        require_canonical_tool_action_evidence(
+            session=session,
+            record=record,
+            expected_action="analysis.materialize_decision_learning_signal",
+            expected_role="decision_learning_signal",
+        )
         try:
             signal = DecisionLearningSignal.model_validate(record.structured_payload)
         except Exception as exc:
@@ -650,12 +656,6 @@ def _resolve_historical_episode_evidence(
         episode_id = reference.episode_id if reference is not None else f"legacy:{signal.signal_id}"
         if episode_id not in episode_ids:
             continue
-        require_canonical_tool_action_evidence(
-            session=session,
-            record=record,
-            expected_action="analysis.materialize_decision_learning_signal",
-            expected_role="decision_learning_signal",
-        )
         existing = resolved.get(episode_id)
         candidate = (str(record.id), signal)
         if existing is not None and existing[1] != signal:

@@ -189,6 +189,59 @@ def test_eligible_support_becomes_bounded_derived_facts_consumed_by_decision() -
     assert facts[0].lineage.origin_type.value == "derived_fact"
     assert facts[0].lineage.root_evidence_ids == (durable_id,)
     assert all(fact.evidence_id != durable_id for fact in facts)
+    assert result.output["option_scores"][0]["total_score"] == 0.45
+    assert result.output["confidence"] == 1.0
+    assert result.output["confidence"] != 0.35
+
+
+def test_mixed_ordinary_and_derived_winners_drive_confidence_without_changing_ancestry() -> None:
+    durable_id = str(uuid.uuid4())
+    derived_id = "knowledge-decision-fact-v1:" + "b" * 64
+    result = decision_recommend_next_action(
+        ToolInvocation(
+            action="decision.recommend_next_action",
+            input={
+                "goal": "Choose action",
+                "options": [{"option_id": "a", "label": "A"}],
+                "criteria": [
+                    {"criterion_id": "ordinary", "label": "Ordinary", "weight": 1},
+                    {"criterion_id": "learned", "label": "Learned", "weight": 1},
+                ],
+                "evidence": [
+                    {
+                        "evidence_id": "ordinary-evidence",
+                        "claim": "Ordinary support",
+                        "status": "known",
+                        "confidence": 0.8,
+                        "supports_option_ids": ["a"],
+                        "supports_criterion_ids": ["ordinary"],
+                    },
+                    {
+                        "evidence_id": derived_id,
+                        "claim": "Knowledge-derived support",
+                        "status": "inferred",
+                        "confidence": 1.0,
+                        "supports_option_ids": ["a"],
+                        "supports_criterion_ids": ["learned"],
+                        "durable_source_evidence_ids": [durable_id],
+                        "lineage": {
+                            "artifact_evidence_id": derived_id,
+                            "origin_type": "derived_fact",
+                            "root_evidence_ids": [durable_id],
+                            "parent_evidence_ids": [durable_id],
+                            "ancestor_evidence_ids": [durable_id],
+                            "resolution": "known",
+                        },
+                    },
+                ],
+            },
+        ),
+        ActionRuntimeContext(tenant_id="tenant-a", task_id=uuid.uuid4(), worker_id="worker", lease_id="lease"),
+    )
+
+    assert result.output["supporting_evidence_ids"] == ["ordinary-evidence", durable_id]
+    assert result.output["option_scores"][0]["total_score"] == 0.7
+    assert result.output["confidence"] == 0.9
 
 
 def test_neutral_unresolved_and_inapplicable_support_never_become_scoring_facts() -> None:

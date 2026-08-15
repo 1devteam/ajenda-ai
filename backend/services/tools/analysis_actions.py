@@ -151,6 +151,7 @@ def analysis_materialize_decision_learning_signal(
     try:
         activate_tenant_session(session, context.tenant_id)
         materialized = DecisionEpisodeMaterializationService(
+            session=session,
             evidence=EvidenceRepository(session),
             tasks=ExecutionTaskRepository(session),
         ).materialize(tenant_id=context.tenant_id, request=payload)

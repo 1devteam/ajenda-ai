@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
 import pytest
 from sqlalchemy import func, select
@@ -12,51 +12,69 @@ from sqlalchemy.orm import sessionmaker
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.knowledge import KnowledgeArtifactRecord, KnowledgeQualificationRecord
-from backend.domain.mission import Mission
+from backend.domain.tenant import Tenant
+from backend.services.durable_experience_consolidation import DurableLearningHistoryError
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
-from tests.unit.services.test_durable_experience_consolidation import canonical_signal
+from tests.integration.intelligence.canonical_decision_runtime import (
+    MATERIALIZATION_ACTION,
+    materialize_canonical_decision_episode,
+)
 
 pytestmark = pytest.mark.integration
 
 
-def test_real_cross_mission_history_is_tenant_isolated_late_arrival_safe_and_replayable(pg_engine) -> None:
-    tenant_a, tenant_b = f"tenant-{uuid.uuid4()}", f"tenant-{uuid.uuid4()}"
-    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
-    evaluated = datetime(2026, 8, 12, 9, tzinfo=UTC)
+def _ledger_counts(factory, tenant_id: str) -> tuple[int, int]:
+    with factory() as verify:
+        activate_tenant_session(verify, tenant_id)
+        return (
+            verify.scalar(
+                select(func.count())
+                .select_from(KnowledgeQualificationRecord)
+                .where(KnowledgeQualificationRecord.tenant_id == tenant_id)
+            )
+            or 0,
+            verify.scalar(
+                select(func.count())
+                .select_from(KnowledgeArtifactRecord)
+                .where(KnowledgeArtifactRecord.tenant_id == tenant_id)
+            )
+            or 0,
+        )
 
+
+def test_real_cross_mission_history_is_canonical_tenant_isolated_and_replayable(
+    pg_engine, queue_adapter, redis_client
+) -> None:
+    tenant_a, tenant_b = str(uuid.uuid4()), str(uuid.uuid4())
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
     with factory() as setup:
-        for tenant, count in ((tenant_a, 3), (tenant_b, 1)):
-            activate_tenant_session(setup, tenant)
-            for index in range(1, count + 1):
-                mission = Mission(id=uuid.uuid4(), tenant_id=tenant, objective=f"Mission {index}")
-                setup.add(mission)
-                setup.flush()
-                signal = canonical_signal(index, evaluated_at=evaluated + timedelta(hours=index)).model_copy(
-                    update={
-                        "episode_reference": canonical_signal(index).episode_reference.model_copy(
-                            update={"mission_id": str(mission.id)}
-                        )
-                    }
-                )
-                setup.add(
-                    EvidenceRecord(
-                        tenant_id=tenant,
-                        mission_id=mission.id,
-                        evidence_type="execution_trace",
-                        evidence_source="decision_episode_materialization",
-                        summary="canonical durable learning signal",
-                        structured_payload=signal.model_dump(mode="json"),
-                        provenance_metadata={
-                            "action_name": "analysis.materialize_decision_learning_signal",
-                            "evidence_role": "decision_learning_signal",
-                        },
-                        materialization_reference={"action": "analysis.materialize_decision_learning_signal"},
-                        # Persistence order intentionally opposes evaluation order.
-                        created_at=evaluated + timedelta(hours=20 - index),
-                    )
-                )
+        setup.add_all(
+            [
+                Tenant(
+                    id=uuid.UUID(tenant_a), name="Experience tenant", slug=f"experience-{tenant_a[:8]}", plan="free"
+                ),
+                Tenant(id=uuid.UUID(tenant_b), name="Other tenant", slug=f"other-{tenant_b[:8]}", plan="free"),
+            ]
+        )
         setup.commit()
+
+    episodes_a = [
+        materialize_canonical_decision_episode(
+            factory=factory,
+            queue_adapter=queue_adapter,
+            tenant_id=tenant_a,
+            index=index,
+        )
+        for index in (1, 2, 3)
+    ]
+    materialize_canonical_decision_episode(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_b,
+        index=4,
+    )
+    assert len({episode.mission_id for episode in episodes_a}) == 3
 
     context = ActionRuntimeContext(
         tenant_id=tenant_a,
@@ -70,39 +88,39 @@ def test_real_cross_mission_history_is_tenant_isolated_late_arrival_safe_and_rep
     first = registry.invoke(invocation, context)
     replay = registry.invoke(invocation, context)
 
-    assert len(first.output["records_inspected"]) == 3
+    assert set(first.output["records_inspected"]) == {
+        str(episode.learning_signal_evidence_id) for episode in episodes_a
+    }
     earliest = datetime.fromisoformat(
         first.output["experience"]["pattern_candidates"][0]["earliest_evaluated_at"].replace("Z", "+00:00")
     )
-    assert earliest == evaluated + timedelta(hours=1)
+    assert earliest == min(episode.learning_signal.evaluated_at for episode in episodes_a)
     assert first.output["qualifications"][0]["qualification"]["status"] == "qualified"
     assert first.output["qualifications"][0]["ledger_write"]["status"] == "recorded"
     assert replay.output["qualifications"][0]["ledger_write"]["status"] == "already_recorded"
+    assert _ledger_counts(factory, tenant_a) == (1, 1)
+    assert _ledger_counts(factory, tenant_b) == (0, 0)
 
-    with factory() as verify:
-        activate_tenant_session(verify, tenant_a)
-        assert (
-            verify.scalar(
-                select(func.count())
-                .select_from(KnowledgeQualificationRecord)
-                .where(KnowledgeQualificationRecord.tenant_id == tenant_a)
+    forged_id = uuid.uuid4()
+    with factory() as setup:
+        setup.add(
+            EvidenceRecord(
+                id=forged_id,
+                tenant_id=tenant_a,
+                mission_id=episodes_a[0].mission_id,
+                evidence_type="execution_trace",
+                evidence_source="public_evidence_contract",
+                summary="Caller-claimed learning signal",
+                structured_payload=episodes_a[0].learning_signal.model_dump(mode="json"),
+                provenance_metadata={
+                    "action_name": MATERIALIZATION_ACTION,
+                    "evidence_role": "decision_learning_signal",
+                },
+                materialization_reference={"action": MATERIALIZATION_ACTION},
             )
-            == 1
         )
-        assert (
-            verify.scalar(
-                select(func.count())
-                .select_from(KnowledgeArtifactRecord)
-                .where(KnowledgeArtifactRecord.tenant_id == tenant_a)
-            )
-            == 1
-        )
-        activate_tenant_session(verify, tenant_b)
-        assert (
-            verify.scalar(
-                select(func.count())
-                .select_from(KnowledgeQualificationRecord)
-                .where(KnowledgeQualificationRecord.tenant_id == tenant_b)
-            )
-            == 0
-        )
+        setup.commit()
+
+    with pytest.raises(DurableLearningHistoryError, match=str(forged_id)):
+        registry.invoke(invocation, context)
+    assert _ledger_counts(factory, tenant_a) == (1, 1)

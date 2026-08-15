@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from backend.services.business_context_resolver import default_company_and_domain
 from backend.services.knowledge.knowledge_applicability import SourceConditionObservation
-from backend.services.ontology.evidence_lineage import EvidenceLineage, EvidenceOriginType
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+    EvidenceSourceIdentity,
+)
 from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.record_store import RecordStore, record_store_limitations, resolve_record_store
@@ -40,6 +46,7 @@ def _evidence(
     side_effect_class: SideEffectClass = SideEffectClass.NONE,
     confidence: float | None = 1.0,
     source_observation: bool = False,
+    source_identity: EvidenceSourceIdentity | None = None,
 ) -> EvidenceItem:
     return EvidenceItem(
         evidence_type="action_result",
@@ -60,6 +67,12 @@ def _evidence(
             EvidenceLineage(
                 artifact_evidence_id=f"action-result:{context.task_id}",
                 origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+                source_identity=source_identity,
+                resolution=(
+                    EvidenceLineageResolution.KNOWN
+                    if source_identity is not None
+                    else EvidenceLineageResolution.UNKNOWN
+                ),
             )
             if source_observation
             else None
@@ -144,6 +157,14 @@ def record_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> Ac
                 payload=output,
                 inspected=inspected,
                 source_observation=True,
+                source_identity=(
+                    EvidenceSourceIdentity(
+                        source_system="tenant_record_store",
+                        source_record_id=f"{payload.record_type}:{payload.record_id}",
+                    )
+                    if record is not None
+                    else None
+                ),
             )
         ],
         records_inspected=inspected,
@@ -161,7 +182,12 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         data=payload.data,
     )
     changed = [str(record["id"])]
-    output = {"record_type": payload.record_type, "record": record}
+    output = {
+        "record_type": payload.record_type,
+        "record": record,
+        # Owner-authoritative event time: captured only after the write returns.
+        "executed_at": datetime.now(UTC).isoformat(),
+    }
     summary = f"Wrote {payload.record_type} record {record['id']} in local proof provider."
     return ActionResult(
         action="record.write",
