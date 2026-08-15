@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+from backend.services.knowledge import ContextConditionState, SourceConditionObservation
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.tools.action_registry import ActionRegistry, get_default_action_registry
+from backend.services.tools.local_records import default_local_record_provider
 from backend.services.tools.sales_actions import register_sales_actions
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
 
@@ -33,6 +36,43 @@ def test_sales_and_record_actions_return_evidence_shaped_output() -> None:
     assert result.evidence[0].lineage is not None
     assert result.evidence[0].lineage.origin_type.value == "source_observation"
     assert "profile-account-primary" in result.evidence[0].records_inspected
+
+
+def test_record_read_emits_typed_source_condition_semantics() -> None:
+    context = _context()
+    observed_at = "2026-08-13T00:00:00+00:00"
+    default_local_record_provider().seed_tenant(
+        context.tenant_id,
+        {
+            "opportunity": {
+                "opp-1": {
+                    "id": "opp-1",
+                    "condition_observations": [
+                        {
+                            "condition_key": "segment:smb",
+                            "state": "active",
+                            "subject_refs": [{"object_type": "opportunity", "object_id": "opp-1"}],
+                            "observed_at": observed_at,
+                            "verification_basis": "source_supplied_under_contract",
+                        }
+                    ],
+                }
+            }
+        },
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(action="record.read", input={"record_type": "opportunity", "record_id": "opp-1"}),
+        context,
+    )
+
+    observation = SourceConditionObservation.model_validate(
+        result.evidence[0].structured_payload["condition_observations"][0]
+    )
+    assert observation.condition_key == "segment:smb"
+    assert observation.state == ContextConditionState.ACTIVE
+    assert observation.subject_refs[0].object_id == "opp-1"
+    assert observation.observed_at == datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def test_sales_qualify_score_and_recommendation_are_deterministic() -> None:

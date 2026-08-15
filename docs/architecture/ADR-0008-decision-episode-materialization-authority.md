@@ -48,9 +48,12 @@ is introduced.
 - Current-condition ownership: an applicability EvidenceRecord may affect
   Decision scoring only when it is the unique, exact EvidenceBridge projection
   of a completed runtime action whose owner emitted `SOURCE_OBSERVATION`
-  lineage. Every resolved scope or invalidation condition must cite such
-  evidence and use `source_supplied_under_contract`; caller assertions and the
-  reserved `independently_verified` label cannot acquire scoring authority.
+  lineage and typed condition semantics. Every resolved scope or invalidation
+  condition must cite such evidence and exactly match the owner-emitted
+  condition key, state, subject identities, observation time, and
+  `source_supplied_under_contract` basis. A genuine but unrelated observation,
+  caller assertion, or reserved `independently_verified` label cannot acquire
+  scoring authority.
 - Tenant authority: tenant-filtered Evidence and ExecutionTask repositories.
 
 ### Possible pitfalls
@@ -88,7 +91,9 @@ historical learning signals remain explicitly non-independent lineage inputs.
   assertions. Current applicability evidence must carry explicit, identity-matched
   `SOURCE_OBSERVATION` lineage and prove the runtime task, released lease,
   task-output lineage, action-owned EvidenceItem, and exact bridge projection.
-  Missing lineage or caller-authored provenance never implies independence.
+  The action-owned EvidenceItem must also emit the exact typed condition
+  semantics claimed by Applicability. Missing lineage, opaque evidence IDs, or
+  caller-authored evidence-to-condition meaning never implies authority.
 - The output remains `DecisionLearningSignal` with `is_knowledge = false` and
   `is_policy = false`.
 
@@ -100,8 +105,9 @@ preservation. The real Knowledge-to-Decision integration produces historical
 signals through queue, lease, dispatcher, materialization action, and EvidenceBridge,
 then proves that an otherwise valid caller-forged learning record is rejected.
 The same integration produces current applicability evidence through a canonical
-read action and proves that both a declarative forged `SOURCE_OBSERVATION` record
-and a caller-claimed `independently_verified` basis fail before Decision scoring.
+read action and proves that a declarative forged `SOURCE_OBSERVATION` record, a
+caller-claimed `independently_verified` basis, and a canonical runtime observation
+about a different condition all fail before Decision scoring.
 Registry, ability rollout, evidence bridge, ontology, and authority ledger suites
 prove composition. This change does not aggregate experience, qualify knowledge,
 infer causality, dispatch runtime work, or add persistence.

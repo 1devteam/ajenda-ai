@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
@@ -343,7 +343,23 @@ def test_applicability_evidence_accepts_runtime_owned_source_observation(monkeyp
     )
     session = Mock()
     session.scalar.return_value = record
-    require_canonical = Mock()
+    subject_refs = (BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp-1"),)
+    observed_at = datetime(2026, 8, 13, tzinfo=UTC)
+    require_canonical = Mock(
+        return_value=SimpleNamespace(
+            structured_payload={
+                "condition_observations": [
+                    {
+                        "condition_key": "segment:smb",
+                        "state": "active",
+                        "subject_refs": [item.model_dump(mode="json") for item in subject_refs],
+                        "observed_at": observed_at.isoformat(),
+                        "verification_basis": "source_supplied_under_contract",
+                    }
+                ]
+            }
+        )
+    )
     monkeypatch.setattr(
         "backend.services.tools.knowledge_actions.require_canonical_source_observation_evidence",
         require_canonical,
@@ -351,8 +367,9 @@ def test_applicability_evidence_accepts_runtime_owned_source_observation(monkeyp
     assertion = ContextConditionAssertion(
         condition_key="segment:smb",
         state="active",
+        subject_refs=subject_refs,
         evidence_ids=(str(evidence_id),),
-        observed_at=datetime(2026, 8, 13, tzinfo=UTC),
+        observed_at=observed_at,
         verification_basis=ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
     )
 
@@ -366,6 +383,66 @@ def test_applicability_evidence_accepts_runtime_owned_source_observation(monkeyp
         required_condition_keys={"segment:smb"},
     )
     require_canonical.assert_called_once_with(session=session, record=record)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("condition_key", "segment:enterprise"),
+        ("state", "inactive"),
+        ("subject_refs", [{"object_type": "opportunity", "object_id": "opp-other"}]),
+        ("observed_at", (datetime(2026, 8, 13, tzinfo=UTC) - timedelta(seconds=1)).isoformat()),
+    ],
+)
+def test_applicability_evidence_rejects_unrelated_owner_semantics(monkeypatch, field: str, value: object) -> None:
+    evidence_id = uuid4()
+    mission_id = uuid4()
+    observed_at = datetime(2026, 8, 13, tzinfo=UTC)
+    subject_refs = (BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp-1"),)
+    owner_observation = {
+        "condition_key": "segment:smb",
+        "state": "active",
+        "subject_refs": [item.model_dump(mode="json") for item in subject_refs],
+        "observed_at": observed_at.isoformat(),
+        "verification_basis": "source_supplied_under_contract",
+    }
+    owner_observation[field] = value
+    record = SimpleNamespace(
+        id=evidence_id,
+        mission_id=mission_id,
+        structured_payload={},
+        provenance_metadata={
+            "evidence_lineage": EvidenceLineage(
+                artifact_evidence_id=str(evidence_id),
+                origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+            ).model_dump(mode="json")
+        },
+    )
+    session = Mock()
+    session.scalar.return_value = record
+    monkeypatch.setattr(
+        "backend.services.tools.knowledge_actions.require_canonical_source_observation_evidence",
+        Mock(return_value=SimpleNamespace(structured_payload={"condition_observations": [owner_observation]})),
+    )
+    assertion = ContextConditionAssertion(
+        condition_key="segment:smb",
+        state="active",
+        subject_refs=subject_refs,
+        evidence_ids=(str(evidence_id),),
+        observed_at=observed_at,
+        verification_basis=ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT,
+    )
+
+    with pytest.raises(ValueError, match="does not establish the asserted condition semantics"):
+        _validate_applicability_evidence(
+            session=session,
+            tenant_id="tenant-A",
+            mission_id=mission_id,
+            evaluated_at=observed_at,
+            evidence_ids={str(evidence_id)},
+            assertions=(assertion,),
+            required_condition_keys={"segment:smb"},
+        )
 
 
 @pytest.mark.parametrize(

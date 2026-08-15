@@ -13,6 +13,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.repositories.durable_learning_signal_repository import MATERIALIZATION_ACTION
+from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.ontology.commercial_state import GoalSemanticSignature
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
@@ -279,10 +280,16 @@ def _materialize_historical_signal(*, factory, queue_adapter, tenant_id: str, in
         return DecisionLearningSignal.model_validate(records[0].structured_payload)
 
 
-def _materialize_current_source_observation(
-    *, factory, queue_adapter, tenant_id: str, mission_id: uuid.UUID
+def _materialize_source_observation(
+    *,
+    factory,
+    queue_adapter,
+    tenant_id: str,
+    mission_id: uuid.UUID,
+    action: str,
+    action_input: dict[str, object],
 ) -> uuid.UUID:
-    """Produce current-condition evidence through a read action and EvidenceBridge."""
+    """Produce source evidence through a queued read action and EvidenceBridge."""
 
     task_id = uuid.uuid4()
     worker_id = f"source-observer-{task_id}"
@@ -298,8 +305,8 @@ def _materialize_current_source_observation(
                 metadata_json={
                     "task_type": "tool.invoke",
                     "tool_invocation": {
-                        "action": "record.search",
-                        "input": {"record_type": "opportunity", "query": "opp-real-430"},
+                        "action": action,
+                        "input": action_input,
                     },
                 },
             )
@@ -374,17 +381,55 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         invalidation_conditions=(),
     )
     mission_id = uuid.uuid4()
+    now = datetime(2026, 8, 13, tzinfo=UTC).isoformat()
     setup = factory()
     try:
         setup.add(Mission(id=mission_id, tenant_id=tenant, objective="Knowledge Decision reconciliation proof"))
+        setup.flush()
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant,
+            record_type="opportunity",
+            record_id="opp-real-430",
+            data={
+                "name": "Opportunity 430",
+                "condition_observations": [
+                    {
+                        "condition_key": "segment:smb",
+                        "state": "active",
+                        "subject_refs": [{"object_type": "opportunity", "object_id": "opp-real-430"}],
+                        "observed_at": now,
+                        "verification_basis": "source_supplied_under_contract",
+                    }
+                ],
+            },
+        )
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant,
+            record_type="opportunity",
+            record_id="opp-real-430-stage",
+            data={
+                "name": "Unrelated pipeline observation",
+                "condition_observations": [
+                    {
+                        "condition_key": "pipeline:open",
+                        "state": "active",
+                        "subject_refs": [{"object_type": "opportunity", "object_id": "opp-real-430"}],
+                        "observed_at": now,
+                        "verification_basis": "source_supplied_under_contract",
+                    }
+                ],
+            },
+        )
         setup.commit()
     finally:
         setup.close()
-    source_evidence_id = _materialize_current_source_observation(
+    source_evidence_id = _materialize_source_observation(
         factory=factory,
         queue_adapter=queue_adapter,
         tenant_id=tenant,
         mission_id=mission_id,
+        action="record.read",
+        action_input={"record_type": "opportunity", "record_id": "opp-real-430"},
     )
     registry.invoke(
         ToolInvocation(
@@ -394,7 +439,6 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         _context(tenant, factory),
     )
     before = _tenant_counts(factory, tenant)
-    now = datetime(2026, 8, 13, tzinfo=UTC).isoformat()
     subject_semantics = [
         BusinessObjectSemanticSignature(object_type=BusinessObjectType.OPPORTUNITY).model_dump(mode="json")
     ]
@@ -475,6 +519,19 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     assert hidden.output["support"]["influences"] == []
     assert _tenant_counts(factory, tenant) == before
 
+    unrelated_source_id = _materialize_source_observation(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action="record.read",
+        action_input={"record_type": "opportunity", "record_id": "opp-real-430-stage"},
+    )
+    unrelated_source = ToolInvocation.model_validate(invocation.model_dump(mode="json"))
+    unrelated_source.input["applicability_context"]["condition_assertions"][0]["evidence_ids"] = [
+        str(unrelated_source_id)
+    ]
+
     unearned_verification = ToolInvocation.model_validate(invocation.model_dump(mode="json"))
     unearned_verification.input["applicability_context"]["condition_assertions"][0]["verification_basis"] = (
         "independently_verified"
@@ -514,6 +571,8 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
             registry.invoke(unearned_verification, tenant_context)
         with pytest.raises(ValueError, match="canonical runtime provenance"):
             registry.invoke(forged_source, tenant_context)
+        with pytest.raises(ValueError, match="does not establish the asserted condition semantics"):
+            registry.invoke(unrelated_source, tenant_context)
 
     duplicate_id = uuid.uuid4()
     with factory() as setup:

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy.orm import Session
 
 from backend.db.tenant_session import activate_tenant_session
@@ -14,6 +14,7 @@ from backend.services.durable_experience_consolidation import DurableExperienceC
 from backend.services.knowledge.knowledge_applicability import (
     ContextConditionAssertion,
     KnowledgeApplicabilityContext,
+    SourceConditionObservation,
     resolve_knowledge_applicability,
     validate_context_for_query,
 )
@@ -598,7 +599,28 @@ def _validate_applicability_evidence(
             raise ValueError("Knowledge applicability evidence lineage identity disagrees")
         if durable_lineage.origin_type != EvidenceOriginType.SOURCE_OBSERVATION:
             raise ValueError("derived evidence cannot establish fresh Knowledge applicability")
-        require_canonical_source_observation_evidence(session=session, record=record)
+        evidence_item = require_canonical_source_observation_evidence(session=session, record=record)
+        raw_observations = evidence_item.structured_payload.get("condition_observations")
+        if not isinstance(raw_observations, list) or not raw_observations:
+            raise ValueError("Knowledge applicability source does not emit condition semantics")
+        try:
+            observations = tuple(SourceConditionObservation.model_validate(item) for item in raw_observations)
+        except ValidationError as exc:
+            raise ValueError("Knowledge applicability source condition semantics are malformed") from exc
+        if any(item.observed_at > evaluated_at for item in observations):
+            raise ValueError("future source semantics cannot establish earlier Knowledge applicability")
+        for assertion in required_assertions:
+            if raw_id not in assertion.evidence_ids:
+                continue
+            if not any(
+                observation.condition_key == assertion.condition_key
+                and observation.state == assertion.state
+                and observation.subject_refs == assertion.subject_refs
+                and observation.observed_at == assertion.observed_at
+                and observation.verification_basis == assertion.verification_basis
+                for observation in observations
+            ):
+                raise ValueError("Knowledge applicability source does not establish the asserted condition semantics")
 
 
 def _resolve_historical_episode_evidence(

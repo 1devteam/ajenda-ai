@@ -15,6 +15,7 @@ from backend.services.knowledge import (
     KnowledgeRetrievalInspectionTrace,
     KnowledgeRetrievalQuery,
     KnowledgeRetrievalResult,
+    SourceConditionObservation,
     evaluate_knowledge_applicability,
     match_current_knowledge,
     resolve_knowledge_applicability,
@@ -95,6 +96,28 @@ def _context(query, *assertions):
         condition_assertions=assertions,
         evaluated_at=NOW,
     )
+
+
+def test_source_condition_observation_requires_explicit_source_basis_and_subject() -> None:
+    base = {
+        "condition_key": "segment:smb",
+        "state": "active",
+        "subject_refs": [{"object_type": "opportunity", "object_id": "opp-123"}],
+        "observed_at": NOW.isoformat(),
+    }
+
+    with pytest.raises(ValidationError, match="verification_basis"):
+        SourceConditionObservation.model_validate(base)
+    with pytest.raises(ValidationError, match="source-supplied verification"):
+        SourceConditionObservation.model_validate({**base, "verification_basis": "independently_verified"})
+    with pytest.raises(ValidationError, match="requires subject identity"):
+        SourceConditionObservation.model_validate(
+            {
+                **base,
+                "subject_refs": [],
+                "verification_basis": "source_supplied_under_contract",
+            }
+        )
 
 
 @pytest.mark.parametrize(
