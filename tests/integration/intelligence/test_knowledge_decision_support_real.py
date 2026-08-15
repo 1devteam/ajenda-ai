@@ -8,7 +8,9 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.mission import Mission
+from backend.repositories.durable_learning_signal_repository import MATERIALIZATION_ACTION
 from backend.services.ontology.commercial_state import GoalSemanticSignature
+from backend.services.ontology.decision_feedback import DecisionEpisodeReference
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ToolInvocation
@@ -18,6 +20,7 @@ from tests.integration.intelligence.test_knowledge_retrieval_real import (
     _replace_proposition,
     _tenant_counts,
 )
+from tests.unit.ontology.test_experience_intelligence import signal
 
 pytestmark = pytest.mark.integration
 
@@ -48,6 +51,47 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 structured_payload={"observed_at": datetime(2026, 8, 13, tzinfo=UTC).isoformat()},
             )
         )
+        for index, episode_id in zip(
+            (201, 202, 203),
+            qualification.evidence_summary.supporting_episode_ids,
+            strict=True,
+        ):
+            historical_mission_id = uuid.uuid4()
+            learning_evidence_id = uuid.uuid4()
+            historical_signal = signal(
+                index,
+                scope=("segment=smb",),
+                invalidation=("market_changed",),
+            ).model_copy(
+                update={
+                    "intervention_key": "sales.schedule_discovery",
+                    "goal_semantic_signature": GoalSemanticSignature(objective_key="increase_conversion"),
+                    "episode_reference": DecisionEpisodeReference(
+                        episode_id=episode_id,
+                        decision_id=f"decision-{index}",
+                        recommendation_evidence_id=str(uuid.uuid4()),
+                        mission_id=str(historical_mission_id),
+                        recommendation_execution_task_id=str(uuid.uuid4()),
+                        outcome_evaluation_evidence_id=str(uuid.uuid4()),
+                    ),
+                }
+            )
+            setup.add(Mission(id=historical_mission_id, tenant_id=tenant, objective=f"Historical episode {index}"))
+            setup.add(
+                EvidenceRecord(
+                    id=learning_evidence_id,
+                    tenant_id=tenant,
+                    mission_id=historical_mission_id,
+                    evidence_type="execution_trace",
+                    evidence_source="decision_learning",
+                    summary=f"Historical learning signal {index}",
+                    structured_payload=historical_signal.model_dump(mode="json"),
+                    provenance_metadata={
+                        "action_name": MATERIALIZATION_ACTION,
+                        "evidence_role": "decision_learning_signal",
+                    },
+                )
+            )
         setup.commit()
     finally:
         setup.close()
@@ -130,7 +174,9 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     assert first.evidence[0].provenance["is_independent_observation"] is False
     assert first.output["decision_result"]["algorithm"]["name"] == "weighted_criterion_evidence_v1"
     assert first.output["decision_result"]["recommendation"] == "discovery"
-    assert first.output["decision_result"]["supporting_evidence_ids"] == [str(source_evidence_id)]
+    historical_ids = first.output["decision_result"]["supporting_evidence_ids"]
+    assert str(source_evidence_id) not in historical_ids
+    assert len(historical_ids) == 3
     assert first.output["decision_input"]["criteria"] == decision_criteria
     assert _tenant_counts(factory, tenant) == before == (1, 1)
 

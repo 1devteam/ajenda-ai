@@ -131,7 +131,9 @@ def test_reordering_is_deterministic_and_preserves_derived_provenance() -> None:
     assert reordered.support_id == first.support_id
     assert reordered.influences == first.influences
     assert "derived_knowledge_not_independent_observation" in first.epistemic_limits
-    assert first.supporting_evidence_ids == ("world-evidence-a",)
+    assert first.applicability_evidence_ids == ("world-evidence-a",)
+    assert first.supporting_episode_ids
+    assert first.qualification_ids
 
 
 def test_future_applicability_is_rejected() -> None:
@@ -153,16 +155,8 @@ def test_future_applicability_is_rejected() -> None:
 def test_eligible_support_becomes_bounded_derived_facts_consumed_by_decision() -> None:
     _, support = _evaluate()
     durable_id = str(uuid.uuid4())
-    support = support.model_copy(
-        update={
-            "influences": tuple(
-                influence.model_copy(update={"supporting_evidence_ids": (durable_id,)})
-                for influence in support.influences
-            )
-        }
-    )
-
-    facts = knowledge_support_evidence_facts(support)
+    episode_map = {episode_id: durable_id for episode_id in support.supporting_episode_ids}
+    facts = knowledge_support_evidence_facts(support, episode_evidence_ids=episode_map)
     result = decision_recommend_next_action(
         ToolInvocation(
             action="decision.recommend_next_action",
@@ -190,6 +184,7 @@ def test_eligible_support_becomes_bounded_derived_facts_consumed_by_decision() -
     assert result.output["recommendation"] == "aligned"
     assert result.output["supporting_evidence_ids"] == [durable_id]
     assert facts[0].status.value == "inferred"
+    assert facts[0].confidence == 1.0
     assert facts[0].lineage.origin_type.value == "derived_fact"
     assert facts[0].lineage.root_evidence_ids == (durable_id,)
     assert all(fact.evidence_id != durable_id for fact in facts)
@@ -197,4 +192,4 @@ def test_eligible_support_becomes_bounded_derived_facts_consumed_by_decision() -
 
 def test_neutral_unresolved_and_inapplicable_support_never_become_scoring_facts() -> None:
     _, support = _evaluate(scope_state=ContextConditionState.UNKNOWN)
-    assert knowledge_support_evidence_facts(support) == ()
+    assert knowledge_support_evidence_facts(support, episode_evidence_ids={}) == ()

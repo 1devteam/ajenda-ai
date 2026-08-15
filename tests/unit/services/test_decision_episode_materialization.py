@@ -313,7 +313,13 @@ def test_registered_action_emits_existing_signal_for_evidence_bridge() -> None:
 
 def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry() -> None:
     task_id = uuid.uuid4()
-    source = _record(action="research.observe", payload={"observed_at": DECIDED.isoformat()})
+    historical_mission = uuid.uuid4()
+    source = _record(
+        action="analysis.materialize_decision_learning_signal",
+        payload={"observed_at": DECIDED.isoformat()},
+        role="decision_learning_signal",
+        mission=historical_mission,
+    )
     fact_id = "knowledge-decision-fact-v1:" + "a" * 64
     decision_input = {
         "goal": "Improve qualification",
@@ -331,7 +337,7 @@ def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry(
                 "claim": "Applicable Knowledge supports discovery.",
                 "status": "inferred",
                 "source": "knowledge_decision_support_v1",
-                "confidence": 0.5,
+                "confidence": 1.0,
                 "supports_option_ids": ["discovery"],
                 "supports_criterion_ids": ["conversion"],
                 "durable_source_evidence_ids": [str(source.id)],
@@ -430,3 +436,4 @@ def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry(
     )
     assert derived.origin_type == EvidenceOriginType.DERIVED_FACT
     assert derived.root_evidence_ids == (str(source.id),)
+    assert source.mission_id != recommendation.mission_id

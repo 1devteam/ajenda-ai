@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from sqlalchemy.orm import Session
 
-from backend.domain.knowledge import KnowledgeArtifactRecord
+from backend.domain.knowledge import KnowledgeArtifactRecord, KnowledgeQualificationRecord
 from backend.repositories.knowledge_repository import KnowledgeRepository
 from backend.services.knowledge.knowledge_ledger import KnowledgeLedgerIntegrityError
 from backend.services.knowledge.knowledge_lifecycle import (
@@ -26,6 +26,7 @@ from backend.services.ontology.commercial_state import (
 )
 from backend.services.ontology.knowledge_qualification import (
     KnowledgeProposition,
+    KnowledgeQualificationResult,
     KnowledgeRelationshipType,
     QualifiedKnowledgeArtifact,
 )
@@ -91,6 +92,7 @@ class RetrievedKnowledgeMatch(BaseModel):
     proposition: KnowledgeProposition
     current_state: CurrentKnowledgeState
     authoritative_artifacts: tuple[QualifiedKnowledgeArtifact, ...]
+    authoritative_qualifications: tuple[KnowledgeQualificationResult, ...] = ()
     goal_comparison: GoalSemanticComparison
     subject_match: Literal["exact_semantic_class_set"]
     intervention_match: Literal["exact", "unconstrained"]
@@ -144,6 +146,7 @@ def match_current_knowledge(
     query: KnowledgeRetrievalQuery,
     current_state: CurrentKnowledgeState,
     artifacts: Sequence[QualifiedKnowledgeArtifact],
+    qualifications: Sequence[KnowledgeQualificationResult] = (),
 ) -> RetrievedKnowledgeMatch | None:
     """Apply owner semantics to an already lifecycle-resolved proposition."""
 
@@ -153,6 +156,7 @@ def match_current_knowledge(
     ):
         return None
     ordered = tuple(sorted(artifacts, key=lambda item: item.knowledge_id))
+    ordered_qualifications = tuple(sorted(qualifications, key=lambda item: item.qualification_id))
     expected = tuple(sorted(current_state.authoritative_knowledge_ids))
     if tuple(item.knowledge_id for item in ordered) != expected or len(set(expected)) != len(expected):
         raise KnowledgeLedgerIntegrityError("authoritative artifacts disagree with lifecycle authority")
@@ -162,6 +166,12 @@ def match_current_knowledge(
     proposition = next(iter(propositions))
     if proposition.proposition_key != current_state.proposition_key:
         raise KnowledgeLedgerIntegrityError("authoritative artifact proposition disagrees with lifecycle authority")
+    if ordered_qualifications and (
+        tuple(item.qualification_id for item in ordered_qualifications)
+        != tuple(sorted(item.qualification_id for item in ordered))
+        or any(item.qualified_knowledge not in ordered for item in ordered_qualifications)
+    ):
+        raise KnowledgeLedgerIntegrityError("authoritative qualifications disagree with retrieved artifacts")
     if set(query.subject_semantic_signatures) != set(proposition.subject_semantic_signatures):
         return None
     if proposition.relationship_type not in query.relationship_types:
@@ -191,6 +201,7 @@ def match_current_knowledge(
         proposition=proposition,
         current_state=current_state,
         authoritative_artifacts=ordered,
+        authoritative_qualifications=ordered_qualifications,
         goal_comparison=goal,
         subject_match="exact_semantic_class_set",
         intervention_match=intervention_match,
@@ -234,6 +245,21 @@ def _validate_artifact_record(record: KnowledgeArtifactRecord) -> QualifiedKnowl
     return artifact
 
 
+def _validate_qualification_record(record: KnowledgeQualificationRecord) -> KnowledgeQualificationResult:
+    try:
+        result = KnowledgeQualificationResult.model_validate(record.qualification_payload)
+    except Exception as exc:
+        raise KnowledgeLedgerIntegrityError("stored qualification payload violates its owner contract") from exc
+    if (
+        record.qualification_id != result.qualification_id
+        or record.proposition_key != (result.proposition.proposition_key if result.proposition else None)
+        or record.source_candidate_id != result.source_candidate_id
+        or record.algorithm != result.algorithm
+    ):
+        raise KnowledgeLedgerIntegrityError("qualification record columns disagree with owner payload")
+    return result
+
+
 def retrieve_current_knowledge(
     session: Session, *, tenant_id: str, query: KnowledgeRetrievalQuery
 ) -> KnowledgeRetrievalResult:
@@ -263,7 +289,19 @@ def retrieve_current_knowledge(
         )
         artifact_knowledge_ids_loaded.extend(record.knowledge_id for record in records)
         artifacts = [_validate_artifact_record(record) for record in records]
-        match = match_current_knowledge(query=query, current_state=state, artifacts=artifacts)
+        qualification_records = [
+            repository.get_qualification_for_tenant(tenant_id=tenant_id, qualification_id=item.qualification_id)
+            for item in artifacts
+        ]
+        if any(item is None for item in qualification_records):
+            raise KnowledgeLedgerIntegrityError("authoritative artifact qualification is inaccessible")
+        qualifications = [_validate_qualification_record(item) for item in qualification_records if item is not None]
+        match = match_current_knowledge(
+            query=query,
+            current_state=state,
+            artifacts=artifacts,
+            qualifications=qualifications,
+        )
         if match is not None:
             matches.append(match)
     ordered = tuple(sorted(matches, key=lambda item: item.proposition.proposition_key))

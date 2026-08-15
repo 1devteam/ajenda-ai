@@ -40,6 +40,12 @@ def _match(*, scope=("segment:smb",), invalidation=("pricing_model_changed",)):
         update={"scope_conditions": scope, "invalidation_conditions": invalidation}
     )
     artifact = artifact.model_copy(update={"proposition": proposition})
+    qualification = qualification.model_copy(
+        update={
+            "proposition": proposition,
+            "qualified_knowledge": artifact,
+        }
+    )
     state = CurrentKnowledgeState(
         proposition_key=proposition.proposition_key,
         lifecycle_status=KnowledgeLifecycleStatus.ACTIVE,
@@ -53,7 +59,12 @@ def _match(*, scope=("segment:smb",), invalidation=("pricing_model_changed",)):
         subject_semantic_signatures=proposition.subject_semantic_signatures,
         goal_semantic_signature=GoalSemanticSignature(objective_key=proposition.objective_key),
     )
-    match = match_current_knowledge(query=query, current_state=state, artifacts=(artifact,))
+    match = match_current_knowledge(
+        query=query,
+        current_state=state,
+        artifacts=(artifact,),
+        qualifications=(qualification,),
+    )
     assert match is not None
     return query, match
 

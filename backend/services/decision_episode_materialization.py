@@ -202,7 +202,6 @@ class DecisionEpisodeMaterializationService:
             self._required_evidence(tenant_id=tenant_id, evidence_id=evidence_id, role="supporting")
             for evidence_id in supporting_ids
         ]
-        self._require_same_mission(recommendation, supporting, "supporting evidence")
         for record in supporting:
             matching_facts = [
                 fact
@@ -211,6 +210,19 @@ class DecisionEpisodeMaterializationService:
             ]
             if not matching_facts:
                 raise ValueError("durable supporting evidence was not part of the recommendation input")
+            historical_knowledge_source = composed and any(
+                str(record.id) in fact.durable_source_evidence_ids
+                and fact.lineage is not None
+                and fact.lineage.origin_type == EvidenceOriginType.DERIVED_FACT
+                for fact in matching_facts
+            )
+            if historical_knowledge_source and (
+                _artifact_action(record) != MATERIALIZATION_ACTION
+                or record.provenance_metadata.get("evidence_role") != "decision_learning_signal"
+            ):
+                raise ValueError("Knowledge ancestry is not a durable Decision learning signal")
+            if not historical_knowledge_source and record.mission_id != recommendation.mission_id:
+                raise ValueError("supporting evidence mission provenance disagrees with the recommendation")
             durable_lineage = record.provenance_metadata.get("evidence_lineage")
             for fact in matching_facts:
                 if (

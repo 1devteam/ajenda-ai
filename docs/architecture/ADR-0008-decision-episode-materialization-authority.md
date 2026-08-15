@@ -30,7 +30,10 @@ is introduced.
   task's validated `DecisionRecommendInput`.
 - Knowledge composition: applicable, semantically aligned support becomes inferred
   `EvidenceFact` input with a distinct derived identity and durable EvidenceRecord
-  UUID ancestry; criteria, weights, and caller evidence remain unchanged.
+  UUID ancestry resolved from Qualification-owned supporting episode identities;
+  criteria, weights, and caller evidence remain unchanged. Current-context
+  applicability EvidenceRecords remain a separate proof surface and are never
+  relabeled as the historical basis from which Knowledge was earned.
 - Decision semantics: the existing canonical `decision_snapshot_builder`.
 - Execution truth: durable action EvidenceRecords and their explicit event time.
 - Outcome and attribution truth: a durable `analysis.evaluate_outcome` payload
@@ -46,9 +49,10 @@ executed actions, contradictory lineage, cross-mission linkage, impossible event
 chronology, duplicate requests, and confusion between persistence order and event
 order all fail closed. Missing execution proof remains `execution_unknown`; weak
 attribution is preserved rather than rejected or upgraded.
-Knowledge IDs and synthetic influence IDs are never accepted as durable supporting
-evidence. Derived or computed EvidenceRecords cannot be reused as fresh world
-observations for Knowledge-informed scoring.
+Knowledge IDs, episode IDs, current applicability evidence, and synthetic influence
+IDs are never substituted for historical durable learning-signal EvidenceRecords.
+Derived or computed EvidenceRecords cannot establish fresh current applicability;
+historical learning signals remain explicitly non-independent lineage inputs.
 
 ### Invariants
 
@@ -60,6 +64,9 @@ observations for Knowledge-informed scoring.
   from outcome success.
 - Owner event timestamps govern chronology; `created_at` does not.
 - Decision remains the only scorer; Knowledge neither selects nor executes an option.
+- Qualified Knowledge adds no numeric confidence policy: derived facts use neutral
+  confidence `1.0`, leaving Decision's existing `INFERRED` multiplier as the sole
+  numeric authority.
 - Knowledge-derived facts remain non-independent across Decision snapshot and
   learning-signal lineage, rooted in the source EvidenceRecords they cite.
 - The output remains `DecisionLearningSignal` with `is_knowledge = false` and

@@ -25,6 +25,7 @@ from backend.services.knowledge.knowledge_decision_support import (
 from backend.services.knowledge.knowledge_ledger import record_knowledge_qualification
 from backend.services.knowledge.knowledge_lifecycle import resolve_current_knowledge_state
 from backend.services.knowledge.knowledge_retrieval import KnowledgeRetrievalQuery, retrieve_current_knowledge
+from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.ontology.evidence_lineage import (
     EvidenceLineage,
     EvidenceLineageResolution,
@@ -420,13 +421,21 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
             applicability=applicability,
             evaluated_at=payload.applicability_context.evaluated_at,
         )
-        derived_facts = knowledge_support_evidence_facts(support)
-        _validate_durable_knowledge_ancestry(
+        _validate_applicability_evidence(
             repository=EvidenceRepository(session),
             tenant_id=context.tenant_id,
             mission_id=context.mission_id,
             evaluated_at=payload.applicability_context.evaluated_at,
-            evidence_ids={item for fact in derived_facts for item in fact.durable_source_evidence_ids},
+            evidence_ids=set(support.applicability_evidence_ids),
+        )
+        episode_evidence_ids = _resolve_historical_episode_evidence(
+            session=session,
+            tenant_id=context.tenant_id,
+            episode_ids=set(support.supporting_episode_ids),
+        )
+        derived_facts = knowledge_support_evidence_facts(
+            support,
+            episode_evidence_ids=episode_evidence_ids,
         )
     finally:
         session.close()
@@ -456,8 +465,10 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
         *(f"knowledge_proposition:{item}" for item in retrieval.inspection_trace.candidate_proposition_keys),
         *(f"knowledge_qualification:{item}" for item in retrieval.inspection_trace.authoritative_qualification_ids),
         *(f"knowledge_artifact:{item}" for item in retrieval.inspection_trace.artifact_knowledge_ids_loaded),
+        *(f"evidence:{item}" for item in sorted(support.applicability_evidence_ids)),
+        *(f"evidence:{item}" for item in sorted(episode_evidence_ids.values())),
     ]
-    parent_ids = tuple(sorted(support.supporting_evidence_ids))
+    parent_ids = tuple(sorted(episode_evidence_ids.values()))
     lineage = EvidenceLineage(
         artifact_evidence_id=support.support_id,
         origin_type=EvidenceOriginType.DERIVED_FACT,
@@ -503,7 +514,7 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
     )
 
 
-def _validate_durable_knowledge_ancestry(
+def _validate_applicability_evidence(
     *,
     repository: EvidenceRepository,
     tenant_id: str,
@@ -511,36 +522,75 @@ def _validate_durable_knowledge_ancestry(
     evaluated_at: datetime,
     evidence_ids: set[str],
 ) -> None:
-    """Fail closed unless every scoring source is durable, scoped, and non-derived."""
+    """Validate current-condition proof without treating it as Knowledge ancestry."""
 
     if evidence_ids and mission_id is None:
-        raise ValueError("knowledge-derived Decision evidence requires mission provenance")
+        raise ValueError("Knowledge applicability evidence requires mission provenance")
     for raw_id in sorted(evidence_ids):
         try:
             evidence_id = uuid.UUID(raw_id)
         except ValueError as exc:
-            raise ValueError("Knowledge support source must be a durable EvidenceRecord UUID") from exc
+            raise ValueError("Knowledge applicability source must be a durable EvidenceRecord UUID") from exc
         record = repository.get_for_tenant(evidence_id=evidence_id, tenant_id=tenant_id)
         if record is None:
-            raise ValueError("Knowledge support source evidence is inaccessible")
+            raise ValueError("Knowledge applicability evidence is inaccessible")
         if record.mission_id != mission_id:
-            raise ValueError("Knowledge support source evidence mission provenance disagrees")
+            raise ValueError("Knowledge applicability evidence mission provenance disagrees")
         for field in ("observed_at", "executed_at", "evaluated_at", "decided_at"):
             raw_time = record.structured_payload.get(field)
             if raw_time is None:
                 continue
             if not isinstance(raw_time, str):
-                raise ValueError("Knowledge support source chronology must be an ISO-8601 string")
+                raise ValueError("Knowledge applicability chronology must be an ISO-8601 string")
             event_time = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
             if event_time.tzinfo is None or event_time.utcoffset() is None:
-                raise ValueError("Knowledge support source chronology must include a timezone")
+                raise ValueError("Knowledge applicability chronology must include a timezone")
             if event_time > evaluated_at:
-                raise ValueError("future durable evidence cannot support an earlier Knowledge-informed decision")
+                raise ValueError("future evidence cannot establish earlier Knowledge applicability")
         raw_lineage = record.provenance_metadata.get("evidence_lineage")
         if raw_lineage is not None:
             durable_lineage = EvidenceLineage.model_validate(raw_lineage)
             if durable_lineage.origin_type != EvidenceOriginType.SOURCE_OBSERVATION:
-                raise ValueError("derived evidence cannot recursively support Knowledge-informed scoring")
+                raise ValueError("derived evidence cannot establish fresh Knowledge applicability")
+
+
+def _resolve_historical_episode_evidence(
+    *,
+    session: Session,
+    tenant_id: str,
+    episode_ids: set[str],
+) -> dict[str, str]:
+    """Resolve Qualification-owned episode identities to canonical durable signals.
+
+    Historical Knowledge may cross mission boundaries but never tenant boundaries.
+    Duplicate persistence of an identical logical episode resolves deterministically
+    to the lowest EvidenceRecord UUID and cannot increase support.
+    """
+
+    if not episode_ids:
+        return {}
+    resolved: dict[str, tuple[str, DecisionLearningSignal]] = {}
+    for record in DurableLearningSignalRepository(session).list_candidates_for_tenant(tenant_id=tenant_id):
+        if record.provenance_metadata.get("evidence_role") != "decision_learning_signal":
+            continue
+        try:
+            signal = DecisionLearningSignal.model_validate(record.structured_payload)
+        except Exception as exc:
+            raise ValueError("durable Knowledge history contains a malformed learning signal") from exc
+        reference = signal.episode_reference
+        episode_id = reference.episode_id if reference is not None else f"legacy:{signal.signal_id}"
+        if episode_id not in episode_ids:
+            continue
+        existing = resolved.get(episode_id)
+        candidate = (str(record.id), signal)
+        if existing is not None and existing[1] != signal:
+            raise ValueError("Knowledge support episode has contradictory durable learning signals")
+        if existing is None or candidate[0] < existing[0]:
+            resolved[episode_id] = candidate
+    missing = sorted(episode_ids - resolved.keys())
+    if missing:
+        raise ValueError("Knowledge support episode lacks durable learning-signal evidence")
+    return {episode_id: item[0] for episode_id, item in sorted(resolved.items())}
 
 
 class _NoMutationSession:

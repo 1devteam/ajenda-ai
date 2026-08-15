@@ -312,6 +312,27 @@ def test_retrieval_trace_includes_non_active_and_semantically_rejected_candidate
             by_id = {matched.knowledge_id: matched, rejected.knowledge_id: rejected}
             return [record(by_id[item]) for item in reversed(knowledge_ids)]
 
+        def get_qualification_for_tenant(self, *, qualification_id, **kwargs):
+            artifact = {
+                matched.qualification_id: matched,
+                rejected.qualification_id: rejected,
+            }[qualification_id]
+            result = qualify_pattern_knowledge(candidate(latest=datetime(2026, 2, 1, tzinfo=UTC))).model_copy(
+                update={
+                    "qualification_id": artifact.qualification_id,
+                    "source_candidate_id": artifact.source_candidate_id,
+                    "proposition": artifact.proposition,
+                    "qualified_knowledge": artifact,
+                }
+            )
+            return SimpleNamespace(
+                qualification_payload=result.model_dump(mode="json"),
+                qualification_id=result.qualification_id,
+                proposition_key=artifact.proposition.proposition_key,
+                source_candidate_id=result.source_candidate_id,
+                algorithm=result.algorithm,
+            )
+
     caller_session = object()
     monkeypatch.setattr("backend.services.knowledge.knowledge_retrieval.KnowledgeRepository", RepositoryStub)
     monkeypatch.setattr(

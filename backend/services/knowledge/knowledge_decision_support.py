@@ -63,7 +63,9 @@ class KnowledgeDecisionInfluence(BaseModel):
     proposition_key: str
     knowledge_ids: tuple[str, ...]
     direction: KnowledgeInfluenceDirection
-    supporting_evidence_ids: tuple[str, ...] = ()
+    applicability_evidence_ids: tuple[str, ...] = ()
+    supporting_episode_ids: tuple[str, ...] = ()
+    qualification_ids: tuple[str, ...] = ()
     provenance_roots: tuple[str, ...] = ()
     reason_codes: tuple[str, ...] = ()
     epistemic_limits: tuple[str, ...] = ()
@@ -84,7 +86,9 @@ class KnowledgeDecisionSupportResult(BaseModel):
     applicability: KnowledgeApplicabilityResolutionResult
     influences: tuple[KnowledgeDecisionInfluence, ...]
     knowledge_ids_considered: tuple[str, ...]
-    supporting_evidence_ids: tuple[str, ...]
+    applicability_evidence_ids: tuple[str, ...]
+    supporting_episode_ids: tuple[str, ...]
+    qualification_ids: tuple[str, ...]
     provenance_roots: tuple[str, ...]
     reason_codes: tuple[str, ...] = ()
     epistemic_limits: tuple[str, ...] = ()
@@ -160,6 +164,16 @@ def evaluate_knowledge_decision_support(
         if match is None:
             raise ValueError("applicability evaluation lacks its authoritative retrieval match")
         proposition = match.proposition
+        qualification_ids = tuple(item.qualification_id for item in match.authoritative_qualifications)
+        supporting_episode_ids = tuple(
+            sorted(
+                {
+                    episode_id
+                    for qualification in match.authoritative_qualifications
+                    for episode_id in qualification.evidence_summary.supporting_episode_ids
+                }
+            )
+        )
         roots = tuple(sorted({artifact.source_candidate_id for artifact in match.authoritative_artifacts}))
         base_limits = set(evaluation.epistemic_limits) | set(match.epistemic_limits)
         base_limits.add("derived_knowledge_not_independent_observation")
@@ -217,7 +231,9 @@ def evaluate_knowledge_decision_support(
                         proposition_key=evaluation.proposition_key,
                         knowledge_ids=tuple(sorted(evaluation.knowledge_ids)),
                         direction=direction,
-                        supporting_evidence_ids=evaluation.evidence_ids,
+                        applicability_evidence_ids=evaluation.evidence_ids,
+                        supporting_episode_ids=supporting_episode_ids,
+                        qualification_ids=qualification_ids,
                         provenance_roots=roots,
                         reason_codes=tuple(sorted(reasons)),
                         epistemic_limits=tuple(sorted(base_limits)),
@@ -226,7 +242,20 @@ def evaluate_knowledge_decision_support(
                 )
     ordered = tuple(sorted(influences, key=lambda item: item.influence_id))
     knowledge_ids = tuple(sorted({item for influence in ordered for item in influence.knowledge_ids}))
-    evidence_ids = tuple(sorted({item for influence in ordered for item in influence.supporting_evidence_ids}))
+    applicability_evidence_ids = tuple(
+        sorted({item for influence in ordered for item in influence.applicability_evidence_ids})
+    )
+    supporting_episode_ids = tuple(
+        sorted(
+            {
+                item
+                for influence in ordered
+                if influence.direction == KnowledgeInfluenceDirection.SUPPORTS
+                for item in influence.supporting_episode_ids
+            }
+        )
+    )
+    qualification_ids = tuple(sorted({item for influence in ordered for item in influence.qualification_ids}))
     roots = tuple(sorted({item for influence in ordered for item in influence.provenance_roots}))
     payload = {
         "decision_id": decision_id,
@@ -239,7 +268,9 @@ def evaluate_knowledge_decision_support(
         applicability=applicability,
         influences=ordered,
         knowledge_ids_considered=knowledge_ids,
-        supporting_evidence_ids=evidence_ids,
+        applicability_evidence_ids=applicability_evidence_ids,
+        supporting_episode_ids=supporting_episode_ids,
+        qualification_ids=qualification_ids,
         provenance_roots=roots,
         reason_codes=tuple(sorted(set(applicability.reason_codes))),
         epistemic_limits=tuple(
@@ -249,7 +280,11 @@ def evaluate_knowledge_decision_support(
     )
 
 
-def knowledge_support_evidence_facts(support: KnowledgeDecisionSupportResult) -> tuple[EvidenceFact, ...]:
+def knowledge_support_evidence_facts(
+    support: KnowledgeDecisionSupportResult,
+    *,
+    episode_evidence_ids: dict[str, str],
+) -> tuple[EvidenceFact, ...]:
     """Translate eligible support into bounded Decision facts with durable ancestry.
 
     Synthetic influence and Knowledge identities never masquerade as EvidenceRecord
@@ -261,9 +296,12 @@ def knowledge_support_evidence_facts(support: KnowledgeDecisionSupportResult) ->
     for influence in support.influences:
         if influence.direction != KnowledgeInfluenceDirection.SUPPORTS or influence.criterion_id is None:
             continue
-        if not influence.supporting_evidence_ids:
+        if not influence.supporting_episode_ids:
             continue
-        durable_ids = tuple(sorted(set(influence.supporting_evidence_ids)))
+        missing = sorted(set(influence.supporting_episode_ids) - episode_evidence_ids.keys())
+        if missing:
+            raise ValueError("Knowledge support episode lacks durable learning-signal evidence")
+        durable_ids = tuple(sorted({episode_evidence_ids[item] for item in influence.supporting_episode_ids}))
         fact_id = _identity(
             "knowledge-decision-fact-v1",
             {
@@ -280,7 +318,9 @@ def knowledge_support_evidence_facts(support: KnowledgeDecisionSupportResult) ->
                 ),
                 status=EvidenceFactStatus.INFERRED,
                 source="knowledge_decision_support_v1",
-                confidence=0.5,
+                # Qualified Knowledge adds no second numeric strength policy. Decision
+                # owns the existing INFERRED multiplier; 1.0 means no extra attenuation.
+                confidence=1.0,
                 supports_option_ids=[influence.option_id],
                 supports_criterion_ids=[influence.criterion_id],
                 durable_source_evidence_ids=list(durable_ids),
