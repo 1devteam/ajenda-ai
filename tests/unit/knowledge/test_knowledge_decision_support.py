@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 
 import pytest
@@ -10,8 +11,11 @@ from backend.services.knowledge import (
     KnowledgeDecisionOption,
     KnowledgeInfluenceDirection,
     evaluate_knowledge_decision_support,
+    knowledge_support_evidence_facts,
     resolve_knowledge_applicability,
 )
+from backend.services.tools.decision_actions import decision_recommend_next_action
+from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
 from tests.unit.knowledge.test_knowledge_applicability import NOW, _assertion, _context, _match
 
 
@@ -144,3 +148,53 @@ def test_future_applicability_is_rejected() -> None:
             applicability=resolution,
             evaluated_at=NOW - timedelta(seconds=1),
         )
+
+
+def test_eligible_support_becomes_bounded_derived_facts_consumed_by_decision() -> None:
+    _, support = _evaluate()
+    durable_id = str(uuid.uuid4())
+    support = support.model_copy(
+        update={
+            "influences": tuple(
+                influence.model_copy(update={"supporting_evidence_ids": (durable_id,)})
+                for influence in support.influences
+            )
+        }
+    )
+
+    facts = knowledge_support_evidence_facts(support)
+    result = decision_recommend_next_action(
+        ToolInvocation(
+            action="decision.recommend_next_action",
+            input={
+                "goal": "Improve outcome",
+                "options": [
+                    {"option_id": "other", "label": "Other"},
+                    {"option_id": "aligned", "label": "Aligned"},
+                ],
+                "criteria": [
+                    {"criterion_id": "outcome", "label": "Outcome", "weight": 3},
+                    {"criterion_id": "cost", "label": "Cost", "weight": 1},
+                ],
+                "evidence": [item.model_dump(mode="json") for item in facts],
+            },
+        ),
+        ActionRuntimeContext(
+            tenant_id="tenant-a",
+            task_id=uuid.uuid4(),
+            worker_id="worker",
+            lease_id="lease",
+        ),
+    )
+
+    assert result.output["recommendation"] == "aligned"
+    assert result.output["supporting_evidence_ids"] == [durable_id]
+    assert facts[0].status.value == "inferred"
+    assert facts[0].lineage.origin_type.value == "derived_fact"
+    assert facts[0].lineage.root_evidence_ids == (durable_id,)
+    assert all(fact.evidence_id != durable_id for fact in facts)
+
+
+def test_neutral_unresolved_and_inapplicable_support_never_become_scoring_facts() -> None:
+    _, support = _evaluate(scope_state=ContextConditionState.UNKNOWN)
+    assert knowledge_support_evidence_facts(support) == ()

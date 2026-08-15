@@ -163,7 +163,9 @@ def _score_option(
             status = best.status.value
             reason = best.claim
             fact_ids = [f.evidence_id for f in linked]
-            supporting.extend(fact_ids)
+            supporting.extend(
+                source_id for fact in linked for source_id in (fact.durable_source_evidence_ids or [fact.evidence_id])
+            )
 
         dimension_scores.append(
             {

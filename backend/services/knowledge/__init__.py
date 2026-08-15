@@ -16,6 +16,7 @@ from backend.services.knowledge.knowledge_decision_support import (
     KnowledgeDecisionSupportResult,
     KnowledgeInfluenceDirection,
     evaluate_knowledge_decision_support,
+    knowledge_support_evidence_facts,
 )
 from backend.services.knowledge.knowledge_ledger import (
     KnowledgeLedgerIntegrityError,
@@ -63,6 +64,7 @@ __all__ = [
     "RetrievedKnowledgeMatch",
     "evaluate_knowledge_applicability",
     "evaluate_knowledge_decision_support",
+    "knowledge_support_evidence_facts",
     "match_current_knowledge",
     "record_knowledge_qualification",
     "resolve_current_knowledge_state",

@@ -61,7 +61,12 @@ def _relevant_lineages(
             continue
         role = record.provenance_metadata.get("evidence_role")
         source_evidence_id = record.provenance_metadata.get("source_evidence_id")
-        if role == "decision_recommendation_result" and record.structured_payload == recommendation_output:
+        composed_output = (
+            record.structured_payload.get("decision_result") if isinstance(record.structured_payload, dict) else None
+        )
+        if role == "decision_recommendation_result" and (
+            record.structured_payload == recommendation_output or composed_output == recommendation_output
+        ):
             result_lineages.append(lineage)
         elif isinstance(source_evidence_id, str) and source_evidence_id in supporting_ids:
             supporting_lineages.append(lineage)
@@ -73,7 +78,8 @@ def _relevant_lineages(
     input_lineages = [
         fact.lineage
         for fact in recommendation_input.evidence
-        if fact.evidence_id in supporting_ids and fact.lineage is not None
+        if (fact.evidence_id in supporting_ids or bool(set(fact.durable_source_evidence_ids) & supporting_ids))
+        and fact.lineage is not None
     ]
     lineages = [*result_lineages, *supporting_lineages, *input_lineages]
     by_artifact: dict[str, EvidenceLineage] = {}

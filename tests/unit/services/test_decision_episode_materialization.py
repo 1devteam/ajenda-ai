@@ -309,3 +309,124 @@ def test_registered_action_emits_existing_signal_for_evidence_bridge() -> None:
     )
     session.execute.assert_called_once()
     session.close.assert_called_once_with()
+
+
+def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry() -> None:
+    task_id = uuid.uuid4()
+    source = _record(action="research.observe", payload={"observed_at": DECIDED.isoformat()})
+    fact_id = "knowledge-decision-fact-v1:" + "a" * 64
+    decision_input = {
+        "goal": "Improve qualification",
+        "options": [
+            {
+                "option_id": "discovery",
+                "label": "Discovery",
+                "intervention_key": "sales.schedule_discovery",
+            }
+        ],
+        "criteria": [{"criterion_id": "conversion", "label": "Conversion"}],
+        "evidence": [
+            {
+                "evidence_id": fact_id,
+                "claim": "Applicable Knowledge supports discovery.",
+                "status": "inferred",
+                "source": "knowledge_decision_support_v1",
+                "confidence": 0.5,
+                "supports_option_ids": ["discovery"],
+                "supports_criterion_ids": ["conversion"],
+                "durable_source_evidence_ids": [str(source.id)],
+                "lineage": {
+                    "artifact_evidence_id": fact_id,
+                    "origin_type": "derived_fact",
+                    "root_evidence_ids": [str(source.id)],
+                    "parent_evidence_ids": [str(source.id)],
+                    "ancestor_evidence_ids": [str(source.id)],
+                    "resolution": "known",
+                },
+            }
+        ],
+        "context": {
+            "knowledge_decision_support": {
+                "support_id": "support",
+                "influence_ids": ["influence"],
+                "provenance_class": "derived_knowledge_influence",
+                "is_independent_observation": False,
+            }
+        },
+    }
+    decision_output = {
+        "decided_at": DECIDED.isoformat(),
+        "recommendation": "discovery",
+        "intervention_key": "sales.schedule_discovery",
+        "supporting_evidence_ids": [str(source.id)],
+        "option_scores": [{"option_id": "discovery", "total_score": 0.3}],
+        "uncertainty": ["relies_on_inferred_evidence"],
+        "algorithm": {"name": "weighted_criterion_evidence_v1", "version": "1"},
+    }
+    recommendation = _record(
+        action="knowledge.inform_decision",
+        role="decision_recommendation_result",
+        task_id=task_id,
+        payload={"decision_input": decision_input, "decision_result": decision_output},
+    )
+    recommendation.provenance_metadata.update(
+        {"composed_action": "decision.recommend_next_action", "composition_schema_version": 1}
+    )
+    owner_input = {
+        "decision_id": "decision-432",
+        "decision": {
+            "goal": "Improve qualification",
+            "options": decision_input["options"],
+            "criteria": decision_input["criteria"],
+        },
+        "options": decision_input["options"],
+        "criteria": [{**decision_input["criteria"][0], "objective_key": "increase_conversion"}],
+        "query": {
+            "subject_semantic_signatures": [{"object_type": "opportunity"}],
+            "goal_semantic_signature": {"objective_key": "increase_conversion"},
+        },
+        "applicability_context": {
+            "subject_refs": [{"object_type": "opportunity", "object_id": "opp-432"}],
+            "subject_semantic_signatures": [{"object_type": "opportunity"}],
+            "goal_semantic_signature": {"objective_key": "increase_conversion"},
+            "evaluated_at": DECIDED.isoformat(),
+        },
+    }
+    task = ExecutionTask(
+        id=task_id,
+        tenant_id=TENANT,
+        mission_id=MISSION,
+        title="knowledge decision",
+        description="knowledge decision",
+        metadata_json={"tool_invocation": {"action": "knowledge.inform_decision", "input": owner_input}},
+    )
+    outcome = OutcomeEvaluation(
+        outcome_evaluation_id="outcome-composed",
+        status=OutcomeStatus.ACHIEVED,
+        attribution=AttributionAssessment.TEMPORAL_ASSOCIATION,
+        confidence=0.7,
+        observed_at=OBSERVED,
+        evaluated_at=OBSERVED,
+    )
+    outcome_record = _record(action="analysis.evaluate_outcome", payload=outcome.model_dump(mode="json"))
+    service = DecisionEpisodeMaterializationService(
+        evidence=_EvidenceReader([recommendation, source, outcome_record]),
+        tasks=_TaskReader([task]),
+    )
+
+    result = service.materialize(
+        tenant_id=TENANT,
+        request=DecisionEpisodeMaterializationRequest(
+            recommendation_evidence_id=recommendation.id,
+            outcome_evaluation_evidence_id=outcome_record.id,
+        ),
+    )
+
+    assert result.feedback.learning_signal.supporting_evidence_ids == [str(source.id)]
+    derived = next(
+        lineage
+        for lineage in result.feedback.learning_signal.evidence_lineages
+        if lineage.artifact_evidence_id == fact_id
+    )
+    assert derived.origin_type == EvidenceOriginType.DERIVED_FACT
+    assert derived.root_evidence_ids == (str(source.id),)

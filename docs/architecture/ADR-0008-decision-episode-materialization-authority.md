@@ -19,12 +19,18 @@ A caller may request materialization, but may not author the historical truth.
 resolves them in the active tenant, validates their owner action and mission/task
 provenance, and composes the existing snapshot, outcome, feedback, and learning
 signal contracts. The durable `decision.recommend_next_action` EvidenceRecord is
-the decision anchor. No Decision database is introduced.
+the decision anchor. A durable `knowledge.inform_decision` result may also be the
+anchor only when its task and evidence provenance prove exact composition of the
+canonical Decision action and preserve its input and output. No Decision database
+is introduced.
 
 ### Dependencies
 
 - Recommendation semantics: `decision.recommend_next_action` and the persisted
   task's validated `DecisionRecommendInput`.
+- Knowledge composition: applicable, semantically aligned support becomes inferred
+  `EvidenceFact` input with a distinct derived identity and durable EvidenceRecord
+  UUID ancestry; criteria, weights, and caller evidence remain unchanged.
 - Decision semantics: the existing canonical `decision_snapshot_builder`.
 - Execution truth: durable action EvidenceRecords and their explicit event time.
 - Outcome and attribution truth: a durable `analysis.evaluate_outcome` payload
@@ -40,6 +46,9 @@ executed actions, contradictory lineage, cross-mission linkage, impossible event
 chronology, duplicate requests, and confusion between persistence order and event
 order all fail closed. Missing execution proof remains `execution_unknown`; weak
 attribution is preserved rather than rejected or upgraded.
+Knowledge IDs and synthetic influence IDs are never accepted as durable supporting
+evidence. Derived or computed EvidenceRecords cannot be reused as fresh world
+observations for Knowledge-informed scoring.
 
 ### Invariants
 
@@ -50,6 +59,9 @@ attribution is preserved rather than rejected or upgraded.
 - Recommended and executed intervention identities are compared, never inferred
   from outcome success.
 - Owner event timestamps govern chronology; `created_at` does not.
+- Decision remains the only scorer; Knowledge neither selects nor executes an option.
+- Knowledge-derived facts remain non-independent across Decision snapshot and
+  learning-signal lineage, rooted in the source EvidenceRecords they cite.
 - The output remains `DecisionLearningSignal` with `is_knowledge = false` and
   `is_policy = false`.
 
@@ -69,3 +81,6 @@ removes the action, service, manifest, and ledger entry; there is no migration o
 stored schema to reverse. Recommendation payloads gain an additive `decided_at`
 field; previously persisted recommendations without owner event time fail closed
 rather than using database insertion time as historical chronology.
+The reconciliation adds an optional EvidenceFact ancestry field and a composed
+Knowledge result envelope. Rollback removes composed-anchor acceptance and derived
+fact translation; no migration or queue/runtime authority change is required.

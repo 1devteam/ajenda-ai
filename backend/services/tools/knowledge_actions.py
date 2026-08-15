@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict
@@ -7,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.durable_learning_signal_repository import DurableLearningSignalRepository
+from backend.repositories.evidence_repository import EvidenceRepository
 from backend.services.durable_experience_consolidation import DurableExperienceConsolidationService
 from backend.services.knowledge.knowledge_applicability import (
     KnowledgeApplicabilityContext,
@@ -17,6 +20,7 @@ from backend.services.knowledge.knowledge_decision_support import (
     KnowledgeDecisionCriterion,
     KnowledgeDecisionOption,
     evaluate_knowledge_decision_support,
+    knowledge_support_evidence_facts,
 )
 from backend.services.knowledge.knowledge_ledger import record_knowledge_qualification
 from backend.services.knowledge.knowledge_lifecycle import resolve_current_knowledge_state
@@ -409,16 +413,28 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
         activate_tenant_session(session, context.tenant_id)
         retrieval = retrieve_current_knowledge(session, tenant_id=context.tenant_id, query=payload.query)
         applicability = resolve_knowledge_applicability(retrieval=retrieval, context=payload.applicability_context)
+        support = evaluate_knowledge_decision_support(
+            decision_id=payload.decision_id,
+            options=payload.options,
+            criteria=payload.criteria,
+            applicability=applicability,
+            evaluated_at=payload.applicability_context.evaluated_at,
+        )
+        derived_facts = knowledge_support_evidence_facts(support)
+        _validate_durable_knowledge_ancestry(
+            repository=EvidenceRepository(session),
+            tenant_id=context.tenant_id,
+            mission_id=context.mission_id,
+            evaluated_at=payload.applicability_context.evaluated_at,
+            evidence_ids={item for fact in derived_facts for item in fact.durable_source_evidence_ids},
+        )
     finally:
         session.close()
-    support = evaluate_knowledge_decision_support(
-        decision_id=payload.decision_id,
-        options=payload.options,
-        criteria=payload.criteria,
-        applicability=applicability,
-        evaluated_at=payload.applicability_context.evaluated_at,
-    )
     decision_payload = payload.decision.model_dump(mode="json")
+    decision_payload["evidence"] = [
+        *decision_payload["evidence"],
+        *(item.model_dump(mode="json") for item in derived_facts),
+    ]
     decision_payload["context"] = {
         **decision_payload["context"],
         "knowledge_decision_support": {
@@ -433,6 +449,7 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
     )
     output = {
         "support": support.model_dump(mode="json"),
+        "decision_input": decision_payload,
         "decision_result": decision_result.output,
     }
     records_inspected = [
@@ -440,7 +457,7 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
         *(f"knowledge_qualification:{item}" for item in retrieval.inspection_trace.authoritative_qualification_ids),
         *(f"knowledge_artifact:{item}" for item in retrieval.inspection_trace.artifact_knowledge_ids_loaded),
     ]
-    parent_ids = tuple(sorted({*support.knowledge_ids_considered, *support.supporting_evidence_ids}))
+    parent_ids = tuple(sorted(support.supporting_evidence_ids))
     lineage = EvidenceLineage(
         artifact_evidence_id=support.support_id,
         origin_type=EvidenceOriginType.DERIVED_FACT,
@@ -467,6 +484,9 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
             ),
             "provenance_class": "derived_knowledge_influence",
             "is_independent_observation": False,
+            "evidence_role": "decision_recommendation_result",
+            "composed_action": "decision.recommend_next_action",
+            "composition_schema_version": 1,
         },
         lineage=lineage,
         side_effect_class=SideEffectClass.INTERNAL_READ,
@@ -481,6 +501,46 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
         summary=summary,
         limitations=list(support.epistemic_limits),
     )
+
+
+def _validate_durable_knowledge_ancestry(
+    *,
+    repository: EvidenceRepository,
+    tenant_id: str,
+    mission_id: uuid.UUID | None,
+    evaluated_at: datetime,
+    evidence_ids: set[str],
+) -> None:
+    """Fail closed unless every scoring source is durable, scoped, and non-derived."""
+
+    if evidence_ids and mission_id is None:
+        raise ValueError("knowledge-derived Decision evidence requires mission provenance")
+    for raw_id in sorted(evidence_ids):
+        try:
+            evidence_id = uuid.UUID(raw_id)
+        except ValueError as exc:
+            raise ValueError("Knowledge support source must be a durable EvidenceRecord UUID") from exc
+        record = repository.get_for_tenant(evidence_id=evidence_id, tenant_id=tenant_id)
+        if record is None:
+            raise ValueError("Knowledge support source evidence is inaccessible")
+        if record.mission_id != mission_id:
+            raise ValueError("Knowledge support source evidence mission provenance disagrees")
+        for field in ("observed_at", "executed_at", "evaluated_at", "decided_at"):
+            raw_time = record.structured_payload.get(field)
+            if raw_time is None:
+                continue
+            if not isinstance(raw_time, str):
+                raise ValueError("Knowledge support source chronology must be an ISO-8601 string")
+            event_time = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+            if event_time.tzinfo is None or event_time.utcoffset() is None:
+                raise ValueError("Knowledge support source chronology must include a timezone")
+            if event_time > evaluated_at:
+                raise ValueError("future durable evidence cannot support an earlier Knowledge-informed decision")
+        raw_lineage = record.provenance_metadata.get("evidence_lineage")
+        if raw_lineage is not None:
+            durable_lineage = EvidenceLineage.model_validate(raw_lineage)
+            if durable_lineage.origin_type != EvidenceOriginType.SOURCE_OBSERVATION:
+                raise ValueError("derived evidence cannot recursively support Knowledge-informed scoring")
 
 
 class _NoMutationSession:

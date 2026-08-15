@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.orm import sessionmaker
 
+from backend.domain.evidence import EvidenceRecord
+from backend.domain.mission import Mission
 from backend.services.ontology.commercial_state import GoalSemanticSignature
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
@@ -30,6 +32,25 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         scope_conditions=("segment:smb",),
         invalidation_conditions=(),
     )
+    mission_id = uuid.uuid4()
+    source_evidence_id = uuid.uuid4()
+    setup = factory()
+    try:
+        setup.add(Mission(id=mission_id, tenant_id=tenant, objective="Knowledge Decision reconciliation proof"))
+        setup.add(
+            EvidenceRecord(
+                id=source_evidence_id,
+                tenant_id=tenant,
+                mission_id=mission_id,
+                evidence_type="observation",
+                evidence_source="integration_test",
+                summary="Independent current-condition observation",
+                structured_payload={"observed_at": datetime(2026, 8, 13, tzinfo=UTC).isoformat()},
+            )
+        )
+        setup.commit()
+    finally:
+        setup.close()
     registry.invoke(
         ToolInvocation(
             action="knowledge.record_qualification",
@@ -86,7 +107,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                         "condition_key": "segment:smb",
                         "state": "active",
                         "subject_refs": [{"object_type": "opportunity", "object_id": "opp-real-430"}],
-                        "evidence_ids": ["world-outcome-root-a"],
+                        "evidence_ids": [str(source_evidence_id)],
                         "observed_at": now,
                         "verification_basis": "independently_verified",
                     }
@@ -96,8 +117,9 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         },
     )
 
-    first = registry.invoke(invocation, _context(tenant, factory))
-    replay = registry.invoke(invocation, _context(tenant, factory))
+    tenant_context = _context(tenant, factory).model_copy(update={"mission_id": mission_id})
+    first = registry.invoke(invocation, tenant_context)
+    replay = registry.invoke(invocation, tenant_context)
     influences = first.output["support"]["influences"]
     supported = [item for item in influences if item["direction"] == "supports"]
     assert [(item["option_id"], item["criterion_id"]) for item in supported] == [("discovery", "conversion")]
@@ -107,6 +129,9 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     assert first.evidence[0].lineage.origin_type.value == "derived_fact"
     assert first.evidence[0].provenance["is_independent_observation"] is False
     assert first.output["decision_result"]["algorithm"]["name"] == "weighted_criterion_evidence_v1"
+    assert first.output["decision_result"]["recommendation"] == "discovery"
+    assert first.output["decision_result"]["supporting_evidence_ids"] == [str(source_evidence_id)]
+    assert first.output["decision_input"]["criteria"] == decision_criteria
     assert _tenant_counts(factory, tenant) == before == (1, 1)
 
     hidden = registry.invoke(invocation, _context(other_tenant, factory))

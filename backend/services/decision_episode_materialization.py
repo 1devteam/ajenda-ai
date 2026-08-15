@@ -23,6 +23,7 @@ from backend.services.ontology.decision_feedback import (
     evaluate_decision_feedback,
 )
 from backend.services.ontology.decision_snapshot_builder import build_decision_snapshot_from_recommendation
+from backend.services.ontology.evidence_lineage import EvidenceOriginType
 from backend.services.ontology.outcome import OutcomeEvaluation
 from backend.services.tools.schemas import ActionResult, DecisionRecommendInput, SideEffectClass
 
@@ -141,9 +142,17 @@ class DecisionEpisodeMaterializationService:
             evidence_id=request.recommendation_evidence_id,
             role="recommendation",
         )
-        self._require_action(recommendation, RECOMMENDATION_ACTION)
+        artifact_action = _artifact_action(recommendation)
+        composed = artifact_action == "knowledge.inform_decision"
+        if artifact_action != RECOMMENDATION_ACTION and not composed:
+            raise ValueError(f"durable artifact does not represent {RECOMMENDATION_ACTION}")
         if recommendation.provenance_metadata.get("evidence_role") != "decision_recommendation_result":
             raise ValueError("recommendation artifact has the wrong durable evidence role")
+        if composed and (
+            recommendation.provenance_metadata.get("composed_action") != RECOMMENDATION_ACTION
+            or recommendation.provenance_metadata.get("composition_schema_version") != 1
+        ):
+            raise ValueError("Knowledge recommendation does not prove canonical Decision composition")
         if recommendation.execution_task_id is None:
             raise ValueError("recommendation artifact requires execution-task provenance")
 
@@ -156,17 +165,36 @@ class DecisionEpisodeMaterializationService:
         if recommendation_task.mission_id != recommendation.mission_id:
             raise ValueError("recommendation task and evidence mission provenance disagree")
         invocation = recommendation_task.metadata_json.get("tool_invocation")
-        if not isinstance(invocation, dict) or invocation.get("action") != RECOMMENDATION_ACTION:
+        expected_task_action = "knowledge.inform_decision" if composed else RECOMMENDATION_ACTION
+        if not isinstance(invocation, dict) or invocation.get("action") != expected_task_action:
             raise ValueError("recommendation task does not prove the expected decision action")
         raw_input = invocation.get("input")
         if not isinstance(raw_input, dict):
             raise ValueError("recommendation task does not contain durable structured input")
-        recommendation_input = DecisionRecommendInput.model_validate(raw_input)
+        if composed:
+            from backend.services.tools.knowledge_actions import KnowledgeInformedDecisionSupportInput
+
+            owner_input = KnowledgeInformedDecisionSupportInput.model_validate(raw_input)
+            raw_decision_input = recommendation.structured_payload.get("decision_input")
+            recommendation_output = recommendation.structured_payload.get("decision_result")
+            if not isinstance(raw_decision_input, dict) or not isinstance(recommendation_output, dict):
+                raise ValueError("Knowledge recommendation lacks durable canonical Decision input/output")
+            recommendation_input = DecisionRecommendInput.model_validate(raw_decision_input)
+            self._validate_composed_decision_input(owner_input.decision, recommendation_input)
+        else:
+            recommendation_input = DecisionRecommendInput.model_validate(raw_input)
+            recommendation_output = recommendation.structured_payload
         decided_at = _parse_event_time(recommendation, "decided_at")
+        if decided_at is None and composed:
+            raw_decided_at = recommendation_output.get("decided_at")
+            if isinstance(raw_decided_at, str):
+                decided_at = datetime.fromisoformat(raw_decided_at.replace("Z", "+00:00"))
+                if decided_at.tzinfo is None or decided_at.utcoffset() is None:
+                    raise ValueError("durable decided_at must include a timezone")
         if decided_at is None:
             raise ValueError("recommendation artifact does not establish decision chronology")
 
-        raw_supporting_ids = recommendation.structured_payload.get("supporting_evidence_ids", [])
+        raw_supporting_ids = recommendation_output.get("supporting_evidence_ids", [])
         if not isinstance(raw_supporting_ids, list) or not all(isinstance(item, str) for item in raw_supporting_ids):
             raise ValueError("recommendation supporting evidence identities must be a list of UUID strings")
         supporting_ids = sorted({self._uuid(item) for item in raw_supporting_ids}, key=str)
@@ -175,14 +203,22 @@ class DecisionEpisodeMaterializationService:
             for evidence_id in supporting_ids
         ]
         self._require_same_mission(recommendation, supporting, "supporting evidence")
-        facts_by_id = {fact.evidence_id: fact for fact in recommendation_input.evidence}
         for record in supporting:
-            fact = facts_by_id.get(str(record.id))
-            if fact is None:
+            matching_facts = [
+                fact
+                for fact in recommendation_input.evidence
+                if fact.evidence_id == str(record.id) or str(record.id) in fact.durable_source_evidence_ids
+            ]
+            if not matching_facts:
                 raise ValueError("durable supporting evidence was not part of the recommendation input")
             durable_lineage = record.provenance_metadata.get("evidence_lineage")
-            if fact.lineage is not None and durable_lineage is not None:
-                if fact.lineage.model_dump(mode="json") != durable_lineage:
+            for fact in matching_facts:
+                if (
+                    fact.evidence_id == str(record.id)
+                    and fact.lineage is not None
+                    and durable_lineage is not None
+                    and (fact.lineage.model_dump(mode="json") != durable_lineage)
+                ):
                     raise ValueError("recommendation input lineage contradicts durable supporting evidence")
         decision_id = decision_id_for_recommendation(
             tenant_id=tenant_id,
@@ -192,7 +228,7 @@ class DecisionEpisodeMaterializationService:
             action=RECOMMENDATION_ACTION,
             provider=str(recommendation.provenance_metadata.get("tool_provider") or "ajenda_decision"),
             side_effect_class=SideEffectClass.NONE,
-            output=recommendation.structured_payload,
+            output=recommendation_output,
             summary=recommendation.summary,
             confidence=recommendation.confidence,
         )
@@ -270,6 +306,35 @@ class DecisionEpisodeMaterializationService:
             inspection_trace=inspection_trace,
             feedback=feedback,
         )
+
+    @staticmethod
+    def _validate_composed_decision_input(
+        owner_input: DecisionRecommendInput,
+        composed_input: DecisionRecommendInput,
+    ) -> None:
+        """Prove Knowledge only appended derived facts and composition context."""
+
+        owner_dump = owner_input.model_dump(mode="json", exclude={"evidence", "context"})
+        composed_dump = composed_input.model_dump(mode="json", exclude={"evidence", "context"})
+        if owner_dump != composed_dump:
+            raise ValueError("Knowledge composition changed Decision-owned semantics")
+        owner_facts = [item.model_dump(mode="json") for item in owner_input.evidence]
+        composed_facts = [item.model_dump(mode="json") for item in composed_input.evidence]
+        if composed_facts[: len(owner_facts)] != owner_facts:
+            raise ValueError("Knowledge composition changed caller-provided Decision evidence")
+        derived = composed_input.evidence[len(owner_facts) :]
+        if any(
+            fact.lineage is None
+            or fact.lineage.origin_type != EvidenceOriginType.DERIVED_FACT
+            or not fact.durable_source_evidence_ids
+            for fact in derived
+        ):
+            raise ValueError("Knowledge composition appended non-derived Decision evidence")
+        expected_context = {
+            key: value for key, value in composed_input.context.items() if key != "knowledge_decision_support"
+        }
+        if expected_context != owner_input.context:
+            raise ValueError("Knowledge composition changed caller-provided Decision context")
 
     def _required_evidence(self, *, tenant_id: str, evidence_id: uuid.UUID, role: str) -> EvidenceRecord:
         record = self._evidence.get_for_tenant(evidence_id=evidence_id, tenant_id=tenant_id)

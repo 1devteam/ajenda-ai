@@ -496,6 +496,13 @@ class EvidenceFact(BaseModel):
     supports_criterion_ids: list[str] = Field(default_factory=list)
     about_object_refs: list[BusinessObjectRef] = Field(default_factory=list)
     lineage: EvidenceLineage | None = None
+    durable_source_evidence_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Durable EvidenceRecord UUIDs cited by a derived fact. The fact identity remains "
+            "distinct from the records that establish its world-evidence ancestry."
+        ),
+    )
 
     @field_validator("evidence_id", "claim")
     @classmethod
@@ -510,6 +517,11 @@ class EvidenceFact(BaseModel):
         if self.lineage is not None and self.lineage.artifact_evidence_id != self.evidence_id:
             raise ValueError("EvidenceFact lineage artifact_evidence_id must match evidence_id")
         return self
+
+    @field_validator("durable_source_evidence_ids")
+    @classmethod
+    def canonicalize_durable_sources(cls, values: list[str]) -> list[str]:
+        return sorted({value.strip() for value in values if value.strip()})
 
 
 class DecisionCriterion(BaseModel):

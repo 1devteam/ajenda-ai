@@ -23,11 +23,21 @@ from backend.services.knowledge.knowledge_applicability import (
     KnowledgeApplicabilityStatus,
 )
 from backend.services.ontology.commercial_state import KpiSemanticSignature
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+)
 from backend.services.ontology.knowledge_qualification import (
     KnowledgeProposition,
     KnowledgeRelationshipType,
 )
-from backend.services.tools.schemas import DecisionCriterion, DecisionOption
+from backend.services.tools.schemas import (
+    DecisionCriterion,
+    DecisionOption,
+    EvidenceFact,
+    EvidenceFactStatus,
+)
 
 KNOWLEDGE_DECISION_SUPPORT_ALGORITHM = "knowledge_decision_support_v1"
 
@@ -237,3 +247,51 @@ def evaluate_knowledge_decision_support(
         ),
         evaluated_at=evaluated_at,
     )
+
+
+def knowledge_support_evidence_facts(support: KnowledgeDecisionSupportResult) -> tuple[EvidenceFact, ...]:
+    """Translate eligible support into bounded Decision facts with durable ancestry.
+
+    Synthetic influence and Knowledge identities never masquerade as EvidenceRecord
+    identities. Only SUPPORTS influences backed by resolved durable UUIDs become
+    inferred facts; canonical Decision remains responsible for their numeric effect.
+    """
+
+    facts: list[EvidenceFact] = []
+    for influence in support.influences:
+        if influence.direction != KnowledgeInfluenceDirection.SUPPORTS or influence.criterion_id is None:
+            continue
+        if not influence.supporting_evidence_ids:
+            continue
+        durable_ids = tuple(sorted(set(influence.supporting_evidence_ids)))
+        fact_id = _identity(
+            "knowledge-decision-fact-v1",
+            {
+                "influence_id": influence.influence_id,
+                "durable_source_evidence_ids": durable_ids,
+            },
+        )
+        facts.append(
+            EvidenceFact(
+                evidence_id=fact_id,
+                claim=(
+                    f"Applicable Knowledge proposition {influence.proposition_key} supports "
+                    f"option {influence.option_id} for criterion {influence.criterion_id}."
+                ),
+                status=EvidenceFactStatus.INFERRED,
+                source="knowledge_decision_support_v1",
+                confidence=0.5,
+                supports_option_ids=[influence.option_id],
+                supports_criterion_ids=[influence.criterion_id],
+                durable_source_evidence_ids=list(durable_ids),
+                lineage=EvidenceLineage(
+                    artifact_evidence_id=fact_id,
+                    origin_type=EvidenceOriginType.DERIVED_FACT,
+                    root_evidence_ids=durable_ids,
+                    parent_evidence_ids=durable_ids,
+                    ancestor_evidence_ids=durable_ids,
+                    resolution=EvidenceLineageResolution.KNOWN,
+                ),
+            )
+        )
+    return tuple(sorted(facts, key=lambda item: item.evidence_id))
