@@ -68,18 +68,22 @@ def _relevant_lineages(
             record.structured_payload == recommendation_output or composed_output == recommendation_output
         ):
             result_lineages.append(lineage)
-        elif isinstance(source_evidence_id, str) and source_evidence_id in supporting_ids:
+        elif str(record.id) in supporting_ids or (
+            isinstance(source_evidence_id, str) and source_evidence_id in supporting_ids
+        ):
             supporting_lineages.append(lineage)
 
     if len(result_lineages) != 1:
         raise ValueError("decision snapshot requires exactly one matching durable recommendation result")
     result_artifact_id = result_lineages[0].artifact_evidence_id
 
+    durable_artifact_ids = {item.artifact_evidence_id for item in supporting_lineages}
     input_lineages = [
         fact.lineage
         for fact in recommendation_input.evidence
         if (fact.evidence_id in supporting_ids or bool(set(fact.durable_source_evidence_ids) & supporting_ids))
         and fact.lineage is not None
+        and fact.lineage.artifact_evidence_id not in durable_artifact_ids
     ]
     lineages = [*result_lineages, *supporting_lineages, *input_lineages]
     by_artifact: dict[str, EvidenceLineage] = {}

@@ -347,11 +347,7 @@ Root (unversioned): `/health`, `/readiness`
 
 ```mermaid
 flowchart LR
-    O[Canonical Outcome] -->|post-commit eligibility| TC[Bounded Temporal Composition]
-    TC -->|queue canonical owner| LS[Decision Learning Signal]
-    LS -->|post-commit eligibility| TC
-    TC -->|queue canonical owner| E[Experience]
-    E --> Q[Knowledge Qualification]
+    E[Experience] --> Q[Knowledge Qualification]
     Q --> L[Knowledge Ledger]
     L --> LC[Knowledge Lifecycle]
     LC --> R[Knowledge Retrieval]
@@ -360,15 +356,6 @@ flowchart LR
     DS --> D[Decision authority]
     D -. recommendation only .-> RT[Governed Runtime]
 ```
-
-Temporal Composition coordinates existing intelligence authorities and determines
-transition eligibility. It does not own Decision, Outcome, Experience, Knowledge,
-mission planning, or execution semantics. Its two explicit transitions schedule
-the existing materialization and consolidation actions only after EvidenceBridge
-state is durable. Every successor remains an `ExecutionTask` governed by
-`ExecutionCoordinator`, queue authority, worker lease ownership, `TaskDispatcher`,
-the canonical action, and EvidenceBridge. Deterministic task identity makes replay
-observable and non-duplicating; incomplete or forged ancestry fails closed.
 
 - **Knowledge** is a learned, non-causal proposition.
 - **Applicability** establishes whether that proposition applies to typed current context.

@@ -128,28 +128,6 @@ Authority class: `runtime_authoritative`
 Allowed effects: execution and runtime state transitions under queue + lease authority  
 Forbidden effects: synthetic execution bypassing authoritative runtime contracts
 
-### E. Bounded temporal intelligence composition
-
-Temporal Composition coordinates existing intelligence authorities and determines
-transition eligibility. It does not own Decision, Outcome, Experience, Knowledge,
-mission planning, or execution semantics.
-
-After `WorkerRuntimeService` has committed a canonical EvidenceBridge artifact,
-the temporal authority may admit exactly two successor actions through the normal
-`ExecutionCoordinator` → queue → worker lease → `TaskDispatcher` path:
-
-1. canonical `analysis.evaluate_outcome` evidence may schedule
-   `analysis.materialize_decision_learning_signal`; and
-2. canonical `analysis.materialize_decision_learning_signal` evidence may schedule
-   `knowledge.consolidate_learning_history`.
-
-Eligibility requires tenant/mission ancestry, unique canonical owner evidence,
-owner-established chronology, and exact runtime provenance. Deterministic successor
-task identity and existing Knowledge Ledger identities make replay safe. Missing,
-ambiguous, forged, or contradictory state fails closed without rolling back the
-already-committed upstream artifact. This authority never extends mission graphs,
-queues business actions, or activates external execution from Knowledge.
-
 ---
 
 ## 5) Mission contract classes

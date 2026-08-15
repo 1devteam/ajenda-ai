@@ -24,9 +24,6 @@ from backend.repositories.outcome_review_repository import OutcomeReviewReposito
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
-from backend.services.temporal_intelligence_advancement import (
-    TemporalIntelligenceAdvancementService,
-)
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import pending_dependency_keys
 
@@ -281,69 +278,7 @@ class WorkerRuntimeService:
                 audit_action="terminal_queue_complete_cleanup_failed",
                 reason=result.reason or "complete rejected",
             )
-        completed_action = task_output.get("action") if task_output is not None else None
-        if completed_action in {
-            "analysis.evaluate_outcome",
-            "analysis.materialize_decision_learning_signal",
-        }:
-            self._advance_intelligence_after_commit(
-                task=task,
-                worker_id=worker_id,
-                evidence_ids=evidence_ids_for_review,
-            )
         return task
-
-    def _advance_intelligence_after_commit(
-        self, *, task: ExecutionTask, worker_id: str, evidence_ids: list[str]
-    ) -> None:
-        """Evaluate bounded successors only after owner evidence is committed.
-
-        Advancement is eventual and recoverable: its failure is recorded on the
-        already-completed upstream task and never changes that task's outcome.
-        """
-
-        results: list[dict[str, Any]] = []
-        for evidence_id in evidence_ids:
-            try:
-                result = TemporalIntelligenceAdvancementService(
-                    session=self._session, queue=self._queue
-                ).advance_completed_artifact(
-                    tenant_id=task.tenant_id,
-                    source_evidence_id=uuid.UUID(evidence_id),
-                )
-                results.append(result.model_dump(mode="json"))
-            except Exception as exc:
-                self._session.rollback()
-                logger.exception(
-                    "temporal_intelligence_advancement_failed",
-                    extra={"task_id": str(task.id), "evidence_id": evidence_id},
-                )
-                results.append(
-                    {
-                        "schema_version": 1,
-                        "state": "failed",
-                        "source_evidence_id": evidence_id,
-                        "reason": str(exc),
-                    }
-                )
-        if not results:
-            return
-        refreshed = self._tasks.get(task.id)
-        if refreshed is None:
-            return
-        refreshed.metadata_json = {**refreshed.metadata_json, "temporal_advancement": results}
-        self._audit.append(
-            AuditEvent(
-                tenant_id=task.tenant_id,
-                mission_id=task.mission_id,
-                category="intelligence",
-                action="temporal_advancement_evaluated",
-                actor=worker_id,
-                details=f"Evaluated {len(results)} durable artifact(s) after task {task.id}",
-                payload_json={"task_id": str(task.id), "results": results},
-            )
-        )
-        self._session.commit()
 
     def _maybe_rollup_mission_status(self, *, task: ExecutionTask, worker_id: str) -> None:
         """Advance mission status when graph tasks finish (composition path stays planned today)."""

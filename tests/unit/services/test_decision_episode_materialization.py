@@ -24,7 +24,12 @@ from backend.services.ontology.evidence_lineage import (
 from backend.services.ontology.outcome import AttributionAssessment, OutcomeEvaluation, OutcomeStatus
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
-from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
+from backend.services.tools.schemas import (
+    ActionRuntimeContext,
+    DecisionRecommendInput,
+    SideEffectClass,
+    ToolInvocation,
+)
 
 TENANT = "tenant-a"
 MISSION = uuid.uuid4()
@@ -336,7 +341,7 @@ def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry(
         mission=historical_mission,
     )
     fact_id = "knowledge-decision-fact-v1:" + "a" * 64
-    decision_input = {
+    scoring_decision_input = {
         "goal": "Improve qualification",
         "options": [
             {
@@ -375,6 +380,24 @@ def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry(
             }
         },
     }
+    decision_input = {
+        **scoring_decision_input,
+        "evidence": [
+            {
+                **scoring_decision_input["evidence"][0],
+                "evidence_id": str(source.id),
+                "durable_source_evidence_ids": [str(source.id)],
+                "lineage": {
+                    "artifact_evidence_id": str(source.id),
+                    "origin_type": "derived_fact",
+                    "root_evidence_ids": [str(source.id)],
+                    "parent_evidence_ids": [str(source.id)],
+                    "ancestor_evidence_ids": [str(source.id)],
+                    "resolution": "known",
+                },
+            }
+        ],
+    }
     decision_output = {
         "decided_at": DECIDED.isoformat(),
         "recommendation": "discovery",
@@ -388,7 +411,11 @@ def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry(
         action="knowledge.inform_decision",
         role="decision_recommendation_result",
         task_id=task_id,
-        payload={"decision_input": decision_input, "decision_result": decision_output},
+        payload={
+            "scoring_decision_input": scoring_decision_input,
+            "decision_input": decision_input,
+            "decision_result": decision_output,
+        },
     )
     recommendation.provenance_metadata.update(
         {"composed_action": "decision.recommend_next_action", "composition_schema_version": 1}
@@ -397,11 +424,11 @@ def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry(
         "decision_id": "decision-432",
         "decision": {
             "goal": "Improve qualification",
-            "options": decision_input["options"],
-            "criteria": decision_input["criteria"],
+            "options": scoring_decision_input["options"],
+            "criteria": scoring_decision_input["criteria"],
         },
-        "options": decision_input["options"],
-        "criteria": [{**decision_input["criteria"][0], "objective_key": "increase_conversion"}],
+        "options": scoring_decision_input["options"],
+        "criteria": [{**scoring_decision_input["criteria"][0], "objective_key": "increase_conversion"}],
         "query": {
             "subject_semantic_signatures": [{"object_type": "opportunity"}],
             "goal_semantic_signature": {"objective_key": "increase_conversion"},
@@ -448,11 +475,65 @@ def test_materializes_exact_knowledge_composition_with_durable_derived_ancestry(
     derived = next(
         lineage
         for lineage in result.feedback.learning_signal.evidence_lineages
-        if lineage.artifact_evidence_id == fact_id
+        if lineage.artifact_evidence_id == str(source.id)
     )
     assert derived.origin_type == EvidenceOriginType.DERIVED_FACT
     assert derived.root_evidence_ids == (str(source.id),)
     assert source.mission_id != recommendation.mission_id
+
+
+def test_materialization_view_cannot_change_scored_knowledge_semantics() -> None:
+    durable_id = str(uuid.uuid4())
+    synthetic_id = "knowledge-decision-fact-v1:" + "c" * 64
+    scoring = DecisionRecommendInput.model_validate(
+        {
+            "goal": "Improve qualification",
+            "options": [{"option_id": "discovery", "label": "Discovery"}],
+            "criteria": [{"criterion_id": "conversion", "label": "Conversion"}],
+            "evidence": [
+                {
+                    "evidence_id": synthetic_id,
+                    "claim": "Knowledge supports discovery",
+                    "status": "inferred",
+                    "supports_option_ids": ["discovery"],
+                    "supports_criterion_ids": ["conversion"],
+                    "durable_source_evidence_ids": [durable_id],
+                    "lineage": {
+                        "artifact_evidence_id": synthetic_id,
+                        "origin_type": "derived_fact",
+                        "root_evidence_ids": [durable_id],
+                        "parent_evidence_ids": [durable_id],
+                        "ancestor_evidence_ids": [durable_id],
+                        "resolution": "known",
+                    },
+                }
+            ],
+        }
+    )
+    forged = DecisionRecommendInput.model_validate(
+        {
+            **scoring.model_dump(mode="json", exclude={"evidence"}),
+            "evidence": [
+                {
+                    **scoring.evidence[0].model_dump(mode="json"),
+                    "evidence_id": durable_id,
+                    "claim": "Knowledge opposes discovery",
+                    "durable_source_evidence_ids": [durable_id],
+                    "lineage": {
+                        "artifact_evidence_id": durable_id,
+                        "origin_type": "derived_fact",
+                        "root_evidence_ids": [durable_id],
+                        "parent_evidence_ids": [durable_id],
+                        "ancestor_evidence_ids": [durable_id],
+                        "resolution": "known",
+                    },
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match="ancestry disagrees"):
+        DecisionEpisodeMaterializationService._validate_materialization_decision_input(scoring, forged)
 
 
 def test_forged_recommendation_without_bridge_ownership_is_rejected(_canonical_runtime_projection) -> None:

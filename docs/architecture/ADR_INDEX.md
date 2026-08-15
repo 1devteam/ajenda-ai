@@ -31,7 +31,6 @@ All ADRs in this folder should be treated as policy-level architecture guidance 
 | [ADR-0008](./ADR-0008-mission-composition-engine.md) | Mission Composition Engine | Accepted | 2026-07-19 (upd. 2026-07-27) | Plain language → canonical outcomes + structured intent → jobs → abilities → durable proposal; restatement not fragment merge; compose read-only; confirm intake only |
 | [ADR-0009](./ADR-0009-external-connector-truthfulness.md) | External Connector Truthfulness | Accepted | 2026-07-31 | Fail-closed connector capability and source-truth boundaries |
 | [ADR-0010](./ADR-0010-decision-episode-materialization-authority.md) | Decision Episode Materialization Authority | Accepted | 2026-08-12 | Canonical runtime evidence composition into tenant-scoped Decision learning episodes |
-| [ADR-0011](./ADR-0011-bounded-temporal-intelligence-advancement.md) | Bounded Temporal Intelligence Advancement | Accepted | 2026-08-15 | Post-commit eligibility and queue admission between existing intelligence owners |
 
 ---
 
