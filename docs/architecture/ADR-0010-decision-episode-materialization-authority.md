@@ -34,6 +34,15 @@ is introduced.
   criteria, weights, and caller evidence remain unchanged. Current-context
   applicability EvidenceRecords remain a separate proof surface and are never
   relabeled as the historical basis from which Knowledge was earned.
+- Knowledge composition deliberately preserves two Decision input views: the
+  scoring view retains deterministic synthetic derived-fact identities, while the
+  materialization/audit view expands those facts over their canonical durable
+  learning-signal EvidenceRecord UUID ancestry. The derived claim remains
+  `INFERRED`; normalization does not claim that the source record authored it.
+- Composed Decision output normalizes synthetic derived-fact references in
+  top-level support, option support, and dimension evidence fields back to those
+  durable UUIDs. Knowledge influence identities remain separate diagnostics and
+  never masquerade as durable EvidenceRecord identities.
 - Decision semantics: the existing canonical `decision_snapshot_builder`.
 - Execution truth: durable action EvidenceRecords and their explicit event time.
 - Outcome and attribution truth: a durable `analysis.evaluate_outcome` payload

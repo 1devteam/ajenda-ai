@@ -46,10 +46,105 @@ from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
     DecisionRecommendInput,
+    EvidenceFact,
     EvidenceItem,
     SideEffectClass,
     ToolInvocation,
 )
+
+
+def _normalize_decision_evidence_ids(
+    decision_output: dict[str, object],
+    *,
+    derived_facts: tuple[EvidenceFact, ...],
+    influence_ids: tuple[str, ...],
+) -> dict[str, object]:
+    """Keep synthetic scoring identities out of durable Decision references.
+
+    The canonical scorer is intentionally unchanged and may refer to the
+    synthetic identity of a derived fact in dimension diagnostics.  The composed
+    action's durable artifact must instead cite only the EvidenceRecord UUIDs
+    that establish that fact.  Influence identities remain diagnostic and never
+    occupy an evidence field.
+    """
+
+    mapping = {
+        fact.evidence_id: tuple(fact.durable_source_evidence_ids)
+        for fact in derived_facts
+        if fact.durable_source_evidence_ids
+    }
+
+    def normalize(values: object) -> list[str]:
+        if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
+            raise ValueError("canonical Decision evidence references must be a list of strings")
+        normalized: list[str] = []
+        for value in values:
+            for durable_id in mapping.get(value, (value,)):
+                if durable_id not in normalized:
+                    normalized.append(durable_id)
+        return normalized
+
+    output = dict(decision_output)
+    output["supporting_evidence_ids"] = normalize(output.get("supporting_evidence_ids", []))
+    raw_scores = output.get("option_scores", [])
+    if not isinstance(raw_scores, list) or not all(isinstance(item, dict) for item in raw_scores):
+        raise ValueError("canonical Decision option_scores must be a list of objects")
+    scores: list[dict[str, object]] = []
+    for raw_score in raw_scores:
+        score = dict(raw_score)
+        score["supporting_evidence_ids"] = normalize(score.get("supporting_evidence_ids", []))
+        raw_dimensions = score.get("dimension_scores", [])
+        if not isinstance(raw_dimensions, list) or not all(isinstance(item, dict) for item in raw_dimensions):
+            raise ValueError("canonical Decision dimension_scores must be a list of objects")
+        dimensions: list[dict[str, object]] = []
+        for raw_dimension in raw_dimensions:
+            dimension = dict(raw_dimension)
+            dimension["evidence_ids"] = normalize(dimension.get("evidence_ids", []))
+            dimensions.append(dimension)
+        score["dimension_scores"] = dimensions
+        scores.append(score)
+    output["option_scores"] = scores
+    output["knowledge_influence_ids"] = list(influence_ids)
+    return output
+
+
+def _materialization_decision_input(scoring_input: dict[str, object], *, derived_fact_count: int) -> dict[str, object]:
+    """Build the audit/materialization view with durable evidence identities.
+
+    Caller-owned facts are copied byte-for-byte. Each appended Knowledge-derived
+    scoring fact is expanded over its real durable ancestry. Its claim remains
+    explicitly INFERRED and Knowledge-owned; this normalization does not assert
+    that the source EvidenceRecord authored the derived semantic claim.
+    """
+
+    raw_evidence = scoring_input.get("evidence", [])
+    if not isinstance(raw_evidence, list) or not all(isinstance(item, dict) for item in raw_evidence):
+        raise ValueError("canonical Decision evidence must be a list of objects")
+    caller_count = len(raw_evidence) - derived_fact_count
+    if caller_count < 0:
+        raise ValueError("derived Decision evidence count exceeds canonical input")
+    normalized: list[dict[str, object]] = [dict(item) for item in raw_evidence[:caller_count]]
+    for raw_fact in raw_evidence[caller_count:]:
+        sources = raw_fact.get("durable_source_evidence_ids")
+        if not isinstance(sources, list) or not sources or not all(isinstance(item, str) for item in sources):
+            raise ValueError("Knowledge-derived Decision evidence lacks durable ancestry")
+        for source_id in sources:
+            fact = dict(raw_fact)
+            fact["evidence_id"] = source_id
+            fact["lineage"] = {
+                "schema_version": 1,
+                "artifact_evidence_id": source_id,
+                "origin_type": "derived_fact",
+                "root_evidence_ids": [source_id],
+                "parent_evidence_ids": [source_id],
+                "ancestor_evidence_ids": [source_id],
+                "resolution": "known",
+            }
+            fact["durable_source_evidence_ids"] = [source_id]
+            normalized.append(fact)
+    materialized = dict(scoring_input)
+    materialized["evidence"] = normalized
+    return materialized
 
 
 class RecordKnowledgeQualificationInput(BaseModel):
@@ -478,10 +573,29 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
     decision_result = decision_recommend_next_action(
         ToolInvocation(action="decision.recommend_next_action", input=decision_payload), context
     )
+    scoring_influence_ids = tuple(
+        sorted(
+            item.influence_id
+            for item in support.influences
+            if item.direction == KnowledgeInfluenceDirection.SUPPORTS
+            and item.criterion_id is not None
+            and item.supporting_episode_ids
+        )
+    )
+    normalized_decision_result = _normalize_decision_evidence_ids(
+        decision_result.output,
+        derived_facts=derived_facts,
+        influence_ids=scoring_influence_ids,
+    )
+    materialization_input = _materialization_decision_input(
+        decision_payload,
+        derived_fact_count=len(derived_facts),
+    )
     output = {
         "support": support.model_dump(mode="json"),
-        "decision_input": decision_payload,
-        "decision_result": decision_result.output,
+        "scoring_decision_input": decision_payload,
+        "decision_input": materialization_input,
+        "decision_result": normalized_decision_result,
     }
     records_inspected = [
         *(f"knowledge_proposition:{item}" for item in retrieval.inspection_trace.candidate_proposition_keys),

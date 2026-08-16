@@ -228,6 +228,10 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     )
 
     tenant_context = _context(tenant, factory).model_copy(update={"mission_id": mission_id})
+    baseline = registry.invoke(
+        ToolInvocation(action="decision.recommend_next_action", input=invocation.input["decision"]),
+        tenant_context,
+    )
     first = registry.invoke(invocation, tenant_context)
     replay = registry.invoke(invocation, tenant_context)
     influences = first.output["support"]["influences"]
@@ -239,11 +243,28 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     assert first.evidence[0].lineage.origin_type.value == "derived_fact"
     assert first.evidence[0].provenance["is_independent_observation"] is False
     assert first.output["decision_result"]["algorithm"]["name"] == "weighted_criterion_evidence_v1"
+    assert baseline.output["recommendation"] == "gather_more_evidence"
     assert first.output["decision_result"]["recommendation"] == "discovery"
     historical_ids = first.output["decision_result"]["supporting_evidence_ids"]
     assert str(source_evidence_id) not in historical_ids
     assert len(historical_ids) == 3
     assert first.output["decision_input"]["criteria"] == decision_criteria
+    scoring_facts = first.output["scoring_decision_input"]["evidence"]
+    assert scoring_facts and all(item["status"] == "inferred" for item in scoring_facts)
+    assert all(item["evidence_id"].startswith("knowledge-decision-fact-v1:") for item in scoring_facts)
+    materialization_facts = first.output["decision_input"]["evidence"]
+    assert {item["evidence_id"] for item in materialization_facts} == set(historical_ids)
+    assert all(item["status"] == "inferred" for item in materialization_facts)
+    assert all(item["durable_source_evidence_ids"] == [item["evidence_id"]] for item in materialization_facts)
+    for option_score in first.output["decision_result"]["option_scores"]:
+        assert all(
+            not evidence_id.startswith("knowledge-decision-fact-v1:")
+            for evidence_id in option_score["supporting_evidence_ids"]
+        )
+        for dimension in option_score["dimension_scores"]:
+            assert all(
+                not evidence_id.startswith("knowledge-decision-fact-v1:") for evidence_id in dimension["evidence_ids"]
+            )
     assert _tenant_counts(factory, tenant) == before == (1, 1)
 
     canonical_recommendation = execute_canonical_action(

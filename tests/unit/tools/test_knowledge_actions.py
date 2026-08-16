@@ -27,8 +27,12 @@ from backend.services.ontology.knowledge_qualification import qualify_pattern_kn
 from backend.services.ontology.observation_attribution import ObservationVerificationBasis
 from backend.services.ontology.types import BusinessObjectRef, BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
-from backend.services.tools.knowledge_actions import _validate_applicability_evidence
-from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
+from backend.services.tools.knowledge_actions import (
+    _materialization_decision_input,
+    _normalize_decision_evidence_ids,
+    _validate_applicability_evidence,
+)
+from backend.services.tools.schemas import ActionRuntimeContext, EvidenceFact, SideEffectClass, ToolInvocation
 from tests.unit.ontology.test_knowledge_qualification import candidate
 
 
@@ -46,6 +50,78 @@ def test_knowledge_action_is_registered_as_governed_internal_write() -> None:
     definition = get_default_action_registry(rebuild=True).get("knowledge.record_qualification")
     assert definition.provider == "ajenda_knowledge"
     assert definition.side_effect_class == SideEffectClass.INTERNAL_WRITE
+
+
+def test_composed_decision_normalizes_every_synthetic_support_reference() -> None:
+    durable_id = str(uuid4())
+    synthetic_id = "knowledge-decision-fact-v1:" + "a" * 64
+    fact = EvidenceFact(
+        evidence_id=synthetic_id,
+        claim="Derived support",
+        status="inferred",
+        durable_source_evidence_ids=[durable_id],
+        lineage={
+            "artifact_evidence_id": synthetic_id,
+            "origin_type": "derived_fact",
+            "root_evidence_ids": [durable_id],
+            "parent_evidence_ids": [durable_id],
+            "ancestor_evidence_ids": [durable_id],
+            "resolution": "known",
+        },
+    )
+
+    output = _normalize_decision_evidence_ids(
+        {
+            "supporting_evidence_ids": [synthetic_id],
+            "option_scores": [
+                {
+                    "supporting_evidence_ids": [synthetic_id],
+                    "dimension_scores": [{"evidence_ids": [synthetic_id]}],
+                }
+            ],
+        },
+        derived_facts=(fact,),
+        influence_ids=("knowledge-influence-v1:diagnostic",),
+    )
+
+    assert output["supporting_evidence_ids"] == [durable_id]
+    assert output["option_scores"][0]["supporting_evidence_ids"] == [durable_id]
+    assert output["option_scores"][0]["dimension_scores"][0]["evidence_ids"] == [durable_id]
+    assert output["knowledge_influence_ids"] == ["knowledge-influence-v1:diagnostic"]
+
+
+def test_materialization_input_preserves_caller_facts_and_expands_derived_ancestry() -> None:
+    caller_id = str(uuid4())
+    durable_ids = [str(uuid4()), str(uuid4())]
+    synthetic_id = "knowledge-decision-fact-v1:" + "b" * 64
+    caller = {"evidence_id": caller_id, "claim": "Caller fact", "status": "known"}
+    derived = {
+        "evidence_id": synthetic_id,
+        "claim": "Knowledge-derived support",
+        "status": "inferred",
+        "source": "knowledge_decision_support_v1",
+        "durable_source_evidence_ids": durable_ids,
+        "lineage": {
+            "artifact_evidence_id": synthetic_id,
+            "origin_type": "derived_fact",
+            "root_evidence_ids": durable_ids,
+            "parent_evidence_ids": durable_ids,
+            "ancestor_evidence_ids": durable_ids,
+            "resolution": "known",
+        },
+    }
+
+    materialized = _materialization_decision_input(
+        {"goal": "Choose", "evidence": [caller, derived]},
+        derived_fact_count=1,
+    )
+
+    assert materialized["evidence"][0] == caller
+    normalized = materialized["evidence"][1:]
+    assert [item["evidence_id"] for item in normalized] == durable_ids
+    assert all(item["status"] == "inferred" for item in normalized)
+    assert all(item["claim"] == derived["claim"] for item in normalized)
+    assert synthetic_id not in {item["evidence_id"] for item in normalized}
 
 
 def test_consolidation_action_is_registered_as_governed_internal_write() -> None:

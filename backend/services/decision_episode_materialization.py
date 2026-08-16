@@ -7,6 +7,7 @@ through tenant-scoped durable provenance; request callers cannot author history.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
 from typing import Protocol
@@ -27,7 +28,7 @@ from backend.services.ontology.decision_snapshot_builder import build_decision_s
 from backend.services.ontology.evidence_lineage import EvidenceOriginType
 from backend.services.ontology.outcome import OutcomeEvaluation
 from backend.services.tools.evidence_bridge import require_canonical_tool_action_evidence
-from backend.services.tools.schemas import ActionResult, DecisionRecommendInput, SideEffectClass
+from backend.services.tools.schemas import ActionResult, DecisionRecommendInput, EvidenceFact, SideEffectClass
 
 RECOMMENDATION_ACTION = "decision.recommend_next_action"
 OUTCOME_ACTION = "analysis.evaluate_outcome"
@@ -185,11 +186,18 @@ class DecisionEpisodeMaterializationService:
 
             owner_input = KnowledgeInformedDecisionSupportInput.model_validate(raw_input)
             raw_decision_input = recommendation.structured_payload.get("decision_input")
+            raw_scoring_input = recommendation.structured_payload.get("scoring_decision_input")
             recommendation_output = recommendation.structured_payload.get("decision_result")
-            if not isinstance(raw_decision_input, dict) or not isinstance(recommendation_output, dict):
-                raise ValueError("Knowledge recommendation lacks durable canonical Decision input/output")
+            if (
+                not isinstance(raw_decision_input, dict)
+                or not isinstance(raw_scoring_input, dict)
+                or not isinstance(recommendation_output, dict)
+            ):
+                raise ValueError("Knowledge recommendation lacks scoring/materialization Decision input/output")
             recommendation_input = DecisionRecommendInput.model_validate(raw_decision_input)
-            self._validate_composed_decision_input(owner_input.decision, recommendation_input)
+            scoring_input = DecisionRecommendInput.model_validate(raw_scoring_input)
+            self._validate_composed_decision_input(owner_input.decision, scoring_input)
+            self._validate_materialization_decision_input(scoring_input, recommendation_input)
         else:
             recommendation_input = DecisionRecommendInput.model_validate(raw_input)
             recommendation_output = recommendation.structured_payload
@@ -242,7 +250,8 @@ class DecisionEpisodeMaterializationService:
             durable_lineage = record.provenance_metadata.get("evidence_lineage")
             for fact in matching_facts:
                 if (
-                    fact.evidence_id == str(record.id)
+                    not historical_knowledge_source
+                    and fact.evidence_id == str(record.id)
                     and fact.lineage is not None
                     and durable_lineage is not None
                     and (fact.lineage.model_dump(mode="json") != durable_lineage)
@@ -379,6 +388,59 @@ class DecisionEpisodeMaterializationService:
         }
         if expected_context != owner_input.context:
             raise ValueError("Knowledge composition changed caller-provided Decision context")
+
+    @staticmethod
+    def _validate_materialization_decision_input(
+        scoring_input: DecisionRecommendInput,
+        materialization_input: DecisionRecommendInput,
+    ) -> None:
+        """Prove durable-ID normalization preserved the scored derived semantics."""
+
+        scoring_owner = scoring_input.model_dump(mode="json", exclude={"evidence"})
+        materialization_owner = materialization_input.model_dump(mode="json", exclude={"evidence"})
+        if scoring_owner != materialization_owner:
+            raise ValueError("Knowledge materialization changed canonical Decision input semantics")
+
+        ordinary_scoring = [fact for fact in scoring_input.evidence if not fact.durable_source_evidence_ids]
+        ordinary_materialized = [
+            fact for fact in materialization_input.evidence if not fact.durable_source_evidence_ids
+        ]
+        if ordinary_scoring != ordinary_materialized:
+            raise ValueError("Knowledge materialization changed caller-provided Decision evidence")
+
+        def semantic_payload(fact: object) -> str:
+            parsed = EvidenceFact.model_validate(fact)
+            return json.dumps(
+                parsed.model_dump(
+                    mode="json",
+                    exclude={"evidence_id", "lineage", "durable_source_evidence_ids"},
+                ),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+
+        expected = sorted(
+            (
+                source_id,
+                semantic_payload(fact),
+            )
+            for fact in scoring_input.evidence
+            for source_id in fact.durable_source_evidence_ids
+        )
+        actual = sorted(
+            (
+                fact.evidence_id,
+                semantic_payload(fact),
+            )
+            for fact in materialization_input.evidence
+            if fact.durable_source_evidence_ids
+        )
+        if expected != actual or any(
+            fact.durable_source_evidence_ids != [fact.evidence_id]
+            for fact in materialization_input.evidence
+            if fact.durable_source_evidence_ids
+        ):
+            raise ValueError("Knowledge materialization evidence ancestry disagrees with scored support")
 
     def _required_evidence(self, *, tenant_id: str, evidence_id: uuid.UUID, role: str) -> EvidenceRecord:
         record = self._evidence.get_for_tenant(evidence_id=evidence_id, tenant_id=tenant_id)
