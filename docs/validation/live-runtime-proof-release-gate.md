@@ -63,7 +63,7 @@ When future work changes tenant/auth, mission intake/planning, task graph, mater
 
 ## HubSpot ingress TLS prerequisite
 
-The prod-like Compose stack builds `hubspot-crm-ingress`, whose Dockerfile copies `deploy/compose/hubspot-crm-ingress/certs`. Those files are gitignored (`server.crt`, `server.key`) and are not present in CI checkouts.
+The prod-like Compose stack builds `hubspot-crm-ingress`. Host `server.crt` / `server.key` are gitignored and dockerignored; the ingress Dockerfile generates a self-signed pair at image build so nginx can start without local certs.
 
 Before `compose config` / `compose up --build`, the script runs:
 
