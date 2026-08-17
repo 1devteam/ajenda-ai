@@ -354,6 +354,8 @@ def test_running_recovery_restores_state_when_queue_release_fails(
         assert recovered_task.retry_count == 0
         assert recovered_lease.status == WorkerLeaseState.ACTIVE.value
         assert audit_count == 0
+        recovered_lease.status = WorkerLeaseState.EXPIRED.value
+        verify_session.commit()
     finally:
         verify_session.close()
 
@@ -434,6 +436,8 @@ def test_running_recovery_restores_state_when_dead_letter_move_fails(
         assert recovered_task.retry_count == 3
         assert recovered_lease.status == WorkerLeaseState.ACTIVE.value
         assert audit_count == 0
+        recovered_lease.status = WorkerLeaseState.EXPIRED.value
+        verify_session.commit()
     finally:
         verify_session.close()
 
@@ -514,6 +518,8 @@ def test_claimed_recovery_restores_state_when_queue_release_fails(
         assert recovered_task.retry_count == 0
         assert recovered_lease.status == WorkerLeaseState.ACTIVE.value
         assert audit_count == 0
+        recovered_lease.status = WorkerLeaseState.EXPIRED.value
+        verify_session.commit()
     finally:
         verify_session.close()
 
@@ -594,5 +600,7 @@ def test_claimed_recovery_restores_state_when_dead_letter_move_fails(
         assert recovered_task.retry_count == 3
         assert recovered_lease.status == WorkerLeaseState.ACTIVE.value
         assert audit_count == 0
+        recovered_lease.status = WorkerLeaseState.EXPIRED.value
+        verify_session.commit()
     finally:
         verify_session.close()

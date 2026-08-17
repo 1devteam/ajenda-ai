@@ -233,6 +233,8 @@ def test_running_recovery_fails_closed_when_payload_missing_from_processing_and_
         assert task.retry_count == 0
         assert lease is not None
         assert lease.status == WorkerLeaseState.ACTIVE.value
+        lease.status = WorkerLeaseState.EXPIRED.value
+        verify_session.commit()
     finally:
         verify_session.close()
 
