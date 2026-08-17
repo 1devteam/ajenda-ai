@@ -524,6 +524,56 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         }
     if action_name == "web.search":
         return {"query": _compact_research_query(intent)[:400], "limit": limit}
+    if action_name == "knowledge.retrieve_current":
+        return {
+            "query": {
+                "schema_version": 1,
+                "subject_semantic_signatures": [{"schema_version": 1, "object_type": "organization"}],
+                "goal_semantic_signature": {
+                    "schema_version": 1,
+                    "objective_key": "observe_contacts",
+                    "kpis": [],
+                },
+            }
+        }
+    if action_name == "decision.recommend_next_action":
+        return {
+            "goal": (intent.objective or "Recommend next research or outreach step")[:1000],
+            "options": [
+                {
+                    "option_id": "await_observed_contacts",
+                    "label": "Wait for observed contacts",
+                    "description": "Do not invent emails or phones.",
+                }
+            ],
+            "criteria": [
+                {
+                    "criterion_id": "has_real_contact",
+                    "label": "Real observed contact",
+                    "weight": 1.0,
+                    "required": True,
+                }
+            ],
+            "evidence": [],
+            "constraints": ["Do not invent contact emails or phone numbers"],
+            "context": {
+                "binding_source": "upstream_observed_contacts",
+                "binding_required": False,
+            },
+        }
+    if action_name == "research.observe_contacts":
+        return {
+            "prospects": [],
+            "requested_quantity": limit,
+            "timeout_seconds": 8.0,
+            "binding_required": True,
+            "context": {
+                "binding_required": True,
+                "binding_source": "upstream_prospect_candidates",
+                "objective": intent.objective,
+                "requested_quantity": limit,
+            },
+        }
     if action_name == "web.page_read":
         # Prefer domain-like attributes on target entities when present.
         # Never invent example.com — missing URL fails closed at composition.

@@ -295,11 +295,16 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "search_error": search_error,
         "access_mode": "public_search" if payload.include_public_search else "internal_research",
         "business_context_source": business_context.source,
-        "source": "ajenda_brain",
-        # Operation completed through a legitimate research path (internal and/or public).
+        "source": (
+            "ajenda_brain"
+            if internal_matches or crm_search.results
+            else ("ddgs" if public_search_real else "ajenda_brain")
+        ),
+        # Search/internal path executed; not a claim that each candidate was observed.
         "real": True,
-        # Whether returned candidates themselves are real-world entities.
-        "candidates_real": bool(prospect_candidates) and all(bool(p.get("real", True)) for p in prospect_candidates),
+        "candidates_real": bool(internal_matches or crm_search.results)
+        and not public_search_real
+        and bool(prospect_candidates),
         "plugin_required": False,
     }
     inspected = [

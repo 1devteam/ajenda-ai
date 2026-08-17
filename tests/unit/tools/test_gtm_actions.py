@@ -38,6 +38,25 @@ def test_gtm_lead_enrich_returns_evidence_without_side_effect() -> None:
     assert result.side_effect_class.value == "none"
     assert result.output["company"] == "Acme"
     assert len(result.evidence) == 1
+    assert result.output["contacts"] == []
+    assert result.output["simulated"] is False
+    assert "contact@acme.com" not in str(result.output)
+
+
+def test_gtm_lead_enrich_simulates_only_when_explicitly_allowed(monkeypatch) -> None:
+    monkeypatch.setenv("AJENDA_ENV", "development")
+    monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="gtm.lead_enrich",
+            input={"company": "Acme", "domain": "acme.com"},
+        ),
+        _context(),
+    )
+    assert result.output["simulated"] is True
+    assert result.output["contacts"][0]["email"] == "contact@acme.com"
+    assert result.output["contacts"][0]["real"] is False
 
 
 def test_gtm_email_send_simulated_when_no_credential() -> None:

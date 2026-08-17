@@ -11,9 +11,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 COMPOSITION_SCHEMA_VERSION = 3
-JOB_CATALOG_VERSION = "5"
-INTERPRETER_VERSION = "8"
-CAPABILITY_RESOLVER_VERSION = "5"
+JOB_CATALOG_VERSION = "8"
+INTERPRETER_VERSION = "9"
+CAPABILITY_RESOLVER_VERSION = "7"
 
 ProposalStatus = Literal[
     "interpretation_failed",
@@ -57,6 +57,7 @@ SelectionStatus = Literal["selected", "alternative", "rejected"]
 # Canonical business outcomes owned by the interpreter → job catalog boundary.
 CanonicalOutcome = Literal[
     "research_prospects",
+    "observe_contacts",
     "qualify_prospects",
     "enrich_contacts",
     "prepare_outreach",
@@ -75,6 +76,7 @@ CanonicalOutcome = Literal[
 CANONICAL_OUTCOMES: frozenset[str] = frozenset(
     {
         "research_prospects",
+        "observe_contacts",
         "qualify_prospects",
         "enrich_contacts",
         "prepare_outreach",
@@ -112,6 +114,13 @@ LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "enrich contacts": "enrich_contacts",
     "enrich leads": "enrich_contacts",
     "lead enrichment": "enrich_contacts",
+    "collect contact info": "observe_contacts",
+    "collect contacts": "observe_contacts",
+    "collect contact details": "observe_contacts",
+    "contact info": "observe_contacts",
+    "contact details": "observe_contacts",
+    "return the contact info": "observe_contacts",
+    "return contact info": "observe_contacts",
     "draft introductions": "prepare_outreach",
     "draft emails": "prepare_outreach",
     "personalized introductions": "prepare_outreach",
@@ -126,8 +135,6 @@ LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "add to contacts": "update_crm",
     "save to contacts": "update_crm",
     "add contacts": "update_crm",
-    "collect contact info": "enrich_contacts",
-    "collect contacts": "enrich_contacts",
     "calendar briefing": "read_calendar",
     "read calendar": "read_calendar",
     "schedule review": "read_calendar",

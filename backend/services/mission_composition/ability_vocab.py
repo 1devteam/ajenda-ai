@@ -39,6 +39,12 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "find competitors": "research_prospects",
     "research competitors": "research_prospects",
     "competitor research": "research_prospects",
+    "collect contact info": "observe_contacts",
+    "collect contact details": "observe_contacts",
+    "contact info": "observe_contacts",
+    "contact details": "observe_contacts",
+    "return the contact info": "observe_contacts",
+    "return contact info": "observe_contacts",
     # Outreach
     "prepare outreach drafts": "prepare_outreach",
     "draft outreach": "prepare_outreach",
@@ -109,6 +115,12 @@ OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     (r"\btop (?:three|five)\b", "qualify_prospects"),
     (r"\bpick the (?:strongest|best)\b", "qualify_prospects"),
     (r"\bidentify .* (?:strong|best|top)\b", "qualify_prospects"),
+    (
+        r"\b(?:collect|return|gather|get)\b.{0,32}\bcontact (?:info|information|details)\b",
+        "observe_contacts",
+    ),
+    (r"\bcontact (?:info|information|details)\b", "observe_contacts"),
+    (r"\b(?:emails?|phone numbers?)\s+for\b", "observe_contacts"),
     # Wave A operator reads — read intent only (not publish / CRM write).
     (r"\b(?:check|read|show|fetch|get)\b.{0,40}\blinkedin\b.{0,24}\bprofile\b", "read_linkedin"),
     (r"\blinkedin\b.{0,24}\bprofile\b", "read_linkedin"),

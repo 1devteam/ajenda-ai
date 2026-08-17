@@ -80,6 +80,8 @@ def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> 
     assert result.output["domain"] is None
     assert result.output["profile_company"] == "Ajenda AI"
     assert result.output["profile_domain"] == "ajenda.ai"
+    assert result.output["source"] == "ddgs"
+    assert result.output["candidates_real"] is False
     assert "Ajenda AI" not in str(result.output.get("query"))
 
 

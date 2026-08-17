@@ -80,6 +80,53 @@ def test_record_read_emits_typed_source_condition_semantics() -> None:
     assert result.evidence[0].lineage.source_identity.source_record_id == "opportunity:opp-1"
 
 
+def test_sales_qualify_rejects_snippet_only_prospects() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "prospects": [
+                    {
+                        "company": "Hazmat Removal Service",
+                        "url": "https://www.nwarestoreit.com/hazmat-service",
+                        "domain": "nwarestoreit.com",
+                        "source": "public_search",
+                        "signals": ["snippet only"],
+                    }
+                ]
+            },
+        ),
+        _context(),
+    )
+    assert result.output["qualified"] is False
+    assert result.output["qualified_prospects"] == []
+    assert "not qualified without an observed or supplied contact" in result.output["reasons"]
+
+
+def test_sales_qualify_accepts_observed_email() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "prospects": [
+                    {
+                        "company": "NWA Restore It",
+                        "kind": "email",
+                        "value": "hello@nwarestoreit.com",
+                        "source_url": "https://www.nwarestoreit.com/hazmat-service",
+                        "real": True,
+                    }
+                ]
+            },
+        ),
+        _context(),
+    )
+    assert result.output["qualified"] is True
+    assert result.output["qualified_prospects"][0]["email"] == "hello@nwarestoreit.com"
+
+
 def test_sales_qualify_score_and_recommendation_are_deterministic() -> None:
     registry = get_default_action_registry(rebuild=True)
     context = _context()

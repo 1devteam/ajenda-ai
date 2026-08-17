@@ -325,7 +325,64 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
     )
 
 
+def _normalize_observed_lead(lead: dict[str, Any]) -> dict[str, Any]:
+    """Map observe-contact records onto lead email/phone fields."""
+
+    normalized = dict(lead)
+    kind = str(normalized.get("kind") or "").strip().lower()
+    value = str(normalized.get("value") or "").strip()
+    if kind == "email" and value and not normalized.get("email"):
+        normalized["email"] = value
+    if kind == "phone" and value and not normalized.get("phone"):
+        normalized["phone"] = value
+    return normalized
+
+
+def _is_invented_enrich_contact(lead: dict[str, Any]) -> bool:
+    if lead.get("simulated") is True or lead.get("enrichment_mode") == "local_simulated":
+        return True
+    if str(lead.get("source") or "") == "local_gtm_heuristic":
+        return True
+    contacts = lead.get("contacts")
+    if isinstance(contacts, list):
+        for item in contacts:
+            if not isinstance(item, dict):
+                continue
+            if item.get("simulated") is True or str(item.get("source") or "") == "local_gtm_heuristic":
+                return True
+    return False
+
+
+def _has_real_contact(lead: dict[str, Any]) -> bool:
+    """True only for a caller-supplied or observed mailbox/phone — not search snippets."""
+
+    if _is_invented_enrich_contact(lead):
+        return False
+    email = str(lead.get("email") or "").strip()
+    if email and "@" in email:
+        local = email.split("@", 1)[0].lower()
+        if local != "contact":
+            return True
+        if str(lead.get("source") or "") == "local_gtm_heuristic":
+            return False
+        return True
+    if str(lead.get("phone") or "").strip():
+        return True
+    contacts = lead.get("contacts")
+    if isinstance(contacts, list):
+        for item in contacts:
+            if not isinstance(item, dict):
+                continue
+            if item.get("real") is True and item.get("simulated") is not True:
+                return True
+            value = str(item.get("email") or item.get("value") or "").strip()
+            if value and "@" in value and item.get("simulated") is not True:
+                return True
+    return False
+
+
 def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: str | None) -> dict[str, Any]:
+    lead = _normalize_observed_lead(lead)
     fit_points = 0
     reasons: list[str] = []
     if lead.get("company") or account_id:
@@ -337,7 +394,7 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
     if lead.get("intent") or context.get("intent"):
         fit_points += 25
         reasons.append("intent signal present")
-    if lead.get("email"):
+    if _has_real_contact(lead):
         fit_points += 15
         reasons.append("contactability present")
     if lead.get("domain") or lead.get("url") or lead.get("signals"):
@@ -347,7 +404,9 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         fit_points += 10
         reasons.append("sourced from research world-state")
     score = min(fit_points, 100)
-    qualified = score >= 60
+    qualified = _has_real_contact(lead)
+    if not qualified:
+        reasons.append("not qualified without an observed or supplied contact")
     return {
         "score": score,
         "qualified": qualified,
@@ -362,8 +421,9 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         prospects_in = [dict(payload.lead)] if payload.lead else [{"account_id": payload.account_id}]
 
     qualified_prospects: list[dict[str, Any]] = []
+    scored_prospects: list[dict[str, Any]] = []
     for index, prospect in enumerate(prospects_in):
-        lead = dict(prospect)
+        lead = _normalize_observed_lead(dict(prospect))
         if payload.lead and index == 0:
             # Merge seed lead fields without overwriting bound prospect identity.
             for key, value in payload.lead.items():
@@ -378,31 +438,15 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
             "qualified": result["qualified"],
             "reasons": result["reasons"],
         }
-        if result["qualified"] or not prospects_in:
+        scored_prospects.append(entry)
+        if result["qualified"]:
             qualified_prospects.append(entry)
-        elif result["score"] >= 45:
-            # Keep borderline research-backed companies for enrich depth.
-            qualified_prospects.append(entry)
-
-    if not qualified_prospects and prospects_in:
-        # Always surface top scored prospect so enrich/draft can still bind company.
-        top = max(
-            (
-                {
-                    **p,
-                    **_qualify_one(p, context=payload.context, account_id=payload.account_id),
-                    "company": str(p.get("company") or p.get("name") or "prospect")[:160],
-                    "prospect_id": str(p.get("prospect_id") or p.get("id") or "qualify:top")[:80],
-                }
-                for p in prospects_in
-            ),
-            key=lambda item: int(item.get("score") or 0),
-        )
-        qualified_prospects = [top]
 
     primary = (
         qualified_prospects[0]
         if qualified_prospects
+        else scored_prospects[0]
+        if scored_prospects
         else _qualify_one(payload.lead, context=payload.context, account_id=payload.account_id)
     )
     score = int(primary.get("score") or 0)

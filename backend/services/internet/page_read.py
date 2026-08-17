@@ -74,7 +74,8 @@ def _normalize_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def extract_html_snapshot(html: str) -> dict[str, Any]:
+def extract_html_snapshot(html: str, *, text_preview_chars: int = DEFAULT_TEXT_PREVIEW_CHARS) -> dict[str, Any]:
+    preview_limit = max(1, int(text_preview_chars))
     parser = _HtmlTextExtractor()
     try:
         parser.feed(html)
@@ -84,7 +85,7 @@ def extract_html_snapshot(html: str) -> dict[str, Any]:
         return {
             "title": None,
             "meta_description": None,
-            "text_preview": _normalize_whitespace(re.sub(r"<[^>]+>", " ", html))[:DEFAULT_TEXT_PREVIEW_CHARS],
+            "text_preview": _normalize_whitespace(re.sub(r"<[^>]+>", " ", html))[:preview_limit],
             "parser": "fallback_strip_tags",
         }
     title = _normalize_whitespace(" ".join(parser.title_parts))[:240] or None
@@ -94,7 +95,7 @@ def extract_html_snapshot(html: str) -> dict[str, Any]:
     return {
         "title": title,
         "meta_description": parser.meta_description,
-        "text_preview": text[:DEFAULT_TEXT_PREVIEW_CHARS],
+        "text_preview": text[:preview_limit],
         "parser": "html.parser",
     }
 
@@ -125,6 +126,7 @@ def fetch_public_page(
     timeout_seconds: float = 8.0,
     action_name: str = "web.page_read",
     response_text_limit: int = PAGE_READ_RESPONSE_LIMIT,
+    text_preview_chars: int = DEFAULT_TEXT_PREVIEW_CHARS,
 ) -> PageSnapshot:
     """Single-shot public page GET via NetworkEgressAuthority + HTML extraction."""
 
@@ -150,8 +152,9 @@ def fetch_public_page(
                 content_type = value
                 break
         body = response.body_text or ""
+        preview_limit = max(DEFAULT_TEXT_PREVIEW_CHARS, min(int(text_preview_chars), response_text_limit))
         extraction = (
-            extract_html_snapshot(body)
+            extract_html_snapshot(body, text_preview_chars=preview_limit)
             if body
             else {
                 "title": None,
@@ -165,7 +168,7 @@ def fetch_public_page(
             real=True,
             status_code=response.status_code,
             title=extraction.get("title") if isinstance(extraction.get("title"), str) else None,
-            text_preview=str(extraction.get("text_preview") or "")[:DEFAULT_TEXT_PREVIEW_CHARS] or None,
+            text_preview=str(extraction.get("text_preview") or "")[:preview_limit] or None,
             body_preview=body[:DEFAULT_BODY_PREVIEW_CHARS] if body else None,
             body_truncated=response.body_truncated,
             content_type=content_type,

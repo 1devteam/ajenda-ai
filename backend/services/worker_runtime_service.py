@@ -25,7 +25,7 @@ from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
-from backend.services.tools.mission_input_binding import pending_dependency_keys
+from backend.services.tools.mission_input_binding import handler_output_for_task, pending_dependency_keys
 
 logger = logging.getLogger("ajenda.worker_runtime_service")
 
@@ -38,6 +38,31 @@ def _mirror_task_output_to_metadata(task_output: dict[str, Any]) -> dict[str, An
         "handler_result": task_output,
         "output": nested_output if nested_output is not None else task_output,
     }
+
+
+def _task_action_name(task: ExecutionTask) -> str | None:
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    invocation = metadata.get("tool_invocation")
+    if isinstance(invocation, dict):
+        action = invocation.get("action")
+        if isinstance(action, str) and action.strip():
+            return action.strip()
+    return None
+
+
+def _observe_accept_unmet(siblings: list[ExecutionTask]) -> bool:
+    """True when an observe-contacts task finished without meeting the requested count."""
+
+    for item in siblings:
+        if _task_action_name(item) != "research.observe_contacts":
+            continue
+        if item.status != ExecutionTaskState.COMPLETED.value:
+            continue
+        output = handler_output_for_task(item)
+        if output.get("accept_met") is True:
+            return False
+        return True
+    return False
 
 
 _TERMINAL_TASK_STATES: frozenset[str] = frozenset(
@@ -334,7 +359,8 @@ class WorkerRuntimeService:
 
             # All graph tasks terminal.
             any_failed = any(item.status in failedish for item in siblings)
-            target = MissionState.FAILED if any_failed else MissionState.COMPLETED
+            accept_unmet = _observe_accept_unmet(siblings)
+            target = MissionState.FAILED if any_failed or accept_unmet else MissionState.COMPLETED
             if mission.status != MissionState.RUNNING.value:
                 # Hop through running when coming from planned/queued so state machine stays honest.
                 if mission.status in {

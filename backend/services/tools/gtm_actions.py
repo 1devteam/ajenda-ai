@@ -29,6 +29,7 @@ from backend.services.tools.email_transport import (
     parse_smtp_secret,
     send_via_smtp,
 )
+from backend.services.tools.external_sim_policy import allow_simulated_external
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -202,9 +203,14 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
         for index, prospect in enumerate(source_prospects):
             company = str(prospect.get("company") or inp.company or f"prospect-{index + 1}")[:160]
             domain = str(prospect.get("domain") or inp.domain or domain_seed or "").strip() or None
-            # Local enrich is simulated contactability — never claim real mailbox discovery.
-            contacts: list[dict[str, Any]] = []
-            if domain:
+            existing = [item for item in (prospect.get("contacts") or []) if isinstance(item, dict)]
+            real_existing = [
+                item for item in existing if item.get("real") is True and item.get("simulated") is not True
+            ]
+            contacts: list[dict[str, Any]] = list(real_existing)
+            enrichment_mode = "passthrough_observed"
+            enrichment_real = bool(real_existing)
+            if not contacts and domain and allow_simulated_external():
                 contacts.append(
                     {
                         "email": f"contact@{domain}",
@@ -214,6 +220,11 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                         "source": "local_gtm_heuristic",
                     }
                 )
+                enrichment_mode = "local_simulated"
+                enrichment_real = False
+            elif not contacts:
+                enrichment_mode = "unresolved"
+                enrichment_real = False
             enriched_prospects.append(
                 {
                     **{k: v for k, v in prospect.items() if k not in {"contacts"}},
@@ -221,8 +232,8 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                     "company": company,
                     "domain": domain,
                     "contacts": contacts,
-                    "enrichment_real": False,
-                    "enrichment_mode": "local_simulated",
+                    "enrichment_real": enrichment_real,
+                    "enrichment_mode": enrichment_mode,
                     "context": inp.context,
                 }
             )
@@ -235,16 +246,22 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             "context": inp.context,
             "enriched_prospects": enriched_prospects,
             "prospect_count": len(enriched_prospects),
-            "real": False,
-            "simulated": True,
+            "real": any(item.get("enrichment_real") for item in enriched_prospects),
+            "simulated": any(item.get("enrichment_mode") == "local_simulated" for item in enriched_prospects),
         }
+        mode = str(primary.get("enrichment_mode") or "unresolved")
+        summary = (
+            f"Enriched {len(enriched_prospects)} prospect(s) ({mode})"
+            if mode != "unresolved"
+            else f"No real contacts available for {len(enriched_prospects)} prospect(s); none invented"
+        )
         return ActionResult(
             action=inv.action,
             provider="local_gtm",
             side_effect_class=SideEffectClass.NONE,
             output=enriched,
-            evidence=[_make_evidence(inv.action, "local_gtm", ctx, "lead enriched (simulated contacts)", enriched)],
-            summary=f"Enriched {len(enriched_prospects)} prospect(s) with simulated local contacts",
+            evidence=[_make_evidence(inv.action, "local_gtm", ctx, summary, enriched)],
+            summary=summary,
         )
 
     def email_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
