@@ -52,8 +52,17 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         "gtm.lead_enrich",
         "gtm.email_draft",
         "sales.draft_followup",
+        "research.observe_contacts",
     }:
         return "$.input.prospects"
+    if action_name == "decision.recommend_next_action":
+        if output_name == "observed_contacts":
+            return "$.input.context.observed_contacts"
+        if output_name == "retrieved_knowledge":
+            return "$.input.context.retrieved_knowledge"
+        return "$.input.context.upstream"
+    if action_name == "knowledge.retrieve_current":
+        return None
     if action_name in {"record.write", "sales.log_activity"}:
         return f"$.input.data.{output_name}"
     if action_name in {"gtm.crm_upsert", "gtm.social_publish"}:

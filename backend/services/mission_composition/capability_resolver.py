@@ -29,6 +29,9 @@ from backend.services.tools.schemas import SideEffectClass
 # Preferred order when multiple candidates are ready.
 _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "research.discover_prospects": ("web.research", "sales.research", "web.search", "web.page_read", "crm.research"),
+    "research.observe_sources": ("research.observe_contacts",),
+    "intelligence.retrieve_knowledge": ("knowledge.retrieve_current",),
+    "intelligence.advise_next": ("decision.recommend_next_action",),
     "sales.research_context": ("sales.research", "crm.research", "web.research", "web.search"),
     "sales.qualify_prospects": ("sales.qualify", "sales.score_lead"),
     "gtm.enrich_contacts": ("gtm.lead_enrich",),

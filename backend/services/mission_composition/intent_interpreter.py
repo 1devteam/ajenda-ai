@@ -99,13 +99,17 @@ _LOCATION_TRAILING_STOP = re.compile(
     re.IGNORECASE,
 )
 _ENRICH_PATTERNS = (
-    r"\benrich\b",
+    r"\benrich(?:es|ed|ing|ment)?\b",
+    r"\benrich (?:the )?(?:leads?|contacts?|prospects?)\b",
+)
+_OBSERVE_CONTACT_PATTERNS = (
     r"contact details",
     r"contact info(?:rmation)?",
     r"collect (?:contact|email|phone)",
     r"gather (?:contact|email|phone)",
-    r"find (?:emails?|phone numbers?|contact)",
-    r"look up (?:emails?|contact)",
+    r"return (?:the )?(?:contact|email|phone)",
+    r"find (?:emails?|phone numbers?)",
+    r"look up (?:emails?|phone numbers?|contact info)",
 )
 _EMAIL_READ_PATTERNS = (
     # Require Gmail/inbox context — bare "email/message" often means CRM fields.
@@ -570,6 +574,13 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "observe_contacts" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description=f"{n} prospects include observed phone or email from a fetched page",
+                measurable=True,
+            )
+        )
     if "enrich_contacts" in outcomes:
         success.append(
             SuccessCriterion(
@@ -718,6 +729,8 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
             outcomes.append("research_prospects")
     if _contains_any(lower, _QUALIFY_PATTERNS) and not salesforce_query:
         outcomes.append("qualify_prospects")
+    if _contains_any(lower, _OBSERVE_CONTACT_PATTERNS):
+        outcomes.append("observe_contacts")
     if _contains_any(lower, _ENRICH_PATTERNS):
         outcomes.append("enrich_contacts")
     if email_read:
@@ -857,6 +870,7 @@ def interpret_instruction(
     if wants_research and hubspot_as_research_source and explicit_prospect_research:
         wants_crm_read = False
         connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
+    wants_observe = _contains_any(lower, _OBSERVE_CONTACT_PATTERNS)
     # Enrich only when explicitly requested — not invented from draft+qualify.
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
@@ -911,6 +925,20 @@ def interpret_instruction(
             )
             if vocab_hit.outcome == "qualify_prospects":
                 wants_qualify = True
+            if vocab_hit.outcome == "observe_contacts":
+                wants_observe = True
+    if wants_observe:
+        if "observe_contacts" not in outcomes:
+            outcomes.append("observe_contacts")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.observe_contacts",
+                source="explicit",
+                normalized_value="observe_contacts",
+                confidence=0.95,
+                rule_id="alias.observe_contacts",
+            )
+        )
     if wants_enrich:
         outcomes.append("enrich_contacts")
         evidence.append(

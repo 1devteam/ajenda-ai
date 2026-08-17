@@ -5,11 +5,23 @@ from __future__ import annotations
 from backend.services.internet import InternetAccessMode, fetch_public_page
 from backend.services.internet.browser_session import browser_session_as_dict, run_browser_session
 from backend.services.internet.open_write import execute_open_write
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+    EvidenceSourceIdentity,
+)
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.contact_observation import (
+    extract_observed_contacts,
+    page_host,
+    prospect_source_url,
+)
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
     EvidenceItem,
+    ResearchObserveContactsInput,
     SideEffectClass,
     ToolInvocation,
     WebBrowserSessionInput,
@@ -205,6 +217,157 @@ def web_open_write(invocation: ToolInvocation, context: ActionRuntimeContext) ->
     )
 
 
+def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = ResearchObserveContactsInput.model_validate(invocation.input)
+    raw_prospects = [item for item in payload.prospects if isinstance(item, dict)]
+    if payload.binding_required and not raw_prospects:
+        raise ValueError("research.observe_contacts requires bound prospect_candidates")
+
+    seen_urls: set[str] = set()
+    pages: list[dict[str, object]] = []
+    observed_contacts: list[dict[str, object]] = []
+    unobserved: list[dict[str, object]] = []
+    limit = payload.requested_quantity
+
+    for prospect in raw_prospects:
+        if len(pages) >= limit:
+            break
+        url = prospect_source_url(prospect)
+        if url is None:
+            unobserved.append(
+                {
+                    "company": prospect.get("company"),
+                    "reason": "no_url",
+                    "prospect_id": prospect.get("prospect_id"),
+                }
+            )
+            continue
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        snapshot = fetch_public_page(
+            url_or_domain=url,
+            timeout_seconds=payload.timeout_seconds,
+            action_name="research.observe_contacts",
+            text_preview_chars=8000,
+        )
+        page_record: dict[str, object] = {
+            "url": snapshot.url,
+            "real": snapshot.real,
+            "status_code": snapshot.status_code,
+            "title": snapshot.title,
+            "error": snapshot.error,
+            "company": prospect.get("company"),
+            "domain": prospect.get("domain") or page_host(snapshot.url),
+        }
+        pages.append(page_record)
+        if not snapshot.real:
+            unobserved.append({**page_record, "reason": snapshot.error or "page_fetch_failed"})
+            continue
+        haystack = " ".join(
+            part
+            for part in (snapshot.title, snapshot.text_preview, snapshot.body_preview)
+            if isinstance(part, str) and part
+        )
+        extracted = extract_observed_contacts(text=haystack, source_url=snapshot.url)
+        if not extracted:
+            unobserved.append({**page_record, "reason": "no_contact_on_page"})
+            continue
+        for item in extracted:
+            observed_contacts.append(
+                {
+                    **item,
+                    "company": prospect.get("company"),
+                    "domain": page_record["domain"],
+                    "prospect_id": prospect.get("prospect_id"),
+                }
+            )
+
+    unique_urls_with_real = {str(item["source_url"]) for item in observed_contacts if item.get("real") is True}
+    accept_met = len(unique_urls_with_real) >= limit
+    limitations = [
+        "contacts are extracted from fetched HTML text only",
+        "page locality is not verified",
+        "javascript-only contact widgets are unobserved",
+    ]
+    output = {
+        "observed_contacts": observed_contacts,
+        "observed_count": len(unique_urls_with_real),
+        "contact_value_count": len(observed_contacts),
+        "unobserved": unobserved,
+        "pages": pages,
+        "requested_quantity": limit,
+        "accept_met": accept_met,
+        "real": bool(observed_contacts),
+        "limitations": limitations,
+        "condition_observations": [
+            {
+                "condition_key": item["kind"],
+                "value": item["value"],
+                "source_url": item["source_url"],
+                "real": True,
+            }
+            for item in observed_contacts
+        ],
+    }
+    summary = (
+        f"Observed contacts on {len(unique_urls_with_real)}/{limit} source page(s); "
+        f"{len(unobserved)} unobserved; accept_met={accept_met}."
+    )
+    evidence = EvidenceItem(
+        evidence_type="action_result",
+        evidence_source="tool.invoke.research.observe_contacts",
+        action_name="research.observe_contacts",
+        tool_provider="ajenda_internet",
+        tenant_id=context.tenant_id,
+        task_id=str(context.task_id),
+        mission_id=str(context.mission_id) if context.mission_id else None,
+        summary=summary,
+        structured_payload={
+            "observed_count": output["observed_count"],
+            "requested_quantity": limit,
+            "accept_met": accept_met,
+            "unobserved_count": len(unobserved),
+            "condition_observations": output["condition_observations"],
+        },
+        records_inspected=[str(page.get("url")) for page in pages if page.get("url")],
+        records_changed=[],
+        confidence=0.85 if accept_met else 0.55,
+        limitations=list(limitations),
+        provenance={
+            "runtime_path": "TaskDispatcher -> tool.invoke -> research.observe_contacts",
+            "network_egress_authority": "backend.services.network_egress.NetworkEgressAuthority",
+            "internet_access": "backend.services.internet.page_read",
+        },
+        lineage=EvidenceLineage(
+            artifact_evidence_id=f"observe-contacts:{context.task_id}",
+            origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
+            source_identity=(
+                EvidenceSourceIdentity(
+                    source_system="public_page",
+                    source_record_id=next(iter(unique_urls_with_real)),
+                )
+                if unique_urls_with_real
+                else None
+            ),
+            resolution=(
+                EvidenceLineageResolution.KNOWN if unique_urls_with_real else EvidenceLineageResolution.UNKNOWN
+            ),
+        ),
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+    )
+    return ActionResult(
+        action="research.observe_contacts",
+        provider="ajenda_internet",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        output=output,
+        evidence=[evidence],
+        records_inspected=[str(page.get("url")) for page in pages if page.get("url")],
+        summary=summary,
+        confidence=0.85 if accept_met else 0.55,
+    )
+
+
 def register_web_actions(registry: ActionRegistry) -> None:
     registry.register(
         ActionDefinition(
@@ -212,6 +375,15 @@ def register_web_actions(registry: ActionRegistry) -> None:
             handler=web_page_read,
             provider="ajenda_internet",
             input_model=WebPageReadInput,
+            side_effect_class=SideEffectClass.EXTERNAL_READ,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="research.observe_contacts",
+            handler=research_observe_contacts,
+            provider="ajenda_internet",
+            input_model=ResearchObserveContactsInput,
             side_effect_class=SideEffectClass.EXTERNAL_READ,
         )
     )

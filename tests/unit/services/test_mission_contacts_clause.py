@@ -9,7 +9,8 @@ def test_add_to_contacts_and_collect_info_are_recognized() -> None:
         "collect contact info for each and add them to contacts"
     )
     assert "research_prospects" in intent.requested_outcomes
-    assert "enrich_contacts" in intent.requested_outcomes
+    assert "observe_contacts" in intent.requested_outcomes
+    assert "enrich_contacts" not in intent.requested_outcomes
     assert "update_crm" in intent.requested_outcomes
     assert intent.requested_quantity == 3
     assert intent.unmatched_material_clauses == []
@@ -44,6 +45,7 @@ def test_add_to_contacts_depends_on_discovery_and_binds() -> None:
     intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
     jobs = route_jobs_for_intent(intent)
     assert "research.discover_prospects" in {j.job_key for j in jobs}
+    assert "research.observe_sources" in {j.job_key for j in jobs}
     assert "crm.pipeline_maintenance" in {j.job_key for j in jobs}
     selections, _ = resolve_jobs(
         jobs,

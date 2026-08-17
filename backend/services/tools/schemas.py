@@ -395,6 +395,18 @@ class WebSearchInput(BaseModel):
     timeout_seconds: float = Field(default=8.0, ge=0.5, le=15.0)
 
 
+class ResearchObserveContactsInput(BaseModel):
+    """Bound prospect URLs → observed phones/emails from fetched pages. No invented mailboxes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prospects: list[dict[str, Any]] = Field(default_factory=list)
+    requested_quantity: int = Field(default=5, ge=1, le=20)
+    timeout_seconds: float = Field(default=8.0, ge=0.5, le=15.0)
+    binding_required: bool = False
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
 class WebPageReadInput(BaseModel):
     """Public HTTPS page read (single GET + HTML extract). Not a browser session."""
 

@@ -190,6 +190,7 @@ def collect_upstream_world_state(mission_tasks: list[ExecutionTask]) -> dict[str
         "prospect_candidates": [],
         "qualified_prospects": [],
         "enriched_prospects": [],
+        "observed_contacts": [],
         "introduction_drafts": [],
         "by_node": {},
     }
@@ -207,6 +208,7 @@ def collect_upstream_world_state(mission_tasks: list[ExecutionTask]) -> dict[str
             "prospect_candidates",
             "qualified_prospects",
             "enriched_prospects",
+            "observed_contacts",
             "introduction_drafts",
         ):
             items = output.get(list_key)
@@ -234,12 +236,38 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
     """Authoritative binding map when graph metadata omits explicit input_bindings."""
     specs: list[dict[str, str]] = []
     for dep in dependency_keys:
-        if action_name in {"sales.qualify", "sales.score_lead"} and "web-research" in dep:
+        if action_name in {"sales.qualify", "sales.score_lead"} and "observe" in dep:
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.observed_contacts",
+                    "input_path": "$.input.prospects",
+                }
+            )
+        if action_name == "research.observe_contacts" and "web-research" in dep:
             specs.append(
                 {
                     "from_step": dep,
                     "output_path": "$.prospect_candidates",
                     "input_path": "$.input.prospects",
+                }
+            )
+        elif action_name in {"sales.qualify", "sales.score_lead"} and "web-research" in dep:
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.prospect_candidates",
+                    "input_path": "$.input.prospects",
+                }
+            )
+        elif action_name == "decision.recommend_next_action" and (
+            "observe" in dep or "observe-contacts" in dep or "observe_sources" in dep
+        ):
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.observed_contacts",
+                    "input_path": "$.input.context.observed_contacts",
                 }
             )
         elif action_name == "gtm.lead_enrich":
@@ -397,6 +425,8 @@ def apply_input_bindings(
     bound = _specialize_outreach_input(bound)
     if action_name == "gtm.email_send":
         bound = _specialize_email_send_input(bound)
+    if action_name == "decision.recommend_next_action":
+        bound = _specialize_decision_recommend_input(bound)
 
     raw_context = bound.get("context")
     context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
@@ -429,6 +459,54 @@ def apply_input_bindings(
     return bound, audit
 
 
+def _specialize_decision_recommend_input(bound: dict[str, Any]) -> dict[str, Any]:
+    """Turn observed contacts into recommend options. Never invents mailboxes."""
+
+    context = bound.get("context") if isinstance(bound.get("context"), dict) else {}
+    observed = context.get("observed_contacts")
+    if not isinstance(observed, list) or not observed:
+        return bound
+
+    options: list[dict[str, Any]] = []
+    evidence: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(observed):
+        if not isinstance(item, dict) or item.get("real") is not True:
+            continue
+        company = str(item.get("company") or item.get("domain") or f"source-{index + 1}")[:240]
+        option_id = f"contact:{index}:{company}"[:120]
+        if option_id in seen:
+            continue
+        seen.add(option_id)
+        kind = str(item.get("kind") or "contact")
+        value = str(item.get("value") or "")
+        source_url = str(item.get("source_url") or "")
+        options.append(
+            {
+                "option_id": option_id,
+                "label": f"Use observed {kind} for {company}",
+                "description": f"{kind}={value} from {source_url}"[:1000],
+            }
+        )
+        evidence.append(
+            {
+                "evidence_id": f"obs-{index}-{kind}"[:160],
+                "claim": f"Observed {kind} {value} on {source_url}",
+                "status": "known",
+                "source": source_url or "research.observe_contacts",
+                "confidence": 0.85,
+                "supports_option_ids": [option_id],
+                "supports_criterion_ids": ["has_real_contact"],
+            }
+        )
+    if not options:
+        return bound
+    specialized = dict(bound)
+    specialized["options"] = options
+    specialized["evidence"] = evidence
+    return specialized
+
+
 def _action_name_from_metadata(metadata: dict[str, Any]) -> str | None:
     tool_inv = metadata.get("tool_invocation")
     if isinstance(tool_inv, dict):
@@ -447,6 +525,7 @@ def action_needs_prospect_world(metadata: dict[str, Any]) -> bool:
         "gtm.email_draft",
         "gtm.email_send",
         "sales.draft_followup",
+        "research.observe_contacts",
     }
 
 
