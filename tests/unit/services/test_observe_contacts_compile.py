@@ -48,9 +48,7 @@ def test_fixture_contact_info_compiles_to_observe_not_enrich() -> None:
 
 
 def test_qualify_and_draft_is_sdr_path() -> None:
-    intent = interpret_instruction(
-        "Qualify these observed contacts and draft personalized introductions. Do not send."
-    )
+    intent = interpret_instruction("Qualify these observed contacts and draft personalized introductions. Do not send.")
     jobs = route_jobs_for_intent(intent)
     keys = {job.job_key for job in jobs}
     assert "sales.qualify_prospects" in keys

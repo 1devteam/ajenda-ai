@@ -205,9 +205,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             domain = str(prospect.get("domain") or inp.domain or domain_seed or "").strip() or None
             existing = [item for item in (prospect.get("contacts") or []) if isinstance(item, dict)]
             real_existing = [
-                item
-                for item in existing
-                if item.get("real") is True and item.get("simulated") is not True
+                item for item in existing if item.get("real") is True and item.get("simulated") is not True
             ]
             contacts: list[dict[str, Any]] = list(real_existing)
             enrichment_mode = "passthrough_observed"
