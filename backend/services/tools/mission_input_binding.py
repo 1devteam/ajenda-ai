@@ -462,7 +462,8 @@ def apply_input_bindings(
 def _specialize_decision_recommend_input(bound: dict[str, Any]) -> dict[str, Any]:
     """Turn observed contacts into recommend options. Never invents mailboxes."""
 
-    context = bound.get("context") if isinstance(bound.get("context"), dict) else {}
+    raw_context = bound.get("context")
+    context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
     observed = context.get("observed_contacts")
     if not isinstance(observed, list) or not observed:
         return bound
