@@ -216,6 +216,7 @@ Minimum baseline gates for change PRs:
 
 Additional required gates when runtime semantics are touched:
 
+- `python scripts/validation/runtime_authority_inventory_check.py`
 - targeted contract tests
 - targeted integration tests
 - validation matrix scenario updates where behavior contracts changed

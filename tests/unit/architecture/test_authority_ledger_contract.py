@@ -231,3 +231,25 @@ def test_tool_action_providers_do_not_import_worker_runtime_completion_authority
                 assert node.module != "backend.services.worker_runtime_service", path
             elif isinstance(node, ast.Import):
                 assert all(alias.name != "backend.services.worker_runtime_service" for alias in node.names), path
+
+
+def test_ledger_declares_both_current_runtime_authority_spines() -> None:
+    http_blocks = [
+        block for block in _ledger_blocks() if block.startswith("id: worker_run_admission_mutation_contract\n")
+    ]
+    daemon_blocks = [block for block in _ledger_blocks() if block.startswith("id: daemon_worker_runtime_contract\n")]
+
+    assert len(http_blocks) == 1
+    assert len(daemon_blocks) == 1
+    http_block = http_blocks[0]
+    daemon_block = daemon_blocks[0]
+
+    assert "competing pre-PR-08 spine" in http_block
+    assert "backend/services/worker_run_admission_service.py" in http_block
+    assert "claim_existing_task()" in http_block
+    assert "backend/workers/worker_loop.py" not in http_block
+    assert "backend/workers/worker_loop.py" in daemon_block
+    assert "backend/services/worker_runtime_service.py" in daemon_block
+    assert "compete with a synchronous HTTP claim/start/run authority" in daemon_block
+    assert "tests/unit/validation/test_runtime_authority_inventory_check.py" in http_block
+    assert "tests/unit/validation/test_runtime_authority_inventory_check.py" in daemon_block

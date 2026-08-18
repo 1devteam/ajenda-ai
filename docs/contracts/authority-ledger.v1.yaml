@@ -1,5 +1,5 @@
 version: 1
-last_reviewed: 2026-08-12
+last_reviewed: 2026-08-18
 owner: architecture-runtime-governance
 
 notes:
@@ -511,8 +511,6 @@ authority_entries:
     area: worker run admission readback
     source_of_truth:
       - backend/api/routes/mission.py
-      - backend/workers/task_dispatcher.py
-      - backend/workers/worker_loop.py
     route_scope:
       - GET /v1/missions/{mission_id}/worker-run-admission
     authority_class: read_model
@@ -526,31 +524,58 @@ authority_entries:
       - mutate runtime state
     required_proofs:
       - tests/unit/api/test_worker_run_admission_contract.py
-      - tests/integration/runtime/test_worker_loop_dispatcher_compensation_real.py
-      - tests/contract/workers/test_real_worker_loop.py
 
   - id: worker_run_admission_mutation_contract
-    area: worker run admission
+    area: synchronous HTTP mission-bridge worker run authority (competing pre-PR-08 spine)
     source_of_truth:
       - backend/api/routes/mission.py
       - backend/services/worker_run_admission_service.py
       - backend/workers/task_dispatcher.py
-      - backend/workers/worker_loop.py
+      - backend/queue/base.py
     route_scope:
       - POST /v1/missions/{mission_id}/worker-run-admission
     authority_class: runtime_authoritative
     side_effect_class: tenant_scoped_runtime_dispatch
     allowed_side_effects:
+      - claim an already-admitted queue payload through QueueAdapter.claim_existing_task()
       - invoke dispatcher on admitted running tasks with valid lease ownership
       - complete/fail/dead-letter through canonical runtime paths
     forbidden_side_effects:
       - execute unadmitted tasks
       - bypass queue claim/processing authority
       - bypass tenant/RLS protections
+      - claim or execute concurrently with the daemon worker spine after PR-08 convergence
     required_proofs:
       - tests/unit/api/test_worker_run_admission_contract.py
       - tests/integration/runtime/test_worker_loop_dispatcher_compensation_real.py
+      - tests/unit/validation/test_runtime_authority_inventory_check.py
+
+  - id: daemon_worker_runtime_contract
+    area: daemon queue claim, lease start, and dispatcher execution authority
+    source_of_truth:
+      - backend/workers/worker_loop.py
+      - backend/services/worker_runtime_service.py
+      - backend/workers/task_dispatcher.py
+      - backend/queue/base.py
+    route_scope: []
+    authority_class: runtime_authoritative
+    side_effect_class: tenant_scoped_daemon_runtime_dispatch
+    allowed_side_effects:
+      - claim tenant queue payloads through WorkerRuntimeService
+      - establish and validate worker lease ownership
+      - start eligible claimed tasks
+      - invoke TaskDispatcher and complete/fail/dead-letter through canonical runtime paths
+    forbidden_side_effects:
+      - execute unadmitted tasks
+      - bypass queue claim or worker lease ownership
+      - bypass tenant/RLS protections
+      - compete with a synchronous HTTP claim/start/run authority after PR-08 convergence
+    required_proofs:
+      - tests/unit/workers/test_worker_loop_contracts.py
+      - tests/unit/services/test_worker_runtime_service_transaction_contract.py
+      - tests/integration/runtime/test_worker_loop_dispatcher_compensation_real.py
       - tests/contract/workers/test_real_worker_loop.py
+      - tests/unit/validation/test_runtime_authority_inventory_check.py
 
   - id: capability_registry_contract
     area: capability declarations
