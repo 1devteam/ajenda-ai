@@ -1,7 +1,7 @@
 # Ajenda AI — System Architecture (Code-Aligned)
 
 **Status:** Active  
-**Last verified against `main@7c97bb1be7c09a61e9cc0cc78808ddd8cfbdbfec`:** 2026-08-13
+**Last verified against the 2026-08-18 V1 Path 3 working tree based on `d8a786c383d79f985663ebc1c0428d819f2d6b4a`:** 2026-08-18
 **Source of truth:** implementation files, migrations, tests — not aspirational product docs.
 
 This document is the canonical visual and narrative map of what exists in the repository today. When docs conflict with code, code wins.
@@ -174,8 +174,14 @@ flowchart TD
     E --> G{"gtm.* action?"}
     F --> G
     G -->|yes| H["require_feature gtm"]
-    G -->|no| I["ExecutionCoordinator<br/>mission + task + queue enqueue"]
-    H --> I
+    G -->|no| A1{"Pre-provisioned capability<br/>and adapter authority?"}
+    H --> A1
+    A1 -->|no| X["409 fail closed"]
+    A1 -->|yes| I["ExecutionCoordinator<br/>mission + task admission"]
+    I --> R{"Side-effecting action?"}
+    R -->|yes| V["pending_review<br/>tenant reviewer issues V2 task/payload-bound grant"]
+    V --> J
+    R -->|no| J
     I --> J["Redis queue message<br/>tenant_id in payload"]
     J --> K["WorkerLoop.claim_next_task<br/>single: one tenant_id<br/>multi: round-robin active tenants"]
     K --> L["TaskDispatcher.run<br/>tool.invoke, evidence, audit"]
@@ -183,6 +189,11 @@ flowchart TD
 ```
 
 **Worker tenancy:** `AJENDA_WORKER_TENANT_MODE=multi` (default in staging/prod templates) round-robins active tenants via `tenant_scheduler`. `single` mode polls one `AJENDA_WORKER_TENANT_ID` only.
+
+**Single execution spine:** the former POST worker claim/start/run mission-bridge routes now return
+HTTP 410 after permission validation. Their compatibility services are fail-closed tombstones.
+Only `WorkerLoop`/`WorkerRuntimeService` may claim, start, and dispatch queued work; GET readbacks
+remain available for historical metadata.
 
 ---
 

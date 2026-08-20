@@ -21,6 +21,8 @@ from backend.api.routes import admin as admin_module
 from backend.app.dependencies.db import get_db_session
 from backend.app.dependencies.services import get_queue_adapter
 
+APPROVAL_BODY = {"approval_expires_at": "2099-01-01T00:00:00Z"}
+
 # ---------------------------------------------------------------------------
 # App factory — injects admin principal and overrides DB/queue dependencies
 # ---------------------------------------------------------------------------
@@ -130,7 +132,10 @@ class TestApproveTaskReview:
     def test_returns_403_without_admin_role(self) -> None:
         app, _, _ = _build_admin_app(is_admin=False)
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.post(f"/v1/admin/tenants/{uuid.uuid4()}/tasks/{uuid.uuid4()}/approve-review")
+        resp = client.post(
+            f"/v1/admin/tenants/{uuid.uuid4()}/tasks/{uuid.uuid4()}/approve-review",
+            json=APPROVAL_BODY,
+        )
         assert resp.status_code == 403
 
     def test_returns_404_when_task_not_found(self) -> None:
@@ -139,7 +144,7 @@ class TestApproveTaskReview:
         tid = uuid.uuid4()
         task_id = uuid.uuid4()
         with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=None):
-            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review", json=APPROVAL_BODY)
         assert resp.status_code == 404
 
     def test_returns_404_when_task_belongs_to_different_tenant(self) -> None:
@@ -154,7 +159,7 @@ class TestApproveTaskReview:
             status="pending_review",
         )
         with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
-            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review", json=APPROVAL_BODY)
         assert resp.status_code == 404
 
     def test_returns_409_when_task_not_in_pending_review(self) -> None:
@@ -168,7 +173,7 @@ class TestApproveTaskReview:
             status="queued",
         )
         with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
-            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review", json=APPROVAL_BODY)
         assert resp.status_code == 409
         assert "pending_review" in resp.json()["detail"]
 
@@ -188,7 +193,10 @@ class TestApproveTaskReview:
             with patch("backend.api.routes.admin.ExecutionCoordinator") as coordinator_cls:
                 coordinator = coordinator_cls.return_value
                 coordinator.approve_review_and_queue.return_value = result
-                resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+                resp = client.post(
+                    f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review",
+                    json=APPROVAL_BODY,
+                )
 
         assert resp.status_code == 200
         body = resp.json()
@@ -200,6 +208,7 @@ class TestApproveTaskReview:
             tenant_id=str(tid),
             task_id=task_id,
             actor="admin-test",
+            approval_expires_at=admin_module.datetime.fromisoformat("2099-01-01T00:00:00+00:00"),
         )
         mock_db.commit.assert_called_once_with()
 
@@ -217,7 +226,10 @@ class TestApproveTaskReview:
         with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
             with patch("backend.api.routes.admin.ExecutionCoordinator") as coordinator_cls:
                 coordinator_cls.return_value.approve_review_and_queue.side_effect = ValueError("queue enqueue failed")
-                resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+                resp = client.post(
+                    f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review",
+                    json=APPROVAL_BODY,
+                )
 
         assert resp.status_code == 400
         assert "queue enqueue failed" in resp.json()["detail"]
@@ -234,7 +246,7 @@ class TestApproveTaskReview:
             status="cancelled",
         )
         with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
-            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review", json=APPROVAL_BODY)
         assert resp.status_code == 409
 
     def test_completed_task_cannot_be_approved(self) -> None:
@@ -248,7 +260,7 @@ class TestApproveTaskReview:
             status="completed",
         )
         with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
-            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+            resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review", json=APPROVAL_BODY)
         assert resp.status_code == 409
 
     def test_response_contains_all_required_fields(self) -> None:
@@ -266,7 +278,10 @@ class TestApproveTaskReview:
         with patch.object(admin_module.ExecutionTaskRepository, "get", return_value=fake_task):
             with patch("backend.api.routes.admin.ExecutionCoordinator") as coordinator_cls:
                 coordinator_cls.return_value.approve_review_and_queue.return_value = result
-                resp = client.post(f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review")
+                resp = client.post(
+                    f"/v1/admin/tenants/{tid}/tasks/{task_id}/approve-review",
+                    json=APPROVAL_BODY,
+                )
 
         assert resp.status_code == 200
         body = resp.json()

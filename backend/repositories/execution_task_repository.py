@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,7 +22,7 @@ class ExecutionTaskRepository:
         return task
 
     def get(self, task_id: uuid.UUID) -> ExecutionTask | None:
-        return self._session.get(ExecutionTask, task_id)
+        return cast(ExecutionTask | None, self._session.get(ExecutionTask, task_id))
 
     def get_for_tenant(self, *, task_id: uuid.UUID, tenant_id: str) -> ExecutionTask | None:
         """Resolve a task without exposing the existence of another tenant's row."""
@@ -34,7 +35,14 @@ class ExecutionTaskRepository:
 
     def get_for_update(self, task_id: uuid.UUID) -> ExecutionTask | None:
         stmt = select(ExecutionTask).where(ExecutionTask.id == task_id).with_for_update()
-        return self._session.scalar(stmt)
+        # Lightweight contract fakes may only implement ``Session.get``. The
+        # production SQLAlchemy session always takes the locking scalar path;
+        # this fallback keeps the repository boundary usable for those fakes
+        # without weakening the real row-locking behavior.
+        scalar = getattr(self._session, "scalar", None)
+        if callable(scalar):
+            return cast(ExecutionTask | None, scalar(stmt))
+        return self._session.get(ExecutionTask, task_id)
 
     def list_for_mission(self, mission_id: uuid.UUID) -> list[ExecutionTask]:
         stmt = select(ExecutionTask).where(ExecutionTask.mission_id == mission_id)

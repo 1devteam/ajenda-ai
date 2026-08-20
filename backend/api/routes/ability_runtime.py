@@ -25,6 +25,8 @@ from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, Mission
 from backend.queue.base import QueueAdapter
 from backend.repositories.business_profile_repository import BusinessProfileRepository
+from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
+from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.abilities.role_contracts import RoleName
 from backend.services.autonomy.disclaimer_catalog import (
@@ -158,6 +160,8 @@ class AbilityTaskCreate(BaseModel):
     approved_by: str = Field(default="ability-runtime-ui", min_length=1, max_length=160)
     approval_reason: str = Field(default="User launched ability from product runtime UI.", min_length=1, max_length=500)
     credential_reference: CredentialReference | None = None
+    capability_id: uuid.UUID | None = None
+    adapter_id: uuid.UUID | None = None
     autonomy_acknowledgment: dict[str, Any] | None = None
 
     @field_validator("action")
@@ -381,89 +385,58 @@ def _validate_exposed_action(action_name: str) -> None:
         )
 
 
-def _ensure_runtime_authority(
+def _resolve_runtime_authority(
     *,
     db: Session,
     tenant_id: str,
     action_name: str,
     side_effect_class: SideEffectClass,
-    approved_by: str,
+    capability_id: uuid.UUID | None,
+    adapter_id: uuid.UUID | None,
 ) -> tuple[Capability | None, CapabilityAdapter | None]:
     if not _requires_runtime_authority(side_effect_class):
         return None, None
-
-    suffix = uuid.uuid4().hex[:10]
-    approval_required = side_effect_class.value in {
-        SideEffectClass.EXTERNAL_WRITE.value,
-        SideEffectClass.EXTERNAL_SEND.value,
-        SideEffectClass.EXTERNAL_PUBLISH.value,
-    }
-
-    capability = Capability(
+    if capability_id is None or adapter_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="runtime action requires pre-provisioned capability_id and adapter_id authority",
+        )
+    capability = CapabilityRepository(db).get_visible_for_tenant(
+        capability_id=capability_id,
         tenant_id=tenant_id,
-        name=f"runtime-{action_name}-{suffix}",
-        version="1.0.0",
-        description=f"Runtime authority generated for {action_name}.",
-        supported_task_types=["tool.invoke", action_name],
-        input_schema_hints={},
-        output_schema_hints={},
-        required_permissions=[],
-        required_tools=[action_name],
-        risk_level="medium",
-        approval_requirements={
-            "required": approval_required,
-            "generated_by": "ability-runtime",
-            "approved_by": approved_by,
-        },
-        evidence_expectations=[f"{action_name} evidence"],
-        execution_constraints={},
-        enabled=True,
-        schema_version=1,
     )
-    db.add(capability)
-    db.flush()
-
-    adapter = CapabilityAdapter(
+    adapter = CapabilityAdapterRepository(db).get_visible_for_tenant(
+        adapter_id=adapter_id,
         tenant_id=tenant_id,
-        name=f"runtime-{action_name}-adapter-{suffix}",
-        version="1.0.0",
-        capability_id=capability.id,
-        capability_name=capability.name,
-        capability_version=capability.version,
-        supported_task_types=["tool.invoke", action_name],
-        input_contract={},
-        output_contract={},
-        required_permissions=[],
-        required_tools=[action_name],
-        execution_mode="queued",
-        risk_level="medium",
-        approval_requirements={
-            "required": approval_required,
-            "generated_by": "ability-runtime",
-            "approved_by": approved_by,
-        },
-        evidence_expectations=[f"{action_name} evidence"],
-        timeout_retry_hints={},
-        idempotency_expectations={},
-        side_effect_classification=_adapter_side_effect_classification(side_effect_class),
-        enabled=True,
-        schema_version=1,
     )
-    db.add(adapter)
-    db.flush()
+    if capability is None or adapter is None or not capability.enabled or not adapter.enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="runtime authority is unavailable")
+    if adapter.capability_id != capability.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="adapter does not belong to capability")
+    action_names = {action_name, "tool.invoke"}
+    if not action_names.intersection(capability.supported_task_types) or action_name not in capability.required_tools:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="capability does not authorize action")
+    if not action_names.intersection(adapter.supported_task_types) or action_name not in adapter.required_tools:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="adapter does not authorize action")
+    expected_class = _adapter_side_effect_classification(side_effect_class)
+    if adapter.side_effect_classification != expected_class:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="adapter side-effect class mismatch")
     return capability, adapter
+
+
+# Retained as a patch target for pre-authority contract fixtures. Production
+# launch code calls the fail-closed resolver above directly.
+def _ensure_runtime_authority(*args: Any, **kwargs: Any) -> tuple[Capability | None, CapabilityAdapter | None]:
+    return _resolve_runtime_authority(*args, **kwargs)
 
 
 def _build_task_metadata(
     *,
     action_name: str,
     input_payload: dict[str, Any],
-    side_effect_class: SideEffectClass,
     capability: Capability | None,
     adapter: CapabilityAdapter | None,
     request_body: AbilityTaskCreate,
-    approved_by: str,
-    approval_reason: str,
     autonomy_acknowledgment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
@@ -485,17 +458,9 @@ def _build_task_metadata(
     if adapter is not None:
         metadata["adapter_reference"] = {"adapter_id": str(adapter.id)}
 
-    if side_effect_class.has_side_effect or autonomy_acknowledgment is not None:
+    if autonomy_acknowledgment is not None:
         execution_constraints: dict[str, Any] = {}
-        if side_effect_class.has_side_effect:
-            execution_constraints["side_effect_authorization"] = {
-                "schema_version": 1,
-                "allowed_actions": [action_name],
-                "reason": approval_reason,
-                "approved_by": approved_by,
-            }
-        if autonomy_acknowledgment is not None:
-            execution_constraints["autonomy_acknowledgment"] = autonomy_acknowledgment
+        execution_constraints["autonomy_acknowledgment"] = autonomy_acknowledgment
         metadata["execution_constraints"] = execution_constraints
 
     if request_body.credential_reference is not None:
@@ -759,14 +724,6 @@ def launch_task(
 
         raise quota_exceeded_http(exc) from exc
 
-    capability, adapter = _ensure_runtime_authority(
-        db=db,
-        tenant_id=str(tenant_id),
-        action_name=action.name,
-        side_effect_class=side_effect_class,
-        approved_by=launch_authority.approved_by,
-    )
-
     if body.mission_id is not None:
         mission = MissionRepository(db).get_for_tenant(mission_id=body.mission_id, tenant_id=str(tenant_id))
         if mission is None:
@@ -787,6 +744,14 @@ def launch_task(
             },
         )
         db.add(mission)
+    capability, adapter = _resolve_runtime_authority(
+        db=db,
+        tenant_id=str(tenant_id),
+        action_name=action.name,
+        side_effect_class=side_effect_class,
+        capability_id=body.capability_id,
+        adapter_id=body.adapter_id,
+    )
     db.flush()
 
     task = ExecutionTask(
@@ -798,12 +763,9 @@ def launch_task(
         metadata_json=_build_task_metadata(
             action_name=action.name,
             input_payload=body.input,
-            side_effect_class=side_effect_class,
             capability=capability,
             adapter=adapter,
             request_body=body,
-            approved_by=launch_authority.approved_by,
-            approval_reason=launch_authority.approval_reason,
             autonomy_acknowledgment=launch_authority.autonomy_acknowledgment,
         ),
         compliance_category="operational",
@@ -835,6 +797,16 @@ def launch_task(
         task_id=task.id,
     )
     if not queued.ok:
+        if queued.state == ExecutionTaskState.PENDING_REVIEW.value:
+            db.commit()
+            return AbilityTaskQueuedResponse(
+                task_id=task.id,
+                mission_id=mission.id,
+                status=task.status,
+                action=action.name,
+                queue_status="review_required",
+                queue_reason=queued.reason,
+            )
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

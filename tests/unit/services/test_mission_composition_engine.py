@@ -12,6 +12,12 @@ from backend.services.mission_composition.plan_compiler import (
 )
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
 from backend.services.mission_composition.service import MissionCompositionService
+from backend.services.mission_composition.structured_planner import (
+    PlannerBudgetProposal,
+    PlannerJobProposal,
+    PlannerResult,
+    StructuredPlannerProposal,
+)
 from backend.services.operating_charter import default_operating_charter
 
 ROOFING_INSTRUCTION = (
@@ -42,6 +48,58 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     assert intent.target_entities[0].industry.lower() == "roofing"
     assert "research" not in intent.target_entities[0].industry.lower()
     assert "identify" not in intent.target_entities[0].location.lower()
+
+
+def test_revops_composition_is_pinned_to_selected_know_how_version() -> None:
+    service = MissionCompositionService(db=None)
+    record = service.compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction=ROOFING_INSTRUCTION,
+    )
+    assert record.composition_provenance.know_how_id == "revops.research-to-approved-outreach"
+    assert record.composition_provenance.know_how_version == "1.0.0"
+
+
+def test_valid_injected_structured_planner_is_persisted_as_non_authoritative_proposal() -> None:
+    class Planner:
+        def propose(self, request: object) -> PlannerResult:
+            clause_ids = tuple(item["clause_id"] for item in request.material_clauses)  # type: ignore[attr-defined]
+            job_keys = (
+                "research.discover_prospects",
+                "research.observe_sources",
+                "sales.qualify_prospects",
+                "gtm.enrich_contacts",
+                "email.prepare_outreach",
+            )
+            return PlannerResult(
+                proposal=StructuredPlannerProposal(
+                    objective="Research, qualify, and draft without sending.",
+                    know_how_id=request.know_how_id,  # type: ignore[attr-defined]
+                    know_how_version=request.know_how_version,  # type: ignore[attr-defined]
+                    material_clause_ids=clause_ids,
+                    jobs=tuple(PlannerJobProposal(job_key=key, reason="Required by instruction.") for key in job_keys),
+                    success_criteria=("Drafts are ready for review.",),
+                    budget=PlannerBudgetProposal(
+                        max_steps=10,
+                        max_replans=1,
+                        max_provider_calls=10,
+                        max_model_tokens=10_000,
+                        max_wall_seconds=300,
+                        max_cost_usd=5,
+                    ),
+                ),
+                provider="test_planner",
+                model="test-model",
+            )
+
+    record = MissionCompositionService(db=None, planner_provider=Planner()).compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction=ROOFING_INSTRUCTION,
+    )
+    assert record.planner_proposal is not None
+    assert record.planner_proposal["grants_execution_authority"] is False
+    assert record.planner_provenance is not None
+    assert record.planner_provenance["status"] == "validated_proposal"
 
 
 def test_interpreter_stops_location_before_trailing_verbs() -> None:
@@ -292,7 +350,8 @@ def test_credential_reference_is_copied_into_graph_input_contract() -> None:
     )
     intent = interpret_instruction("Send a follow-up email to a prospect.")
     steps = compile_planned_steps([selection], intent=intent)
-    graph = compile_task_graph_preview(steps, selections=[selection], approved_by="tester")
+    graph = compile_task_graph_preview(steps, selections=[selection])
     node = graph["nodes"][0]
     cred = node["input_contract"].get("credential_reference")
     assert cred is not None
+    assert "execution_constraints" not in node["input_contract"]

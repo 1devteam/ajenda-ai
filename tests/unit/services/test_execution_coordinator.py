@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -9,6 +10,7 @@ import pytest
 from backend.domain.enums import ExecutionTaskState
 from backend.queue.base import QueueOperationResult
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.tools.schemas import side_effect_authorized
 
 
 def _allowed_decision() -> SimpleNamespace:
@@ -28,6 +30,9 @@ def _task(*, tenant_id: str, status: str = ExecutionTaskState.PLANNED.value) -> 
         branch_id=None,
         status=status,
         metadata_json={"task_type": "echo"},
+        compliance_category="operational",
+        jurisdiction="US-ALL",
+        requires_human_review=False,
     )
 
 
@@ -154,6 +159,101 @@ def test_approve_review_queues_pending_review_task() -> None:
     assert coordinator._audit.append.call_count == 2
 
 
+def test_side_effect_task_requires_review_then_approval_issues_exact_action_grant() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PLANNED.value)
+    task.metadata_json = {
+        "task_type": "tool.invoke",
+        "tool_invocation": {
+            "schema_version": 1,
+            "action": "gtm.email_send",
+            "input": {"to": "lead@example.com", "subject": "Hello", "body": "Draft"},
+        },
+    }
+    queue = MagicMock()
+    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    review = coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+
+    assert review.ok is False
+    assert task.status == ExecutionTaskState.PENDING_REVIEW.value
+    queue.enqueue_task.assert_not_called()
+    coordinator._tasks.get_for_update.return_value = task
+
+    approved = coordinator.approve_review_and_queue(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        actor="admin:user-123",
+        approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    assert approved.ok is True
+    grant = task.metadata_json["execution_constraints"]["side_effect_authorization"]
+    assert grant["schema_version"] == 2
+    assert grant["tenant_id"] == tenant_id
+    assert grant["task_id"] == str(task.id)
+    assert grant["allowed_action"] == "gtm.email_send"
+    assert grant["invocation_sha256"].startswith("sha256:")
+    assert grant["reason"] == "human_review_approved"
+    assert grant["approved_by"] == "admin:user-123"
+    assert grant["revoked_at"] is None
+    queued = queue.enqueue_task.call_args.args[0]
+    assert queued.payload == task.metadata_json
+    assert side_effect_authorized(
+        task.metadata_json,
+        "gtm.email_send",
+        tenant_id=tenant_id,
+        task_id=task.id,
+    )
+
+    revoked = coordinator.revoke_side_effect_approval(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        actor="admin:user-123",
+        reason="recipient requested cancellation",
+    )
+
+    assert revoked.reason == "approval_revoked"
+    revoked_grant = task.metadata_json["execution_constraints"]["side_effect_authorization"]
+    assert revoked_grant["revoked_by"] == "admin:user-123"
+    assert revoked_grant["revocation_reason"] == "recipient requested cancellation"
+    assert not side_effect_authorized(
+        task.metadata_json,
+        "gtm.email_send",
+        tenant_id=tenant_id,
+        task_id=task.id,
+    )
+
+
+def test_composition_issued_grant_does_not_bypass_side_effect_review() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id)
+    task.metadata_json = {
+        "task_type": "tool.invoke",
+        "tool_invocation": {
+            "schema_version": 1,
+            "action": "gtm.email_send",
+            "input": {"to": "lead@example.com"},
+        },
+        "execution_constraints": {
+            "side_effect_authorization": {
+                "schema_version": 1,
+                "allowed_actions": ["gtm.email_send"],
+                "reason": "compiled",
+                "approved_by": "mission_composition_engine",
+            }
+        },
+    }
+    queue = MagicMock()
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    result = coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+
+    assert result.state == ExecutionTaskState.PENDING_REVIEW.value
+    queue.enqueue_task.assert_not_called()
+
+
 def test_approve_review_rejects_already_queued_task_without_enqueueing() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.QUEUED.value)
@@ -219,6 +319,50 @@ def test_mark_dead_letter_moves_task_to_dead_letter_and_emits_governance_evidenc
     assert governance_event.decision == "retry budget exhausted"
     assert governance_event.payload_json == {"task_id": str(task.id)}
     assert coordinator._session.flush.call_count == 2
+
+
+def test_retry_task_reenters_admission_and_canonical_queue_boundary() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
+    queue = MagicMock()
+    queue.list_dead_letter.return_value = []
+    queue.recover_task_for_retry.return_value = QueueOperationResult(
+        ok=False,
+        reason="task not found in processing or pending queue",
+    )
+    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    result = coordinator.retry_task(tenant_id=tenant_id, task_id=task.id)
+
+    assert result.ok is True
+    assert task.status == ExecutionTaskState.QUEUED.value
+    coordinator._governor.evaluate.assert_called_once()
+    coordinator._policy.evaluate_task.assert_called_once_with(task)
+    queue.enqueue_task.assert_called_once()
+
+
+def test_retry_side_effect_without_current_grant_returns_to_review() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.DEAD_LETTERED.value)
+    task.metadata_json = {
+        "task_type": "tool.invoke",
+        "tool_invocation": {
+            "schema_version": 1,
+            "action": "gtm.email_send",
+            "input": {"to": "lead@example.com"},
+        },
+    }
+    queue = MagicMock()
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    result = coordinator.retry_task(tenant_id=tenant_id, task_id=task.id)
+
+    assert result.ok is False
+    assert result.state == ExecutionTaskState.PENDING_REVIEW.value
+    assert "current independent human approval" in str(result.reason)
+    queue.enqueue_task.assert_not_called()
+    queue.retry_dead_letter.assert_not_called()
 
 
 def test_queue_task_rejects_duplicate_already_queued_task_without_enqueuing() -> None:

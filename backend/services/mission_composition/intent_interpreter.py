@@ -21,6 +21,7 @@ from backend.services.mission_composition.contracts import (
     INTERPRETER_VERSION,
     CanonicalOutcome,
     Clarification,
+    Contradiction,
     InterpretationEvidence,
     InterpretedClause,
     MissionIntent,
@@ -51,6 +52,7 @@ _NO_SEND_PATTERNS = (
     r"draft only",
     r"prepare drafts",
     r"no send",
+    r"nothing should be sent",
 )
 _CONDITIONAL_SEND_PATTERNS = (
     r"send only after",
@@ -59,6 +61,10 @@ _CONDITIONAL_SEND_PATTERNS = (
     r"until (?:i |you )?approv",
     r"hold until",
     r"nothing goes out without",
+)
+_SEND_CONTRADICTION_PATTERNS = (
+    r"\bsend\b[^.;]{0,64}\b(?:but|however)\b[^.;]{0,32}\b(?:do not|don't|dont|never)\s+send\b",
+    r"\b(?:do not|don't|dont|never)\s+send\b[^.;]{0,64}\b(?:but|however)\b[^.;]{0,32}\bsend\b",
 )
 _DRAFT_PATTERNS = (
     r"\bdraft\b",
@@ -80,6 +86,7 @@ _QUALIFY_PATTERNS = (
     r"\btop (?:three|five)\b",
     r"\bstrongest (?:leads?|prospects?|competitors?)\b",
     r"\bpick the (?:strongest|best)\b",
+    r"\bchoose (?:the )?(?:strongest|best)(?:\s+\w+)?\b",
 )
 _RESEARCH_PATTERNS = (
     r"\bresearch\b",
@@ -211,6 +218,7 @@ _CRM_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\s+(?:add|save|sync|push|write|update|log|upsert|create)\b.{0,48}\b(?:crm|hubspot|pipeline|contacts?)\b",
     r"\bno\s+(?:crm|contact)\s+(?:updates?|writes?|saves?)\b",
     r"\bwithout\s+(?:adding|saving)\s+(?:them\s+)?to\s+contacts?\b",
+    r"\b(?:do not|don't|dont|never|without)\b[^.;]{0,96}\b(?:update|write|sync|push|log|upsert|create)\b[^.;]{0,32}\b(?:crm|hubspot|pipeline|contacts?)\b",
 )
 # Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
@@ -226,6 +234,7 @@ _PUBLISH_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\s+post\b",
     r"\b(?:do not|don't|dont|never)\s+share\b.{0,24}\b(?:linkedin|social|twitter|x)\b",
     r"\bno\s+(?:social\s+)?(?:publishing|posts?)\b",
+    r"\b(?:do not|don't|dont|never|without)\b[^.;]{0,64}\b(?:publish|post|share)\b",
 )
 # Publish that must wait on upstream research outputs (not standalone copy).
 _PUBLISH_RESULT_BASED = re.compile(
@@ -850,6 +859,7 @@ def interpret_instruction(
 
     no_send = _contains_any(lower, _NO_SEND_PATTERNS)
     conditional_send = _contains_any(lower, _CONDITIONAL_SEND_PATTERNS)
+    send_contradiction = _contains_any(lower, _SEND_CONTRADICTION_PATTERNS) and not conditional_send
     wants_send = _contains_any(lower, _SEND_PATTERNS) and not no_send and not conditional_send
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
@@ -860,7 +870,7 @@ def interpret_instruction(
     explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
     hubspot_as_research_source = bool(
         re.search(r"\bfrom\s+(?:hubspot|(?:the\s+)?crm)\b", lower)
-        or re.search(r"\bcompanies\b.+\b(?:hubspot|crm)\s+records?\b", lower)
+        or re.search(r"\bcompanies\b.{0,80}\b(?:hubspot|crm)\s+records?\b", lower)
     )
     wants_research = _contains_any(lower, _RESEARCH_PATTERNS) and (
         not connector_read or explicit_prospect_research or hubspot_as_research_source
@@ -1101,6 +1111,29 @@ def interpret_instruction(
     # ("do not send anything until I approve").
     constraints: list[str] = []
     forbidden: list[str] = []
+    contradictions: list[Contradiction] = []
+    if send_contradiction:
+        contradictions.append(
+            Contradiction(
+                field_path="send_policy",
+                first_span="send",
+                second_span="do not send",
+                first_value="allow",
+                second_value="forbid",
+                risk="high",
+                resolution_status="unresolved",
+                rule_id="contradiction.send_allow_forbid",
+            )
+        )
+        clarifications.append(
+            _restatement(
+                field="send_policy",
+                understood="the mission contains both send and do-not-send instructions",
+                missing="the external-send policy is contradictory",
+                include_instruction="one unambiguous choice: draft only, send now, or send only after approval",
+                reason="Contradictory external-effect instructions fail closed.",
+            )
+        )
     if no_crm:
         forbidden.append("gtm.crm_upsert")
         constraints.append("Do not write contacts or CRM records")
@@ -1565,6 +1598,7 @@ def interpret_instruction(
         budget_limits=None,
         context_requirements=context_requirements,
         ambiguity=clarifications,
+        contradictions=contradictions,
         interpreted_clauses=clause_models,
         unmatched_material_clauses=unmatched,
         semantic_units=semantic_units,

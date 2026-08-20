@@ -78,7 +78,10 @@ REVIEWED_CALL_SITES: dict[CallSiteKey, ReviewedCallSite] = {
         "canonical_boundary", "retain through shared admission convergence"
     ),
     CallSiteKey("backend/api/routes/admin.py", "approve_task_review", "admission"): ReviewedCallSite(
-        "exception_bypass", "PR-07: route through the shared admission service"
+        "canonical_boundary", "review grant re-enters ExecutionCoordinator.queue_task admission gates"
+    ),
+    CallSiteKey("backend/api/routes/review_queue.py", "approve_tenant_task", "admission"): ReviewedCallSite(
+        "canonical_boundary", "tenant review grant re-enters ExecutionCoordinator.queue_task admission gates"
     ),
     CallSiteKey("backend/api/routes/task.py", "queue_task", "admission"): ReviewedCallSite(
         "canonical_boundary", "retain through shared admission convergence"
@@ -86,6 +89,11 @@ REVIEWED_CALL_SITES: dict[CallSiteKey, ReviewedCallSite] = {
     CallSiteKey(
         "backend/services/execution_coordinator.py", "ExecutionCoordinator._enqueue_or_restore", "queue_enqueue"
     ): ReviewedCallSite("canonical_boundary", "retain as the sole normal queue mutation boundary"),
+    CallSiteKey(
+        "backend/services/execution_coordinator.py",
+        "ExecutionCoordinator.approve_review_and_queue",
+        "admission",
+    ): ReviewedCallSite("canonical_boundary", "review approval re-enters the ordinary admission gates"),
     CallSiteKey(
         "backend/services/mission_executor.py", "MissionExecutor.queue_all_planned_tasks", "admission"
     ): ReviewedCallSite("canonical_boundary", "compatibility caller; converge on shared admission service"),
@@ -95,10 +103,10 @@ REVIEWED_CALL_SITES: dict[CallSiteKey, ReviewedCallSite] = {
         "admission",
     ): ReviewedCallSite("canonical_boundary", "retain as mission queue admission owner"),
     CallSiteKey(
-        "backend/services/operations_service.py",
-        "OperationsService._recover_existing_queue_payload_or_enqueue_from_db",
+        "backend/services/execution_coordinator.py",
+        "ExecutionCoordinator.retry_task",
         "queue_enqueue",
-    ): ReviewedCallSite("exception_bypass", "PR-07/PR-09: re-admit through shared bounded recovery"),
+    ): ReviewedCallSite("canonical_boundary", "bounded retry re-admits through governor, policy, and review gates"),
     CallSiteKey(
         "backend/services/tools/runtime_authority.py", "ToolRuntimeAuthority.execute", "action_invoke"
     ): ReviewedCallSite("canonical_boundary", "retain as the only production action-registry invocation"),
@@ -107,14 +115,6 @@ REVIEWED_CALL_SITES: dict[CallSiteKey, ReviewedCallSite] = {
         "VerticalOpsTemplateService.queue_planned_tasks",
         "admission",
     ): ReviewedCallSite("canonical_boundary", "retain through shared admission convergence"),
-    CallSiteKey(
-        "backend/services/worker_run_admission_service.py", "WorkerRunAdmissionService.admit", "queue_claim"
-    ): ReviewedCallSite("competing_http_spine", "PR-08: remove synchronous HTTP claim authority"),
-    CallSiteKey(
-        "backend/services/worker_run_admission_service.py",
-        "WorkerRunAdmissionService.admit",
-        "dispatcher_execute",
-    ): ReviewedCallSite("competing_http_spine", "PR-08: remove synchronous HTTP dispatch authority"),
     CallSiteKey(
         "backend/services/worker_runtime_service.py", "WorkerRuntimeService.claim_next_task", "queue_claim"
     ): ReviewedCallSite("canonical_daemon_spine", "retain as converged queue claim authority"),

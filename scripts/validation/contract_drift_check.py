@@ -23,6 +23,7 @@ SUPPORTED_AUTHORITY_CLASSES = {
     "read_model",
     "governed_mutation",
     "runtime_authoritative",
+    "removed",
 }
 SUPPORTED_ROUTE_METHODS = {
     "DELETE",

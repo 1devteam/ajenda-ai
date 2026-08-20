@@ -29,6 +29,7 @@ def validate_capability_action_authority(
     metadata: Mapping[str, Any],
     action: ActionDefinition,
     side_effect_class: SideEffectClass | None = None,
+    task_id: uuid.UUID | None = None,
 ) -> None:
     effective_side_effect_class = side_effect_class or action.side_effect_class
     capability = _resolve_capability(
@@ -70,6 +71,8 @@ def validate_capability_action_authority(
             side_effect_class=effective_side_effect_class,
             capability=capability,
             adapter=adapter,
+            tenant_id=tenant_id,
+            task_id=task_id,
         )
 
 
@@ -148,6 +151,8 @@ def _validate_runtime_promotion_authority(
     side_effect_class: SideEffectClass,
     capability: Capability | None,
     adapter: CapabilityAdapter | None,
+    tenant_id: str,
+    task_id: uuid.UUID | None,
 ) -> None:
     if adapter is None and capability is None:
         raise CapabilityActionValidationError("runtime promotion requires explicit capability/adapter authority")
@@ -162,7 +167,7 @@ def _validate_runtime_promotion_authority(
         raise CapabilityActionValidationError("adapter side_effect_classification does not authorize action")
     if not side_effect_class.has_side_effect:
         return
-    if side_effect_authorized(metadata, action.name):
+    if side_effect_authorized(metadata, action.name, tenant_id=tenant_id, task_id=task_id):
         return
     raise CapabilityActionValidationError(
         "side-effecting action requires execution_constraints.side_effect_authorization"

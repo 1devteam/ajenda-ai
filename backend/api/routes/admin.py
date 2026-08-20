@@ -23,6 +23,7 @@ Endpoints:
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -86,6 +87,10 @@ class ApproveReviewResponse(BaseModel):
     task_id: str
     previous_status: str
     status: str
+
+
+class ApproveReviewRequest(BaseModel):
+    approval_expires_at: datetime
 
 
 # ------------------------------------------------------------------
@@ -303,6 +308,7 @@ def get_billing_status(
 def approve_task_review(
     tenant_id: uuid.UUID,
     task_id: uuid.UUID,
+    body: ApproveReviewRequest,
     request: Request,
     db: Session = Depends(get_db_session),
     queue: QueueAdapter = Depends(get_queue_adapter),
@@ -342,6 +348,7 @@ def approve_task_review(
             tenant_id=str(tenant_id),
             task_id=task_id,
             actor=actor,
+            approval_expires_at=body.approval_expires_at,
         )
         db.commit()
     except ValueError as exc:

@@ -672,16 +672,6 @@ class VerticalOpsTemplateService:
         if credential_payload is not None:
             metadata_json["credential_reference"] = credential_payload
 
-        if side_effect.has_side_effect:
-            metadata_json["execution_constraints"] = {
-                "side_effect_authorization": {
-                    "schema_version": 1,
-                    "allowed_actions": [step.action_name],
-                    "reason": approval_reason,
-                    "approved_by": approved_by,
-                }
-            }
-
         return PlannedVerticalTaskSpec(
             step_key=step.step_key,
             action_name=step.action_name,

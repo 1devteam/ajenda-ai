@@ -186,7 +186,7 @@ def test_launch_task_records_mission_and_task_quota_before_queueing() -> None:
     with (
         patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.ability_runtime.ExecutionCoordinator", return_value=coordinator),
-        patch("backend.api.routes.ability_runtime._ensure_runtime_authority", return_value=(None, None)),
+        patch("backend.api.routes.ability_runtime._resolve_runtime_authority", return_value=(None, None)),
     ):
         launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
 
@@ -337,7 +337,7 @@ def test_launch_task_with_mission_id_skips_mission_quota_and_starts_planned_miss
     with (
         patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.ability_runtime.ExecutionCoordinator", return_value=coordinator),
-        patch("backend.api.routes.ability_runtime._ensure_runtime_authority", return_value=(None, None)),
+        patch("backend.api.routes.ability_runtime._resolve_runtime_authority", return_value=(None, None)),
         patch("backend.api.routes.ability_runtime.MissionRepository", return_value=mission_repo),
     ):
         response = launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)

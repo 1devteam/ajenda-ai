@@ -4,7 +4,15 @@
 **Prepared:** 2026-08-18  
 **Implementation baseline:** `main@7ccadea5a9da7700ccf9b0ccd6087c027bff9a12` plus the audited
 planning/validation branch  
-**Status:** Decision memo; selecting a path authorizes scope, not implementation completion
+**Status:** Path 3 selected on 2026-08-18; selection authorizes scope, not implementation completion
+
+**Owner decision:** Obex Blackvault authorized **Path 3 — Single Vertical Worker V1** with the
+Revenue Operations boundary of research, qualification, personalized draft preparation, human
+approval, and optional provider-backed delivery/CRM update. The decision record and remaining
+promotion decisions are maintained in
+[`D8_REVENUE_OPERATIONS_V1_DECISION.md`](D8_REVENUE_OPERATIONS_V1_DECISION.md).
+The code-derived capability baseline is maintained in
+[`VR01_REVENUE_OPERATIONS_BASELINE.md`](VR01_REVENUE_OPERATIONS_BASELINE.md).
 
 **Current-state prerequisite:** read
 [`docs/planning/CURRENT_COMPETENCY_AND_RUNTIME_MAP.md`](CURRENT_COMPETENCY_AND_RUNTIME_MAP.md) for
@@ -132,10 +140,10 @@ than Path 1 but still risks being perceived as another copilot rather than a ver
 
 ### Product boundary
 
-Ship one outcome-complete vertical: recommended scope is revenue operations from company/prospect
+Ship one outcome-complete vertical: the selected scope is revenue operations from company/prospect
 research through qualification, personalized draft preparation, human approval, and optional
-provider-backed delivery/CRM update. The exact vertical and its 10–20 canonical jobs require D8
-owner approval before implementation.
+provider-backed delivery/CRM update. The bounded job mapping and unresolved promotion thresholds
+are recorded in the D8 decision record.
 
 ### Build sequence
 
@@ -298,5 +306,6 @@ Before implementation milestones are assigned, record:
 5. numeric quality, safety, cost, and latency promotion thresholds;
 6. named exclusions that sales, UI, docs, and API behavior must preserve.
 
-Until this record exists, inventory and P0 containment may proceed, but product capability work must
-not assume which V1 is authorized.
+Path 3 and its Revenue Operations boundary are authorized in the linked D8 record. Inventory,
+acceptance-corpus design, and P0 containment may proceed. Release promotion remains blocked until
+the open numeric quality, safety, cost, latency, and pilot decisions in that record are approved.

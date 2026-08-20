@@ -14,6 +14,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.tenant import Tenant
 from backend.main import create_app
 from backend.services.autonomy.disclaimer_catalog import disclaimer_for_action
+from tests.integration.credentials._invoke_authority_helpers import seed_capability_adapter_authority
 from tests.integration.credentials.credential_e2e_support import auth_headers, provision_operational_tenant
 
 pytestmark = pytest.mark.integration
@@ -69,6 +70,21 @@ def test_tier3_autonomy_ack_queues_task_and_writes_audit_event(
         )
         assert create_resp.status_code == 201, create_resp.text
 
+        authority_session_factory = sessionmaker(
+            bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False
+        )
+        authority_session = authority_session_factory()
+        try:
+            authority = seed_capability_adapter_authority(
+                authority_session,
+                tenant_id=tenant_id,
+                action_name="gtm.crm_upsert",
+                side_effect_classification="non_idempotent_write",
+            )
+            authority_session.commit()
+        finally:
+            authority_session.close()
+
         launch = client.post(
             "/v1/ability-runtime/tasks",
             headers={
@@ -82,6 +98,8 @@ def test_tier3_autonomy_ack_queues_task_and_writes_audit_event(
                     "data": {"email": "autonomy@example.com", "firstname": "Autonomy"},
                 },
                 "idempotency_key": f"au02-{uuid.uuid4().hex[:8]}",
+                "capability_id": authority["capability_reference"]["capability_id"],
+                "adapter_id": authority["adapter_reference"]["adapter_id"],
                 "credential_reference": {
                     "schema_version": 1,
                     "credential_id": "hubspot-crm",
@@ -108,9 +126,9 @@ def test_tier3_autonomy_ack_queues_task_and_writes_audit_event(
     try:
         task = verify_session.get(ExecutionTask, uuid.UUID(task_id))
         assert task is not None
-        assert task.requires_human_review is False
-        side_effect_auth = task.metadata_json.get("execution_constraints", {}).get("side_effect_authorization", {})
-        assert side_effect_auth.get("approved_by") == f"autonomy:{principal_id}"
+        assert task.requires_human_review is True
+        assert body["queue_status"] == "review_required"
+        assert "side_effect_authorization" not in task.metadata_json.get("execution_constraints", {})
 
         audit_rows = list(
             verify_session.scalars(

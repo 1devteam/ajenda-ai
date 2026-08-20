@@ -55,7 +55,6 @@ from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
-from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 
 # --- mission_bridge re-exports (Phase 1b layering) ---
@@ -118,10 +117,6 @@ from backend.services.mission_runtime_projection import (
 from backend.services.mission_runtime_queue_admission_service import MissionRuntimeQueueAdmissionService
 from backend.services.mission_runtime_task_materialization_service import MissionRuntimeTaskMaterializationService
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaEnforcementService, QuotaExceededError
-from backend.services.worker_claim_admission_service import WorkerClaimAdmissionService
-from backend.services.worker_run_admission_service import WorkerRunAdmissionService
-from backend.services.worker_start_admission_service import WorkerStartAdmissionService
-from backend.workers.task_dispatcher import TaskDispatcher
 
 RuntimeReadinessStatus = _mission_bridge_read_models.RuntimeReadinessStatus
 RuntimeReadinessCheckStatus = _mission_bridge_read_models.RuntimeReadinessCheckStatus
@@ -2649,19 +2644,11 @@ def worker_claim_admission(
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerClaimAdmissionRead:
-    """Persist controlled worker claim admission metadata for queued runtime tasks."""
+    """Deprecated: daemon workers exclusively own queue claim authority."""
     require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    admitted_by = (
-        request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_claim_admission"
-    )
-    return cast(
-        WorkerClaimAdmissionRead,
-        WorkerClaimAdmissionService(
-            db,
-            mission_repository_cls=MissionRepository,
-            execution_task_repository_cls=ExecutionTaskRepository,
-            worker_lease_repository_cls=WorkerLeaseRepository,
-        ).admit(mission_id=mission_id, tenant_id=tenant_id, admitted_by=admitted_by),
+    raise HTTPException(
+        status_code=410,
+        detail="HTTP worker claim admission was removed; queued work is claimed by the daemon worker.",
     )
 
 
@@ -2693,19 +2680,11 @@ def worker_start_admission(
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerStartAdmissionRead:
-    """Persist controlled worker execution start admission metadata for claimed runtime tasks."""
+    """Deprecated: daemon workers exclusively own execution start authority."""
     require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    admitted_by = (
-        request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_start_admission"
-    )
-    return cast(
-        WorkerStartAdmissionRead,
-        WorkerStartAdmissionService(
-            db,
-            mission_repository_cls=MissionRepository,
-            execution_task_repository_cls=ExecutionTaskRepository,
-            worker_lease_repository_cls=WorkerLeaseRepository,
-        ).admit(mission_id=mission_id, tenant_id=tenant_id, admitted_by=admitted_by),
+    raise HTTPException(
+        status_code=410,
+        detail="HTTP worker start admission was removed; claimed work is started by the daemon worker.",
     )
 
 
@@ -2736,23 +2715,12 @@ def worker_run_admission(
     request: Request,
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
-    queue: QueueAdapter = Depends(get_queue_adapter),
 ) -> WorkerRunAdmissionRead:
-    """Persist governed worker run admission metadata after dispatching admitted running tasks."""
+    """Deprecated: daemon workers exclusively own dispatcher execution authority."""
     require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    admitted_by = (
-        request.headers.get("x-ajenda-actor") or request.headers.get("x-user-id") or "runtime:worker_run_admission"
-    )
-    return cast(
-        WorkerRunAdmissionRead,
-        WorkerRunAdmissionService(
-            db,
-            queue,
-            mission_repository_cls=MissionRepository,
-            execution_task_repository_cls=ExecutionTaskRepository,
-            worker_lease_repository_cls=WorkerLeaseRepository,
-            task_dispatcher_cls=TaskDispatcher,
-        ).admit(mission_id=mission_id, tenant_id=tenant_id, admitted_by=admitted_by, request=request),
+    raise HTTPException(
+        status_code=410,
+        detail="HTTP worker run admission was removed; running work is dispatched by the daemon worker.",
     )
 
 
@@ -2879,6 +2847,10 @@ def queue_mission(
 
 
 # Contract-test patch targets for mission_bridge re-exports.
+# Compatibility patch targets for older contract fixtures. Runtime dispatch
+# remains owned by the daemon worker and these names are never invoked here.
+TaskDispatcher = None
+WorkerLeaseRepository = None
 _TEST_PATCH_EXPORTS = (
     WorkerLease,
     _tenant_aware_dispatcher_session_factory,

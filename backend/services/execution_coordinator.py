@@ -18,6 +18,8 @@ from backend.repositories.governance_event_repository import GovernanceEventRepo
 from backend.runtime.transitions import transition_task
 from backend.services.policy_guardian import PolicyGuardian
 from backend.services.runtime_governor import RuntimeGovernor
+from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.schemas import ToolInvocation, side_effect_authorized, tool_invocation_sha256
 
 logger = logging.getLogger("ajenda.execution_coordinator")
 
@@ -31,11 +33,17 @@ class CoordinationResult:
 
 
 class ExecutionCoordinator:
-    def __init__(self, session: Session, queue: QueueAdapter) -> None:
+    def __init__(
+        self,
+        session: Session,
+        queue: QueueAdapter,
+        *,
+        audit_repository: AuditEventRepository | None = None,
+    ) -> None:
         self._session = session
         self._queue = queue
         self._tasks = ExecutionTaskRepository(session)
-        self._audit = AuditEventRepository(session)
+        self._audit = audit_repository or AuditEventRepository(session)
         self._governance = GovernanceEventRepository(session)
         self._governor = RuntimeGovernor(session)
         self._policy = PolicyGuardian(session)
@@ -62,6 +70,19 @@ class ExecutionCoordinator:
                 reason=decision.reason,
             )
 
+        if self._requires_unapproved_side_effect_review(task):
+            self._place_in_review(
+                task=task,
+                tenant_id=tenant_id,
+                reason="side-effecting action requires independent human approval",
+            )
+            return CoordinationResult(
+                ok=False,
+                task_id=task.id,
+                state=task.status,
+                reason="side-effecting action requires independent human approval",
+            )
+
         policy_decision = self._policy.evaluate_task(task)
         logger.info(
             "policy_decision",
@@ -73,40 +94,7 @@ class ExecutionCoordinator:
         )
 
         if not policy_decision.allowed:
-            transition_task(task, ExecutionTaskState.PENDING_REVIEW)
-            task.requires_human_review = True
-            self._session.flush()
-
-            self._governance.append(
-                GovernanceEvent(
-                    tenant_id=tenant_id,
-                    mission_id=task.mission_id,
-                    event_type="compliance_review_required",
-                    actor="policy_guardian",
-                    decision=policy_decision.reason,
-                    payload_json={
-                        "task_id": str(task.id),
-                        "compliance_category": task.compliance_category,
-                        "jurisdiction": task.jurisdiction,
-                        "reason": policy_decision.reason,
-                    },
-                )
-            )
-            self._audit.append(
-                AuditEvent(
-                    tenant_id=tenant_id,
-                    mission_id=task.mission_id,
-                    category="compliance",
-                    action="task_pending_review",
-                    actor="policy_guardian",
-                    details=f"Task {task.id} requires human review before execution. Reason: {policy_decision.reason}",
-                    payload_json={
-                        "task_id": str(task.id),
-                        "reason": policy_decision.reason,
-                    },
-                )
-            )
-            self._session.flush()
+            self._place_in_review(task=task, tenant_id=tenant_id, reason=policy_decision.reason)
             return CoordinationResult(
                 ok=False,
                 task_id=task.id,
@@ -133,16 +121,112 @@ class ExecutionCoordinator:
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status)
 
-    def approve_review_and_queue(self, *, tenant_id: str, task_id: uuid.UUID, actor: str) -> CoordinationResult:
+    @staticmethod
+    def _requires_unapproved_side_effect_review(task: ExecutionTask) -> bool:
+        metadata = task.metadata_json or {}
+        raw_invocation = metadata.get("tool_invocation")
+        if not isinstance(raw_invocation, dict):
+            return False
+        try:
+            invocation = ToolInvocation.model_validate(raw_invocation)
+            action = get_default_action_registry().get(invocation.action)
+        except (TypeError, ValueError):
+            return False
+        return action.side_effect_for(invocation).has_side_effect and not side_effect_authorized(
+            metadata,
+            action.name,
+            tenant_id=task.tenant_id,
+            task_id=task.id,
+        )
+
+    def _place_in_review(self, *, task: ExecutionTask, tenant_id: str, reason: str) -> None:
+        transition_task(task, ExecutionTaskState.PENDING_REVIEW)
+        task.requires_human_review = True
+        self._session.flush()
+        self._governance.append(
+            GovernanceEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                event_type="compliance_review_required",
+                actor="policy_guardian",
+                decision=reason,
+                payload_json={
+                    "task_id": str(task.id),
+                    "compliance_category": task.compliance_category,
+                    "jurisdiction": task.jurisdiction,
+                    "reason": reason,
+                },
+            )
+        )
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="compliance",
+                action="task_pending_review",
+                actor="policy_guardian",
+                details=f"Task {task.id} requires human review before execution. Reason: {reason}",
+                payload_json={"task_id": str(task.id), "reason": reason},
+            )
+        )
+        self._session.flush()
+
+    def approve_review_and_queue(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        actor: str,
+        approval_expires_at: datetime | None = None,
+    ) -> CoordinationResult:
         """Approve a pending-review task and enqueue the runtime payload."""
         task = self._require_task_for_update(task_id=task_id, tenant_id=tenant_id)
         if task.status != ExecutionTaskState.PENDING_REVIEW.value:
             raise ValueError(f"expected status 'pending_review', got '{task.status}'")
 
+        metadata = dict(task.metadata_json or {})
+        invocation = metadata.get("tool_invocation")
+        grant_payload: dict[str, object] | None = None
+        if isinstance(invocation, dict):
+            action_name = invocation.get("action")
+            if not isinstance(action_name, str) or not action_name.strip():
+                raise ValueError("pending-review tool task has no valid action to approve")
+            try:
+                parsed_invocation = ToolInvocation.model_validate(invocation)
+                action = get_default_action_registry().get(parsed_invocation.action)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("pending-review tool task has no valid action to approve") from exc
+            constraints = dict(metadata.get("execution_constraints") or {})
+            if action.side_effect_for(parsed_invocation).has_side_effect:
+                approved_at = datetime.now(UTC)
+                if approval_expires_at is None or approval_expires_at.tzinfo is None:
+                    raise ValueError("side-effect approval requires a timezone-aware expiry")
+                if approval_expires_at <= approved_at:
+                    raise ValueError("side-effect approval expiry must be in the future")
+                grant_payload = {
+                    "schema_version": 2,
+                    "grant_id": str(uuid.uuid4()),
+                    "tenant_id": tenant_id,
+                    "task_id": str(task.id),
+                    "allowed_action": action.name,
+                    "invocation_sha256": tool_invocation_sha256(parsed_invocation),
+                    "reason": "human_review_approved",
+                    "approved_by": actor,
+                    "approved_at": approved_at.isoformat(),
+                    "expires_at": approval_expires_at.isoformat(),
+                    "revoked_at": None,
+                }
+                constraints["side_effect_authorization"] = grant_payload
+            metadata["execution_constraints"] = constraints
+            task.metadata_json = metadata
+        elif metadata.get("task_type") == "tool.invoke":
+            raise ValueError("pending-review tool task has no valid action to approve")
+
         previous_state = task.status
-        transition_task(task, ExecutionTaskState.QUEUED)
         self._session.flush()
-        self._enqueue_or_restore(task=task, tenant_id=tenant_id, previous_state=previous_state)
+        admission = self.queue_task(tenant_id=tenant_id, task_id=task.id)
+        if not admission.ok:
+            raise ValueError(admission.reason or "reviewed task failed runtime admission")
 
         self._governance.append(
             GovernanceEvent(
@@ -151,7 +235,11 @@ class ExecutionCoordinator:
                 event_type="human_review_approved",
                 actor=actor,
                 decision="approved",
-                payload_json={"task_id": str(task.id), "previous_status": previous_state},
+                payload_json={
+                    "task_id": str(task.id),
+                    "previous_status": previous_state,
+                    "approval_grant": grant_payload,
+                },
             )
         )
         self._audit.append(
@@ -162,18 +250,11 @@ class ExecutionCoordinator:
                 action="task_review_approved",
                 actor=actor,
                 details=f"Task {task.id} approved by human review and queued for execution.",
-                payload_json={"task_id": str(task.id), "previous_status": previous_state},
-            )
-        )
-        self._audit.append(
-            AuditEvent(
-                tenant_id=tenant_id,
-                mission_id=task.mission_id,
-                category="execution_task",
-                action="queued",
-                actor="execution_coordinator",
-                details=f"Task {task.id} queued for execution after human review approval.",
-                payload_json={"task_id": str(task.id), "approved_by": actor},
+                payload_json={
+                    "task_id": str(task.id),
+                    "previous_status": previous_state,
+                    "approval_grant": grant_payload,
+                },
             )
         )
         self._session.flush()
@@ -211,6 +292,142 @@ class ExecutionCoordinator:
         )
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status)
+
+    def retry_task(self, *, tenant_id: str, task_id: uuid.UUID) -> CoordinationResult:
+        """Re-admit failed/dead-lettered work through governor, policy, review, and queue authority."""
+        task = self._require_task_for_update(task_id=task_id, tenant_id=tenant_id)
+        if task.status not in {ExecutionTaskState.DEAD_LETTERED.value, ExecutionTaskState.FAILED.value}:
+            raise ValueError("task is not dead-lettered or failed")
+
+        governor = self._governor.evaluate()
+        if not governor.execution_allowed:
+            self._emit_denial(task=task, tenant_id=tenant_id, reason=governor.reason)
+            return CoordinationResult(False, task.id, task.status, governor.reason)
+        if self._requires_unapproved_side_effect_review(task):
+            self._place_in_review(
+                task=task,
+                tenant_id=tenant_id,
+                reason="side-effecting retry requires a current independent human approval",
+            )
+            return CoordinationResult(
+                False,
+                task.id,
+                task.status,
+                "side-effecting retry requires a current independent human approval",
+            )
+        policy = self._policy.evaluate_task(task)
+        if not policy.allowed:
+            self._place_in_review(task=task, tenant_id=tenant_id, reason=policy.reason)
+            return CoordinationResult(False, task.id, task.status, policy.reason)
+
+        previous_state = task.status
+        transition_task(task, ExecutionTaskState.QUEUED)
+        self._session.flush()
+        dead_letter_entries = [
+            entry for entry in self._queue.list_dead_letter(tenant_id=tenant_id) if entry.task_id == task.id
+        ]
+        if dead_letter_entries:
+            queue_result = self._queue.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
+        else:
+            queue_result = self._queue.recover_task_for_retry(
+                tenant_id=tenant_id,
+                task_id=task.id,
+                worker_id="execution_coordinator_retry",
+            )
+            if queue_result.reason == "task not found in processing or pending queue":
+                queue_result = self._queue.enqueue_task(
+                    QueueMessage(
+                        tenant_id=tenant_id,
+                        task_id=task.id,
+                        mission_id=task.mission_id,
+                        fleet_id=task.fleet_id,
+                        branch_id=task.branch_id,
+                        payload=task.metadata_json,
+                        enqueued_at=datetime.now(UTC),
+                    )
+                )
+        if not queue_result.ok:
+            task.status = previous_state
+            self._session.flush()
+            raise ValueError(queue_result.reason or "queue retry failed")
+
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="operations",
+                action="retry_dead_letter",
+                actor="execution_coordinator",
+                details=f"Re-admitted retry task {task.id} through runtime gates.",
+                payload_json={"task_id": str(task.id), "previous_status": previous_state},
+            )
+        )
+        self._session.flush()
+        return CoordinationResult(True, task.id, task.status)
+
+    def revoke_side_effect_approval(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        actor: str,
+        reason: str,
+    ) -> CoordinationResult:
+        """Revoke a queued/pending task grant before worker execution begins."""
+        task = self._require_task_for_update(task_id=task_id, tenant_id=tenant_id)
+        if task.status not in {
+            ExecutionTaskState.PENDING_REVIEW.value,
+            ExecutionTaskState.QUEUED.value,
+        }:
+            raise ValueError(f"approval cannot be revoked from task status '{task.status}'")
+        metadata = dict(task.metadata_json or {})
+        constraints = dict(metadata.get("execution_constraints") or {})
+        raw_grant = constraints.get("side_effect_authorization")
+        if not isinstance(raw_grant, dict) or raw_grant.get("schema_version") != 2:
+            raise ValueError("task has no revocable side-effect approval")
+        if raw_grant.get("revoked_at") is not None:
+            raise ValueError("side-effect approval is already revoked")
+        revoked_at = datetime.now(UTC).isoformat()
+        grant = dict(raw_grant)
+        grant["revoked_at"] = revoked_at
+        grant["revoked_by"] = actor
+        grant["revocation_reason"] = reason
+        constraints["side_effect_authorization"] = grant
+        metadata["execution_constraints"] = constraints
+        task.metadata_json = metadata
+        self._governance.append(
+            GovernanceEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                event_type="human_review_revoked",
+                actor=actor,
+                decision="revoked",
+                payload_json={
+                    "task_id": str(task.id),
+                    "grant_id": grant.get("grant_id"),
+                    "reason": reason,
+                    "revoked_at": revoked_at,
+                },
+            )
+        )
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="compliance",
+                action="task_review_revoked",
+                actor=actor,
+                details=f"Side-effect approval for task {task.id} was revoked before execution.",
+                payload_json={
+                    "task_id": str(task.id),
+                    "grant_id": grant.get("grant_id"),
+                    "reason": reason,
+                    "revoked_at": revoked_at,
+                },
+            )
+        )
+        self._session.flush()
+        return CoordinationResult(ok=True, task_id=task.id, state=task.status, reason="approval_revoked")
 
     def _enqueue_or_restore(self, *, task: ExecutionTask, tenant_id: str, previous_state: str) -> None:
         enqueue_result = self._queue.enqueue_task(

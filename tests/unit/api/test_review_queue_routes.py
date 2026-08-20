@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.routes import review_queue as review_queue_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
 
 
@@ -34,6 +35,7 @@ def _build_app(tenant_id: uuid.UUID) -> FastAPI:
 
     app.dependency_overrides[get_request_tenant_id] = _override_tenant_id
     app.dependency_overrides[get_tenant_db_session] = _override_db
+    app.dependency_overrides[get_queue_adapter] = lambda: MagicMock()
     return app
 
 
@@ -91,4 +93,36 @@ def test_approve_review_queue_item_runs_workflow_hook() -> None:
 
     assert response.status_code == 200
     mock_hook.assert_called_once()
+    session.commit.assert_called_once()
+
+
+def test_tenant_task_approval_uses_payload_bound_coordinator_path() -> None:
+    tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    session = MagicMock()
+    queue = MagicMock()
+    task = MagicMock(id=task_id, tenant_id=str(tenant_id), status="pending_review")
+    result = MagicMock(state="queued")
+    app = _build_app(tenant_id)
+    app.dependency_overrides[get_tenant_db_session] = lambda: session
+    app.dependency_overrides[get_queue_adapter] = lambda: queue
+
+    with (
+        patch.object(review_queue_module.ExecutionTaskRepository, "get_for_tenant", return_value=task),
+        patch.object(review_queue_module, "require_route_permission"),
+        patch.object(review_queue_module, "ExecutionCoordinator") as coordinator_cls,
+    ):
+        coordinator_cls.return_value.approve_review_and_queue.return_value = result
+        response = TestClient(app).post(
+            f"/v1/review-queue/tasks/{task_id}/approve",
+            json={"approval_expires_at": "2099-01-01T00:00:00Z"},
+        )
+
+    assert response.status_code == 200
+    coordinator_cls.return_value.approve_review_and_queue.assert_called_once()
+    call = coordinator_cls.return_value.approve_review_and_queue.call_args.kwargs
+    assert call["tenant_id"] == str(tenant_id)
+    assert call["task_id"] == task_id
+    assert call["actor"] == "test-user"
+    assert call["approval_expires_at"].isoformat() == "2099-01-01T00:00:00+00:00"
     session.commit.assert_called_once()

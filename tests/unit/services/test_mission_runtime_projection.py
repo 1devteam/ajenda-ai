@@ -95,6 +95,38 @@ def test_execution_task_payload_promotes_tool_invoke_contract_fields() -> None:
     assert payload["execution_constraints"] == {"read_only": True}
 
 
+def test_execution_task_payload_strips_preview_side_effect_authority() -> None:
+    preview_item = {
+        "preview_task_key": "mission:m:graph:1:node:n:runtime-task-preview",
+        "payload_preview": {
+            "mission_id": "m",
+            "graph_node_key": "n",
+            "runtime_task_type": "tool.invoke",
+            "input_contract": {
+                "tool_invocation": {
+                    "schema_version": 1,
+                    "action": "gtm.email_send",
+                    "input": {"to": "lead@example.com"},
+                },
+                "execution_constraints": {
+                    "side_effect_authorization": {
+                        "schema_version": 1,
+                        "allowed_actions": ["gtm.email_send"],
+                        "reason": "compiled",
+                        "approved_by": "mission_composition_engine",
+                    }
+                },
+            },
+        },
+        "dependency_keys": [],
+    }
+
+    payload = build_execution_task_payload(preview_item)
+
+    assert "execution_constraints" not in payload
+    assert "execution_constraints" not in payload["input_contract"]
+
+
 def test_materialization_metadata_is_current_only_for_matching_active_references() -> None:
     mission_id = uuid.uuid4()
     graph_reference = {"graph_version": 1}

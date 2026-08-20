@@ -439,29 +439,28 @@ authority_entries:
       - dispatch workers
       - execute handlers/adapters
     required_proofs:
-      - tests/unit/api/test_worker_claim_admission_contract.py
+      - tests/unit/api/test_worker_http_admission_removed.py
       - tests/unit/services/test_worker_runtime_service_transaction_contract.py
 
   - id: worker_claim_admission_mutation_contract
-    area: worker claim admission
+    area: removed synchronous HTTP worker claim mutation
     source_of_truth:
       - backend/api/routes/mission.py
       - backend/services/worker_claim_admission_service.py
-      - backend/services/worker_runtime_service.py
     route_scope:
       - POST /v1/missions/{mission_id}/worker-claim-admission
-    authority_class: governed_mutation
-    side_effect_class: tenant_scoped_task_state_transition
+    authority_class: removed
+    side_effect_class: none
     allowed_side_effects:
-      - perform bounded queued->claimed transitions
-      - establish and validate worker lease ownership contract
+      - return HTTP 410 after tenant permission validation
     forbidden_side_effects:
+      - claim tasks or create worker leases
       - start execution
       - dispatch workers
       - execute handlers/adapters
       - bypass lease ownership checks
     required_proofs:
-      - tests/unit/api/test_worker_claim_admission_contract.py
+      - tests/unit/api/test_worker_http_admission_removed.py
       - tests/unit/services/test_worker_runtime_service_transaction_contract.py
 
   - id: worker_start_admission_readback_contract
@@ -482,29 +481,28 @@ authority_entries:
       - dispatch workers
       - execute handlers/adapters
     required_proofs:
-      - tests/unit/api/test_worker_start_admission_contract.py
+      - tests/unit/api/test_worker_http_admission_removed.py
       - tests/unit/services/test_worker_runtime_service_transaction_contract.py
 
   - id: worker_start_admission_mutation_contract
-    area: worker start admission
+    area: removed synchronous HTTP worker start mutation
     source_of_truth:
       - backend/api/routes/mission.py
       - backend/services/worker_start_admission_service.py
-      - backend/services/worker_runtime_service.py
     route_scope:
       - POST /v1/missions/{mission_id}/worker-start-admission
-    authority_class: governed_mutation
-    side_effect_class: tenant_scoped_task_state_transition
+    authority_class: removed
+    side_effect_class: none
     allowed_side_effects:
-      - perform bounded claimed->running transitions
-      - activate and heartbeat validated worker leases
+      - return HTTP 410 after tenant permission validation
     forbidden_side_effects:
+      - transition tasks or activate/heartbeat worker leases
       - dispatch workers
       - execute handlers/adapters
       - enqueue work
       - bypass lease ownership checks
     required_proofs:
-      - tests/unit/api/test_worker_start_admission_contract.py
+      - tests/unit/api/test_worker_http_admission_removed.py
       - tests/unit/services/test_worker_runtime_service_transaction_contract.py
 
   - id: worker_run_admission_readback_contract
@@ -523,31 +521,25 @@ authority_entries:
       - complete/fail/dead-letter tasks
       - mutate runtime state
     required_proofs:
-      - tests/unit/api/test_worker_run_admission_contract.py
+      - tests/unit/api/test_worker_http_admission_removed.py
 
   - id: worker_run_admission_mutation_contract
-    area: synchronous HTTP mission-bridge worker run authority (competing pre-PR-08 spine)
+    area: removed synchronous HTTP mission-bridge worker run authority
     source_of_truth:
       - backend/api/routes/mission.py
       - backend/services/worker_run_admission_service.py
-      - backend/workers/task_dispatcher.py
-      - backend/queue/base.py
     route_scope:
       - POST /v1/missions/{mission_id}/worker-run-admission
-    authority_class: runtime_authoritative
-    side_effect_class: tenant_scoped_runtime_dispatch
+    authority_class: removed
+    side_effect_class: none
     allowed_side_effects:
-      - claim an already-admitted queue payload through QueueAdapter.claim_existing_task()
-      - invoke dispatcher on admitted running tasks with valid lease ownership
-      - complete/fail/dead-letter through canonical runtime paths
+      - return HTTP 410 after tenant permission validation
     forbidden_side_effects:
-      - execute unadmitted tasks
-      - bypass queue claim/processing authority
-      - bypass tenant/RLS protections
-      - claim or execute concurrently with the daemon worker spine after PR-08 convergence
+      - claim queue payloads
+      - invoke TaskDispatcher or execute handlers
+      - mutate task or lease state
     required_proofs:
-      - tests/unit/api/test_worker_run_admission_contract.py
-      - tests/integration/runtime/test_worker_loop_dispatcher_compensation_real.py
+      - tests/unit/api/test_worker_http_admission_removed.py
       - tests/unit/validation/test_runtime_authority_inventory_check.py
 
   - id: daemon_worker_runtime_contract
@@ -569,7 +561,7 @@ authority_entries:
       - execute unadmitted tasks
       - bypass queue claim or worker lease ownership
       - bypass tenant/RLS protections
-      - compete with a synchronous HTTP claim/start/run authority after PR-08 convergence
+      - expose a synchronous HTTP claim/start/run authority
     required_proofs:
       - tests/unit/workers/test_worker_loop_contracts.py
       - tests/unit/services/test_worker_runtime_service_transaction_contract.py

@@ -185,7 +185,7 @@ class TestMissionQueueCompatibilityWrapper:
         with (
             patch("backend.api.routes.mission.MissionRuntimeQueueAdmissionService", service),
             patch("backend.services.mission_executor.MissionExecutor.queue_all_planned_tasks") as legacy_queue,
-            patch("backend.api.routes.mission.TaskDispatcher") as dispatcher,
+            patch("backend.workers.task_dispatcher.TaskDispatcher") as dispatcher,
         ):
             result = queue_mission(
                 mission_id=mission_id,
