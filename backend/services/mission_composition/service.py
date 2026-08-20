@@ -6,6 +6,7 @@ Confirm: creates mission intake + plan + task graph contracts only; never queues
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import Any
 
@@ -36,11 +37,13 @@ from backend.services.mission_composition.capability_resolver import resolve_job
 from backend.services.mission_composition.contracts import (
     COMPOSITION_SCHEMA_VERSION,
     AllowedActionsProvenance,
+    Clarification,
     CompositionProvenance,
     MissionCompositionRecord,
     MissionIntent,
 )
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
 from backend.services.mission_composition.plan_compiler import (
     compile_job_assignments,
     compile_plan_payload,
@@ -52,6 +55,15 @@ from backend.services.mission_composition.proposal_store import (
     load_thread_failure_context,
     mark_superseded,
     put_proposal,
+)
+from backend.services.mission_composition.structured_planner import (
+    PlannerRequest,
+    StructuredPlannerProvider,
+    validate_planner_proposal,
+)
+from backend.services.mission_composition.vertical_know_how import (
+    select_vertical_know_how,
+    validate_know_how_runtime_references,
 )
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
@@ -189,8 +201,9 @@ def _load_charter(db: Session | None, tenant_id: str) -> Any:
 class MissionCompositionService:
     """Coordinates intent → jobs → abilities → proposal without runtime authority."""
 
-    def __init__(self, db: Session | None = None) -> None:
+    def __init__(self, db: Session | None = None, *, planner_provider: StructuredPlannerProvider | None = None) -> None:
         self._db = db
+        self._planner_provider = planner_provider
 
     def compose(
         self,
@@ -247,6 +260,69 @@ class MissionCompositionService:
         connected_ids, connected_integrations, preferred_creds, type_by_id = _connected_sets(self._db, tenant_id)
 
         jobs = route_jobs_for_intent(intent)
+        know_how = select_vertical_know_how(intent.requested_outcomes)
+        if know_how is not None:
+            validate_know_how_runtime_references(know_how)
+        planner_proposal: dict[str, Any] | None = None
+        planner_provenance: dict[str, Any] | None = None
+        if know_how is not None and self._planner_provider is not None:
+            material_clauses = tuple(
+                {
+                    "clause_id": clause.clause_id,
+                    "text": clause.text,
+                    "mapped_outcomes": list(clause.mapped_outcomes),
+                    "status": clause.status,
+                }
+                for clause in intent.interpreted_clauses
+                if clause.material
+            )
+            request = PlannerRequest(
+                instruction=raw_instruction,
+                raw_instruction_sha256=hashlib.sha256(raw_instruction.encode("utf-8")).hexdigest(),
+                know_how_id=know_how.know_how_id,
+                know_how_version=know_how.know_how_version,
+                allowed_job_keys=tuple(job_key for stage in know_how.stages for job_key in stage.job_keys),
+                material_clauses=material_clauses,
+            )
+            try:
+                planner_result = self._planner_provider.propose(request)
+                validate_planner_proposal(
+                    planner_result.proposal,
+                    know_how=know_how,
+                    expected_material_clause_ids={str(item["clause_id"]) for item in material_clauses},
+                    required_job_keys={job.job_key for job in jobs},
+                    connected_integrations=connected_integrations,
+                )
+            except Exception as exc:
+                planner_provenance = {
+                    "status": "rejected",
+                    "reason_code": f"PLANNER_{type(exc).__name__.upper()}",
+                    "grants_execution_authority": False,
+                }
+                intent = intent.model_copy(
+                    update={
+                        "ambiguity": [
+                            *intent.ambiguity,
+                            Clarification(
+                                field="planner_validation",
+                                question="The structured planning proposal was rejected. Please clarify or retry later.",
+                                reason="Model/provider output failed deterministic validation.",
+                            ),
+                        ],
+                        "interpretation_ready": False,
+                    }
+                )
+            else:
+                planner_proposal = planner_result.proposal.model_dump(mode="json")
+                planner_provenance = {
+                    "status": "validated_proposal",
+                    "provider": planner_result.provider,
+                    "model": planner_result.model,
+                    "provider_request_id": planner_result.provider_request_id,
+                    "instruction_sha256": request.raw_instruction_sha256,
+                    "grants_execution_authority": False,
+                }
+                jobs = [BUSINESS_JOBS_BY_KEY[item.job_key] for item in planner_result.proposal.jobs]
         selections, missing = resolve_jobs(
             jobs,
             intent=intent,
@@ -261,7 +337,6 @@ class MissionCompositionService:
         task_graph_preview = compile_task_graph_preview(
             planned_steps,
             selections=selections,
-            approved_by="mission_composition_engine",
         )
         allowed_actions = [
             item.action_name for item in selections if item.selection_status == "selected" and item.readiness == "ready"
@@ -311,10 +386,14 @@ class MissionCompositionService:
             approval_gates=sorted(set(approval_gates)),
             planned_steps=planned_steps,
             task_graph_preview=task_graph_preview,
+            planner_proposal=planner_proposal,
+            planner_provenance=planner_provenance,
             clarifications=list(intent.ambiguity),
             ready_to_start=ready_to_start,
             composition_provenance=CompositionProvenance(
                 authority_class="read_model",
+                know_how_id=know_how.know_how_id if know_how is not None else None,
+                know_how_version=know_how.know_how_version if know_how is not None else None,
                 components_active=list(intent.components_executed or intent.components_active),
             ),
         )
@@ -572,7 +651,6 @@ class MissionCompositionService:
         graph = compile_task_graph_preview(
             record.planned_steps,
             selections=list(record.ability_selections),
-            approved_by=actor_id or "mission_composition_confirm",
         )
         graph_metadata = build_mission_task_graph_contract_metadata(
             nodes=graph.get("nodes") if isinstance(graph.get("nodes"), list) else [],
@@ -710,12 +788,9 @@ class MissionCompositionService:
             )
 
         record = self.compose(tenant_id=tenant_id, instruction=instruction_text)
-        approved_by = (actor_id or "").strip() or "server:mission_compile"
-        # Recompile graph with authenticated actor for non-forged SE auth lineage.
         graph_preview = compile_task_graph_preview(
             record.planned_steps,
             selections=list(record.ability_selections),
-            approved_by=approved_by,
         )
         binding_manifest = _binding_manifest_from_steps(record.planned_steps)
         required_credentials = _required_credentials_from_selections(record.ability_selections)

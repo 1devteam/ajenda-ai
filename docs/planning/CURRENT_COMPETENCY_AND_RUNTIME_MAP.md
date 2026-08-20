@@ -26,11 +26,9 @@ does not yet combine those pieces into a generally competent worker. Today:
 - but complex decomposition, typed cross-step artifact flow, outcome-grounded replanning,
   autonomous advancement, and real multi-agent collaboration are incomplete or absent.
 
-The second runtime authority—the synchronous HTTP mission bridge—does **not** make Ajenda more
-intelligent. It contributes staged lifecycle validation, explicit receipts, synchronous integration
-proof, and inspectable claim/start/run contracts. It then duplicates queue claim and dispatcher
-authority already owned by the daemon worker, creating a race and operational complexity. Its useful
-governance/read-model contributions should remain; its independent execution authority should not.
+The former synchronous HTTP claim/start/run authority has been removed. Its POST routes and
+compatibility services now fail closed with HTTP 410, while historical GET readbacks remain.
+Daemon `WorkerLoop`/`WorkerRuntimeService` is the sole claim/start/run authority.
 
 ## 2. How competency is graded
 
@@ -51,7 +49,7 @@ These labels describe scope and proof, not code quality or business value.
 
 | Competency | Current level | What works now | What prevents a stronger claim |
 |---|---|---|---|
-| Tenant-scoped task execution | **Proven, with release blockers** | Queue-backed `ExecutionTask`, DB lease, dispatcher, action result, lineage/evidence | Two claim/start/run spines; queue/DB orphan and recovery issues; incomplete RLS/RBAC |
+| Tenant-scoped task execution | **Proven, with release blockers** | Queue-backed `ExecutionTask`, DB lease, single daemon dispatcher spine, action result, lineage/evidence | Queue/DB orphan and recovery proof gaps; incomplete RLS/RBAC |
 | Known-intent interpretation | **Bounded** | Deterministic canonical outcomes, clause checks, target/location/quantity extraction, clarifications | Fixed vocabulary/patterns; unfamiliar clauses fail or require restatement; no general semantic planner |
 | Mission/job decomposition | **Bounded/partial** | Fixed job catalog, dependency expansion, planned steps, graph preview, vertical templates | No model-backed decomposition into verified typed jobs for unfamiliar compound prompts |
 | Action selection | **Bounded** | Resolver selects registered actions against known jobs, charter, readiness, and credentials | Catalog coverage is not business know-how; no measured selection quality across a held-out vertical corpus |
@@ -178,7 +176,7 @@ human context/approval/progress surface, not the source of intelligence. Today i
 present one coherent complex-prompt → clarification → plan → artifacts → replan → final deliverable
 experience.
 
-## 6. The two runtime-authority spines
+## 6. The single runtime-authority spine
 
 ### 6.1 Runtime spine A — daemon worker (the operational runtime)
 
@@ -202,51 +200,19 @@ can scale through worker processes and should remain the sole claim/start/run au
 **Intelligence contribution:** none by itself. It faithfully and safely executes the task and action
 chosen upstream. Its value is reliability, isolation, and proof.
 
-### 6.2 Runtime spine B — synchronous HTTP mission bridge
+### 6.2 Removed HTTP mutation spine
 
 ```text
-POST worker-claim-admission
-  → validate mission/materialization/queue-admission context
-  → mutate queued task to claimed + create bridge-owned lease + receipts
-POST worker-start-admission
-  → validate claim/lease/start eligibility
-  → mutate task to running + start receipts
-POST worker-run-admission
-  → validate current start receipt and lease
-  → claim_existing_task from the already-admitted queue
-  → construct TaskDispatcher inside the API request
-  → execute synchronously
-  → persist run/queue-claim receipts on mission metadata
+POST worker-claim-admission → HTTP 410
+POST worker-start-admission → HTTP 410
+POST worker-run-admission   → HTTP 410
+GET readbacks               → historical metadata only
 ```
 
-**What it genuinely contributes:**
-
-1. explicit, inspectable contracts for materialization → queue admission → claim → start → run;
-2. deterministic readiness, eligibility, blocker, warning, and receipt surfaces;
-3. tenant/mission/lease validation at each staged transition;
-4. idempotent readback and integration acceptance scaffolding;
-5. a way to prove the bridge lifecycle synchronously without operating a separate worker process.
-
-Those are valuable **governance, explainability, and test-harness contributions**.
-
-**What it does not contribute:**
-
-- no additional model or reasoning;
-- no new business know-how;
-- no additional tools or provider competence;
-- no Knowledge scheduling or learning;
-- no swarm collaboration;
-- no better final deliverable quality.
-
-**Why it is still a real second authority:** it independently mutates claim/start state and lease
-ownership, then claims the queue and invokes `TaskDispatcher`. It can therefore compete with the
-daemon over the same admitted task. Sharing `TaskDispatcher` and `ToolRuntimeAuthority` means the
-two spines share an execution engine; it does not make their ownership decisions singular.
-
-**Net assessment:** spine B adds strong contract observability but negative production execution
-value. Its read models, previews, blockers, receipts, and trigger semantics should be preserved.
-Its direct claim/start/dispatcher mutations should be removed or converted into requests observed
-and fulfilled by spine A.
+The mutation authority and synchronous dispatcher were removed. Compatibility classes remain only
+to fail closed for older importers. Read models may expose historical receipts, but cannot claim,
+start, lease, dispatch, complete, or fail work. The runtime authority inventory must remain free of
+`competing_http_spine` entries.
 
 ## 7. Where intelligence breaks down on a complex prompt
 

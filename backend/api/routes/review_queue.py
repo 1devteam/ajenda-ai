@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -9,8 +10,12 @@ from sqlalchemy.orm import Session
 
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.permissions import Permission
+from backend.queue.base import QueueAdapter
+from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.document_artifacts import list_review_queue, read_artifact, update_review_status
+from backend.services.execution_coordinator import ExecutionCoordinator
 
 router = APIRouter(prefix="/review-queue", tags=["review-queue"])
 
@@ -38,6 +43,24 @@ class ReviewDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     note: str | None = Field(default=None, max_length=2000)
+
+
+class TaskApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approval_expires_at: datetime
+
+
+class TaskApprovalResponse(BaseModel):
+    task_id: str
+    previous_status: str
+    status: str
+
+
+class TaskApprovalRevocationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=500)
 
 
 def _to_item(row: dict[str, Any], *, artifact_id: str, default_status: str) -> ReviewQueueItem:
@@ -159,3 +182,87 @@ def reject_queue_item(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return _to_item(row, artifact_id=artifact_id, default_status="rejected")
+
+
+@router.post("/tasks/{task_id}/approve", response_model=TaskApprovalResponse)
+def approve_tenant_task(
+    task_id: uuid.UUID,
+    body: TaskApprovalRequest,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
+) -> TaskApprovalResponse:
+    """Issue a tenant-scoped, payload-bound approval and queue the reviewed task."""
+    require_route_permission(
+        request=request,
+        db=session,
+        permission=Permission.OUTCOME_REVIEW_MANAGE,
+        tenant_id=tenant_id,
+    )
+    task = ExecutionTaskRepository(session).get_for_tenant(task_id=task_id, tenant_id=str(tenant_id))
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+    previous_status = task.status
+    principal = getattr(request.state, "principal", None)
+    actor = str(getattr(principal, "subject_id", "") or "")
+    if not actor:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="authenticated reviewer required")
+    try:
+        result = ExecutionCoordinator(session, queue).approve_review_and_queue(
+            tenant_id=str(tenant_id),
+            task_id=task_id,
+            actor=actor,
+            approval_expires_at=body.approval_expires_at,
+        )
+        session.commit()
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return TaskApprovalResponse(
+        task_id=str(task_id),
+        previous_status=previous_status,
+        status=result.state,
+    )
+
+
+@router.post("/tasks/{task_id}/revoke", response_model=TaskApprovalResponse)
+def revoke_tenant_task_approval(
+    task_id: uuid.UUID,
+    body: TaskApprovalRevocationRequest,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
+) -> TaskApprovalResponse:
+    """Revoke an unconsumed task approval; runtime will reject the queued effect."""
+    require_route_permission(
+        request=request,
+        db=session,
+        permission=Permission.OUTCOME_REVIEW_MANAGE,
+        tenant_id=tenant_id,
+    )
+    task = ExecutionTaskRepository(session).get_for_tenant(task_id=task_id, tenant_id=str(tenant_id))
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+    previous_status = task.status
+    principal = getattr(request.state, "principal", None)
+    actor = str(getattr(principal, "subject_id", "") or "")
+    if not actor:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="authenticated reviewer required")
+    try:
+        result = ExecutionCoordinator(session, queue).revoke_side_effect_approval(
+            tenant_id=str(tenant_id),
+            task_id=task_id,
+            actor=actor,
+            reason=body.reason,
+        )
+        session.commit()
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return TaskApprovalResponse(
+        task_id=str(task_id),
+        previous_status=previous_status,
+        status=result.state,
+    )

@@ -20,6 +20,8 @@ from backend.services.mission_runtime_projection import (
     build_runtime_task_materialization_metadata,
     materialization_reference_current,
 )
+from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.schemas import ToolInvocation
 
 
 class MissionRuntimeTaskMaterializationService:
@@ -111,6 +113,16 @@ class MissionRuntimeTaskMaterializationService:
         created_task_ids: list[str] = []
         for task_preview in tasks:
             payload = build_execution_task_payload(task_preview)
+            invocation = payload.get("tool_invocation") if isinstance(payload, dict) else None
+            action_name = invocation.get("action") if isinstance(invocation, dict) else None
+            requires_human_review = False
+            if isinstance(action_name, str) and action_name.strip():
+                try:
+                    action = get_default_action_registry().get(action_name)
+                    tool_invocation = ToolInvocation.model_validate(invocation)
+                    requires_human_review = action.side_effect_for(tool_invocation).has_side_effect
+                except (TypeError, ValueError):
+                    requires_human_review = True
             task = ExecutionTask(
                 tenant_id=tenant_id_str,
                 mission_id=mission_id,
@@ -123,6 +135,7 @@ class MissionRuntimeTaskMaterializationService:
                 metadata_json=payload,
                 compliance_category=mission.compliance_category,
                 jurisdiction=mission.jurisdiction,
+                requires_human_review=requires_human_review,
             )
             created = task_repo.add(task)
             created_task_ids.append(str(created.id))

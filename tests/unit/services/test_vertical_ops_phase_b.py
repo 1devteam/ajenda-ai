@@ -138,7 +138,7 @@ def test_email_template_send_requires_idempotency_and_credentials() -> None:
     send = bundle.planned_tasks[1]
     assert send.requires_human_review is True
     assert send.metadata_json["tool_invocation"]["idempotency_key"] == "email-idem-1"
-    assert "side_effect_authorization" in send.metadata_json["execution_constraints"]
+    assert "execution_constraints" not in send.metadata_json
     assert send.compliance_category == "consumer_interaction"
     assert send.metadata_json["credential_reference"]["credential_id"] == "cred-email-1"
 

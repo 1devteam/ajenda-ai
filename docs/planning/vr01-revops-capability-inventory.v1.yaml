@@ -1,0 +1,156 @@
+schema_version: 1
+inventory_id: vr01-revops-v1
+generated_at: "2026-08-18"
+code_revision: d8a786c383d79f985663ebc1c0428d819f2d6b4a
+decision_contract: docs/planning/D8_REVENUE_OPERATIONS_V1_DECISION.md
+authority: derived_snapshot
+grants_execution_authority: false
+status: baseline_only
+notes:
+  - Runtime-bound catalog status is not production-readiness proof.
+  - All selected ability manifests are disabled by default.
+  - Scores remain unmeasured until the versioned corpus and runner exist.
+jobs:
+  - job_key: research.discover_prospects
+    outcomes: [research_prospects]
+    role: vertical.research
+    inputs: [target_industry_or_query]
+    outputs: [prospect_candidates]
+    credential_policy: optional
+    actions: [web.research, web.search, web.page_read, sales.research, crm.research]
+    templates: [vertical.research.v1]
+    verified_state: partial
+    gaps: [no_end_to_end_revops_template, crm_research_has_no_direct_ability_manifest]
+  - job_key: research.observe_sources
+    outcomes: [observe_contacts]
+    role: vertical.research
+    inputs: [prospect_candidates]
+    outputs: [observed_contacts]
+    credential_policy: none
+    actions: [research.observe_contacts]
+    templates: []
+    verified_state: partial
+    gaps: [not_present_in_vertical_template, held_out_quality_unmeasured]
+  - job_key: sales.research_context
+    outcomes: []
+    role: vertical.sales
+    inputs: [prospect_candidates]
+    outputs: [researched_prospects]
+    credential_policy: optional
+    actions: [sales.research, crm.research, web.research]
+    templates: [vertical.research.v1]
+    verified_state: partial
+    gaps: [no_canonical_outcome, crm_research_has_no_direct_ability_manifest]
+  - job_key: intelligence.retrieve_knowledge
+    outcomes: [observe_contacts]
+    role: vertical.research
+    inputs: [observed_contacts]
+    outputs: [retrieved_knowledge]
+    credential_policy: none
+    actions: [knowledge.retrieve_current]
+    templates: []
+    verified_state: partial
+    gaps: [shares_observe_contacts_outcome, not_present_in_vertical_template, vertical_production_proof_missing]
+  - job_key: intelligence.advise_next
+    outcomes: [observe_contacts]
+    role: vertical.research
+    inputs: [observed_contacts]
+    outputs: [recommendation]
+    credential_policy: none
+    actions: [decision.recommend_next_action]
+    templates: []
+    verified_state: partial
+    gaps: [shares_observe_contacts_outcome, not_present_in_vertical_template, vertical_quality_unmeasured]
+  - job_key: sales.qualify_prospects
+    outcomes: [qualify_prospects]
+    role: vertical.sales
+    inputs: [prospect_candidates, observed_contacts]
+    outputs: [qualified_prospects]
+    credential_policy: none
+    actions: [sales.qualify, sales.score_lead]
+    templates: []
+    verified_state: partial
+    gaps: [not_present_in_vertical_template, qualification_rubric_unapproved]
+  - job_key: gtm.enrich_contacts
+    outcomes: [enrich_contacts]
+    role: vertical.sales
+    inputs: [qualified_prospects, prospect_candidates]
+    outputs: [enriched_prospects]
+    credential_policy: none
+    actions: [gtm.lead_enrich]
+    templates: []
+    verified_state: bounded
+    gaps: [not_present_in_vertical_template, output_quality_unmeasured]
+  - job_key: email.prepare_outreach
+    outcomes: [prepare_outreach]
+    role: vertical.email
+    inputs: [recipient_context]
+    outputs: [introduction_drafts]
+    credential_policy: none
+    approval_policy: review_before_external
+    actions: [gtm.email_draft, sales.draft_followup]
+    templates: [vertical.email.v1]
+    verified_state: partial
+    gaps: [draft_rubric_unapproved, cross_job_artifact_contract_incomplete]
+  - job_key: crm.read_records
+    outcomes: [read_crm]
+    role: vertical.sales
+    inputs: [crm_query]
+    outputs: [crm_records]
+    credential_policy: required
+    actions: [sales.research]
+    templates: []
+    verified_state: partial
+    gaps: [not_present_in_vertical_template, provider_sandbox_release_proof_missing]
+  - job_key: email.deliver_outreach
+    outcomes: [send_outreach]
+    role: vertical.email
+    inputs: [introduction_drafts]
+    outputs: [sent_messages]
+    credential_policy: required
+    approval_policy: always_review
+    actions: [gtm.email_send]
+    templates: [vertical.email.v1]
+    verified_state: unsafe_to_promote
+    gaps: [composition_self_issues_authorization, effect_receipt_and_crash_point_release_proof_missing]
+  - job_key: crm.pipeline_maintenance
+    outcomes: [update_crm]
+    role: vertical.sales
+    inputs: [prospect_candidates, qualified_prospects]
+    outputs: [pipeline_records]
+    credential_policy: required
+    actions: [gtm.crm_upsert]
+    templates: []
+    verified_state: unsafe_to_promote
+    gaps: [composition_self_issues_authorization, no_vertical_template, effect_receipt_release_proof_missing]
+drift:
+  - id: VR01-DRIFT-001
+    kind: action_manifest_alias
+    subject: crm.research
+    finding: Registered and selectable action has no direct ability manifest; current behavior aliases the sales research contract.
+  - id: VR01-DRIFT-002
+    kind: semantic_overlap
+    subject: observe_contacts
+    finding: Three jobs share the observe_contacts outcome, so outcome alone cannot identify the requested job.
+  - id: VR01-DRIFT-003
+    kind: template_coverage
+    subject: selected_revops_workflow
+    finding: Existing research and email templates do not describe the full selected workflow; qualification, enrichment, CRM read/update, and intelligence jobs are omitted.
+  - id: VR01-DRIFT-004
+    kind: authorization_provenance
+    subject: mission_composition.plan_compiler
+    finding: Resolved on the V1 working tree; composition/materialization no longer issue grants and runtime accepts tenant/task/payload-bound V2 review grants.
+proof:
+  targeted_tests:
+    command: python -m pytest tests/unit/services/test_mission_composition_engine.py tests/unit/services/test_mission_interpreter_upgrade.py tests/unit/services/test_mission_input_binding.py tests/unit/services/test_observe_contacts_compile.py tests/unit/tools/test_gtm_actions.py tests/unit/tools/test_sales_actions.py tests/unit/tools/test_knowledge_actions.py tests/unit/tools/test_decision_actions.py tests/unit/abilities/test_ability_catalog.py -q
+    result: passed_120
+  ability_rollout_contract_check: passed
+  runtime_authority_inventory:
+    result: passed
+    total_sinks: 15
+    canonical_boundary: 11
+    canonical_daemon_spine: 4
+    competing_http_spine: 0
+    exception_bypass: 0
+  integration_proof: not_run
+  held_out_corpus: absent

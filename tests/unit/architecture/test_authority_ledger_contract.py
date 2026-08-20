@@ -14,6 +14,7 @@ EXPECTED_AUTHORITY_CLASSES = {
     "read_model",
     "governed_mutation",
     "runtime_authoritative",
+    "removed",
 }
 
 POST_V1_MISSIONS_MISSION_ID_RUNTIME_QUEUE_ADMISSION_ROUTE = "POST /v1/missions/{mission_id}/runtime-queue-admission"
@@ -26,15 +27,15 @@ MIXED_METHOD_ADMISSION_PATHS = {
     },
     "/v1/missions/{mission_id}/worker-claim-admission": {
         "GET": "read_model",
-        "POST": "governed_mutation",
+        "POST": "removed",
     },
     "/v1/missions/{mission_id}/worker-start-admission": {
         "GET": "read_model",
-        "POST": "governed_mutation",
+        "POST": "removed",
     },
     "/v1/missions/{mission_id}/worker-run-admission": {
         "GET": "read_model",
-        "POST": "runtime_authoritative",
+        "POST": "removed",
     },
 }
 
@@ -233,7 +234,7 @@ def test_tool_action_providers_do_not_import_worker_runtime_completion_authority
                 assert all(alias.name != "backend.services.worker_runtime_service" for alias in node.names), path
 
 
-def test_ledger_declares_both_current_runtime_authority_spines() -> None:
+def test_ledger_declares_http_tombstone_and_single_daemon_runtime_spine() -> None:
     http_blocks = [
         block for block in _ledger_blocks() if block.startswith("id: worker_run_admission_mutation_contract\n")
     ]
@@ -244,12 +245,13 @@ def test_ledger_declares_both_current_runtime_authority_spines() -> None:
     http_block = http_blocks[0]
     daemon_block = daemon_blocks[0]
 
-    assert "competing pre-PR-08 spine" in http_block
+    assert "removed synchronous HTTP" in http_block
     assert "backend/services/worker_run_admission_service.py" in http_block
-    assert "claim_existing_task()" in http_block
+    assert "authority_class: removed" in http_block
+    assert "return HTTP 410" in http_block
     assert "backend/workers/worker_loop.py" not in http_block
     assert "backend/workers/worker_loop.py" in daemon_block
     assert "backend/services/worker_runtime_service.py" in daemon_block
-    assert "compete with a synchronous HTTP claim/start/run authority" in daemon_block
+    assert "expose a synchronous HTTP claim/start/run authority" in daemon_block
     assert "tests/unit/validation/test_runtime_authority_inventory_check.py" in http_block
     assert "tests/unit/validation/test_runtime_authority_inventory_check.py" in daemon_block

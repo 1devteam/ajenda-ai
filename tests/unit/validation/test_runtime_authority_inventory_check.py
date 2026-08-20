@@ -13,26 +13,17 @@ def test_current_runtime_authority_inventory_is_fully_reviewed() -> None:
     assert classifications == {
         "canonical_boundary",
         "canonical_daemon_spine",
-        "competing_http_spine",
-        "exception_bypass",
     }
 
 
-def test_inventory_exposes_both_current_claim_and_dispatch_spines() -> None:
+def test_inventory_exposes_only_daemon_claim_and_dispatch_spine() -> None:
     observed = authority_check.inventory_runtime_authority()
     reviewed = {item.key: authority_check.REVIEWED_CALL_SITES[item.key] for item in observed}
 
     daemon = {key for key, value in reviewed.items() if value.classification == "canonical_daemon_spine"}
-    http_bridge = {key for key, value in reviewed.items() if value.classification == "competing_http_spine"}
-
     assert any(key.path.endswith("worker_loop.py") and key.sink == "dispatcher_execute" for key in daemon)
     assert any(key.path.endswith("worker_runtime_service.py") and key.sink == "queue_claim" for key in daemon)
-    assert any(
-        key.path.endswith("worker_run_admission_service.py") and key.sink == "queue_claim" for key in http_bridge
-    )
-    assert any(
-        key.path.endswith("worker_run_admission_service.py") and key.sink == "dispatcher_execute" for key in http_bridge
-    )
+    assert all(value.classification != "competing_http_spine" for value in reviewed.values())
 
 
 def test_inventory_fails_closed_on_new_direct_action_invocation(tmp_path: Path) -> None:
@@ -92,6 +83,6 @@ def test_main_emits_machine_readable_inventory(capsys) -> None:  # type: ignore[
         authority_check.sys.argv = original_argv
 
     output = capsys.readouterr().out
-    assert '"classification": "competing_http_spine"' in output
+    assert '"classification": "competing_http_spine"' not in output
     assert '"classification": "canonical_daemon_spine"' in output
     assert "PASS: runtime authority inventory matches" in output

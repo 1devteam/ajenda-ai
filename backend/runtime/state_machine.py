@@ -15,7 +15,8 @@ Task state machine (with 'recovering' state added in migration 0004,
     running → blocked | completed | failed | recovering
     recovering → queued | dead_lettered
     blocked → queued
-    failed → queued | dead_lettered
+    failed → queued | pending_review | dead_lettered
+    dead_lettered → queued | pending_review
     pending_review → queued | cancelled
 
 The 'recovering' state is entered when a worker's lease expires while the
@@ -95,8 +96,8 @@ class StateMachine:
         # before re-queuing them for retry or dead-lettering on max retries.
         "recovering": {"queued", "dead_lettered"},
         "blocked": {"queued"},
-        "failed": {"queued", "dead_lettered"},
-        "dead_lettered": {"queued"},
+        "failed": {"queued", "pending_review", "dead_lettered"},
+        "dead_lettered": {"queued", "pending_review"},
         # pending_review: entered by PolicyGuardian when a task requires human
         # approval before execution (e.g. employment/financial decisions in
         # regulated jurisdictions). Approved → queued; rejected → cancelled.

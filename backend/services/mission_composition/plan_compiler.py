@@ -191,13 +191,9 @@ def compile_task_graph_preview(
     steps: list[PlannedStepPreview],
     *,
     selections: list[AbilitySelection] | None = None,
-    approved_by: str = "mission_composition_engine",
 ) -> dict[str, Any]:
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
-    side_effect_by_action = {
-        item.action_name: item.side_effect_class for item in (selections or []) if item.action_name
-    }
     for step in steps:
         # Same naming as mission_bridge_runtime_authority so confirm → execute
         # provisions against the graph without renaming nodes.
@@ -211,22 +207,8 @@ def compile_task_graph_preview(
         }
         if isinstance(step.credential_reference, dict):
             input_contract["credential_reference"] = dict(step.credential_reference)
-        side_effect = side_effect_by_action.get(step.action_name, "")
-        needs_side_effect_auth = _side_effect_has_effect(side_effect) or (
-            # Public search elevates web.research to EXTERNAL_READ at invoke time.
-            step.action_name == "web.research" and bool(step.tool_input.get("include_public_search"))
-        )
-        if needs_side_effect_auth:
-            # Required by ToolRuntimeAuthority for side-effecting / external tool.invoke tasks.
-            input_contract["execution_constraints"] = {
-                "side_effect_authorization": {
-                    "schema_version": 1,
-                    "allowed_actions": [step.action_name],
-                    "reason": "mission_composition_engine",
-                    "approved_by": approved_by,
-                }
-            }
-            # Materialize execution_constraints on payload root as well via input_contract.
+        # Approval authority is issued only against a persisted, tenant-owned
+        # task during human review, never while compiling this graph.
         nodes.append(
             {
                 "node_key": step.step_key,

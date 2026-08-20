@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError, field_validator, model_validator
 
 from backend.services.ontology.commercial_state import (
     BusinessEvent,
@@ -249,20 +252,55 @@ class SideEffectAuthorization(BaseModel):
     approved_by: str = Field(min_length=1, max_length=160)
 
 
+class SideEffectAuthorizationV2(BaseModel):
+    """Task- and payload-bound human approval consumed by runtime authority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[2] = 2
+    grant_id: uuid.UUID
+    tenant_id: str = Field(min_length=1, max_length=128)
+    task_id: uuid.UUID
+    allowed_action: str = Field(min_length=1, max_length=160)
+    invocation_sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    reason: str = Field(min_length=1, max_length=500)
+    approved_by: str = Field(min_length=1, max_length=160)
+    approved_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None = None
+    revoked_by: str | None = Field(default=None, min_length=1, max_length=160)
+    revocation_reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_lifetime(self) -> SideEffectAuthorizationV2:
+        if self.approved_at.tzinfo is None or self.expires_at.tzinfo is None:
+            raise ValueError("side-effect approval timestamps must be timezone-aware")
+        if self.expires_at <= self.approved_at:
+            raise ValueError("side-effect approval must expire after approval")
+        if (self.revoked_by is None) != (self.revoked_at is None):
+            raise ValueError("revoked_by and revoked_at must be set together")
+        if self.revoked_at is None and self.revocation_reason is not None:
+            raise ValueError("revocation_reason requires revoked_at")
+        return self
+
+
 # Browser / unauthenticated client strings must never authorize side effects.
-_CLIENT_FORGED_SIDE_EFFECT_APPROVERS = frozenset(
+_UNTRUSTED_SIDE_EFFECT_APPROVERS = frozenset(
     {
         "mission-dispatch-ui",
         "mission_dispatch_ui",
         "dispatch-ui-v1",
         "mission-dispatch-ui-compiler",
+        "mission_composition_engine",
+        "mission_composition_confirm",
+        "server:runtime_task_materialization",
     }
 )
 
 
 def is_client_forged_side_effect_approver(approved_by: str) -> bool:
     normalized = approved_by.strip().lower()
-    if normalized in _CLIENT_FORGED_SIDE_EFFECT_APPROVERS:
+    if normalized in _UNTRUSTED_SIDE_EFFECT_APPROVERS:
         return True
     # Any approver that is clearly a UI client label, not an authenticated principal.
     if normalized.startswith("mission-dispatch") or normalized.startswith("mission_dispatch"):
@@ -270,17 +308,62 @@ def is_client_forged_side_effect_approver(approved_by: str) -> bool:
     return False
 
 
-def side_effect_authorized(metadata: Mapping[str, Any], action: str) -> bool:
+def tool_invocation_sha256(invocation: Mapping[str, Any] | ToolInvocation) -> str:
+    parsed = invocation if isinstance(invocation, ToolInvocation) else ToolInvocation.model_validate(dict(invocation))
+    encoded = json.dumps(
+        parsed.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def side_effect_authorized(
+    metadata: Mapping[str, Any],
+    action: str,
+    *,
+    tenant_id: str | None = None,
+    task_id: uuid.UUID | None = None,
+    now: datetime | None = None,
+) -> bool:
     raw_constraints = metadata.get("execution_constraints")
     if not isinstance(raw_constraints, Mapping):
         raw_constraints = {}
     raw_auth = raw_constraints.get("side_effect_authorization")
     if not isinstance(raw_auth, Mapping):
         return False
-    authorization = SideEffectAuthorization.model_validate(dict(raw_auth))
-    if is_client_forged_side_effect_approver(authorization.approved_by):
+    if raw_auth.get("schema_version") == 2:
+        try:
+            authorization_v2 = SideEffectAuthorizationV2.model_validate(dict(raw_auth))
+        except ValidationError:
+            return False
+        if tenant_id is None or task_id is None:
+            return False
+        raw_invocation = metadata.get("tool_invocation")
+        if not isinstance(raw_invocation, Mapping):
+            return False
+        current_time = now or datetime.now(UTC)
+        try:
+            invocation_matches = authorization_v2.invocation_sha256 == tool_invocation_sha256(raw_invocation)
+        except ValidationError:
+            return False
+        return (
+            authorization_v2.tenant_id == tenant_id
+            and authorization_v2.task_id == task_id
+            and authorization_v2.allowed_action == action
+            and invocation_matches
+            and authorization_v2.revoked_at is None
+            and current_time < authorization_v2.expires_at
+            and not is_client_forged_side_effect_approver(authorization_v2.approved_by)
+        )
+    try:
+        authorization_v1 = SideEffectAuthorization.model_validate(dict(raw_auth))
+    except ValidationError:
         return False
-    return action in authorization.allowed_actions
+    if is_client_forged_side_effect_approver(authorization_v1.approved_by):
+        return False
+    return action in authorization_v1.allowed_actions
 
 
 # PR6+ GTM abilities expansion

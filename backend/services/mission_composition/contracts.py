@@ -576,7 +576,15 @@ class CompositionProvenance(BaseModel):
     composition_schema_version: int = Field(default=COMPOSITION_SCHEMA_VERSION, ge=1)
     grants_execution_authority: Literal[False] = False
     authority_class: Literal["declarative", "read_model"] = "read_model"
+    know_how_id: str | None = Field(default=None, max_length=160)
+    know_how_version: str | None = Field(default=None, max_length=40)
     components_active: list[str] = Field(default_factory=lambda: ["regex_core"], max_length=20)
+
+    @model_validator(mode="after")
+    def _know_how_reference_is_complete(self) -> CompositionProvenance:
+        if bool(self.know_how_id) != bool(self.know_how_version):
+            raise ValueError("know-how reference requires both id and version")
+        return self
 
 
 class MissionCompositionRecord(BaseModel):
@@ -604,6 +612,8 @@ class MissionCompositionRecord(BaseModel):
     approval_gates: list[str] = Field(default_factory=list, max_length=20)
     planned_steps: list[PlannedStepPreview] = Field(default_factory=list, max_length=40)
     task_graph_preview: dict[str, Any] = Field(default_factory=dict)
+    planner_proposal: dict[str, Any] | None = None
+    planner_provenance: dict[str, Any] | None = None
     clarifications: list[Clarification] = Field(default_factory=list, max_length=20)
     ready_to_start: bool = False
     composition_provenance: CompositionProvenance = Field(default_factory=CompositionProvenance)

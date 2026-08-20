@@ -158,6 +158,7 @@ class ToolRuntimeAuthority:
                     metadata=task.metadata_json,
                     action=action,
                     side_effect_class=effective_side_effect_class,
+                    task_id=task.id,
                 )
             except CapabilityActionValidationError as exc:
                 raise ToolRuntimeAuthorityError(f"tool.invoke promotion denied: {exc}") from exc
