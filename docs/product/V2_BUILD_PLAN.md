@@ -128,3 +128,41 @@ evidence, idempotency protection, and a reviewable mission lineage.
 - adding more catalog abilities before their end-to-end contracts exist
 - autonomous external sending or publishing without review and provider proof
 - using an LLM response as execution authority or as a substitute for evidence
+
+## Second-pass implementation map
+
+This map ties each v2 workstream to the current code path. It is the change
+boundary for implementation; a workstream is not complete when only its model
+or UI exists.
+
+| Behavior | Current source of truth | v2 change boundary | Required proof |
+|---|---|---|---|
+| Interpret instruction | `backend/services/mission_composition/intent_interpreter.py` → `MissionIntent` in `contracts.py` | Additive envelope projection; preserve clause provenance, policy, and readiness semantics | interpreter unit tests, malformed/contradictory clause tests |
+| Route business work | `job_catalog.py`, `capability_resolver.py`, `readiness.py` | Validate required inputs/outputs before action selection; never let provider planning replace deterministic safety checks | resolver and readiness contract tests |
+| Compile tool inputs | `action_inputs.py`, `plan_compiler.py` | Replace scattered implicit payload assumptions with versioned input/output contracts and explicit binding failures | plan compiler tests for every runtime-bound job |
+| Persist composition | `mission_composition/service.py`, `proposal_store.py`, mission intake routes | Persist envelope/provenance atomically with the composition read model; stale threads must remain non-executable | tenant, supersession, and retry tests |
+| Build graph | `plan_compiler.py`, `api/routes/mission.py` (`materialize_mission_graph`) | Verify graph nodes, bindings, capability references, and contract versions against the persisted composition | graph materialization and stale-graph tests |
+| Materialize tasks | `mission_runtime_task_materialization_service.py`, `mission_bridge/materialization.py` | Preserve one current materialization reference; reject stale or duplicate task projections | materialization idempotency and replacement tests |
+| Admit queue work | `mission_runtime_queue_admission_service.py`, `mission_bridge/queue_admission.py`, `api/routes/mission.py` | Keep admission as the sole enqueue authority; make partial admission and duplicate queue outcomes explicit | queue authority, duplicate admission, tenant mismatch tests |
+| Claim and execute | `worker_loop.py`, `worker_runtime_service.py`, `task_dispatcher.py`, `handlers/tool_invoke.py` | Add contract IDs and structured stage events without creating a second execution spine | lease, retry, failure, and live runtime proof |
+| Run actions | `tools/runtime_authority.py`, `tools/action_registry.py`, action modules | Enforce input schema, tenant scope, side-effect class, credential authority, and output contract at one boundary | action rollout and malformed-input tests |
+| Persist evidence | `tools/evidence_bridge.py`, `EvidenceItem` in `tools/schemas.py`, `EvidenceRecord` and repository | Project one canonical durable evidence shape with lineage, trust, limitations, and contract versions | evidence parity and no-synthetic-completion tests |
+| Review outcomes | mission read models, evidence routes, audit repository/routes | Add a deliverable/review projection that joins mission → task → evidence → audit without granting authority | read-only review API and lineage tests |
+| Profile/context truth | `business_profile_repository.py`, `business_profile_record_sync.py`, `business_context_resolver.py`, `retrieval_actions.py` | Keep one normalized profile snapshot and explicit missing/conflicting fields across preview and runtime | profile brief parity and tenant isolation tests |
+| Runtime observability | `backend/app/logging.py`, `start-worker.sh`, worker/API loggers, audit events | Standardize event names and required IDs; do not infer runtime state from logs alone | log contract tests plus persisted audit proof |
+
+### Second-pass corrections to the original plan
+
+- The v2 envelope must be an additive projection around `MissionIntent` and
+  `MissionCompositionRecord`; it must not replace either authority boundary.
+- Deliverable schemas belong beside action contracts and evidence persistence,
+  not only in the planner. A planner may propose a shape, but runtime output and
+  durable evidence must validate it independently.
+- “Exactly once” is not a safe blanket promise. v2 must prove idempotency per
+  action and preserve at-least-once queue semantics with duplicate detection.
+- Profile provenance is tenant data and must remain behind the activated tenant
+  session; never copy profile facts into global planner state or process caches.
+- Observability is diagnostic evidence, not execution truth. Database task state,
+  lease state, queue admission metadata, and durable evidence remain authoritative.
+- A v2 capstone send is downstream of these contracts; it is not a substitute
+  for fixing composition, binding, evidence, and review seams first.
