@@ -104,6 +104,7 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert expected_command in script
     assert 'log "queueing low-risk GTM lead enrich proof task"' in script
     assert '"action": "gtm.lead_enrich"' in script
+    assert '"domain": "proof.example.com"' not in script
     assert "AJENDA_PROOF_PLUGIN_LANE_ENABLED" in script
     assert "plugin-runtime-proof.sh" in script
 

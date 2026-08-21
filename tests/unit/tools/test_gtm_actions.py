@@ -43,6 +43,30 @@ def test_gtm_lead_enrich_returns_evidence_without_side_effect() -> None:
     assert "contact@acme.com" not in str(result.output)
 
 
+def test_gtm_lead_enrich_rejects_missing_target_instead_of_using_business_profile() -> None:
+    registry = get_default_action_registry(rebuild=True)
+
+    with pytest.raises(ValueError, match=r"invalid input for action gtm\.lead_enrich"):
+        registry.invoke(
+            ToolInvocation(action="gtm.lead_enrich", input={}),
+            _context(),
+        )
+
+
+def test_gtm_lead_enrich_accepts_bound_prospect_without_profile_fallback() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="gtm.lead_enrich",
+            input={"prospects": [{"company": "Bound Prospect", "domain": "prospect.invalid"}]},
+        ),
+        _context(),
+    )
+
+    assert result.output["company"] == "Bound Prospect"
+    assert result.output["domain"] == "prospect.invalid"
+
+
 def test_gtm_lead_enrich_simulates_only_when_explicitly_allowed(monkeypatch) -> None:
     monkeypatch.setenv("AJENDA_ENV", "development")
     monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")
