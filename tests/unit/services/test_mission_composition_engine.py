@@ -102,6 +102,21 @@ def test_profile_context_preserves_the_full_approved_business_vocabulary() -> No
     assert context["operator_notes"] == "Do not guess"
 
 
+def test_composition_projects_replayable_intelligence_envelope_without_authority() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-v2",
+        instruction=ROOFING_INSTRUCTION,
+    )
+    envelope = record.intelligence_envelope
+    assert envelope is not None
+    assert envelope.tenant_id == "tenant-v2"
+    assert envelope.requested_outcomes == tuple(record.intent.requested_outcomes)
+    assert envelope.material_clause_ids
+    assert envelope.planned_step_keys == tuple(step.step_key for step in record.planned_steps)
+    assert envelope.authority_class == "read_model"
+    assert record.composition_provenance.grants_execution_authority is False
+
+
 def test_negated_crm_records_are_not_misread_as_hubspot_read() -> None:
     intent = interpret_instruction("Read Ajenda's approved business profile. Do not modify CRM records or send email.")
     assert "read_crm" not in intent.requested_outcomes
