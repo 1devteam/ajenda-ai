@@ -64,6 +64,56 @@ def read_profile_list(facts: dict[str, Any], *keys: str) -> list[str]:
     return []
 
 
+def build_profile_brief(*, approved_facts: dict[str, Any], provenance: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Normalize approved profile facts into the canonical read deliverable.
+
+    Composition and runtime retrieval must agree on the shape of business
+    context.  This is deliberately deterministic: missing values are reported
+    and no descriptive facts are synthesized.
+    """
+
+    field_aliases: dict[str, tuple[str, ...]] = {
+        "business_name": ("business_name", "name", "company"),
+        "industry": ("industry", "sector"),
+        "description": ("description", "company_description", "about"),
+        "products_services": ("products_services", "services", "offerings"),
+        "target_customers": ("target_customers", "customer_segments"),
+        "differentiators": ("differentiators", "key_differentiators", "advantages"),
+        "service_area": ("service_area", "business_address", "address"),
+        "operator_notes": ("operator_notes", "notes"),
+    }
+    brief: dict[str, Any] = {}
+    missing_fields: list[str] = []
+    for canonical, aliases in field_aliases.items():
+        if canonical in {"products_services", "target_customers", "differentiators"}:
+            value: Any = read_profile_list(approved_facts, *aliases)
+        else:
+            value = read_profile_text(approved_facts, *aliases)
+        if value:
+            brief[canonical] = value
+        elif canonical in {
+            "business_name",
+            "description",
+            "products_services",
+            "target_customers",
+            "differentiators",
+        }:
+            missing_fields.append(canonical)
+
+    conflicting_fields: list[str] = []
+    for category, provenance_entry in (provenance or {}).items():
+        if isinstance(provenance_entry, dict) and (
+            provenance_entry.get("conflicting") is True or provenance_entry.get("conflict") is True
+        ):
+            conflicting_fields.append(str(category))
+
+    return {
+        "facts": brief,
+        "missing_fields": missing_fields,
+        "conflicting_fields": sorted(set(conflicting_fields)),
+    }
+
+
 def build_profile_account_record(*, approved_facts: dict[str, Any]) -> dict[str, Any] | None:
     business_name = read_profile_text(approved_facts, "business_name", "name")
     website = read_profile_text(approved_facts, "website")

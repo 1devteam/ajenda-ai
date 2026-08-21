@@ -19,7 +19,6 @@ from backend.domain.tenant_member import TenantMember
 from backend.services.auth_login_abuse_guard import AuthLoginRateLimitedError
 from backend.services.oidc_login_service import (
     OidcAccountNotFoundError,
-    OidcAccountPendingVerificationError,
     OidcLoginService,
     OidcLoginValidationError,
     OidcMultipleTenantsError,
@@ -316,7 +315,7 @@ def test_complete_login_rejects_client_ip_mismatch() -> None:
         )
 
 
-def test_complete_login_requires_email_verification_for_pending_member() -> None:
+def test_complete_login_activates_pending_member_after_verified_oidc_identity() -> None:
     db = MagicMock(spec=Session)
     tenant_id = uuid.uuid4()
     pending = _member(tenant_id=tenant_id)
@@ -337,6 +336,7 @@ def test_complete_login_requires_email_verification_for_pending_member() -> None
     service._members.get_active_by_external_subject_id = MagicMock(return_value=None)  # type: ignore[method-assign]
     service._members.list_active_for_email = MagicMock(return_value=[])  # type: ignore[method-assign]
     service._members.get_owner_by_email_canonical = MagicMock(return_value=pending)  # type: ignore[method-assign]
+    service._tenants.get = MagicMock(return_value=_tenant(tenant_id))  # type: ignore[method-assign]
     claims = IdTokenClaims(sub="sub-pending", email="owner@example.com", email_verified=True, nonce="nonce-1")
 
     with (
@@ -345,15 +345,16 @@ def test_complete_login_requires_email_verification_for_pending_member() -> None
         patch.object(service._abuse, "check_callback_ip"),
         patch.object(service._abuse, "check_callback_email"),
         patch.object(service._abuse, "record"),
-        pytest.raises(OidcAccountPendingVerificationError),
     ):
-        service.complete_login(
+        result = service.complete_login(
             login_intent_id=str(intent.id),
             code="auth-code",
             code_verifier="verifier-123456789012345678901234567890",
             redirect_uri="http://localhost:8080/auth/callback",
             client_ip_hash="ip-hash",
         )
+    assert result.tenant_id == str(tenant_id)
+    assert pending.status == "active"
 
 
 def test_complete_login_returns_multiple_tenant_choices() -> None:

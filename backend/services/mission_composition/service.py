@@ -33,6 +33,7 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.provider_runtime_credential_repository import (
     ProviderRuntimeCredentialRepository,
 )
+from backend.services.business_profile_record_sync import build_profile_brief
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.contracts import (
     COMPOSITION_SCHEMA_VERSION,
@@ -92,12 +93,30 @@ def _profile_context(profile: Any) -> dict[str, Any]:
     if not isinstance(facts, dict):
         return {}
     context: dict[str, Any] = {}
-    for key in ("business_name", "company", "industry", "products_services"):
+    for key in (
+        "business_name",
+        "company",
+        "industry",
+        "products_services",
+        "target_customers",
+        "differentiators",
+        "description",
+        "service_area",
+        "operator_notes",
+    ):
         value = facts.get(key)
-        if isinstance(value, str) and value.strip():
-            context[key] = value.strip()
-        elif isinstance(value, dict) and isinstance(value.get("value"), str):
-            context[key] = value["value"].strip()
+        if isinstance(value, (str, list, tuple)) and value:
+            context[key] = value.strip() if isinstance(value, str) else list(value)
+        elif isinstance(value, dict) and value:
+            context[key] = value
+    # Feed the interpreter the same canonical vocabulary that runtime retrieval
+    # emits; this prevents planner context from losing profile fields.
+    normalized = build_profile_brief(
+        approved_facts=facts,
+        provenance=getattr(profile, "provenance", None),
+    )["facts"]
+    context.update(normalized)
+    context["profile_id"] = str(getattr(profile, "id", ""))
     return context
 
 

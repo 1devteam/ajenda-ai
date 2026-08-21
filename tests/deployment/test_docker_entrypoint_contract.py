@@ -43,6 +43,7 @@ def test_worker_image_entrypoint_uses_worker_loop_script() -> None:
     script = _read(START_WORKER_SCRIPT)
 
     assert 'ENTRYPOINT ["/app/deploy/scripts/start-worker.sh"]' in dockerfile
+    assert "configure_logging(settings)" in script
     assert "settings.validate_runtime_contract()" in script
     assert "build_queue_adapter(settings)" in script
     assert "queue_adapter.ping()" in script
