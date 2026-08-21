@@ -83,6 +83,26 @@ def test_gtm_lead_enrich_rejects_unbound_composed_input() -> None:
         )
 
 
+def test_gtm_email_draft_fans_out_one_artifact_row_per_prospect() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="gtm.email_draft",
+            input={
+                "prospects": [
+                    {"prospect_id": "p1", "company": "Alpha HVAC"},
+                    {"prospect_id": "p2", "company": "Beta HVAC"},
+                ]
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["draft_count"] == 2
+    assert [row["prospect_id"] for row in result.output["introduction_drafts"]] == ["p1", "p2"]
+    assert [row["company"] for row in result.output["introduction_drafts"]] == ["Alpha HVAC", "Beta HVAC"]
+
+
 def test_gtm_lead_enrich_simulates_only_when_explicitly_allowed(monkeypatch) -> None:
     monkeypatch.setenv("AJENDA_ENV", "development")
     monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")

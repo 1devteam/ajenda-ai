@@ -32,6 +32,41 @@ def test_web_research_runs_without_external_plugins() -> None:
     assert result.output["domain"] is None
 
 
+def test_public_search_candidates_are_unverified_until_identity_is_proven(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_duckduckgo_instant_answer",
+        lambda **_kwargs: {
+            "results": [
+                {
+                    "title": "Top Arkansas HVAC Companies | Directory",
+                    "url": "https://directory.example/hvac",
+                    "snippet": "A directory result.",
+                    "real": True,
+                }
+            ],
+            "real": True,
+            "error": None,
+        },
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={"query": "HVAC companies in Northwest Arkansas", "include_public_search": True},
+        ),
+        _context(),
+    )
+
+    candidate = result.output["prospect_candidates"][0]
+    assert candidate["identity_status"] == "unverified"
+    assert candidate["real"] is False
+    assert candidate["search_hit_real"] is True
+    assert candidate["identity_evidence_urls"] == ["https://directory.example/hvac"]
+
+
 def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> None:
     """Open research about a third party must not report tenant profile as company/domain."""
     from backend.services.business_context_resolver import BusinessContext

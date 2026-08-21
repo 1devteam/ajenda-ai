@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from backend.services.internet import InternetAccessMode, fetch_public_page
 from backend.services.internet.browser_session import browser_session_as_dict, run_browser_session
 from backend.services.internet.open_write import execute_open_write
@@ -260,6 +262,33 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             "company": prospect.get("company"),
             "domain": prospect.get("domain") or page_host(snapshot.url),
         }
+        expected_host = str(prospect.get("domain") or "").lower().removeprefix("www.").split("/")[0]
+        actual_host = page_host(snapshot.url)
+        company_tokens = [
+            token.lower()
+            for token in re.findall(r"[a-z0-9]{3,}", str(prospect.get("company") or ""))
+            if token.lower() not in {"the", "and", "inc", "llc", "company", "companies"}
+        ]
+        page_text = " ".join(
+            part for part in (snapshot.title, snapshot.text_preview, snapshot.body_preview) if isinstance(part, str)
+        ).lower()
+        host_matches = bool(
+            expected_host
+            and actual_host
+            and (actual_host == expected_host or actual_host.endswith(f".{expected_host}"))
+        )
+        directory_host = any(
+            marker in actual_host
+            for marker in ("directory", "yelp.", "yellowpages", "facebook.", "linkedin.", "instagram.", "maps.")
+        )
+        company_matches = bool(company_tokens) and any(token in page_text for token in company_tokens)
+        identity_status = (
+            "verified"
+            if host_matches and not directory_host and (company_matches or len(company_tokens) <= 1)
+            else "unverified"
+        )
+        page_record["identity_status"] = identity_status
+        page_record["identity_evidence_urls"] = [snapshot.url] if identity_status == "verified" else []
         pages.append(page_record)
         if not snapshot.real:
             unobserved.append({**page_record, "reason": snapshot.error or "page_fetch_failed"})
@@ -280,6 +309,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     "company": prospect.get("company"),
                     "domain": page_record["domain"],
                     "prospect_id": prospect.get("prospect_id"),
+                    "identity_status": identity_status,
+                    "identity_evidence_urls": page_record["identity_evidence_urls"],
                 }
             )
 
@@ -291,6 +322,28 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         "javascript-only contact widgets are unobserved",
     ]
     output = {
+        "prospect_candidates": [
+            {
+                **prospect,
+                "identity_status": next(
+                    (
+                        str(page.get("identity_status"))
+                        for page in pages
+                        if page.get("company") == prospect.get("company") and page.get("identity_status")
+                    ),
+                    prospect.get("identity_status", "unverified"),
+                ),
+                "identity_evidence_urls": next(
+                    (
+                        page.get("identity_evidence_urls")
+                        for page in pages
+                        if page.get("company") == prospect.get("company") and page.get("identity_evidence_urls")
+                    ),
+                    prospect.get("identity_evidence_urls", []),
+                ),
+            }
+            for prospect in raw_prospects
+        ],
         "observed_contacts": observed_contacts,
         "observed_count": len(unique_urls_with_real),
         "contact_value_count": len(observed_contacts),

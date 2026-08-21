@@ -135,6 +135,8 @@ def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) ->
         "signals": [str(data.get("summary") or data.get("snippet") or query)[:240]],
         "source": source,
         "real": True,
+        "identity_status": "verified" if record.get("id") else "unverified",
+        "identity_evidence_urls": [domain_str] if domain_str else [],
         "industry": data.get("industry"),
         "location": data.get("location") or data.get("city"),
     }
@@ -159,7 +161,12 @@ def _prospect_from_web_result(item: dict[str, Any], *, index: int) -> dict[str, 
         "domain": domain,
         "signals": [s for s in [snippet, url] if s],
         "source": "public_search",
-        "real": bool(item.get("real", True)),
+        # A search hit is real evidence that a result existed, not proof that
+        # the title identifies a company or that the host belongs to it.
+        "real": False,
+        "search_hit_real": bool(item.get("real", True)),
+        "identity_status": "unverified",
+        "identity_evidence_urls": [url] if url else [],
         "url": url or None,
     }
 

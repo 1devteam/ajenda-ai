@@ -404,11 +404,41 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         fit_points += 10
         reasons.append("sourced from research world-state")
     score = min(fit_points, 100)
-    qualified = _has_real_contact(lead)
+    dimensions = {
+        "business_fit": 10
+        if (lead.get("company") or account_id) and (lead.get("industry") or lead.get("location") or account_id)
+        else 5
+        if (lead.get("company") or account_id)
+        else 0,
+        "automation_opportunity": 10
+        if lead.get("automation_opportunity") or lead.get("workflow") or context.get("automation_opportunity")
+        else 5
+        if lead.get("intent") or context.get("intent")
+        else 0,
+        "evidence_quality": 10
+        if lead.get("identity_status") == "verified" and (lead.get("source_url") or lead.get("url"))
+        else 8
+        if lead.get("source") == "internal_record"
+        else 4
+        if lead.get("signals") or lead.get("source_url") or lead.get("url")
+        else 0,
+        "urgency": 10 if lead.get("urgency") else 5 if lead.get("intent") or context.get("intent") else 0,
+    }
+    score_10 = round(sum(dimensions.values()) / len(dimensions))
+    mission_scoring = bool(context.get("mission_specific_scoring")) or "qualification_threshold_10" in context
+    threshold_10 = int(context.get("qualification_threshold_10", 7) or 7)
+    qualified = _has_real_contact(lead) and (
+        not mission_scoring or (score_10 >= threshold_10 and lead.get("identity_status") != "unverified")
+    )
     if not qualified:
         reasons.append("not qualified without an observed or supplied contact")
+    if lead.get("identity_status") == "unverified":
+        reasons.append("identity is unverified")
     return {
         "score": score,
+        "score_10": score_10,
+        "qualification_dimensions": dimensions,
+        "qualification_threshold_10": threshold_10,
         "qualified": qualified,
         "reasons": reasons or ["insufficient local qualification signals"],
     }
@@ -435,6 +465,9 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
             "prospect_id": str(lead.get("prospect_id") or lead.get("id") or f"qualify:{index}:{company}")[:80],
             "company": company,
             "score": result["score"],
+            "score_10": result["score_10"],
+            "qualification_dimensions": result["qualification_dimensions"],
+            "qualification_threshold_10": result["qualification_threshold_10"],
             "qualified": result["qualified"],
             "reasons": result["reasons"],
         }
@@ -453,6 +486,9 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
     qualified = bool(primary.get("qualified"))
     output = {
         "score": score,
+        "score_10": primary.get("score_10", 0),
+        "qualification_dimensions": primary.get("qualification_dimensions", {}),
+        "qualification_threshold_10": primary.get("qualification_threshold_10", 7),
         "qualified": qualified,
         "reasons": primary.get("reasons") or ["insufficient local qualification signals"],
         "qualified_prospects": qualified_prospects,

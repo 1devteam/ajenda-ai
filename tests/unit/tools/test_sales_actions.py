@@ -127,6 +127,39 @@ def test_sales_qualify_accepts_observed_email() -> None:
     assert result.output["qualified_prospects"][0]["email"] == "hello@nwarestoreit.com"
 
 
+def test_sales_qualify_exposes_mission_dimensions_and_rejects_unverified_identity() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "prospects": [
+                    {
+                        "company": "Directory HVAC Listing",
+                        "domain": "directory.example",
+                        "identity_status": "unverified",
+                        "url": "https://directory.example/hvac",
+                        "email": "owner@directory.example",
+                        "automation_opportunity": "estimate follow-up",
+                    }
+                ],
+                "context": {"qualification_threshold_10": 7},
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["qualified"] is False
+    assert result.output["score_10"] >= 0
+    assert set(result.output["qualification_dimensions"]) == {
+        "business_fit",
+        "automation_opportunity",
+        "evidence_quality",
+        "urgency",
+    }
+    assert "identity is unverified" in result.output["reasons"]
+
+
 def test_sales_qualify_score_and_recommendation_are_deterministic() -> None:
     registry = get_default_action_registry(rebuild=True)
     context = _context()

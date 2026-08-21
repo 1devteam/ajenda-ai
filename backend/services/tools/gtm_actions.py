@@ -264,12 +264,14 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
     def email_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         inp = GtmEmailDraftInput.model_validate(inv.input)
-        context = dict(inp.context)
         prospects = [p for p in inp.prospects if isinstance(p, dict)]
-        recipient = inp.recipient
-        topic = inp.topic
-        if prospects:
-            primary = prospects[0]
+        draft_rows: list[dict[str, Any]] = []
+        drafts: list[dict[str, Any]] = []
+        work_items = prospects or [{}]
+        for primary in work_items:
+            context = dict(inp.context)
+            recipient = inp.recipient
+            topic = inp.topic
             company = str(primary.get("company") or context.get("prospect_company") or "").strip()
             if company:
                 context["prospect_company"] = company
@@ -289,35 +291,37 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 bound_email = str(contact["email"]).strip()
                 simulated = bool(contact.get("simulated") or contact.get("real") is False)
                 context["contact_email_simulated"] = simulated
-                # Only promote real contact emails into the draft recipient.
                 if not simulated and (not recipient or str(recipient).endswith("@invalid.local")):
                     recipient = bound_email
                     context["recipient_bound"] = True
                 break
             if company and (not topic or topic.startswith("Introduction")):
                 topic = f"Introduction — {company}"[:240]
-        else:
-            company = str(context.get("prospect_company") or "").strip()
 
-        draft = generate_and_persist_draft(
-            ctx,
-            artifact_type="pitch_email",
-            topic=topic,
-            tone=inp.tone,
-            recipient=recipient,
-            extra_context=context,
-        )
+            draft = generate_and_persist_draft(
+                ctx,
+                artifact_type="pitch_email",
+                topic=topic,
+                tone=inp.tone,
+                recipient=recipient,
+                extra_context=context,
+            )
+            drafts.append(draft)
+            draft_rows.append(
+                {
+                    "prospect_id": primary.get("prospect_id"),
+                    "company": context.get("prospect_company"),
+                    "recipient": draft.get("to"),
+                    "subject": draft.get("subject"),
+                    "artifact_id": draft.get("artifact_id"),
+                    "recipient_bound": bool(context.get("recipient_bound")),
+                }
+            )
+
+        draft = dict(drafts[0])
         draft["prospects"] = prospects
-        draft["introduction_drafts"] = [
-            {
-                "prospect_id": (prospects[0].get("prospect_id") if prospects else None),
-                "company": context.get("prospect_company"),
-                "recipient": draft.get("to"),
-                "subject": draft.get("subject"),
-                "artifact_id": draft.get("artifact_id"),
-                "recipient_bound": bool(context.get("recipient_bound")),
-            }
-        ]
+        draft["introduction_drafts"] = draft_rows
+        draft["draft_count"] = len(draft_rows)
         mode = draft.get("generation_mode", "template")
         summary = f"Drafted email ({mode})"
         if context.get("prospect_company"):

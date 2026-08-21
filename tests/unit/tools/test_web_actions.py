@@ -66,3 +66,47 @@ def test_web_page_read_failure_is_not_fake_success() -> None:
         )
     assert result.output["real"] is False
     assert result.output["error"]
+
+
+def test_observe_contacts_marks_matching_site_verified_and_directory_unverified() -> None:
+    from backend.services.tools.web_actions import research_observe_contacts
+
+    matching = PageSnapshot(
+        url="https://acmehvac.example/",
+        real=True,
+        status_code=200,
+        title="Acme HVAC | Heating and cooling",
+        text_preview="Contact Acme HVAC at service@acmehvac.example",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    directory = PageSnapshot(
+        url="https://directory.example/listing/acme-hvac",
+        real=True,
+        status_code=200,
+        title="Top HVAC companies",
+        text_preview="Acme HVAC 555-555-5555",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [
+                {"company": "Acme HVAC", "domain": "acmehvac.example", "url": matching.url},
+                {"company": "Acme HVAC Directory", "domain": "directory.example", "url": directory.url},
+            ],
+            "requested_quantity": 2,
+            "binding_required": True,
+        },
+    )
+    with patch(
+        "backend.services.tools.web_actions.fetch_public_page",
+        side_effect=[matching, directory],
+    ):
+        result = research_observe_contacts(invocation, _context())
+
+    candidates = {item["company"]: item for item in result.output["prospect_candidates"]}
+    assert candidates["Acme HVAC"]["identity_status"] == "verified"
+    assert candidates["Acme HVAC Directory"]["identity_status"] == "unverified"
+    assert result.output["observed_contacts"][0]["identity_status"] == "verified"
