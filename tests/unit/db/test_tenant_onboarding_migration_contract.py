@@ -13,7 +13,7 @@ def test_onboarding_migrations_have_single_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0038_knowledge_retrieval"]
+    assert heads == ["0039_add_password_login"]
     assert len(heads[0]) <= 32
 
 

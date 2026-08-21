@@ -11,7 +11,7 @@ def test_evidence_migration_has_single_head_and_short_revision_id() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0038_knowledge_retrieval"]
+    assert heads == ["0039_add_password_login"]
     assert len(heads[0]) <= 32
 
 
