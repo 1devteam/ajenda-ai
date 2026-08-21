@@ -48,6 +48,34 @@ def test_runtime_projection_preserves_selected_node_order_and_dependency_keys() 
     assert projected[1]["payload_preview"]["materialization_version"] == 2
 
 
+def test_runtime_projection_preserves_canonical_output_contract() -> None:
+    mission_id = uuid.uuid4()
+    readiness = SimpleNamespace(
+        graph_reference={
+            "graph_version": 1,
+            "graph_fingerprint": "sha256:graph",
+            "nodes": [
+                {
+                    "key": "research",
+                    "name": "Research",
+                    "intended_task_type": "tool.invoke",
+                    "output_contract": {"artifact": "research_brief"},
+                }
+            ],
+            "edges": [],
+        },
+        materialization_reference={"materialization_version": 1},
+        admission_reference={
+            "admission_version": 1,
+            "selected_nodes": [{"node_key": "research", "runtime_task_type": "tool.invoke"}],
+        },
+    )
+
+    projected = build_runtime_task_preview_items(mission_id=mission_id, readiness=readiness)
+
+    assert projected[0]["payload_preview"]["expected_output_contract"] == {"artifact": "research_brief"}
+
+
 def test_execution_task_payload_extends_preview_envelope_with_trace_references() -> None:
     preview_item = {
         "preview_task_key": "mission:m:graph:1:node:n:runtime-task-preview",

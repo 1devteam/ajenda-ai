@@ -169,7 +169,12 @@ def build_runtime_task_preview_items(*, mission_id: UUID, readiness: Any) -> lis
         materialization_selection = selected_node.get("materialization_selection_reference")
         raw_input_contract = graph_node.get("input_contract")
         input_contract: dict[str, Any] = deepcopy(raw_input_contract) if isinstance(raw_input_contract, dict) else {}
-        raw_expected_output_contract = graph_node.get("expected_output_contract")
+        # Canonical v2 graphs use ``output_contract``.  ``expected_output_contract``
+        # is retained only for legacy v1 graph references; dropping the canonical
+        # field here would leave workers without the planner's declared handoff.
+        raw_expected_output_contract = graph_node.get("output_contract")
+        if raw_expected_output_contract is None:
+            raw_expected_output_contract = graph_node.get("expected_output_contract")
         expected_output_contract: dict[str, Any] = (
             deepcopy(raw_expected_output_contract) if isinstance(raw_expected_output_contract, dict) else {}
         )

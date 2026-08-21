@@ -268,6 +268,8 @@ def test_plan_compiler_builds_non_linear_dependency_edges() -> None:
         assert isinstance(graph["edges"], list)
     for edge in graph["edges"]:
         assert edge["dependency_type"] == "depends_on"
+    for node in graph["nodes"]:
+        assert node["output_contract"] == {"artifact": node["metadata"]["output_contract"]}
 
 
 def test_composed_graph_populates_web_research_query() -> None:
