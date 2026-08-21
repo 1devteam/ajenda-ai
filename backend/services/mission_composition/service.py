@@ -43,6 +43,7 @@ from backend.services.mission_composition.contracts import (
     MissionCompositionRecord,
     MissionIntent,
 )
+from backend.services.mission_composition.intelligence_envelope import build_intelligence_envelope
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
 from backend.services.mission_composition.plan_compiler import (
@@ -370,6 +371,13 @@ class MissionCompositionService:
             planned_steps,
             selections=selections,
         )
+        intelligence_envelope = build_intelligence_envelope(
+            tenant_id=tenant_id,
+            instruction=raw_instruction,
+            intent=intent,
+            jobs=jobs,
+            planned_steps=planned_steps,
+        )
         allowed_actions = [
             item.action_name for item in selections if item.selection_status == "selected" and item.readiness == "ready"
         ]
@@ -417,6 +425,7 @@ class MissionCompositionService:
             missing_connections=missing,
             approval_gates=sorted(set(approval_gates)),
             planned_steps=planned_steps,
+            intelligence_envelope=intelligence_envelope,
             task_graph_preview=task_graph_preview,
             planner_proposal=planner_proposal,
             planner_provenance=planner_provenance,

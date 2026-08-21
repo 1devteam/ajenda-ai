@@ -556,6 +556,32 @@ class PlannedStepPreview(BaseModel):
     credential_reference: dict[str, Any] | None = None
 
 
+class IntelligenceEnvelope(BaseModel):
+    """Additive handoff contract spanning composition and runtime preview.
+
+    This is a provenance/read-model projection. It grants no execution
+    authority and intentionally does not replace MissionIntent or graph
+    materialization contracts.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = Field(default=1, ge=1, le=1)
+    tenant_id: str = Field(min_length=1, max_length=160)
+    instruction_sha256: str = Field(min_length=64, max_length=64)
+    normalized_instruction_sha256: str = Field(min_length=64, max_length=64)
+    objective: str = Field(min_length=1, max_length=5000)
+    requested_outcomes: tuple[str, ...] = Field(default=(), max_length=30)
+    material_clause_ids: tuple[str, ...] = Field(default=(), max_length=60)
+    context_requirements: tuple[str, ...] = Field(default=(), max_length=20)
+    forbidden_actions: tuple[str, ...] = Field(default=(), max_length=40)
+    expected_outputs: tuple[str, ...] = Field(default=(), max_length=60)
+    planned_step_keys: tuple[str, ...] = Field(default=(), max_length=40)
+    input_bindings: tuple[dict[str, str], ...] = Field(default=(), max_length=80)
+    interpretation_evidence: tuple[dict[str, Any], ...] = Field(default=(), max_length=50)
+    authority_class: Literal["declarative", "read_model"] = "read_model"
+
+
 class AllowedActionsProvenance(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -613,6 +639,7 @@ class MissionCompositionRecord(BaseModel):
     missing_connections: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     approval_gates: list[str] = Field(default_factory=list, max_length=20)
     planned_steps: list[PlannedStepPreview] = Field(default_factory=list, max_length=40)
+    intelligence_envelope: IntelligenceEnvelope | None = None
     task_graph_preview: dict[str, Any] = Field(default_factory=dict)
     planner_proposal: dict[str, Any] | None = None
     planner_provenance: dict[str, Any] | None = None
