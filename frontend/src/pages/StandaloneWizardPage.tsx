@@ -26,7 +26,8 @@ import {
 import type { BusinessProfileReadResponse } from "../types";
 import { listToInput, readProfileList, readProfileText } from "../utils/businessProfile";
 import { saveBusinessProfileFacts } from "../utils/saveBusinessProfileFacts";
-import { markWizardCompleted, readWizardCompletedAt } from "../utils/standaloneWizard";
+import { useOnboardingState } from "../hooks/useOnboardingState";
+import ConnectorGrid from "../components/connections/ConnectorGrid";
 
 type FormValues = Record<string, string>;
 
@@ -81,6 +82,7 @@ export default function StandaloneWizardPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
   const tenantId = session?.tenantId ?? "";
+  const onboarding = useOnboardingState(session);
 
   const [stepId, setStepId] = useState<WizardStepId>("welcome");
   const [values, setValues] = useState<FormValues>({});
@@ -94,7 +96,6 @@ export default function StandaloneWizardPage() {
 
   const currentStep = STANDALONE_WIZARD_STEPS[stepIndex(stepId)] ?? STANDALONE_WIZARD_STEPS[0];
   const currentIndex = stepIndex(stepId);
-  const completedAt = tenantId ? readWizardCompletedAt(tenantId) : null;
 
   useEffect(() => {
     if (!session) {
@@ -238,11 +239,13 @@ export default function StandaloneWizardPage() {
     }
   }
 
-  function finishWizard() {
-    if (tenantId) {
-      markWizardCompleted(tenantId);
+  async function finishWizard() {
+    try {
+      await onboarding.complete();
+      navigate("/missions");
+    } catch (err) {
+      setError(err);
     }
-    navigate("/missions");
   }
 
   const businessName = (values.business_name ?? "").trim() || "your business";
@@ -252,18 +255,17 @@ export default function StandaloneWizardPage() {
       <section className="hero compact-hero">
         <div>
           <p className="eyebrow">Setup</p>
-          <h1>Business setup for ajenda-ai</h1>
+            <h1>Set up Ajenda for your business</h1>
           <p>
-            Walk through business profile, internal records, and optional plugins. Each step saves
-            real tenant-owned facts you can edit later.
+            Add your company context, operating preferences, and optional business connections. You can edit everything later.
           </p>
         </div>
-        {completedAt ? (
+        {onboarding.state?.completed_at ? (
           <div className="status-card">
             <span className="status-dot ok" />
             <div>
               <strong>Completed</strong>
-              <small>{completedAt}</small>
+              <small>{onboarding.state.completed_at}</small>
             </div>
           </div>
         ) : null}
@@ -307,8 +309,7 @@ export default function StandaloneWizardPage() {
           {stepId === "welcome" ? (
             <div className="wizard-welcome">
               <p>
-                New tenants start with an Ajenda AI demo that sells itself. Replace those facts with
-                yours, or keep the demo to explore standalone missions immediately.
+                Tell Ajenda about your company so it can prepare relevant missions. Start with sample values or replace them with your own.
               </p>
               <div className="action-row">
                 <button type="button" className="primary-button" onClick={applyDemoPreset}>
@@ -435,29 +436,22 @@ export default function StandaloneWizardPage() {
           {stepId === "brain" ? (
             <div className="callout wizard-callout">
               <p>
-                <strong>{businessName}</strong> is projected into tenant internal records when you save.
-                Missions can search those rows plus ephemeral mission memory through{" "}
-                <code>retrieval.hybrid_search</code>.
+                <strong>{businessName}</strong> is ready for review. Your company context and operating preferences are saved to this workspace.
               </p>
               <ul className="wizard-checklist">
-                <li>Account record: profile-account-primary</li>
-                <li>Contact record: profile-contact-primary</li>
-                <li>Demo prospect pipeline remains available until you replace profile truth</li>
+                <li>Company information is saved</li>
+                <li>Operating preferences are saved</li>
+                <li>Connections are optional</li>
               </ul>
-              <Link to="/tasks">Launch a retrieval or record-search task</Link>
             </div>
           ) : null}
 
           {stepId === "plugins" ? (
             <div className="callout wizard-callout">
               <p>
-                Gmail, HubSpot, Salesforce, and other adapters are optional. Standalone missions run
-                on the Ajenda brain alone when no credential is attached.
+                Connect only the business tools you want Ajenda to use. Each Google connection is separate, and you can continue without connecting anything.
               </p>
-              <div className="action-row">
-                <Link to="/credentials">Connect optional plugins</Link>
-                <Link to="/missions">Create your first mission</Link>
-              </div>
+              {session ? <ConnectorGrid session={session} onboarding={onboarding.state} /> : null}
             </div>
           ) : null}
 
@@ -466,7 +460,7 @@ export default function StandaloneWizardPage() {
               Back
             </button>
             {stepId === "plugins" ? (
-              <button type="button" className="primary-button" onClick={finishWizard} disabled={saving}>
+              <button type="button" className="primary-button" onClick={() => void finishWizard()} disabled={saving}>
                 Finish setup
               </button>
             ) : (

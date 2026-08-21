@@ -19,6 +19,7 @@ from backend.repositories.tenant_repository import (
     TenantSuspendedError,
 )
 from backend.services.account_service import AccountService
+from backend.services.onboarding_service import OnboardingService, OnboardingSnapshot
 
 router = APIRouter(prefix="/account", tags=["account"])
 router.include_router(provider_credentials_router)
@@ -73,6 +74,24 @@ class AccountBillingResponse(BaseModel):
     tenant_status: str
     has_billing_account: bool
     stripe_customer_id: str | None = None
+
+
+class AccountOnboardingResponse(BaseModel):
+    setup_version: int
+    completed: bool
+    completed_at: str | None = None
+    completed_by_member_id: str | None = None
+    suppress_prompt: bool
+    prompt_suppressed_at: str | None = None
+    company_profile_ready: bool
+    operating_preferences_ready: bool
+    can_manage_connections: bool
+    human_member: bool
+    connections: dict[str, bool]
+
+
+class AccountOnboardingPreferenceRequest(BaseModel):
+    suppress_prompt: bool
 
 
 def _map_account_errors(exc: Exception) -> HTTPException:
@@ -201,3 +220,64 @@ def get_account_billing(
         has_billing_account=summary.has_billing_account,
         stripe_customer_id=summary.stripe_customer_id,
     )
+
+
+def _onboarding_response(snapshot: OnboardingSnapshot) -> AccountOnboardingResponse:
+    return AccountOnboardingResponse(
+        setup_version=snapshot.setup_version,
+        completed=snapshot.completed,
+        completed_at=snapshot.completed_at,
+        completed_by_member_id=snapshot.completed_by_member_id,
+        suppress_prompt=snapshot.suppress_prompt,
+        prompt_suppressed_at=snapshot.prompt_suppressed_at,
+        company_profile_ready=snapshot.company_profile_ready,
+        operating_preferences_ready=snapshot.operating_preferences_ready,
+        can_manage_connections=snapshot.can_manage_connections,
+        human_member=snapshot.human_member,
+        connections=snapshot.connections,
+    )
+
+
+@router.get("/onboarding", response_model=AccountOnboardingResponse, status_code=status.HTTP_200_OK)
+def get_account_onboarding(
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> AccountOnboardingResponse:
+    require_route_permission(request=request, db=db, permission=Permission.ACCOUNT_READ, tenant_id=tenant_id)
+    return _onboarding_response(OnboardingService(db).read(tenant_id=tenant_id, principal=request.state.principal))
+
+
+@router.patch("/onboarding/preferences", response_model=AccountOnboardingResponse, status_code=status.HTTP_200_OK)
+def update_account_onboarding_preferences(
+    body: AccountOnboardingPreferenceRequest,
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> AccountOnboardingResponse:
+    require_route_permission(request=request, db=db, permission=Permission.ACCOUNT_READ, tenant_id=tenant_id)
+    try:
+        snapshot = OnboardingService(db).set_prompt_suppressed(
+            tenant_id=tenant_id, principal=request.state.principal, suppress=body.suppress_prompt
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _onboarding_response(snapshot)
+
+
+@router.post("/onboarding/complete", response_model=AccountOnboardingResponse, status_code=status.HTTP_200_OK)
+def complete_account_onboarding(
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> AccountOnboardingResponse:
+    require_route_permission(request=request, db=db, permission=Permission.ACCOUNT_READ, tenant_id=tenant_id)
+    try:
+        snapshot = OnboardingService(db).complete(tenant_id=tenant_id, principal=request.state.principal)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _onboarding_response(snapshot)

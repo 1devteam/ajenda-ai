@@ -44,6 +44,9 @@ GOOGLE_CONTACTS_READ_SIDE_EFFECTS = ("external_read",)
 # People API host only — do not include www.googleapis.com or Calendar will
 # appear "connected" via host-based integration detection and steal this token.
 GOOGLE_CONTACTS_TRUSTED_HOSTS = ("people.googleapis.com",)
+GOOGLE_DOCS_READ_ACTIONS = ("google_docs.document_read", "provider.external_read")
+GOOGLE_DOCS_READ_SIDE_EFFECTS = ("external_read",)
+GOOGLE_DOCS_TRUSTED_HOSTS = ("docs.googleapis.com",)
 GITHUB_READ_ACTIONS = ("github.repo_read", "provider.external_read")
 GITHUB_READ_SIDE_EFFECTS = ("external_read",)
 GITHUB_TRUSTED_HOSTS = ("api.github.com",)
@@ -68,6 +71,7 @@ class ProviderCredentialSummary:
     platform_master_warning: str | None
     created_at: str
     updated_at: str
+    integration: str = "generic"
 
 
 @dataclass(slots=True)
@@ -99,6 +103,7 @@ class ProviderCredentialManagementService:
             "salesforce",
             "google_calendar",
             "google_contacts",
+            "google_docs",
             "github",
             "generic",
         ] = "hubspot",
@@ -168,6 +173,7 @@ class ProviderCredentialManagementService:
             tenant_id=tenant_id,
             credential_id=normalized_id,
             provider=normalized_provider,
+            integration=integration,
             credential_type=credential_type,
             enabled=True,
             revoked=False,
@@ -254,6 +260,11 @@ class ProviderCredentialManagementService:
             side_effects = tuple(allowed_side_effect_classes or GOOGLE_CONTACTS_READ_SIDE_EFFECTS)
             hosts = tuple(trusted_destination_hosts or GOOGLE_CONTACTS_TRUSTED_HOSTS)
             return actions, side_effects, hosts
+        if provider == "external_read_provider" and integration == "google_docs":
+            actions = tuple(allowed_actions or GOOGLE_DOCS_READ_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or GOOGLE_DOCS_READ_SIDE_EFFECTS)
+            hosts = tuple(trusted_destination_hosts or GOOGLE_DOCS_TRUSTED_HOSTS)
+            return actions, side_effects, hosts
         if provider == "external_read_provider" and integration == "github":
             actions = tuple(allowed_actions or GITHUB_READ_ACTIONS)
             side_effects = tuple(allowed_side_effect_classes or GITHUB_READ_SIDE_EFFECTS)
@@ -318,6 +329,7 @@ class ProviderCredentialManagementService:
             credential_id=row.credential_id,
             tenant_id=row.tenant_id,
             provider=row.provider,
+            integration=row.integration,
             credential_type=row.credential_type,
             enabled=row.enabled,
             revoked=row.revoked,

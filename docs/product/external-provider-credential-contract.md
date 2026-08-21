@@ -105,8 +105,8 @@ When `integration=google_calendar` and `provider=external_read_provider`:
 - `allowed_side_effect_classes`: `external_read`
 - `trusted_destination_hosts`: `www.googleapis.com`
 - OAuth secrets are stored as JSON (`provider_kind=google_calendar`, `access_token`, `refresh_token`, `expires_at`); refresh occurs before invoke when expired
-- Product OAuth redirect: `AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI` (default `http://localhost:5173/credentials/google-calendar/callback`)
-- Reuses Google OAuth client env vars (`AJENDA_GOOGLE_CLI_CLIENT_ID` / `AJENDA_GOOGLE_CLI_CLIENT_SECRET`)
+- Product OAuth redirects: `AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI`, `AJENDA_GOOGLE_CONTACTS_OAUTH_REDIRECT_URI`, and `AJENDA_GOOGLE_DOCS_OAUTH_REDIRECT_URI` (defaults are the matching `/credentials/.../callback` paths on `http://localhost:5173`)
+- Uses connector-only Google OAuth client vars (`AJENDA_GOOGLE_CONNECTOR_CLIENT_ID` / `AJENDA_GOOGLE_CONNECTOR_CLIENT_SECRET`). CLI vars are for local CLI tooling; OIDC fallback is legacy development compatibility only.
 - Runtime action `google_calendar.events_read` lists events from Calendar API v3
 - Credentialed path fails closed on Google Calendar API errors (no simulated event fallback)
 

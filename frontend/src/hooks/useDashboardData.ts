@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { listMissions, listProviderCredentials, listReviewQueue } from "../api/client";
-import type { CustomerSession, MissionListItem, ReviewQueueItem } from "../types";
+import { getAccountOnboarding, listMissions, listReviewQueue } from "../api/client";
+import type { AccountOnboardingResponse, CustomerSession, MissionListItem, ReviewQueueItem } from "../types";
 import { failureText } from "../utils/errors";
 
 export type DashboardData = {
@@ -8,6 +8,7 @@ export type DashboardData = {
   approvalItems: ReviewQueueItem[];
   pendingApprovals: number;
   hasConnections: boolean;
+  onboarding: AccountOnboardingResponse | null;
   loading: boolean;
   error: string | null;
   liveMessage: string;
@@ -19,6 +20,7 @@ export function useDashboardData(session: CustomerSession | null): DashboardData
   const [approvalItems, setApprovalItems] = useState<ReviewQueueItem[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [hasConnections, setHasConnections] = useState(false);
+  const [onboarding, setOnboarding] = useState<AccountOnboardingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveMessage, setLiveMessage] = useState("");
@@ -34,6 +36,7 @@ export function useDashboardData(session: CustomerSession | null): DashboardData
       setApprovalItems([]);
       setPendingApprovals(0);
       setHasConnections(false);
+      setOnboarding(null);
       setLoading(false);
       setError(null);
       return;
@@ -46,10 +49,10 @@ export function useDashboardData(session: CustomerSession | null): DashboardData
     async function load() {
       // Core dashboard panels must not fail if credentials:read is missing.
       // Connections are optional checklist signal only.
-      const [missionsResult, reviewResult, credentialsResult] = await Promise.allSettled([
+      const [missionsResult, reviewResult, onboardingResult] = await Promise.allSettled([
         listMissions(session!, { limit: 50 }),
         listReviewQueue(session!, { status: "pending", limit: 50 }),
-        listProviderCredentials(session!),
+        getAccountOnboarding(session!),
       ]);
 
       if (cancelled) {
@@ -74,14 +77,13 @@ export function useDashboardData(session: CustomerSession | null): DashboardData
         coreErrors.push(failureText(reviewResult.reason));
       }
 
-      if (credentialsResult.status === "fulfilled") {
-        const activeCreds = credentialsResult.value.credentials.filter(
-          (credential) => credential.enabled && !credential.revoked,
-        );
-        setHasConnections(activeCreds.length > 0);
+      if (onboardingResult.status === "fulfilled") {
+        setOnboarding(onboardingResult.value);
+        setHasConnections(Object.values(onboardingResult.value.connections).some(Boolean));
       } else {
         // No connections permission → treat as incomplete checklist step, not page error.
         setHasConnections(false);
+        setOnboarding(null);
       }
 
       if (coreErrors.length > 0) {
@@ -112,6 +114,7 @@ export function useDashboardData(session: CustomerSession | null): DashboardData
     approvalItems,
     pendingApprovals,
     hasConnections,
+    onboarding,
     loading,
     error,
     liveMessage,

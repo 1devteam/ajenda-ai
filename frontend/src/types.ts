@@ -147,6 +147,7 @@ export interface ProviderCredentialResponse {
   credential_id: string;
   tenant_id: string;
   provider: string;
+  integration: string;
   credential_type: string;
   enabled: boolean;
   revoked: boolean;
@@ -170,6 +171,7 @@ export interface ProviderCredentialCreateRequest {
     | "salesforce"
     | "google_calendar"
     | "google_contacts"
+    | "google_docs"
     | "github"
     | "generic";
   secret_value?: string;
@@ -177,6 +179,22 @@ export interface ProviderCredentialCreateRequest {
   allowed_actions?: string[];
   allowed_side_effect_classes?: string[];
   trusted_destination_hosts?: string[];
+}
+
+export type ConnectorId = "gmail" | "google_calendar" | "google_contacts" | "google_docs";
+
+export interface AccountOnboardingResponse {
+  setup_version: number;
+  completed: boolean;
+  completed_at?: string | null;
+  completed_by_member_id?: string | null;
+  suppress_prompt: boolean;
+  prompt_suppressed_at?: string | null;
+  company_profile_ready: boolean;
+  operating_preferences_ready: boolean;
+  can_manage_connections: boolean;
+  human_member: boolean;
+  connections: Record<ConnectorId, boolean>;
 }
 
 export interface ProviderCredentialCreateResponse {

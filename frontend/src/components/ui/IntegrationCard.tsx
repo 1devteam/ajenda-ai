@@ -19,7 +19,7 @@ function statusLabel(status: IntegrationCardProps["status"]): string {
     case "coming_soon":
       return "Coming soon";
     default:
-      return "Available";
+      return "Disconnected";
   }
 }
 
