@@ -67,6 +67,22 @@ def test_gtm_lead_enrich_accepts_bound_prospect_without_profile_fallback() -> No
     assert result.output["domain"] == "prospect.invalid"
 
 
+def test_gtm_lead_enrich_rejects_unbound_composed_input() -> None:
+    registry = get_default_action_registry(rebuild=True)
+
+    with pytest.raises(ValueError, match="requires bound upstream prospects"):
+        registry.invoke(
+            ToolInvocation(
+                action="gtm.lead_enrich",
+                input={
+                    "company": "Generic Prospect Company",
+                    "context": {"binding_required": True},
+                },
+            ),
+            _context(),
+        )
+
+
 def test_gtm_lead_enrich_simulates_only_when_explicitly_allowed(monkeypatch) -> None:
     monkeypatch.setenv("AJENDA_ENV", "development")
     monkeypatch.setenv("AJENDA_ALLOW_SIMULATED_EXTERNAL", "1")

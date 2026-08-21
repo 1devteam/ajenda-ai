@@ -185,6 +185,11 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             merged_input["domain"] = domain_seed
         inp = GtmLeadEnrichInput.model_validate(merged_input)
 
+        if bool(inp.context.get("binding_required")) and not prospects_in:
+            raise ValueError(
+                "gtm.lead_enrich requires bound upstream prospects when composition marks binding_required"
+            )
+
         source_prospects = prospects_in or [
             {
                 "prospect_id": f"enrich:{inp.company}",
