@@ -3,6 +3,7 @@ set -euo pipefail
 
 exec python - <<'PY'
 from backend.app.config import get_settings
+from backend.app.logging import configure_logging
 from backend.db.session import DatabaseRuntime
 from backend.db.vector_session import VectorDatabaseRuntime
 from backend.queue import build_queue_adapter
@@ -10,6 +11,7 @@ from backend.workers.tenant_scheduler import build_claim_target
 from backend.workers.worker_loop import WorkerLoop
 
 settings = get_settings()
+configure_logging(settings)
 settings.validate_runtime_contract()
 
 queue_adapter = build_queue_adapter(settings)
