@@ -228,11 +228,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
         "source": "ajenda_brain",
     }
     profile_memory = next(
-        (
-            item
-            for item in profile_hits
-            if isinstance(item, dict) and isinstance(item.get("content"), dict)
-        ),
+        (item for item in profile_hits if isinstance(item, dict) and isinstance(item.get("content"), dict)),
         None,
     )
     if profile_memory is not None:
