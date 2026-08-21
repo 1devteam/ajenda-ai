@@ -51,6 +51,29 @@ def _task_action_name(task: ExecutionTask) -> str | None:
     return None
 
 
+def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[str, Any] | None) -> None:
+    """Require a declared composition output to survive the runtime handoff.
+
+    Legacy tasks may not carry an output contract and retain their existing
+    completion behavior. Once a graph declares an artifact, a successful
+    completion must include a concrete handler output; evidence persistence
+    remains enforced by the canonical tool evidence bridge below.
+    """
+
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    raw_contract = metadata.get("expected_output_contract")
+    if raw_contract is None:
+        raw_contract = metadata.get("output_contract")
+    if not isinstance(raw_contract, dict) or not raw_contract:
+        return
+
+    artifact = raw_contract.get("artifact")
+    if not isinstance(artifact, str) or not artifact.strip():
+        raise ValueError("declared output contract must include a non-empty artifact")
+    if task_output is None or task_output.get("output") is None:
+        raise ValueError(f"completed task must provide output for declared artifact '{artifact.strip()}'")
+
+
 def _observe_accept_unmet(siblings: list[ExecutionTask]) -> bool:
     """True when an observe-contacts task finished without meeting the requested count."""
 
@@ -260,6 +283,7 @@ class WorkerRuntimeService:
         task = self._get_task_for_lease(lease)
         if task.status != ExecutionTaskState.RUNNING.value:
             raise ValueError("task is not running")
+        _validate_declared_output_contract(task, task_output)
 
         transition_task(task, ExecutionTaskState.COMPLETED)
         self._transition_lease_to_released(lease)
