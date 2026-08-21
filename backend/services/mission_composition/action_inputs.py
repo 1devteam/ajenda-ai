@@ -653,6 +653,8 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 "binding_required": True,
                 "binding_source": "upstream_prospect_candidates",
                 "requested_quantity": limit,
+                "mission_specific_scoring": True,
+                "qualification_threshold_10": 7,
             },
         }
     if action_name == "gtm.lead_enrich":
