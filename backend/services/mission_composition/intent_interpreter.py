@@ -236,6 +236,9 @@ _NO_EXTERNAL_ACTION_PATTERNS = (
     r"\b(?:do not|don't|dont|never)\b[^.!?]{0,180}\b(?:contact|send|modify|perform)\b",
     r"\bwithout\b[^.!?]{0,180}\b(?:contact|send|modify|perform)\b",
 )
+_PROMPT_INJECTION_PATTERNS = (
+    r"\b(?:treat|consider|regard)\b[^.!?]{0,180}\b(?:untrusted|not authority|not instructions?)\b",
+)
 _BUSINESS_PROFILE_READ_PATTERNS = (
     r"\b(?:search|read|retrieve|look up|find|summarize)\b[^.!?]{0,72}\b(?:approved )?business profile\b",
     r"\b(?:search|read|retrieve|look up|find|summarize)\b[^.!?]{0,72}\bgoverned internal memory\b",
@@ -368,6 +371,12 @@ def _contains_unnegated_send(text: str) -> bool:
     for match in re.finditer(r"\b(?:send|sending|deliver|dispatch|mail)\b", text, flags=re.IGNORECASE):
         sentence_start = max(text.rfind(token, 0, match.start()) for token in ".!?\n")
         sentence = text[sentence_start + 1 : match.start()]
+        sentence_end = min(
+            [index for index in (text.find(token, match.end()) for token in ".!?\n") if index >= 0] or [len(text)]
+        )
+        full_sentence = text[sentence_start + 1 : sentence_end]
+        if _contains_any(full_sentence, _PROMPT_INJECTION_PATTERNS):
+            continue
         if re.search(r"\b(?:do not|don't|dont|never|without)\b", sentence, flags=re.IGNORECASE):
             continue
         return True
@@ -768,13 +777,25 @@ def _classify_clause(
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
+    # Instructions that explicitly classify source text as untrusted are
+    # safety metadata, not an external action request or an unmatched mission
+    # clause. Keep them visible to the caller without turning quoted verbs
+    # such as “send” into requested outcomes.
+    if _contains_any(lower, _PROMPT_INJECTION_PATTERNS):
+        return [], False, True
     outcomes: list[CanonicalOutcome] = []
     profile_read = _contains_any(lower, _BUSINESS_PROFILE_READ_PATTERNS)
     if profile_read or (profile_mission and _contains_any(lower, _BUSINESS_PROFILE_DELIVERABLE_PATTERNS)):
         outcomes.append("read_business_profile")
     email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
-    crm_read = _contains_any(lower, _CRM_READ_PATTERNS) and not _contains_any(
-        lower, _CRM_UPDATE_PATTERNS + _CRM_NEGATION_PATTERNS + _CRM_READ_NEGATION_PATTERNS
+    crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
+        lower, _CRM_NEGATION_PATTERNS
+    )
+    crm_read = (
+        _contains_any(lower, _CRM_READ_PATTERNS)
+        and not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS)
+        and not crm_write_requested
+        and not _contains_any(lower, _CRM_NEGATION_PATTERNS)
     )
     salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
     connector_read = email_read or crm_read or salesforce_query
@@ -936,8 +957,15 @@ def interpret_instruction(
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
-    wants_crm_read = _contains_any(lower, _CRM_READ_PATTERNS) and not _contains_any(
-        lower, _CRM_UPDATE_PATTERNS + _CRM_NEGATION_PATTERNS + _CRM_READ_NEGATION_PATTERNS
+    explicit_hubspot_record_read = bool(re.search(r"\buse\s+(?:the\s+)?(?:hubspot|crm)\s+records?\b", lower))
+    crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
+        lower, _CRM_NEGATION_PATTERNS
+    )
+    wants_crm_read = (
+        (explicit_hubspot_record_read or _contains_any(lower, _CRM_READ_PATTERNS))
+        and not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS)
+        and not crm_write_requested
+        and (explicit_hubspot_record_read or not _contains_any(lower, _CRM_NEGATION_PATTERNS))
     )
     wants_salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
     connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
