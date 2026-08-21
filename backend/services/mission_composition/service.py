@@ -332,7 +332,20 @@ class MissionCompositionService:
             preferred_credential_by_integration=preferred_creds,
             credential_type_by_id=type_by_id,
         )
-        planned_steps = compile_planned_steps(selections, intent=intent)
+        try:
+            planned_steps = compile_planned_steps(selections, intent=intent)
+        except ValueError as exc:
+            # A selected action may reject an unrepresentable scope (for
+            # example, a CRM filter routed to a company-search action). This
+            # is an interpretation/planning failure, not an API 500: return a
+            # durable clarification response and never create runtime state.
+            raise MissionCompositionError(
+                code="INTAKE_QUALITY",
+                message=(
+                    "The requested scope cannot be represented by the selected mission action. "
+                    f"Restate the scope or choose a supported outcome: {exc}"
+                ),
+            ) from exc
         job_assignments = compile_job_assignments(selections)
         task_graph_preview = compile_task_graph_preview(
             planned_steps,

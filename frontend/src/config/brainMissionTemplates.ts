@@ -28,7 +28,7 @@ export const BRAIN_MISSION_TEMPLATES: BrainMissionTemplate[] = [
     description: "Search governed memory for company facts from your business profile.",
     action: "retrieval.hybrid_search",
     tier: "prepare/read",
-    input: { query: "products services", limit: 5 },
+    input: { query: "Ajenda products services target customers differentiators", limit: 5 },
   },
   {
     missionId: "M2",

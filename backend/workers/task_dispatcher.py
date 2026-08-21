@@ -11,10 +11,8 @@ Handler registration:
     Register handlers via @register_handler("task_type")
     Each handler receives (task, context) and returns a result dict.
 
-Extension point:
-    In Phase 2, replace the default_handler with real AI agent dispatch.
-    The framework here is intentionally minimal — it enforces the contract
-    without prescribing the execution model.
+Only explicitly registered task types are executable. Unknown or missing task
+types fail closed so a task can never be marked complete by a fallback handler.
 """
 
 from __future__ import annotations
@@ -393,27 +391,6 @@ class TaskDispatcher:
             return None
         finally:
             session.close()
-
-
-# Default handler — logs and completes the task.
-# Replace this in Phase 2 with real AI agent dispatch.
-@register_handler("default")
-def default_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
-    """Default task handler. Logs task metadata and marks complete.
-
-    This is the extension point for Phase 2 AI agent dispatch.
-    Replace this handler with real execution logic.
-    """
-    logger.info(
-        "default_handler_executing",
-        extra={
-            "task_id": str(task.id),
-            "tenant_id": task.tenant_id,
-            "metadata_keys": list(task.metadata_json.keys()),
-        },
-    )
-    # Phase 2: dispatch to AI agent here
-    return {"status": "completed", "handler": "default"}
 
 
 @register_handler("force_fail")

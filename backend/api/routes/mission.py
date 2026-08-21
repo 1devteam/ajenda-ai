@@ -109,6 +109,7 @@ from backend.services.mission_bridge_runtime_authority import provision_bridge_r
 from backend.services.mission_executor import MissionExecutor  # noqa: F401 - legacy test/patch compatibility
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
+    contains_composition_clarification,
     validate_mission_intake_prompt,
 )
 from backend.services.mission_runtime_projection import (
@@ -1548,6 +1549,14 @@ def create_mission(
 ) -> MissionRead:
     """Create a tenant-owned mission intake record without queueing runtime work."""
     require_route_permission(request=request, db=db, permission=Permission.MISSION_CREATE, tenant_id=tenant_id)
+    if contains_composition_clarification(body.context):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INTAKE_QUALITY",
+                "message": "Planner clarification text cannot be submitted as a mission objective; restate the intended mission.",
+            },
+        )
     if get_settings().mission_intake_quality_mode == "enforce":
         try:
             validate_mission_intake_prompt(

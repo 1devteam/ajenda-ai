@@ -9,6 +9,30 @@ from pydantic import BaseModel, ConfigDict
 
 MISSION_INTAKE_QUALITY_SCHEMA_VERSION = 2
 
+_COMPOSITION_CLARIFICATION_MARKERS = (
+    "i cannot compose this mission reliably",
+    "restat(e|ing) the complete mission",
+    "the revised mission still does not include",
+)
+
+
+def contains_composition_clarification(value: Any) -> bool:
+    """Return True when persisted UI context is itself a planner clarification.
+
+    A clarification is not a mission objective. It must never be accepted as a
+    direct mission instruction or allowed to reach runtime queue admission.
+    """
+
+    if isinstance(value, str):
+        lowered = value.lower()
+        return any(re.search(marker, lowered) for marker in _COMPOSITION_CLARIFICATION_MARKERS)
+    if isinstance(value, dict):
+        return any(contains_composition_clarification(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(contains_composition_clarification(item) for item in value)
+    return False
+
+
 MissionIntakeQualitySeverity = Literal["required"]
 
 _OBJECTIVE_MIN_CHARS = 24

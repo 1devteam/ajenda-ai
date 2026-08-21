@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
@@ -11,7 +13,7 @@ from backend.services.mission_composition.plan_compiler import (
     compile_task_graph_preview,
 )
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
-from backend.services.mission_composition.service import MissionCompositionService
+from backend.services.mission_composition.service import MissionCompositionError, MissionCompositionService
 from backend.services.mission_composition.structured_planner import (
     PlannerBudgetProposal,
     PlannerJobProposal,
@@ -50,6 +52,50 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     assert "identify" not in intent.target_entities[0].location.lower()
 
 
+def test_interpreter_routes_governed_ajenda_profile_brief_to_internal_memory_only() -> None:
+    instruction = (
+        "Search Ajenda's approved business profile and governed internal memory. "
+        "Produce an evidence-backed brief explaining who Ajenda is, its products and services, "
+        "target customers, and key differentiators. Identify missing or conflicting facts without guessing. "
+        "Do not browse the web, contact anyone, send email, modify CRM records, or perform any external action."
+    )
+    intent = interpret_instruction(instruction)
+    assert intent.interpretation_ready
+    assert intent.requested_outcomes == ["read_business_profile"]
+    assert intent.send_policy.mode == "forbid"
+    assert "gtm.email_send" in intent.forbidden_actions
+    assert not intent.unmatched_material_clauses
+
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == ["intelligence.retrieve_business_profile"]
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert not missing
+    assert [(item.action_name, item.readiness) for item in selections] == [("retrieval.hybrid_search", "ready")]
+    planned = compile_planned_steps(selections, intent=intent)
+    assert planned[0].tool_input["query"].startswith("Ajenda products services")
+
+
+def test_negated_crm_records_are_not_misread_as_hubspot_read() -> None:
+    intent = interpret_instruction("Read Ajenda's approved business profile. Do not modify CRM records or send email.")
+    assert "read_crm" not in intent.requested_outcomes
+    assert "read_business_profile" in intent.requested_outcomes
+    assert intent.send_policy.mode == "forbid"
+
+
+def test_negated_connector_read_does_not_authorize_read_or_fuzzy_email() -> None:
+    intent = interpret_instruction("Do not read CRM records. Send the approved email now.")
+    assert intent.requested_outcomes == ["send_outreach"]
+    assert "read_crm" not in intent.requested_outcomes
+    assert "read_email" not in intent.requested_outcomes
+
+
+def test_send_contradiction_across_sentences_fails_closed() -> None:
+    intent = interpret_instruction("Do not send email. Send the approved email now.")
+    assert not intent.requested_outcomes
+    assert intent.contradictions
+    assert any(item.field == "send_policy" for item in intent.ambiguity)
+
+
 def test_revops_composition_is_pinned_to_selected_know_how_version() -> None:
     service = MissionCompositionService(db=None)
     record = service.compose(
@@ -58,6 +104,21 @@ def test_revops_composition_is_pinned_to_selected_know_how_version() -> None:
     )
     assert record.composition_provenance.know_how_id == "revops.research-to-approved-outreach"
     assert record.composition_provenance.know_how_version == "1.0.0"
+
+
+def test_unrepresentable_action_scope_returns_planning_error_not_server_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_scope(*_args: object, **_kwargs: object) -> list[object]:
+        raise ValueError("CRM filter cannot be represented by company search")
+
+    monkeypatch.setattr("backend.services.mission_composition.service.compile_planned_steps", reject_scope)
+    with pytest.raises(MissionCompositionError, match="cannot be represented") as exc_info:
+        MissionCompositionService(db=None).compose(
+            tenant_id="11111111-1111-1111-1111-111111111111",
+            instruction="Read HubSpot company records for roofing prospects.",
+        )
+    assert exc_info.value.code == "INTAKE_QUALITY"
 
 
 def test_valid_injected_structured_planner_is_persisted_as_non_authoritative_proposal() -> None:

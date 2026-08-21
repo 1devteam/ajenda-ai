@@ -7,6 +7,8 @@ OAuth refresh, provider API clients, or persistent credential access.
 
 from __future__ import annotations
 
+import os
+import re
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,6 +31,10 @@ class ResolvedExternalCredential(BaseModel):
     issued_subject: str | None = Field(default=None, max_length=240)
 
 
+class CredentialResolutionError(RuntimeError):
+    """A credential reference could not be resolved without exposing secrets."""
+
+
 class CredentialResolver(Protocol):
     """Boundary for resolving credential references at runtime."""
 
@@ -36,10 +42,27 @@ class CredentialResolver(Protocol):
         """Resolve a credential reference into runtime-only credential material."""
 
 
-class UnresolvedCredentialResolver:
-    """Fail-closed resolver used until real secret resolution is implemented."""
+class EnvironmentCredentialResolver:
+    """Resolve explicitly-scoped environment variable credential references.
+
+    Secret-manager, Kubernetes, and OAuth-token-store references are rejected
+    here rather than guessed. Deployments that use those stores must provide a
+    resolver implementing the same protocol at their composition boundary.
+    """
 
     def resolve(self, reference: ExternalCredentialReference) -> ResolvedExternalCredential:
-        """Always fail closed because no live credential resolver is wired."""
-
-        raise NotImplementedError(f"credential resolution is not implemented for {reference.provider.value}")
+        if reference.kind.value != "env_var":
+            raise CredentialResolutionError(
+                f"credential kind '{reference.kind.value}' requires a deployment credential resolver"
+            )
+        name = reference.reference.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
+            raise CredentialResolutionError("environment credential reference must be a valid variable name")
+        value = os.environ.get(name)
+        if not value or not value.strip():
+            raise CredentialResolutionError(f"credential environment variable '{name}' is not set")
+        return ResolvedExternalCredential(
+            reference=reference,
+            secret_value=value.strip(),
+            issued_subject=reference.subject,
+        )

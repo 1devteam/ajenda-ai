@@ -222,7 +222,7 @@ def test_runtime_dispatch_readiness_blocks_queued_tasks_missing_task_type_metada
     assert result.readiness_status == "blocked"
     assert set(result.blocked_task_ids) == {str(missing.id), str(empty.id)}
     assert all(blocker["code"] == "queued_task_missing_task_type" for blocker in result.blockers)
-    assert {warning["code"] for warning in result.warnings} == {"default_handler_not_allowed"}
+    assert {warning["code"] for warning in result.warnings} == {"fallback_handler_not_allowed"}
 
 
 def test_runtime_dispatch_readiness_blocks_missing_or_scope_mismatched_materialized_task_ids() -> None:

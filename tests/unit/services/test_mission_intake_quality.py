@@ -4,6 +4,7 @@ import pytest
 
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
+    contains_composition_clarification,
     validate_mission_intake_prompt,
 )
 
@@ -13,6 +14,19 @@ def _valid_criterion() -> dict[str, object]:
         "description": "Every stale qualified opportunity has a documented recommended next action.",
         "evidence": ["opportunity review summary"],
     }
+
+
+def test_composition_clarification_context_is_not_a_mission_instruction() -> None:
+    assert contains_composition_clarification(
+        {
+            "composition": {
+                "instruction": (
+                    "Restate the complete mission. I cannot compose this mission reliably because the requested outcome was unclear."
+                )
+            }
+        }
+    )
+    assert not contains_composition_clarification({"composition": {"instruction": "Find three qualified leads."}})
 
 
 def test_validate_accepts_concrete_mission_prompt() -> None:

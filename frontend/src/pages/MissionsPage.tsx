@@ -16,7 +16,7 @@ import type {
 import { newIdempotencyKey } from "../utils/errors";
 
 const PLACEHOLDER =
-  "Research roofing companies in Austin, identify three strong prospects, draft personalized introductions, and bring them to me before anything is sent.";
+  "Search Ajenda's approved business profile and governed internal memory, then prepare an evidence-backed company brief and a draft introduction explaining who Ajenda is, what it provides, who it serves, and why it is different. Do not browse the web, contact anyone, send email, modify CRM records, or perform any external action.";
 
 export default function MissionsPage() {
   const { session } = useAuth();
