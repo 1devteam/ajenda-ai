@@ -20,6 +20,7 @@ from backend.services.oidc_login_service import (
     OidcLoginService,
     OidcLoginValidationError,
     OidcMultipleTenantsError,
+    PasswordLoginDisabledError,
 )
 from backend.utils.client_ip import extract_client_ip, hash_client_ip
 
@@ -69,6 +70,12 @@ class CustomerSessionResponse(BaseModel):
 
 class SessionRefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=32, max_length=512)
+
+
+class PasswordLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=8, max_length=256)
+    tenant_id: str | None = None
 
 
 def _client_ip_hash(request: Request) -> str:
@@ -228,6 +235,43 @@ def refresh_session(
         db.rollback()
         raise
 
+    return CustomerSessionResponse(
+        access_token=result.access_token,
+        refresh_token=result.refresh_token,
+        expires_in=result.expires_in,
+        refresh_expires_in=result.refresh_expires_in,
+        tenant_id=result.tenant_id,
+        email=result.email,
+        org_name=result.org_name,
+        slug=result.slug,
+        plan=result.plan,
+    )
+
+
+@router.post("/password", response_model=CustomerSessionResponse, status_code=status.HTTP_200_OK)
+def password_login(
+    body: PasswordLoginRequest,
+    request: Request,
+    db: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> CustomerSessionResponse:
+    try:
+        result = OidcLoginService(db, settings=settings).password_login(
+            email=body.email, password=body.password, tenant_id=body.tenant_id, client_ip_hash=_client_ip_hash(request)
+        )
+        db.commit()
+    except PasswordLoginDisabledError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except AuthLoginRateLimitedError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded") from exc
+    except (OidcAccountNotFoundError, OidcLoginValidationError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid email or password") from exc
+    except Exception:
+        db.rollback()
+        raise
     return CustomerSessionResponse(
         access_token=result.access_token,
         refresh_token=result.refresh_token,

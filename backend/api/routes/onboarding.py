@@ -40,6 +40,7 @@ class SignupRequest(BaseModel):
     org_name: str = Field(min_length=1, max_length=255)
     email: str = Field(min_length=3, max_length=320)
     slug: str | None = Field(default=None, pattern=r"^[a-z0-9\-]+$", max_length=100)
+    password: str | None = Field(default=None, min_length=8, max_length=256)
 
 
 class SignupResponse(BaseModel):
@@ -113,6 +114,7 @@ def signup(
             org_name=body.org_name,
             email=body.email,
             slug=body.slug,
+            password=body.password,
             client_ip_hash=client_ip_hash,
         )
         db.commit()
@@ -134,6 +136,17 @@ def signup(
     except Exception:
         db.rollback()
         raise
+
+    if receipt.status == "active":
+        return SignupResponse(
+            tenant_id=str(receipt.tenant_id),
+            slug=receipt.slug,
+            plan=receipt.plan,
+            email=receipt.email.canonical,
+            status=receipt.status,
+            verification_expires_at=receipt.verification_expires_at.isoformat(),
+            verification_token=None,
+        )
 
     delivery = verification_delivery_from_settings(settings)
     verify_url = build_verify_url(

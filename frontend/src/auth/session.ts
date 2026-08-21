@@ -168,3 +168,5 @@ export function sessionFromOidcResponse(response: {
     plan: response.plan,
   };
 }
+
+export const sessionFromPasswordResponse = sessionFromOidcResponse;
