@@ -40,7 +40,6 @@ export default function SignInPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const expiredNotice = useMemo(() => resolveExpiredNotice(searchParams), [searchParams]);
-  const originWarning = useMemo(() => oidcOriginWarning(), []);
 
   useEffect(() => {
     resetForcedSignOutGuard();
@@ -160,20 +159,15 @@ export default function SignInPage() {
         </form>
 
         {oidcEnabled ? (
-          <div className="form-grid auth-primary-actions">
-            {originWarning ? (
-              <div className="callout" role="status">
-                <p className="muted">{originWarning}</p>
-              </div>
-            ) : null}
+          <div className="auth-google-option">
+            <div className="auth-divider" aria-hidden="true"><span>or</span></div>
             <OidcProviderButton
               provider={config.provider}
               loading={loading}
               onClick={() => void handleOidcSignIn()}
             />
             <p className="muted auth-hint">
-              Google sign-in is optional. Use it only if you connected Google identity to this workspace. Local Google login: open{" "}
-              <code>http://localhost:5173</code> only — not Vite Network IPs.
+              Use the Google account connected to this workspace.
             </p>
           </div>
         ) : (
