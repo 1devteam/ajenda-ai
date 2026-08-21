@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from backend.db.tenant_session import activate_tenant_session
+from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
 from backend.services.business_context_resolver import resolve_business_context
 from backend.services.data_plane.memory_chunk_store import resolve_memory_chunk_store
@@ -59,6 +61,38 @@ def _merge_hits(*groups: list[dict[str, Any]], limit: int) -> list[dict[str, Any
             if len(merged) >= limit:
                 return merged
     return merged
+
+
+def _approved_profile_hit(context: ActionRuntimeContext, query: str) -> list[dict[str, Any]]:
+    """Return approved profile truth explicitly for profile-intent searches.
+
+    Profile projections are searchable account records, but a multi-word query
+    is not a reliable exact match for their denormalized search text. Read the
+    authoritative profile row directly and expose it as governed evidence.
+    """
+    lower_query = query.lower()
+    if "business profile" not in lower_query and "who we are" not in lower_query and "ajenda" not in lower_query:
+        return []
+    if context.session_factory is None:
+        return []
+    session = context.session_factory()
+    try:
+        activate_tenant_session(session, context.tenant_id)
+        profile = BusinessProfileRepository(session).get_active_profile_for_tenant(tenant_id=context.tenant_id)
+        facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
+        if not facts:
+            return []
+        return [
+            {
+                "id": "business-profile-approved",
+                "content": {"approved_facts": facts, "profile_id": str(profile.id)},
+                "source": "business_profile",
+                "search_mode": "authoritative_profile",
+                "score": 1.0,
+            }
+        ]
+    finally:
+        session.close()
 
 
 def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
@@ -136,7 +170,9 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
         }
         for index, item in enumerate(internal_hits, start=1)
     ]
+    profile_hits = _approved_profile_hit(context, payload_input.query)
     memories = _merge_hits(
+        profile_hits,
         vector_hits,
         keyword_hits,
         contract_memory_hits,
@@ -147,7 +183,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
     search_modes = sorted(
         {
             str(item.get("search_mode"))
-            for item in (vector_hits + keyword_hits + normalized_internal + contract_memory_hits)
+            for item in (profile_hits + vector_hits + keyword_hits + normalized_internal + contract_memory_hits)
             if isinstance(item, dict) and item.get("search_mode")
         }
     )
@@ -158,6 +194,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
         "internal_record_count": len(normalized_internal),
         "memory_chunk_keyword_count": len(keyword_hits),
         "memory_chunk_vector_count": len(vector_hits),
+        "profile_hit_count": len(profile_hits),
     }
     if business_context.business_name:
         provenance["business_context"] = {
