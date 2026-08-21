@@ -16,7 +16,6 @@ from backend.repositories.oidc_login_intent_repository import OidcLoginIntentRep
 from backend.repositories.tenant_member_repository import TenantMemberRepository
 from backend.services.oidc_login_service import (
     OidcAccountNotFoundError,
-    OidcAccountPendingVerificationError,
     OidcLoginService,
     OidcLoginValidationError,
 )
@@ -169,7 +168,7 @@ class TestOidcLoginServiceReal:
         assert db_sessions[0].access_jti == claims.jti
         assert db_sessions[0].revoked_at is None
 
-    def test_complete_login_blocks_pending_verification(self, pg_session) -> None:
+    def test_complete_login_activates_pending_verification_after_verified_identity(self, pg_session) -> None:
         email = f"oidc-pending-svc-{uuid.uuid4().hex[:8]}@example.com"
         subject = unique_oidc_subject()
         orchestrator = TenantOnboardingOrchestrator(pg_session, settings=_settings())
@@ -213,15 +212,20 @@ class TestOidcLoginServiceReal:
                         )
                     ),
                 ),
-                pytest.raises(OidcAccountPendingVerificationError),
             ):
-                service.complete_login(
+                session = service.complete_login(
                     login_intent_id=started.login_intent_id,
                     code="auth-code",
                     code_verifier=verifier,
                     redirect_uri=TEST_REDIRECT_URI,
                     client_ip_hash="integration-ip-hash",
                 )
+
+        assert session.tenant_id
+        member = TenantMemberRepository(pg_session).get_owner_by_email_canonical(email)
+        assert member is not None
+        assert member.status == "active"
+        assert member.external_subject_id == subject
 
     def test_complete_login_rejects_invalid_pkce(self, pg_session) -> None:
         email = f"oidc-pkce-{uuid.uuid4().hex[:8]}@example.com"
