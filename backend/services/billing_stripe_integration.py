@@ -30,8 +30,9 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import stripe
@@ -310,11 +311,12 @@ class StripeBillingService:
             stripe.SignatureVerificationError: if the signature is invalid.
             StripeWebhookProcessingError: if processing should fail (retryable).
         """
-        event = stripe.Webhook.construct_event(
+        construct_event = cast(Callable[..., Any], stripe.Webhook.construct_event)
+        event = construct_event(
             payload,
             sig_header,
             self._webhook_secret,
-        )  # type: ignore[no-untyped-call]  # Stripe's runtime SDK has no typed construct_event signature.
+        )
 
         event_id: str = str(event["id"])
         event_type: str = str(event["type"])
