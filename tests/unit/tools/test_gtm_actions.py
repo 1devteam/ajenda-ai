@@ -82,6 +82,7 @@ def test_gtm_lead_enrich_rejects_unbound_composed_input() -> None:
             _context(),
         )
 
+
 def test_gtm_email_draft_fans_out_one_artifact_row_per_prospect() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(

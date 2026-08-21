@@ -405,7 +405,11 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         reasons.append("sourced from research world-state")
     score = min(fit_points, 100)
     dimensions = {
-        "business_fit": 10 if (lead.get("company") or account_id) and (lead.get("industry") or lead.get("location") or account_id) else 5 if (lead.get("company") or account_id) else 0,
+        "business_fit": 10
+        if (lead.get("company") or account_id) and (lead.get("industry") or lead.get("location") or account_id)
+        else 5
+        if (lead.get("company") or account_id)
+        else 0,
         "automation_opportunity": 10
         if lead.get("automation_opportunity") or lead.get("workflow") or context.get("automation_opportunity")
         else 5
@@ -418,11 +422,7 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         else 4
         if lead.get("signals") or lead.get("source_url") or lead.get("url")
         else 0,
-        "urgency": 10
-        if lead.get("urgency")
-        else 5
-        if lead.get("intent") or context.get("intent")
-        else 0,
+        "urgency": 10 if lead.get("urgency") else 5 if lead.get("intent") or context.get("intent") else 0,
     }
     score_10 = round(sum(dimensions.values()) / len(dimensions))
     mission_scoring = bool(context.get("mission_specific_scoring")) or "qualification_threshold_10" in context

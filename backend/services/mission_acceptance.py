@@ -21,6 +21,7 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
         outputs.append(nested if isinstance(nested, dict) else result)
 
     reasons: list[str] = []
+
     def unique_records(key: str) -> list[dict[str, Any]]:
         records: dict[str, dict[str, Any]] = {}
         for output in outputs:
