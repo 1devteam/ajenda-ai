@@ -275,8 +275,8 @@ class TaskDispatcher:
             heartbeat_thread.join(timeout=5.0)
 
     def _heartbeat_loop(self, lease_id: uuid.UUID, stop: threading.Event) -> None:
-        """Background thread: sends heartbeats every HEARTBEAT_INTERVAL seconds."""
-        while not stop.wait(timeout=_HEARTBEAT_INTERVAL):
+        """Background thread: sends an immediate and periodic lease heartbeat."""
+        while not stop.is_set():
             session = self._open_tenant_session()
             try:
                 runtime = WorkerRuntimeService(session, self.queue)
@@ -294,6 +294,8 @@ class TaskDispatcher:
                 )
             finally:
                 session.close()
+            if stop.wait(timeout=_HEARTBEAT_INTERVAL):
+                break
 
     def _complete(
         self,
