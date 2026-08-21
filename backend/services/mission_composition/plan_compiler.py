@@ -16,6 +16,7 @@ from backend.services.mission_composition.contracts import (
     PlannedStepPreview,
 )
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
+from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import SideEffectClass
 
 
@@ -125,6 +126,12 @@ def compile_planned_steps(
         tool_input: dict[str, Any] = {}
         if intent is not None:
             tool_input = build_action_input(action_name=selection.action_name, intent=intent)
+            definition = get_default_action_registry().get(selection.action_name)
+            if definition.input_model is not None:
+                # Validate the same payload shape the runtime registry will
+                # enforce. This prevents a vertical handoff from reaching graph
+                # materialization with an input contract that can never run.
+                definition.input_model.model_validate(tool_input)
 
         step = PlannedStepPreview(
             step_key=f"ability-{_slug(selection.action_name)}",
