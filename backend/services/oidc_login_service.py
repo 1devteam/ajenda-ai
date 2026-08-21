@@ -23,6 +23,7 @@ from backend.auth.jwt_validator import JwtValidationError
 from backend.auth.member_roles import membership_role_to_rbac
 from backend.auth.oidc_discovery import OidcDiscoveryClient
 from backend.auth.session_token import SessionTokenService
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.audit_event import AuditEvent
 from backend.domain.tenant_member import TenantMember
 from backend.repositories.audit_event_repository import AuditEventRepository
@@ -264,6 +265,13 @@ class OidcLoginService:
             )
             raise OidcLoginValidationError("identity provider subject does not match linked membership")
 
+        if member.is_pending_verification():
+            # A verified Google identity is sufficient proof for browser login;
+            # do not force a second, undeliverable email-code step.
+            now = datetime.now(tz=UTC)
+            self._members.activate_member(member, verified_at=now)
+            activate_tenant_session(self._session, str(member.tenant_id))
+
         tenant = self._tenants.get(member.tenant_id)
         if tenant is None or tenant.is_deleted() or tenant.is_suspended():
             raise OidcAccountNotFoundError("tenant is not available for login")
@@ -492,7 +500,7 @@ class OidcLoginService:
             statuses=frozenset({"pending_verification"}),
         )
         if pending is not None:
-            raise OidcAccountPendingVerificationError("email verification is required before sign-in")
+            return pending
 
         raise OidcAccountNotFoundError("no account found for this identity")
 

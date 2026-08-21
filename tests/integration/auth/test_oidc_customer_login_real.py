@@ -202,7 +202,7 @@ class TestOidcCustomerLoginHttpReal:
                     assert sessions
                     assert all(row.revoked_at is not None for row in sessions)
 
-    def test_http_oidc_callback_rejects_unverified_member(
+    def test_http_oidc_callback_activates_pending_member_without_email_code(
         self,
         monkeypatch: pytest.MonkeyPatch,
         integration_env: None,
@@ -242,8 +242,9 @@ class TestOidcCustomerLoginHttpReal:
                     headers=client_ip_headers(),
                 )
 
-            assert callback.status_code == 403, callback.text
-            assert callback.json()["detail"]["code"] == "EMAIL_VERIFICATION_REQUIRED"
+            assert callback.status_code == 200, callback.text
+            assert callback.json()["tenant_id"]
+            assert callback.json()["access_token"]
 
     def test_http_oidc_callback_rejects_unknown_account(
         self,
