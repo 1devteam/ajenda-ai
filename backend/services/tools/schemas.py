@@ -376,6 +376,16 @@ class GtmLeadEnrichInput(BaseModel):
     prospects: list[dict[str, Any]] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def require_explicit_target(self) -> GtmLeadEnrichInput:
+        """Prevent enrichment from silently targeting Ajenda's own profile."""
+
+        if self.company.strip():
+            return self
+        if any(isinstance(item.get("company"), str) and item["company"].strip() for item in self.prospects):
+            return self
+        raise ValueError("gtm.lead_enrich requires an explicit company or bound prospect company")
+
 
 class GtmEmailDraftInput(BaseModel):
     model_config = ConfigDict(extra="forbid")

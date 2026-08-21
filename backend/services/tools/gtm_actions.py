@@ -12,7 +12,6 @@ from email.mime.text import MIMEText
 from typing import Any
 from urllib.parse import quote
 
-from backend.services.business_context_resolver import default_company_and_domain
 from backend.services.credentials.runtime_authority import CredentialRequirement
 from backend.services.document_artifacts import read_artifact, update_review_status
 from backend.services.draft_generation import generate_and_persist_draft
@@ -180,12 +179,6 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
         if not company_seed and prospects_in:
             company_seed = str(prospects_in[0].get("company") or "").strip()
             domain_seed = domain_seed or (str(prospects_in[0].get("domain") or "").strip() or None)
-        if not company_seed:
-            company_seed, domain_seed = default_company_and_domain(
-                context=ctx,
-                company=company_seed,
-                domain=domain_seed,
-            )
         if company_seed:
             merged_input["company"] = company_seed
         if domain_seed:

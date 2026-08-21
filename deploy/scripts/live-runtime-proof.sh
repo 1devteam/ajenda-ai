@@ -401,7 +401,10 @@ try:
                 "task_type": "tool.invoke",
                 "tool_invocation": {
                     "action": "gtm.lead_enrich",
-                    "input": {"company": "Proof Co", "domain": "proof.example.com"},
+                    # Deliberately omit a domain: this is a runtime plumbing proof,
+                    # not a prospect enrichment fixture. A fake domain can leak
+                    # into downstream context or appear as a real lead signal.
+                    "input": {"company": "Runtime Proof Fixture"},
                 },
             },
             compliance_category="operational",
