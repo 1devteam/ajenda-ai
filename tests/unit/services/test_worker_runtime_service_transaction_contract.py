@@ -234,6 +234,24 @@ def test_complete_mirrors_handler_result_and_output_to_task_metadata() -> None:
     assert task.metadata_json["output"] == {"count": 2}
 
 
+def test_complete_rejects_declared_output_contract_without_handler_output() -> None:
+    service, _session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    task.metadata_json["expected_output_contract"] = {"artifact": "research_brief"}
+
+    with pytest.raises(ValueError, match="must provide output for declared artifact"):
+        service.complete(
+            tenant_id=tenant_id,
+            lease_id=lease.id,
+            worker_id=worker_id,
+            task_output={"handler": "tool.invoke", "status": "completed"},
+        )
+
+    assert task.status == ExecutionTaskState.RUNNING.value
+    queue.complete_task.assert_not_called()
+
+
 def test_complete_commits_db_when_queue_complete_ack_fails() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value
