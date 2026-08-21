@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
+from backend.services.tools.credential_resolver import CredentialResolutionError, ResolvedExternalCredential
 from backend.services.tools.external_credentials import (
     CredentialReferenceKind,
     ExternalCredentialReference,
@@ -51,22 +54,41 @@ def test_google_calendar_provider_rejects_cross_tenant_calls_before_external_wor
         provider.read_events(tenant_id="tenant-2", calendar_id="primary")
 
 
-def test_google_calendar_provider_operations_are_explicitly_deferred() -> None:
+class _Resolver:
+    def resolve(self, reference):
+        return ResolvedExternalCredential(reference=reference, secret_value="token")
+
+
+def test_google_calendar_provider_reads_and_creates_through_network_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = GoogleCalendarProvider(credential=_credential(), resolver=_Resolver())
+    responses = iter([SimpleNamespace(status_code=200, body_text='{"items":[{"id":"event-1"}]}')])
+
+    class _Authority:
+        def request(self, **kwargs):
+            return SimpleNamespace(original_url=kwargs["url"]), next(responses)
+
+    monkeypatch.setattr(
+        "backend.services.tools.google_calendar_provider.get_default_network_egress_authority",
+        lambda: _Authority(),
+    )
+
+    assert provider.read_events(tenant_id="tenant-1", calendar_id="primary") == [{"id": "event-1"}]
+
+
+def test_google_calendar_provider_rejects_ungoverned_external_create() -> None:
+    provider = GoogleCalendarProvider(credential=_credential(), resolver=_Resolver())
+
+    with pytest.raises(CredentialResolutionError, match=r"governed tool\.invoke authorization path"):
+        provider.create_event(tenant_id="tenant-1", calendar_id="primary", event={"summary": "Demo"})
+
+
+def test_google_calendar_provider_requires_resolvable_credential() -> None:
     provider = GoogleCalendarProvider(credential=_credential())
 
-    with pytest.raises(NotImplementedError, match="read provider"):
+    with pytest.raises(Exception, match="requires a deployment credential resolver"):
         provider.read_events(tenant_id="tenant-1", calendar_id="primary")
-
-    with pytest.raises(NotImplementedError, match="create provider"):
-        provider.create_event(
-            tenant_id="tenant-1",
-            calendar_id="primary",
-            event={
-                "title": "Demo",
-                "start": "2026-06-08T10:00:00Z",
-                "end": "2026-06-08T10:30:00Z",
-            },
-        )
 
 
 def test_required_google_calendar_scopes_are_minimal_by_operation() -> None:

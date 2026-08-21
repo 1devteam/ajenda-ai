@@ -37,6 +37,7 @@ class TenantMember(Base):
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="tenant_owner")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending_verification")
     external_subject_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
     verification_token_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
     verification_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

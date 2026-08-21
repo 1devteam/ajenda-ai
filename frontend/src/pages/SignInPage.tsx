@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { getAccountMe } from "../api/client";
+import { getAccountMe, passwordLogin } from "../api/client";
 import { beginOidcRedirect, oidcOriginWarning, oidcRedirectUri } from "../auth/oidc";
-import { parseApiKeyHeader, saveSession } from "../auth/session";
+import { parseApiKeyHeader, saveSession, sessionFromPasswordResponse } from "../auth/session";
 import OidcProviderButton from "../components/OidcProviderButton";
 import OidcUnavailableNotice from "../components/OidcUnavailableNotice";
 import VerificationHelpPanel from "../components/VerificationHelpPanel";
@@ -35,10 +35,11 @@ export default function SignInPage() {
   const { oidcConfig: config, oidcEnabled } = useAuth();
   const [tenantId, setTenantId] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const expiredNotice = useMemo(() => resolveExpiredNotice(searchParams), [searchParams]);
-  const originWarning = useMemo(() => oidcOriginWarning(), []);
 
   useEffect(() => {
     resetForcedSignOutGuard();
@@ -107,6 +108,22 @@ export default function SignInPage() {
     }
   }
 
+  async function handlePasswordSubmit(event: FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const response = await passwordLogin({ email: email.trim(), password });
+      saveSession(sessionFromPasswordResponse(response));
+      clearSignInNotice();
+      navigate(returnPath.startsWith("/") ? returnPath : "/dashboard", { replace: true });
+    } catch (err) {
+      setError(failureText(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="page-shell narrow auth-page-shell">
       <section className="panel auth-panel auth-panel-clean">
@@ -118,7 +135,7 @@ export default function SignInPage() {
           <p className="eyebrow">Welcome back</p>
           <h1>Sign in to your workspace</h1>
           <p className="auth-lead">
-            Continue with the Google account connected to Ajenda AI.
+            Sign in with your email and password.
           </p>
         </header>
 
@@ -129,21 +146,28 @@ export default function SignInPage() {
           </div>
         ) : null}
 
+        <form className="form-grid auth-primary-actions" onSubmit={(event) => void handlePasswordSubmit(event)}>
+          <label>
+            Email
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+          </label>
+          <label>
+            Password
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+          </label>
+          <button type="submit" disabled={loading}>{loading ? "Signing in..." : "Sign in"}</button>
+        </form>
+
         {oidcEnabled ? (
-          <div className="form-grid auth-primary-actions">
-            {originWarning ? (
-              <div className="callout" role="status">
-                <p className="muted">{originWarning}</p>
-              </div>
-            ) : null}
+          <div className="auth-google-option">
+            <div className="auth-divider" aria-hidden="true"><span>or</span></div>
             <OidcProviderButton
               provider={config.provider}
               loading={loading}
               onClick={() => void handleOidcSignIn()}
             />
             <p className="muted auth-hint">
-              Use the same Google account you used when creating your workspace. Local Google login: open{" "}
-              <code>http://localhost:5173</code> only — not Vite Network IPs.
+              Use the Google account connected to this workspace.
             </p>
           </div>
         ) : (

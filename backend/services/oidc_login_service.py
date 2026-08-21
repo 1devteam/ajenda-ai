@@ -13,6 +13,8 @@ from typing import Any
 from urllib.parse import urlencode, urlparse
 
 import httpx
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError, VerifyMismatchError
 from sqlalchemy.orm import Session
 
 from backend.app.config import Settings
@@ -40,6 +42,10 @@ class OidcLoginDisabledError(RuntimeError):
 
 class OidcLoginValidationError(ValueError):
     """Raised for invalid login input."""
+
+
+class PasswordLoginDisabledError(RuntimeError):
+    """Raised when local password login is disabled."""
 
 
 class OidcAccountNotFoundError(LookupError):
@@ -298,7 +304,7 @@ class OidcLoginService:
         )
 
     def refresh_session(self, *, refresh_token: str, client_ip_hash: str) -> CustomerSessionResult:
-        self._assert_enabled()
+        self._assert_session_enabled()
         self._abuse.check_refresh_ip(client_ip_hash=client_ip_hash)
         if not refresh_token.strip():
             raise OidcLoginValidationError("refresh_token is required")
@@ -334,6 +340,62 @@ class OidcLoginService:
             refresh_token=session_tokens.refresh_token,
             expires_in=session_tokens.expires_in,
             refresh_expires_in=session_tokens.refresh_expires_in,
+            tenant_id=str(member.tenant_id),
+            email=member.email_raw,
+            org_name=tenant.name,
+            slug=tenant.slug,
+            plan=tenant.plan,
+        )
+
+    def password_login(
+        self, *, email: str, password: str, client_ip_hash: str, tenant_id: str | None = None
+    ) -> CustomerSessionResult:
+        if not self._settings.password_login_enabled:
+            raise PasswordLoginDisabledError("password login is not enabled")
+        self._assert_session_enabled()
+        try:
+            canonical = canonicalize_email(email)
+        except ValueError as exc:
+            raise OidcLoginValidationError("invalid email or password") from exc
+        self._abuse.check_password_ip(client_ip_hash=client_ip_hash)
+        members = self._members.list_active_for_email(canonical.canonical)
+        if tenant_id:
+            try:
+                tenant_uuid = uuid.UUID(tenant_id)
+            except ValueError as exc:
+                raise OidcLoginValidationError("invalid tenant_id") from exc
+            members = [member for member in members if member.tenant_id == tenant_uuid]
+        if len(members) != 1:
+            raise OidcAccountNotFoundError("invalid email or password")
+        member = members[0]
+        password_hash = member.password_hash
+        if not password_hash:
+            raise OidcAccountNotFoundError("invalid email or password")
+        try:
+            PasswordHasher().verify(password_hash, password)
+        except (VerificationError, VerifyMismatchError, ValueError):
+            self._abuse.record(
+                client_ip_hash=client_ip_hash,
+                route=AuthLoginAbuseGuard.ROUTE_PASSWORD,
+                outcome="invalid_input",
+                email_canonical=canonical.canonical,
+            )
+            raise OidcAccountNotFoundError("invalid email or password") from None
+        tenant = self._tenants.get(member.tenant_id)
+        if tenant is None or tenant.is_deleted() or tenant.is_suspended():
+            raise OidcAccountNotFoundError("tenant is not available for login")
+        tokens = self._issue_session(member=member, email=member.email_raw, client_ip_hash=client_ip_hash)
+        self._abuse.record(
+            client_ip_hash=client_ip_hash,
+            route=AuthLoginAbuseGuard.ROUTE_PASSWORD,
+            outcome="accepted",
+            email_canonical=canonical.canonical,
+        )
+        return CustomerSessionResult(
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            expires_in=tokens.expires_in,
+            refresh_expires_in=tokens.refresh_expires_in,
             tenant_id=str(member.tenant_id),
             email=member.email_raw,
             org_name=tenant.name,
@@ -517,6 +579,10 @@ class OidcLoginService:
     def _assert_enabled(self) -> None:
         if not self._settings.oidc_login_enabled:
             raise OidcLoginDisabledError("OIDC login is not enabled")
+
+    def _assert_session_enabled(self) -> None:
+        if not self._settings.customer_session_auth_ready:
+            raise OidcLoginDisabledError("customer session authentication is not configured")
 
     def _discovery(self) -> OidcDiscoveryClient:
         return OidcDiscoveryClient(issuer=self._settings.oidc_issuer)

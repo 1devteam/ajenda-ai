@@ -53,10 +53,17 @@ export interface CustomerSessionResponse {
   plan: string;
 }
 
+export interface PasswordLoginRequest {
+  email: string;
+  password: string;
+  tenant_id?: string;
+}
+
 export interface SignupRequest {
   org_name: string;
   email: string;
   slug?: string;
+  password: string;
 }
 
 export interface SignupResponse {

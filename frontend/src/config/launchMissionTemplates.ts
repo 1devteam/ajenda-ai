@@ -33,10 +33,10 @@ export const LAUNCH_MISSION_TEMPLATES: LaunchMissionTemplate[] = [
       "Identify three strong prospects, draft personalized introductions for each, and bring them to me before anything is sent.",
   },
   {
-    id: "roofing-example",
-    title: "Austin roofing (flagship)",
-    description: "Research → qualify → draft. Never send.",
+    id: "ajenda-introduction",
+    title: "Ajenda self-introduction",
+    description: "Use approved Ajenda facts to prepare a truthful introduction. Never send.",
     instruction:
-      "Research roofing companies in Austin, identify three strong prospects, draft personalized introductions, and bring them to me before anything is sent.",
+      "Search Ajenda's approved business profile and governed internal memory, then prepare an evidence-backed company brief and a draft introduction explaining who Ajenda is, what it provides, who it serves, and why it is different. Do not browse the web, contact anyone, send email, modify CRM records, or perform any external action.",
   },
 ];

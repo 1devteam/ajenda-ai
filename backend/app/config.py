@@ -91,6 +91,7 @@ class Settings(BaseSettings):
         alias="AJENDA_OIDC_AUDIENCE",
     )
     oidc_login_enabled: bool = Field(default=False, alias="AJENDA_OIDC_LOGIN_ENABLED")
+    password_login_enabled: bool = Field(default=True, alias="AJENDA_PASSWORD_LOGIN_ENABLED")
     oidc_provider: Literal["generic", "google", "auth0"] = Field(
         default="generic",
         alias="AJENDA_OIDC_PROVIDER",
@@ -364,7 +365,7 @@ class Settings(BaseSettings):
     @property
     def customer_session_auth_ready(self) -> bool:
         secret = str(self.session_signing_secret).strip()
-        return bool(self.oidc_login_enabled and len(secret) >= 32)
+        return bool(self.password_login_enabled or self.oidc_login_enabled) and len(secret) >= 32
 
     @property
     def signup_idempotency_required(self) -> bool:

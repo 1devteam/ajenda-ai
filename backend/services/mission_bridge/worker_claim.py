@@ -268,8 +268,8 @@ def build_runtime_dispatch_readiness(
             warnings.append(
                 runtime_dispatch_item(
                     task_id=task.id,
-                    code="default_handler_not_allowed",
-                    message="Dispatch readiness requires explicit task_type metadata and does not rely on fallback handlers.",
+                    code="fallback_handler_not_allowed",
+                    message="Dispatch readiness requires explicit task_type metadata; no fallback handler exists.",
                     state=task.status,
                 )
             )

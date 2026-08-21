@@ -9,6 +9,7 @@ export default function SignupPage() {
   const [orgName, setOrgName] = useState("");
   const [email, setEmail] = useState("");
   const [slug, setSlug] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
@@ -23,8 +24,13 @@ export default function SignupPage() {
         org_name: orgName.trim(),
         email: email.trim(),
         slug: slug.trim() || undefined,
+        password,
       });
-      setPendingEmail(response.email);
+      if (response.status === "active") {
+        navigate("/signin", { replace: true });
+      } else {
+        setPendingEmail(response.email);
+      }
     } catch (err) {
       setError(failureText(err));
     } finally {
@@ -39,8 +45,7 @@ export default function SignupPage() {
           <p className="eyebrow">Verify your email</p>
           <h1>Almost there</h1>
           <p>
-            Account created for <strong>{pendingEmail}</strong>. Verify your email before signing in with
-            Google.
+            Account created for <strong>{pendingEmail}</strong>. Verify your email to finish activation.
           </p>
 
           <VerificationHelpPanel
@@ -53,7 +58,7 @@ export default function SignupPage() {
           />
 
           <p className="muted">
-            After verification, return to <Link to="/signin">Sign in</Link> and continue with Google.
+            After verification, return to <Link to="/signin">Sign in</Link> with your email and password.
           </p>
         </section>
         {error ? (
@@ -73,9 +78,7 @@ export default function SignupPage() {
           Create your <span className="brand-inline">ajenda-ai</span> workspace
         </h1>
         <p className="auth-lead">
-          Create your workspace with a work email, verify it, then sign in with Google (identity only —
-          openid/email/profile). Gmail, Calendar, and Contacts are connected later under Connections with
-          separate OAuth buttons. API keys remain available for automation.
+          Create your workspace with a work email and password. Google is optional and only used for identity; Gmail, Calendar, and Contacts are connected later under Connections.
         </p>
 
         <form className="form-grid" onSubmit={(event) => void handleSubmit(event)}>
@@ -99,6 +102,10 @@ export default function SignupPage() {
             />
           </label>
           <label>
+            Password
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} autoComplete="new-password" required />
+          </label>
+          <label>
             Slug (optional)
             <input
               value={slug}
@@ -113,7 +120,7 @@ export default function SignupPage() {
         </form>
 
         <p className="muted">
-          Already have an account? <Link to="/signin">Sign in with Google</Link>
+          Already have an account? <Link to="/signin">Sign in</Link>
         </p>
         <p className="muted">
           Still verifying? <Link to="/verify-email">Enter verification token</Link>

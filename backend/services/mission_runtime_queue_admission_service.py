@@ -13,6 +13,7 @@ from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.mission_intake_quality import contains_composition_clarification
 from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
 
 
@@ -66,6 +67,18 @@ class MissionRuntimeQueueAdmissionService:
         tasks_to_queue: list[Any] = []
         already_queued_task_ids: list[str] = []
         blockers: list[dict[str, Any]] = []
+        clarification_context = contains_composition_clarification(metadata.get("mission_intake"))
+        if clarification_context:
+            blockers.append(
+                runtime_queue_admission_blocker(
+                    task_id=None,
+                    code="composition_clarification_required",
+                    message=(
+                        "Mission intake contains planner clarification text; runtime queue admission is blocked "
+                        "until the user submits a complete mission objective."
+                    ),
+                )
+            )
         if not materialized_task_ids:
             blockers.append(
                 runtime_queue_admission_blocker(
@@ -74,7 +87,7 @@ class MissionRuntimeQueueAdmissionService:
                     message="Mission has no current materialized execution tasks for queue admission.",
                 )
             )
-        for task_id in materialized_task_ids:
+        for task_id in [] if clarification_context else materialized_task_ids:
             task = tasks_by_id.get(task_id)
             if task is None:
                 blockers.append(

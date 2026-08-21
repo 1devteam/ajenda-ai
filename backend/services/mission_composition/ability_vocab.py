@@ -88,8 +88,11 @@ OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     (r"\b(?:check|read|search|list|show)\b.{0,48}\b(?:gmail|inbox)\b", "read_email"),
     (r"\b(?:gmail|inbox)\b.{0,48}\b(?:unread|recent|replies?|messages?|emails?)\b", "read_email"),
     (r"\b(?:check|read|search|list|show)\s+my\s+(?:emails?|messages?)\b", "read_email"),
-    (r"\b(?:check|read|search|query|list|show)\b.{0,48}\b(?:hubspot|crm)\b", "read_crm"),
-    (r"\b(?:hubspot|crm)\b.{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b", "read_crm"),
+    (r"\b(?:check|read|search|query|list|show)\b[^.!?]{0,48}\b(?:hubspot|crm)\b", "read_crm"),
+    (
+        r"\b(?:read|check|search|query|list|show|summarize|find|look up)\b[^.!?]{0,48}\b(?:hubspot|crm)\b[^.!?]{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b",
+        "read_crm",
+    ),
     (r"\b(?:query|check|read|search|list|show)\b.{0,48}\bsalesforce\b", "query_salesforce"),
     (r"\bsalesforce\b.{0,48}\b(?:accounts?|contacts?|leads?|opportunities|records?|pipeline)\b", "query_salesforce"),
     (r"\bqualify\b", "qualify_prospects"),

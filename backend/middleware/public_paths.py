@@ -18,6 +18,7 @@ PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/v1/billing/webhook/",
     "/v1/auth/oidc/",
     "/v1/auth/session/refresh",
+    "/v1/auth/password",
     "/v1/onboarding/signup",
     "/v1/onboarding/verify-email",
     "/v1/onboarding/resend-verification",

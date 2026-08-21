@@ -62,7 +62,7 @@ These should come after the product contracts are explicit:
 | Unit-test mocks/fakes/MagicMocks | Test-only behavior | Tests patch repositories/services, use fake curl, fake health checkers, fake auth services, and MagicMocks. | Safe test isolation pattern. Not a production concern by itself. |
 | `docs_only` matrix row `EX-03` | Documentation-only validation gap | Matrix marks mixed mission queue outcomes as `documented` / `docs_only`. | Safe as an honest matrix classification; risky only if interpreted as implemented proof. |
 | `not_executed` artifacts for integration-backed rows | Validation-only behavior | Matrix and artifact docs explicitly state these are pointers to integration proof, not fresh runner evidence. | Safe because the docs distinguish provenance. Should remain visible until runner-backed proof exists. |
-| `default_handler` | Production-risk placeholder | The dispatcher docstring says to replace `default_handler` with real AI agent dispatch; the handler logs metadata and returns completed status. Unknown task types fall back to default when present. | Highest coherence risk. In production, an unrecognized or under-specified task can be marked completed without meaningful mission work or evidence. This is acceptable only as a temporary runtime scaffold, not as Mission-Based AI behavior. |
+| fallback task completion | Closed | The dispatcher now requires an explicitly registered task type; unknown or under-specified tasks fail rather than completing without evidence. | Keep explicit task-type readiness checks and regression coverage. |
 
 ## 5. Validation matrix alignment
 

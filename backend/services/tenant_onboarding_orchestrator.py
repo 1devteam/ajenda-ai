@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from argon2 import PasswordHasher
 from sqlalchemy.orm import Session
 
 from backend.app.config import Settings, get_settings
@@ -120,6 +121,7 @@ class TenantOnboardingOrchestrator:
         email: str,
         slug: str | None,
         client_ip_hash: str,
+        password: str | None = None,
     ) -> SignupReceipt:
         self._abuse_guard.assert_signup_enabled()
 
@@ -147,6 +149,7 @@ class TenantOnboardingOrchestrator:
         )
 
         issued = self._token_issuer.issue()
+        password_hash = PasswordHasher().hash(password) if password else None
         member = self._members.create(
             tenant_id=provisioned.tenant_id,
             email_raw=canonical.raw,
@@ -154,7 +157,14 @@ class TenantOnboardingOrchestrator:
             verification_token_hash=issued.token_hash,
             verification_expires_at=issued.expires_at,
             verification_delivery_status="pending",
+            password_hash=password_hash,
         )
+        if password_hash:
+            member.status = "active"
+            member.verified_at = datetime.now(UTC)
+            member.verification_token_hash = None
+            member.verification_expires_at = None
+            member.verification_delivery_status = None
         self._session.flush()
 
         self._abuse_guard.record_attempt(
@@ -169,7 +179,7 @@ class TenantOnboardingOrchestrator:
             slug=provisioned.slug,
             plan=provisioned.plan,
             email=canonical,
-            status="pending_verification",
+            status="active" if password_hash else "pending_verification",
             verification_expires_at=issued.expires_at,
             verification_token_plaintext=issued.plaintext,
             member_id=member.id,

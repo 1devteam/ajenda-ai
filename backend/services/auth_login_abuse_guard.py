@@ -1,4 +1,4 @@
-"""Rate limiting for customer OIDC login ingress."""
+"""Rate limiting for customer login ingress."""
 
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ class AuthLoginAbuseGuard:
     ROUTE_START = "/v1/auth/oidc/start"
     ROUTE_CALLBACK = "/v1/auth/oidc/callback"
     ROUTE_REFRESH = "/v1/auth/session/refresh"
+    ROUTE_PASSWORD = "/v1/auth/password"
+    ROUTE_PASSWORD = "/v1/auth/password"
 
     def __init__(
         self,
@@ -78,6 +80,12 @@ class AuthLoginAbuseGuard:
         )
         if count >= self._limits.refresh_ip_per_hour:
             raise AuthLoginRateLimitedError(dimension="ip", route=self.ROUTE_REFRESH)
+
+    def check_password_ip(self, *, client_ip_hash: str, now: datetime | None = None) -> None:
+        since = SignupAttemptLogRepository.window_start(hours=1, now=now)
+        count = self._repo.count_for_ip(client_ip_hash=client_ip_hash, route=self.ROUTE_PASSWORD, since=since)
+        if count >= self._limits.refresh_ip_per_hour:
+            raise AuthLoginRateLimitedError(dimension="ip", route=self.ROUTE_PASSWORD)
 
     def record(
         self,

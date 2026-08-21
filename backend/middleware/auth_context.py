@@ -50,8 +50,8 @@ def _customer_session_auth_ready(settings: object) -> bool:
     ready = getattr(settings, "customer_session_auth_ready", None)
     if ready is not None:
         return bool(ready)
-    return bool(
-        getattr(settings, "oidc_login_enabled", False)
+    return (
+        bool(getattr(settings, "password_login_enabled", True) or getattr(settings, "oidc_login_enabled", False))
         and len(str(getattr(settings, "session_signing_secret", "")).strip()) >= 32
     )
 

@@ -33,8 +33,8 @@ export default function BrainMissionsPanel({
         </button>
       </div>
       <p className="muted">
-        Ten outcome-first missions for the Ajenda central brain. Credentials are optional — internal pipeline
-        writes work without HubSpot.
+        Outcome-first mission templates for the Ajenda central brain. Credentials are only needed for optional
+        external reads and sends; internal pipeline writes work without HubSpot.
       </p>
       <div className="card-grid two-up">
         {templates.map((template) => (

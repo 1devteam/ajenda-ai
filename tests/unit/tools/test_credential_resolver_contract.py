@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from backend.services.tools.credential_resolver import ResolvedExternalCredential, UnresolvedCredentialResolver
+from backend.services.tools.credential_resolver import (
+    CredentialResolutionError,
+    EnvironmentCredentialResolver,
+    ResolvedExternalCredential,
+)
 from backend.services.tools.external_credentials import (
     CredentialReferenceKind,
     ExternalCredentialReference,
@@ -50,8 +54,28 @@ def test_resolved_external_credential_rejects_extra_fields() -> None:
         )
 
 
-def test_unresolved_credential_resolver_fails_closed() -> None:
-    resolver = UnresolvedCredentialResolver()
+def test_environment_credential_resolver_resolves_only_explicit_environment_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reference = _reference().model_copy(
+        update={"kind": CredentialReferenceKind.ENV_VAR, "reference": "AJENDA_TEST_SECRET"}
+    )
+    monkeypatch.setenv("AJENDA_TEST_SECRET", "runtime-secret-value")
 
-    with pytest.raises(NotImplementedError, match="credential resolution is not implemented"):
-        resolver.resolve(_reference())
+    resolved = EnvironmentCredentialResolver().resolve(reference)
+
+    assert resolved.secret_value == "runtime-secret-value"
+    assert resolved.issued_subject == "calendar-user@example.com"
+
+
+def test_environment_credential_resolver_rejects_unwired_store_kind() -> None:
+    with pytest.raises(CredentialResolutionError, match="requires a deployment credential resolver"):
+        EnvironmentCredentialResolver().resolve(_reference())
+
+
+def test_environment_credential_resolver_fails_closed_when_variable_missing() -> None:
+    reference = _reference().model_copy(
+        update={"kind": CredentialReferenceKind.ENV_VAR, "reference": "AJENDA_MISSING_SECRET"}
+    )
+    with pytest.raises(CredentialResolutionError, match="is not set"):
+        EnvironmentCredentialResolver().resolve(reference)

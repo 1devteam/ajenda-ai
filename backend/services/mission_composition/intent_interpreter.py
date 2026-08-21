@@ -53,6 +53,10 @@ _NO_SEND_PATTERNS = (
     r"prepare drafts",
     r"no send",
     r"nothing should be sent",
+    # Covers coordinated prohibitions such as “Do not browse, contact anyone,
+    # send email, or perform any external action.” Clause splitting must not
+    # turn the later list items into authorized actions.
+    r"\b(?:do not|don't|dont|never)\b[^.!?]{0,180}\bsend(?:ing)?\b",
 )
 _CONDITIONAL_SEND_PATTERNS = (
     r"send only after",
@@ -65,6 +69,8 @@ _CONDITIONAL_SEND_PATTERNS = (
 _SEND_CONTRADICTION_PATTERNS = (
     r"\bsend\b[^.;]{0,64}\b(?:but|however)\b[^.;]{0,32}\b(?:do not|don't|dont|never)\s+send\b",
     r"\b(?:do not|don't|dont|never)\s+send\b[^.;]{0,64}\b(?:but|however)\b[^.;]{0,32}\bsend\b",
+    r"\bsend(?:ing)?\b[^.!?]{0,160}[.!?][^.!?]{0,80}\b(?:do not|don't|dont|never)\s+send\b",
+    r"\b(?:do not|don't|dont|never)\s+send\b[^.!?]{0,160}[.!?][^.!?]{0,80}\bsend(?:ing)?\b",
 )
 _DRAFT_PATTERNS = (
     r"\bdraft\b",
@@ -125,8 +131,12 @@ _EMAIL_READ_PATTERNS = (
     r"\b(?:check|read|search|list|show)\s+my\s+(?:emails?|messages?)\b",
 )
 _CRM_READ_PATTERNS = (
-    r"\b(?:check|read|search|query|list|show|summarize|find|look up)\b.{0,48}\b(?:hubspot|crm)\b",
-    r"\b(?:hubspot|crm)\b.{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b",
+    r"\b(?:check|read|search|query|list|show|summarize|find|look up)\b[^.!?]{0,48}\b(?:hubspot|crm)\b",
+    r"\b(?:hubspot|crm)\b[^.!?]{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b",
+)
+_CRM_READ_NEGATION_PATTERNS = (
+    r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,48}\b(?:read|check|search|query|list|show)\b[^.!?]{0,48}\b(?:hubspot|crm)\b",
+    r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,48}\b(?:hubspot|crm)\b[^.!?]{0,48}\b(?:read|check|search|query|list|show)\b",
 )
 _SALESFORCE_QUERY_PATTERNS = (
     r"\b(?:query|check|read|search|list|show|summarize)\b.{0,48}\bsalesforce\b",
@@ -211,6 +221,7 @@ _CRM_UPDATE_PATTERNS = (
     # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
     r"\bput (?:them|it|these|those)\s+(?:in|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\bcreate (?:crm )?(?:records?|contacts?)\b",
+    r"\b(?:modify|change|edit) (?:the )?(?:crm|hubspot|pipeline|records?)\b",
 )
 _CRM_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\s+add\b.{0,40}\bcontacts?\b",
@@ -219,6 +230,28 @@ _CRM_NEGATION_PATTERNS = (
     r"\bno\s+(?:crm|contact)\s+(?:updates?|writes?|saves?)\b",
     r"\bwithout\s+(?:adding|saving)\s+(?:them\s+)?to\s+contacts?\b",
     r"\b(?:do not|don't|dont|never|without)\b[^.;]{0,96}\b(?:update|write|sync|push|log|upsert|create)\b[^.;]{0,32}\b(?:crm|hubspot|pipeline|contacts?)\b",
+    r"\b(?:do not|don't|dont|never)\b[^.!?]{0,180}\b(?:modify|change|edit)\b[^.!?]{0,32}\b(?:crm|hubspot|pipeline|records?)\b",
+)
+_NO_EXTERNAL_ACTION_PATTERNS = (
+    r"\b(?:do not|don't|dont|never)\b[^.!?]{0,180}\b(?:contact|send|modify|perform)\b",
+    r"\bwithout\b[^.!?]{0,180}\b(?:contact|send|modify|perform)\b",
+)
+_PROMPT_INJECTION_PATTERNS = (
+    r"\b(?:treat|consider|regard)\b[^.!?]{0,180}\b(?:untrusted|not authority|not instructions?)\b",
+)
+_BUSINESS_PROFILE_READ_PATTERNS = (
+    r"\b(?:search|read|retrieve|look up|find|summarize)\b[^.!?]{0,72}\b(?:approved )?business profile\b",
+    r"\b(?:search|read|retrieve|look up|find|summarize)\b[^.!?]{0,72}\bgoverned internal memory\b",
+    r"\b(?:company facts|who (?:is|are) ajenda|ajenda(?:'s|s) products and services)\b",
+)
+_BUSINESS_PROFILE_DELIVERABLE_PATTERNS = (
+    r"\bproducts?\b",
+    r"\bservices?\b",
+    r"\btarget customers?\b",
+    r"\bdifferentiators?\b",
+    r"\bcompany brief\b",
+    r"\bevidence[- ]backed brief\b",
+    r"\bmissing or conflicting (?:facts|information)\b",
 )
 # Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
@@ -330,6 +363,24 @@ _CLAUSE_SPLIT = re.compile(r"\s*(?:,|\band\b|;)\s*", re.IGNORECASE)
 
 def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def _contains_unnegated_send(text: str) -> bool:
+    """Detect a send verb whose sentence is not governed by a send prohibition."""
+
+    for match in re.finditer(r"\b(?:send|sending|deliver|dispatch|mail)\b", text, flags=re.IGNORECASE):
+        sentence_start = max(text.rfind(token, 0, match.start()) for token in ".!?\n")
+        sentence = text[sentence_start + 1 : match.start()]
+        sentence_end = min(
+            [index for index in (text.find(token, match.end()) for token in ".!?\n") if index >= 0] or [len(text)]
+        )
+        full_sentence = text[sentence_start + 1 : sentence_end]
+        if _contains_any(full_sentence, _PROMPT_INJECTION_PATTERNS):
+            continue
+        if re.search(r"\b(?:do not|don't|dont|never|without)\b", sentence, flags=re.IGNORECASE):
+            continue
+        return True
+    return False
 
 
 _MONTH_NAME = (
@@ -667,6 +718,13 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "read_business_profile" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Evidence-backed Ajenda company facts are returned from approved business profile or governed memory",
+                measurable=True,
+            )
+        )
 
     if "publish_content" in outcomes:
         success.append(
@@ -710,13 +768,35 @@ def _segment_clauses(text: str, *, protected_spans: list[str] | None = None) -> 
     return restored if restored else [text.strip()]
 
 
-def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
+def _classify_clause(
+    clause: str,
+    *,
+    profile_mission: bool = False,
+    external_action_forbidden: bool = False,
+) -> tuple[list[CanonicalOutcome], bool, bool]:
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
+    # Instructions that explicitly classify source text as untrusted are
+    # safety metadata, not an external action request or an unmatched mission
+    # clause. Keep them visible to the caller without turning quoted verbs
+    # such as “send” into requested outcomes.
+    if _contains_any(lower, _PROMPT_INJECTION_PATTERNS):
+        return [], False, True
     outcomes: list[CanonicalOutcome] = []
+    profile_read = _contains_any(lower, _BUSINESS_PROFILE_READ_PATTERNS)
+    if profile_read or (profile_mission and _contains_any(lower, _BUSINESS_PROFILE_DELIVERABLE_PATTERNS)):
+        outcomes.append("read_business_profile")
     email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
-    crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
+    crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
+        lower, _CRM_NEGATION_PATTERNS
+    )
+    crm_read = (
+        _contains_any(lower, _CRM_READ_PATTERNS)
+        and not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS)
+        and not crm_write_requested
+        and not _contains_any(lower, _CRM_NEGATION_PATTERNS)
+    )
     salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
     connector_read = email_read or crm_read or salesforce_query
     # Trailing "summarize the messages/record" after a read is covered by list/read path.
@@ -779,6 +859,8 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         + _CRM_NEGATION_PATTERNS
         + _PUBLISH_PATTERNS
         + _PUBLISH_NEGATION_PATTERNS
+        + _NO_EXTERNAL_ACTION_PATTERNS
+        + (_BUSINESS_PROFILE_READ_PATTERNS if profile_mission else ())
         + (
             r"\bapprov",
             r"\bdelet",
@@ -799,9 +881,17 @@ def _classify_clause(clause: str) -> tuple[list[CanonicalOutcome], bool, bool]:
         material = True
     recognized = bool(outcomes) or _contains_any(
         lower,
-        _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS + _CRM_NEGATION_PATTERNS,
+        _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS + _CRM_NEGATION_PATTERNS + _NO_EXTERNAL_ACTION_PATTERNS,
     )
+    if external_action_forbidden and re.search(
+        r"\b(?:browse|contact|send|modify|perform)\b|\bexternal action\b", lower
+    ):
+        material = True
+        recognized = True
     # Industry+location span is recognized material even without a verb.
+    if profile_mission and _contains_any(lower, _BUSINESS_PROFILE_DELIVERABLE_PATTERNS):
+        material = True
+        recognized = True
     if _INDUSTRY_LOCATION.search(clause):
         material = True
         recognized = True
@@ -859,12 +949,24 @@ def interpret_instruction(
 
     no_send = _contains_any(lower, _NO_SEND_PATTERNS)
     conditional_send = _contains_any(lower, _CONDITIONAL_SEND_PATTERNS)
-    send_contradiction = _contains_any(lower, _SEND_CONTRADICTION_PATTERNS) and not conditional_send
-    wants_send = _contains_any(lower, _SEND_PATTERNS) and not no_send and not conditional_send
+    send_contradiction = (
+        _contains_any(lower, _SEND_CONTRADICTION_PATTERNS) or (no_send and _contains_unnegated_send(lower))
+    ) and not conditional_send
+    wants_send = _contains_unnegated_send(lower) and not conditional_send
+    wants_business_profile = _contains_any(lower, _BUSINESS_PROFILE_READ_PATTERNS)
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
-    wants_crm_read = _contains_any(lower, _CRM_READ_PATTERNS)
+    explicit_hubspot_record_read = bool(re.search(r"\buse\s+(?:the\s+)?(?:hubspot|crm)\s+records?\b", lower))
+    crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
+        lower, _CRM_NEGATION_PATTERNS
+    )
+    wants_crm_read = (
+        (explicit_hubspot_record_read or _contains_any(lower, _CRM_READ_PATTERNS))
+        and not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS)
+        and not crm_write_requested
+        and (explicit_hubspot_record_read or not _contains_any(lower, _CRM_NEGATION_PATTERNS))
+    )
     wants_salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
     connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
     explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
@@ -895,6 +997,18 @@ def interpret_instruction(
     wants_contacts_read = _contains_any(lower, _CONTACTS_READ_PATTERNS) and not wants_crm
 
     outcomes: list[CanonicalOutcome] = []
+    if wants_business_profile:
+        outcomes.append("read_business_profile")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.read_business_profile",
+                source="explicit",
+                source_text=text[:240],
+                normalized_value="read_business_profile",
+                confidence=0.95,
+                rule_id="profile.governed_memory_read",
+            )
+        )
     if wants_research:
         outcomes.append("research_prospects")
         evidence.append(
@@ -921,6 +1035,10 @@ def interpret_instruction(
         )
     # Ability vocabulary layer (score/rank/… → canonical outcomes).
     for vocab_hit in match_outcome_phrases(text):
+        # Phrase/pattern matching is intentionally broad for legacy connector
+        # wording, but a negated CRM clause must never create a read_crm outcome.
+        if vocab_hit.outcome == "read_crm" and not wants_crm_read:
+            continue
         if vocab_hit.outcome not in outcomes:
             outcomes.append(vocab_hit.outcome)
             evidence.append(
@@ -1089,6 +1207,21 @@ def interpret_instruction(
     components_active.extend(c for c in fuzzy_components if c not in components_active)
     medium_fuzzy: list[str] = []
     for fuzzy_hit in fuzzy_hits:
+        if fuzzy_hit.outcome == "read_crm" and (no_crm or not wants_crm_read):
+            continue
+        if fuzzy_hit.outcome == "send_outreach" and (no_send or conditional_send):
+            continue
+        fuzzy_connector_guards = {
+            "read_email": wants_email_read,
+            "read_crm": wants_crm_read,
+            "read_calendar": wants_calendar,
+            "read_linkedin": wants_linkedin_read,
+            "read_github": wants_github_read,
+            "read_contacts": wants_contacts_read,
+            "query_salesforce": wants_salesforce_query,
+        }
+        if fuzzy_hit.outcome in fuzzy_connector_guards and not fuzzy_connector_guards[fuzzy_hit.outcome]:
+            continue
         if fuzzy_hit.band == "high" and fuzzy_hit.outcome not in outcomes:
             if calendar_write_requested and not calendar_read_intent and fuzzy_hit.outcome == "read_calendar":
                 continue
@@ -1313,7 +1446,11 @@ def interpret_instruction(
         entity.name for entity in entities if isinstance(entity.name, str) and entity.name.strip()
     ]
     for index, clause_text in enumerate(_segment_clauses(text, protected_spans=protected_entity_spans)):
-        mapped, material, recognized = _classify_clause(clause_text)
+        mapped, material, recognized = _classify_clause(
+            clause_text,
+            profile_mission=wants_business_profile,
+            external_action_forbidden=_contains_any(lower, _NO_EXTERNAL_ACTION_PATTERNS),
+        )
         # Non-material filler: short politeness without risk keywords.
         if not material and len(clause_text.split()) <= 3:
             status = "non_material"

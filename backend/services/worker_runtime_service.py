@@ -24,6 +24,7 @@ from backend.repositories.outcome_review_repository import OutcomeReviewReposito
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
+from backend.services.mission_intake_quality import contains_composition_clarification
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import handler_output_for_task, pending_dependency_keys
 
@@ -108,6 +109,32 @@ class WorkerRuntimeService:
                 task=task,
                 worker_id=worker_id,
             )
+            return None
+
+        mission = (
+            MissionRepository(self._session).get_for_tenant(mission_id=task.mission_id, tenant_id=tenant_id)
+            if task.mission_id is not None
+            else None
+        )
+        if mission is not None and contains_composition_clarification(mission.metadata_json):
+            # Stale UI clarification graphs must not execute. Cancel the queued
+            # task through the normal task transition and leave an audit trail.
+            transition_task(task, ExecutionTaskState.CANCELLED)
+            self._session.add(task)
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    category="worker",
+                    action="stale_task_cancelled",
+                    actor=worker_id,
+                    details="Queued task cancelled because mission intake contains planner clarification text.",
+                    payload_json={"task_id": str(task.id)},
+                )
+            )
+            self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
+            self._session.commit()
+            self._queue.release_lease(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
             return None
 
         savepoint = self._session.begin_nested()

@@ -10,10 +10,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-COMPOSITION_SCHEMA_VERSION = 3
-JOB_CATALOG_VERSION = "8"
-INTERPRETER_VERSION = "9"
-CAPABILITY_RESOLVER_VERSION = "7"
+COMPOSITION_SCHEMA_VERSION = 4
+JOB_CATALOG_VERSION = "9"
+INTERPRETER_VERSION = "10"
+CAPABILITY_RESOLVER_VERSION = "8"
 
 ProposalStatus = Literal[
     "interpretation_failed",
@@ -71,6 +71,7 @@ CanonicalOutcome = Literal[
     "read_linkedin",
     "read_github",
     "read_contacts",
+    "read_business_profile",
 ]
 
 CANONICAL_OUTCOMES: frozenset[str] = frozenset(
@@ -90,6 +91,7 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
         "read_linkedin",
         "read_github",
         "read_contacts",
+        "read_business_profile",
     }
 )
 

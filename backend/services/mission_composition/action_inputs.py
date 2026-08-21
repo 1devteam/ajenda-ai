@@ -761,6 +761,11 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 ),
             },
         }
+    if action_name == "retrieval.hybrid_search" and "read_business_profile" in intent.requested_outcomes:
+        return {
+            "query": "Ajenda products services target customers differentiators approved business profile",
+            "limit": min(max(limit, 5), 20),
+        }
     if action_name in {"record.search", "document.search", "retrieval.hybrid_search"}:
         return {"query": query, "limit": limit}
     if action_name == "gtm.social_publish":

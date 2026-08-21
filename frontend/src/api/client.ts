@@ -61,6 +61,7 @@ import type {
   CustomerSession,
   CustomerSessionResponse,
   OidcConfigResponse,
+  PasswordLoginRequest,
   PortalResponse,
   PromoteBootstrapKeyResponse,
   RuntimeConfig,
@@ -353,6 +354,13 @@ export async function refreshCustomerSession(refreshToken: string): Promise<Cust
   return request<CustomerSessionResponse>("/v1/auth/session/refresh", {
     method: "POST",
     body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+}
+
+export async function passwordLogin(body: PasswordLoginRequest): Promise<CustomerSessionResponse> {
+  return request<CustomerSessionResponse>("/v1/auth/password", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

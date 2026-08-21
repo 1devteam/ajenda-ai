@@ -1529,6 +1529,33 @@ pre {
   gap: 0.75rem;
 }
 
+.auth-google-option {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #64748b;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.auth-divider span {
+  flex: none;
+}
+
 .auth-panel-clean .oidc-button {
   min-height: 3.25rem;
   border-radius: 0.9rem;
@@ -1607,4 +1634,3 @@ pre {
   font-size: 0.76rem;
   line-height: 1.5;
 }
-

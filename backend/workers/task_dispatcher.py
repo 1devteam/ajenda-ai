@@ -11,10 +11,8 @@ Handler registration:
     Register handlers via @register_handler("task_type")
     Each handler receives (task, context) and returns a result dict.
 
-Extension point:
-    In Phase 2, replace the default_handler with real AI agent dispatch.
-    The framework here is intentionally minimal — it enforces the contract
-    without prescribing the execution model.
+Only explicitly registered task types are executable. Unknown or missing task
+types fail closed so a task can never be marked complete by a fallback handler.
 """
 
 from __future__ import annotations
@@ -277,8 +275,8 @@ class TaskDispatcher:
             heartbeat_thread.join(timeout=5.0)
 
     def _heartbeat_loop(self, lease_id: uuid.UUID, stop: threading.Event) -> None:
-        """Background thread: sends heartbeats every HEARTBEAT_INTERVAL seconds."""
-        while not stop.wait(timeout=_HEARTBEAT_INTERVAL):
+        """Background thread: sends an immediate and periodic lease heartbeat."""
+        while not stop.is_set():
             session = self._open_tenant_session()
             try:
                 runtime = WorkerRuntimeService(session, self.queue)
@@ -296,6 +294,8 @@ class TaskDispatcher:
                 )
             finally:
                 session.close()
+            if stop.wait(timeout=_HEARTBEAT_INTERVAL):
+                break
 
     def _complete(
         self,
@@ -393,27 +393,6 @@ class TaskDispatcher:
             return None
         finally:
             session.close()
-
-
-# Default handler — logs and completes the task.
-# Replace this in Phase 2 with real AI agent dispatch.
-@register_handler("default")
-def default_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
-    """Default task handler. Logs task metadata and marks complete.
-
-    This is the extension point for Phase 2 AI agent dispatch.
-    Replace this handler with real execution logic.
-    """
-    logger.info(
-        "default_handler_executing",
-        extra={
-            "task_id": str(task.id),
-            "tenant_id": task.tenant_id,
-            "metadata_keys": list(task.metadata_json.keys()),
-        },
-    )
-    # Phase 2: dispatch to AI agent here
-    return {"status": "completed", "handler": "default"}
 
 
 @register_handler("force_fail")
