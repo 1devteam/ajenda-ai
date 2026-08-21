@@ -24,6 +24,7 @@ from backend.repositories.outcome_review_repository import OutcomeReviewReposito
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
+from backend.services.mission_acceptance import evaluate_mission_acceptance
 from backend.services.mission_intake_quality import contains_composition_clarification
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import handler_output_for_task, pending_dependency_keys
@@ -87,6 +88,19 @@ def _observe_accept_unmet(siblings: list[ExecutionTask]) -> bool:
             return False
         return True
     return False
+
+
+def _mission_acceptance_contract(mission: Any) -> dict[str, Any]:
+    raw_metadata = getattr(mission, "metadata_json", None)
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+    raw_intake = metadata.get("mission_intake")
+    intake: dict[str, Any] = raw_intake if isinstance(raw_intake, dict) else {}
+    raw_context = intake.get("context")
+    context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
+    raw_composition = context.get("composition")
+    composition: dict[str, Any] = raw_composition if isinstance(raw_composition, dict) else {}
+    contract = composition.get("acceptance_contract")
+    return dict(contract) if isinstance(contract, dict) else {}
 
 
 _TERMINAL_TASK_STATES: frozenset[str] = frozenset(
@@ -411,6 +425,24 @@ class WorkerRuntimeService:
             # All graph tasks terminal.
             any_failed = any(item.status in failedish for item in siblings)
             accept_unmet = _observe_accept_unmet(siblings)
+            acceptance_contract = _mission_acceptance_contract(mission)
+            acceptance_met, acceptance_reasons = evaluate_mission_acceptance(
+                tasks=siblings,
+                contract=acceptance_contract,
+            )
+            if not acceptance_met:
+                accept_unmet = True
+                self._audit.append(
+                    AuditEvent(
+                        tenant_id=task.tenant_id,
+                        mission_id=task.mission_id,
+                        category="mission",
+                        action="mission_acceptance_unmet",
+                        actor=worker_id,
+                        details="; ".join(acceptance_reasons),
+                        payload_json={"reasons": acceptance_reasons, "contract": acceptance_contract},
+                    )
+                )
             target = MissionState.FAILED if any_failed or accept_unmet else MissionState.COMPLETED
             if mission.status != MissionState.RUNNING.value:
                 # Hop through running when coming from planned/queued so state machine stays honest.
