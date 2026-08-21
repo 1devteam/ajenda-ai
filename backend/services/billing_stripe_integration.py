@@ -314,7 +314,7 @@ class StripeBillingService:
             payload,
             sig_header,
             self._webhook_secret,
-        )
+        )  # type: ignore[no-untyped-call]  # Stripe's runtime SDK has no typed construct_event signature.
 
         event_id: str = str(event["id"])
         event_type: str = str(event["type"])

@@ -365,11 +365,14 @@ class OidcLoginService:
             except ValueError as exc:
                 raise OidcLoginValidationError("invalid tenant_id") from exc
             members = [member for member in members if member.tenant_id == tenant_uuid]
-        if len(members) != 1 or not members[0].password_hash:
+        if len(members) != 1:
             raise OidcAccountNotFoundError("invalid email or password")
         member = members[0]
+        password_hash = member.password_hash
+        if not password_hash:
+            raise OidcAccountNotFoundError("invalid email or password")
         try:
-            PasswordHasher().verify(member.password_hash, password)
+            PasswordHasher().verify(password_hash, password)
         except (VerificationError, VerifyMismatchError, ValueError):
             self._abuse.record(
                 client_ip_hash=client_ip_hash,
