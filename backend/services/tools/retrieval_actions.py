@@ -7,6 +7,7 @@ from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
 from backend.services.business_context_resolver import resolve_business_context
+from backend.services.business_profile_record_sync import build_profile_brief
 from backend.services.data_plane.memory_chunk_store import resolve_memory_chunk_store
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.record_store import resolve_record_store
@@ -79,13 +80,22 @@ def _approved_profile_hit(context: ActionRuntimeContext, query: str) -> list[dic
     try:
         activate_tenant_session(session, context.tenant_id)
         profile = BusinessProfileRepository(session).get_active_profile_for_tenant(tenant_id=context.tenant_id)
-        facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
-        if not facts:
+        if profile is None or not isinstance(profile.approved_facts, dict):
             return []
+        facts = profile.approved_facts
+        normalized = build_profile_brief(
+            approved_facts=facts,
+            provenance=profile.provenance if isinstance(profile.provenance, dict) else None,
+        )
         return [
             {
                 "id": "business-profile-approved",
-                "content": {"approved_facts": facts, "profile_id": str(profile.id)},
+                "content": {
+                    "approved_facts": facts,
+                    "profile_brief": normalized,
+                    "profile_id": str(profile.id),
+                    "source": "approved_business_profile",
+                },
                 "source": "business_profile",
                 "search_mode": "authoritative_profile",
                 "score": 1.0,
@@ -217,6 +227,16 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
         "plugin_required": False,
         "source": "ajenda_brain",
     }
+    profile_memory = next(
+        (
+            item
+            for item in profile_hits
+            if isinstance(item, dict) and isinstance(item.get("content"), dict)
+        ),
+        None,
+    )
+    if profile_memory is not None:
+        output["business_profile"] = profile_memory["content"]
     inspected = [str(item.get("id")) for item in memories if isinstance(item, dict) and item.get("id")]
     summary = (
         f"Hybrid retrieval found {len(memories)} governed memory hit(s) across {', '.join(provenance['search_modes'])}."

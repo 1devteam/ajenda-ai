@@ -13,7 +13,11 @@ from backend.services.mission_composition.plan_compiler import (
     compile_task_graph_preview,
 )
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
-from backend.services.mission_composition.service import MissionCompositionError, MissionCompositionService
+from backend.services.mission_composition.service import (
+    MissionCompositionError,
+    MissionCompositionService,
+    _profile_context,
+)
 from backend.services.mission_composition.structured_planner import (
     PlannerBudgetProposal,
     PlannerJobProposal,
@@ -73,6 +77,29 @@ def test_interpreter_routes_governed_ajenda_profile_brief_to_internal_memory_onl
     assert [(item.action_name, item.readiness) for item in selections] == [("retrieval.hybrid_search", "ready")]
     planned = compile_planned_steps(selections, intent=intent)
     assert planned[0].tool_input["query"].startswith("Ajenda products services")
+
+
+def test_profile_context_preserves_the_full_approved_business_vocabulary() -> None:
+    class Profile:
+        id = "profile-1"
+        approved_facts = {
+            "business_name": {"value": "Ajenda AI"},
+            "industry": {"value": "AI operations"},
+            "description": {"value": "Governed AI operations"},
+            "products_services": ["Mission execution", "CRM research"],
+            "target_customers": ["Operator-led teams"],
+            "differentiators": ["Evidence-backed runtime"],
+            "operator_notes": {"value": "Do not guess"},
+        }
+        provenance = {}
+
+    context = _profile_context(Profile())
+    assert context["business_name"] == "Ajenda AI"
+    assert context["industry"] == "AI operations"
+    assert context["description"] == "Governed AI operations"
+    assert context["target_customers"] == ["Operator-led teams"]
+    assert context["differentiators"] == ["Evidence-backed runtime"]
+    assert context["operator_notes"] == "Do not guess"
 
 
 def test_negated_crm_records_are_not_misread_as_hubspot_read() -> None:
