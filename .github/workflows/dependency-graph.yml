@@ -37,6 +37,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install graph test dependency
+        run: python -m pip install pytest
+
       - name: Build graph
         run: python scripts/validation/build_dependency_graph.py --output dependency-graph.v1.json
 
