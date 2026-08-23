@@ -4,7 +4,9 @@ import importlib.util
 import sys
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).resolve().parents[3] / "scripts/validation/graph_impact_analysis.py"
+VALIDATION_DIR = Path(__file__).resolve().parents[3] / "scripts/validation"
+MODULE_PATH = VALIDATION_DIR / "graph_impact_analysis.py"
+sys.path.insert(0, str(VALIDATION_DIR))
 SPEC = importlib.util.spec_from_file_location("ajenda_graph_impact_analysis", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
