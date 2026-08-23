@@ -19,6 +19,13 @@ def test_graph_contains_static_and_semantic_layers() -> None:
     assert "runtime-secret-boundary" in invariant_ids
 
 
+def test_package_relative_re_exports_are_graph_edges() -> None:
+    graph = MODULE.build_graph()
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+
+    assert ("py:backend.workers", "py:backend.workers.worker_loop", "imports") in edges
+
+
 def test_every_edge_endpoint_is_defined() -> None:
     graph = MODULE.build_graph()
     node_ids = {node["id"] for node in graph["nodes"]}
