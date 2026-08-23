@@ -56,20 +56,14 @@ def architectural_boundary(node: dict[str, Any]) -> str:
 
 
 def _production_nodes(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {
-        str(node["id"]): node
-        for node in graph["nodes"]
-        if str(node.get("type")) != "test_module"
-    }
+    return {str(node["id"]): node for node in graph["nodes"] if str(node.get("type")) != "test_module"}
 
 
 def _production_edges(graph: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         edge
         for edge in graph["edges"]
-        if str(edge.get("type")) != TEST_EDGE_TYPE
-        and str(edge.get("from")) in nodes
-        and str(edge.get("to")) in nodes
+        if str(edge.get("type")) != TEST_EDGE_TYPE and str(edge.get("from")) in nodes and str(edge.get("to")) in nodes
     ]
 
 
@@ -245,9 +239,7 @@ def _semantic_reconciliation(
         target_backed = target.startswith(SOURCE_NODE_PREFIXES)
 
         if source_backed and target_backed:
-            classification = (
-                "static-corroborated" if _has_path(source, target, static_adjacency) else "semantic-only"
-            )
+            classification = "static-corroborated" if _has_path(source, target, static_adjacency) else "semantic-only"
         else:
             classification = "boundary-or-external"
 
