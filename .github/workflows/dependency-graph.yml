@@ -10,9 +10,11 @@ on:
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
       - "scripts/validation/graph_impact_analysis.py"
+      - "scripts/validation/graph_proof_selection.py"
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
+      - "tests/unit/validation/test_graph_proof_selection.py"
       - ".github/workflows/dependency-graph.yml"
   push:
     branches: [main]
@@ -23,9 +25,11 @@ on:
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
       - "scripts/validation/graph_impact_analysis.py"
+      - "scripts/validation/graph_proof_selection.py"
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
+      - "tests/unit/validation/test_graph_proof_selection.py"
       - ".github/workflows/dependency-graph.yml"
   workflow_dispatch:
 
@@ -53,17 +57,25 @@ jobs:
       - name: Build graph
         run: python scripts/validation/build_dependency_graph.py
 
-      - name: Prove graph generator and impact traversal
+      - name: Prove graph generator, impact traversal, and proof selection
         run: >-
           pytest -q
           tests/unit/validation/test_build_dependency_graph.py
           tests/unit/validation/test_graph_impact_analysis.py
+          tests/unit/validation/test_graph_proof_selection.py
 
       - name: Analyze change impact
         run: >-
           python scripts/validation/graph_impact_analysis.py
           --json
           --output artifacts/graph-impact-report.json
+
+      - name: Select required proof
+        run: >-
+          python scripts/validation/graph_proof_selection.py
+          --impact-report artifacts/graph-impact-report.json
+          --json
+          --output artifacts/graph-proof-manifest.json
 
       - name: Upload graph artifacts
         uses: actions/upload-artifact@v6
@@ -72,4 +84,5 @@ jobs:
           path: |
             docs/architecture/dependency-graph.v1.json
             artifacts/graph-impact-report.json
+            artifacts/graph-proof-manifest.json
           if-no-files-found: error
