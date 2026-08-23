@@ -1,0 +1,51 @@
+name: Architecture — Canonical Dependency Graph
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/src/**"
+      - "docs/contracts/dependency-graph.overlay.v1.json"
+      - "scripts/validation/build_dependency_graph.py"
+      - "tests/unit/validation/test_build_dependency_graph.py"
+      - ".github/workflows/dependency-graph.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/src/**"
+      - "docs/contracts/dependency-graph.overlay.v1.json"
+      - "scripts/validation/build_dependency_graph.py"
+      - "tests/unit/validation/test_build_dependency_graph.py"
+      - ".github/workflows/dependency-graph.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-graph:
+    name: Build canonical architecture graph
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build graph
+        run: python scripts/validation/build_dependency_graph.py --output dependency-graph.v1.json
+
+      - name: Prove graph generator
+        run: pytest -q tests/unit/validation/test_build_dependency_graph.py
+
+      - name: Upload graph artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: canonical-dependency-graph
+          path: dependency-graph.v1.json
+          if-no-files-found: error
