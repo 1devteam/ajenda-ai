@@ -32,7 +32,7 @@ PROOF_BUNDLES: tuple[ProofBundle, ...] = (
         title="Tenant isolation contract proof",
         invariants=("tenant-isolation",),
         risk_domains=("tenant-isolation",),
-        tests=("tests/contract/security/test_tenant_isolation_contract.py",),
+        tests=("tests/contract/api/test_tenant_isolation_policy.py",),
         required_gates=("unit-tests",),
     ),
     ProofBundle(
@@ -40,7 +40,7 @@ PROOF_BUNDLES: tuple[ProofBundle, ...] = (
         title="Canonical queue-admission authority proof",
         invariants=("canonical-queue-admission",),
         tests=(
-            "tests/contract/architecture/test_runtime_authority_contract.py",
+            "tests/unit/architecture/test_authority_ledger_contract.py",
             "tests/contract/api/test_mission_queue_contract.py",
         ),
         required_gates=("unit-tests",),
@@ -111,7 +111,7 @@ PROOF_BUNDLES: tuple[ProofBundle, ...] = (
         id="authority-class-proof",
         title="Authority-class stability proof",
         invariants=("capability-not-authority", "authority-class-stability"),
-        tests=("tests/contract/architecture/test_runtime_authority_contract.py",),
+        tests=("tests/unit/architecture/test_authority_ledger_contract.py",),
         required_gates=("unit-tests",),
     ),
     ProofBundle(

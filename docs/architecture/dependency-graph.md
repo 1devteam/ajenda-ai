@@ -107,6 +107,35 @@ The proof selector is intentionally a manifest generator rather than an arbitrar
 
 Known policy drift must produce human review rather than being misrepresented as an enforced invariant. Unmapped files must remain visible and likewise require review until the graph models them or a deterministic path rule covers them.
 
+## Completeness audit
+
+Run:
+
+`python scripts/validation/graph_completeness_audit.py --json`
+
+The completeness audit analyzes the canonical graph as an architecture model rather than only as a collection of edges. CI emits `artifacts/graph-completeness-report.json` containing:
+
+- exact directed betweenness centrality for production nodes
+- direct consumer/dependency counts
+- transitive consumer/dependency counts
+- architectural boundary classification per production node
+- a boundary-to-boundary edge matrix with edge-type counts
+- static cycle classification as intra-boundary or cross-boundary
+- reconciliation of semantic source-to-source edges against static import reachability
+- integrity checks for semantic edge evidence and invariant source files
+
+Betweenness centrality is the standard directed, unweighted shortest-path measure. It is not a hand-authored risk score. A high score identifies a node that lies on many shortest dependency paths; security or authority risk must still be interpreted from edge semantics and invariants.
+
+Semantic reconciliation has three classifications:
+
+- `static-corroborated` — a semantic source-to-source relationship follows an import-reachable path in the same direction
+- `semantic-only` — the semantic source-to-source relationship is explicit architecture evidence but is not corroborated by static import reachability
+- `boundary-or-external` — at least one endpoint is a runtime, security-boundary, or external-system node that static imports cannot represent directly
+
+`semantic-only` is not automatically drift. Runtime calls, dependency injection, policy authority, and other dynamic relationships may be valid without a corresponding import path. The classification exists so reviewers can see where the graph relies on semantic evidence rather than static structure.
+
+The audit fails closed when a semantic edge has missing repository evidence or an invariant points at a missing source file.
+
 ## Metrics
 
 The generated graph calculates:
@@ -121,6 +150,8 @@ The generated graph calculates:
 
 Fan-in is the number of direct graph edges entering a node. Fan-out is the number leaving it. These measurements are indicators, not automatic risk scores. Security choke points and orchestration authorities may be high-risk even when their raw fan-in is small.
 
+The completeness audit extends those raw metrics with directed betweenness and exact transitive reachability counts.
+
 ## Invariants
 
 The semantic overlay records architectural invariants and their current status. Status is deliberately explicit. An invariant may be enforced, enforced doctrine, an enforced design boundary, an enforced meta-invariant, or known policy drift.
@@ -131,13 +162,17 @@ The impact analyzer considers an invariant relevant when changed or traversed gr
 
 ## Relationship to the PR invariant classifier
 
-`pr_invariant_classifier.py` remains the deterministic PR gate for known proof gaps and risk-domain rules. `graph_impact_analysis.py` supplies structural blast-radius evidence, and `graph_proof_selection.py` translates that impact into a proof manifest.
+`pr_invariant_classifier.py` remains the deterministic PR gate for known proof gaps and risk-domain rules. `graph_impact_analysis.py` supplies structural blast-radius evidence, `graph_proof_selection.py` translates that impact into a proof manifest, and `graph_completeness_audit.py` audits the quality and topology of the canonical model itself.
 
 The intended flow is:
 
 PR diff -> changed graph nodes -> upstream consumers + downstream prerequisites -> affected semantic boundaries -> applicable invariants -> relevant tests -> required proof manifest.
 
-The graph describes the system. The impact analyzer describes structural change reachability. The classifier catches deterministic known violations. The proof selector tells CI and reviewers what evidence the affected architecture requires.
+Separately:
+
+canonical graph -> centrality + transitive reachability + boundary matrix + cycle classification + semantic reconciliation -> completeness report.
+
+The graph describes the system. The impact analyzer describes structural change reachability. The classifier catches deterministic known violations. The proof selector tells CI and reviewers what evidence the affected architecture requires. The completeness audit verifies that the graph remains an auditable architecture model.
 
 ## Maintenance rule
 
@@ -148,3 +183,5 @@ Semantic runtime/authority edges must be supported by repository evidence and ad
 A new runtime authority, external provider, security boundary, credential path, queue authority, standalone executable service, or cross-layer contract should update the semantic overlay in the same PR.
 
 When an invariant gains or changes executable proof, its proof bundle must be updated in the same architecture change so proof selection cannot silently point at stale evidence.
+
+When a new architecture zone is introduced, its boundary classification should be made explicit in the completeness audit rather than being left indefinitely under `source:unknown`.
