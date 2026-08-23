@@ -14,11 +14,13 @@ The graph is intended to answer five questions before a change is merged:
 
 ## Canonical inputs
 
-`backend/**/*.py` supplies generated Python module/import nodes and edges.
+`backend/**/*.py` supplies generated Python module/import nodes and edges for the primary application/runtime package.
+
+`services/**/*.py` supplies generated Python module/import nodes and edges for standalone executable services such as the HubSpot CRM adapter.
 
 `frontend/src/**/*.ts` and `frontend/src/**/*.tsx` supply generated frontend module/import nodes and edges for relative source imports.
 
-`tests/**/*.py` supplies generated test-to-production impact edges for direct imports of backend modules.
+`tests/**/*.py` supplies generated test-to-production impact edges for direct imports of backend or standalone-service modules.
 
 `docs/contracts/dependency-graph.overlay.v1.json` supplies semantic nodes, semantic edges, and architectural invariants. The overlay is intentionally explicit: runtime authority, queueing, RLS, OAuth, credential resolution, network egress, configuration, and HTTP contracts are not equivalent to source imports and must retain their own edge types.
 
@@ -80,4 +82,4 @@ Generated source and test-impact edges must come from source, not manual editing
 
 Semantic runtime/authority edges must be supported by repository evidence and added to the overlay when architecture changes.
 
-A new runtime authority, external provider, security boundary, credential path, queue authority, or cross-layer contract should update the semantic overlay in the same PR.
+A new runtime authority, external provider, security boundary, credential path, queue authority, standalone executable service, or cross-layer contract should update the semantic overlay in the same PR.
