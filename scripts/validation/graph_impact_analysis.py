@@ -16,10 +16,6 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-VALIDATION_DIR = Path(__file__).resolve().parent
-if str(VALIDATION_DIR) not in sys.path:
-    sys.path.insert(0, str(VALIDATION_DIR))
-
 from build_dependency_graph import build_graph
 from pr_invariant_classifier import _discover_changes, classify_risk_domains
 
@@ -249,6 +245,9 @@ def analyze_impact(
         context_nodes=context_nodes,
     )
 
+    affected_semantic = _semantic_nodes(affected_production, nodes)
+    dependency_semantic = _semantic_nodes(downstream_ids, nodes)
+
     return {
         "schema_version": "1.0",
         "changed_files": changed,
@@ -273,8 +272,8 @@ def analyze_impact(
             exclude=changed_production,
         ),
         "impacted_tests": impacted_tests,
-        "affected_semantic_nodes": _semantic_nodes(affected_production, nodes),
-        "dependency_semantic_nodes": _semantic_nodes(downstream_ids, nodes),
+        "affected_semantic_nodes": affected_semantic,
+        "dependency_semantic_nodes": dependency_semantic,
         "relevant_invariants": invariants,
         "risk_domains": [
             {"id": profile.id, "title": profile.title, "review": list(profile.review)}
@@ -287,8 +286,8 @@ def analyze_impact(
             "upstream_consumer_count": len(upstream_ids),
             "downstream_dependency_count": len(downstream_ids),
             "impacted_test_count": len(impacted_tests),
-            "affected_semantic_node_count": len(_semantic_nodes(affected_production, nodes)),
-            "dependency_semantic_node_count": len(_semantic_nodes(downstream_ids, nodes)),
+            "affected_semantic_node_count": len(affected_semantic),
+            "dependency_semantic_node_count": len(dependency_semantic),
             "relevant_invariant_count": len(invariants),
             "risk_domain_count": len(risk_profiles),
         },
