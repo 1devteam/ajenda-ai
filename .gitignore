@@ -104,6 +104,7 @@ pnpm-debug.log*
 
 # Project outputs / generated files
 docs/snapshots/
+docs/architecture/dependency-graph.v1.json
 artifacts/
 reports/
 
