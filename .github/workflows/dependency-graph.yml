@@ -12,11 +12,13 @@ on:
       - "scripts/validation/graph_impact_analysis.py"
       - "scripts/validation/graph_proof_selection.py"
       - "scripts/validation/graph_completeness_audit.py"
+      - "scripts/validation/graph_architecture_decision.py"
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
       - "tests/unit/validation/test_graph_proof_selection.py"
       - "tests/unit/validation/test_graph_completeness_audit.py"
+      - "tests/unit/validation/test_graph_architecture_decision.py"
       - ".github/workflows/dependency-graph.yml"
   push:
     branches: [main]
@@ -29,11 +31,13 @@ on:
       - "scripts/validation/graph_impact_analysis.py"
       - "scripts/validation/graph_proof_selection.py"
       - "scripts/validation/graph_completeness_audit.py"
+      - "scripts/validation/graph_architecture_decision.py"
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
       - "tests/unit/validation/test_graph_proof_selection.py"
       - "tests/unit/validation/test_graph_completeness_audit.py"
+      - "tests/unit/validation/test_graph_architecture_decision.py"
       - ".github/workflows/dependency-graph.yml"
   workflow_dispatch:
 
@@ -61,13 +65,14 @@ jobs:
       - name: Build graph
         run: python scripts/validation/build_dependency_graph.py
 
-      - name: Prove graph generator, impact traversal, proof selection, and completeness audit
+      - name: Prove graph generator, impact traversal, proof selection, completeness audit, and decision composition
         run: >-
           pytest -q
           tests/unit/validation/test_build_dependency_graph.py
           tests/unit/validation/test_graph_impact_analysis.py
           tests/unit/validation/test_graph_proof_selection.py
           tests/unit/validation/test_graph_completeness_audit.py
+          tests/unit/validation/test_graph_architecture_decision.py
 
       - name: Analyze change impact
         run: >-
@@ -83,12 +88,23 @@ jobs:
           --output artifacts/graph-proof-manifest.json
 
       - name: Audit graph completeness
+        continue-on-error: true
         run: >-
           python scripts/validation/graph_completeness_audit.py
           --json
           --output artifacts/graph-completeness-report.json
 
+      - name: Compose architecture decision
+        run: >-
+          python scripts/validation/graph_architecture_decision.py
+          --impact-report artifacts/graph-impact-report.json
+          --proof-manifest artifacts/graph-proof-manifest.json
+          --completeness-report artifacts/graph-completeness-report.json
+          --json
+          --output artifacts/graph-architecture-decision.json
+
       - name: Upload graph artifacts
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: canonical-dependency-graph
@@ -97,4 +113,5 @@ jobs:
             artifacts/graph-impact-report.json
             artifacts/graph-proof-manifest.json
             artifacts/graph-completeness-report.json
+            artifacts/graph-architecture-decision.json
           if-no-files-found: error
