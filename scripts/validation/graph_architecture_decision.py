@@ -56,13 +56,7 @@ def _ids(items: list[dict[str, Any]]) -> list[str]:
 
 
 def _sources(items: list[dict[str, Any]]) -> list[str]:
-    return sorted(
-        {
-            str(item["source"])
-            for item in items
-            if isinstance(item.get("source"), str) and item["source"]
-        }
-    )
+    return sorted({str(item["source"]) for item in items if isinstance(item.get("source"), str) and item["source"]})
 
 
 def _impact_context_ids(impact: dict[str, Any]) -> set[str]:
@@ -192,9 +186,7 @@ def build_decision_manifest(
             f"{len(semantic_only)} impacted semantic relationship(s) rely on explicit semantic evidence rather than static import reachability."
         )
     if cross_boundary_cycles:
-        warnings.append(
-            f"{len(cross_boundary_cycles)} impacted static cycle(s) cross architectural boundaries."
-        )
+        warnings.append(f"{len(cross_boundary_cycles)} impacted static cycle(s) cross architectural boundaries.")
 
     if proof_plan is not None and proof_plan.get("full_suite_fallback"):
         warnings.append("selective-CI shadow policy would retain full-suite fallback for this change")
@@ -240,18 +232,14 @@ def build_decision_manifest(
             "review_gates": review_gates,
             "manual_review": manual_review,
             "full_suite_fallback": bool(proof_plan and proof_plan.get("full_suite_fallback")),
-            "fallback_reasons": (
-                list(proof_plan.get("fallback_reasons", [])) if proof_plan is not None else []
-            ),
+            "fallback_reasons": (list(proof_plan.get("fallback_reasons", [])) if proof_plan is not None else []),
         },
         "completeness": {
             "integrity_pass": integrity.get("pass") is True,
             "missing_semantic_edge_evidence": sorted(
                 str(item) for item in integrity.get("missing_semantic_edge_evidence", [])
             ),
-            "missing_invariant_sources": sorted(
-                str(item) for item in integrity.get("missing_invariant_sources", [])
-            ),
+            "missing_invariant_sources": sorted(str(item) for item in integrity.get("missing_invariant_sources", [])),
             "impacted_semantic_only_relationships": semantic_only,
             "impacted_cross_boundary_cycles": cross_boundary_cycles,
             "semantic_reconciliation_counts": completeness.get("semantic_reconciliation_counts", {}),
@@ -292,7 +280,9 @@ def _print_human(manifest: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Compose Ajenda graph artifacts into one architecture decision manifest.")
+    parser = argparse.ArgumentParser(
+        description="Compose Ajenda graph artifacts into one architecture decision manifest."
+    )
     parser.add_argument("--impact-report", required=True)
     parser.add_argument("--proof-manifest", required=True)
     parser.add_argument("--completeness-report", required=True)
