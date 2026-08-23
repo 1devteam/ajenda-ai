@@ -104,9 +104,7 @@ def _python_imports(path: Path, module: str, modules: set[str]) -> set[str]:
 
 
 def _production_python_modules() -> dict[Path, str]:
-    files = sorted(
-        path for path in (REPO_ROOT / "backend").rglob("*.py") if "__pycache__" not in path.parts
-    )
+    files = sorted(path for path in (REPO_ROOT / "backend").rglob("*.py") if "__pycache__" not in path.parts)
     return {path: _python_module_for_path(path) for path in files}
 
 
@@ -166,9 +164,7 @@ def collect_test_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
                 candidates.extend(alias.name for alias in item.names)
             elif isinstance(item, ast.ImportFrom) and item.level == 0 and item.module:
                 candidates.append(item.module)
-                candidates.extend(
-                    f"{item.module}.{alias.name}" for alias in item.names if alias.name != "*"
-                )
+                candidates.extend(f"{item.module}.{alias.name}" for alias in item.names if alias.name != "*")
             for imported in candidates:
                 if not imported.startswith("backend"):
                     continue
@@ -336,8 +332,7 @@ def build_graph() -> dict[str, Any]:
     test_nodes, test_edges = collect_test_graph()
 
     nodes: list[dict[str, Any]] = [
-        {"id": node.id, "type": node.type, "source": node.source}
-        for node in [*py_nodes, *fe_nodes, *test_nodes]
+        {"id": node.id, "type": node.type, "source": node.source} for node in [*py_nodes, *fe_nodes, *test_nodes]
     ]
     nodes.extend(overlay.get("nodes", []))
 
