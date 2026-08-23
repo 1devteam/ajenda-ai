@@ -1,0 +1,70 @@
+name: Architecture — Selective Proof Shadow
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selective-proof-shadow:
+    name: Graph-selected proof shadow
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[dev]"
+
+      - name: Verify Docker daemon
+        run: docker info
+
+      - name: Build canonical graph
+        run: python scripts/validation/build_dependency_graph.py
+
+      - name: Analyze PR impact
+        run: >-
+          python scripts/validation/graph_impact_analysis.py
+          --json
+          --output artifacts/graph-impact-report.json
+
+      - name: Select required proof
+        run: >-
+          python scripts/validation/graph_proof_selection.py
+          --impact-report artifacts/graph-impact-report.json
+          --json
+          --output artifacts/graph-proof-manifest.json
+
+      - name: Prove selective runner
+        run: pytest -q tests/unit/validation/test_graph_selective_ci.py
+
+      - name: Execute graph-selected focused proof
+        run: >-
+          python scripts/validation/graph_selective_ci.py
+          --manifest artifacts/graph-proof-manifest.json
+          --output artifacts/graph-selective-ci-plan.json
+
+      - name: Upload shadow evidence
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: graph-selective-ci-shadow
+          path: |
+            artifacts/graph-impact-report.json
+            artifacts/graph-proof-manifest.json
+            artifacts/graph-selective-ci-plan.json
+          if-no-files-found: error
+          retention-days: 14
