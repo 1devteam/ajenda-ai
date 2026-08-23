@@ -46,6 +46,46 @@ The graph must not collapse those edge types into a generic "depends on" relatio
 
 Source-backed semantic relationships use the generated source-node IDs instead of duplicate semantic nodes. This keeps centrality and blast-radius calculations attached to one canonical representation of each source component.
 
+### Dependency direction
+
+Canonical graph direction is `consumer -> dependency`.
+
+If `A -> B`, component A uses, imports, calls, configures, or otherwise depends on B.
+
+That direction gives change-impact traversal precise meanings:
+
+- reverse traversal from a changed node finds upstream consumers: components whose behavior may be affected by that change
+- forward traversal from a changed node finds downstream prerequisites: components or boundaries the changed component relies on
+
+Upstream consumers and downstream prerequisites must not be merged into one unlabeled list. They represent different engineering questions.
+
+## Change-impact analyzer
+
+Run:
+
+`python scripts/validation/graph_impact_analysis.py --changed-file backend/app/config.py --json`
+
+For CI, the analyzer discovers the actual PR or push diff automatically.
+
+The generated `artifacts/graph-impact-report.json` contains:
+
+- changed graph nodes
+- changed repository paths that could not be mapped to graph nodes
+- transitive upstream consumers
+- transitive downstream dependencies/prerequisites
+- impacted tests
+- affected semantic runtime/security/external nodes
+- semantic prerequisites
+- relevant architectural invariants
+- existing PR invariant-classifier risk domains
+- summary counts
+
+Impacted tests are selected from changed production nodes plus upstream production consumers. A test attached only to an unrelated downstream prerequisite is not automatically considered impacted merely because the changed component depends on that prerequisite.
+
+Unmapped changed files are retained explicitly rather than silently discarded. Configuration, deployment, documentation, migration, or workflow changes may still carry architectural risk even when no source node represents them directly.
+
+The analyzer supports an optional `--max-depth` for bounded exploration. CI uses full transitive traversal by default.
+
 ## Metrics
 
 The generated graph calculates:
@@ -66,15 +106,17 @@ The semantic overlay records architectural invariants and their current status. 
 
 Known policy drift must not be silently converted into an enforced rule until implementation and declared architecture agree.
 
+The impact analyzer considers an invariant relevant when changed or traversed graph context intersects source evidence or explicit `applies_to` nodes recorded for that invariant.
+
 ## Relationship to the PR invariant classifier
 
-`pr_invariant_classifier.py` is the PR gate. The canonical dependency graph is the architecture model behind increasingly precise blast-radius analysis.
+`pr_invariant_classifier.py` remains the deterministic PR gate for proof obligations and known risk-domain rules. `graph_impact_analysis.py` provides structural blast-radius evidence behind those decisions.
 
 The intended flow is:
 
-PR diff -> changed graph nodes -> direct/transitive dependencies -> affected semantic boundaries -> applicable invariants -> relevant tests -> required proofs.
+PR diff -> changed graph nodes -> upstream consumers + downstream prerequisites -> affected semantic boundaries -> applicable invariants -> relevant tests -> required proofs.
 
-The graph describes the system. The classifier decides what a particular change must prove.
+The graph describes the system. The impact analyzer describes structural change reachability. The classifier decides what a particular change must prove.
 
 ## Maintenance rule
 
