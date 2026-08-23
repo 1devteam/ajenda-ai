@@ -218,9 +218,7 @@ def analyze_impact(
 
     changed_node_ids = sorted({node_id for path in changed for node_id in source_index.get(path, [])})
     changed_nodes = [nodes[node_id] for node_id in changed_node_ids]
-    changed_production = {
-        node_id for node_id in changed_node_ids if nodes[node_id].get("type") != TEST_NODE_TYPE
-    }
+    changed_production = {node_id for node_id in changed_node_ids if nodes[node_id].get("type") != TEST_NODE_TYPE}
     mapped_sources = {path for path in changed if path in source_index}
     unmapped = sorted(changed_set - mapped_sources)
 
@@ -276,8 +274,7 @@ def analyze_impact(
         "dependency_semantic_nodes": dependency_semantic,
         "relevant_invariants": invariants,
         "risk_domains": [
-            {"id": profile.id, "title": profile.title, "review": list(profile.review)}
-            for profile in risk_profiles
+            {"id": profile.id, "title": profile.title, "review": list(profile.review)} for profile in risk_profiles
         ],
         "metrics": {
             "changed_file_count": len(changed),
