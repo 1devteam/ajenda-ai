@@ -32,7 +32,7 @@ PROOF_BUNDLES: tuple[ProofBundle, ...] = (
         title="Tenant isolation contract proof",
         invariants=("tenant-isolation",),
         risk_domains=("tenant-isolation",),
-        tests=("tests/contract/security/test_tenant_isolation_contract.py",),
+        tests=("tests/contract/api/test_tenant_isolation_policy.py",),
         required_gates=("unit-tests",),
     ),
     ProofBundle(
