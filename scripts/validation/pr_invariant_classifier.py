@@ -19,9 +19,9 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AUTHORITY_LEDGER = "docs/contracts/authority-ledger.v1.yaml"
