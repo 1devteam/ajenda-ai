@@ -52,9 +52,7 @@ def test_manual_review_requires_full_suite_fallback():
 
 
 def test_migration_and_live_runtime_obligations_trigger_fallback():
-    plan = build_shadow_plan(
-        _manifest(required_gates=["migration-round-trip"], review_gates=["live-runtime-proof"])
-    )
+    plan = build_shadow_plan(_manifest(required_gates=["migration-round-trip"], review_gates=["live-runtime-proof"]))
 
     assert plan["full_suite_fallback"] is True
     assert "migration safety is required" in plan["fallback_reasons"]
