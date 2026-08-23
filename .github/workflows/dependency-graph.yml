@@ -11,10 +11,12 @@ on:
       - "scripts/validation/build_dependency_graph.py"
       - "scripts/validation/graph_impact_analysis.py"
       - "scripts/validation/graph_proof_selection.py"
+      - "scripts/validation/graph_completeness_audit.py"
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
       - "tests/unit/validation/test_graph_proof_selection.py"
+      - "tests/unit/validation/test_graph_completeness_audit.py"
       - ".github/workflows/dependency-graph.yml"
   push:
     branches: [main]
@@ -26,10 +28,12 @@ on:
       - "scripts/validation/build_dependency_graph.py"
       - "scripts/validation/graph_impact_analysis.py"
       - "scripts/validation/graph_proof_selection.py"
+      - "scripts/validation/graph_completeness_audit.py"
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
       - "tests/unit/validation/test_graph_proof_selection.py"
+      - "tests/unit/validation/test_graph_completeness_audit.py"
       - ".github/workflows/dependency-graph.yml"
   workflow_dispatch:
 
@@ -57,12 +61,13 @@ jobs:
       - name: Build graph
         run: python scripts/validation/build_dependency_graph.py
 
-      - name: Prove graph generator, impact traversal, and proof selection
+      - name: Prove graph generator, impact traversal, proof selection, and completeness audit
         run: >-
           pytest -q
           tests/unit/validation/test_build_dependency_graph.py
           tests/unit/validation/test_graph_impact_analysis.py
           tests/unit/validation/test_graph_proof_selection.py
+          tests/unit/validation/test_graph_completeness_audit.py
 
       - name: Analyze change impact
         run: >-
@@ -77,6 +82,12 @@ jobs:
           --json
           --output artifacts/graph-proof-manifest.json
 
+      - name: Audit graph completeness
+        run: >-
+          python scripts/validation/graph_completeness_audit.py
+          --json
+          --output artifacts/graph-completeness-report.json
+
       - name: Upload graph artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -85,4 +96,5 @@ jobs:
             docs/architecture/dependency-graph.v1.json
             artifacts/graph-impact-report.json
             artifacts/graph-proof-manifest.json
+            artifacts/graph-completeness-report.json
           if-no-files-found: error
