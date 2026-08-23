@@ -195,9 +195,7 @@ def evaluate_proof_rules(*, changed_files: Iterable[str], added_files: Iterable[
     findings: list[Finding] = []
 
     new_oauth_connectors = sorted(
-        path
-        for path in added
-        if fnmatch.fnmatch(path, "backend/services/credentials/*_oauth_connect.py")
+        path for path in added if fnmatch.fnmatch(path, "backend/services/credentials/*_oauth_connect.py")
     )
     if new_oauth_connectors:
         connector_names = ", ".join(Path(path).name.removesuffix("_oauth_connect.py") for path in new_oauth_connectors)
@@ -254,9 +252,7 @@ def evaluate_proof_rules(*, changed_files: Iterable[str], added_files: Iterable[
             )
         )
 
-    new_action_modules = sorted(
-        path for path in added if fnmatch.fnmatch(path, "backend/services/tools/*_actions.py")
-    )
+    new_action_modules = sorted(path for path in added if fnmatch.fnmatch(path, "backend/services/tools/*_actions.py"))
     if new_action_modules and ACTION_REGISTRY not in changed:
         findings.append(
             Finding(
