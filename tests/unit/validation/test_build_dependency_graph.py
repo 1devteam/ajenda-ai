@@ -20,6 +20,7 @@ def test_graph_contains_static_semantic_and_test_layers() -> None:
     invariant_ids = {item["id"] for item in graph["invariants"]}
 
     assert "py:backend.main" in node_ids
+    assert "py:services.hubspot_crm_adapter.main" in node_ids
     assert "boundary:tenant-db" in node_ids
     assert "py:backend.services.execution_coordinator" in node_ids
     assert any(node_id.startswith("test:tests/") for node_id in node_ids)
@@ -37,13 +38,29 @@ def test_package_relative_re_exports_are_graph_edges() -> None:
     assert ("py:backend.workers", "py:backend.workers.worker_loop", "imports") in edges
 
 
+def test_standalone_service_imports_are_graph_edges() -> None:
+    graph = MODULE.build_graph()
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+
+    assert (
+        "py:services.hubspot_crm_adapter.main",
+        "py:services.hubspot_crm_adapter.hubspot",
+        "imports",
+    ) in edges
+    assert (
+        "py:services.hubspot_crm_adapter.main",
+        "py:services.hubspot_crm_adapter.models",
+        "imports",
+    ) in edges
+
+
 def test_test_impact_edges_target_production_modules() -> None:
     graph = MODULE.build_graph()
     test_edges = [edge for edge in graph["edges"] if edge["type"] == "tests"]
 
     assert test_edges
     assert all(edge["from"].startswith("test:tests/") for edge in test_edges)
-    assert all(edge["to"].startswith("py:backend.") for edge in test_edges)
+    assert all(edge["to"].startswith(("py:backend.", "py:services.")) for edge in test_edges)
 
 
 def test_every_edge_endpoint_is_defined() -> None:
