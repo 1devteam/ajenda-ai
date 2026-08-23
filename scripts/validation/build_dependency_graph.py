@@ -48,14 +48,16 @@ def _python_module_for_path(path: Path) -> str:
     return ".".join(parts)
 
 
-def _resolve_python_import(current_module: str, node: ast.ImportFrom) -> str | None:
+def _resolve_python_import(current_module: str, *, is_package: bool, node: ast.ImportFrom) -> str | None:
     if node.level == 0:
         return node.module
+
     current_parts = current_module.split(".")
-    package_parts = current_parts[:-1]
+    package_parts = current_parts if is_package else current_parts[:-1]
     ascend = max(node.level - 1, 0)
     if ascend > len(package_parts):
         return None
+
     base = package_parts[: len(package_parts) - ascend]
     if node.module:
         base.extend(node.module.split("."))
@@ -75,10 +77,19 @@ def _best_python_target(imported: str, modules: set[str]) -> str | None:
 
 
 def collect_python_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
-    files = sorted(path for path in (REPO_ROOT / "backend").rglob("*.py") if "__pycache__" not in path.parts)
+    files = sorted(
+        path for path in (REPO_ROOT / "backend").rglob("*.py") if "__pycache__" not in path.parts
+    )
     module_by_path = {path: _python_module_for_path(path) for path in files}
     modules = set(module_by_path.values())
-    nodes = [StaticNode(id=f"py:{module}", type="python_module", source=str(path.relative_to(REPO_ROOT))) for path, module in module_by_path.items()]
+    nodes = [
+        StaticNode(
+            id=f"py:{module}",
+            type="python_module",
+            source=str(path.relative_to(REPO_ROOT)),
+        )
+        for path, module in module_by_path.items()
+    ]
     edges: set[StaticEdge] = set()
 
     for path, module in module_by_path.items():
@@ -86,15 +97,20 @@ def collect_python_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError):
             continue
+
+        is_package = path.name == "__init__.py"
         for item in ast.walk(tree):
             imported_modules: list[str] = []
             if isinstance(item, ast.Import):
                 imported_modules.extend(alias.name for alias in item.names)
             elif isinstance(item, ast.ImportFrom):
-                base = _resolve_python_import(module, item)
+                base = _resolve_python_import(module, is_package=is_package, node=item)
                 if base:
                     imported_modules.append(base)
-                    imported_modules.extend(f"{base}.{alias.name}" for alias in item.names if alias.name != "*")
+                    imported_modules.extend(
+                        f"{base}.{alias.name}" for alias in item.names if alias.name != "*"
+                    )
+
             for imported in imported_modules:
                 if not imported.startswith("backend"):
                     continue
@@ -108,6 +124,7 @@ def collect_python_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
                             evidence=str(path.relative_to(REPO_ROOT)),
                         )
                     )
+
     return nodes, sorted(edges, key=lambda edge: (edge.source, edge.target, edge.type))
 
 
@@ -118,6 +135,7 @@ def _frontend_source_id(path: Path) -> str:
 def _resolve_frontend_import(source: Path, specifier: str, files: set[Path]) -> Path | None:
     if not specifier.startswith("."):
         return None
+
     raw = (source.parent / specifier).resolve()
     candidates = [
         raw,
@@ -126,19 +144,25 @@ def _resolve_frontend_import(source: Path, specifier: str, files: set[Path]) -> 
         raw / "index.ts",
         raw / "index.tsx",
     ]
-    for candidate in candidates:
-        if candidate in files:
-            return candidate
-    return None
+    return next((candidate for candidate in candidates if candidate in files), None)
 
 
 def collect_frontend_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
     root = REPO_ROOT / "frontend/src"
     if not root.exists():
         return [], []
+
     files = {path.resolve() for path in root.rglob("*") if path.suffix in {".ts", ".tsx"}}
-    nodes = [StaticNode(id=_frontend_source_id(path), type="frontend_module", source=str(path.relative_to(REPO_ROOT))) for path in sorted(files)]
+    nodes = [
+        StaticNode(
+            id=_frontend_source_id(path),
+            type="frontend_module",
+            source=str(path.relative_to(REPO_ROOT)),
+        )
+        for path in sorted(files)
+    ]
     edges: set[StaticEdge] = set()
+
     for path in files:
         try:
             text = path.read_text(encoding="utf-8")
@@ -155,6 +179,7 @@ def collect_frontend_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
                         evidence=str(path.relative_to(REPO_ROOT)),
                     )
                 )
+
     return nodes, sorted(edges, key=lambda edge: (edge.source, edge.target, edge.type))
 
 
@@ -185,20 +210,23 @@ def _tarjan_scc(nodes: list[str], edges: list[tuple[str, str]]) -> list[list[str
             elif target in on_stack:
                 lowlinks[node] = min(lowlinks[node], indexes[target])
 
-        if lowlinks[node] == indexes[node]:
-            component: list[str] = []
-            while True:
-                member = stack.pop()
-                on_stack.remove(member)
-                component.append(member)
-                if member == node:
-                    break
-            if len(component) > 1:
-                components.append(sorted(component))
+        if lowlinks[node] != indexes[node]:
+            return
+
+        component: list[str] = []
+        while True:
+            member = stack.pop()
+            on_stack.remove(member)
+            component.append(member)
+            if member == node:
+                break
+        if len(component) > 1:
+            components.append(sorted(component))
 
     for node in nodes:
         if node not in indexes:
             strongconnect(node)
+
     return sorted(components, key=lambda component: (-len(component), component))
 
 
@@ -206,6 +234,7 @@ def _metrics(node_ids: list[str], edges: list[dict[str, Any]]) -> dict[str, Any]
     fan_in: dict[str, int] = defaultdict(int)
     fan_out: dict[str, int] = defaultdict(int)
     static_pairs: list[tuple[str, str]] = []
+
     for edge in edges:
         source = str(edge["from"])
         target = str(edge["to"])
@@ -213,13 +242,25 @@ def _metrics(node_ids: list[str], edges: list[dict[str, Any]]) -> dict[str, Any]
         fan_in[target] += 1
         if edge["type"] == "imports":
             static_pairs.append((source, target))
-    ranked_fan_in = sorted(((node, fan_in[node]) for node in node_ids), key=lambda item: (-item[1], item[0]))[:25]
-    ranked_fan_out = sorted(((node, fan_out[node]) for node in node_ids), key=lambda item: (-item[1], item[0]))[:25]
+
+    ranked_fan_in = sorted(
+        ((node, fan_in[node]) for node in node_ids),
+        key=lambda item: (-item[1], item[0]),
+    )[:25]
+    ranked_fan_out = sorted(
+        ((node, fan_out[node]) for node in node_ids),
+        key=lambda item: (-item[1], item[0]),
+    )[:25]
+
     return {
         "node_count": len(node_ids),
         "edge_count": len(edges),
-        "top_fan_in": [{"node": node, "count": count} for node, count in ranked_fan_in if count],
-        "top_fan_out": [{"node": node, "count": count} for node, count in ranked_fan_out if count],
+        "top_fan_in": [
+            {"node": node, "count": count} for node, count in ranked_fan_in if count
+        ],
+        "top_fan_out": [
+            {"node": node, "count": count} for node, count in ranked_fan_out if count
+        ],
         "static_cycles": _tarjan_scc(node_ids, static_pairs),
     }
 
@@ -230,12 +271,18 @@ def build_graph() -> dict[str, Any]:
     fe_nodes, fe_edges = collect_frontend_graph()
 
     nodes: list[dict[str, Any]] = [
-        {"id": node.id, "type": node.type, "source": node.source} for node in [*py_nodes, *fe_nodes]
+        {"id": node.id, "type": node.type, "source": node.source}
+        for node in [*py_nodes, *fe_nodes]
     ]
     nodes.extend(overlay.get("nodes", []))
 
     edges: list[dict[str, Any]] = [
-        {"from": edge.source, "to": edge.target, "type": edge.type, "evidence": edge.evidence}
+        {
+            "from": edge.source,
+            "to": edge.target,
+            "type": edge.type,
+            "evidence": edge.evidence,
+        }
         for edge in [*py_edges, *fe_edges]
     ]
     edges.extend(overlay.get("edges", []))
@@ -260,7 +307,14 @@ def build_graph() -> dict[str, Any]:
             "semantic_overlay": str(OVERLAY_PATH.relative_to(REPO_ROOT)),
         },
         "nodes": sorted(nodes, key=lambda node: str(node["id"])),
-        "edges": sorted(edges, key=lambda edge: (str(edge["from"]), str(edge["to"]), str(edge["type"]))),
+        "edges": sorted(
+            edges,
+            key=lambda edge: (
+                str(edge["from"]),
+                str(edge["to"]),
+                str(edge["type"]),
+            ),
+        ),
         "invariants": overlay.get("invariants", []),
         "metrics": _metrics(node_ids, edges),
     }
