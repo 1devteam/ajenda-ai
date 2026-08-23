@@ -21,6 +21,8 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OVERLAY_PATH = REPO_ROOT / "docs/contracts/dependency-graph.overlay.v1.json"
 DEFAULT_OUTPUT = REPO_ROOT / "docs/architecture/dependency-graph.v1.json"
+PRODUCTION_PYTHON_ROOTS = (REPO_ROOT / "backend", REPO_ROOT / "services")
+INTERNAL_PYTHON_PREFIXES = ("backend", "services")
 
 FRONTEND_IMPORT_RE = re.compile(r"(?:import|export)\s+(?:[^'\"]+?\s+from\s+)?['\"]([^'\"]+)['\"]")
 
@@ -95,7 +97,7 @@ def _python_imports(path: Path, module: str, modules: set[str]) -> set[str]:
                 candidates.extend(f"{base}.{alias.name}" for alias in item.names if alias.name != "*")
 
         for imported in candidates:
-            if not imported.startswith("backend"):
+            if not imported.startswith(INTERNAL_PYTHON_PREFIXES):
                 continue
             target = _best_python_target(imported, modules)
             if target:
@@ -104,7 +106,13 @@ def _python_imports(path: Path, module: str, modules: set[str]) -> set[str]:
 
 
 def _production_python_modules() -> dict[Path, str]:
-    files = sorted(path for path in (REPO_ROOT / "backend").rglob("*.py") if "__pycache__" not in path.parts)
+    files = sorted(
+        path
+        for root in PRODUCTION_PYTHON_ROOTS
+        if root.exists()
+        for path in root.rglob("*.py")
+        if "__pycache__" not in path.parts
+    )
     return {path: _python_module_for_path(path) for path in files}
 
 
@@ -166,7 +174,7 @@ def collect_test_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
                 candidates.append(item.module)
                 candidates.extend(f"{item.module}.{alias.name}" for alias in item.names if alias.name != "*")
             for imported in candidates:
-                if not imported.startswith("backend"):
+                if not imported.startswith(INTERNAL_PYTHON_PREFIXES):
                     continue
                 target = _best_python_target(imported, production_modules)
                 if target:
@@ -365,6 +373,7 @@ def build_graph() -> dict[str, Any]:
         "generated_from": {
             "static": [
                 "backend/**/*.py",
+                "services/**/*.py",
                 "frontend/src/**/*.ts",
                 "frontend/src/**/*.tsx",
                 "tests/**/*.py",
