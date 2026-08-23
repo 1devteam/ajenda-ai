@@ -55,7 +55,7 @@
     {"from":"py:backend.app.config","to":"external:resend","type":"configures_integration","evidence":"backend/app/config.py"}
   ],
   "invariants": [
-    {"id":"tenant-isolation","status":"enforced","rule":"Tenant-facing operations must use validated tenant context and the tenant-scoped DB dependency so PostgreSQL RLS is active.","sources":["backend/app/dependencies/db.py","tests/contract/security/test_tenant_isolation_contract.py"]},
+    {"id":"tenant-isolation","status":"enforced","rule":"Tenant-facing operations must use validated tenant context and the tenant-scoped DB dependency so PostgreSQL RLS is active.","sources":["backend/app/dependencies/db.py","tests/contract/api/test_tenant_isolation_policy.py"]},
     {"id":"canonical-queue-admission","status":"enforced","rule":"Mission queue eligibility must converge on the canonical runtime queue-admission authority; compatibility routes may not independently enqueue or execute.","sources":["docs/contracts/authority-ledger.v1.yaml","tests/contract/architecture/test_runtime_authority_contract.py"]},
     {"id":"single-worker-spine","status":"enforced","rule":"Actual queued execution must converge on WorkerLoop, WorkerRuntimeService, TaskDispatcher, and registered handlers.","sources":["backend/workers/worker_loop.py","backend/workers/task_dispatcher.py"]},
     {"id":"side-effect-approval","status":"enforced","rule":"Side-effecting work requires current invocation-bound authority before queue admission; otherwise it must enter review.","sources":["backend/services/execution_coordinator.py"]},
