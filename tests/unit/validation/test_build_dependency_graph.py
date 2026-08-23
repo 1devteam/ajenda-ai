@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from scripts.validation import build_dependency_graph as MODULE
+import importlib.util
+import sys
+from pathlib import Path
+
+MODULE_PATH = Path(__file__).resolve().parents[3] / "scripts/validation/build_dependency_graph.py"
+SPEC = importlib.util.spec_from_file_location("ajenda_build_dependency_graph", MODULE_PATH)
+assert SPEC is not None and SPEC.loader is not None
+MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
+SPEC.loader.exec_module(MODULE)
 
 
 def test_graph_contains_static_semantic_and_test_layers() -> None:
@@ -12,7 +21,7 @@ def test_graph_contains_static_semantic_and_test_layers() -> None:
 
     assert "py:backend.main" in node_ids
     assert "boundary:tenant-db" in node_ids
-    assert "service:execution-coordinator" in node_ids
+    assert "py:backend.services.execution_coordinator" in node_ids
     assert any(node_id.startswith("test:tests/") for node_id in node_ids)
     assert "imports" in edge_types
     assert "tests" in edge_types
