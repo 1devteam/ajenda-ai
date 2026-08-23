@@ -25,6 +25,7 @@
     {"from":"runtime:worker","to":"py:backend.workers.worker_loop","type":"executes","evidence":"backend/workers/worker_loop.py"},
     {"from":"runtime:worker","to":"py:backend.app.config","type":"reads_config","evidence":"backend/workers/worker_loop.py"},
     {"from":"runtime:worker","to":"external:redis","type":"configured_queue_backend","evidence":"backend/workers/worker_loop.py"},
+    {"from":"runtime:hubspot-adapter","to":"py:services.hubspot_crm_adapter.main","type":"executes","evidence":"services/hubspot_crm_adapter/main.py"},
     {"from":"py:backend.workers.worker_loop","to":"py:backend.services.worker_runtime_service","type":"calls","evidence":"backend/workers/worker_loop.py"},
     {"from":"py:backend.workers.task_dispatcher","to":"py:backend.services.worker_runtime_service","type":"lifecycle_authority","evidence":"backend/workers/task_dispatcher.py"},
     {"from":"py:backend.services.mission_executor","to":"py:backend.services.execution_coordinator","type":"execution_admission","evidence":"backend/services/mission_executor.py"},
@@ -49,7 +50,7 @@
     {"from":"py:backend.services.credentials.github_oauth_connect","to":"external:github","type":"connector_oauth","evidence":"backend/services/credentials/github_oauth_connect.py"},
     {"from":"py:backend.services.credentials.linkedin_oauth_connect","to":"external:linkedin","type":"connector_oauth","evidence":"backend/services/credentials/linkedin_oauth_connect.py"},
     {"from":"py:backend.services.credentials.salesforce_oauth_connect","to":"external:salesforce","type":"connector_oauth","evidence":"backend/services/credentials/salesforce_oauth_connect.py"},
-    {"from":"runtime:hubspot-adapter","to":"external:hubspot","type":"http_api","evidence":"services/hubspot_crm_adapter/main.py"},
+    {"from":"py:services.hubspot_crm_adapter.hubspot","to":"external:hubspot","type":"http_api","evidence":"services/hubspot_crm_adapter/hubspot.py"},
     {"from":"py:backend.app.config","to":"external:stripe","type":"configures_integration","evidence":"backend/app/config.py"},
     {"from":"py:backend.app.config","to":"external:resend","type":"configures_integration","evidence":"backend/app/config.py"}
   ],
