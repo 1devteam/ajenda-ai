@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "backend/**"
+      - "services/**"
       - "frontend/src/**"
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
@@ -14,6 +15,7 @@ on:
     branches: [main]
     paths:
       - "backend/**"
+      - "services/**"
       - "frontend/src/**"
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
