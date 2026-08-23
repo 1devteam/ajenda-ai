@@ -16,11 +16,13 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.governance_event import GovernanceEvent
 from backend.domain.knowledge import KnowledgeArtifactRecord, KnowledgeQualificationRecord
 from backend.domain.lineage_record import LineageRecord
+from backend.domain.member_onboarding_preference import MemberOnboardingPreference
 from backend.domain.mission import Mission
 from backend.domain.mission_composition_proposal import MissionCompositionProposal
 from backend.domain.outcome_review import OutcomeReview
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
 from backend.domain.retrieval_contract import RetrievalContract
+from backend.domain.tenant_onboarding_state import TenantOnboardingState
 from backend.domain.user_workforce_agent import UserWorkforceAgent
 from backend.domain.worker_lease import WorkerLease
 from backend.domain.workforce_fleet import WorkforceFleet
@@ -40,12 +42,14 @@ __all__ = [
     "KnowledgeArtifactRecord",
     "KnowledgeQualificationRecord",
     "LineageRecord",
+    "MemberOnboardingPreference",
     "Mission",
     "MissionCompositionProposal",
     "MissionState",
     "OutcomeReview",
     "ProviderRuntimeCredential",
     "RetrievalContract",
+    "TenantOnboardingState",
     "UserWorkforceAgent",
     "UserWorkforceAgentState",
     "WorkerLease",

@@ -49,17 +49,20 @@ def resolve_google_oauth_client_config() -> GoogleOAuthClientConfig:
     """Resolve CLI OAuth client credentials from env (never from committed files)."""
 
     client_id = (
-        os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_ID", "").strip() or os.environ.get("AJENDA_OIDC_CLIENT_ID", "").strip()
+        os.environ.get("AJENDA_GOOGLE_CONNECTOR_CLIENT_ID", "").strip()
+        or os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_ID", "").strip()
+        or os.environ.get("AJENDA_OIDC_CLIENT_ID", "").strip()
     )
     client_secret = (
-        os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_SECRET", "").strip()
+        os.environ.get("AJENDA_GOOGLE_CONNECTOR_CLIENT_SECRET", "").strip()
+        or os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_SECRET", "").strip()
         or os.environ.get("AJENDA_OIDC_CLIENT_SECRET", "").strip()
     )
     redirect_uri = os.environ.get("AJENDA_GOOGLE_CLI_REDIRECT_URI", DEFAULT_GMAIL_CLI_REDIRECT_URI).strip()
     if not client_id or not client_secret:
         raise GoogleOAuthCliError(
-            "Set AJENDA_GOOGLE_CLI_CLIENT_ID and AJENDA_GOOGLE_CLI_CLIENT_SECRET "
-            "(or AJENDA_OIDC_CLIENT_ID / AJENDA_OIDC_CLIENT_SECRET for local reuse)"
+            "Set AJENDA_GOOGLE_CONNECTOR_CLIENT_ID and AJENDA_GOOGLE_CONNECTOR_CLIENT_SECRET "
+            "(or AJENDA_GOOGLE_CLI_CLIENT_ID/AJENDA_GOOGLE_CLI_CLIENT_SECRET for development; OIDC fallback is legacy-only)"
         )
     return GoogleOAuthClientConfig(
         client_id=client_id,

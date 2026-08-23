@@ -39,6 +39,12 @@ from backend.services.credentials.google_contacts_oauth_connect import (
     issue_google_contacts_oauth_authorization,
     verify_google_contacts_oauth_state,
 )
+from backend.services.credentials.google_docs_oauth_connect import (
+    GoogleDocsOAuthConnectError,
+    exchange_google_docs_oauth_code,
+    issue_google_docs_oauth_authorization,
+    verify_google_docs_oauth_state,
+)
 from backend.services.credentials.linkedin_oauth_connect import (
     LinkedInOAuthConnectError,
     exchange_linkedin_oauth_code,
@@ -73,6 +79,7 @@ class ProviderCredentialCreateRequest(BaseModel):
         "salesforce",
         "google_calendar",
         "google_contacts",
+        "google_docs",
         "github",
         "generic",
     ] = "hubspot"
@@ -95,6 +102,7 @@ class ProviderCredentialResponse(BaseModel):
     credential_id: str
     tenant_id: str
     provider: str
+    integration: str
     credential_type: str
     enabled: bool
     revoked: bool
@@ -181,6 +189,7 @@ def _to_response(summary: ProviderCredentialSummary) -> ProviderCredentialRespon
         credential_id=summary.credential_id,
         tenant_id=summary.tenant_id,
         provider=summary.provider,
+        integration=summary.integration,
         credential_type=summary.credential_type,
         enabled=summary.enabled,
         revoked=summary.revoked,
@@ -324,7 +333,7 @@ def _oauth_connect_response(
     actor_id: str,
     credential_id: str,
     provider: str,
-    integration: Literal["linkedin", "salesforce", "google_calendar", "google_contacts", "github"],
+    integration: Literal["linkedin", "salesforce", "google_calendar", "google_contacts", "google_docs", "github"],
     secret_value: str,
     trusted_destination_hosts: list[str] | None = None,
 ) -> ProviderCredentialCreateResponse:
@@ -659,6 +668,71 @@ def google_contacts_oauth_connect(
             secret_value=secret_value,
         )
     except GoogleContactsOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    except ProviderCredentialManagementError as exc:
+        raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc
+
+
+@router.get(
+    "/provider-credentials/google-docs/oauth/authorize-url",
+    response_model=GmailOAuthAuthorizeUrlResponse,
+)
+def google_docs_oauth_authorize_url(
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    credential_id: str = "google-docs",
+) -> GmailOAuthAuthorizeUrlResponse:
+    require_route_permission(request=request, db=db, permission=Permission.CREDENTIALS_MANAGE, tenant_id=tenant_id)
+    actor_id = _actor_id(request)
+    try:
+        result = issue_google_docs_oauth_authorization(
+            tenant_id=str(tenant_id), credential_id=credential_id, actor_id=actor_id
+        )
+    except GoogleDocsOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    return GmailOAuthAuthorizeUrlResponse(
+        authorization_url=result.authorization_url, state=result.state, redirect_uri=result.redirect_uri
+    )
+
+
+@router.post(
+    "/provider-credentials/google-docs/oauth/connect",
+    response_model=ProviderCredentialCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def google_docs_oauth_connect(
+    body: OAuthConnectRequest,
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> ProviderCredentialCreateResponse:
+    require_route_permission(request=request, db=db, permission=Permission.CREDENTIALS_MANAGE, tenant_id=tenant_id)
+    actor_id = _actor_id(request)
+    try:
+        claims = verify_google_docs_oauth_state(body.state)
+    except GoogleDocsOAuthConnectError as exc:
+        raise _oauth_connect_http_error(exc) from exc
+    if claims.tenant_id != str(tenant_id):
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_TENANT_MISMATCH", "oauth state tenant mismatch") from None
+    if claims.credential_id != body.credential_id.strip():
+        raise _oauth_state_claim_mismatch(
+            "OAUTH_STATE_CREDENTIAL_MISMATCH", "oauth state credential mismatch"
+        ) from None
+    if claims.actor_id != actor_id:
+        raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
+    try:
+        secret_value = exchange_google_docs_oauth_code(code=body.code, state=body.state)
+        return _oauth_connect_response(
+            service=ProviderCredentialManagementService(db),
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            credential_id=body.credential_id,
+            provider="external_read_provider",
+            integration="google_docs",
+            secret_value=secret_value,
+        )
+    except GoogleDocsOAuthConnectError as exc:
         raise _oauth_connect_http_error(exc) from exc
     except ProviderCredentialManagementError as exc:
         raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc

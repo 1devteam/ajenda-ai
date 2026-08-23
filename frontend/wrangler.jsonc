@@ -5,5 +5,41 @@
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
+  },
+  "env": {
+    "staging": {
+      "name": "ajenda-ai-staging",
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application"
+      },
+      "secrets": {
+        "required": [
+          "AJENDA_GOOGLE_CONNECTOR_CLIENT_ID",
+          "AJENDA_GOOGLE_CONNECTOR_CLIENT_SECRET",
+          "AJENDA_GMAIL_OAUTH_REDIRECT_URI",
+          "AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI",
+          "AJENDA_GOOGLE_CONTACTS_OAUTH_REDIRECT_URI",
+          "AJENDA_GOOGLE_DOCS_OAUTH_REDIRECT_URI"
+        ]
+      }
+    },
+    "production": {
+      "name": "ajenda-ai-production",
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application"
+      },
+      "secrets": {
+        "required": [
+          "AJENDA_GOOGLE_CONNECTOR_CLIENT_ID",
+          "AJENDA_GOOGLE_CONNECTOR_CLIENT_SECRET",
+          "AJENDA_GMAIL_OAUTH_REDIRECT_URI",
+          "AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI",
+          "AJENDA_GOOGLE_CONTACTS_OAUTH_REDIRECT_URI",
+          "AJENDA_GOOGLE_DOCS_OAUTH_REDIRECT_URI"
+        ]
+      }
+    }
   }
 }

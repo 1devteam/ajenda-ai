@@ -35,6 +35,8 @@ credential_sources:
       - AJENDA_OIDC_PROVIDER
       - AJENDA_OIDC_CLIENT_ID
       - AJENDA_OIDC_CLIENT_SECRET
+      - AJENDA_GOOGLE_CONNECTOR_CLIENT_ID
+      - AJENDA_GOOGLE_CONNECTOR_CLIENT_SECRET
       - AJENDA_OIDC_ISSUER
       - AJENDA_OIDC_JWKS_URI
       - AJENDA_SESSION_SIGNING_SECRET
@@ -148,6 +150,7 @@ profiles:
       AJENDA_SALESFORCE_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/salesforce/callback
       AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/google-calendar/callback
       AJENDA_GOOGLE_CONTACTS_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/google-contacts/callback
+      AJENDA_GOOGLE_DOCS_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/google-docs/callback
       AJENDA_GITHUB_OAUTH_REDIRECT_URI: http://localhost:5173/credentials/github/callback
     external_callbacks:
       google_cloud:
@@ -159,6 +162,7 @@ profiles:
           - http://localhost:5173/credentials/gmail/callback
           - http://localhost:5173/credentials/google-calendar/callback
           - http://localhost:5173/credentials/google-contacts/callback
+          - http://localhost:5173/credentials/google-docs/callback
       salesforce:
         console_hint: Connected App → OAuth settings → Callback URL
         callback_urls:
@@ -198,6 +202,7 @@ profiles:
       AJENDA_SALESFORCE_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/salesforce/callback
       AJENDA_GOOGLE_CALENDAR_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/google-calendar/callback
       AJENDA_GOOGLE_CONTACTS_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/google-contacts/callback
+      AJENDA_GOOGLE_DOCS_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/google-docs/callback
       AJENDA_GITHUB_OAUTH_REDIRECT_URI: http://localhost:8080/credentials/github/callback
     external_callbacks:
       google_cloud:
@@ -209,6 +214,7 @@ profiles:
           - http://localhost:8080/credentials/gmail/callback
           - http://localhost:8080/credentials/google-calendar/callback
           - http://localhost:8080/credentials/google-contacts/callback
+          - http://localhost:8080/credentials/google-docs/callback
       salesforce:
         console_hint: Connected App → OAuth settings → Callback URL
         callback_urls:

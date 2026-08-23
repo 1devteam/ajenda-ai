@@ -113,6 +113,8 @@ class Settings(BaseSettings):
         alias="AJENDA_OIDC_REDIRECT_URI_ALLOWLIST",
     )
     oidc_login_intent_ttl_minutes: int = Field(default=10, alias="AJENDA_OIDC_LOGIN_INTENT_TTL_MINUTES")
+    google_connector_client_id: str = Field(default="", alias="AJENDA_GOOGLE_CONNECTOR_CLIENT_ID")
+    google_connector_client_secret: str = Field(default="", alias="AJENDA_GOOGLE_CONNECTOR_CLIENT_SECRET")
     session_signing_secret: str = Field(default="", alias="AJENDA_SESSION_SIGNING_SECRET")
     session_access_ttl_seconds: int = Field(default=3600, alias="AJENDA_SESSION_ACCESS_TTL_SECONDS")
     session_refresh_ttl_seconds: int = Field(default=604800, alias="AJENDA_SESSION_REFRESH_TTL_SECONDS")
@@ -258,6 +260,10 @@ class Settings(BaseSettings):
     google_contacts_oauth_redirect_uri: str = Field(
         default="http://localhost:5173/credentials/google-contacts/callback",
         alias="AJENDA_GOOGLE_CONTACTS_OAUTH_REDIRECT_URI",
+    )
+    google_docs_oauth_redirect_uri: str = Field(
+        default="http://localhost:5173/credentials/google-docs/callback",
+        alias="AJENDA_GOOGLE_DOCS_OAUTH_REDIRECT_URI",
     )
     github_oauth_redirect_uri: str = Field(
         default="http://localhost:5173/credentials/github/callback",

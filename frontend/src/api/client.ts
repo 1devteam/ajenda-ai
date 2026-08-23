@@ -47,6 +47,7 @@ import type {
   RuntimeReadinessReadResponse,
   RuntimeTaskMaterializationReadResponse,
   AccountBillingResponse,
+  AccountOnboardingResponse,
   AccountMeResponse,
   AccountPlanResponse,
   AccountUsageResponse,
@@ -454,6 +455,35 @@ export async function getAccountBilling(session: CustomerSession): Promise<Accou
   );
 }
 
+export async function getAccountOnboarding(session: CustomerSession): Promise<AccountOnboardingResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<AccountOnboardingResponse>("/v1/account/onboarding", {}, runtimeOptions(sessionToRuntimeConfig(fresh))),
+  );
+}
+
+export async function updateAccountOnboardingPreference(
+  session: CustomerSession,
+  suppressPrompt: boolean,
+): Promise<AccountOnboardingResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<AccountOnboardingResponse>(
+      "/v1/account/onboarding/preferences",
+      { method: "PATCH", body: JSON.stringify({ suppress_prompt: suppressPrompt }) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function completeAccountOnboarding(session: CustomerSession): Promise<AccountOnboardingResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<AccountOnboardingResponse>(
+      "/v1/account/onboarding/complete",
+      { method: "POST", body: JSON.stringify({}) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
 export async function listProviderCredentials(
   session: CustomerSession,
 ): Promise<ProviderCredentialListResponse> {
@@ -629,6 +659,32 @@ export async function connectGoogleContactsOAuth(
   return withFreshSession(session, (fresh) =>
     request<ProviderCredentialCreateResponse>(
       "/v1/account/provider-credentials/google-contacts/oauth/connect",
+      { method: "POST", body: JSON.stringify(body) },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function getGoogleDocsOAuthAuthorizeUrl(
+  session: CustomerSession,
+  credentialId = "google-docs",
+): Promise<GmailOAuthAuthorizeUrlResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<GmailOAuthAuthorizeUrlResponse>(
+      `/v1/account/provider-credentials/google-docs/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
+      { method: "GET" },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function connectGoogleDocsOAuth(
+  session: CustomerSession,
+  body: GmailOAuthConnectRequest,
+): Promise<ProviderCredentialCreateResponse> {
+  return withFreshSession(session, (fresh) =>
+    request<ProviderCredentialCreateResponse>(
+      "/v1/account/provider-credentials/google-docs/oauth/connect",
       { method: "POST", body: JSON.stringify(body) },
       runtimeOptions(sessionToRuntimeConfig(fresh)),
     ),

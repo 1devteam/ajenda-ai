@@ -5,6 +5,7 @@ import {
   connectGitHubOAuth,
   connectGoogleCalendarOAuth,
   connectGoogleContactsOAuth,
+  connectGoogleDocsOAuth,
   connectLinkedInOAuth,
   connectSalesforceOAuth,
   createProviderCredential,
@@ -13,6 +14,7 @@ import {
   getGitHubOAuthAuthorizeUrl,
   getGoogleCalendarOAuthAuthorizeUrl,
   getGoogleContactsOAuthAuthorizeUrl,
+  getGoogleDocsOAuthAuthorizeUrl,
   getLinkedInOAuthAuthorizeUrl,
   getSalesforceOAuthAuthorizeUrl,
   listProviderCredentials,
@@ -20,7 +22,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
-import IntegrationCard from "../components/ui/IntegrationCard";
+import ConnectorGrid from "../components/connections/ConnectorGrid";
 import PageHeader from "../components/ui/PageHeader";
 import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
 
@@ -33,6 +35,7 @@ type IntegrationKind =
   | "salesforce"
   | "google_calendar"
   | "google_contacts"
+  | "google_docs"
   | "github";
 
 const HUBSPOT_FORM: ProviderCredentialCreateRequest = {
@@ -131,6 +134,14 @@ const GOOGLE_CONTACTS_FORM: ProviderCredentialCreateRequest = {
   use_platform_master_key: false,
 };
 
+const GOOGLE_DOCS_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "google-docs",
+  provider: "external_read_provider",
+  integration: "google_docs",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
 const GITHUB_FORM: ProviderCredentialCreateRequest = {
   credential_id: "github-read",
   provider: "external_read_provider",
@@ -147,6 +158,7 @@ const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateReque
   salesforce: SALESFORCE_FORM,
   google_calendar: GOOGLE_CALENDAR_FORM,
   google_contacts: GOOGLE_CONTACTS_FORM,
+  google_docs: GOOGLE_DOCS_FORM,
   github: GITHUB_FORM,
 };
 
@@ -158,6 +170,7 @@ const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
   salesforce: "Salesforce",
   google_calendar: "Google Calendar",
   google_contacts: "Google Contacts",
+  google_docs: "Google Drive & Docs",
   github: "GitHub",
 };
 
@@ -166,6 +179,7 @@ const INTEGRATION_ORDER: IntegrationKind[] = [
   "gmail",
   "google_calendar",
   "google_contacts",
+  "google_docs",
   "smtp",
   "hubspot",
   "salesforce",
@@ -219,6 +233,12 @@ const OAUTH_CALLBACKS: Record<
     loadingLabel: "Connecting Google Contacts via OAuth",
     connect: connectGoogleContactsOAuth,
   },
+  "/credentials/google-docs/callback": {
+    integration: "google_docs",
+    defaultCredentialId: "google-docs",
+    loadingLabel: "Connecting Google Drive & Docs via OAuth",
+    connect: connectGoogleDocsOAuth,
+  },
   "/credentials/github/callback": {
     integration: "github",
     defaultCredentialId: "github-read",
@@ -226,13 +246,6 @@ const OAUTH_CALLBACKS: Record<
     connect: connectGitHubOAuth,
   },
 };
-
-function credentialIsActive(
-  credentials: ProviderCredentialResponse[],
-  credentialId: string,
-): boolean {
-  return credentials.some((item) => item.credential_id === credentialId && item.enabled && !item.revoked);
-}
 
 export default function CredentialsPage() {
   const { session } = useAuth();
@@ -317,7 +330,10 @@ export default function CredentialsPage() {
         },
       });
       setLoading(null);
-      navigate("/credentials", { replace: true });
+      if (window.opener) {
+        window.opener.postMessage({ type: "ajenda.connector.oauth.complete", integration: callback.integration, success: false }, window.location.origin);
+        window.close();
+      } else navigate("/credentials", { replace: true });
       return;
     }
 
@@ -365,13 +381,19 @@ export default function CredentialsPage() {
             setError(listErr);
           }
         }
-        navigate("/credentials", { replace: true });
+        if (window.opener) {
+          window.opener.postMessage({ type: "ajenda.connector.oauth.complete", integration: callback.integration, success: true }, window.location.origin);
+          window.close();
+        } else navigate("/credentials", { replace: true });
       } catch (err) {
         window.sessionStorage.removeItem(oauthDedupeKey);
         // Always surface the error — Strict Mode cleanup sets cancelled=true and used
         // to swallow failures from the only in-flight exchange.
         setError(err);
-        navigate("/credentials", { replace: true });
+        if (window.opener) {
+          window.opener.postMessage({ type: "ajenda.connector.oauth.complete", integration: callback.integration, success: false }, window.location.origin);
+          window.close();
+        } else navigate("/credentials", { replace: true });
       } finally {
         oauthCallbackInFlight.delete(oauthDedupeKey);
         // Always clear loading. navigate() reuses CredentialsPage (same element type),
@@ -465,6 +487,8 @@ export default function CredentialsPage() {
         response = await getGoogleCalendarOAuthAuthorizeUrl(session, credentialId);
       } else if (target === "google_contacts") {
         response = await getGoogleContactsOAuthAuthorizeUrl(session, credentialId);
+      } else if (target === "google_docs") {
+        response = await getGoogleDocsOAuthAuthorizeUrl(session, credentialId);
       } else if (target === "github") {
         response = await getGitHubOAuthAuthorizeUrl(session, credentialId);
       } else {
@@ -528,6 +552,7 @@ export default function CredentialsPage() {
     integration === "salesforce" ||
     integration === "google_calendar" ||
     integration === "google_contacts" ||
+    integration === "google_docs" ||
     integration === "github";
   const submitLabel =
     integration === "hubspot"
@@ -545,88 +570,25 @@ export default function CredentialsPage() {
     (item) => item.credential_id === "ajenda-email" && item.uses_platform_master_key && !item.revoked,
   );
 
-  const googleConnectorCards: Array<{
-    kind: IntegrationKind;
-    description: string;
-    credentialId: string;
-  }> = [
-    {
-      kind: "gmail",
-      description: "Send and read email via Gmail API. Separate from Google sign-in.",
-      credentialId: "gmail-email",
-    },
-    {
-      kind: "google_calendar",
-      description: "Calendar events (view and edit). Scope: calendar.events.",
-      credentialId: "google-calendar-read",
-    },
-    {
-      kind: "google_contacts",
-      description: "Google Contacts + Other contacts. Scopes: contacts, contacts.other.readonly.",
-      credentialId: "google-contacts-read",
-    },
-  ];
-
   return (
     <main>
       <PageHeader
         eyebrow="Connections"
         title="Integrations and credentials"
-        lead="Sign-in with Google only proves identity. Connect Gmail, Calendar, and Contacts here with separate OAuth consent when you need those tools."
+        lead="Sign-in with Google only proves identity. Connect Gmail, Calendar, Contacts, or Drive & Docs here with separate OAuth consent when you need those tools."
       />
 
       <section className="panel">
         <h2>Google connectors</h2>
-        <p className="muted" style={{ marginTop: 0 }}>
-          Each button starts a dedicated OAuth flow with only that connector&apos;s scopes. Your login session is
-          never used as Gmail/Calendar/Contacts authority.
-        </p>
         {warning ? <p className="notice warning">{warning}</p> : null}
         <PageErrorAlert error={error} className="notice error" />
-        <div className="cc-integration-grid">
-          {googleConnectorCards.map((card) => {
-            const connected = credentialIsActive(credentials, card.credentialId);
-            // Only lock the connector that is actively connecting; others stay clickable.
-            const cardBusy = loading !== null && integration === card.kind;
-            const anyOAuthBusy = loading !== null;
-            const start = () => {
-              if (anyOAuthBusy) {
-                return;
-              }
-              void handleOAuthConnect(card.kind);
-            };
-            return (
-              <IntegrationCard
-                key={card.kind}
-                name={INTEGRATION_LABELS[card.kind]}
-                description={card.description}
-                status={connected ? "connected" : "connect"}
-                disabled={anyOAuthBusy}
-                onActivate={start}
-              >
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={anyOAuthBusy}
-                  data-connector={card.kind}
-                  data-testid={`connect-${card.kind}`}
-                  onClick={start}
-                >
-                  {cardBusy
-                    ? loading
-                    : connected
-                      ? `Reconnect ${INTEGRATION_LABELS[card.kind]}`
-                      : `Connect ${INTEGRATION_LABELS[card.kind]} with Google`}
-                </button>
-              </IntegrationCard>
-            );
-          })}
-        </div>
+        {session ? <ConnectorGrid session={session} /> : null}
         <p className="field-hint" style={{ marginTop: "0.75rem" }}>
-          Calendar and Contacts use separate Google OAuth consent from sign-in. Register redirect URIs
+          Each connector uses separate Google OAuth consent from sign-in. Register redirect URIs
           <code> /credentials/google-calendar/callback </code> and
-          <code> /credentials/google-contacts/callback </code>
-          on your Google Cloud OAuth client, and enable Calendar API + People API.
+          <code> /credentials/google-contacts/callback </code> and
+          <code> /credentials/google-docs/callback </code>
+          on your Google Cloud OAuth client, and enable Calendar API, People API, and Google Docs API.
         </p>
       </section>
 

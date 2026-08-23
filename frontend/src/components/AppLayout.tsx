@@ -5,6 +5,8 @@ import { clearSession, isOperational } from "../auth/session";
 import { clearSignInNotice } from "../auth/sessionLifecycle";
 import BrandMark from "./BrandMark";
 import AppShell from "./shell/AppShell";
+import SetupReminder from "./onboarding/SetupReminder";
+import { useOnboardingState } from "../hooks/useOnboardingState";
 
 const PUBLIC_PATHS = new Set([
   "/signin",
@@ -22,6 +24,8 @@ export default function AppLayout() {
   const signedIn = session !== null;
   const operational = session !== null && isOperational(session);
   const useCommandShell = signedIn && operational && !PUBLIC_PATHS.has(location.pathname);
+  const onboarding = useOnboardingState(useCommandShell ? session : null);
+  const isConnectorCallback = location.pathname.startsWith("/credentials/") && location.pathname.endsWith("/callback");
 
   async function handleSignOut() {
     if (session?.authMode === "oidc") {
@@ -44,6 +48,12 @@ export default function AppLayout() {
         onSignOut={() => void handleSignOut()}
       >
         <Outlet />
+        {onboarding.shouldShowReminder && !isConnectorCallback ? (
+          <SetupReminder
+            onMaybeLater={onboarding.dismissForSession}
+            onSuppress={onboarding.suppressPrompt}
+          />
+        ) : null}
       </AppShell>
     );
   }

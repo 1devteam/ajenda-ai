@@ -69,6 +69,7 @@ class ProviderRuntimeCredentialRepository:
                 return record
 
         existing.provider = record.provider
+        existing.integration = record.integration
         existing.credential_type = record.credential_type
         existing.enabled = record.enabled
         existing.revoked = False

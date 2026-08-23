@@ -12,7 +12,6 @@ import OnboardingChecklist from "../components/dashboard/OnboardingChecklist";
 import LiveRegion from "../components/states/LiveRegion";
 import { useWorkspaceSummary } from "../hooks/useWorkspaceSummary";
 import { useDashboardData } from "../hooks/useDashboardData";
-import { readWizardCompletedAt } from "../utils/standaloneWizard";
 import {
   buildOnboardingChecklist,
   checklistIncomplete,
@@ -32,13 +31,14 @@ export default function DashboardPage() {
     missions,
     pendingApprovals,
     hasConnections,
+    onboarding,
     loading: dataLoading,
     error: dataError,
     liveMessage,
     reload,
   } = useDashboardData(session);
 
-  const wizardDone = session ? readWizardCompletedAt(session.tenantId) !== null : false;
+  const wizardDone = onboarding?.completed ?? false;
   const emailVerified =
     me?.membership?.status === "active" ||
     me?.tenant.status === "active" ||

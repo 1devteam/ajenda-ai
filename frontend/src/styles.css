@@ -21,6 +21,30 @@ body {
     #070a12;
 }
 
+.setup-reminder-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(3 7 18 / 72%);
+}
+
+.setup-reminder-dialog {
+  width: min(100%, 32rem);
+  border: 1px solid var(--os-border, rgb(63 63 70));
+  border-radius: 1rem;
+  padding: 1.5rem;
+  background: var(--os-panel, rgb(24 24 27));
+  box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+}
+
+.setup-reminder-dialog h2 { margin: 0.25rem 0 0.5rem; }
+.setup-reminder-dialog p { color: rgb(212 212 216); }
+.setup-reminder-progress { display: grid; gap: 0.5rem; margin: 1rem 0; padding: 0; list-style: none; color: rgb(228 228 231); }
+.setup-reminder-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem; }
+
 button,
 input,
 textarea,

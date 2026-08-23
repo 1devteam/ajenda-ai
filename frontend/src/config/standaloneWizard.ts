@@ -1,4 +1,4 @@
-import { BUSINESS_PROFILE_FIELDS, STANDALONE_PROCESS_STEPS, type BusinessProfileField } from "./businessProfileFields";
+import { BUSINESS_PROFILE_FIELDS, type BusinessProfileField } from "./businessProfileFields";
 
 export type WizardStepId = "welcome" | "profile" | "market" | "notes" | "charter" | "brain" | "plugins";
 
@@ -24,12 +24,12 @@ export const STANDALONE_WIZARD_STEPS: WizardStep[] = [
   {
     id: "welcome",
     title: "Welcome",
-    detail: "Set up the Ajenda central brain for standalone missions without external CRM plugins.",
+    detail: "A short setup so missions start with the right company context.",
   },
   {
     id: "profile",
-    title: STANDALONE_PROCESS_STEPS[0].title,
-    detail: STANDALONE_PROCESS_STEPS[0].detail,
+    title: "Your company",
+    detail: "Tell Ajenda who you are and how to reach you.",
     fieldCategories: [
       "business_name",
       "primary_contact_name",
@@ -40,30 +40,30 @@ export const STANDALONE_WIZARD_STEPS: WizardStep[] = [
   },
   {
     id: "market",
-    title: "Market focus",
-    detail: "Tell missions who you sell to and what you offer.",
+    title: "Customers & services",
+    detail: "Tell Ajenda who you serve and what you provide.",
     fieldCategories: ["service_area", "target_customers", "products_services"],
   },
   {
     id: "notes",
-    title: "Operating guidance",
-    detail: "Standing rules for brain missions. Saving projects facts into searchable internal records.",
+    title: "Business context",
+    detail: "Add any notes that help Ajenda prepare useful work.",
     fieldCategories: ["operator_notes"],
   },
   {
     id: "charter",
-    title: "Operating charter",
-    detail: "Declare what Ajenda may prepare, may perform, and must never do. Launch guards enforce this on Tasks.",
+    title: "How Ajenda should operate",
+    detail: "Choose what Ajenda may prepare automatically and which actions need your approval.",
   },
   {
     id: "brain",
-    title: STANDALONE_PROCESS_STEPS[1].title,
-    detail: STANDALONE_PROCESS_STEPS[1].detail,
+    title: "Review",
+    detail: "Review your setup before finishing.",
   },
   {
     id: "plugins",
-    title: STANDALONE_PROCESS_STEPS[3].title,
-    detail: STANDALONE_PROCESS_STEPS[3].detail,
+    title: "Connect your tools",
+    detail: "Connect optional business tools. You can continue without any connections.",
   },
 ];
 

@@ -25,6 +25,7 @@ class ProviderRuntimeCredential(Base):
     tenant_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     credential_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    integration: Mapped[str] = mapped_column(String(80), nullable=False, default="generic")
     credential_type: Mapped[str] = mapped_column(String(80), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
