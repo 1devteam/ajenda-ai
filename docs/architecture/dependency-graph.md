@@ -86,6 +86,27 @@ Unmapped changed files are retained explicitly rather than silently discarded. C
 
 The analyzer supports an optional `--max-depth` for bounded exploration. CI uses full transitive traversal by default.
 
+## Proof selection
+
+Run:
+
+`python scripts/validation/graph_proof_selection.py --impact-report artifacts/graph-impact-report.json --json`
+
+Proof selection consumes graph impact instead of re-deriving architecture from path patterns alone. It emits `artifacts/graph-proof-manifest.json` with:
+
+- selected proof bundles
+- graph-discovered impacted tests
+- invariant-specific contract/unit/integration tests
+- required CI gate categories
+- review-only gates such as live-runtime proof when credentials or provider access may be unavailable
+- manual-review obligations for unmapped files and known policy-drift invariants
+
+A proof bundle may be selected by a relevant architectural invariant, a PR risk domain, or both. Graph-discovered impacted tests are always preserved even when no predefined bundle lists them.
+
+The proof selector is intentionally a manifest generator rather than an arbitrary test runner. Heavyweight test execution remains owned by the repository's normal CI jobs. This keeps architecture analysis deterministic while making the required evidence explicit for future CI orchestration.
+
+Known policy drift must produce human review rather than being misrepresented as an enforced invariant. Unmapped files must remain visible and likewise require review until the graph models them or a deterministic path rule covers them.
+
 ## Metrics
 
 The generated graph calculates:
@@ -110,13 +131,13 @@ The impact analyzer considers an invariant relevant when changed or traversed gr
 
 ## Relationship to the PR invariant classifier
 
-`pr_invariant_classifier.py` remains the deterministic PR gate for proof obligations and known risk-domain rules. `graph_impact_analysis.py` provides structural blast-radius evidence behind those decisions.
+`pr_invariant_classifier.py` remains the deterministic PR gate for known proof gaps and risk-domain rules. `graph_impact_analysis.py` supplies structural blast-radius evidence, and `graph_proof_selection.py` translates that impact into a proof manifest.
 
 The intended flow is:
 
-PR diff -> changed graph nodes -> upstream consumers + downstream prerequisites -> affected semantic boundaries -> applicable invariants -> relevant tests -> required proofs.
+PR diff -> changed graph nodes -> upstream consumers + downstream prerequisites -> affected semantic boundaries -> applicable invariants -> relevant tests -> required proof manifest.
 
-The graph describes the system. The impact analyzer describes structural change reachability. The classifier decides what a particular change must prove.
+The graph describes the system. The impact analyzer describes structural change reachability. The classifier catches deterministic known violations. The proof selector tells CI and reviewers what evidence the affected architecture requires.
 
 ## Maintenance rule
 
@@ -125,3 +146,5 @@ Generated source and test-impact edges must come from source, not manual editing
 Semantic runtime/authority edges must be supported by repository evidence and added to the overlay when architecture changes.
 
 A new runtime authority, external provider, security boundary, credential path, queue authority, standalone executable service, or cross-layer contract should update the semantic overlay in the same PR.
+
+When an invariant gains or changes executable proof, its proof bundle must be updated in the same architecture change so proof selection cannot silently point at stale evidence.
