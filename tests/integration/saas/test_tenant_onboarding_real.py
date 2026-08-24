@@ -43,7 +43,8 @@ class TestTenantOnboardingReal:
         pg_session.commit()
 
         verification = orchestrator.complete_verification(
-            token=receipt.verification_token_plaintext,
+            email=receipt.email.canonical,
+            code=receipt.verification_token_plaintext,
             client_ip_hash="test-ip-hash",
         )
         pg_session.commit()
@@ -73,7 +74,8 @@ class TestTenantOnboardingReal:
         pg_session.commit()
 
         verification = orchestrator.complete_verification(
-            token=receipt.verification_token_plaintext,
+            email=receipt.email.canonical,
+            code=receipt.verification_token_plaintext,
             client_ip_hash="test-ip-hash",
         )
         pg_session.commit()
