@@ -140,7 +140,7 @@ def test_dead_letter_inspection_service_scopes_query_by_tenant_and_dead_lettered
     assert params["status_1"] == ExecutionTaskState.DEAD_LETTERED.value
 
 
-def test_trigger_recovery_delegates_directly_to_runtime_maintainer() -> None:
+def test_trigger_recovery_delegates_to_runtime_maintainer_with_human_attribution() -> None:
     session = MagicMock()
     queue = MagicMock()
     service = OperationsService(session, queue)
@@ -149,11 +149,12 @@ def test_trigger_recovery_delegates_directly_to_runtime_maintainer() -> None:
         expired_lease_count=2,
         requeued_task_count=1,
         dead_lettered_count=1,
+        mismatched_state_count=0,
     )
     service._maintainer = MagicMock()
     service._maintainer.recover_expired_leases.return_value = expected_summary
 
-    result = service.trigger_recovery()
+    result = service.trigger_recovery(actor="user:admin-1", actor_tenant_id="admin-home-tenant")
 
     assert result is expected_summary
     service._maintainer.recover_expired_leases.assert_called_once_with()
@@ -168,6 +169,6 @@ def test_trigger_recovery_propagates_runtime_maintainer_failure() -> None:
     service._maintainer.recover_expired_leases.side_effect = RuntimeError("recovery failed")
 
     with pytest.raises(RuntimeError, match="recovery failed"):
-        service.trigger_recovery()
+        service.trigger_recovery(actor="user:admin-1", actor_tenant_id="admin-home-tenant")
 
     service._maintainer.recover_expired_leases.assert_called_once_with()
