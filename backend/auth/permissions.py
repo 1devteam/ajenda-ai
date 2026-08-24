@@ -14,6 +14,7 @@ class Permission(StrEnum):
     MISSION_CREATE = "mission:create"
     MISSION_MANAGE = "mission:manage"
     RUNTIME_OPERATE = "runtime:operate"
+    PLATFORM_OPERATE = "platform:operate"
     PROVISION_WORKFORCE = "workforce:provision"
     RUNTIME_VIEW = "runtime:view"
     CAPABILITY_MANAGE = "capability:manage"
