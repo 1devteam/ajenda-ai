@@ -36,11 +36,11 @@ class VerificationPendingError(DuplicateEmailError):
 
 
 class InvalidVerificationTokenError(ValueError):
-    """Raised when a verification token is invalid."""
+    """Raised when a verification code is invalid."""
 
 
 class VerificationExpiredError(ValueError):
-    """Raised when a verification token has expired."""
+    """Raised when a verification code has expired."""
 
 
 class MemberNotFoundError(ValueError):
@@ -123,6 +123,7 @@ class TenantOnboardingOrchestrator:
         client_ip_hash: str,
         password: str | None = None,
     ) -> SignupReceipt:
+        """Create a pending membership; password possession never verifies email ownership."""
         self._abuse_guard.assert_signup_enabled()
 
         try:
@@ -159,12 +160,6 @@ class TenantOnboardingOrchestrator:
             verification_delivery_status="pending",
             password_hash=password_hash,
         )
-        if password_hash:
-            member.status = "active"
-            member.verified_at = datetime.now(UTC)
-            member.verification_token_hash = None
-            member.verification_expires_at = None
-            member.verification_delivery_status = None
         self._session.flush()
 
         self._abuse_guard.record_attempt(
@@ -179,24 +174,59 @@ class TenantOnboardingOrchestrator:
             slug=provisioned.slug,
             plan=provisioned.plan,
             email=canonical,
-            status="active" if password_hash else "pending_verification",
+            status="pending_verification",
             verification_expires_at=issued.expires_at,
             verification_token_plaintext=issued.plaintext,
             member_id=member.id,
         )
 
-    def complete_verification(self, *, token: str, client_ip_hash: str) -> VerificationResult:
-        member = self._find_member_for_token(token)
-        if member is None:
+    def complete_verification(
+        self,
+        *,
+        email: str,
+        code: str,
+        client_ip_hash: str,
+    ) -> VerificationResult:
+        """Verify one pending email/code pair and activate that membership."""
+        try:
+            canonical = canonicalize_email(email)
+        except InvalidEmailError as exc:
             self._abuse_guard.record_attempt(
                 email_canonical=None,
                 client_ip_hash=client_ip_hash,
                 route=SignupAbuseGuard.ROUTE_VERIFY,
                 outcome="invalid_input",
             )
-            raise InvalidVerificationTokenError("invalid verification token")
+            raise InvalidVerificationTokenError("invalid verification code") from exc
+
+        member = self._members.get_owner_by_email_canonical(
+            canonical.canonical,
+            statuses=frozenset({"pending_verification"}),
+        )
+        if member is None or member.verification_token_hash is None:
+            self._abuse_guard.record_attempt(
+                email_canonical=canonical.canonical,
+                client_ip_hash=client_ip_hash,
+                route=SignupAbuseGuard.ROUTE_VERIFY,
+                outcome="invalid_input",
+            )
+            raise InvalidVerificationTokenError("invalid verification code")
 
         now = datetime.now(UTC)
+        self._abuse_guard.check_verify_failures(email_canonical=member.email_canonical, now=now)
+
+        if not self._token_issuer.verify(
+            plaintext=code,
+            token_hash=member.verification_token_hash,
+        ):
+            self._abuse_guard.record_attempt(
+                email_canonical=member.email_canonical,
+                client_ip_hash=client_ip_hash,
+                route=SignupAbuseGuard.ROUTE_VERIFY,
+                outcome="invalid_input",
+            )
+            raise InvalidVerificationTokenError("invalid verification code")
+
         if member.verification_expires_at is not None and now >= member.verification_expires_at:
             self._abuse_guard.record_attempt(
                 email_canonical=member.email_canonical,
@@ -204,9 +234,8 @@ class TenantOnboardingOrchestrator:
                 route=SignupAbuseGuard.ROUTE_VERIFY,
                 outcome="invalid_input",
             )
-            raise VerificationExpiredError("verification token expired")
+            raise VerificationExpiredError("verification code expired")
 
-        self._abuse_guard.check_verify_failures(email_canonical=member.email_canonical, now=now)
         self._members.activate_member(member, verified_at=now)
 
         activate_tenant_session(self._session, str(member.tenant_id))
@@ -264,22 +293,13 @@ class TenantOnboardingOrchestrator:
             raise MemberNotFoundError("no pending verification found for this email")
 
         now = datetime.now(UTC)
-        if member.verification_expires_at is not None and now >= member.verification_expires_at:
-            issued = self._token_issuer.issue(now=now)
-            self._members.update_verification_token(
-                member,
-                token_hash=issued.token_hash,
-                expires_at=issued.expires_at,
-                delivery_status="pending",
-            )
-        else:
-            issued = self._token_issuer.issue(now=now)
-            self._members.update_verification_token(
-                member,
-                token_hash=issued.token_hash,
-                expires_at=issued.expires_at,
-                delivery_status="pending",
-            )
+        issued = self._token_issuer.issue(now=now)
+        self._members.update_verification_token(
+            member,
+            token_hash=issued.token_hash,
+            expires_at=issued.expires_at,
+            delivery_status="pending",
+        )
 
         self._abuse_guard.record_attempt(
             email_canonical=canonical.canonical,
@@ -381,15 +401,6 @@ class TenantOnboardingOrchestrator:
                     outcome="duplicate_email",
                 )
                 raise VerificationPendingError("A verification is already pending for this email.")
-
-    def _find_member_for_token(self, token: str) -> TenantMember | None:
-        for member in self._members.list_pending_with_verification_tokens():
-            token_hash = member.verification_token_hash
-            if token_hash is None:
-                continue
-            if self._token_issuer.verify(plaintext=token, token_hash=token_hash):
-                return member
-        return None
 
     def _get_active_owner_for_tenant(self, tenant_id: uuid.UUID) -> TenantMember | None:
         from sqlalchemy import select
