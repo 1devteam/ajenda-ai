@@ -44,7 +44,7 @@ def _build_client() -> TestClient:
     return TestClient(app, raise_server_exceptions=False)
 
 
-def test_verify_email_returns_bootstrap_key() -> None:
+def test_verify_email_returns_bootstrap_key_for_email_code_pair() -> None:
     client = _build_client()
     tenant_id = uuid.uuid4()
     bootstrap_expires = datetime.now(UTC) + timedelta(hours=72)
@@ -62,27 +62,40 @@ def test_verify_email_returns_bootstrap_key() -> None:
 
         response = client.post(
             "/v1/onboarding/verify-email",
-            json={"token": "a" * 32},
+            json={"email": "owner@example.com", "code": "123456"},
         )
 
     assert response.status_code == 200
     body = response.json()
     assert body["key_id"] == "kid123"
     assert body["api_key"] == "kid123.secret"
+    orchestrator.complete_verification.assert_called_once()
+    assert orchestrator.complete_verification.call_args.kwargs["email"] == "owner@example.com"
+    assert orchestrator.complete_verification.call_args.kwargs["code"] == "123456"
 
 
-def test_verify_email_invalid_token_returns_400() -> None:
+def test_verify_email_rejects_non_six_digit_code_at_contract_boundary() -> None:
+    client = _build_client()
+    response = client.post(
+        "/v1/onboarding/verify-email",
+        json={"email": "owner@example.com", "code": "abc"},
+    )
+    assert response.status_code == 422
+
+
+def test_verify_email_invalid_code_returns_400() -> None:
     client = _build_client()
     from backend.services.tenant_onboarding_orchestrator import InvalidVerificationTokenError
 
     with patch("backend.api.routes.onboarding.TenantOnboardingOrchestrator") as orchestrator_cls:
         orchestrator = MagicMock()
-        orchestrator.complete_verification.side_effect = InvalidVerificationTokenError("invalid")
+        orchestrator.complete_verification.side_effect = InvalidVerificationTokenError("invalid verification code")
         orchestrator_cls.return_value = orchestrator
 
         response = client.post(
             "/v1/onboarding/verify-email",
-            json={"token": "b" * 32},
+            json={"email": "owner@example.com", "code": "654321"},
         )
 
     assert response.status_code == 400
+    assert response.json()["detail"] == "invalid verification code"
