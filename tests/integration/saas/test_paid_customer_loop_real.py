@@ -83,19 +83,19 @@ class TestPaidCustomerLoopReal:
                 json={"org_name": "Paid Loop Co", "email": email},
                 headers=_idem(),
             )
-            assert signup.status_code == 201, signup.text
-            signup_body = signup.json()
-            tenant_id = signup_body["tenant_id"]
-            token = signup_body["verification_token"]
-            assert token
+            assert signup.status_code == 202, signup.text
+            code = signup.json()["verification_code"]
+            assert code and len(code) == 6
 
             verify = client.post(
                 "/v1/onboarding/verify-email",
-                json={"token": token},
+                json={"email": email, "code": code},
                 headers=_idem(),
             )
             assert verify.status_code == 200, verify.text
-            bootstrap_key = verify.json()["api_key"]
+            verify_body = verify.json()
+            tenant_id = verify_body["tenant_id"]
+            bootstrap_key = verify_body["api_key"]
 
             bootstrap_billing = client.get(
                 "/v1/account/billing",
