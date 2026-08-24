@@ -11,12 +11,14 @@ from backend.domain.lineage_record import LineageRecord
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.execution_branch_repository import ExecutionBranchRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
+from backend.repositories.mission_repository import MissionRepository
 from backend.runtime.transitions import transition_branch
 
 
 class BranchManager:
     def __init__(self, session: Session) -> None:
         self._session = session
+        self._missions = MissionRepository(session)
         self._branches = ExecutionBranchRepository(session)
         self._audit = AuditEventRepository(session)
         self._lineage = LineageRecordRepository(session)
@@ -29,6 +31,15 @@ class BranchManager:
         parent_branch_id: uuid.UUID | None,
         reason: str,
     ) -> ExecutionBranch:
+        mission = self._missions.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id)
+        if mission is None:
+            raise ValueError("mission not found for tenant")
+
+        if parent_branch_id is not None:
+            parent = self._branches.get(parent_branch_id)
+            if parent is None or parent.tenant_id != tenant_id or parent.mission_id != mission_id:
+                raise ValueError("parent branch not found for tenant mission")
+
         branch = self._branches.add(
             ExecutionBranch(
                 tenant_id=tenant_id,
