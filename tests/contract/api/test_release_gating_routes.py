@@ -83,33 +83,33 @@ def test_rg_system_status_envelope() -> None:
     assert missing_auth.status_code == 401
 
 
-def test_rg_recovery_route_requires_tenant_and_auth_under_middleware_stack() -> None:
+def test_rg_recovery_route_is_tenant_exempt_but_auth_required_under_middleware_stack() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
 
     service = MagicMock()
     with patch("backend.api.routes.operations.OperationsService", return_value=service):
-        missing_tenant = client.post("/v1/operations/recovery")
-        missing_auth = client.post(
+        missing_auth_without_tenant = client.post("/v1/operations/recovery")
+        missing_auth_with_tenant = client.post(
             "/v1/operations/recovery",
             headers={"X-Tenant-Id": "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"},
         )
 
-    assert missing_tenant.status_code == 400
-    assert missing_auth.status_code == 401
+    assert missing_auth_without_tenant.status_code == 401
+    assert missing_auth_with_tenant.status_code == 401
     service.trigger_recovery.assert_not_called()
 
 
-def test_rg_recovery_route_fails_closed_on_service_exception_for_authorized_operator() -> None:
+def test_rg_recovery_route_fails_closed_on_service_exception_for_platform_admin() -> None:
     app = _build_app()
     client = TestClient(app, raise_server_exceptions=False)
     tenant_id = "3ac8e9a0-c351-41a5-95af-17dc9d7fd8c8"
 
     service = MagicMock()
     service.trigger_recovery.side_effect = RuntimeError("recovery failed")
-    principal = Principal("operator", tenant_id, PrincipalType.USER, roles=("operator",))
+    principal = Principal("platform-admin", tenant_id, PrincipalType.USER, roles=("admin",))
     oidc_result = OidcValidationResult(
-        claims=MagicMock(sub="operator", tenant_id=tenant_id, roles=("operator",)),
+        claims=MagicMock(sub="platform-admin", tenant_id=tenant_id, roles=("admin",)),
         principal=principal,
         provider="test",
     )
@@ -120,11 +120,14 @@ def test_rg_recovery_route_fails_closed_on_service_exception_for_authorized_oper
     ):
         response = client.post(
             "/v1/operations/recovery",
-            headers={"X-Tenant-Id": tenant_id, "Authorization": "Bearer test-token"},
+            headers={"Authorization": "Bearer test-token"},
         )
 
     assert response.status_code == 500
-    service.trigger_recovery.assert_called_once_with()
+    service.trigger_recovery.assert_called_once_with(
+        actor="platform-admin",
+        actor_tenant_id=tenant_id,
+    )
 
 
 def test_rg_dead_letter_inspection_route_rejects_invalid_bearer_under_full_middleware_stack() -> None:
