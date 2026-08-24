@@ -43,9 +43,7 @@ def test_branch_creation_rejects_parent_from_other_tenant() -> None:
     mission_id = uuid.uuid4()
     manager = object.__new__(BranchManager)
     manager._missions = _MissionLookup(SimpleNamespace(id=mission_id, tenant_id="tenant-a"))
-    manager._branches = _BranchLookup(
-        SimpleNamespace(id=uuid.uuid4(), tenant_id="tenant-b", mission_id=mission_id)
-    )
+    manager._branches = _BranchLookup(SimpleNamespace(id=uuid.uuid4(), tenant_id="tenant-b", mission_id=mission_id))
 
     with pytest.raises(ValueError, match="parent branch not found for tenant mission"):
         manager.create_branch(
@@ -60,9 +58,7 @@ def test_branch_creation_rejects_parent_from_different_mission() -> None:
     mission_id = uuid.uuid4()
     manager = object.__new__(BranchManager)
     manager._missions = _MissionLookup(SimpleNamespace(id=mission_id, tenant_id="tenant-a"))
-    manager._branches = _BranchLookup(
-        SimpleNamespace(id=uuid.uuid4(), tenant_id="tenant-a", mission_id=uuid.uuid4())
-    )
+    manager._branches = _BranchLookup(SimpleNamespace(id=uuid.uuid4(), tenant_id="tenant-a", mission_id=uuid.uuid4()))
 
     with pytest.raises(ValueError, match="parent branch not found for tenant mission"):
         manager.create_branch(
