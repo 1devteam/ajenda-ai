@@ -46,9 +46,13 @@ async function parseBody(response: Response): Promise<unknown> {
   }
 }
 
-async function publicRequest<T>(path: string, body: unknown, *, idempotent = false): Promise<T> {
+async function publicRequest<T>(
+  path: string,
+  body: unknown,
+  options: { idempotent?: boolean } = {},
+): Promise<T> {
   const headers = new Headers({ "Content-Type": "application/json" });
-  if (idempotent) {
+  if (options.idempotent) {
     headers.set("Idempotency-Key", newIdempotencyKey());
   }
 
