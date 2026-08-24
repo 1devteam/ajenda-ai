@@ -37,7 +37,7 @@ def _signup_and_verify(client: TestClient, email: str) -> tuple[str, str]:
         json={"org_name": "OIDC Integration Co", "email": email},
         headers={**idem_headers(), **client_ip_headers()},
     )
-    assert signup.status_code == 202, signup.text
+    assert signup.status_code == 201, signup.text
     code = signup.json()["verification_code"]
     assert code and len(code) == 6
 
@@ -221,7 +221,7 @@ class TestOidcCustomerLoginHttpReal:
                 json={"org_name": "Pending OIDC Co", "email": email},
                 headers={**idem_headers(), **client_ip_headers()},
             )
-            assert signup.status_code == 202
+            assert signup.status_code == 201
             assert signup.json()["status"] == "verification_required"
 
             with oidc_provider_patches(email=email):
