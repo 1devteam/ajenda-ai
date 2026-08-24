@@ -19,6 +19,7 @@ EXPECTED_AUTHORITY_CLASSES = {
 
 POST_V1_MISSIONS_MISSION_ID_RUNTIME_QUEUE_ADMISSION_ROUTE = "POST /v1/missions/{mission_id}/runtime-queue-admission"
 POST_V1_MISSIONS_MISSION_ID_QUEUE_ROUTE = "POST /v1/missions/{mission_id}/queue"
+POST_V1_OPERATIONS_RECOVERY_ROUTE = "POST /v1/operations/recovery"
 
 MIXED_METHOD_ADMISSION_PATHS = {
     "/v1/missions/{mission_id}/runtime-task-materialization": {
@@ -198,6 +199,29 @@ def test_post_v1_missions_mission_id_queue_route_has_dedicated_authority_coverag
     assert "sole runtime admission authority" in runtime_block
     assert "persists runtime_queue_admission metadata, receipts, blockers" in runtime_block
     assert "MissionExecutor.queue_all_planned_tasks()" not in runtime_block
+
+
+def test_global_recovery_has_dedicated_platform_authority_contract() -> None:
+    block = _block_for_route_scope(POST_V1_OPERATIONS_RECOVERY_ROUTE)
+
+    assert "id: operations_global_recovery_contract" in block
+    assert "authority_class: runtime_authoritative" in block
+    assert "side_effect_class: platform_scoped_cross_tenant_recovery_mutation" in block
+    assert "explicit platform authority" in block
+    assert "tenant-scoped runtime permission or tenant roles" in block
+    assert "tests/unit/auth/test_platform_rbac.py" in block
+    assert "tests/unit/operations/test_operations_recovery_attribution.py" in block
+
+
+def test_tenant_dead_letter_routes_are_separate_from_global_recovery() -> None:
+    inspection = _block_for_route_scope("GET /v1/operations/dead-letter")
+    retry = _block_for_route_scope("POST /v1/operations/dead-letter/{task_id}/retry")
+    recovery = _block_for_route_scope(POST_V1_OPERATIONS_RECOVERY_ROUTE)
+
+    assert inspection == retry
+    assert inspection != recovery
+    assert "side_effect_class: tenant_scoped_dead_letter_recovery_mutation" in inspection
+    assert "inspect or retry another tenant's task" in inspection
 
 
 def test_mixed_method_admission_routes_are_method_specific() -> None:

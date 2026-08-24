@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -73,9 +74,10 @@ def test_recovery_route_rejects_viewer_and_does_not_call_service() -> None:
     service.trigger_recovery.assert_not_called()
 
 
-def test_recovery_route_rejects_tenant_operator_and_does_not_call_service() -> None:
+@pytest.mark.parametrize("role", ["operator", "tenant_admin", "tenant_owner"])
+def test_recovery_route_rejects_tenant_roles_and_does_not_call_service(role: str) -> None:
     tenant_id = uuid.uuid4()
-    app = _build_app(tenant_id, roles=("operator",))
+    app = _build_app(tenant_id, roles=(role,))
     client = TestClient(app, raise_server_exceptions=False)
 
     service = MagicMock()

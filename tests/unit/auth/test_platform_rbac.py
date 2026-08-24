@@ -35,6 +35,22 @@ def test_tenant_owner_cannot_operate_platform() -> None:
     assert decision.allowed is False
 
 
+def test_tenant_admin_cannot_operate_platform() -> None:
+    principal = Principal(
+        subject_id="tenant-admin-user",
+        tenant_id="tenant-a",
+        principal_type=PrincipalType.USER,
+        roles=("tenant_admin",),
+    )
+
+    decision = RbacAuthorizer().authorize_platform(
+        principal=principal,
+        permission=Permission.PLATFORM_OPERATE,
+    )
+
+    assert decision.allowed is False
+
+
 def test_operator_runtime_permission_does_not_grant_platform_authority() -> None:
     principal = Principal(
         subject_id="operator-user",

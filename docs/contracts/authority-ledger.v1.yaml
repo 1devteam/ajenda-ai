@@ -741,25 +741,50 @@ authority_entries:
       - tests/integration/api/test_task_queue_route_real.py
       - tests/integration/queue/test_queue_flow_real.py
 
-  - id: operations_dead_letter_recovery_contract
-    area: operations dead-letter and recovery
+  - id: operations_dead_letter_contract
+    area: tenant-scoped operations dead-letter inspection and retry
     source_of_truth:
       - backend/api/routes/operations.py
       - backend/services/operations_service.py
-      - backend/services/runtime_maintainer.py
     route_scope:
-      - /v1/operations/*
+      - GET /v1/operations/dead-letter
+      - POST /v1/operations/dead-letter/{task_id}/retry
     authority_class: runtime_authoritative
-    side_effect_class: tenant_or_admin_scoped_recovery_mutation
+    side_effect_class: tenant_scoped_dead_letter_recovery_mutation
     allowed_side_effects:
-      - inspect dead-letter state with tenant/admin boundaries
-      - perform bounded retry/recovery operations
+      - inspect dead-letter state for the authenticated tenant
+      - retry an eligible dead-lettered task owned by the authenticated tenant
     forbidden_side_effects:
-      - perform uncontrolled global mutation without required authorization
+      - inspect or retry another tenant's task
       - synthesize queue state contradictory to canonical evidence
     required_proofs:
       - tests/contract/operations/test_dead_letter_retry_contract.py
       - tests/integration/operations/test_dead_letter_retry_real.py
+
+  - id: operations_global_recovery_contract
+    area: platform-global expired lease recovery
+    source_of_truth:
+      - backend/api/routes/operations.py
+      - backend/services/operations_service.py
+      - backend/services/runtime_maintainer.py
+      - backend/auth/rbac.py
+    route_scope:
+      - POST /v1/operations/recovery
+    authority_class: runtime_authoritative
+    side_effect_class: platform_scoped_cross_tenant_recovery_mutation
+    allowed_side_effects:
+      - scan and recover eligible expired leases across tenants under explicit platform authority
+      - record the authenticated human initiator separately from runtime-maintainer execution events
+    forbidden_side_effects:
+      - authorize global recovery from tenant-scoped runtime permission or tenant roles
+      - attribute automated runtime-maintainer recovery actions to a human initiator
+      - synthesize queue state contradictory to canonical evidence
+    required_proofs:
+      - tests/contract/operations/test_recovery_contract.py
+      - tests/contract/operations/test_recovery_public_contract.py
+      - tests/unit/api/test_operations_platform_authority.py
+      - tests/unit/auth/test_platform_rbac.py
+      - tests/unit/operations/test_operations_recovery_attribution.py
       - tests/integration/runtime/test_runtime_recovery_queue_corruption_real.py
 
   - id: runtime_mode_contract

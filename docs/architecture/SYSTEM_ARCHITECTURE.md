@@ -261,7 +261,8 @@ Onboarding routes use IP-keyed rate limits and body-hash idempotency when `AJEND
 | `/v1/api-keys/*` | tenant | Key lifecycle |
 | `/v1/missions/*`, `/v1/tasks/*` | tenant | Mission/task queue authority |
 | `/v1/workforce/*`, `/v1/branches/*` | tenant | Fleet and branch management |
-| `/v1/runtime/*`, `/v1/operations/*` | tenant | Governor and ops controls |
+| `/v1/runtime/*`, `/v1/operations/dead-letter*` | tenant | Governor and tenant-scoped dead-letter controls |
+| `POST /v1/operations/recovery` | platform | Cross-tenant expired-lease recovery |
 | `/v1/capabilities/*`, `/v1/capability-adapters/*` | tenant | Declaration contracts |
 | `/v1/business-profile/*` | tenant | Durable tenant context |
 | `/v1/evidence/*`, `/v1/outcome-reviews/*` | tenant | Governance records |

@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime, timedelta
+
+from backend.domain.execution_task import ExecutionTask
+from backend.domain.worker_lease import WorkerLease
+from backend.queue.base import QueueOperationResult
 from backend.services.operations_service import OperationsService
-from backend.services.runtime_maintainer import RecoverySummary
+from backend.services.runtime_maintainer import RecoverySummary, RuntimeMaintainer
 
 
 class _Session:
@@ -54,3 +60,69 @@ def test_manual_global_recovery_records_human_trigger_identity() -> None:
     assert service._audit.events[0].payload_json["trigger_source"] == "manual_api"
     assert service._audit.events[1].payload_json["mismatched_state_count"] == 4
     assert service._session.commit_count == 2
+
+
+class _Rows:
+    def __init__(self, rows) -> None:
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _RecoverySession(_Session):
+    def __init__(self, lease: WorkerLease, task: ExecutionTask) -> None:
+        super().__init__()
+        self._lease = lease
+        self._task = task
+        self.rollback_count = 0
+
+    def execute(self, _statement) -> _Rows:
+        return _Rows([(self._lease, self._task)])
+
+    def scalars(self, _statement) -> _Rows:
+        return _Rows([])
+
+    def rollback(self) -> None:
+        self.rollback_count += 1
+
+
+class _Queue:
+    def recover_task_for_retry(self, **_kwargs) -> QueueOperationResult:
+        return QueueOperationResult(ok=True)
+
+    def list_processing(self, *, tenant_id: str):
+        return []
+
+
+def test_automated_recovery_retains_runtime_maintainer_actor_identity() -> None:
+    task_id = uuid.uuid4()
+    task = ExecutionTask(
+        id=task_id,
+        tenant_id="tenant-a",
+        mission_id=uuid.uuid4(),
+        title="recover automatically",
+        description="prove system attribution",
+        status="running",
+        retry_count=0,
+        metadata_json={},
+    )
+    lease = WorkerLease(
+        id=uuid.uuid4(),
+        tenant_id="tenant-a",
+        task_id=task_id,
+        status="active",
+        holder_identity="worker-1",
+        heartbeat_at=datetime.now(UTC) - timedelta(minutes=5),
+        metadata_json={},
+    )
+    session = _RecoverySession(lease, task)
+    maintainer = RuntimeMaintainer(session, _Queue())
+    audit = _Audit()
+    maintainer._audit = audit
+
+    summary = maintainer.recover_expired_leases()
+
+    assert summary.requeued_task_count == 1
+    assert [event.action for event in audit.events] == ["lease_expired_task_requeued"]
+    assert audit.events[0].actor == "runtime_maintainer"
