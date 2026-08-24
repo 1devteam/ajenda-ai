@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.queue.base import QueueAdapter
@@ -67,5 +68,70 @@ class OperationsService:
         )
         return {"task_id": str(task.id), "status": result.state}
 
-    def trigger_recovery(self) -> RecoverySummary:
-        return self._maintainer.recover_expired_leases()
+    def trigger_recovery(self, *, actor: str, actor_tenant_id: str) -> RecoverySummary:
+        """Run global recovery with durable attribution to the human trigger."""
+        self._audit.append(
+            AuditEvent(
+                tenant_id=actor_tenant_id,
+                mission_id=None,
+                category="runtime_recovery",
+                action="global_recovery_requested",
+                actor=actor,
+                details="Platform operator requested global expired-lease recovery.",
+                payload_json={
+                    "scope": "platform",
+                    "executor": "runtime_maintainer",
+                    "trigger_source": "manual_api",
+                },
+            )
+        )
+        # Persist the initiating human identity before the maintainer begins its
+        # independently committed cross-tenant recovery loop.
+        self._session.flush()
+        self._session.commit()
+
+        try:
+            summary = self._maintainer.recover_expired_leases()
+        except Exception as exc:
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=actor_tenant_id,
+                    mission_id=None,
+                    category="runtime_recovery",
+                    action="global_recovery_failed",
+                    actor=actor,
+                    details="Platform-triggered global recovery failed.",
+                    payload_json={
+                        "scope": "platform",
+                        "executor": "runtime_maintainer",
+                        "trigger_source": "manual_api",
+                        "error_type": type(exc).__name__,
+                    },
+                )
+            )
+            self._session.flush()
+            self._session.commit()
+            raise
+
+        self._audit.append(
+            AuditEvent(
+                tenant_id=actor_tenant_id,
+                mission_id=None,
+                category="runtime_recovery",
+                action="global_recovery_completed",
+                actor=actor,
+                details="Platform-triggered global recovery completed.",
+                payload_json={
+                    "scope": "platform",
+                    "executor": "runtime_maintainer",
+                    "trigger_source": "manual_api",
+                    "expired_lease_count": summary.expired_lease_count,
+                    "requeued_task_count": summary.requeued_task_count,
+                    "dead_lettered_count": summary.dead_lettered_count,
+                    "mismatched_state_count": summary.mismatched_state_count,
+                },
+            )
+        )
+        self._session.flush()
+        self._session.commit()
+        return summary

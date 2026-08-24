@@ -24,6 +24,8 @@ class PolicyDecisionPoint(Protocol):
 
     def authorize(self, *, principal: Principal, permission: Permission, tenant_id: str) -> PolicyDecision: ...
 
+    def authorize_platform(self, *, principal: Principal, permission: Permission) -> PolicyDecision: ...
+
 
 class RbacPolicyDecisionPoint:
     """Default in-process PDP backed by the existing RBAC authorizer."""
@@ -36,6 +38,17 @@ class RbacPolicyDecisionPoint:
             principal=principal,
             permission=permission,
             tenant_id=tenant_id,
+        )
+        return PolicyDecision(
+            allowed=decision.allowed,
+            reason=decision.reason,
+            policy_source="rbac",
+        )
+
+    def authorize_platform(self, *, principal: Principal, permission: Permission) -> PolicyDecision:
+        decision = self._rbac.authorize_platform(
+            principal=principal,
+            permission=permission,
         )
         return PolicyDecision(
             allowed=decision.allowed,

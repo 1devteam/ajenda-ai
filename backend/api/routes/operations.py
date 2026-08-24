@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from backend.api.routes._authorization import require_route_permission
+from backend.api.routes._authorization import require_platform_permission, require_route_permission
 from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.permissions import Permission
@@ -47,19 +47,29 @@ def retry_dead_letter(
 @router.post("/recovery")
 def trigger_recovery(
     request: Request,
-    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_db_session),
     queue: QueueAdapter = Depends(get_queue_adapter),
 ) -> dict[str, int]:
-    """Trigger global lease recovery.
+    """Trigger global lease recovery under explicit platform authority.
 
-    Cross-tenant control-plane operation. Uses get_db_session intentionally —
-    recovery scans all tenants' expired leases and is not tenant-scoped. The
-    request still requires a validated tenant/auth envelope for RBAC and audit.
-    See: docs/policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md §4.2
+    This operation scans expired leases across all tenants. It is deliberately
+    tenant-header-exempt but authentication-required and cannot be authorized by
+    tenant ``runtime:operate`` permission. Only the platform control-plane
+    permission may invoke it.
     """
-    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    summary = OperationsService(db, queue).trigger_recovery()
+    require_platform_permission(request=request, db=db, permission=Permission.PLATFORM_OPERATE)
+    principal = getattr(request.state, "principal", None)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    actor = str(getattr(principal, "subject_id", "") or "").strip()
+    actor_tenant_id = str(getattr(principal, "tenant_id", "") or "").strip()
+    if not actor or not actor_tenant_id:
+        raise HTTPException(status_code=403, detail="platform operator identity required")
+
+    summary = OperationsService(db, queue).trigger_recovery(
+        actor=actor,
+        actor_tenant_id=actor_tenant_id,
+    )
     return {
         "expired_lease_count": summary.expired_lease_count,
         "requeued_task_count": summary.requeued_task_count,

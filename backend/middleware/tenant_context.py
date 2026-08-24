@@ -3,17 +3,13 @@
 This middleware is the primary enforcement point for multi-tenant isolation
 at the HTTP layer. It runs on every request and enforces:
 
-  1. Presence of X-Tenant-Id header on all non-public paths.
+  1. Presence of X-Tenant-Id header on all tenant-scoped paths.
   2. Tenant exists in the database (not a phantom tenant_id).
   3. Tenant is active (not suspended or deleted).
-Public paths (exempt from X-Tenant-Id requirement):
-  /health, /ready, /readiness — infrastructure probes (root-level)
-  /system/health, /system/readiness — infrastructure probes (system-prefixed)
-  /metrics — Prometheus scrape endpoint
-  /v1/auth/*  — OIDC token exchange (tenant_id is in the token, not the header)
-  /v1/admin/* — Admin control plane (cross-tenant by design, admin role required)
-  /v1/billing/webhook/* — Stripe webhook receiver (tenant resolved from signed event metadata)
-  /v1/onboarding/signup, /verify-email, /resend-verification — public self-serve ingress
+
+Tenant-header-exempt paths include infrastructure probes, public auth/onboarding
+flows, Stripe webhook ingress, and authenticated platform control-plane routes.
+Authentication exemption is evaluated independently by AuthContextMiddleware.
 
 Design decisions:
   - The DB lookup is a lightweight SELECT on the tenants table (indexed on id).
@@ -38,7 +34,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from backend.api.errors import api_json_response
-from backend.middleware.public_paths import is_public_path
+from backend.middleware.public_paths import is_tenant_exempt_path
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +53,9 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         path = request.url.path
 
-        # --- Public paths: skip tenant enforcement ---
-        if is_public_path(path):
+        # --- Tenant-header-exempt paths: skip tenant enforcement only. ---
+        # AuthContextMiddleware independently decides whether auth is required.
+        if is_tenant_exempt_path(path):
             request.state.tenant_id = None
             request.state.tenant = None
             return await call_next(request)
