@@ -64,7 +64,8 @@ def provision_operational_tenant(client: TestClient, *, prefix: str = "cred-live
         json={"org_name": "Credential Live Co", "email": email},
         headers={"Idempotency-Key": str(uuid.uuid4())},
     )
-    assert signup.status_code == 202, signup.text
+    # This fixture runs with verification-secret exposure enabled for test/staging only.
+    assert signup.status_code == 201, signup.text
     code = signup.json()["verification_code"]
     assert code and len(code) == 6
     verify = client.post(
