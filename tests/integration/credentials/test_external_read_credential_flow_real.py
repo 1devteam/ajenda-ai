@@ -3,43 +3,14 @@
 from __future__ import annotations
 
 import json
-import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
+from tests.integration.credentials.credential_e2e_support import auth_headers, provision_operational_tenant
 
 pytestmark = pytest.mark.integration
-
-
-def _auth_headers(*, tenant_id: str, api_key: str) -> dict[str, str]:
-    return {"X-Tenant-Id": tenant_id, "X-Api-Key": api_key}
-
-
-def _provision_operational_tenant(client: TestClient) -> tuple[str, str]:
-    email = f"read-flow-{uuid.uuid4().hex[:8]}@example.com"
-    signup = client.post(
-        "/v1/onboarding/signup",
-        json={"org_name": "Read Flow Co", "email": email},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
-    )
-    assert signup.status_code == 201, signup.text
-    tenant_id = signup.json()["tenant_id"]
-    token = signup.json()["verification_token"]
-    verify = client.post(
-        "/v1/onboarding/verify-email",
-        json={"token": token},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
-    )
-    assert verify.status_code == 200, verify.text
-    bootstrap_key = verify.json()["api_key"]
-    promote = client.post(
-        "/v1/onboarding/promote-bootstrap-key",
-        headers=_auth_headers(tenant_id=tenant_id, api_key=bootstrap_key),
-    )
-    assert promote.status_code == 200, promote.text
-    return tenant_id, promote.json()["api_key"]
 
 
 def test_provider_credentials_api_register_linkedin_read(
@@ -48,11 +19,11 @@ def test_provider_credentials_api_register_linkedin_read(
     credential_live_onboarding: None,
 ) -> None:
     with TestClient(create_app()) as client:
-        tenant_id, api_key = _provision_operational_tenant(client)
+        tenant_id, api_key = provision_operational_tenant(client, prefix="read-flow-linkedin")
 
         create_resp = client.post(
             "/v1/account/provider-credentials",
-            headers=_auth_headers(tenant_id=tenant_id, api_key=api_key),
+            headers=auth_headers(tenant_id=tenant_id, api_key=api_key),
             json={
                 "credential_id": "linkedin-read",
                 "provider": "external_read_provider",
@@ -82,11 +53,11 @@ def test_provider_credentials_api_register_salesforce_read_from_json_instance_ur
         }
     )
     with TestClient(create_app()) as client:
-        tenant_id, api_key = _provision_operational_tenant(client)
+        tenant_id, api_key = provision_operational_tenant(client, prefix="read-flow-salesforce")
 
         create_resp = client.post(
             "/v1/account/provider-credentials",
-            headers=_auth_headers(tenant_id=tenant_id, api_key=api_key),
+            headers=auth_headers(tenant_id=tenant_id, api_key=api_key),
             json={
                 "credential_id": "salesforce-read",
                 "provider": "external_read_provider",
@@ -109,11 +80,11 @@ def test_provider_credentials_api_register_google_calendar_read(
 ) -> None:
     _ = pg_engine
     with TestClient(create_app()) as client:
-        tenant_id, api_key = _provision_operational_tenant(client)
+        tenant_id, api_key = provision_operational_tenant(client, prefix="read-flow-calendar")
 
         create_resp = client.post(
             "/v1/account/provider-credentials",
-            headers=_auth_headers(tenant_id=tenant_id, api_key=api_key),
+            headers=auth_headers(tenant_id=tenant_id, api_key=api_key),
             json={
                 "credential_id": "google-calendar-read",
                 "provider": "external_read_provider",
@@ -135,11 +106,11 @@ def test_provider_credentials_api_register_github_read(
 ) -> None:
     _ = pg_engine
     with TestClient(create_app()) as client:
-        tenant_id, api_key = _provision_operational_tenant(client)
+        tenant_id, api_key = provision_operational_tenant(client, prefix="read-flow-github")
 
         create_resp = client.post(
             "/v1/account/provider-credentials",
-            headers=_auth_headers(tenant_id=tenant_id, api_key=api_key),
+            headers=auth_headers(tenant_id=tenant_id, api_key=api_key),
             json={
                 "credential_id": "github-read",
                 "provider": "external_read_provider",
