@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.auth.permissions import Permission
-from backend.auth.principal import Principal
+from backend.auth.principal import Principal, PrincipalType
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +33,7 @@ class RbacAuthorizer:
                     Permission.MISSION_CREATE,
                     Permission.MISSION_MANAGE,
                     Permission.RUNTIME_OPERATE,
+                    Permission.PLATFORM_OPERATE,
                     Permission.PROVISION_WORKFORCE,
                     Permission.RUNTIME_VIEW,
                     Permission.CAPABILITY_MANAGE,
@@ -176,11 +177,30 @@ class RbacAuthorizer:
             permissions.update(self._roles.get(role, frozenset()))
         return frozenset(permissions)
 
+    def _effective_permissions(self, principal: Principal) -> set[Permission]:
+        effective_permissions = set(principal.permissions)
+        effective_permissions.update(self.resolve_permissions(tuple(principal.roles)))
+        return effective_permissions
+
     def authorize(self, *, principal: Principal, permission: Permission, tenant_id: str) -> AuthorizationDecision:
         if principal.tenant_id != tenant_id:
             return AuthorizationDecision(False, "cross-tenant access denied")
-        effective_permissions = set(principal.permissions)
-        effective_permissions.update(self.resolve_permissions(tuple(principal.roles)))
-        if permission not in effective_permissions:
+        if permission not in self._effective_permissions(principal):
+            return AuthorizationDecision(False, f"missing permission: {permission.value}")
+        return AuthorizationDecision(True, "authorized")
+
+    def authorize_platform(self, *, principal: Principal, permission: Permission) -> AuthorizationDecision:
+        """Authorize a platform-scoped operation that is not owned by one tenant.
+
+        Platform authority is intentionally narrower than ordinary tenant RBAC:
+        only authenticated human principals carrying the explicit ``admin`` role
+        may exercise platform permissions. Tenant roles and machine API keys are
+        never promoted into global authority by sharing a tenant permission.
+        """
+        if principal.principal_type != PrincipalType.USER:
+            return AuthorizationDecision(False, "platform operations require a human principal")
+        if "admin" not in principal.roles:
+            return AuthorizationDecision(False, "platform operations require the admin role")
+        if permission not in self._effective_permissions(principal):
             return AuthorizationDecision(False, f"missing permission: {permission.value}")
         return AuthorizationDecision(True, "authorized")
