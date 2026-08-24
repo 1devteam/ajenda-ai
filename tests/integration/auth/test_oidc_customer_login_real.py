@@ -37,19 +37,17 @@ def _signup_and_verify(client: TestClient, email: str) -> tuple[str, str]:
         json={"org_name": "OIDC Integration Co", "email": email},
         headers={**idem_headers(), **client_ip_headers()},
     )
-    assert signup.status_code == 201, signup.text
-    body = signup.json()
-    tenant_id = body["tenant_id"]
-    token = body["verification_token"]
-    assert token
+    assert signup.status_code == 202, signup.text
+    code = signup.json()["verification_code"]
+    assert code and len(code) == 6
 
     verify = client.post(
         "/v1/onboarding/verify-email",
-        json={"token": token},
+        json={"email": email, "code": code},
         headers={**idem_headers(), **client_ip_headers()},
     )
     assert verify.status_code == 200, verify.text
-    return tenant_id, email
+    return verify.json()["tenant_id"], email
 
 
 class TestOidcCustomerLoginHttpReal:
@@ -82,6 +80,8 @@ class TestOidcCustomerLoginHttpReal:
         pg_engine: object,
     ) -> None:
         configure_oidc_integration_env(monkeypatch)
+        monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
+        monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
         get_settings.cache_clear()
         email = f"oidc-http-{uuid.uuid4().hex[:8]}@example.com"
         subject = unique_oidc_subject()
@@ -207,7 +207,10 @@ class TestOidcCustomerLoginHttpReal:
         monkeypatch: pytest.MonkeyPatch,
         integration_env: None,
     ) -> None:
+        """A provider-verified email is an independent proof of email ownership."""
         configure_oidc_integration_env(monkeypatch)
+        monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
+        monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
         get_settings.cache_clear()
         email = f"oidc-pending-{uuid.uuid4().hex[:8]}@example.com"
         verifier, challenge = pkce_pair()
@@ -218,9 +221,8 @@ class TestOidcCustomerLoginHttpReal:
                 json={"org_name": "Pending OIDC Co", "email": email},
                 headers={**idem_headers(), **client_ip_headers()},
             )
-            assert signup.status_code == 201
-            token = signup.json()["verification_token"]
-            assert token
+            assert signup.status_code == 202
+            assert signup.json()["status"] == "verification_required"
 
             with oidc_provider_patches(email=email):
                 start = client.post(
@@ -286,6 +288,8 @@ class TestOidcCustomerLoginHttpReal:
         integration_env: None,
     ) -> None:
         configure_oidc_integration_env(monkeypatch)
+        monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
+        monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
         get_settings.cache_clear()
         email = f"oidc-replay-{uuid.uuid4().hex[:8]}@example.com"
         verifier, challenge = pkce_pair()
