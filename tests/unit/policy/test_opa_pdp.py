@@ -56,3 +56,20 @@ def test_opa_pdp_fails_closed_on_transport_error() -> None:
 
     assert decision.allowed is False
     assert "OPA decision failed" in decision.reason
+
+
+def test_opa_platform_decision_has_explicit_platform_scope() -> None:
+    mock_http = MagicMock(spec=httpx.Client)
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"result": {"allow": True, "reason": "platform_admin"}}
+    mock_response.raise_for_status.return_value = None
+    mock_http.post.return_value = mock_response
+
+    pdp = OpaPolicyDecisionPoint(base_url="http://opa:8181", http_client=mock_http)
+    decision = pdp.authorize_platform(principal=_principal(), permission=Permission.PLATFORM_OPERATE)
+
+    assert decision.allowed is True
+    payload = mock_http.post.call_args.kwargs["json"]
+    assert payload["input"]["scope"] == "platform"
+    assert payload["input"]["tenant_id"] is None
+    assert payload["input"]["permission"] == Permission.PLATFORM_OPERATE.value
