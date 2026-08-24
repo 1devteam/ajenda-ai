@@ -26,7 +26,7 @@ def _settings(**overrides) -> Settings:
         "signup_expose_verification_token": True,
         "signup_verify_url_base": "http://localhost/verify-email",
         "email_provider": "noop",
-        "signup_idempotency_required": False,
+        "signup_require_idempotency_key": False,
     }
     defaults.update(overrides)
     return Settings.model_construct(**defaults)
@@ -89,8 +89,30 @@ def test_password_signup_public_ingress_returns_verification_required() -> None:
         "verification_code": "123456",
     }
     assert "tenant_id" not in body
+    assert "verification_token" not in body
     orchestrator.begin_signup.assert_called_once()
     assert orchestrator.begin_signup.call_args.kwargs["password"] == "correct-horse-battery-staple"
+
+
+def test_passwordless_exposed_staging_signup_keeps_legacy_envelope_without_magic_link() -> None:
+    client = _build_client()
+    receipt = _pending_receipt()
+
+    with patch("backend.api.routes.onboarding.TenantOnboardingOrchestrator") as orchestrator_cls:
+        orchestrator = MagicMock()
+        orchestrator.begin_signup.return_value = receipt
+        orchestrator_cls.return_value = orchestrator
+
+        response = client.post(
+            "/v1/onboarding/signup",
+            json={"org_name": "Acme", "email": "owner@example.com"},
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["tenant_id"] == str(receipt.tenant_id)
+    assert body["verification_token"] == "123456:owner@example.com"
+    assert body["verification_code"] == "123456"
 
 
 def test_duplicate_active_email_returns_same_generic_signup_contract() -> None:
@@ -114,12 +136,11 @@ def test_duplicate_active_email_returns_same_generic_signup_contract() -> None:
     assert response.json() == {
         "email": "owner@example.com",
         "status": "verification_required",
-        "verification_code": None,
     }
 
 
 def test_signup_requires_idempotency_key_in_production_mode() -> None:
-    client = _build_client(settings=_settings(env="production", signup_idempotency_required=True))
+    client = _build_client(settings=_settings(env="production", signup_require_idempotency_key=True))
     response = client.post(
         "/v1/onboarding/signup",
         json={
