@@ -33,6 +33,8 @@ class TestHumanCustomerLoopReal:
         integration_env: None,
     ) -> None:
         configure_oidc_integration_env(monkeypatch)
+        monkeypatch.setenv("AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN", "true")
+        monkeypatch.setenv("AJENDA_EMAIL_PROVIDER", "noop")
         get_settings.cache_clear()
         email = f"human-loop-{uuid.uuid4().hex[:8]}@example.com"
         subject = unique_oidc_subject()
@@ -68,13 +70,13 @@ class TestHumanCustomerLoopReal:
                     json={"org_name": "Human Loop Co", "email": email},
                     headers={**idem_headers(), **client_ip_headers()},
                 )
-                assert signup.status_code == 201, signup.text
-                token = signup.json()["verification_token"]
-                assert token
+                assert signup.status_code == 202, signup.text
+                code = signup.json()["verification_code"]
+                assert code and len(code) == 6
 
                 verify = client.post(
                     "/v1/onboarding/verify-email",
-                    json={"token": token},
+                    json={"email": email, "code": code},
                     headers={**idem_headers(), **client_ip_headers()},
                 )
                 assert verify.status_code == 200, verify.text
