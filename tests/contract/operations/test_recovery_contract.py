@@ -7,14 +7,16 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.api.routes.operations import router
-from backend.app.dependencies.db import get_db_session, get_request_tenant_id
+from backend.app.dependencies.db import get_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
 from backend.services.runtime_maintainer import RecoverySummary
 
 
 class _RecoveryOpsService:
-    def trigger_recovery(self) -> RecoverySummary:
+    def trigger_recovery(self, *, actor: str, actor_tenant_id: str) -> RecoverySummary:
+        assert actor == "test-admin"
+        assert actor_tenant_id
         return RecoverySummary(
             expired_lease_count=2,
             requeued_task_count=1,
@@ -22,17 +24,17 @@ class _RecoveryOpsService:
         )
 
 
-def test_recovery_route_returns_full_summary_payload(monkeypatch) -> None:
+def test_recovery_route_returns_full_summary_payload_for_platform_admin(monkeypatch) -> None:
     app = FastAPI()
     tenant_id = uuid.uuid4()
 
     @app.middleware("http")
     async def _inject_principal(request: Request, call_next):  # type: ignore[no-untyped-def]
         request.state.principal = Principal(
-            subject_id="test-operator",
+            subject_id="test-admin",
             tenant_id=str(tenant_id),
             principal_type=PrincipalType.USER,
-            roles=("operator",),
+            roles=("admin",),
         )
         return await call_next(request)
 
@@ -44,7 +46,6 @@ def test_recovery_route_returns_full_summary_payload(monkeypatch) -> None:
     def _queue_dep():
         return MagicMock()
 
-    app.dependency_overrides[get_request_tenant_id] = lambda: tenant_id
     app.dependency_overrides[get_db_session] = _db_dep
     app.dependency_overrides[get_queue_adapter] = _queue_dep
 
