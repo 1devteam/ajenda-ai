@@ -37,7 +37,7 @@ def _signup_verify_bootstrap(
         json={"org_name": "Credential RBAC Co", "email": resolved_email},
         headers={**idem_headers(), **client_ip_headers()},
     )
-    assert signup.status_code == 202, signup.text
+    assert signup.status_code == 201, signup.text
     code = signup.json()["verification_code"]
     assert code and len(code) == 6
     verify = client.post(
