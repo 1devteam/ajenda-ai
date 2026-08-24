@@ -1,4 +1,4 @@
-"""Verification token issuance and validation for onboarding."""
+"""Verification code issuance and validation for onboarding."""
 
 from __future__ import annotations
 
@@ -10,25 +10,28 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
 _PASSWORD_HASHER = PasswordHasher()
+_VERIFICATION_CODE_SPACE = 1_000_000
 
 
 @dataclass(frozen=True, slots=True)
 class IssuedVerificationToken:
+    """A short-lived verification code and its one-way stored representation."""
+
     plaintext: str
     token_hash: str
     expires_at: datetime
 
 
 class VerificationTokenIssuer:
-    """Issue and verify signup email verification tokens."""
+    """Issue and verify six-digit signup email verification codes."""
 
     def __init__(self, *, ttl_hours: int = 24) -> None:
         self._ttl_hours = ttl_hours
 
     def issue(self, *, now: datetime | None = None) -> IssuedVerificationToken:
-        """Generate a new verification token and Argon2id hash."""
+        """Generate a zero-padded six-digit code and Argon2id hash."""
         current = now or datetime.now(UTC)
-        plaintext = secrets.token_urlsafe(32)
+        plaintext = f"{secrets.randbelow(_VERIFICATION_CODE_SPACE):06d}"
         token_hash = str(_PASSWORD_HASHER.hash(plaintext))
         expires_at = current + timedelta(hours=self._ttl_hours)
         return IssuedVerificationToken(
@@ -38,7 +41,7 @@ class VerificationTokenIssuer:
         )
 
     def verify(self, *, plaintext: str, token_hash: str) -> bool:
-        """Constant-time verification of a plaintext token against a stored hash."""
+        """Verify one submitted code against one pending membership hash."""
         try:
             return bool(_PASSWORD_HASHER.verify(token_hash, plaintext))
         except VerifyMismatchError:

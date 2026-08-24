@@ -69,7 +69,8 @@ def _verified_member(pg_session, *, email: str) -> tuple[uuid.UUID, str]:
     )
     pg_session.commit()
     orchestrator.complete_verification(
-        token=receipt.verification_token_plaintext,
+        email=receipt.email.canonical,
+        code=receipt.verification_token_plaintext,
         client_ip_hash="integration-ip",
     )
     pg_session.commit()

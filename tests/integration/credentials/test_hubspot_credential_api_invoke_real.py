@@ -15,12 +15,9 @@ from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
 from backend.main import create_app
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
+from tests.integration.credentials.credential_e2e_support import auth_headers, provision_operational_tenant
 
 pytestmark = pytest.mark.integration
-
-
-def _auth_headers(*, tenant_id: str, api_key: str) -> dict[str, str]:
-    return {"X-Tenant-Id": tenant_id, "X-Api-Key": api_key}
 
 
 def _egress_spy(*, status_code: int = 200, body: str = '{"results":[],"count":0}') -> MagicMock:
@@ -48,31 +45,6 @@ def hubspot_runtime_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     get_settings.cache_clear()
 
 
-def _provision_operational_tenant(client: TestClient) -> tuple[str, str]:
-    email = f"api-invoke-{uuid.uuid4().hex[:8]}@example.com"
-    signup = client.post(
-        "/v1/onboarding/signup",
-        json={"org_name": "API Invoke Co", "email": email},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
-    )
-    assert signup.status_code == 201, signup.text
-    tenant_id = signup.json()["tenant_id"]
-    token = signup.json()["verification_token"]
-    verify = client.post(
-        "/v1/onboarding/verify-email",
-        json={"token": token},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
-    )
-    assert verify.status_code == 200, verify.text
-    bootstrap_key = verify.json()["api_key"]
-    promote = client.post(
-        "/v1/onboarding/promote-bootstrap-key",
-        headers=_auth_headers(tenant_id=tenant_id, api_key=bootstrap_key),
-    )
-    assert promote.status_code == 200, promote.text
-    return tenant_id, promote.json()["api_key"]
-
-
 def test_hubspot_api_register_then_crm_research_invokes_adapter(
     monkeypatch: pytest.MonkeyPatch,
     credential_live_onboarding: None,
@@ -82,10 +54,10 @@ def test_hubspot_api_register_then_crm_research_invokes_adapter(
 ) -> None:
     tenant_id: str
     with TestClient(create_app()) as client:
-        tenant_id, api_key = _provision_operational_tenant(client)
+        tenant_id, api_key = provision_operational_tenant(client, prefix="api-invoke")
         create_resp = client.post(
             "/v1/account/provider-credentials",
-            headers=_auth_headers(tenant_id=tenant_id, api_key=api_key),
+            headers=auth_headers(tenant_id=tenant_id, api_key=api_key),
             json={
                 "credential_id": "hubspot-crm",
                 "provider": "external_crm",

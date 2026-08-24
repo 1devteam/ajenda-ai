@@ -1,65 +1,36 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { verifyEmail } from "../api/client";
-import { beginOidcRedirect } from "../auth/oidc";
-import { saveSession } from "../auth/session";
-import OidcProviderButton from "../components/OidcProviderButton";
-import VerificationHelpPanel from "../components/VerificationHelpPanel";
-import { useAuth } from "../auth/AuthProvider";
+import { resendVerification, verifyEmail } from "../api/onboarding";
 import { failureText } from "../utils/errors";
-
-interface StoredBootstrapCredentials {
-  tenantId: string;
-  apiKey: string;
-  keyId: string;
-}
 
 export default function VerifyEmailPage() {
   const navigate = useNavigate();
-  const { oidcConfig: config, oidcEnabled, oidcLoading: configLoading } = useAuth();
   const [searchParams] = useSearchParams();
-  const initialEmail = searchParams.get("email") ?? "";
-  const [token, setToken] = useState(searchParams.get("token") ?? "");
+  const [email, setEmail] = useState(searchParams.get("email") ?? "");
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
   const [error, setError] = useState("");
-  const [autoAttempted, setAutoAttempted] = useState(false);
-  const [verified, setVerified] = useState(false);
-  const [bootstrapCredentials, setBootstrapCredentials] = useState<StoredBootstrapCredentials | null>(null);
+  const [notice, setNotice] = useState("");
 
-  async function completeVerification(verificationToken: string) {
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const normalizedEmail = email.trim();
+    const normalizedCode = code.trim();
+    if (!normalizedEmail || !/^\d{6}$/.test(normalizedCode)) {
+      setError("Enter your signup email and the six-digit verification code.");
+      return;
+    }
+
     setLoading(true);
     setError("");
-
+    setNotice("");
     try {
-      const response = await verifyEmail(verificationToken.trim());
+      const response = await verifyEmail(normalizedEmail, normalizedCode);
       if (!response.tenant_id?.trim()) {
-        throw new Error("Verification succeeded but tenant credentials were missing from the response.");
+        throw new Error("Verification succeeded but the workspace identity was missing from the response.");
       }
-
-      const credentials: StoredBootstrapCredentials = {
-        tenantId: response.tenant_id.trim(),
-        apiKey: response.api_key?.trim() ?? "",
-        keyId: response.key_id?.trim() ?? "",
-      };
-      setBootstrapCredentials(credentials);
-
-      if (oidcEnabled) {
-        setVerified(true);
-        return;
-      }
-
-      if (!credentials.apiKey || !credentials.keyId) {
-        throw new Error("Verification succeeded but bootstrap credentials were missing from the response.");
-      }
-
-      saveSession({
-        authMode: "api_key",
-        tenantId: credentials.tenantId,
-        apiKey: credentials.apiKey,
-        keyId: credentials.keyId,
-        phase: "bootstrap",
-      });
-      navigate("/promote", { replace: true });
+      navigate(`/signin?verified=1&email=${encodeURIComponent(normalizedEmail)}`, { replace: true });
     } catch (err) {
       setError(failureText(err));
     } finally {
@@ -67,122 +38,81 @@ export default function VerifyEmailPage() {
     }
   }
 
-  async function handleGoogleActivation() {
-    setLoading(true);
-    setError("");
-    try {
-      await beginOidcRedirect({ returnPath: "/dashboard" });
-    } catch (err) {
-      setError(failureText(err));
-      setLoading(false);
-    }
-  }
-
-  function handleBootstrapFallback() {
-    if (!bootstrapCredentials?.tenantId || !bootstrapCredentials.apiKey || !bootstrapCredentials.keyId) {
-      setError("Bootstrap credentials are missing. Verify your email again to continue with an API key.");
+  async function handleResend() {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      setError("Enter your signup email before requesting a new code.");
       return;
     }
 
-    setLoading(true);
+    setResending(true);
     setError("");
+    setNotice("");
     try {
-      saveSession({
-        authMode: "api_key",
-        tenantId: bootstrapCredentials.tenantId,
-        apiKey: bootstrapCredentials.apiKey,
-        keyId: bootstrapCredentials.keyId,
-        phase: "bootstrap",
-      });
-      navigate("/promote", { replace: true });
+      const response = await resendVerification(normalizedEmail);
+      setEmail(response.email);
+      if (response.verification_code && import.meta.env.DEV) {
+        setCode(response.verification_code);
+        setNotice(`Local staging verification code: ${response.verification_code}`);
+      } else {
+        setNotice(`If verification is pending for ${response.email}, a new code has been sent.`);
+      }
     } catch (err) {
       setError(failureText(err));
-      setLoading(false);
+    } finally {
+      setResending(false);
     }
-  }
-
-  useEffect(() => {
-    const queryToken = searchParams.get("token");
-    if (!queryToken || autoAttempted || configLoading) {
-      return;
-    }
-    setAutoAttempted(true);
-    void completeVerification(queryToken);
-  }, [autoAttempted, configLoading, oidcEnabled, searchParams]);
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    await completeVerification(token);
-  }
-
-  if (verified) {
-    return (
-      <main className="page-shell narrow">
-        <section className="panel auth-panel">
-          <p className="eyebrow">Email verified</p>
-          <h1>Finish setup with Google</h1>
-          <p>
-            Your workspace is active. Continue with Google to sign in as a human user. Use API keys later
-            only for automation.
-          </p>
-          <div className="form-grid">
-            <OidcProviderButton
-              provider={config.provider}
-              loading={loading}
-              onClick={() => void handleGoogleActivation()}
-            />
-            <details className="staging-signin">
-              <summary>Use bootstrap API key instead</summary>
-              <button type="button" className="ghost-button" onClick={handleBootstrapFallback} disabled={loading}>
-                Continue with API key activation
-              </button>
-            </details>
-          </div>
-        </section>
-        {error ? (
-          <div className="inline-error">
-            <pre>{error}</pre>
-          </div>
-        ) : null}
-      </main>
-    );
   }
 
   return (
     <main className="page-shell narrow">
       <section className="panel auth-panel">
         <p className="eyebrow">Email verification</p>
-        <h1>Activate your workspace</h1>
+        <h1>Verify your account</h1>
         <p>
-          Paste the verification token from your email link, or resend verification for your signup email.
-          After verification you can sign in with Google using the same email address.
+          Enter the six-digit code Ajenda sent to your signup email. Your password account stays inactive until this step succeeds.
         </p>
-
-        <VerificationHelpPanel
-          initialEmail={initialEmail}
-          introText="Resend verification for your signup email if you lost the link."
-          onVerifyNow={(nextToken) => {
-            setToken(nextToken);
-            void completeVerification(nextToken);
-          }}
-          disabled={loading}
-        />
 
         <form className="form-grid" onSubmit={(event) => void handleSubmit(event)}>
           <label>
-            Verification token
+            Signup email
             <input
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              placeholder="paste token from email URL"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="owner@example.com"
+              autoComplete="email"
+              required
+            />
+          </label>
+          <label>
+            Verification code
+            <input
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="123456"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
               required
               spellCheck={false}
             />
           </label>
-          <button type="submit" disabled={loading || !token.trim()}>
+          <button type="submit" disabled={loading || resending || !email.trim() || code.length !== 6}>
             {loading ? "Verifying..." : "Verify email"}
           </button>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => void handleResend()}
+            disabled={loading || resending || !email.trim()}
+          >
+            {resending ? "Sending..." : "Resend verification code"}
+          </button>
         </form>
+
+        {notice ? <p className="muted">{notice}</p> : null}
 
         <p className="muted">
           Already activated? <Link to="/signin">Sign in</Link>

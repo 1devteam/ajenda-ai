@@ -47,8 +47,7 @@ def _make_orchestrator() -> tuple[TenantOnboardingOrchestrator, MagicMock]:
     return orchestrator, session
 
 
-def test_begin_signup_happy_path() -> None:
-    orchestrator, session = _make_orchestrator()
+def _prepare_signup(orchestrator: TenantOnboardingOrchestrator) -> tuple[uuid.UUID, datetime, MagicMock]:
     tenant_id = uuid.uuid4()
     orchestrator._members.get_owner_by_email_canonical.return_value = None
     orchestrator._tenants.get_by_slug.return_value = None
@@ -61,13 +60,19 @@ def test_begin_signup_happy_path() -> None:
     )
     expires_at = datetime.now(UTC) + timedelta(hours=24)
     orchestrator._token_issuer.issue.return_value = MagicMock(
-        plaintext="verify-token",
+        plaintext="123456",
         token_hash="hash",
         expires_at=expires_at,
     )
     member = MagicMock()
     member.id = uuid.uuid4()
     orchestrator._members.create.return_value = member
+    return tenant_id, expires_at, member
+
+
+def test_begin_signup_happy_path() -> None:
+    orchestrator, session = _make_orchestrator()
+    tenant_id, _expires_at, _member = _prepare_signup(orchestrator)
 
     receipt = orchestrator.begin_signup(
         org_name="Acme",
@@ -78,9 +83,30 @@ def test_begin_signup_happy_path() -> None:
 
     assert receipt.tenant_id == tenant_id
     assert receipt.status == "pending_verification"
-    assert receipt.verification_token_plaintext == "verify-token"
+    assert receipt.verification_token_plaintext == "123456"
     session.flush.assert_called_once()
     orchestrator._abuse_guard.record_attempt.assert_called()
+
+
+def test_password_signup_stays_pending_and_persists_password_hash() -> None:
+    orchestrator, _session = _make_orchestrator()
+    _prepare_signup(orchestrator)
+
+    with patch("backend.services.tenant_onboarding_orchestrator.PasswordHasher") as hasher_cls:
+        hasher_cls.return_value.hash.return_value = "password-hash"
+        receipt = orchestrator.begin_signup(
+            org_name="Acme",
+            email="owner@example.com",
+            slug=None,
+            client_ip_hash="ip-hash",
+            password="correct horse battery staple",
+        )
+
+    assert receipt.status == "pending_verification"
+    create_kwargs = orchestrator._members.create.call_args.kwargs
+    assert create_kwargs["password_hash"] == "password-hash"
+    assert create_kwargs["verification_token_hash"] == "hash"
+    orchestrator._members.activate_member.assert_not_called()
 
 
 def test_begin_signup_rejects_duplicate_email() -> None:
@@ -98,7 +124,7 @@ def test_begin_signup_rejects_duplicate_email() -> None:
         )
 
 
-def test_complete_verification_issues_bootstrap_key() -> None:
+def test_complete_verification_issues_bootstrap_key_for_matching_email_and_code() -> None:
     orchestrator, _session = _make_orchestrator()
     member = MagicMock()
     member.id = uuid.uuid4()
@@ -106,7 +132,7 @@ def test_complete_verification_issues_bootstrap_key() -> None:
     member.email_canonical = "owner@example.com"
     member.verification_expires_at = datetime.now(UTC) + timedelta(hours=1)
     member.verification_token_hash = "hash"
-    orchestrator._members.list_pending_with_verification_tokens.return_value = [member]
+    orchestrator._members.get_owner_by_email_canonical.return_value = member
     orchestrator._token_issuer.verify.return_value = True
     orchestrator._api_keys.count_active_keys.return_value = 0
     record = MagicMock(key_id="kid123")
@@ -114,31 +140,71 @@ def test_complete_verification_issues_bootstrap_key() -> None:
 
     with patch("backend.services.tenant_onboarding_orchestrator.QuotaEnforcementService") as quota_cls:
         quota_cls.return_value.check_api_key_limit.return_value = None
-        result = orchestrator.complete_verification(token="verify-token", client_ip_hash="ip-hash")
+        result = orchestrator.complete_verification(
+            email="owner@example.com",
+            code="123456",
+            client_ip_hash="ip-hash",
+        )
 
     assert result.key_id == "kid123"
     assert result.api_key == "kid123.secret"
+    orchestrator._members.get_owner_by_email_canonical.assert_called_once_with(
+        "owner@example.com",
+        statuses=frozenset({"pending_verification"}),
+    )
+    orchestrator._token_issuer.verify.assert_called_once_with(plaintext="123456", token_hash="hash")
     orchestrator._members.activate_member.assert_called_once()
 
 
-def test_complete_verification_rejects_expired_token() -> None:
+def test_complete_verification_rejects_expired_code() -> None:
     orchestrator, _session = _make_orchestrator()
     member = MagicMock()
     member.email_canonical = "owner@example.com"
     member.verification_expires_at = datetime.now(UTC) - timedelta(minutes=1)
-    orchestrator._members.list_pending_with_verification_tokens.return_value = [member]
+    member.verification_token_hash = "hash"
+    orchestrator._members.get_owner_by_email_canonical.return_value = member
     orchestrator._token_issuer.verify.return_value = True
 
     with pytest.raises(VerificationExpiredError):
-        orchestrator.complete_verification(token="verify-token", client_ip_hash="ip-hash")
+        orchestrator.complete_verification(
+            email="owner@example.com",
+            code="123456",
+            client_ip_hash="ip-hash",
+        )
 
 
-def test_complete_verification_rejects_invalid_token() -> None:
+def test_complete_verification_rejects_invalid_code_without_scanning_other_members() -> None:
     orchestrator, _session = _make_orchestrator()
-    orchestrator._members.list_pending_with_verification_tokens.return_value = []
+    member = MagicMock()
+    member.email_canonical = "owner@example.com"
+    member.verification_expires_at = datetime.now(UTC) + timedelta(hours=1)
+    member.verification_token_hash = "hash"
+    orchestrator._members.get_owner_by_email_canonical.return_value = member
+    orchestrator._token_issuer.verify.return_value = False
 
     with pytest.raises(InvalidVerificationTokenError):
-        orchestrator.complete_verification(token="bad-token", client_ip_hash="ip-hash")
+        orchestrator.complete_verification(
+            email="owner@example.com",
+            code="654321",
+            client_ip_hash="ip-hash",
+        )
+
+    orchestrator._members.list_pending_with_verification_tokens.assert_not_called()
+
+
+def test_complete_verification_rejects_unknown_email_without_hash_scan() -> None:
+    orchestrator, _session = _make_orchestrator()
+    orchestrator._members.get_owner_by_email_canonical.return_value = None
+
+    with pytest.raises(InvalidVerificationTokenError):
+        orchestrator.complete_verification(
+            email="missing@example.com",
+            code="123456",
+            client_ip_hash="ip-hash",
+        )
+
+    orchestrator._token_issuer.verify.assert_not_called()
+    orchestrator._members.list_pending_with_verification_tokens.assert_not_called()
 
 
 def test_promote_bootstrap_key_revokes_bootstrap() -> None:

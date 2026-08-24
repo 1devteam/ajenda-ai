@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -20,6 +21,8 @@ from backend.services.tenant_onboarding_orchestrator import (
     DuplicateEmailError,
     InvalidVerificationTokenError,
     MemberNotFoundError,
+    ResendVerificationResult,
+    SignupReceipt,
     TenantOnboardingOrchestrator,
     VerificationExpiredError,
     VerificationPendingError,
@@ -30,6 +33,7 @@ from backend.services.verification_delivery import (
     verification_delivery_from_settings,
 )
 from backend.utils.client_ip import extract_client_ip, hash_client_ip
+from backend.utils.email_canonical import canonicalize_email
 
 logger = logging.getLogger(__name__)
 
@@ -44,17 +48,17 @@ class SignupRequest(BaseModel):
 
 
 class SignupResponse(BaseModel):
-    tenant_id: str
-    slug: str
-    plan: str
     email: str
     status: str
-    verification_expires_at: str
+    verification_code: str | None = None
+    tenant_id: str | None = None
     verification_token: str | None = None
 
 
 class VerifyEmailRequest(BaseModel):
-    token: str = Field(min_length=32, max_length=128)
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    code: str | None = Field(default=None, pattern=r"^\d{6}$")
+    token: str | None = Field(default=None, min_length=8, max_length=512)
 
 
 class VerifyEmailResponse(BaseModel):
@@ -69,10 +73,9 @@ class ResendVerificationRequest(BaseModel):
 
 
 class ResendVerificationResponse(BaseModel):
-    tenant_id: str
     email: str
     status: str
-    verification_expires_at: str
+    verification_code: str | None = None
     verification_token: str | None = None
 
 
@@ -98,15 +101,176 @@ def _client_ip_hash(request: Request) -> str:
     return hash_client_ip(extract_client_ip(request))
 
 
-@router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
+def _canonical_public_email(email: str) -> str:
+    """Canonicalize an already validated public email for a stable generic response."""
+    try:
+        return canonicalize_email(email).canonical
+    except ValueError:
+        return email.strip().lower()
+
+
+def _legacy_verification_envelope(*, email: str, code: str) -> str:
+    """Serialize email+code for legacy passwordless staging clients without a hash scan."""
+    return f"{code}:{_canonical_public_email(email)}"
+
+
+def _resolve_verification_input(
+    *,
+    body: VerifyEmailRequest,
+    settings: Settings,
+) -> tuple[str, str]:
+    if body.email is not None and body.code is not None:
+        return body.email, body.code
+
+    if body.token is not None and settings.signup_expose_verification_token:
+        code, separator, email = body.token.partition(":")
+        if separator and len(code) == 6 and code.isdigit() and email.strip():
+            return email, code
+
+    raise HTTPException(
+        status_code=422,
+        detail="email and six-digit verification code are required",
+    )
+
+
+def _signup_response(
+    *,
+    email: str,
+    settings: Settings,
+    verification_code: str | None = None,
+    legacy_tenant_id: uuid.UUID | None = None,
+    legacy_passwordless: bool = False,
+) -> SignupResponse:
+    exposed_code = verification_code if settings.signup_expose_verification_token else None
+    legacy_enabled = bool(legacy_passwordless and exposed_code and legacy_tenant_id)
+    canonical_email = _canonical_public_email(email)
+    return SignupResponse(
+        email=canonical_email,
+        status="verification_required",
+        verification_code=exposed_code,
+        tenant_id=(str(legacy_tenant_id) if legacy_enabled else None),
+        verification_token=(
+            _legacy_verification_envelope(email=canonical_email, code=exposed_code)
+            if legacy_enabled and exposed_code is not None
+            else None
+        ),
+    )
+
+
+def _resend_response(
+    *,
+    email: str,
+    settings: Settings,
+    verification_code: str | None = None,
+) -> ResendVerificationResponse:
+    exposed_code = verification_code if settings.signup_expose_verification_token else None
+    canonical_email = _canonical_public_email(email)
+    return ResendVerificationResponse(
+        email=canonical_email,
+        status="verification_if_pending",
+        verification_code=exposed_code,
+        verification_token=(
+            _legacy_verification_envelope(email=canonical_email, code=exposed_code)
+            if exposed_code is not None
+            else None
+        ),
+    )
+
+
+def _deliver_verification(
+    *,
+    settings: Settings,
+    orchestrator: TenantOnboardingOrchestrator,
+    db: Session,
+    to_email: str,
+    org_name: str,
+    verification_code: str,
+    verification_expires_at: datetime,
+    member_id: uuid.UUID,
+) -> None:
+    """Attempt delivery without turning account state into a public enumeration oracle."""
+    delivery = verification_delivery_from_settings(settings)
+    verify_url = build_verify_url(
+        base_url=settings.signup_verify_url_base or "http://localhost/verify-email",
+        email=to_email,
+    )
+    try:
+        delivery.send_signup_verification(
+            to_email=to_email,
+            org_name=org_name,
+            verification_code=verification_code,
+            verify_url=verify_url,
+            expires_at=verification_expires_at,
+        )
+    except DeliveryError:
+        logger.exception("verification_email_delivery_failed")
+        try:
+            orchestrator.mark_delivery_failed(member_id=member_id)
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("verification_delivery_failure_state_update_failed")
+
+
+def _deliver_signup_receipt(
+    *,
+    settings: Settings,
+    orchestrator: TenantOnboardingOrchestrator,
+    db: Session,
+    receipt: SignupReceipt,
+    org_name: str,
+) -> None:
+    _deliver_verification(
+        settings=settings,
+        orchestrator=orchestrator,
+        db=db,
+        to_email=receipt.email.raw,
+        org_name=org_name,
+        verification_code=receipt.verification_token_plaintext,
+        verification_expires_at=receipt.verification_expires_at,
+        member_id=receipt.member_id,
+    )
+
+
+def _deliver_resend_result(
+    *,
+    settings: Settings,
+    orchestrator: TenantOnboardingOrchestrator,
+    db: Session,
+    result: ResendVerificationResult,
+) -> None:
+    _deliver_verification(
+        settings=settings,
+        orchestrator=orchestrator,
+        db=db,
+        to_email=result.email.raw,
+        org_name="your organization",
+        verification_code=result.verification_token_plaintext,
+        verification_expires_at=result.verification_expires_at,
+        member_id=result.member_id,
+    )
+
+
+@router.post(
+    "/signup",
+    response_model=SignupResponse,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def signup(
     body: SignupRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> SignupResponse:
+    """Begin signup without revealing whether the submitted email already owns an account."""
     _require_idempotency_key(request, settings, idempotency_key)
+    passwordless_programmatic = body.password is None
+    if passwordless_programmatic:
+        response.status_code = status.HTTP_201_CREATED
+
     orchestrator = TenantOnboardingOrchestrator(db, settings=settings)
     client_ip_hash = _client_ip_hash(request)
     try:
@@ -118,69 +282,63 @@ def signup(
             client_ip_hash=client_ip_hash,
         )
         db.commit()
+    except VerificationPendingError:
+        db.rollback()
+        try:
+            result = orchestrator.resend_verification(
+                email=body.email,
+                client_ip_hash=client_ip_hash,
+            )
+            db.commit()
+        except SignupRateLimitedError as exc:
+            db.rollback()
+            raise HTTPException(status_code=429, detail="rate limit exceeded") from exc
+        except (MemberNotFoundError, DuplicateEmailError):
+            db.rollback()
+            return _signup_response(email=body.email, settings=settings)
+        _deliver_resend_result(
+            settings=settings,
+            orchestrator=orchestrator,
+            db=db,
+            result=result,
+        )
+        return _signup_response(
+            email=result.email.canonical,
+            settings=settings,
+            verification_code=result.verification_token_plaintext,
+        )
+    except DuplicateEmailError:
+        db.rollback()
+        return _signup_response(email=body.email, settings=settings)
     except SignupDisabledError as exc:
         db.rollback()
         raise HTTPException(status_code=503, detail="Signup is temporarily unavailable.") from exc
     except SignupRateLimitedError as exc:
         db.rollback()
         raise HTTPException(status_code=429, detail="rate limit exceeded") from exc
-    except (DuplicateEmailError, VerificationPendingError) as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except IntegrityError as exc:
+    except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="An account with this email already exists.") from exc
+        return _signup_response(email=body.email, settings=settings)
     except Exception:
         db.rollback()
         raise
 
-    if receipt.status == "active":
-        return SignupResponse(
-            tenant_id=str(receipt.tenant_id),
-            slug=receipt.slug,
-            plan=receipt.plan,
-            email=receipt.email.canonical,
-            status=receipt.status,
-            verification_expires_at=receipt.verification_expires_at.isoformat(),
-            verification_token=None,
-        )
-
-    delivery = verification_delivery_from_settings(settings)
-    verify_url = build_verify_url(
-        base_url=settings.signup_verify_url_base or "http://localhost/verify-email",
-        token=receipt.verification_token_plaintext,
+    _deliver_signup_receipt(
+        settings=settings,
+        orchestrator=orchestrator,
+        db=db,
+        receipt=receipt,
+        org_name=body.org_name,
     )
-    try:
-        delivery.send_signup_verification(
-            to_email=receipt.email.raw,
-            org_name=body.org_name,
-            verify_url=verify_url,
-            expires_at=receipt.verification_expires_at,
-        )
-    except DeliveryError as exc:
-        try:
-            orchestrator.mark_delivery_failed(member_id=receipt.member_id)
-            db.commit()
-        except Exception:
-            db.rollback()
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "verification_email_failed", "message": "verification email delivery failed"},
-        ) from exc
-
-    return SignupResponse(
-        tenant_id=str(receipt.tenant_id),
-        slug=receipt.slug,
-        plan=receipt.plan,
+    return _signup_response(
         email=receipt.email.canonical,
-        status=receipt.status,
-        verification_expires_at=receipt.verification_expires_at.isoformat(),
-        verification_token=(
-            receipt.verification_token_plaintext if settings.signup_expose_verification_token else None
-        ),
+        settings=settings,
+        verification_code=receipt.verification_token_plaintext,
+        legacy_tenant_id=receipt.tenant_id,
+        legacy_passwordless=passwordless_programmatic,
     )
 
 
@@ -193,10 +351,12 @@ def verify_email(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> VerifyEmailResponse:
     _require_idempotency_key(request, settings, idempotency_key)
+    email, code = _resolve_verification_input(body=body, settings=settings)
     orchestrator = TenantOnboardingOrchestrator(db, settings=settings)
     try:
         result = orchestrator.complete_verification(
-            token=body.token,
+            email=email,
+            code=code,
             client_ip_hash=_client_ip_hash(request),
         )
         db.commit()
@@ -213,23 +373,29 @@ def verify_email(
         db.rollback()
         raise
 
-    response = VerifyEmailResponse(
+    verification_response = VerifyEmailResponse(
         tenant_id=str(result.tenant_id),
         key_id=result.key_id,
         api_key=result.api_key,
         bootstrap_expires_at=result.bootstrap_expires_at.isoformat(),
     )
-    request.state.onboarding_bootstrap_response = response
-    return response
+    request.state.onboarding_bootstrap_response = verification_response
+    return verification_response
 
 
-@router.post("/resend-verification", response_model=ResendVerificationResponse)
+@router.post(
+    "/resend-verification",
+    response_model=ResendVerificationResponse,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def resend_verification(
     body: ResendVerificationRequest,
     request: Request,
     db: Session = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
 ) -> ResendVerificationResponse:
+    """Resend when pending while returning the same public response for unknown/active emails."""
     orchestrator = TenantOnboardingOrchestrator(db, settings=settings)
     try:
         result = orchestrator.resend_verification(
@@ -243,9 +409,9 @@ def resend_verification(
     except SignupRateLimitedError as exc:
         db.rollback()
         raise HTTPException(status_code=429, detail="rate limit exceeded") from exc
-    except MemberNotFoundError as exc:
+    except MemberNotFoundError:
         db.rollback()
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return _resend_response(email=body.email, settings=settings)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -253,35 +419,16 @@ def resend_verification(
         db.rollback()
         raise
 
-    delivery = verification_delivery_from_settings(settings)
-    verify_url = build_verify_url(
-        base_url=settings.signup_verify_url_base or "http://localhost/verify-email",
-        token=result.verification_token_plaintext,
+    _deliver_resend_result(
+        settings=settings,
+        orchestrator=orchestrator,
+        db=db,
+        result=result,
     )
-    try:
-        delivery.send_signup_verification(
-            to_email=result.email.raw,
-            org_name="your organization",
-            verify_url=verify_url,
-            expires_at=result.verification_expires_at,
-        )
-    except DeliveryError as exc:
-        try:
-            orchestrator.mark_delivery_failed(member_id=result.member_id)
-            db.commit()
-        except Exception:
-            db.rollback()
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "verification_email_failed", "message": "verification email delivery failed"},
-        ) from exc
-
-    return ResendVerificationResponse(
-        tenant_id=str(result.tenant_id),
+    return _resend_response(
         email=result.email.canonical,
-        status="pending_verification",
-        verification_expires_at=result.verification_expires_at.isoformat(),
-        verification_token=(result.verification_token_plaintext if settings.signup_expose_verification_token else None),
+        settings=settings,
+        verification_code=result.verification_token_plaintext,
     )
 
 

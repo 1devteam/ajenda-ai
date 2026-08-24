@@ -38,15 +38,15 @@ def _signup_verify_bootstrap(
         headers={**idem_headers(), **client_ip_headers()},
     )
     assert signup.status_code == 201, signup.text
-    tenant_id = signup.json()["tenant_id"]
-    token = signup.json()["verification_token"]
+    code = signup.json()["verification_code"]
+    assert code and len(code) == 6
     verify = client.post(
         "/v1/onboarding/verify-email",
-        json={"token": token},
+        json={"email": resolved_email, "code": code},
         headers={**idem_headers(), **client_ip_headers()},
     )
     assert verify.status_code == 200, verify.text
-    return tenant_id, resolved_email, verify.json()["api_key"]
+    return verify.json()["tenant_id"], resolved_email, verify.json()["api_key"]
 
 
 def test_bootstrap_api_key_denied_credentials_manage(

@@ -64,16 +64,19 @@ def provision_operational_tenant(client: TestClient, *, prefix: str = "cred-live
         json={"org_name": "Credential Live Co", "email": email},
         headers={"Idempotency-Key": str(uuid.uuid4())},
     )
+    # This fixture runs with verification-secret exposure enabled for test/staging only.
     assert signup.status_code == 201, signup.text
-    tenant_id = signup.json()["tenant_id"]
-    token = signup.json()["verification_token"]
+    code = signup.json()["verification_code"]
+    assert code and len(code) == 6
     verify = client.post(
         "/v1/onboarding/verify-email",
-        json={"token": token},
+        json={"email": email, "code": code},
         headers={"Idempotency-Key": str(uuid.uuid4())},
     )
     assert verify.status_code == 200, verify.text
-    bootstrap_key = verify.json()["api_key"]
+    verify_body = verify.json()
+    tenant_id = verify_body["tenant_id"]
+    bootstrap_key = verify_body["api_key"]
     promote = client.post(
         "/v1/onboarding/promote-bootstrap-key",
         headers=auth_headers(tenant_id=tenant_id, api_key=bootstrap_key),
