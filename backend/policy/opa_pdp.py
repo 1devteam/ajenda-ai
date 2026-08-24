@@ -18,6 +18,10 @@ class OpaPolicyDecisionPoint:
       response result may be:
         - bool
         - {"allow": bool, "reason": str}
+
+    Tenant-scoped decisions preserve the existing input contract. Platform
+    decisions add ``scope='platform'`` and set the target ``tenant_id`` to None
+    so policy can distinguish global control-plane authority explicitly.
     """
 
     def __init__(
@@ -30,20 +34,38 @@ class OpaPolicyDecisionPoint:
         self._base_url = base_url.rstrip("/")
         self._http = http_client or httpx.Client(timeout=timeout_seconds)
 
+    @staticmethod
+    def _principal_payload(principal: Principal) -> dict[str, Any]:
+        return {
+            "subject_id": principal.subject_id,
+            "tenant_id": principal.tenant_id,
+            "type": principal.principal_type.value,
+            "roles": sorted(principal.roles),
+            "permissions": sorted(p.value for p in principal.permissions),
+        }
+
     def authorize(self, *, principal: Principal, permission: Permission, tenant_id: str) -> PolicyDecision:
         payload: dict[str, Any] = {
             "input": {
-                "principal": {
-                    "subject_id": principal.subject_id,
-                    "tenant_id": principal.tenant_id,
-                    "type": principal.principal_type.value,
-                    "roles": sorted(principal.roles),
-                    "permissions": sorted(p.value for p in principal.permissions),
-                },
+                "principal": self._principal_payload(principal),
                 "permission": permission.value,
                 "tenant_id": tenant_id,
             }
         }
+        return self._request_decision(payload)
+
+    def authorize_platform(self, *, principal: Principal, permission: Permission) -> PolicyDecision:
+        payload: dict[str, Any] = {
+            "input": {
+                "principal": self._principal_payload(principal),
+                "permission": permission.value,
+                "tenant_id": None,
+                "scope": "platform",
+            }
+        }
+        return self._request_decision(payload)
+
+    def _request_decision(self, payload: dict[str, Any]) -> PolicyDecision:
         try:
             response = self._http.post(f"{self._base_url}/v1/data/ajenda/authz/allow", json=payload)
             response.raise_for_status()
