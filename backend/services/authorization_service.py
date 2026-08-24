@@ -76,6 +76,38 @@ class AuthorizationService:
                 )
             raise PermissionError(decision.reason)
 
+    def require_platform(self, *, principal: Principal, permission: Permission) -> None:
+        """Require explicit platform authority without inventing a target tenant."""
+        decision = self._pdp.authorize_platform(
+            principal=principal,
+            permission=permission,
+        )
+        self._record_platform_shadow_decision(
+            principal=principal,
+            permission=permission,
+            enforced_allowed=decision.allowed,
+            enforced_reason=decision.reason,
+            enforced_source=decision.policy_source,
+        )
+        if not decision.allowed:
+            if self._audit is not None:
+                self._audit.append(
+                    AuditEvent(
+                        tenant_id=principal.tenant_id,
+                        mission_id=None,
+                        category="authz",
+                        action="platform_denied",
+                        actor=principal.subject_id,
+                        details=decision.reason,
+                        payload_json={
+                            "permission": permission.value,
+                            "policy_source": decision.policy_source,
+                            "scope": "platform",
+                        },
+                    )
+                )
+            raise PermissionError(decision.reason)
+
     def _record_shadow_decision(
         self,
         *,
@@ -103,6 +135,47 @@ class AuthorizationService:
                 actor=principal.subject_id,
                 details=("shadow_policy_diverged" if diverged else "shadow_policy_aligned"),
                 payload_json={
+                    "permission": permission.value,
+                    "enforced": {
+                        "allowed": enforced_allowed,
+                        "reason": enforced_reason,
+                        "policy_source": enforced_source,
+                    },
+                    "shadow": {
+                        "allowed": shadow.allowed,
+                        "reason": shadow.reason,
+                        "policy_source": shadow.policy_source,
+                    },
+                },
+            )
+        )
+
+    def _record_platform_shadow_decision(
+        self,
+        *,
+        principal: Principal,
+        permission: Permission,
+        enforced_allowed: bool,
+        enforced_reason: str,
+        enforced_source: str,
+    ) -> None:
+        if self._shadow_pdp is None or self._audit is None:
+            return
+        shadow = self._shadow_pdp.authorize_platform(
+            principal=principal,
+            permission=permission,
+        )
+        diverged = shadow.allowed != enforced_allowed
+        self._audit.append(
+            AuditEvent(
+                tenant_id=principal.tenant_id,
+                mission_id=None,
+                category="authz",
+                action="platform_shadow_decision",
+                actor=principal.subject_id,
+                details=("shadow_policy_diverged" if diverged else "shadow_policy_aligned"),
+                payload_json={
+                    "scope": "platform",
                     "permission": permission.value,
                     "enforced": {
                         "allowed": enforced_allowed,
