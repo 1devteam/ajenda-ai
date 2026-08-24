@@ -70,7 +70,7 @@ class TestHumanCustomerLoopReal:
                     json={"org_name": "Human Loop Co", "email": email},
                     headers={**idem_headers(), **client_ip_headers()},
                 )
-                assert signup.status_code == 202, signup.text
+                assert signup.status_code == 201, signup.text
                 code = signup.json()["verification_code"]
                 assert code and len(code) == 6
 
