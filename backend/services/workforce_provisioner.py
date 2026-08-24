@@ -11,6 +11,7 @@ from backend.domain.user_workforce_agent import UserWorkforceAgent
 from backend.domain.workforce_fleet import WorkforceFleet
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
+from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.user_workforce_agent_repository import UserWorkforceAgentRepository
 from backend.repositories.workforce_fleet_repository import WorkforceFleetRepository
 from backend.runtime.transitions import transition_agent, transition_fleet
@@ -19,6 +20,7 @@ from backend.runtime.transitions import transition_agent, transition_fleet
 class WorkforceProvisioner:
     def __init__(self, session: Session) -> None:
         self._session = session
+        self._missions = MissionRepository(session)
         self._fleets = WorkforceFleetRepository(session)
         self._agents = UserWorkforceAgentRepository(session)
         self._audit = AuditEventRepository(session)
@@ -32,6 +34,12 @@ class WorkforceProvisioner:
         fleet_name: str,
         agent_specs: list[tuple[str, str]],
     ) -> WorkforceFleet:
+        # Defense in depth: callers must not be able to bind a tenant-owned
+        # workforce record to a mission owned by another tenant merely because
+        # the database foreign key references missions.id globally.
+        if self._missions.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id) is None:
+            raise ValueError("mission not found for tenant")
+
         fleet = self._fleets.add(
             WorkforceFleet(
                 tenant_id=tenant_id,
