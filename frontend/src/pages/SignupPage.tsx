@@ -1,11 +1,10 @@
 import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router";
-import { signup } from "../api/client";
+import { Link } from "react-router";
+import { signup } from "../api/onboarding";
 import VerificationHelpPanel from "../components/VerificationHelpPanel";
 import { failureText } from "../utils/errors";
 
 export default function SignupPage() {
-  const navigate = useNavigate();
   const [orgName, setOrgName] = useState("");
   const [email, setEmail] = useState("");
   const [slug, setSlug] = useState("");
@@ -13,6 +12,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
+  const [pendingCode, setPendingCode] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -26,11 +26,8 @@ export default function SignupPage() {
         slug: slug.trim() || undefined,
         password,
       });
-      if (response.status === "active") {
-        navigate("/signin", { replace: true });
-      } else {
-        setPendingEmail(response.email);
-      }
+      setPendingEmail(response.email);
+      setPendingCode(response.verification_code ?? null);
     } catch (err) {
       setError(failureText(err));
     } finally {
@@ -43,22 +40,21 @@ export default function SignupPage() {
       <main className="page-shell narrow">
         <section className="panel auth-panel">
           <p className="eyebrow">Verify your email</p>
-          <h1>Almost there</h1>
+          <h1>Check your inbox</h1>
           <p>
-            Account created for <strong>{pendingEmail}</strong>. Verify your email to finish activation.
+            If <strong>{pendingEmail}</strong> can be activated, Ajenda has sent a six-digit verification code.
+            Enter that code before signing in.
           </p>
 
           <VerificationHelpPanel
             initialEmail={pendingEmail}
-            introText="Resend verification or use the staging token below to finish activation."
-            onVerifyNow={(verifyToken) => {
-              navigate(`/verify-email?email=${encodeURIComponent(pendingEmail)}&token=${encodeURIComponent(verifyToken)}`);
-            }}
+            initialCode={pendingCode}
+            introText="Use the code from your email, or request a new one below."
             disabled={loading}
           />
 
           <p className="muted">
-            After verification, return to <Link to="/signin">Sign in</Link> with your email and password.
+            After verification, <Link to={`/verify-email?email=${encodeURIComponent(pendingEmail)}`}>enter your code</Link>, then sign in with your email and password.
           </p>
         </section>
         {error ? (
@@ -103,7 +99,14 @@ export default function SignupPage() {
           </label>
           <label>
             Password
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} autoComplete="new-password" required />
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              minLength={8}
+              autoComplete="new-password"
+              required
+            />
           </label>
           <label>
             Slug (optional)
@@ -123,7 +126,7 @@ export default function SignupPage() {
           Already have an account? <Link to="/signin">Sign in</Link>
         </p>
         <p className="muted">
-          Still verifying? <Link to="/verify-email">Enter verification token</Link>
+          Still verifying? <Link to="/verify-email">Enter verification code</Link>
         </p>
       </section>
 
