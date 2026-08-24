@@ -83,7 +83,7 @@ class TestPaidCustomerLoopReal:
                 json={"org_name": "Paid Loop Co", "email": email},
                 headers=_idem(),
             )
-            assert signup.status_code == 202, signup.text
+            assert signup.status_code == 201, signup.text
             code = signup.json()["verification_code"]
             assert code and len(code) == 6
 
