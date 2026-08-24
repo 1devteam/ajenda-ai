@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -50,11 +51,14 @@ class SignupResponse(BaseModel):
     email: str
     status: str
     verification_code: str | None = None
+    tenant_id: str | None = None
+    verification_token: str | None = None
 
 
 class VerifyEmailRequest(BaseModel):
-    email: str = Field(min_length=3, max_length=320)
-    code: str = Field(pattern=r"^\d{6}$")
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    code: str | None = Field(default=None, pattern=r"^\d{6}$")
+    token: str | None = Field(default=None, min_length=8, max_length=512)
 
 
 class VerifyEmailResponse(BaseModel):
@@ -72,6 +76,7 @@ class ResendVerificationResponse(BaseModel):
     email: str
     status: str
     verification_code: str | None = None
+    verification_token: str | None = None
 
 
 class PromoteBootstrapKeyResponse(BaseModel):
@@ -104,16 +109,51 @@ def _canonical_public_email(email: str) -> str:
         return email.strip().lower()
 
 
+def _legacy_verification_envelope(*, email: str, code: str) -> str:
+    """Serialize email+code for legacy passwordless staging clients without a hash scan."""
+    return f"{code}:{_canonical_public_email(email)}"
+
+
+def _resolve_verification_input(
+    *,
+    body: VerifyEmailRequest,
+    settings: Settings,
+) -> tuple[str, str]:
+    if body.email is not None and body.code is not None:
+        return body.email, body.code
+
+    if body.token is not None and settings.signup_expose_verification_token:
+        code, separator, email = body.token.partition(":")
+        if separator and len(code) == 6 and code.isdigit() and email.strip():
+            return email, code
+
+    raise HTTPException(
+        status_code=422,
+        detail="email and six-digit verification code are required",
+    )
+
+
 def _signup_response(
     *,
     email: str,
     settings: Settings,
     verification_code: str | None = None,
+    legacy_tenant_id: uuid.UUID | None = None,
+    legacy_passwordless: bool = False,
 ) -> SignupResponse:
+    exposed_code = verification_code if settings.signup_expose_verification_token else None
+    legacy_enabled = bool(legacy_passwordless and exposed_code and legacy_tenant_id)
+    canonical_email = _canonical_public_email(email)
     return SignupResponse(
-        email=_canonical_public_email(email),
+        email=canonical_email,
         status="verification_required",
-        verification_code=(verification_code if settings.signup_expose_verification_token else None),
+        verification_code=exposed_code,
+        tenant_id=(str(legacy_tenant_id) if legacy_enabled else None),
+        verification_token=(
+            _legacy_verification_envelope(email=canonical_email, code=exposed_code)
+            if legacy_enabled and exposed_code is not None
+            else None
+        ),
     )
 
 
@@ -123,10 +163,17 @@ def _resend_response(
     settings: Settings,
     verification_code: str | None = None,
 ) -> ResendVerificationResponse:
+    exposed_code = verification_code if settings.signup_expose_verification_token else None
+    canonical_email = _canonical_public_email(email)
     return ResendVerificationResponse(
-        email=_canonical_public_email(email),
+        email=canonical_email,
         status="verification_if_pending",
-        verification_code=(verification_code if settings.signup_expose_verification_token else None),
+        verification_code=exposed_code,
+        verification_token=(
+            _legacy_verification_envelope(email=canonical_email, code=exposed_code)
+            if exposed_code is not None
+            else None
+        ),
     )
 
 
@@ -138,7 +185,7 @@ def _deliver_verification(
     to_email: str,
     org_name: str,
     verification_code: str,
-    verification_expires_at,
+    verification_expires_at: datetime,
     member_id: uuid.UUID,
 ) -> None:
     """Attempt delivery without turning account state into a public enumeration oracle."""
@@ -204,16 +251,26 @@ def _deliver_resend_result(
     )
 
 
-@router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/signup",
+    response_model=SignupResponse,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def signup(
     body: SignupRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> SignupResponse:
     """Begin signup without revealing whether the submitted email already owns an account."""
     _require_idempotency_key(request, settings, idempotency_key)
+    passwordless_programmatic = body.password is None
+    if passwordless_programmatic:
+        response.status_code = status.HTTP_201_CREATED
+
     orchestrator = TenantOnboardingOrchestrator(db, settings=settings)
     client_ip_hash = _client_ip_hash(request)
     try:
@@ -280,6 +337,8 @@ def signup(
         email=receipt.email.canonical,
         settings=settings,
         verification_code=receipt.verification_token_plaintext,
+        legacy_tenant_id=receipt.tenant_id,
+        legacy_passwordless=passwordless_programmatic,
     )
 
 
@@ -292,11 +351,12 @@ def verify_email(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> VerifyEmailResponse:
     _require_idempotency_key(request, settings, idempotency_key)
+    email, code = _resolve_verification_input(body=body, settings=settings)
     orchestrator = TenantOnboardingOrchestrator(db, settings=settings)
     try:
         result = orchestrator.complete_verification(
-            email=body.email,
-            code=body.code,
+            email=email,
+            code=code,
             client_ip_hash=_client_ip_hash(request),
         )
         db.commit()
@@ -313,19 +373,20 @@ def verify_email(
         db.rollback()
         raise
 
-    response = VerifyEmailResponse(
+    verification_response = VerifyEmailResponse(
         tenant_id=str(result.tenant_id),
         key_id=result.key_id,
         api_key=result.api_key,
         bootstrap_expires_at=result.bootstrap_expires_at.isoformat(),
     )
-    request.state.onboarding_bootstrap_response = response
-    return response
+    request.state.onboarding_bootstrap_response = verification_response
+    return verification_response
 
 
 @router.post(
     "/resend-verification",
     response_model=ResendVerificationResponse,
+    response_model_exclude_none=True,
     status_code=status.HTTP_202_ACCEPTED,
 )
 def resend_verification(
