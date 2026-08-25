@@ -12,7 +12,8 @@ from typing import Any
 
 from graph_selective_ci import build_shadow_plan
 
-SUPPORTED_SCHEMA_VERSION = "1.0"
+SUPPORTED_INPUT_SCHEMA_VERSIONS = frozenset({"1.0", "1.1"})
+DECISION_SCHEMA_VERSION = "1.1"
 
 
 def _load_json_object(path: Path, *, label: str) -> dict[str, Any]:
@@ -28,7 +29,7 @@ def _load_json_object(path: Path, *, label: str) -> dict[str, Any]:
 
 
 def _validate_schema(payload: dict[str, Any], *, label: str) -> None:
-    if payload.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
+    if str(payload.get("schema_version")) not in SUPPORTED_INPUT_SCHEMA_VERSIONS:
         raise RuntimeError(f"unsupported {label} schema_version")
 
 
@@ -154,7 +155,6 @@ def build_decision_manifest(
 
     blocking_reasons: list[str] = []
     review_reasons: list[str] = []
-
     proof_plan: dict[str, Any] | None = None
     try:
         proof_plan = build_shadow_plan(proof)
@@ -162,12 +162,12 @@ def build_decision_manifest(
         blocking_reasons.append(f"proof manifest validation failed: {exc}")
 
     if integrity.get("pass") is not True:
-        blocking_reasons.append("canonical graph completeness integrity failed")
+        blockers = integrity.get("unacknowledged_blocking_findings", [])
+        suffix = f": {', '.join(str(item) for item in blockers)}" if blockers else ""
+        blocking_reasons.append(f"canonical graph completeness integrity failed{suffix}")
 
-    for item in manual_review:
-        review_reasons.append(item)
-    for gate in review_gates:
-        review_reasons.append(f"review-only gate required: {gate}")
+    review_reasons.extend(manual_review)
+    review_reasons.extend(f"review-only gate required: {gate}" for gate in review_gates)
 
     if blocking_reasons:
         disposition = "blocked"
@@ -187,12 +187,11 @@ def build_decision_manifest(
         )
     if cross_boundary_cycles:
         warnings.append(f"{len(cross_boundary_cycles)} impacted static cycle(s) cross architectural boundaries.")
-
     if proof_plan is not None and proof_plan.get("full_suite_fallback"):
         warnings.append("selective-CI shadow policy would retain full-suite fallback for this change")
 
     return {
-        "schema_version": SUPPORTED_SCHEMA_VERSION,
+        "schema_version": DECISION_SCHEMA_VERSION,
         "decision": {
             "architecture_disposition": disposition,
             "merge_authorization": "not-determined",
@@ -204,14 +203,17 @@ def build_decision_manifest(
         "inputs": {
             "impact_report": {
                 "artifact": "artifacts/graph-impact-report.json",
+                "schema_version": str(impact.get("schema_version")),
                 "sha256": _fingerprint(impact),
             },
             "proof_manifest": {
                 "artifact": "artifacts/graph-proof-manifest.json",
+                "schema_version": str(proof.get("schema_version")),
                 "sha256": _fingerprint(proof),
             },
             "completeness_report": {
                 "artifact": "artifacts/graph-completeness-report.json",
+                "schema_version": str(completeness.get("schema_version")),
                 "sha256": _fingerprint(completeness),
             },
         },
@@ -232,7 +234,7 @@ def build_decision_manifest(
             "review_gates": review_gates,
             "manual_review": manual_review,
             "full_suite_fallback": bool(proof_plan and proof_plan.get("full_suite_fallback")),
-            "fallback_reasons": (list(proof_plan.get("fallback_reasons", [])) if proof_plan is not None else []),
+            "fallback_reasons": list(proof_plan.get("fallback_reasons", [])) if proof_plan is not None else [],
         },
         "completeness": {
             "integrity_pass": integrity.get("pass") is True,
@@ -240,6 +242,13 @@ def build_decision_manifest(
                 str(item) for item in integrity.get("missing_semantic_edge_evidence", [])
             ),
             "missing_invariant_sources": sorted(str(item) for item in integrity.get("missing_invariant_sources", [])),
+            "unacknowledged_blocking_findings": sorted(
+                str(item) for item in integrity.get("unacknowledged_blocking_findings", [])
+            ),
+            "acknowledged_semantic_findings": sorted(
+                str(item) for item in integrity.get("acknowledged_semantic_findings", [])
+            ),
+            "semantic_finding_count": int(integrity.get("semantic_finding_count", 0) or 0),
             "impacted_semantic_only_relationships": semantic_only,
             "impacted_cross_boundary_cycles": cross_boundary_cycles,
             "semantic_reconciliation_counts": completeness.get("semantic_reconciliation_counts", {}),
@@ -304,12 +313,10 @@ def main() -> int:
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(rendered, encoding="utf-8")
-
     if args.as_json:
         print(rendered, end="")
     else:
         _print_human(manifest)
-
     return 1 if manifest["decision"]["architecture_disposition"] == "blocked" else 0
 
 
