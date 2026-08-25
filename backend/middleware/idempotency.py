@@ -236,6 +236,8 @@ return redis.call('DEL', KEYS[1])
                 complete_value,
                 str(self._ttl_seconds),
             )
+            if not isinstance(result, int):
+                return False
             return result == 1
 
         return await anyio.to_thread.run_sync(_complete)
