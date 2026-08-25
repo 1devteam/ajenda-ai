@@ -43,7 +43,7 @@
     {"from":"py:backend.workers.worker_loop","to":"py:backend.services.worker_runtime_service","type":"calls","evidence":"backend/workers/worker_loop.py"},
     {"from":"py:backend.workers.task_dispatcher","to":"py:backend.services.worker_runtime_service","type":"lifecycle_authority","evidence":"backend/workers/task_dispatcher.py"},
     {"from":"py:backend.services.mission_executor","to":"py:backend.services.execution_coordinator","type":"execution_admission","evidence":"backend/services/mission_executor.py"},
-    {"from":"py:backend.services.operations_service","to":"py:backend.services.execution_coordinator","type":"retry_readmission","evidence":"backend/services.operations_service.py"},
+    {"from":"py:backend.services.operations_service","to":"py:backend.services.execution_coordinator","type":"retry_readmission","evidence":"backend/services/operations_service.py"},
     {"from":"py:backend.services.execution_coordinator","to":"py:backend.services.runtime_governor","type":"calls","evidence":"backend/services/execution_coordinator.py"},
     {"from":"py:backend.services.execution_coordinator","to":"py:backend.services.policy_guardian","type":"calls","evidence":"backend/services/execution_coordinator.py"},
     {"from":"py:backend.services.execution_coordinator","to":"py:backend.services.tools.action_registry","type":"uses","evidence":"backend/services/execution_coordinator.py"},
