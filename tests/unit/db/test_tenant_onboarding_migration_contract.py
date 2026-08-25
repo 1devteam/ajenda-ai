@@ -13,7 +13,7 @@ def test_onboarding_migrations_have_single_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0040_onboarding_connectors"]
+    assert heads == ["0041_restore_tenant_rls"]
     assert len(heads[0]) <= 32
 
 
