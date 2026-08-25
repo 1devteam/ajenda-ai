@@ -290,8 +290,7 @@ def build_graph() -> dict[str, Any]:
     semantic_inventory = collect_semantic_inventory(REPO_ROOT, overlay)
 
     nodes: list[dict[str, Any]] = [
-        {"id": node.id, "type": node.type, "source": node.source}
-        for node in [*py_nodes, *fe_nodes, *test_nodes]
+        {"id": node.id, "type": node.type, "source": node.source} for node in [*py_nodes, *fe_nodes, *test_nodes]
     ]
     nodes.extend(overlay.get("nodes", []))
     nodes.extend(semantic_inventory["nodes"])
