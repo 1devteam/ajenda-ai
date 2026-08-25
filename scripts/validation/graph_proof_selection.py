@@ -185,7 +185,8 @@ def select_proofs(report: dict[str, Any]) -> dict[str, Any]:
 
     changed_nodes = report.get("changed_nodes", [])
     if any(
-        node.get("type") in {"python_module", "service_module", "migration", "database_table", "network_egress_sink", "state_resource"}
+        node.get("type")
+        in {"python_module", "service_module", "migration", "database_table", "network_egress_sink", "state_resource"}
         for node in changed_nodes
     ):
         required_gates = sorted(set(required_gates).union({"unit-tests"}))
