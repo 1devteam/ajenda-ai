@@ -282,7 +282,9 @@ def _rls_semantics(
         nodes.append(node)
 
         evidence = source or "alembic/versions"
-        edges.append({"from": f"db:table:{table}", "to": "external:postgresql", "type": "stored_in", "evidence": evidence})
+        edges.append(
+            {"from": f"db:table:{table}", "to": "external:postgresql", "type": "stored_in", "evidence": evidence}
+        )
         if tenant_associated:
             edges.append(
                 {
@@ -399,11 +401,7 @@ def _network_calls(tree: ast.Module) -> list[dict[str, Any]]:
                 if value and value.startswith(("https://", "http://")):
                     literal_urls.append(value)
         hosts = sorted(
-            {
-                hostname
-                for url in literal_urls
-                if (hostname := (urlparse(url).hostname or "").lower().strip())
-            }
+            {hostname for url in literal_urls if (hostname := (urlparse(url).hostname or "").lower().strip())}
         )
         calls.append({"kind": kind, "line": getattr(item, "lineno", None), "hosts": hosts})
 
@@ -417,11 +415,7 @@ def _egress_semantics(
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
-    classifications = {
-        str(item["module"]): item
-        for item in overlay.get("egress_classifications", [])
-        if item.get("module")
-    }
+    classifications = {str(item["module"]): item for item in overlay.get("egress_classifications", []) if item.get("module")}
 
     for root in (repo_root / "backend", repo_root / "services"):
         if not root.exists():
@@ -485,20 +479,14 @@ def _egress_semantics(
 
 
 def _apply_acknowledgements(findings: list[dict[str, Any]], overlay: dict[str, Any]) -> list[dict[str, Any]]:
-    acknowledgements = {
-        str(item["id"]): item
-        for item in overlay.get("acknowledged_findings", [])
-        if item.get("id")
-    }
+    acknowledgements = {str(item["id"]): item for item in overlay.get("acknowledged_findings", []) if item.get("id")}
     result: list[dict[str, Any]] = []
     for finding in findings:
         item = dict(finding)
         acknowledgement = acknowledgements.get(str(item["id"]))
         item["acknowledged"] = acknowledgement is not None
         if acknowledgement is not None:
-            item["acknowledgement"] = {
-                key: value for key, value in acknowledgement.items() if key != "id"
-            }
+            item["acknowledgement"] = {key: value for key, value in acknowledgement.items() if key != "id"}
         result.append(item)
     return sorted(result, key=lambda item: str(item["id"]))
 
