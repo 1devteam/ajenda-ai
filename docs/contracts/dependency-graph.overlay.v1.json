@@ -43,7 +43,7 @@
     {"from":"py:backend.workers.worker_loop","to":"py:backend.services.worker_runtime_service","type":"calls","evidence":"backend/workers/worker_loop.py"},
     {"from":"py:backend.workers.task_dispatcher","to":"py:backend.services.worker_runtime_service","type":"lifecycle_authority","evidence":"backend/workers/task_dispatcher.py"},
     {"from":"py:backend.services.mission_executor","to":"py:backend.services.execution_coordinator","type":"execution_admission","evidence":"backend/services/mission_executor.py"},
-    {"from":"py:backend.services.operations_service","to":"py:backend.services.execution_coordinator","type":"retry_readmission","evidence":"backend/services/operations_service.py"},
+    {"from":"py:backend.services.operations_service","to":"py:backend.services.execution_coordinator","type":"retry_readmission","evidence":"backend/services.operations_service.py"},
     {"from":"py:backend.services.execution_coordinator","to":"py:backend.services.runtime_governor","type":"calls","evidence":"backend/services/execution_coordinator.py"},
     {"from":"py:backend.services.execution_coordinator","to":"py:backend.services.policy_guardian","type":"calls","evidence":"backend/services/execution_coordinator.py"},
     {"from":"py:backend.services.execution_coordinator","to":"py:backend.services.tools.action_registry","type":"uses","evidence":"backend/services/execution_coordinator.py"},
@@ -102,14 +102,10 @@
   "rls_exempt_tables": [
     {"table":"audit_events","reason":"Documented cross-tenant audit log / admin surface."},
     {"table":"tenant_members","reason":"Migration 0028 explicitly classifies the membership registry as cross-tenant and NO RLS."},
-    {"table":"stripe_webhook_events","reason":"Migration 0027 explicitly classifies this as a system-wide Stripe event ledger."}
+    {"table":"stripe_webhook_events","reason":"Migration 0027 explicitly classifies this as a system-wide Stripe event ledger."},
+    {"table":"customer_auth_sessions","reason":"Authentication control-plane table requires pre-tenant lookup by globally unique session credentials before principal and tenant binding; ordinary tenant RLS would prevent authentication bootstrap."}
   ],
-  "rls_nonblocking_tables": [
-    {"table":"tenant_usage","reason":"Pre-existing legacy RLS gap predating the frozen graph audit; surface it without making this instrumentation PR a remediation PR."},
-    {"table":"webhook_endpoints","reason":"Pre-existing legacy RLS gap predating the frozen graph audit; surface it for later architectural adjudication."},
-    {"table":"webhook_deliveries","reason":"Pre-existing legacy RLS gap predating the frozen graph audit; surface it for later architectural adjudication."},
-    {"table":"customer_auth_sessions","reason":"Authentication control-plane table accessed before tenant-scoped DB context; surface missing RLS without blocking this instrumentation PR."}
-  ],
+  "rls_nonblocking_tables": [],
   "egress_classifications": [
     {"module":"backend.services.network_egress","classification":"governed_authority","target":"external:unresolved-egress","reason":"Canonical vetted HTTP egress authority."},
     {"module":"backend.services.llm.openai_compatible","classification":"known_violation","target":"external:llm","reason":"GF-07: direct credentialed LLM HTTP bypasses NetworkEgressAuthority."},
