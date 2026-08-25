@@ -15,6 +15,7 @@ useDefault = true
 
 [allowlist]
 description = "Known safe patterns — placeholder values and architecture-classification metadata"
+regexTarget = "line"
 regexes = [
   # Placeholder values in example files
   "CHANGE_ME",
