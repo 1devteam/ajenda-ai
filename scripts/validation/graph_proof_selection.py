@@ -26,13 +26,15 @@ class ProofBundle:
     review_gates: tuple[str, ...] = ()
 
 
+SEMANTIC_HARDENING_TEST = "tests/unit/validation/test_graph_semantic_hardening.py"
+
 PROOF_BUNDLES: tuple[ProofBundle, ...] = (
     ProofBundle(
         id="tenant-isolation-proof",
         title="Tenant isolation contract proof",
         invariants=("tenant-isolation",),
         risk_domains=("tenant-isolation",),
-        tests=("tests/contract/api/test_tenant_isolation_policy.py",),
+        tests=("tests/contract/api/test_tenant_isolation_policy.py", SEMANTIC_HARDENING_TEST),
         required_gates=("unit-tests",),
     ),
     ProofBundle(
@@ -94,9 +96,22 @@ PROOF_BUNDLES: tuple[ProofBundle, ...] = (
         tests=(
             "tests/unit/tools/test_tool_runtime_authority.py",
             "tests/unit/tools/test_provider_read_actions.py",
+            SEMANTIC_HARDENING_TEST,
         ),
         required_gates=("unit-tests",),
         review_gates=("live-runtime-proof",),
+    ),
+    ProofBundle(
+        id="state-ownership-proof",
+        title="Atomic state ownership and consumption proof",
+        invariants=(
+            "lease-owner-integrity",
+            "durable-idempotency-ownership",
+            "single-use-secret-consumption",
+            "atomic-quota-reservation",
+        ),
+        tests=(SEMANTIC_HARDENING_TEST,),
+        required_gates=("unit-tests",),
     ),
     ProofBundle(
         id="connector-oauth-proof",
@@ -140,15 +155,14 @@ PROOF_BUNDLES: tuple[ProofBundle, ...] = (
     ),
 )
 
-POLICY_DRIFT_INVARIANTS = frozenset({"route-service-injection"})
-
 
 def _ids(items: list[dict[str, Any]]) -> set[str]:
     return {str(item["id"]) for item in items if item.get("id")}
 
 
 def select_proofs(report: dict[str, Any]) -> dict[str, Any]:
-    invariant_ids = _ids(report.get("relevant_invariants", []))
+    invariant_items = report.get("relevant_invariants", [])
+    invariant_ids = _ids(invariant_items)
     risk_ids = _ids(report.get("risk_domains", []))
 
     selected: list[ProofBundle] = []
@@ -170,20 +184,30 @@ def select_proofs(report: dict[str, Any]) -> dict[str, Any]:
     review_gates = sorted({gate for bundle in selected for gate in bundle.review_gates})
 
     changed_nodes = report.get("changed_nodes", [])
-    if any(node.get("type") in {"python_module", "service_module"} for node in changed_nodes):
+    if any(
+        node.get("type")
+        in {"python_module", "service_module", "migration", "database_table", "network_egress_sink", "state_resource"}
+        for node in changed_nodes
+    ):
         required_gates = sorted(set(required_gates).union({"unit-tests"}))
 
-    policy_drift = sorted(invariant_ids.intersection(POLICY_DRIFT_INVARIANTS))
     manual_review: list[str] = []
     if report.get("unmapped_changed_files"):
         manual_review.append("Review unmapped changed files; the canonical graph does not yet model them.")
-    for invariant_id in policy_drift:
-        manual_review.append(
-            f"Invariant {invariant_id} is recorded as policy drift and requires human architecture review."
-        )
+    for invariant in invariant_items:
+        invariant_id = str(invariant.get("id") or "")
+        status = str(invariant.get("status") or "")
+        if status == "policy_drift":
+            manual_review.append(
+                f"Invariant {invariant_id} is recorded as policy drift and requires human architecture review."
+            )
+        elif status == "known_violation":
+            manual_review.append(
+                f"Invariant {invariant_id} has a known baseline violation; verify the change does not expand it and remove the acknowledgement only with repair proof."
+            )
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "selected_bundles": [
             {
                 "id": bundle.id,
@@ -253,12 +277,10 @@ def main() -> int:
 
     manifest = select_proofs(report)
     rendered = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-
     if args.output:
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(rendered, encoding="utf-8")
-
     if args.as_json:
         print(rendered, end="")
     else:

@@ -21,7 +21,17 @@ from pr_invariant_classifier import _discover_changes, classify_risk_domains
 
 TEST_EDGE_TYPE = "tests"
 TEST_NODE_TYPE = "test_module"
-SEMANTIC_NODE_TYPES = frozenset({"runtime", "security_boundary", "external_service"})
+SEMANTIC_NODE_TYPES = frozenset(
+    {
+        "runtime",
+        "security_boundary",
+        "external_service",
+        "database_table",
+        "migration",
+        "network_egress_sink",
+        "state_resource",
+    }
+)
 
 
 def _normalize_path(path: str) -> str:
@@ -74,11 +84,9 @@ def _distances(
 ) -> dict[str, int]:
     distance: dict[str, int] = {}
     queue: deque[str] = deque()
-
     for start in sorted(set(starts)):
         distance[start] = 0
         queue.append(start)
-
     while queue:
         current = queue.popleft()
         current_depth = distance[current]
@@ -91,7 +99,6 @@ def _distances(
                 continue
             distance[target] = next_depth
             queue.append(target)
-
     return distance
 
 
@@ -131,21 +138,13 @@ def _impacted_tests(
         target = str(edge["to"])
         if target in affected_production:
             impacted[source].add(target)
-
     return [
-        {
-            "id": test_id,
-            "source": nodes[test_id].get("source"),
-            "covers_affected_nodes": sorted(targets),
-        }
+        {"id": test_id, "source": nodes[test_id].get("source"), "covers_affected_nodes": sorted(targets)}
         for test_id, targets in sorted(impacted.items())
     ]
 
 
-def _semantic_nodes(
-    node_ids: set[str],
-    nodes: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
+def _semantic_nodes(node_ids: set[str], nodes: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     selected = []
     for node_id in sorted(node_ids):
         node = nodes[node_id]
@@ -173,7 +172,6 @@ def _relevant_invariants(
     for invariant in graph.get("invariants", []):
         matched_sources: set[str] = set()
         matched_nodes: set[str] = set()
-
         for raw_source in invariant.get("sources", []):
             if not isinstance(raw_source, str):
                 continue
@@ -184,14 +182,11 @@ def _relevant_invariants(
                 if node_id in context_nodes:
                     matched_sources.add(source)
                     matched_nodes.add(node_id)
-
         for node_id in invariant.get("applies_to", []):
             if isinstance(node_id, str) and node_id in context_nodes:
                 matched_nodes.add(node_id)
-
         if not matched_sources and not matched_nodes:
             continue
-
         relevant.append(
             {
                 "id": invariant.get("id"),
@@ -201,7 +196,6 @@ def _relevant_invariants(
                 "matched_nodes": sorted(matched_nodes),
             }
         )
-
     return sorted(relevant, key=lambda item: str(item["id"]))
 
 
@@ -215,7 +209,6 @@ def analyze_impact(
     changed_set = set(changed)
     nodes = _node_map(graph)
     source_index = _source_index(graph)
-
     changed_node_ids = sorted({node_id for path in changed for node_id in source_index.get(path, [])})
     changed_nodes = [nodes[node_id] for node_id in changed_node_ids]
     changed_production = {node_id for node_id in changed_node_ids if nodes[node_id].get("type") != TEST_NODE_TYPE}
@@ -225,12 +218,10 @@ def analyze_impact(
     production_edges = _production_edges(graph, nodes)
     forward = _adjacency(production_edges, reverse=False)
     reverse = _adjacency(production_edges, reverse=True)
-
     upstream_distances = _distances(changed_production, reverse, max_depth=max_depth)
     downstream_distances = _distances(changed_production, forward, max_depth=max_depth)
     upstream_ids = set(upstream_distances) - changed_production
     downstream_ids = set(downstream_distances) - changed_production
-
     affected_production = changed_production | upstream_ids
     context_nodes = affected_production | downstream_ids
     impacted_tests = _impacted_tests(graph, nodes, affected_production)
@@ -242,12 +233,11 @@ def analyze_impact(
         changed_files=changed_set,
         context_nodes=context_nodes,
     )
-
     affected_semantic = _semantic_nodes(affected_production, nodes)
     dependency_semantic = _semantic_nodes(downstream_ids, nodes)
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "changed_files": changed,
         "changed_nodes": [
             {
@@ -259,16 +249,8 @@ def analyze_impact(
             for node in changed_nodes
         ],
         "unmapped_changed_files": unmapped,
-        "upstream_consumers": _described_nodes(
-            upstream_distances,
-            nodes,
-            exclude=changed_production,
-        ),
-        "downstream_dependencies": _described_nodes(
-            downstream_distances,
-            nodes,
-            exclude=changed_production,
-        ),
+        "upstream_consumers": _described_nodes(upstream_distances, nodes, exclude=changed_production),
+        "downstream_dependencies": _described_nodes(downstream_distances, nodes, exclude=changed_production),
         "impacted_tests": impacted_tests,
         "affected_semantic_nodes": affected_semantic,
         "dependency_semantic_nodes": dependency_semantic,
@@ -306,7 +288,6 @@ def _print_human(report: dict[str, Any]) -> None:
         f"{metrics['dependency_semantic_node_count']} semantic prerequisite(s), "
         f"{metrics['relevant_invariant_count']} relevant invariant(s)"
     )
-
     for node in report["changed_nodes"]:
         print(f"CHANGED: {node['id']} ({node.get('source') or node.get('label')})")
     for path in report["unmapped_changed_files"]:
@@ -326,12 +307,10 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", dest="as_json")
     parser.add_argument("--output")
     args = parser.parse_args()
-
     if bool(args.base_ref) != bool(args.head_ref):
         parser.error("--base-ref and --head-ref must be supplied together")
     if args.max_depth is not None and args.max_depth < 0:
         parser.error("--max-depth must be zero or greater")
-
     if args.changed_file:
         changed = sorted(set(args.changed_file))
     else:
@@ -340,15 +319,12 @@ def main() -> int:
         except RuntimeError as exc:
             print(f"FAIL: unable to determine changed files: {exc}")
             return 1
-
     report = analyze_impact(build_graph(), changed, max_depth=args.max_depth)
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
-
     if args.output:
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(rendered, encoding="utf-8")
-
     if args.as_json:
         print(rendered, end="")
     else:

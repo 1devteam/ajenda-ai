@@ -92,6 +92,7 @@ def test_invariant_statuses_are_explicit() -> None:
         "enforced_design_boundary",
         "enforced_meta_invariant",
         "policy_drift",
+        "known_violation",
     }
 
     assert graph["invariants"]

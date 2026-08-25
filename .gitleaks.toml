@@ -14,7 +14,8 @@ title = "Ajenda AI Gitleaks Config"
 useDefault = true
 
 [allowlist]
-description = "Known safe patterns — placeholder values in example/template files"
+description = "Known safe patterns — placeholder values and architecture-classification metadata"
+regexTarget = "line"
 regexes = [
   # Placeholder values in example files
   "CHANGE_ME",
@@ -26,6 +27,10 @@ regexes = [
   "test-secret",
   "test-token",
   "test-password",
+  # Canonical graph metadata. This is an architecture classification label,
+  # not an OAuth credential; LinkedIn's default rule otherwise treats the
+  # adjacent linkedin_oauth_client module name as a client-id assignment.
+  "connector_control_plane",
 ]
 paths = [
   # Example/template files contain intentional placeholder values

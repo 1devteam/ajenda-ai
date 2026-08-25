@@ -7,17 +7,22 @@ on:
       - "backend/**"
       - "services/**"
       - "frontend/src/**"
+      - "alembic/versions/**"
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
+      - "scripts/validation/graph_semantic_inventory.py"
       - "scripts/validation/graph_impact_analysis.py"
       - "scripts/validation/graph_proof_selection.py"
       - "scripts/validation/graph_completeness_audit.py"
+      - "scripts/validation/graph_selective_ci.py"
       - "scripts/validation/graph_architecture_decision.py"
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
+      - "tests/unit/validation/test_graph_semantic_hardening.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
       - "tests/unit/validation/test_graph_proof_selection.py"
       - "tests/unit/validation/test_graph_completeness_audit.py"
+      - "tests/unit/validation/test_graph_selective_ci.py"
       - "tests/unit/validation/test_graph_architecture_decision.py"
       - ".github/workflows/dependency-graph.yml"
   push:
@@ -26,17 +31,22 @@ on:
       - "backend/**"
       - "services/**"
       - "frontend/src/**"
+      - "alembic/versions/**"
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
+      - "scripts/validation/graph_semantic_inventory.py"
       - "scripts/validation/graph_impact_analysis.py"
       - "scripts/validation/graph_proof_selection.py"
       - "scripts/validation/graph_completeness_audit.py"
+      - "scripts/validation/graph_selective_ci.py"
       - "scripts/validation/graph_architecture_decision.py"
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
+      - "tests/unit/validation/test_graph_semantic_hardening.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
       - "tests/unit/validation/test_graph_proof_selection.py"
       - "tests/unit/validation/test_graph_completeness_audit.py"
+      - "tests/unit/validation/test_graph_selective_ci.py"
       - "tests/unit/validation/test_graph_architecture_decision.py"
       - ".github/workflows/dependency-graph.yml"
   workflow_dispatch:
@@ -65,13 +75,15 @@ jobs:
       - name: Build graph
         run: python scripts/validation/build_dependency_graph.py
 
-      - name: Prove graph generator, impact traversal, proof selection, completeness audit, and decision composition
+      - name: Prove graph generator, semantic inventory, impact traversal, proof selection, selective compatibility, completeness audit, and decision composition
         run: >-
           pytest -q
           tests/unit/validation/test_build_dependency_graph.py
+          tests/unit/validation/test_graph_semantic_hardening.py
           tests/unit/validation/test_graph_impact_analysis.py
           tests/unit/validation/test_graph_proof_selection.py
           tests/unit/validation/test_graph_completeness_audit.py
+          tests/unit/validation/test_graph_selective_ci.py
           tests/unit/validation/test_graph_architecture_decision.py
 
       - name: Analyze change impact
@@ -88,7 +100,6 @@ jobs:
           --output artifacts/graph-proof-manifest.json
 
       - name: Audit graph completeness
-        continue-on-error: true
         run: >-
           python scripts/validation/graph_completeness_audit.py
           --json

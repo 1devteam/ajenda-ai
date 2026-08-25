@@ -1,0 +1,136 @@
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+VALIDATION_DIR = Path(__file__).resolve().parents[3] / "scripts" / "validation"
+if str(VALIDATION_DIR) not in sys.path:
+    sys.path.insert(0, str(VALIDATION_DIR))
+
+BUILD_PATH = VALIDATION_DIR / "build_dependency_graph.py"
+BUILD_SPEC = importlib.util.spec_from_file_location("graph_semantic_build", BUILD_PATH)
+assert BUILD_SPEC is not None and BUILD_SPEC.loader is not None
+BUILD = importlib.util.module_from_spec(BUILD_SPEC)
+sys.modules[BUILD_SPEC.name] = BUILD
+BUILD_SPEC.loader.exec_module(BUILD)
+
+AUDIT_PATH = VALIDATION_DIR / "graph_completeness_audit.py"
+AUDIT_SPEC = importlib.util.spec_from_file_location("graph_semantic_audit", AUDIT_PATH)
+assert AUDIT_SPEC is not None and AUDIT_SPEC.loader is not None
+AUDIT = importlib.util.module_from_spec(AUDIT_SPEC)
+sys.modules[AUDIT_SPEC.name] = AUDIT
+AUDIT_SPEC.loader.exec_module(AUDIT)
+
+IMPACT_PATH = VALIDATION_DIR / "graph_impact_analysis.py"
+IMPACT_SPEC = importlib.util.spec_from_file_location("graph_semantic_impact", IMPACT_PATH)
+assert IMPACT_SPEC is not None and IMPACT_SPEC.loader is not None
+IMPACT = importlib.util.module_from_spec(IMPACT_SPEC)
+sys.modules[IMPACT_SPEC.name] = IMPACT
+IMPACT_SPEC.loader.exec_module(IMPACT)
+
+
+def _graph() -> dict:
+    return BUILD.build_graph()
+
+
+def test_rls_inventory_models_complete_and_missing_table_envelopes() -> None:
+    graph = _graph()
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    findings = {item["id"]: item for item in graph["semantic_findings"]}
+
+    protected = nodes["db:table:tenant_internal_records"]
+    assert protected["tenant_associated"] is True
+    assert protected["rls_enabled"] is True
+    assert protected["rls_forced"] is True
+    assert protected["rls_complete"] is True
+
+    expected_frozen = {
+        "rls-missing:email_send_idempotency_receipts",
+        "rls-missing:mission_composition_proposals",
+        "rls-missing:tenant_onboarding_states",
+        "rls-missing:member_onboarding_preferences",
+    }
+    assert expected_frozen <= findings.keys()
+    assert all(findings[finding_id]["acknowledged"] is True for finding_id in expected_frozen)
+    assert all(findings[finding_id]["blocking"] is True for finding_id in expected_frozen)
+
+
+def test_rls_inventory_preserves_explicit_cross_tenant_exceptions() -> None:
+    graph = _graph()
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    finding_ids = {item["id"] for item in graph["semantic_findings"]}
+
+    for table in ("audit_events", "tenant_members", "stripe_webhook_events"):
+        node = nodes[f"db:table:{table}"]
+        assert node["rls_exempt"] is True
+        assert f"rls-missing:{table}" not in finding_ids
+
+
+def test_production_egress_is_inventory_backed_and_known_bypasses_are_visible() -> None:
+    graph = _graph()
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+    findings = {item["id"]: item for item in graph["semantic_findings"]}
+
+    llm_sink = nodes["egress:backend.services.llm.openai_compatible"]
+    resend_sink = nodes["egress:backend.services.verification_delivery"]
+    authority_sink = nodes["egress:backend.services.network_egress"]
+    assert llm_sink["classification"] == "known_violation"
+    assert resend_sink["classification"] == "known_violation"
+    assert authority_sink["classification"] == "governed_authority"
+    assert (
+        "egress:backend.services.llm.openai_compatible",
+        "external:llm",
+        "direct_network_egress",
+    ) in edges
+    assert (
+        "egress:backend.services.verification_delivery",
+        "external:resend",
+        "direct_network_egress",
+    ) in edges
+    assert findings["egress-ungoverned:backend.services.llm.openai_compatible"]["acknowledged"] is True
+    assert findings["egress-ungoverned:backend.services.verification_delivery"]["acknowledged"] is True
+    assert "egress-ungoverned:backend.services.network_egress" not in findings
+
+
+def test_state_ownership_resources_and_invariants_are_first_class() -> None:
+    graph = _graph()
+    node_ids = {node["id"] for node in graph["nodes"]}
+    invariants = {item["id"]: item for item in graph["invariants"]}
+
+    expected_state = {
+        "state:redis-task-lease",
+        "state:http-idempotency-key",
+        "state:smtp-send-claim",
+        "state:verification-token",
+        "state:bootstrap-api-key",
+        "state:customer-refresh-token",
+        "state:api-key-quota-capacity",
+    }
+    assert expected_state <= node_ids
+    for invariant_id in (
+        "lease-owner-integrity",
+        "durable-idempotency-ownership",
+        "single-use-secret-consumption",
+        "atomic-quota-reservation",
+    ):
+        assert invariants[invariant_id]["status"] == "known_violation"
+        assert invariants[invariant_id]["applies_to"]
+
+
+def test_semantic_finding_ratchet_has_no_unacknowledged_blockers_at_baseline() -> None:
+    report = AUDIT.audit_graph(_graph())
+    assert report["integrity"]["pass"] is True
+    assert report["integrity"]["unacknowledged_blocking_findings"] == []
+    assert report["integrity"]["semantic_finding_count"] > 0
+
+
+def test_rls_migration_change_reaches_tenant_isolation_invariant() -> None:
+    report = IMPACT.analyze_impact(_graph(), ["alembic/versions/0034_add_email_send_idempotency_receipts.py"])
+    changed_ids = {item["id"] for item in report["changed_nodes"]}
+    invariant_ids = {item["id"] for item in report["relevant_invariants"]}
+
+    assert "migration:0034_add_email_send_idempotency_receipts" in changed_ids
+    assert "db:table:email_send_idempotency_receipts" in changed_ids
+    assert "tenant-isolation" in invariant_ids

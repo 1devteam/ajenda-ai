@@ -3,8 +3,7 @@
 
 The shadow runner never suppresses the repository's existing full PR gate. It
 validates the proof manifest, executes graph-selected focused pytest paths, and
-reports whether the manifest would require broad/full-suite fallback if Ajenda
-later enables selective CI enforcement.
+reports whether broad/full-suite fallback would still be required.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SUPPORTED_PROOF_SCHEMA_VERSIONS = frozenset({"1.0", "1.1"})
 ALLOWED_REQUIRED_GATES = frozenset(
     {
         "frontend-build-audit",
@@ -38,7 +38,7 @@ def _load_manifest(path: Path) -> dict[str, Any]:
         raise RuntimeError(f"proof manifest is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise RuntimeError("proof manifest root must be a JSON object")
-    if payload.get("schema_version") != "1.0":
+    if str(payload.get("schema_version")) not in SUPPORTED_PROOF_SCHEMA_VERSIONS:
         raise RuntimeError("unsupported proof manifest schema_version")
     return payload
 
@@ -82,7 +82,6 @@ def build_shadow_plan(manifest: dict[str, Any]) -> dict[str, Any]:
 
     unit_tests = sorted(path for path in tests if not path.startswith("tests/integration/"))
     integration_tests = sorted(path for path in tests if path.startswith("tests/integration/"))
-
     fallback_reasons: list[str] = []
     if manual_review:
         fallback_reasons.append("manual review is required")
@@ -96,7 +95,8 @@ def build_shadow_plan(manifest: dict[str, Any]) -> dict[str, Any]:
         fallback_reasons.append("review-only runtime proof is requested")
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
+        "source_manifest_schema_version": str(manifest.get("schema_version")),
         "unit_tests": unit_tests,
         "integration_tests": integration_tests,
         "required_gates": required_gates,
@@ -111,23 +111,13 @@ def _run_pytest(paths: list[str], *, integration: bool, dry_run: bool) -> int:
     if not paths:
         return 0
     marker = "integration" if integration else "not integration"
-    command = [
-        sys.executable,
-        "-m",
-        "pytest",
-        *paths,
-        "-v",
-        "--tb=short",
-        "-m",
-        marker,
-    ]
+    command = [sys.executable, "-m", "pytest", *paths, "-v", "--tb=short", "-m", marker]
     if integration:
         command.append("--timeout=60")
     print("RUN:", " ".join(command))
     if dry_run:
         return 0
-    completed = subprocess.run(command, cwd=REPO_ROOT, check=False)
-    return completed.returncode
+    return subprocess.run(command, cwd=REPO_ROOT, check=False).returncode
 
 
 def main() -> int:
@@ -149,7 +139,6 @@ def main() -> int:
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(rendered, encoding="utf-8")
-
     print(rendered, end="")
 
     unit_result = _run_pytest(plan["unit_tests"], integration=False, dry_run=args.dry_run)
