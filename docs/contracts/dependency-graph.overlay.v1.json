@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.0",
-  "description": "Semantic dependency and architectural-invariant overlay for Ajenda. Source-backed components use generated source node IDs; this overlay adds runtime, authority, security, configuration, contract, and external-system relationships that imports alone cannot represent.",
+  "schema_version": "1.1",
+  "description": "Semantic dependency and architectural-invariant overlay for Ajenda. Source-backed components use generated source node IDs; generated semantic inventory adds database/RLS and network-egress facts; this overlay supplies runtime, authority, security, state-ownership, configuration, contract, external-system, exception, and ratchet relationships that imports alone cannot represent.",
   "nodes": [
     {"id":"runtime:api","type":"runtime","label":"FastAPI API process","source":"backend/main.py"},
     {"id":"runtime:worker","type":"runtime","label":"Worker process","source":"backend/workers/worker_loop.py"},
@@ -15,7 +15,21 @@
     {"id":"external:salesforce","type":"external_service","label":"Salesforce"},
     {"id":"external:stripe","type":"external_service","label":"Stripe"},
     {"id":"external:resend","type":"external_service","label":"Resend"},
-    {"id":"external:hubspot","type":"external_service","label":"HubSpot"}
+    {"id":"external:hubspot","type":"external_service","label":"HubSpot"},
+    {"id":"external:llm","type":"external_service","label":"Configured OpenAI-compatible LLM"},
+    {"id":"external:identity-provider","type":"external_service","label":"OIDC identity provider"},
+    {"id":"external:opa","type":"external_service","label":"OPA policy decision point"},
+    {"id":"external:smtp","type":"external_service","label":"SMTP server"},
+    {"id":"external:webhook-destination","type":"external_service","label":"Tenant-configured webhook destination"},
+    {"id":"external:unresolved-egress","type":"external_service","label":"Dynamically resolved external destination"},
+
+    {"id":"state:redis-task-lease","type":"state_resource","label":"Redis task lease ownership","source":"backend/queue/adapters/redis_adapter.py"},
+    {"id":"state:http-idempotency-key","type":"state_resource","label":"HTTP idempotency key ownership","source":"backend/middleware/idempotency.py"},
+    {"id":"state:smtp-send-claim","type":"state_resource","label":"Durable SMTP send claim","source":"backend/repositories/email_send_idempotency_repository.py"},
+    {"id":"state:verification-token","type":"state_resource","label":"Email verification token consumption","source":"backend/services/tenant_onboarding_orchestrator.py"},
+    {"id":"state:bootstrap-api-key","type":"state_resource","label":"Bootstrap API-key promotion","source":"backend/services/tenant_onboarding_orchestrator.py"},
+    {"id":"state:customer-refresh-token","type":"state_resource","label":"Customer refresh-token consumption","source":"backend/services/oidc_login_service.py"},
+    {"id":"state:api-key-quota-capacity","type":"state_resource","label":"API-key quota capacity reservation","source":"backend/api/routes/api_keys.py"}
   ],
   "edges": [
     {"from":"runtime:api","to":"py:backend.main","type":"executes","evidence":"backend/main.py"},
@@ -52,19 +66,88 @@
     {"from":"py:backend.services.credentials.salesforce_oauth_connect","to":"external:salesforce","type":"connector_oauth","evidence":"backend/services/credentials/salesforce_oauth_connect.py"},
     {"from":"py:services.hubspot_crm_adapter.hubspot","to":"external:hubspot","type":"http_api","evidence":"services/hubspot_crm_adapter/hubspot.py"},
     {"from":"py:backend.app.config","to":"external:stripe","type":"configures_integration","evidence":"backend/app/config.py"},
-    {"from":"py:backend.app.config","to":"external:resend","type":"configures_integration","evidence":"backend/app/config.py"}
+    {"from":"py:backend.app.config","to":"external:resend","type":"configures_integration","evidence":"backend/app/config.py"},
+
+    {"from":"py:backend.queue.adapters.redis_adapter","to":"state:redis-task-lease","type":"owns_state","evidence":"backend/queue/adapters/redis_adapter.py"},
+    {"from":"state:redis-task-lease","to":"external:redis","type":"persisted_in","evidence":"backend/queue/adapters/redis_adapter.py"},
+    {"from":"py:backend.middleware.idempotency","to":"state:http-idempotency-key","type":"claims_once","evidence":"backend/middleware/idempotency.py"},
+    {"from":"py:backend.repositories.email_send_idempotency_repository","to":"state:smtp-send-claim","type":"claims_once","evidence":"backend/repositories/email_send_idempotency_repository.py"},
+    {"from":"state:smtp-send-claim","to":"db:table:email_send_idempotency_receipts","type":"persisted_in","evidence":"backend/repositories/email_send_idempotency_repository.py"},
+    {"from":"py:backend.services.tenant_onboarding_orchestrator","to":"state:verification-token","type":"consumes_once","evidence":"backend/services/tenant_onboarding_orchestrator.py"},
+    {"from":"state:verification-token","to":"db:table:tenant_members","type":"persisted_in","evidence":"backend/services/tenant_onboarding_orchestrator.py"},
+    {"from":"py:backend.services.tenant_onboarding_orchestrator","to":"state:bootstrap-api-key","type":"consumes_once","evidence":"backend/services/tenant_onboarding_orchestrator.py"},
+    {"from":"state:bootstrap-api-key","to":"db:table:api_key_records","type":"persisted_in","evidence":"backend/services/tenant_onboarding_orchestrator.py"},
+    {"from":"py:backend.services.oidc_login_service","to":"state:customer-refresh-token","type":"consumes_once","evidence":"backend/services/oidc_login_service.py"},
+    {"from":"state:customer-refresh-token","to":"db:table:customer_auth_sessions","type":"persisted_in","evidence":"backend/services/oidc_login_service.py"},
+    {"from":"py:backend.api.routes.api_keys","to":"state:api-key-quota-capacity","type":"reserves_capacity","evidence":"backend/api/routes/api_keys.py"},
+    {"from":"state:api-key-quota-capacity","to":"db:table:api_key_records","type":"measured_by","evidence":"backend/api/routes/api_keys.py"}
   ],
   "invariants": [
-    {"id":"tenant-isolation","status":"enforced","rule":"Tenant-facing operations must use validated tenant context and the tenant-scoped DB dependency so PostgreSQL RLS is active.","sources":["backend/app/dependencies/db.py","tests/contract/api/test_tenant_isolation_policy.py"]},
+    {"id":"tenant-isolation","status":"known_violation","rule":"Every tenant-owned database object must be covered by the tenant DB boundary, with explicit ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY, tenant isolation policy, and reviewed admin bypass unless explicitly classified as cross-tenant/control-plane.","sources":["backend/app/dependencies/db.py","alembic/versions/0003_row_level_security.py","tests/contract/api/test_tenant_isolation_policy.py"],"applies_to":["boundary:tenant-db"]},
     {"id":"canonical-queue-admission","status":"enforced","rule":"Mission queue eligibility must converge on the canonical runtime queue-admission authority; compatibility routes may not independently enqueue or execute.","sources":["docs/contracts/authority-ledger.v1.yaml","tests/unit/architecture/test_authority_ledger_contract.py","tests/contract/api/test_mission_queue_contract.py"]},
     {"id":"single-worker-spine","status":"enforced","rule":"Actual queued execution must converge on WorkerLoop, WorkerRuntimeService, TaskDispatcher, and registered handlers.","sources":["backend/workers/worker_loop.py","backend/workers/task_dispatcher.py"]},
     {"id":"side-effect-approval","status":"enforced","rule":"Side-effecting work requires current invocation-bound authority before queue admission; otherwise it must enter review.","sources":["backend/services/execution_coordinator.py"]},
     {"id":"retry-readmission","status":"enforced","rule":"Retries must re-enter runtime governance, side-effect approval, and policy admission before requeue.","sources":["backend/services/execution_coordinator.py"]},
     {"id":"runtime-secret-boundary","status":"enforced","rule":"Raw credential secrets must not travel in task metadata or ordinary tool inputs and must be resolved only at invocation time.","sources":["backend/services/credentials/runtime_authority.py","docs/architecture/ADR-0006-external-platform-integration-doctrine.md"]},
-    {"id":"governed-egress","status":"enforced_doctrine","rule":"External provider operations must traverse tool/runtime authority, credential authority, and NetworkEgressAuthority rather than opening uncontrolled provider sockets.","sources":["backend/services/tools/runtime_authority.py","backend/services/network_egress.py","docs/architecture/ADR-0006-external-platform-integration-doctrine.md"]},
+    {"id":"governed-egress","status":"known_violation","rule":"External provider operations must be inventoried and explicitly classified; governed runtime provider operations must traverse tool/runtime authority, credential authority, and NetworkEgressAuthority rather than opening uncontrolled provider sockets.","sources":["backend/services/tools/runtime_authority.py","backend/services/network_egress.py","docs/architecture/ADR-0006-external-platform-integration-doctrine.md"],"applies_to":["py:backend.services.network_egress","external:unresolved-egress"]},
     {"id":"connector-oauth-separation","status":"enforced_design_boundary","rule":"Connector OAuth grants service access and must remain separate from application identity/login authentication.","sources":["backend/api/routes/provider_credentials.py","backend/services/credentials/gmail_oauth_connect.py"]},
     {"id":"capability-not-authority","status":"enforced_doctrine","rule":"Capability declarations describe availability but do not themselves confer runtime execution authority.","sources":["docs/architecture/ADR-0006-external-platform-integration-doctrine.md"]},
     {"id":"authority-class-stability","status":"enforced_meta_invariant","rule":"A component may not silently expand from declarative/read-model authority into governed mutation or runtime authority without ledger/proof changes.","sources":["docs/contracts/authority-ledger.v1.yaml","tests/unit/architecture/test_authority_ledger_contract.py"]},
-    {"id":"route-service-injection","status":"policy_drift","rule":"Service-layer objects should enter route handlers through sanctioned dependency providers rather than direct construction.","sources":["backend/app/dependencies/services.py"]}
+    {"id":"route-service-injection","status":"policy_drift","rule":"Service-layer objects should enter route handlers through sanctioned dependency providers rather than direct construction.","sources":["backend/app/dependencies/services.py"]},
+    {"id":"lease-owner-integrity","status":"known_violation","rule":"Lease heartbeat, completion, failure, release, recovery, and dead-letter transitions must verify and preserve the current owner; no caller may overwrite or release another owner's lease.","sources":["backend/queue/adapters/redis_adapter.py"],"applies_to":["state:redis-task-lease"]},
+    {"id":"durable-idempotency-ownership","status":"known_violation","rule":"Idempotent side effects must establish one durable execution owner before the effect occurs and provide terminal/recovery semantics for abandoned claims; check-then-execute-then-store is insufficient.","sources":["backend/middleware/idempotency.py","backend/repositories/email_send_idempotency_repository.py"],"applies_to":["state:http-idempotency-key","state:smtp-send-claim"]},
+    {"id":"single-use-secret-consumption","status":"known_violation","rule":"Verification, bootstrap, and refresh credentials that mint successor authority must be atomically consumed before successor authority is issued.","sources":["backend/services/tenant_onboarding_orchestrator.py","backend/services/oidc_login_service.py"],"applies_to":["state:verification-token","state:bootstrap-api-key","state:customer-refresh-token"]},
+    {"id":"atomic-quota-reservation","status":"known_violation","rule":"Quota-limited resource creation must reserve or check-and-increment capacity atomically under concurrency rather than count then create in separate steps.","sources":["backend/api/routes/api_keys.py","backend/services/quota_enforcement.py"],"applies_to":["state:api-key-quota-capacity"]}
+  ],
+  "rls_exempt_tables": [
+    {"table":"audit_events","reason":"Documented cross-tenant audit log / admin surface."},
+    {"table":"tenant_members","reason":"Migration 0028 explicitly classifies the membership registry as cross-tenant and NO RLS."},
+    {"table":"stripe_webhook_events","reason":"Migration 0027 explicitly classifies this as a system-wide Stripe event ledger."}
+  ],
+  "rls_nonblocking_tables": [
+    {"table":"tenant_usage","reason":"Pre-existing legacy RLS gap predating the frozen graph audit; surface it without making this instrumentation PR a remediation PR."},
+    {"table":"webhook_endpoints","reason":"Pre-existing legacy RLS gap predating the frozen graph audit; surface it for later architectural adjudication."},
+    {"table":"webhook_deliveries","reason":"Pre-existing legacy RLS gap predating the frozen graph audit; surface it for later architectural adjudication."},
+    {"table":"customer_auth_sessions","reason":"Authentication control-plane table accessed before tenant-scoped DB context; surface missing RLS without blocking this instrumentation PR."}
+  ],
+  "egress_classifications": [
+    {"module":"backend.services.network_egress","classification":"governed_authority","target":"external:unresolved-egress","reason":"Canonical vetted HTTP egress authority."},
+    {"module":"backend.services.llm.openai_compatible","classification":"known_violation","target":"external:llm","reason":"GF-07: direct credentialed LLM HTTP bypasses NetworkEgressAuthority."},
+    {"module":"backend.services.verification_delivery","classification":"known_violation","target":"external:resend","reason":"GF-08: Resend verification delivery uses direct credentialed HTTP."},
+    {"module":"backend.policy.opa_pdp","classification":"control_plane","target":"external:opa","reason":"Authorization control-plane PDP call, not a tool/provider egress lane."},
+    {"module":"backend.auth.oidc_discovery","classification":"identity_control_plane","target":"external:identity-provider","reason":"OIDC discovery/JWKS identity control plane."},
+    {"module":"backend.auth.jwt_validator","classification":"identity_control_plane","target":"external:identity-provider","reason":"OIDC/JWKS identity validation control plane."},
+    {"module":"backend.services.oidc_login_service","classification":"identity_control_plane","target":"external:identity-provider","reason":"OIDC token exchange is application identity control plane."},
+    {"module":"backend.services.tools.google_oauth_cli","classification":"connector_control_plane","target":"external:google","reason":"Connector OAuth token exchange/refresh lane."},
+    {"module":"backend.services.credentials.github_oauth_client","classification":"connector_control_plane","target":"external:github","reason":"Connector OAuth token exchange/refresh lane."},
+    {"module":"backend.services.credentials.linkedin_oauth_client","classification":"connector_control_plane","target":"external:linkedin","reason":"Connector OAuth token exchange/refresh lane."},
+    {"module":"backend.services.credentials.salesforce_oauth_client","classification":"connector_control_plane","target":"external:salesforce","reason":"Connector OAuth token exchange/refresh lane."},
+    {"module":"services.hubspot_crm_adapter.hubspot","classification":"standalone_boundary","target":"external:hubspot","reason":"Dedicated HubSpot adapter process boundary already modeled separately."},
+    {"module":"backend.services.webhook_dispatch","classification":"reviewed_direct","target":"external:webhook-destination","reason":"Tenant-configured webhook transport has its own destination/attempt contract; represented explicitly rather than silently omitted."},
+    {"module":"backend.services.tools.email_transport","classification":"reviewed_direct","target":"external:smtp","reason":"SMTP transport is a non-HTTP side-effect lane with a separate durable-claim contract."}
+  ],
+  "semantic_findings": [
+    {"id":"state-ownership:redis-task-lease","category":"state-ownership","severity":"high","summary":"Redis lease lifecycle does not consistently verify current worker ownership.","evidence":["backend/queue/adapters/redis_adapter.py"],"related_nodes":["state:redis-task-lease"],"blocking":false,"classification":"known_violation"},
+    {"id":"state-ownership:http-idempotency-key","category":"state-ownership","severity":"high","summary":"HTTP idempotency uses check-execute-store without exclusive operation ownership.","evidence":["backend/middleware/idempotency.py"],"related_nodes":["state:http-idempotency-key"],"blocking":false,"classification":"known_violation"},
+    {"id":"state-ownership:smtp-send-claim","category":"state-ownership","severity":"high","summary":"SMTP claiming state has no abandoned-claim recovery/expiry semantics.","evidence":["backend/repositories/email_send_idempotency_repository.py"],"related_nodes":["state:smtp-send-claim"],"blocking":false,"classification":"known_violation"},
+    {"id":"state-ownership:verification-token","category":"state-ownership","severity":"high","summary":"Verification token consumption and bootstrap issuance are not atomic under concurrency.","evidence":["backend/services/tenant_onboarding_orchestrator.py"],"related_nodes":["state:verification-token"],"blocking":false,"classification":"known_violation"},
+    {"id":"state-ownership:bootstrap-api-key","category":"state-ownership","severity":"high","summary":"Bootstrap key promotion is read-check-mint-revoke rather than atomic consume-and-replace.","evidence":["backend/services/tenant_onboarding_orchestrator.py"],"related_nodes":["state:bootstrap-api-key"],"blocking":false,"classification":"known_violation"},
+    {"id":"state-ownership:customer-refresh-token","category":"state-ownership","severity":"high","summary":"Refresh token rotation is read-check-revoke-issue rather than atomic consume-and-rotate.","evidence":["backend/services/oidc_login_service.py"],"related_nodes":["state:customer-refresh-token"],"blocking":false,"classification":"known_violation"},
+    {"id":"state-ownership:api-key-quota-capacity","category":"state-ownership","severity":"high","summary":"API-key quota admission counts then creates without atomic capacity reservation.","evidence":["backend/api/routes/api_keys.py"],"related_nodes":["state:api-key-quota-capacity"],"blocking":false,"classification":"known_violation"}
+  ],
+  "acknowledged_findings": [
+    {"id":"rls-missing:email_send_idempotency_receipts","reason":"Frozen GF-11; detector acknowledgement only, not repair evidence.","source":"GF-11"},
+    {"id":"rls-missing:mission_composition_proposals","reason":"Frozen GF-11; detector acknowledgement only, not repair evidence.","source":"GF-11"},
+    {"id":"rls-missing:tenant_onboarding_states","reason":"Frozen GF-11; detector acknowledgement only, not repair evidence.","source":"GF-11"},
+    {"id":"rls-missing:member_onboarding_preferences","reason":"Frozen GF-11; detector acknowledgement only, not repair evidence.","source":"GF-11"},
+    {"id":"egress-ungoverned:backend.services.llm.openai_compatible","reason":"Frozen GF-07; detector acknowledgement only, not repair evidence.","source":"GF-07"},
+    {"id":"egress-ungoverned:backend.services.verification_delivery","reason":"Frozen GF-08; detector acknowledgement only, not repair evidence.","source":"GF-08"},
+    {"id":"state-ownership:redis-task-lease","reason":"Frozen GF-12; modeled as current known violation.","source":"GF-12"},
+    {"id":"state-ownership:http-idempotency-key","reason":"Frozen GF-13/GF-27; modeled as current known violation.","source":"GF-13"},
+    {"id":"state-ownership:smtp-send-claim","reason":"Frozen GF-16; modeled as current known violation.","source":"GF-16"},
+    {"id":"state-ownership:verification-token","reason":"Frozen GF-14; modeled as current known violation.","source":"GF-14"},
+    {"id":"state-ownership:bootstrap-api-key","reason":"Frozen GF-22; modeled as current known violation.","source":"GF-22"},
+    {"id":"state-ownership:customer-refresh-token","reason":"Frozen GF-23; modeled as current known violation.","source":"GF-23"},
+    {"id":"state-ownership:api-key-quota-capacity","reason":"Frozen GF-30; modeled as current known violation.","source":"GF-30"}
   ]
 }
