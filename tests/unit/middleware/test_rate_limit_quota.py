@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from fastapi import FastAPI
 from starlette.responses import JSONResponse
@@ -25,6 +25,8 @@ def test_rate_limit_returns_402_on_quota_exceeded_before_handler(monkeypatch) ->
     session = MagicMock()
     database_runtime = MagicMock()
     database_runtime.session_factory.return_value = session
+    activate_tenant_session = MagicMock()
+    monkeypatch.setattr("backend.middleware.rate_limit.activate_tenant_session", activate_tenant_session)
 
     quota_svc = MagicMock()
     quota_svc.check_api_call_quota.side_effect = QuotaExceededError(
@@ -70,6 +72,7 @@ def test_rate_limit_returns_402_on_quota_exceeded_before_handler(monkeypatch) ->
     assert body["detail"]["field"] == "api_calls_per_month"
     assert _handler_calls == 0
     quota_svc.record_api_call.assert_not_called()
+    activate_tenant_session.assert_called_once_with(session, tenant_id)
     session.rollback.assert_called_once()
 
 
@@ -79,6 +82,8 @@ def test_rate_limit_records_api_call_after_successful_handler(monkeypatch) -> No
     session = MagicMock()
     database_runtime = MagicMock()
     database_runtime.session_factory.return_value = session
+    activate_tenant_session = MagicMock()
+    monkeypatch.setattr("backend.middleware.rate_limit.activate_tenant_session", activate_tenant_session)
 
     quota_svc = MagicMock()
 
@@ -113,4 +118,5 @@ def test_rate_limit_records_api_call_after_successful_handler(monkeypatch) -> No
     assert response.status_code == 200
     quota_svc.check_api_call_quota.assert_called_once()
     quota_svc.record_api_call.assert_called_once()
+    assert activate_tenant_session.call_args_list == [call(session, tenant_id), call(session, tenant_id)]
     assert session.commit.call_count == 2
