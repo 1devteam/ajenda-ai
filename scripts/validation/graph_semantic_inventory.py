@@ -415,7 +415,9 @@ def _egress_semantics(
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
-    classifications = {str(item["module"]): item for item in overlay.get("egress_classifications", []) if item.get("module")}
+    classifications = {
+        str(item["module"]): item for item in overlay.get("egress_classifications", []) if item.get("module")
+    }
 
     for root in (repo_root / "backend", repo_root / "services"):
         if not root.exists():
