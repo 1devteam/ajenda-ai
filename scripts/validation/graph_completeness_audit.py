@@ -60,9 +60,7 @@ def _production_edges(graph: dict[str, Any], nodes: dict[str, dict[str, Any]]) -
     return [
         edge
         for edge in graph["edges"]
-        if str(edge.get("type")) != TEST_EDGE_TYPE
-        and str(edge.get("from")) in nodes
-        and str(edge.get("to")) in nodes
+        if str(edge.get("type")) != TEST_EDGE_TYPE and str(edge.get("from")) in nodes and str(edge.get("to")) in nodes
     ]
 
 
@@ -204,7 +202,9 @@ def _semantic_reconciliation(
         source_backed = source.startswith(SOURCE_NODE_PREFIXES)
         target_backed = target.startswith(SOURCE_NODE_PREFIXES)
         if source_backed and target_backed:
-            classification = "static-corroborated" if target in _reachable(source, static_adjacency) else "semantic-only"
+            classification = (
+                "static-corroborated" if target in _reachable(source, static_adjacency) else "semantic-only"
+            )
         else:
             classification = "boundary-or-external"
         reconciled.append(
@@ -250,9 +250,7 @@ def audit_graph(graph: dict[str, Any]) -> dict[str, Any]:
     missing_edge_evidence, missing_invariant_sources = _missing_evidence(graph)
     findings = [dict(item) for item in graph.get("semantic_findings", [])]
     unacknowledged_blocking = sorted(
-        str(item["id"])
-        for item in findings
-        if bool(item.get("blocking")) and not bool(item.get("acknowledged"))
+        str(item["id"]) for item in findings if bool(item.get("blocking")) and not bool(item.get("acknowledged"))
     )
     acknowledged = sorted(str(item["id"]) for item in findings if bool(item.get("acknowledged")))
     finding_counts = Counter(str(item.get("category") or "unknown") for item in findings)
