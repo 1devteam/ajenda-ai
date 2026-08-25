@@ -81,6 +81,11 @@ def test_rls_inventory_preserves_explicit_cross_tenant_exceptions() -> None:
         assert node["rls_exempt"] is True
         assert f"rls-missing:{table}" not in finding_ids
 
+    auth_sessions = nodes["db:table:customer_auth_sessions"]
+    assert auth_sessions["rls_exempt"] is True
+    assert "Authentication control-plane" in auth_sessions["rls_exempt_reason"]
+    assert "rls-missing:customer_auth_sessions" not in finding_ids
+
 
 def test_production_egress_is_inventory_backed_and_known_bypasses_are_visible() -> None:
     graph = _graph()
