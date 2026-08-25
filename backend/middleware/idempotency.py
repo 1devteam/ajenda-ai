@@ -185,10 +185,7 @@ return redis.call('DEL', KEYS[1])
     @staticmethod
     def _decode_response(raw: bytes) -> _StoredResponse:
         payload = json.loads(raw[len(_REDIS_COMPLETE_PREFIX) :].decode("utf-8"))
-        headers = [
-            (base64.b64decode(str(name)), base64.b64decode(str(value)))
-            for name, value in payload["headers"]
-        ]
+        headers = [(base64.b64decode(str(name)), base64.b64decode(str(value))) for name, value in payload["headers"]]
         return _StoredResponse(
             status_code=int(payload["status_code"]),
             headers=headers,
