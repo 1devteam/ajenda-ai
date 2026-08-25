@@ -104,6 +104,10 @@ def test_restored_rls_hides_usage_and_webhook_rows_across_tenants(pg_engine) -> 
                 session.flush()
             session.rollback()
 
+            # The rollback ends the transaction that established SET ROLE.
+            # Re-enter the non-bypass role before proving unset tenant context
+            # fails closed; otherwise the Testcontainers superuser bypasses RLS.
+            connection.execute(text(f"SET ROLE {quoted_role}"))
             session.execute(text("RESET app.current_tenant_id"))
             assert all(_count(session, table) == 0 for table in _TABLES)
             session.close()
