@@ -45,6 +45,14 @@ def test_rls_inventory_models_complete_and_missing_table_envelopes() -> None:
     assert protected["rls_forced"] is True
     assert protected["rls_complete"] is True
 
+    for table in ("tenant_usage", "webhook_endpoints", "webhook_deliveries"):
+        repaired = nodes[f"db:table:{table}"]
+        assert repaired["tenant_associated"] is True
+        assert repaired["rls_enabled"] is True
+        assert repaired["rls_forced"] is True
+        assert repaired["rls_complete"] is True
+        assert f"rls-missing:{table}" not in findings
+
     expected_frozen = {
         "rls-missing:email_send_idempotency_receipts",
         "rls-missing:mission_composition_proposals",
