@@ -5,8 +5,9 @@ from __future__ import annotations
 import base64
 import json
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Literal
 
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from sqlalchemy.orm import Session
