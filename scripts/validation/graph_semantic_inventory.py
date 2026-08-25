@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Semantic inventory for Ajenda's canonical dependency graph.
+"""Derive semantic architecture facts that imports cannot express.
 
-This module adds architecture facts that import graphs cannot derive:
-- database table/RLS state from Alembic migrations,
-- production network egress sinks and their reviewed classifications,
-- ratcheted semantic findings with explicit acknowledgements.
+The canonical graph uses this inventory for two source-backed domains:
+- Alembic table/RLS state, including tenant-isolation coverage.
+- Production HTTP/SMTP egress sinks and their reviewed classifications.
+
+Known baseline defects remain findings; acknowledgements only ratchet the detector
+and never constitute remediation evidence.
 """
 
 from __future__ import annotations
@@ -19,8 +21,8 @@ from urllib.parse import urlparse
 _RLS_ENABLE_RE = re.compile(r"ALTER\s+TABLE\s+([A-Za-z0-9_]+)\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY", re.I)
 _RLS_FORCE_RE = re.compile(r"ALTER\s+TABLE\s+([A-Za-z0-9_]+)\s+FORCE\s+ROW\s+LEVEL\s+SECURITY", re.I)
 _POLICY_RE = re.compile(r"CREATE\s+POLICY\s+([A-Za-z0-9_]+)\s+ON\s+([A-Za-z0-9_]+)", re.I)
-_HTTP_METHODS = {"get", "post", "put", "patch", "delete", "request", "head", "options"}
-_NETWORK_LIBRARIES = {"httpx", "requests", "smtplib"}
+_HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "request", "head", "options"})
+_NETWORK_LIBRARIES = frozenset({"httpx", "requests", "smtplib"})
 
 
 def _module_for_path(repo_root: Path, path: Path) -> str:
@@ -41,28 +43,34 @@ def _call_name(node: ast.AST) -> str | None:
 
 
 def _literal_string(node: ast.AST | None) -> str | None:
-    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
 
 
-def _string_collection_assignments(tree: ast.Module) -> dict[str, tuple[str, ...]]:
-    values: dict[str, tuple[str, ...]] = {}
-    for statement in tree.body:
+def _literal_string_sequence(node: ast.AST | None) -> tuple[str, ...] | None:
+    if not isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return None
+    values = tuple(value for item in node.elts if (value := _literal_string(item)) is not None)
+    return values if values and len(values) == len(node.elts) else None
+
+
+def _named_string_sequences(tree: ast.Module) -> dict[str, tuple[str, ...]]:
+    """Collect statically literal string collections used by migration loops."""
+    result: dict[str, tuple[str, ...]] = {}
+    for statement in ast.walk(tree):
         target: ast.AST | None = None
         value: ast.AST | None = None
         if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
             target, value = statement.targets[0], statement.value
         elif isinstance(statement, ast.AnnAssign):
             target, value = statement.target, statement.value
-        if not isinstance(target, ast.Name) or not isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+        if not isinstance(target, ast.Name):
             continue
-        items = tuple(
-            item.value
-            for item in value.elts
-            if isinstance(item, ast.Constant) and isinstance(item.value, str)
-        )
-        if items and len(items) == len(value.elts):
-            values[target.id] = items
-    return values
+        items = _literal_string_sequence(value)
+        if items:
+            result[target.id] = items
+    return result
 
 
 def _joined_string_template(node: ast.JoinedStr) -> str:
@@ -78,14 +86,14 @@ def _joined_string_template(node: ast.JoinedStr) -> str:
     return "".join(parts)
 
 
-def _strings_in_node(node: ast.AST) -> list[str]:
-    rendered: list[str] = []
+def _rendered_strings(node: ast.AST) -> list[str]:
+    strings: list[str] = []
     for item in ast.walk(node):
         if isinstance(item, ast.Constant) and isinstance(item.value, str):
-            rendered.append(item.value)
+            strings.append(item.value)
         elif isinstance(item, ast.JoinedStr):
-            rendered.append(_joined_string_template(item))
-    return rendered
+            strings.append(_joined_string_template(item))
+    return strings
 
 
 def _record_rls_sql(
@@ -95,43 +103,49 @@ def _record_rls_sql(
     forced: set[str],
     policies: dict[str, set[str]],
 ) -> None:
-    for match in _RLS_ENABLE_RE.finditer(sql):
-        enabled.add(match.group(1))
-    for match in _RLS_FORCE_RE.finditer(sql):
-        forced.add(match.group(1))
+    enabled.update(match.group(1) for match in _RLS_ENABLE_RE.finditer(sql))
+    forced.update(match.group(1) for match in _RLS_FORCE_RE.finditer(sql))
     for match in _POLICY_RE.finditer(sql):
         policies[match.group(2)].add(match.group(1))
 
 
+def _loop_values(loop: ast.For, named_sequences: dict[str, tuple[str, ...]]) -> tuple[str, ...] | None:
+    if isinstance(loop.iter, ast.Name):
+        return named_sequences.get(loop.iter.id)
+    return _literal_string_sequence(loop.iter)
+
+
 def _record_loop_rls(
     tree: ast.Module,
-    collections: dict[str, tuple[str, ...]],
+    named_sequences: dict[str, tuple[str, ...]],
     *,
     enabled: set[str],
     forced: set[str],
     policies: dict[str, set[str]],
 ) -> None:
+    """Resolve RLS SQL emitted from loops over literal/named table collections."""
     for loop in (item for item in ast.walk(tree) if isinstance(item, ast.For)):
-        if not isinstance(loop.target, ast.Name) or not isinstance(loop.iter, ast.Name):
+        if not isinstance(loop.target, ast.Name):
             continue
-        tables = collections.get(loop.iter.id)
+        tables = _loop_values(loop, named_sequences)
         if not tables:
             continue
         marker = "{" + loop.target.id + "}"
-        for sql in _strings_in_node(loop):
-            if marker not in sql:
+        for template in _rendered_strings(loop):
+            if marker not in template:
                 continue
             for table in tables:
                 _record_rls_sql(
-                    sql.replace(marker, table),
+                    template.replace(marker, table),
                     enabled=enabled,
                     forced=forced,
                     policies=policies,
                 )
 
 
-def _created_tables(tree: ast.Module) -> dict[str, set[str]]:
-    tables: dict[str, set[str]] = {}
+def _migration_table_changes(tree: ast.Module) -> dict[str, set[str]]:
+    """Return table -> columns created/added by one migration."""
+    tables: dict[str, set[str]] = defaultdict(set)
     for item in ast.walk(tree):
         if not isinstance(item, ast.Call):
             continue
@@ -140,15 +154,15 @@ def _created_tables(tree: ast.Module) -> dict[str, set[str]]:
             table = _literal_string(item.args[0])
             if not table:
                 continue
-            columns: set[str] = set()
+            tables.setdefault(table, set())
             for argument in item.args[1:]:
-                if not isinstance(argument, ast.Call) or _call_name(argument.func) not in {"sa.Column", "sqlalchemy.Column"}:
+                if not isinstance(argument, ast.Call):
                     continue
-                if argument.args:
-                    column = _literal_string(argument.args[0])
-                    if column:
-                        columns.add(column)
-            tables.setdefault(table, set()).update(columns)
+                if _call_name(argument.func) not in {"sa.Column", "sqlalchemy.Column"} or not argument.args:
+                    continue
+                column = _literal_string(argument.args[0])
+                if column:
+                    tables[table].add(column)
         elif call_name == "op.add_column" and len(item.args) >= 2:
             table = _literal_string(item.args[0])
             column_call = item.args[1]
@@ -158,13 +172,13 @@ def _created_tables(tree: ast.Module) -> dict[str, set[str]]:
                 continue
             column = _literal_string(column_call.args[0])
             if column:
-                tables.setdefault(table, set()).add(column)
-    return tables
+                tables[table].add(column)
+    return dict(tables)
 
 
 def _migration_inventory(repo_root: Path) -> dict[str, Any]:
     root = repo_root / "alembic" / "versions"
-    created_by: dict[str, set[str]] = defaultdict(set)
+    touched_by: dict[str, set[str]] = defaultdict(set)
     columns: dict[str, set[str]] = defaultdict(set)
     enabled: set[str] = set()
     forced: set[str] = set()
@@ -179,20 +193,24 @@ def _migration_inventory(repo_root: Path) -> dict[str, Any]:
         except SyntaxError:
             continue
 
-        migration_tables = _created_tables(tree)
-        collections = _string_collection_assignments(tree)
+        table_changes = _migration_table_changes(tree)
         _record_rls_sql(text, enabled=enabled, forced=forced, policies=policies)
-        _record_loop_rls(tree, collections, enabled=enabled, forced=forced, policies=policies)
+        _record_loop_rls(
+            tree,
+            _named_string_sequences(tree),
+            enabled=enabled,
+            forced=forced,
+            policies=policies,
+        )
 
-        table_names = sorted(migration_tables)
-        migrations.append({"source": rel, "tables": table_names})
-        for table, table_columns in migration_tables.items():
-            created_by[table].add(rel)
+        migrations.append({"source": rel, "tables": sorted(table_changes)})
+        for table, table_columns in table_changes.items():
+            touched_by[table].add(rel)
             columns[table].update(table_columns)
 
     return {
         "migrations": migrations,
-        "created_by": created_by,
+        "touched_by": touched_by,
         "columns": columns,
         "enabled": enabled,
         "forced": forced,
@@ -235,7 +253,7 @@ def _rls_semantics(
             )
 
     for table in sorted(inventory["columns"]):
-        sources = sorted(inventory["created_by"].get(table, set()))
+        sources = sorted(inventory["touched_by"].get(table, set()))
         source = sources[-1] if sources else None
         tenant_associated = "tenant_id" in inventory["columns"][table]
         policy_names = sorted(inventory["policies"].get(table, set()))
@@ -264,14 +282,7 @@ def _rls_semantics(
         nodes.append(node)
 
         evidence = source or "alembic/versions"
-        edges.append(
-            {
-                "from": f"db:table:{table}",
-                "to": "external:postgresql",
-                "type": "stored_in",
-                "evidence": evidence,
-            }
-        )
+        edges.append({"from": f"db:table:{table}", "to": "external:postgresql", "type": "stored_in", "evidence": evidence})
         if tenant_associated:
             edges.append(
                 {
@@ -331,10 +342,9 @@ def _network_import_aliases(tree: ast.Module) -> dict[str, str]:
                     aliases[alias.asname or root] = root
         elif isinstance(item, ast.ImportFrom) and item.module:
             root = item.module.split(".", 1)[0]
-            if root not in _NETWORK_LIBRARIES:
-                continue
-            for alias in item.names:
-                aliases[alias.asname or alias.name] = f"{root}.{alias.name}"
+            if root in _NETWORK_LIBRARIES:
+                for alias in item.names:
+                    aliases[alias.asname or alias.name] = f"{root}.{alias.name}"
     return aliases
 
 
@@ -345,20 +355,19 @@ def _network_calls(tree: ast.Module) -> list[dict[str, Any]]:
 
     client_vars: set[str] = set()
     calls: list[dict[str, Any]] = []
-
     for item in ast.walk(tree):
-        if isinstance(item, (ast.Assign, ast.AnnAssign)):
-            value = item.value
-            if not isinstance(value, ast.Call):
-                continue
-            name = _call_name(value.func) or ""
-            root_alias = name.split(".", 1)[0]
-            resolved = name.replace(root_alias, aliases.get(root_alias, root_alias), 1)
-            if resolved.startswith(("httpx.Client", "httpx.AsyncClient", "requests.Session", "smtplib.SMTP")):
-                targets = item.targets if isinstance(item, ast.Assign) else [item.target]
-                for target in targets:
-                    if isinstance(target, ast.Name):
-                        client_vars.add(target.id)
+        if not isinstance(item, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = item.value
+        if not isinstance(value, ast.Call):
+            continue
+        name = _call_name(value.func) or ""
+        root_alias = name.split(".", 1)[0]
+        resolved = name.replace(root_alias, aliases.get(root_alias, root_alias), 1)
+        if not resolved.startswith(("httpx.Client", "httpx.AsyncClient", "requests.Session", "smtplib.SMTP")):
+            continue
+        targets = item.targets if isinstance(item, ast.Assign) else [item.target]
+        client_vars.update(target.id for target in targets if isinstance(target, ast.Name))
 
     for item in ast.walk(tree):
         if not isinstance(item, ast.Call):
@@ -367,8 +376,8 @@ def _network_calls(tree: ast.Module) -> list[dict[str, Any]]:
         parts = name.split(".")
         root = parts[0] if parts else ""
         resolved_root = aliases.get(root, root)
-
         kind: str | None = None
+
         if resolved_root in {"httpx", "requests"} and len(parts) >= 2 and parts[-1].lower() in _HTTP_METHODS:
             kind = f"{resolved_root}.{parts[-1].lower()}"
         elif root in client_vars and len(parts) >= 2 and parts[-1].lower() in _HTTP_METHODS:
@@ -379,21 +388,21 @@ def _network_calls(tree: ast.Module) -> list[dict[str, Any]]:
             resolved_name = name.replace(root, resolved_root, 1)
             if resolved_name in {"httpx.Client", "httpx.AsyncClient", "requests.Session"}:
                 kind = resolved_name + ".construct"
-
         if kind is None:
             continue
 
         literal_urls: list[str] = []
-        for argument in [*item.args, *(keyword.value for keyword in item.keywords)]:
+        arguments = [*item.args, *(keyword.value for keyword in item.keywords)]
+        for argument in arguments:
             for descendant in ast.walk(argument):
                 value = _literal_string(descendant)
                 if value and value.startswith(("https://", "http://")):
                     literal_urls.append(value)
         hosts = sorted(
             {
-                (urlparse(url).hostname or "").lower()
+                hostname
                 for url in literal_urls
-                if (urlparse(url).hostname or "").strip()
+                if (hostname := (urlparse(url).hostname or "").lower().strip())
             }
         )
         calls.append({"kind": kind, "line": getattr(item, "lineno", None), "hosts": hosts})
@@ -457,21 +466,20 @@ def _egress_semantics(
                 }
             )
 
-            if classification not in {"known_violation", "unclassified"}:
-                continue
-            findings.append(
-                {
-                    "id": f"egress-ungoverned:{module}",
-                    "category": "external-egress",
-                    "severity": "high" if classification == "known_violation" else "medium",
-                    "summary": f"Production module {module} opens network egress outside the governed authority",
-                    "evidence": [rel],
-                    "related_nodes": [source_node, sink_id, target],
-                    "blocking": classification == "unclassified",
-                    "classification": classification,
-                    "reason": str(reason) if reason else None,
-                }
-            )
+            if classification in {"known_violation", "unclassified"}:
+                findings.append(
+                    {
+                        "id": f"egress-ungoverned:{module}",
+                        "category": "external-egress",
+                        "severity": "high" if classification == "known_violation" else "medium",
+                        "summary": f"Production module {module} opens network egress outside the governed authority",
+                        "evidence": [rel],
+                        "related_nodes": [source_node, sink_id, target],
+                        "blocking": classification == "unclassified",
+                        "classification": classification,
+                        "reason": str(reason) if reason else None,
+                    }
+                )
 
     return nodes, edges, findings
 
@@ -485,10 +493,12 @@ def _apply_acknowledgements(findings: list[dict[str, Any]], overlay: dict[str, A
     result: list[dict[str, Any]] = []
     for finding in findings:
         item = dict(finding)
-        ack = acknowledgements.get(str(item["id"]))
-        item["acknowledged"] = ack is not None
-        if ack is not None:
-            item["acknowledgement"] = {key: value for key, value in ack.items() if key != "id"}
+        acknowledgement = acknowledgements.get(str(item["id"]))
+        item["acknowledged"] = acknowledgement is not None
+        if acknowledgement is not None:
+            item["acknowledgement"] = {
+                key: value for key, value in acknowledgement.items() if key != "id"
+            }
         result.append(item)
     return sorted(result, key=lambda item: str(item["id"]))
 
@@ -497,7 +507,10 @@ def collect_semantic_inventory(repo_root: Path, overlay: dict[str, Any]) -> dict
     db_nodes, db_edges, db_findings = _rls_semantics(repo_root, overlay)
     egress_nodes, egress_edges, egress_findings = _egress_semantics(repo_root, overlay)
     overlay_findings = [dict(item) for item in overlay.get("semantic_findings", [])]
-    findings = _apply_acknowledgements([*db_findings, *egress_findings, *overlay_findings], overlay)
+    findings = _apply_acknowledgements(
+        [*db_findings, *egress_findings, *overlay_findings],
+        overlay,
+    )
     return {
         "nodes": [*db_nodes, *egress_nodes],
         "edges": [*db_edges, *egress_edges],
