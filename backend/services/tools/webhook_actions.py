@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.schemas import (
     ActionResult,
@@ -21,6 +22,7 @@ def webhook_dispatch(invocation: ToolInvocation, context: ActionRuntimeContext) 
         raise ValueError("webhook.dispatch requires a session_factory")
     session = context.session_factory()
     try:
+        activate_tenant_session(session, context.tenant_id)
         service = WebhookDispatchService(session)
         results = service.dispatch_event(
             tenant_id=uuid.UUID(context.tenant_id),
