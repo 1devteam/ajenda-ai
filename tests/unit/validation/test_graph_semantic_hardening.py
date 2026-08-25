@@ -139,6 +139,23 @@ def test_state_ownership_resources_and_invariants_are_first_class() -> None:
         assert invariants[invariant_id]["applies_to"]
 
 
+def test_http_idempotency_ownership_is_redis_backed_and_no_longer_a_finding() -> None:
+    graph = _graph()
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+    finding_ids = {item["id"] for item in graph["semantic_findings"]}
+    invariants = {item["id"]: item for item in graph["invariants"]}
+
+    assert (
+        "state:http-idempotency-key",
+        "external:redis",
+        "persisted_in",
+    ) in edges
+    assert "state-ownership:http-idempotency-key" not in finding_ids
+    assert "state-ownership:smtp-send-claim" in finding_ids
+    assert invariants["durable-idempotency-ownership"]["status"] == "known_violation"
+    assert invariants["durable-idempotency-ownership"]["applies_to"] == ["state:smtp-send-claim"]
+
+
 def test_semantic_finding_ratchet_has_no_unacknowledged_blockers_at_baseline() -> None:
     report = AUDIT.audit_graph(_graph())
     assert report["integrity"]["pass"] is True
