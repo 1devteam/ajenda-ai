@@ -8,7 +8,7 @@ Startup sequence (lifespan):
   5. Build and ping queue adapter (fail-fast on startup if queue is unreachable)
   6. Store shared resources on app.state for dependency injection
   7. Yield (application serves requests)
-  8. Dispose database connection pools on shutdown
+  8. Dispose shared resources on shutdown
 
 Middleware stack (outermost to innermost — applied in reverse registration order):
   1. SecurityHeadersMiddleware  — injects HSTS, CSP, X-Frame-Options, etc.
@@ -43,7 +43,7 @@ from backend.auth.oidc import OidcAuthenticator
 from backend.db.session import DatabaseRuntime
 from backend.db.vector_session import VectorDatabaseRuntime
 from backend.middleware.auth_context import AuthContextMiddleware
-from backend.middleware.idempotency import IdempotencyMiddleware
+from backend.middleware.idempotency import IdempotencyMiddleware, build_idempotency_store
 from backend.middleware.rate_limit import RateLimitMiddleware
 from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.security_headers import SecurityHeadersMiddleware
@@ -110,10 +110,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
-        # Step 8: Clean shutdown — dispose connection pools
+        # Step 8: Clean shutdown — dispose shared resources.
         database_runtime.dispose()
         if vector_database_runtime is not None:
             vector_database_runtime.dispose()
+        idempotency_store = getattr(app.state, "idempotency_store", None)
+        if idempotency_store is not None:
+            idempotency_store.close()
 
 
 def create_app() -> FastAPI:
@@ -132,6 +135,14 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.env != "production" else None,
         openapi_url="/openapi.json" if settings.env != "production" else None,
     )
+
+    # Shared HTTP idempotency authority. Production and multi-worker runtime
+    # must use Redis; single-worker development/test may use the in-process store.
+    idempotency_store = build_idempotency_store(
+        redis_url=settings.queue_url if settings.queue_adapter == "redis" else None,
+        require_distributed=settings.env == "production" or settings.uvicorn_workers > 1,
+    )
+    app.state.idempotency_store = idempotency_store
 
     # Mount all API routes
     app.include_router(build_api_router())
@@ -200,10 +211,10 @@ def create_app() -> FastAPI:
     # Registered before Idempotency so Idempotency executes before RateLimit at runtime.
     app.add_middleware(RateLimitMiddleware)
 
-    # Idempotency: deduplicates POST/PUT/PATCH by scoped Idempotency-Key header.
+    # Idempotency: claims scoped POST/PUT/PATCH ownership before route execution.
     # Runs after tenant/auth context exists so replay keys cannot cross tenants or principals,
     # and before rate limiting so retries do not consume rate-limit budget.
-    app.add_middleware(IdempotencyMiddleware)
+    app.add_middleware(IdempotencyMiddleware, store=idempotency_store)
 
     # Auth context: resolves principal from JWT or API key.
     # Registered before Tenant so that Tenant executes first at runtime.
