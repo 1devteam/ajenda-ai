@@ -335,6 +335,9 @@ def test_webhook_dispatch_derives_stable_event_id_from_idempotency_key(monkeypat
     captured_event_ids: list[uuid.UUID] = []
 
     class Session:
+        def execute(self, *_args: Any, **_kwargs: Any) -> None:
+            return None
+
         def commit(self) -> None:
             return None
 
