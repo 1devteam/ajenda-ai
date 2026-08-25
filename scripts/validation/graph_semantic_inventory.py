@@ -194,18 +194,34 @@ def _migration_inventory(repo_root: Path) -> dict[str, Any]:
             continue
 
         table_changes = _migration_table_changes(tree)
-        _record_rls_sql(text, enabled=enabled, forced=forced, policies=policies)
+        migration_enabled: set[str] = set()
+        migration_forced: set[str] = set()
+        migration_policies: dict[str, set[str]] = defaultdict(set)
+        _record_rls_sql(
+            text,
+            enabled=migration_enabled,
+            forced=migration_forced,
+            policies=migration_policies,
+        )
         _record_loop_rls(
             tree,
             _named_string_sequences(tree),
-            enabled=enabled,
-            forced=forced,
-            policies=policies,
+            enabled=migration_enabled,
+            forced=migration_forced,
+            policies=migration_policies,
         )
 
-        migrations.append({"source": rel, "tables": sorted(table_changes)})
-        for table, table_columns in table_changes.items():
+        enabled.update(migration_enabled)
+        forced.update(migration_forced)
+        for table, policy_names in migration_policies.items():
+            policies[table].update(policy_names)
+
+        rls_tables = migration_enabled | migration_forced | set(migration_policies)
+        migration_tables = set(table_changes) | rls_tables
+        migrations.append({"source": rel, "tables": sorted(migration_tables)})
+        for table in migration_tables:
             touched_by[table].add(rel)
+        for table, table_columns in table_changes.items():
             columns[table].update(table_columns)
 
     return {

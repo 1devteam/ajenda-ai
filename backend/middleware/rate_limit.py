@@ -40,6 +40,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 from backend.app.config import Settings, get_settings
+from backend.db.tenant_session import activate_tenant_session
 from backend.rate_limit.limiter import RateLimiter, RateLimitKey, RoutePolicy
 from backend.services.quota_enforcement import QuotaExceededError
 from backend.utils.client_ip import extract_client_ip, hash_client_ip
@@ -214,7 +215,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             self._record_api_call_usage(request, tenant_id)
         return response
 
-    def _configure_quota_session(self, session: Session) -> None:
+    def _configure_quota_session(self, session: Session, *, tenant_id: str) -> None:
+        activate_tenant_session(session, tenant_id)
         session.execute(text(f"SET LOCAL lock_timeout = '{_QUOTA_LOCK_TIMEOUT_MS}ms'"))
 
     def _quota_exceeded_response(self, exc: QuotaExceededError) -> JSONResponse:
@@ -235,7 +237,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
                 from backend.services.quota_enforcement import QuotaEnforcementService
 
-                self._configure_quota_session(session)
+                self._configure_quota_session(session, tenant_id=tenant_id)
                 quota = QuotaEnforcementService(session)
                 quota.check_api_call_quota(UUID(tenant_id))
                 session.commit()
@@ -272,7 +274,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
                 from backend.services.quota_enforcement import QuotaEnforcementService
 
-                self._configure_quota_session(session)
+                self._configure_quota_session(session, tenant_id=tenant_id)
                 quota = QuotaEnforcementService(session)
                 quota.record_api_call(UUID(tenant_id))
                 session.commit()

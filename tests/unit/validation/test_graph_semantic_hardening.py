@@ -37,6 +37,7 @@ def _graph() -> dict:
 def test_rls_inventory_models_complete_and_missing_table_envelopes() -> None:
     graph = _graph()
     nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
     findings = {item["id"]: item for item in graph["semantic_findings"]}
 
     protected = nodes["db:table:tenant_internal_records"]
@@ -44,6 +45,20 @@ def test_rls_inventory_models_complete_and_missing_table_envelopes() -> None:
     assert protected["rls_enabled"] is True
     assert protected["rls_forced"] is True
     assert protected["rls_complete"] is True
+
+    for table in ("tenant_usage", "webhook_endpoints", "webhook_deliveries"):
+        repaired = nodes[f"db:table:{table}"]
+        assert repaired["tenant_associated"] is True
+        assert repaired["rls_enabled"] is True
+        assert repaired["rls_forced"] is True
+        assert repaired["rls_complete"] is True
+        assert repaired["source"] == "alembic/versions/0041_restore_tenant_rls_boundaries.py"
+        assert f"rls-missing:{table}" not in findings
+        assert (
+            "migration:0041_restore_tenant_rls_boundaries",
+            f"db:table:{table}",
+            "creates_or_alters_table",
+        ) in edges
 
     expected_frozen = {
         "rls-missing:email_send_idempotency_receipts",
@@ -133,4 +148,15 @@ def test_rls_migration_change_reaches_tenant_isolation_invariant() -> None:
 
     assert "migration:0034_add_email_send_idempotency_receipts" in changed_ids
     assert "db:table:email_send_idempotency_receipts" in changed_ids
+    assert "tenant-isolation" in invariant_ids
+
+
+def test_rls_only_migration_change_reaches_existing_tables_and_tenant_invariant() -> None:
+    report = IMPACT.analyze_impact(_graph(), ["alembic/versions/0041_restore_tenant_rls_boundaries.py"])
+    changed_ids = {item["id"] for item in report["changed_nodes"]}
+    invariant_ids = {item["id"] for item in report["relevant_invariants"]}
+
+    assert "migration:0041_restore_tenant_rls_boundaries" in changed_ids
+    for table in ("tenant_usage", "webhook_endpoints", "webhook_deliveries"):
+        assert f"db:table:{table}" in changed_ids
     assert "tenant-isolation" in invariant_ids
