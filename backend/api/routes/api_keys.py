@@ -13,7 +13,11 @@ from backend.auth.permissions import Permission
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.services.api_key_service import ApiKeyService
 from backend.services.authorization_service import AuthorizationService
-from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
+from backend.services.quota_enforcement import (
+    QuotaConfigurationError,
+    QuotaEnforcementService,
+    QuotaExceededError,
+)
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
@@ -41,18 +45,18 @@ def create_api_key(
         permission=Permission.API_KEYS_CREATE,
         tenant_id=str(tenant_id),
     )
-    # --- Quota check: API key count ---
-    service = ApiKeyService(db)
-    current_key_count = service.count_active_keys(tenant_id=str(tenant_id))
+
+    # The quota service holds the tenant-row reservation lock until this
+    # request transaction commits/rolls back. Key creation therefore consumes
+    # the capacity snapshot atomically with the new active key.
     try:
-        QuotaEnforcementService(db).check_api_key_limit(
-            tenant_id,
-            current_key_count=current_key_count,
-        )
+        QuotaEnforcementService(db).reserve_api_key_capacity(tenant_id)
     except QuotaExceededError as exc:
         raise quota_exceeded_http(exc) from exc
+    except QuotaConfigurationError as exc:
+        raise HTTPException(status_code=503, detail="API-key quota configuration is unavailable") from exc
 
-    plaintext, record = service.create_key(tenant_id=str(tenant_id), scopes=tuple(body.scopes))
+    plaintext, record = ApiKeyService(db).create_key(tenant_id=str(tenant_id), scopes=tuple(body.scopes))
     return {
         "key_id": record.key_id,
         "tenant_id": record.tenant_id,
