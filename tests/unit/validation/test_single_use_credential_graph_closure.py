@@ -70,10 +70,10 @@ def test_single_use_credentials_are_modeled_as_transactionally_serialized() -> N
     ) in edges
 
     residual_findings = {
-        "state-ownership:smtp-send-claim",
         "state-ownership:api-key-quota-capacity",
     }
     assert residual_findings.issubset(finding_ids)
+    assert "state-ownership:smtp-send-claim" not in finding_ids
 
 
 def test_single_use_credential_graph_closure_preserves_semantic_integrity() -> None:
