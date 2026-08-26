@@ -10,6 +10,8 @@ Enforcement contract:
     has reached their monthly task limit, otherwise increments the counter.
   - check_and_record_agent_provisioning: raises QuotaExceededError if the
     fleet would exceed the per-fleet agent limit.
+  - reserve_api_key_capacity: serializes API-key creation per tenant and rejects
+    a projected active-key count above the current plan limit.
   - require_feature: raises FeatureNotAvailableError if the tenant's plan
     does not include the requested feature.
   - check_tenant_active: raises the appropriate error if the tenant is
@@ -22,6 +24,8 @@ Design decisions:
   - Quota checks and counter increments are done in the same transaction as
     the business operation. If the business operation rolls back, the counter
     is also rolled back — no phantom increments.
+  - API-key capacity is a gauge. The tenant row is locked before counting
+    active keys; that lock is the reservation authority until transaction end.
   - The TenantPlan.UNLIMITED sentinel (-1) bypasses all limit checks so that
     enterprise plans never hit artificial ceilings.
 """
@@ -35,6 +39,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import get_settings
+from backend.repositories.api_key_repository import ApiKeyRepository
 from backend.repositories.tenant_repository import (
     TenantRepository,
 )
@@ -55,6 +60,10 @@ class QuotaExceededError(ValueError):
             f"Quota exceeded for {field!r}: current={current}, limit={limit} "
             f"(plan={plan!r}). Upgrade your plan to continue."
         )
+
+
+class QuotaConfigurationError(RuntimeError):
+    """Raised when a tenant quota cannot be evaluated safely."""
 
 
 _PENDING_METER_REPORTS_KEY = "pending_meter_reports"
@@ -280,6 +289,47 @@ class QuotaEnforcementService:
             amount=agents_requested,
         )
         self._report_metered_if_possible(tenant_id, agents_requested, "agents")
+
+    def reserve_api_key_capacity(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        replacing_active_keys: int = 0,
+    ) -> None:
+        """Serialize API-key capacity admission for the current transaction.
+
+        The tenant row is the per-tenant reservation lock. Every production
+        API-key creation path must acquire this lock, evaluate the current plan,
+        count committed active keys, and create/revoke keys before transaction
+        completion. The lock prevents two concurrent creators from both
+        admitting against the same capacity snapshot.
+
+        ``replacing_active_keys`` supports bootstrap promotion: one active
+        bootstrap key is replaced by one operational key in the same
+        transaction, so the projected gauge is unchanged.
+        """
+        if replacing_active_keys < 0:
+            raise ValueError("replacing_active_keys must be >= 0")
+
+        tenant = self._tenants.get_active_for_update(tenant_id)
+        plan = self._tenants.get_plan(tenant.plan)
+        if plan is None:
+            raise QuotaConfigurationError(
+                f"API-key quota plan {tenant.plan!r} is not configured for tenant {tenant_id}"
+            )
+
+        current = ApiKeyRepository(self._session).count_active_for_tenant(tenant_id=str(tenant_id))
+        limit = plan.max_api_keys
+        projected = current + 1 - replacing_active_keys
+        if projected < 0:
+            raise ValueError("replacing_active_keys exceeds projected API-key gauge")
+        if limit != -1 and projected > limit:
+            raise QuotaExceededError(
+                field="api_keys",
+                limit=limit,
+                current=current,
+                plan=tenant.plan,
+            )
 
     def check_api_key_limit(self, tenant_id: uuid.UUID, *, current_key_count: int) -> None:
         """Check that the tenant has not exceeded their API key limit.

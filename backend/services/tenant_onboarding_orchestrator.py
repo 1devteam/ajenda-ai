@@ -237,10 +237,7 @@ class TenantOnboardingOrchestrator:
 
         activate_tenant_session(self._session, str(member.tenant_id))
         try:
-            QuotaEnforcementService(self._session).check_api_key_limit(
-                member.tenant_id,
-                current_key_count=self._api_keys.count_active_keys(tenant_id=str(member.tenant_id)),
-            )
+            QuotaEnforcementService(self._session).reserve_api_key_capacity(member.tenant_id)
         except QuotaExceededError:
             self._abuse_guard.record_attempt(
                 email_canonical=member.email_canonical,
@@ -328,9 +325,9 @@ class TenantOnboardingOrchestrator:
             raise BootstrapPromotionError("tenant owner membership is not active")
 
         activate_tenant_session(self._session, str(tenant_id))
-        QuotaEnforcementService(self._session).check_api_key_limit(
+        QuotaEnforcementService(self._session).reserve_api_key_capacity(
             tenant_id,
-            current_key_count=self._api_keys.count_active_keys(tenant_id=str(tenant_id)),
+            replacing_active_keys=1,
         )
 
         plaintext, record = self._api_keys.create_key(
