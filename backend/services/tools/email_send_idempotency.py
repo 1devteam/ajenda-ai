@@ -47,9 +47,7 @@ def _remember_owner(*, tenant_id: str, action: str, idempotency_key: str, owner_
 
 def _current_owner(*, tenant_id: str, action: str, idempotency_key: str) -> str | None:
     with _owner_lock:
-        return _live_owners.get(
-            _owner_key(tenant_id=tenant_id, action=action, idempotency_key=idempotency_key)
-        )
+        return _live_owners.get(_owner_key(tenant_id=tenant_id, action=action, idempotency_key=idempotency_key))
 
 
 def _forget_owner(*, tenant_id: str, action: str, idempotency_key: str) -> None:
@@ -113,10 +111,7 @@ def claim_smtp_send(
     if status != "newly_claimed":
         return SmtpSendClaim(
             decision="in_flight",
-            error=(
-                "smtp email send already has an active or delivery-ambiguous claim for "
-                "this idempotency_key"
-            ),
+            error=("smtp email send already has an active or delivery-ambiguous claim for this idempotency_key"),
             idempotency_key=key,
         )
 
