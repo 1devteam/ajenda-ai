@@ -94,6 +94,45 @@ def test_move_to_dead_letter_removes_pending_work_and_preserves_retry_inspection
     assert envelope["payload"]["task_id"] == str(message.task_id)
 
 
+def test_ownerless_dead_letter_cannot_remove_active_claim() -> None:
+    adapter = LocalQueueAdapter()
+    message = _message()
+    assert adapter.enqueue_task(message).ok is True
+    assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1") == message
+
+    result = adapter.move_to_dead_letter(tenant_id="tenant-a", task_id=message.task_id, reason="admin cleanup")
+
+    assert result.ok is False
+    assert result.reason == "active worker owns claim"
+    assert adapter.heartbeat(tenant_id="tenant-a", task_id=message.task_id, worker_id="worker-1").ok is True
+
+
+def test_owner_aware_dead_letter_rejects_foreign_worker_and_accepts_recorded_owner() -> None:
+    adapter = LocalQueueAdapter()
+    message = _message()
+    assert adapter.enqueue_task(message).ok is True
+    assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1") == message
+
+    denied = adapter.move_owned_to_dead_letter(
+        tenant_id="tenant-a",
+        task_id=message.task_id,
+        worker_id="worker-2",
+        reason="foreign recovery",
+    )
+    assert denied.ok is False
+    assert denied.reason == "worker does not own claim"
+
+    moved = adapter.move_owned_to_dead_letter(
+        tenant_id="tenant-a",
+        task_id=message.task_id,
+        worker_id="worker-1",
+        reason="max retries",
+    )
+    assert moved.ok is True
+    assert len(adapter._dead_letter) == 1
+    assert adapter._dead_letter[0]["worker_id"] == "worker-1"
+
+
 def test_list_processing_exposes_claimed_payload_for_recovery() -> None:
     adapter = LocalQueueAdapter()
     message = _message()
