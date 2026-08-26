@@ -11,7 +11,7 @@ def test_mission_plan_migration_has_single_head_and_short_revision_id() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0042_http_idempotency"]
+    assert heads == ["0043_pricing_tier_capacity"]
     assert len(heads[0]) <= 32
 
 
