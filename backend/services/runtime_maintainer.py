@@ -174,9 +174,10 @@ class RuntimeMaintainer:
 
                 if task.status == ExecutionTaskState.RUNNING.value:
                     if should_dead_letter:
-                        result = self._queue.move_to_dead_letter(
+                        result = self._queue.move_owned_to_dead_letter(
                             tenant_id=task.tenant_id,
                             task_id=task.id,
+                            worker_id=lease.holder_identity,
                             reason=f"max retries exceeded during recovery ({retry_count}/{self._max_retries})",
                         )
                         if not result.ok:
@@ -260,9 +261,10 @@ class RuntimeMaintainer:
 
                 elif task.status == ExecutionTaskState.CLAIMED.value:
                     if should_dead_letter:
-                        result = self._queue.move_to_dead_letter(
+                        result = self._queue.move_owned_to_dead_letter(
                             tenant_id=task.tenant_id,
                             task_id=task.id,
+                            worker_id=lease.holder_identity,
                             reason=f"max retries exceeded during claimed recovery ({retry_count}/{self._max_retries})",
                         )
                         if not result.ok:
