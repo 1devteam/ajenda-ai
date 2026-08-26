@@ -1,0 +1,10 @@
+partition_id,query_window,observed_min_pr,observed_max_pr,exact_observed_count,result_cap_hit,completeness_status,notes
+P01,2026-03-31..2026-04-30,1,77,,false,pending_exact_reconciliation,"Observed range is below search cap; exact count must be taken from reproducible repository census rather than inferred from range."
+P02,2026-05-01..2026-05-15,78,158,,false,pending_exact_reconciliation,"Observed range is below search cap; exact count must be taken from reproducible repository census rather than inferred from range."
+P03,2026-05-16..2026-05-31,159,252,94,false,search_partition_complete,"Observed contiguous range and result count recorded during partitioned search."
+P04,2026-06-01..2026-06-15,253,313,61,false,search_partition_complete,"Observed contiguous range and result count recorded during partitioned search."
+P05,2026-06-16..2026-06-30,314,333,20,false,search_partition_complete,"Observed contiguous range and result count recorded during partitioned search."
+P06,2026-07-01..2026-07-15,334,339,6,false,search_partition_complete,"Observed contiguous range and result count recorded during partitioned search."
+P07,2026-07-16..2026-07-31,340,392,53,false,search_partition_complete,"Observed contiguous range and result count recorded during partitioned search."
+P08,2026-08-01..2026-08-15,393,434,42,false,search_partition_complete,"Observed contiguous range and result count recorded during partitioned search."
+P09,2026-08-16..snapshot,435,474,40,false,search_partition_complete,"Current extraction snapshot terminates at PR #474. Use PR number, not calendar date alone, as the frozen upper boundary."
