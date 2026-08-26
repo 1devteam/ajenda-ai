@@ -11,7 +11,7 @@ def test_business_profile_migration_is_current_head_and_short_revision_id() -> N
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0041_restore_tenant_rls"]
+    assert heads == ["0042_http_idempotency"]
     assert len(heads[0]) <= 32
 
 
