@@ -318,9 +318,9 @@ class OidcLoginService:
             raise OidcLoginValidationError("refresh_token is required")
 
         refresh_hash = self._hash_refresh_token(refresh_token.strip())
-        record = self._sessions.get_by_refresh_token_hash(refresh_hash)
         now = datetime.now(tz=UTC)
-        if record is None or record.revoked_at is not None or record.refresh_expires_at <= now:
+        record = self._sessions.get_active_by_refresh_token_hash_for_update(refresh_hash, now=now)
+        if record is None:
             raise OidcLoginValidationError("refresh token is invalid or expired")
 
         member = self._members.get(record.member_id)
