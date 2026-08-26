@@ -23,9 +23,7 @@ class HttpIdempotencyReceipt(Base):
     """One durable ownership record for a scoped HTTP idempotency operation."""
 
     __tablename__ = "http_idempotency_receipts"
-    __table_args__ = (
-        UniqueConstraint("operation_key", name="uq_http_idempotency_operation_key"),
-    )
+    __table_args__ = (UniqueConstraint("operation_key", name="uq_http_idempotency_operation_key"),)
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     operation_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
