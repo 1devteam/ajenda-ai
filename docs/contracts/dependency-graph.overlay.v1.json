@@ -29,7 +29,7 @@
     {"id":"state:verification-token","type":"state_resource","label":"Email verification token consumption","source":"backend/repositories/tenant_member_repository.py"},
     {"id":"state:bootstrap-api-key","type":"state_resource","label":"Bootstrap API-key promotion","source":"backend/repositories/api_key_repository.py"},
     {"id":"state:customer-refresh-token","type":"state_resource","label":"Customer refresh-token consumption","source":"backend/repositories/customer_auth_session_repository.py"},
-    {"id":"state:api-key-quota-capacity","type":"state_resource","label":"API-key quota capacity reservation","source":"backend/api/routes/api_keys.py"}
+    {"id":"state:api-key-quota-capacity","type":"state_resource","label":"API-key quota capacity reservation","source":"backend/services/quota_enforcement.py"}
   ],
   "edges": [
     {"from":"runtime:api","to":"py:backend.main","type":"executes","evidence":"backend/main.py"},
@@ -84,12 +84,12 @@
     {"from":"py:backend.services.oidc_login_service","to":"state:customer-refresh-token","type":"consumes_once","evidence":"backend/services/oidc_login_service.py"},
     {"from":"py:backend.repositories.customer_auth_session_repository","to":"state:customer-refresh-token","type":"serializes_state","evidence":"backend/repositories/customer_auth_session_repository.py"},
     {"from":"state:customer-refresh-token","to":"db:table:customer_auth_sessions","type":"persisted_in","evidence":"backend/repositories/customer_auth_session_repository.py"},
-    {"from":"py:backend.api.routes.api_keys","to":"state:api-key-quota-capacity","type":"reserves_capacity","evidence":"backend/api/routes/api_keys.py"},
-    {"from":"state:api-key-quota-capacity","to":"db:table:api_key_records","type":"measured_by","evidence":"backend/api/routes/api_keys.py"}
+    {"from":"py:backend.services.quota_enforcement","to":"state:api-key-quota-capacity","type":"serializes_state","evidence":"backend/services/quota_enforcement.py"},
+    {"from":"state:api-key-quota-capacity","to":"db:table:api_key_records","type":"measured_by","evidence":"backend/repositories/api_key_repository.py"}
   ],
   "invariants": [
     {"id":"tenant-isolation","status":"known_violation","rule":"Every tenant-owned database object must be covered by the tenant DB boundary, with explicit ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY, tenant isolation policy, and reviewed admin bypass unless explicitly classified as cross-tenant/control-plane.","sources":["backend/app/dependencies/db.py","alembic/versions/0003_row_level_security.py","tests/contract/api/test_tenant_isolation_policy.py"],"applies_to":["boundary:tenant-db"]},
-    {"id":"canonical-queue-admission","status":"enforced","rule":"Mission queue eligibility must converge on the canonical runtime queue-admission authority; compatibility routes may not independently enqueue or execute.","sources":["docs/contracts/authority-ledger.v1.yaml","tests/unit/architecture/test_authority_ledger_contract.py","tests/contract/api/test_mission_queue_contract.py"]},
+    {"id":"canonical-queue-admission","status":"enforced","rule":"Mission queue eligibility must converge on the canonical runtime queue-admission authority; compatibility routes may not independently enqueue or execute.","sources":["docs/contracts/authority-ledger.v1.yaml","tests/unit/architecture/test_authority_ledger_contract.py"]},
     {"id":"single-worker-spine","status":"enforced","rule":"Actual queued execution must converge on WorkerLoop, WorkerRuntimeService, TaskDispatcher, and registered handlers.","sources":["backend/workers/worker_loop.py","backend/workers/task_dispatcher.py"]},
     {"id":"side-effect-approval","status":"enforced","rule":"Side-effecting work requires current invocation-bound authority before queue admission; otherwise it must enter review.","sources":["backend/services/execution_coordinator.py"]},
     {"id":"retry-readmission","status":"enforced","rule":"Retries must re-enter runtime governance, side-effect approval, and policy admission before requeue.","sources":["backend/services/execution_coordinator.py"]},
@@ -103,7 +103,7 @@
     {"id":"durable-idempotency-ownership","status":"enforced","rule":"Idempotent side effects must establish one durable execution owner before the effect occurs and provide terminal/recovery semantics for abandoned claims; check-then-execute-then-store is insufficient. SMTP claims may recover only before the durable send fence; fenced ambiguous outcomes must fail closed rather than resend.","sources":["backend/repositories/email_send_idempotency_repository.py","backend/services/tools/email_send_idempotency.py","tests/unit/tools/test_email_send_idempotency.py"],"applies_to":["state:smtp-send-claim"]},
     {"id":"http-idempotency-ownership","status":"enforced","rule":"Keyed mutating HTTP requests must establish one durable PostgreSQL execution owner before application execution; request identity must reject changed-payload reuse, transient 429/5xx outcomes must release ownership rather than become terminal replays, completed response envelopes must be encrypted at rest, and abandoned claims must be recoverable through owner-checked leases.","sources":["backend/middleware/idempotency.py","backend/services/http_idempotency_authority.py","backend/repositories/http_idempotency_repository.py","alembic/versions/0042_add_http_idempotency_receipts.py"],"applies_to":["state:http-idempotency-key"]},
     {"id":"single-use-secret-consumption","status":"enforced","rule":"Verification, bootstrap, and refresh credentials that mint successor authority must be atomically consumed before successor authority is issued.","sources":["backend/services/tenant_onboarding_orchestrator.py","backend/services/oidc_login_service.py","backend/repositories/tenant_member_repository.py","backend/repositories/api_key_repository.py","backend/repositories/customer_auth_session_repository.py","tests/integration/auth/test_single_use_credential_transitions_real.py"],"applies_to":["state:verification-token","state:bootstrap-api-key","state:customer-refresh-token"]},
-    {"id":"atomic-quota-reservation","status":"known_violation","rule":"Quota-limited resource creation must reserve or check-and-increment capacity atomically under concurrency rather than count then create in separate steps.","sources":["backend/api/routes/api_keys.py","backend/services/quota_enforcement.py"],"applies_to":["state:api-key-quota-capacity"]}
+    {"id":"atomic-quota-reservation","status":"enforced","rule":"Quota-limited API-key creation must serialize per tenant, evaluate the current plan and active-key gauge under that reservation, and keep the reservation through key create/revoke transaction completion.","sources":["backend/services/quota_enforcement.py","backend/repositories/tenant_repository.py","tests/integration/auth/test_api_key_quota_capacity_real.py"],"applies_to":["state:api-key-quota-capacity"]}
   ],
   "rls_exempt_tables": [
     {"table":"audit_events","reason":"Documented cross-tenant audit log / admin surface."},
@@ -128,16 +128,13 @@
     {"module":"backend.services.webhook_dispatch","classification":"reviewed_direct","target":"external:webhook-destination","reason":"Tenant-configured webhook transport has its own destination/attempt contract; represented explicitly rather than silently omitted."},
     {"module":"backend.services.tools.email_transport","classification":"reviewed_direct","target":"external:smtp","reason":"SMTP transport is a non-HTTP side-effect lane with a separate durable-claim contract."}
   ],
-  "semantic_findings": [
-    {"id":"state-ownership:api-key-quota-capacity","category":"state-ownership","severity":"high","summary":"API-key quota admission counts then creates without atomic capacity reservation.","evidence":["backend/api/routes/api_keys.py"],"related_nodes":["state:api-key-quota-capacity"],"blocking":false,"classification":"known_violation"}
-  ],
+  "semantic_findings": [],
   "acknowledged_findings": [
     {"id":"rls-missing:email_send_idempotency_receipts","reason":"Frozen GF-11; detector acknowledgement only, not repair evidence.","source":"GF-11"},
     {"id":"rls-missing:mission_composition_proposals","reason":"Frozen GF-11; detector acknowledgement only, not repair evidence.","source":"GF-11"},
     {"id":"rls-missing:tenant_onboarding_states","reason":"Frozen GF-11; detector acknowledgement only, not repair evidence.","source":"GF-11"},
     {"id":"rls-missing:member_onboarding_preferences","reason":"Frozen GF-11; detector acknowledgement only, not repair evidence.","source":"GF-11"},
     {"id":"egress-ungoverned:backend.services.llm.openai_compatible","reason":"Frozen GF-07; detector acknowledgement only, not repair evidence.","source":"GF-07"},
-    {"id":"egress-ungoverned:backend.services.verification_delivery","reason":"Frozen GF-08; detector acknowledgement only, not repair evidence.","source":"GF-08"},
-    {"id":"state-ownership:api-key-quota-capacity","reason":"Frozen GF-30; modeled as current known violation.","source":"GF-30"}
+    {"id":"egress-ungoverned:backend.services.verification_delivery","reason":"Frozen GF-08; detector acknowledgement only, not repair evidence.","source":"GF-08"}
   ]
 }
