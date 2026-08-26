@@ -121,6 +121,9 @@ class LocalQueueAdapter(QueueAdapter):
     ) -> QueueOperationResult:
         with self._lock:
             key = (tenant_id, task_id)
+            claim = self._claims.get(key)
+            if claim is not None and claim[0] != worker_id:
+                return QueueOperationResult(ok=False, reason="worker does not own claim")
             claim = self._claims.pop(key, None)
             pending_matches: list[QueueMessage] = []
             kept_queue: deque[QueueMessage] = deque()
@@ -146,19 +149,43 @@ class LocalQueueAdapter(QueueAdapter):
 
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
         with self._lock:
-            claim = self._claims.pop((tenant_id, task_id), None)
-            matched: QueueMessage | None = claim[1] if claim is not None else None
-            kept_queue: deque[QueueMessage] = deque()
-            while self._queue:
-                message = self._queue.popleft()
-                if matched is None and message.tenant_id == tenant_id and message.task_id == task_id:
-                    matched = message
-                    continue
-                if not (message.tenant_id == tenant_id and message.task_id == task_id):
-                    kept_queue.append(message)
+            key = (tenant_id, task_id)
+            if key in self._claims:
+                return QueueOperationResult(ok=False, reason="active worker owns claim")
+            matched, kept_queue = self._remove_pending_message(tenant_id=tenant_id, task_id=task_id)
             self._queue = kept_queue
             self._dead_letter.append(
                 self._dead_letter_envelope(message=matched, tenant_id=tenant_id, task_id=task_id, reason=reason)
+            )
+        return QueueOperationResult(ok=True)
+
+    def move_owned_to_dead_letter(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        worker_id: str,
+        reason: str,
+    ) -> QueueOperationResult:
+        with self._lock:
+            key = (tenant_id, task_id)
+            claim = self._claims.get(key)
+            if claim is not None and claim[0] != worker_id:
+                return QueueOperationResult(ok=False, reason="worker does not own claim")
+            matched: QueueMessage | None = None
+            if claim is not None:
+                _, matched = self._claims.pop(key)
+            if matched is None:
+                matched, kept_queue = self._remove_pending_message(tenant_id=tenant_id, task_id=task_id)
+                self._queue = kept_queue
+            self._dead_letter.append(
+                self._dead_letter_envelope(
+                    message=matched,
+                    tenant_id=tenant_id,
+                    task_id=task_id,
+                    worker_id=worker_id,
+                    reason=reason,
+                )
             )
         return QueueOperationResult(ok=True)
 
@@ -228,6 +255,23 @@ class LocalQueueAdapter(QueueAdapter):
     def pending_depth(self, *, tenant_id: str) -> int:
         with self._lock:
             return sum(1 for message in self._queue if message.tenant_id == tenant_id)
+
+    def _remove_pending_message(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+    ) -> tuple[QueueMessage | None, deque[QueueMessage]]:
+        matched: QueueMessage | None = None
+        kept_queue: deque[QueueMessage] = deque()
+        while self._queue:
+            message = self._queue.popleft()
+            if matched is None and message.tenant_id == tenant_id and message.task_id == task_id:
+                matched = message
+                continue
+            if not (message.tenant_id == tenant_id and message.task_id == task_id):
+                kept_queue.append(message)
+        return matched, kept_queue
 
     def _dead_letter_envelope(
         self,
