@@ -23,7 +23,7 @@
     {"id":"external:webhook-destination","type":"external_service","label":"Tenant-configured webhook destination"},
     {"id":"external:unresolved-egress","type":"external_service","label":"Dynamically resolved external destination"},
 
-    {"id":"state:redis-task-lease","type":"state_resource","label":"Redis task lease ownership","source":"backend/queue/adapters/redis_adapter.py"},
+    {"id":"state:redis-task-lease","type":"state_resource","label":"Redis task lease ownership","source":"backend/queue/adapters/redis_owner_integrity.py"},
     {"id":"state:http-idempotency-key","type":"state_resource","label":"HTTP idempotency key ownership","source":"backend/services/http_idempotency_authority.py"},
     {"id":"state:smtp-send-claim","type":"state_resource","label":"Durable SMTP send claim","source":"backend/repositories/email_send_idempotency_repository.py"},
     {"id":"state:verification-token","type":"state_resource","label":"Email verification token consumption","source":"backend/repositories/tenant_member_repository.py"},
@@ -68,8 +68,8 @@
     {"from":"py:backend.app.config","to":"external:stripe","type":"configures_integration","evidence":"backend/app/config.py"},
     {"from":"py:backend.app.config","to":"external:resend","type":"configures_integration","evidence":"backend/app/config.py"},
 
-    {"from":"py:backend.queue.adapters.redis_adapter","to":"state:redis-task-lease","type":"owns_state","evidence":"backend/queue/adapters/redis_adapter.py"},
-    {"from":"state:redis-task-lease","to":"external:redis","type":"persisted_in","evidence":"backend/queue/adapters/redis_adapter.py"},
+    {"from":"py:backend.queue.adapters.redis_owner_integrity","to":"state:redis-task-lease","type":"owns_state","evidence":"backend/queue/adapters/redis_owner_integrity.py"},
+    {"from":"state:redis-task-lease","to":"external:redis","type":"persisted_in","evidence":"backend/queue/adapters/redis_owner_integrity.py"},
     {"from":"py:backend.middleware.idempotency","to":"py:backend.services.http_idempotency_authority","type":"uses","evidence":"backend/middleware/idempotency.py"},
     {"from":"py:backend.services.http_idempotency_authority","to":"state:http-idempotency-key","type":"owns_state","evidence":"backend/services/http_idempotency_authority.py"},
     {"from":"state:http-idempotency-key","to":"db:table:http_idempotency_receipts","type":"persisted_in","evidence":"backend/repositories/http_idempotency_repository.py"},
@@ -99,7 +99,7 @@
     {"id":"capability-not-authority","status":"enforced_doctrine","rule":"Capability declarations describe availability but do not themselves confer runtime execution authority.","sources":["docs/architecture/ADR-0006-external-platform-integration-doctrine.md"]},
     {"id":"authority-class-stability","status":"enforced_meta_invariant","rule":"A component may not silently expand from declarative/read-model authority into governed mutation or runtime authority without ledger/proof changes.","sources":["docs/contracts/authority-ledger.v1.yaml","tests/unit/architecture/test_authority_ledger_contract.py"]},
     {"id":"route-service-injection","status":"policy_drift","rule":"Service-layer objects should enter route handlers through sanctioned dependency providers rather than direct construction.","sources":["backend/app/dependencies/services.py"]},
-    {"id":"lease-owner-integrity","status":"known_violation","rule":"Lease heartbeat, completion, failure, release, recovery, and dead-letter transitions must verify and preserve the current owner; no caller may overwrite or release another owner's lease.","sources":["backend/queue/adapters/redis_adapter.py"],"applies_to":["state:redis-task-lease"]},
+    {"id":"lease-owner-integrity","status":"enforced","rule":"Lease heartbeat, completion, failure, release, recovery, and dead-letter transitions must verify and preserve the current owner; no caller may overwrite or release another owner's lease.","sources":["backend/queue/adapters/redis_owner_integrity.py","tests/integration/queue/test_redis_lease_owner_integrity_real.py"],"applies_to":["state:redis-task-lease"]},
     {"id":"durable-idempotency-ownership","status":"known_violation","rule":"Idempotent side effects must establish one durable execution owner before the effect occurs and provide terminal/recovery semantics for abandoned claims; check-then-execute-then-store is insufficient.","sources":["backend/repositories/email_send_idempotency_repository.py"],"applies_to":["state:smtp-send-claim"]},
     {"id":"http-idempotency-ownership","status":"enforced","rule":"Keyed mutating HTTP requests must establish one durable PostgreSQL execution owner before application execution; request identity must reject changed-payload reuse, transient 429/5xx outcomes must release ownership rather than become terminal replays, completed response envelopes must be encrypted at rest, and abandoned claims must be recoverable through owner-checked leases.","sources":["backend/middleware/idempotency.py","backend/services/http_idempotency_authority.py","backend/repositories/http_idempotency_repository.py","alembic/versions/0042_add_http_idempotency_receipts.py"],"applies_to":["state:http-idempotency-key"]},
     {"id":"single-use-secret-consumption","status":"enforced","rule":"Verification, bootstrap, and refresh credentials that mint successor authority must be atomically consumed before successor authority is issued.","sources":["backend/services/tenant_onboarding_orchestrator.py","backend/services/oidc_login_service.py","backend/repositories/tenant_member_repository.py","backend/repositories/api_key_repository.py","backend/repositories/customer_auth_session_repository.py","tests/integration/auth/test_single_use_credential_transitions_real.py"],"applies_to":["state:verification-token","state:bootstrap-api-key","state:customer-refresh-token"]},
@@ -129,7 +129,6 @@
     {"module":"backend.services.tools.email_transport","classification":"reviewed_direct","target":"external:smtp","reason":"SMTP transport is a non-HTTP side-effect lane with a separate durable-claim contract."}
   ],
   "semantic_findings": [
-    {"id":"state-ownership:redis-task-lease","category":"state-ownership","severity":"high","summary":"Redis lease lifecycle does not consistently verify current worker ownership.","evidence":["backend/queue/adapters/redis_adapter.py"],"related_nodes":["state:redis-task-lease"],"blocking":false,"classification":"known_violation"},
     {"id":"state-ownership:smtp-send-claim","category":"state-ownership","severity":"high","summary":"SMTP claiming state has no abandoned-claim recovery/expiry semantics.","evidence":["backend/repositories/email_send_idempotency_repository.py"],"related_nodes":["state:smtp-send-claim"],"blocking":false,"classification":"known_violation"},
     {"id":"state-ownership:api-key-quota-capacity","category":"state-ownership","severity":"high","summary":"API-key quota admission counts then creates without atomic capacity reservation.","evidence":["backend/api/routes/api_keys.py"],"related_nodes":["state:api-key-quota-capacity"],"blocking":false,"classification":"known_violation"}
   ],
@@ -140,7 +139,6 @@
     {"id":"rls-missing:member_onboarding_preferences","reason":"Frozen GF-11; detector acknowledgement only, not repair evidence.","source":"GF-11"},
     {"id":"egress-ungoverned:backend.services.llm.openai_compatible","reason":"Frozen GF-07; detector acknowledgement only, not repair evidence.","source":"GF-07"},
     {"id":"egress-ungoverned:backend.services.verification_delivery","reason":"Frozen GF-08; detector acknowledgement only, not repair evidence.","source":"GF-08"},
-    {"id":"state-ownership:redis-task-lease","reason":"Frozen GF-12; modeled as current known violation.","source":"GF-12"},
     {"id":"state-ownership:smtp-send-claim","reason":"Frozen GF-16; modeled as current known violation.","source":"GF-16"},
     {"id":"state-ownership:api-key-quota-capacity","reason":"Frozen GF-30; modeled as current known violation.","source":"GF-30"}
   ]
