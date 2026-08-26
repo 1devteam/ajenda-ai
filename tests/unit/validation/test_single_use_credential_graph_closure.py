@@ -51,10 +51,7 @@ def test_single_use_credentials_are_modeled_as_transactionally_serialized() -> N
 
     assert nodes["state:verification-token"]["source"] == "backend/repositories/tenant_member_repository.py"
     assert nodes["state:bootstrap-api-key"]["source"] == "backend/repositories/api_key_repository.py"
-    assert (
-        nodes["state:customer-refresh-token"]["source"]
-        == "backend/repositories/customer_auth_session_repository.py"
-    )
+    assert nodes["state:customer-refresh-token"]["source"] == "backend/repositories/customer_auth_session_repository.py"
 
     assert (
         "py:backend.repositories.tenant_member_repository",
