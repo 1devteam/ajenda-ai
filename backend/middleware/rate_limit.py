@@ -126,9 +126,8 @@ def _is_billable_external_api_request(*, principal: object | None, path: str) ->
     """
     if path.startswith("/v1/onboarding/"):
         return False
-    return (
-        getattr(principal, "principal_type", None) == PrincipalType.MACHINE
-        and bool(getattr(principal, "key_id", None))
+    return getattr(principal, "principal_type", None) == PrincipalType.MACHINE and bool(
+        getattr(principal, "key_id", None)
     )
 
 
