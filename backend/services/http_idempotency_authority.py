@@ -54,9 +54,7 @@ class HttpIdempotencyAuthority:
             raise ValueError("receipt_ttl_seconds must be positive")
         key = encryption_key.encode() if isinstance(encryption_key, str) else encryption_key
         previous_key = (
-            previous_encryption_key.encode()
-            if isinstance(previous_encryption_key, str)
-            else previous_encryption_key
+            previous_encryption_key.encode() if isinstance(previous_encryption_key, str) else previous_encryption_key
         )
         fernets = [Fernet(key or _TEST_KEY)]
         if previous_key is not None:
@@ -174,10 +172,7 @@ class HttpIdempotencyAuthority:
             payload = json.loads(self._fernet.decrypt(ciphertext.encode()).decode())
         except (InvalidToken, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid durable HTTP idempotency response ciphertext") from exc
-        headers = [
-            (base64.b64decode(str(name)), base64.b64decode(str(value)))
-            for name, value in payload["headers"]
-        ]
+        headers = [(base64.b64decode(str(name)), base64.b64decode(str(value))) for name, value in payload["headers"]]
         return ReplayResponse(
             status_code=int(payload["status_code"]),
             headers=headers,
