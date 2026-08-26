@@ -13,7 +13,7 @@ def test_onboarding_migrations_have_single_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0042_http_idempotency"]
+    assert heads == ["0043_pricing_tier_capacity"]
     assert len(heads[0]) <= 32
 
 
