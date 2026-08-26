@@ -31,6 +31,7 @@ from backend.domain import (  # noqa: F401
     WorkforceFleet,
 )
 from backend.domain.email_send_idempotency import EmailSendIdempotencyReceipt  # noqa: F401
+from backend.domain.http_idempotency import HttpIdempotencyReceipt  # noqa: F401
 from backend.domain.webhook_delivery import WebhookDelivery  # noqa: F401
 from backend.domain.webhook_endpoint import WebhookEndpoint  # noqa: F401
 

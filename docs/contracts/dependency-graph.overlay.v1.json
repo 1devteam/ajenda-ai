@@ -24,7 +24,7 @@
     {"id":"external:unresolved-egress","type":"external_service","label":"Dynamically resolved external destination"},
 
     {"id":"state:redis-task-lease","type":"state_resource","label":"Redis task lease ownership","source":"backend/queue/adapters/redis_adapter.py"},
-    {"id":"state:http-idempotency-key","type":"state_resource","label":"HTTP idempotency key ownership","source":"backend/middleware/idempotency.py"},
+    {"id":"state:http-idempotency-key","type":"state_resource","label":"HTTP idempotency key ownership","source":"backend/services/http_idempotency_authority.py"},
     {"id":"state:smtp-send-claim","type":"state_resource","label":"Durable SMTP send claim","source":"backend/repositories/email_send_idempotency_repository.py"},
     {"id":"state:verification-token","type":"state_resource","label":"Email verification token consumption","source":"backend/services/tenant_onboarding_orchestrator.py"},
     {"id":"state:bootstrap-api-key","type":"state_resource","label":"Bootstrap API-key promotion","source":"backend/services/tenant_onboarding_orchestrator.py"},
@@ -70,7 +70,9 @@
 
     {"from":"py:backend.queue.adapters.redis_adapter","to":"state:redis-task-lease","type":"owns_state","evidence":"backend/queue/adapters/redis_adapter.py"},
     {"from":"state:redis-task-lease","to":"external:redis","type":"persisted_in","evidence":"backend/queue/adapters/redis_adapter.py"},
-    {"from":"py:backend.middleware.idempotency","to":"state:http-idempotency-key","type":"claims_once","evidence":"backend/middleware/idempotency.py"},
+    {"from":"py:backend.middleware.idempotency","to":"py:backend.services.http_idempotency_authority","type":"uses","evidence":"backend/middleware/idempotency.py"},
+    {"from":"py:backend.services.http_idempotency_authority","to":"state:http-idempotency-key","type":"owns_state","evidence":"backend/services/http_idempotency_authority.py"},
+    {"from":"state:http-idempotency-key","to":"db:table:http_idempotency_receipts","type":"persisted_in","evidence":"backend/repositories/http_idempotency_repository.py"},
     {"from":"py:backend.repositories.email_send_idempotency_repository","to":"state:smtp-send-claim","type":"claims_once","evidence":"backend/repositories/email_send_idempotency_repository.py"},
     {"from":"state:smtp-send-claim","to":"db:table:email_send_idempotency_receipts","type":"persisted_in","evidence":"backend/repositories/email_send_idempotency_repository.py"},
     {"from":"py:backend.services.tenant_onboarding_orchestrator","to":"state:verification-token","type":"consumes_once","evidence":"backend/services/tenant_onboarding_orchestrator.py"},
@@ -95,7 +97,8 @@
     {"id":"authority-class-stability","status":"enforced_meta_invariant","rule":"A component may not silently expand from declarative/read-model authority into governed mutation or runtime authority without ledger/proof changes.","sources":["docs/contracts/authority-ledger.v1.yaml","tests/unit/architecture/test_authority_ledger_contract.py"]},
     {"id":"route-service-injection","status":"policy_drift","rule":"Service-layer objects should enter route handlers through sanctioned dependency providers rather than direct construction.","sources":["backend/app/dependencies/services.py"]},
     {"id":"lease-owner-integrity","status":"known_violation","rule":"Lease heartbeat, completion, failure, release, recovery, and dead-letter transitions must verify and preserve the current owner; no caller may overwrite or release another owner's lease.","sources":["backend/queue/adapters/redis_adapter.py"],"applies_to":["state:redis-task-lease"]},
-    {"id":"durable-idempotency-ownership","status":"known_violation","rule":"Idempotent side effects must establish one durable execution owner before the effect occurs and provide terminal/recovery semantics for abandoned claims; check-then-execute-then-store is insufficient.","sources":["backend/middleware/idempotency.py","backend/repositories/email_send_idempotency_repository.py"],"applies_to":["state:http-idempotency-key","state:smtp-send-claim"]},
+    {"id":"durable-idempotency-ownership","status":"known_violation","rule":"Idempotent side effects must establish one durable execution owner before the effect occurs and provide terminal/recovery semantics for abandoned claims; check-then-execute-then-store is insufficient.","sources":["backend/repositories/email_send_idempotency_repository.py"],"applies_to":["state:smtp-send-claim"]},
+    {"id":"http-idempotency-ownership","status":"enforced","rule":"Keyed mutating HTTP requests must establish one durable PostgreSQL execution owner before application execution; request identity must reject changed-payload reuse, transient 429/5xx outcomes must release ownership rather than become terminal replays, completed response envelopes must be encrypted at rest, and abandoned claims must be recoverable through owner-checked leases.","sources":["backend/middleware/idempotency.py","backend/services/http_idempotency_authority.py","backend/repositories/http_idempotency_repository.py","alembic/versions/0042_add_http_idempotency_receipts.py"],"applies_to":["state:http-idempotency-key"]},
     {"id":"single-use-secret-consumption","status":"known_violation","rule":"Verification, bootstrap, and refresh credentials that mint successor authority must be atomically consumed before successor authority is issued.","sources":["backend/services/tenant_onboarding_orchestrator.py","backend/services/oidc_login_service.py"],"applies_to":["state:verification-token","state:bootstrap-api-key","state:customer-refresh-token"]},
     {"id":"atomic-quota-reservation","status":"known_violation","rule":"Quota-limited resource creation must reserve or check-and-increment capacity atomically under concurrency rather than count then create in separate steps.","sources":["backend/api/routes/api_keys.py","backend/services/quota_enforcement.py"],"applies_to":["state:api-key-quota-capacity"]}
   ],
@@ -124,7 +127,6 @@
   ],
   "semantic_findings": [
     {"id":"state-ownership:redis-task-lease","category":"state-ownership","severity":"high","summary":"Redis lease lifecycle does not consistently verify current worker ownership.","evidence":["backend/queue/adapters/redis_adapter.py"],"related_nodes":["state:redis-task-lease"],"blocking":false,"classification":"known_violation"},
-    {"id":"state-ownership:http-idempotency-key","category":"state-ownership","severity":"high","summary":"HTTP idempotency uses check-execute-store without exclusive operation ownership.","evidence":["backend/middleware/idempotency.py"],"related_nodes":["state:http-idempotency-key"],"blocking":false,"classification":"known_violation"},
     {"id":"state-ownership:smtp-send-claim","category":"state-ownership","severity":"high","summary":"SMTP claiming state has no abandoned-claim recovery/expiry semantics.","evidence":["backend/repositories/email_send_idempotency_repository.py"],"related_nodes":["state:smtp-send-claim"],"blocking":false,"classification":"known_violation"},
     {"id":"state-ownership:verification-token","category":"state-ownership","severity":"high","summary":"Verification token consumption and bootstrap issuance are not atomic under concurrency.","evidence":["backend/services/tenant_onboarding_orchestrator.py"],"related_nodes":["state:verification-token"],"blocking":false,"classification":"known_violation"},
     {"id":"state-ownership:bootstrap-api-key","category":"state-ownership","severity":"high","summary":"Bootstrap key promotion is read-check-mint-revoke rather than atomic consume-and-replace.","evidence":["backend/services/tenant_onboarding_orchestrator.py"],"related_nodes":["state:bootstrap-api-key"],"blocking":false,"classification":"known_violation"},
@@ -139,7 +141,6 @@
     {"id":"egress-ungoverned:backend.services.llm.openai_compatible","reason":"Frozen GF-07; detector acknowledgement only, not repair evidence.","source":"GF-07"},
     {"id":"egress-ungoverned:backend.services.verification_delivery","reason":"Frozen GF-08; detector acknowledgement only, not repair evidence.","source":"GF-08"},
     {"id":"state-ownership:redis-task-lease","reason":"Frozen GF-12; modeled as current known violation.","source":"GF-12"},
-    {"id":"state-ownership:http-idempotency-key","reason":"Frozen GF-13/GF-27; modeled as current known violation.","source":"GF-13"},
     {"id":"state-ownership:smtp-send-claim","reason":"Frozen GF-16; modeled as current known violation.","source":"GF-16"},
     {"id":"state-ownership:verification-token","reason":"Frozen GF-14; modeled as current known violation.","source":"GF-14"},
     {"id":"state-ownership:bootstrap-api-key","reason":"Frozen GF-22; modeled as current known violation.","source":"GF-22"},

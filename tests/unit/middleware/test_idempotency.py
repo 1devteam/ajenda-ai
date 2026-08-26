@@ -1,7 +1,8 @@
-"""Unit tests for IdempotencyMiddleware."""
+"""Unit tests for durable IdempotencyMiddleware semantics."""
 
 from __future__ import annotations
 
+import threading
 import uuid
 
 import pytest
@@ -12,6 +13,7 @@ from starlette.testclient import TestClient
 from backend.middleware.idempotency import IdempotencyMiddleware, _store
 from backend.middleware.rate_limit import RateLimitMiddleware
 from backend.rate_limit.limiter import RateLimiter
+from backend.services.http_idempotency_authority import InMemoryHttpIdempotencyAuthority
 
 _call_count = 0
 
@@ -30,6 +32,18 @@ def create_resource(request: Request) -> JSONResponse:
     )
 
 
+def fail_resource() -> JSONResponse:
+    global _call_count
+    _call_count += 1
+    return JSONResponse({"failed": True, "call": _call_count}, status_code=503)
+
+
+def echo_resource(request: Request) -> JSONResponse:
+    global _call_count
+    _call_count += 1
+    return JSONResponse({"call": _call_count, "query": request.url.query}, status_code=201)
+
+
 def get_resource(request: Request) -> JSONResponse:
     return JSONResponse({"resource": "data"})
 
@@ -39,12 +53,15 @@ def make_app(
     tenant_id: str = "tenant-a",
     principal_id: str = "user-a",
     rate_limit_max_requests: int | None = None,
+    authority: InMemoryHttpIdempotencyAuthority = _store,
 ) -> FastAPI:
     app = FastAPI()
 
     app.post("/resources")(create_resource)
     app.put("/resources")(create_resource)
     app.post("/other-resources")(create_resource)
+    app.post("/fail")(fail_resource)
+    app.post("/echo")(echo_resource)
     app.get("/resources")(get_resource)
 
     if rate_limit_max_requests is not None:
@@ -53,7 +70,7 @@ def make_app(
             limiter=RateLimiter(max_requests=rate_limit_max_requests, window_seconds=60),
         )
 
-    app.add_middleware(IdempotencyMiddleware)
+    app.add_middleware(IdempotencyMiddleware, authority=authority)
 
     @app.middleware("http")
     async def inject_scope(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -64,13 +81,27 @@ def make_app(
     return app
 
 
+def make_public_app(*, authority: InMemoryHttpIdempotencyAuthority = _store) -> FastAPI:
+    app = FastAPI()
+
+    @app.post("/v1/onboarding/signup")
+    async def signup(request: Request) -> JSONResponse:
+        global _call_count
+        _call_count += 1
+        payload = await request.json()
+        return JSONResponse({"call": _call_count, "email": payload.get("email"), "session": f"secret-{_call_count}"})
+
+    app.add_middleware(IdempotencyMiddleware, authority=authority)
+    return app
+
+
 @pytest.fixture(autouse=True)
 def reset_state():
     global _call_count
     _call_count = 0
-    _store._store.clear()
+    _store.clear()
     yield
-    _store._store.clear()
+    _store.clear()
 
 
 @pytest.fixture()
@@ -111,7 +142,7 @@ class TestIdempotencyMiddleware:
         assert replay.json()["call"] == first.json()["call"]
         assert new_request.status_code == 429
 
-    def test_429_response_is_not_replayed_from_idempotency_cache(self) -> None:
+    def test_429_response_is_not_persisted(self) -> None:
         key = str(uuid.uuid4())
         client = TestClient(make_app(rate_limit_max_requests=1), raise_server_exceptions=False)
 
@@ -124,6 +155,17 @@ class TestIdempotencyMiddleware:
         assert limited_once.headers.get("idempotency-replayed") == "false"
         assert limited_twice.status_code == 429
         assert limited_twice.headers.get("idempotency-replayed") == "false"
+
+    def test_5xx_response_is_not_persisted(self, client: TestClient) -> None:
+        key = str(uuid.uuid4())
+        first = client.post("/fail", headers={"Idempotency-Key": key})
+        second = client.post("/fail", headers={"Idempotency-Key": key})
+
+        assert first.status_code == 503
+        assert second.status_code == 503
+        assert first.headers.get("idempotency-replayed") == "false"
+        assert second.headers.get("idempotency-replayed") == "false"
+        assert second.json()["call"] == first.json()["call"] + 1
 
     def test_invalid_key_returns_400(self, client: TestClient) -> None:
         response = client.post("/resources", headers={"Idempotency-Key": "not-a-uuid"})
@@ -141,10 +183,8 @@ class TestIdempotencyMiddleware:
         assert "idempotency-replayed" not in response.headers
 
     def test_different_keys_are_independent(self, client: TestClient) -> None:
-        key1 = str(uuid.uuid4())
-        key2 = str(uuid.uuid4())
-        r1 = client.post("/resources", headers={"Idempotency-Key": key1})
-        r2 = client.post("/resources", headers={"Idempotency-Key": key2})
+        r1 = client.post("/resources", headers={"Idempotency-Key": str(uuid.uuid4())})
+        r2 = client.post("/resources", headers={"Idempotency-Key": str(uuid.uuid4())})
         assert r1.json()["call"] != r2.json()["call"]
 
     def test_same_key_is_scoped_by_tenant_and_principal(self) -> None:
@@ -167,7 +207,6 @@ class TestIdempotencyMiddleware:
         key = str(uuid.uuid4())
         first = client.post("/resources", headers={"Idempotency-Key": key})
         second = client.post("/other-resources", headers={"Idempotency-Key": key})
-
         assert first.headers.get("idempotency-replayed") == "false"
         assert second.headers.get("idempotency-replayed") == "false"
         assert first.json()["call"] != second.json()["call"]
@@ -176,7 +215,69 @@ class TestIdempotencyMiddleware:
         key = str(uuid.uuid4())
         first = client.post("/resources", headers={"Idempotency-Key": key})
         second = client.put("/resources", headers={"Idempotency-Key": key})
-
         assert first.headers.get("idempotency-replayed") == "false"
         assert second.headers.get("idempotency-replayed") == "false"
         assert first.json()["call"] != second.json()["call"]
+
+    def test_same_key_with_changed_body_is_rejected_for_public_route(self) -> None:
+        key = str(uuid.uuid4())
+        client = TestClient(make_public_app(), raise_server_exceptions=False)
+
+        first = client.post(
+            "/v1/onboarding/signup",
+            json={"email": "one@example.com", "password": "secret-a"},
+            headers={"Idempotency-Key": key},
+        )
+        second = client.post(
+            "/v1/onboarding/signup",
+            json={"email": "two@example.com", "password": "secret-b"},
+            headers={"Idempotency-Key": key},
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert second.json()["detail"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+        assert _call_count == 1
+
+    def test_same_public_request_replays_without_cross_payload_credentials(self) -> None:
+        key = str(uuid.uuid4())
+        client = TestClient(make_public_app(), raise_server_exceptions=False)
+        payload = {"email": "same@example.com", "password": "same-secret"}
+
+        first = client.post("/v1/onboarding/signup", json=payload, headers={"Idempotency-Key": key})
+        replay = client.post("/v1/onboarding/signup", json=payload, headers={"Idempotency-Key": key})
+
+        assert replay.status_code == 200
+        assert replay.headers.get("idempotency-replayed") == "true"
+        assert replay.json()["session"] == first.json()["session"]
+        assert _call_count == 1
+
+    def test_query_string_is_part_of_request_fingerprint(self, client: TestClient) -> None:
+        key = str(uuid.uuid4())
+        first = client.post("/echo?mode=one", headers={"Idempotency-Key": key})
+        second = client.post("/echo?mode=two", headers={"Idempotency-Key": key})
+        assert first.status_code == 201
+        assert second.status_code == 409
+        assert second.json()["detail"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+
+
+def test_in_memory_authority_allows_only_one_concurrent_owner() -> None:
+    authority = InMemoryHttpIdempotencyAuthority()
+    barrier = threading.Barrier(8)
+    statuses: list[str] = []
+    lock = threading.Lock()
+
+    def contender() -> None:
+        barrier.wait()
+        decision = authority.claim(operation_key="operation", request_fingerprint="request")
+        with lock:
+            statuses.append(decision.status)
+
+    threads = [threading.Thread(target=contender) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert statuses.count("owner") == 1
+    assert statuses.count("in_flight") == 7

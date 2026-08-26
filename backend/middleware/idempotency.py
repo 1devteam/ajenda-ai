@@ -1,99 +1,38 @@
-"""Idempotency key middleware for Ajenda AI.
+"""Durable HTTP idempotency middleware.
 
-Provides server-side idempotency for mutating API endpoints (POST, PUT, PATCH).
-Clients send an `Idempotency-Key` header with a UUID. The server stores the
-response for that key and replays it on duplicate requests within the TTL window.
-
-Design:
-- Storage backend: in-process LRU cache with TTL (suitable for single-instance
-  dev/staging). For multi-instance production, swap _IdempotencyStore for a
-  Redis-backed implementation — the interface is the same.
-- Cache keys are scoped by tenant, principal, method, and path so one tenant or
-  principal cannot replay another caller's response with the same raw key.
-- Rate-limit denials are not cached so callers are re-evaluated after Retry-After
-  or window reset instead of replaying a stale 429 for the idempotency TTL.
-- TTL: 24 hours (86400 seconds). Duplicate requests after TTL are treated as new.
-- Key format: UUID v4 string. Non-UUID keys are rejected with HTTP 400.
-- Only applies to POST, PUT, PATCH methods. GET/DELETE/HEAD pass through.
-- Stored response includes status code, headers, and body bytes.
-- Thread-safe: uses a threading.Lock around the in-process store.
-
-Production upgrade path:
-    Replace _InProcessIdempotencyStore with a Redis implementation that uses
-    SET NX EX for atomic first-write semantics and GETEX for reads. The
-    IdempotencyMiddleware class does not need to change.
-
-Usage (in main.py)::
-
-    from backend.middleware.idempotency import IdempotencyMiddleware
-    app.add_middleware(IdempotencyMiddleware)
+Mutating requests that opt in with ``Idempotency-Key`` must acquire one durable
+PostgreSQL-backed execution owner before the application is invoked. Completed
+responses are encrypted at rest and replayable across API processes. Reusing an
+operation key with a changed request is a conflict rather than a second operation.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
-import threading
-import time
+import logging
 import uuid
-from dataclasses import dataclass, field
+from contextlib import suppress
 from typing import Any
 
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-_IDEMPOTENCY_HEADER = "idempotency-key"
-_IDEMPOTENCY_TTL_SECONDS = 86_400  # 24 hours
-_MAX_STORE_SIZE = 10_000  # evict oldest when exceeded
-_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH"})
-_ANONYMOUS_SCOPE_VALUE = "anonymous"
-_UNCACHEABLE_STATUS_CODES = frozenset({429})
-_ONBOARDING_BODY_HASH_PREFIXES = (
-    "/v1/onboarding/signup",
-    "/v1/onboarding/verify-email",
-    "/v1/onboarding/promote-bootstrap-key",
+from backend.services.http_idempotency_authority import (
+    HttpIdempotencyAuthority,
+    InMemoryHttpIdempotencyAuthority,
+    ReplayResponse,
 )
 
+logger = logging.getLogger("ajenda.idempotency")
 
-@dataclass
-class _StoredResponse:
-    status_code: int
-    headers: list[tuple[bytes, bytes]]
-    body: bytes
-    stored_at: float = field(default_factory=time.monotonic)
+_IDEMPOTENCY_HEADER = "idempotency-key"
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH"})
+_UNCACHEABLE_STATUS_CODES = frozenset({429})
+_PUBLIC_SCOPE_VALUE = "public"
 
-
-class _InProcessIdempotencyStore:
-    """Simple in-process LRU-ish store with TTL eviction.
-
-    Not suitable for multi-instance deployments. Replace with Redis for production.
-    """
-
-    def __init__(self, ttl: float = _IDEMPOTENCY_TTL_SECONDS, max_size: int = _MAX_STORE_SIZE) -> None:
-        self._ttl = ttl
-        self._max_size = max_size
-        self._store: dict[str, _StoredResponse] = {}
-        self._lock = threading.Lock()
-
-    def get(self, key: str) -> _StoredResponse | None:
-        with self._lock:
-            entry = self._store.get(key)
-            if entry is None:
-                return None
-            if time.monotonic() - entry.stored_at > self._ttl:
-                del self._store[key]
-                return None
-            return entry
-
-    def set(self, key: str, response: _StoredResponse) -> None:
-        with self._lock:
-            if len(self._store) >= self._max_size:
-                # Evict the oldest entry
-                oldest_key = next(iter(self._store))
-                del self._store[oldest_key]
-            self._store[key] = response
-
-
-# Module-level singleton store — shared across all middleware instances
-_store = _InProcessIdempotencyStore()
+# Backwards-compatible explicit test authority. Production never falls back to it.
+_store = InMemoryHttpIdempotencyAuthority()
 
 
 def _state_value(scope: Scope, name: str) -> Any:
@@ -103,24 +42,31 @@ def _state_value(scope: Scope, name: str) -> Any:
     return None
 
 
-def _build_scoped_cache_key(*, scope: Scope, raw_key: str, body_hash: str | None = None) -> str:
-    tenant_id = _state_value(scope, "tenant_id") or _ANONYMOUS_SCOPE_VALUE
+def _scope_namespace(scope: Scope) -> str:
+    tenant_id = _state_value(scope, "tenant_id")
     principal = _state_value(scope, "principal")
-    principal_id = getattr(principal, "subject_id", None) or _ANONYMOUS_SCOPE_VALUE
+    principal_id = getattr(principal, "subject_id", None)
+    if tenant_id is None or principal_id is None:
+        return _PUBLIC_SCOPE_VALUE
+    return f"tenant:{tenant_id}|principal:{principal_id}"
+
+
+def _build_operation_key(*, scope: Scope, raw_key: str) -> str:
     method = str(scope.get("method", "")).upper()
     path = str(scope.get("path", ""))
-    parts = [str(tenant_id), str(principal_id), method, path, raw_key]
-    if body_hash is not None:
-        parts.append(body_hash)
-    return "|".join(parts)
+    material = "\x00".join((_scope_namespace(scope), method, path, raw_key)).encode()
+    return hashlib.sha256(material).hexdigest()
 
 
-def _requires_body_hash(path: str) -> bool:
-    return any(path.startswith(prefix) for prefix in _ONBOARDING_BODY_HASH_PREFIXES)
-
-
-def _hash_request_body(body: bytes) -> str:
-    return hashlib.sha256(body).hexdigest()
+def _build_request_fingerprint(*, scope: Scope, body: bytes) -> str:
+    digest = hashlib.sha256()
+    query_string = scope.get("query_string", b"")
+    if isinstance(query_string, str):
+        query_string = query_string.encode()
+    digest.update(bytes(query_string))
+    digest.update(b"\x00")
+    digest.update(body)
+    return digest.hexdigest()
 
 
 async def _read_request_body(receive: Receive) -> bytes:
@@ -159,122 +105,251 @@ def _is_valid_uuid(value: str) -> bool:
 
 
 def _should_store_response(status_code: int) -> bool:
-    return status_code not in _UNCACHEABLE_STATUS_CODES
+    return status_code < 500 and status_code not in _UNCACHEABLE_STATUS_CODES
 
 
 class IdempotencyMiddleware:
-    """Raw ASGI middleware providing idempotency for mutating endpoints.
+    """Acquire durable ownership before executing keyed mutating requests."""
 
-    On first request with a given Idempotency-Key:
-      1. Passes the request through to the application.
-      2. Captures the response (status, headers, body).
-      3. Stores it keyed by the idempotency key.
-      4. Returns the response to the client with an `Idempotency-Replayed: false` header.
-
-    On duplicate request with the same key (within TTL):
-      1. Returns the stored response immediately without hitting the application.
-      2. Adds `Idempotency-Replayed: true` header so clients can detect replays.
-
-    If the Idempotency-Key header is present but not a valid UUID, returns HTTP 400.
-    If the Idempotency-Key header is absent on a mutating endpoint, the request
-    passes through normally (idempotency is opt-in, not required). Cached entries
-    are scoped by tenant, principal, method, and path to preserve tenant isolation.
-    Rate-limit denials are deliberately excluded from the cache so retries can be
-    evaluated against the current limiter window.
-    """
-
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        authority: HttpIdempotencyAuthority | InMemoryHttpIdempotencyAuthority | None = None,
+    ) -> None:
         self._app = app
+        self._injected_authority = authority
+        self._runtime_authority: HttpIdempotencyAuthority | None = None
+
+    def _resolve_authority(self, scope: Scope) -> HttpIdempotencyAuthority | InMemoryHttpIdempotencyAuthority:
+        if self._injected_authority is not None:
+            return self._injected_authority
+        if self._runtime_authority is not None:
+            return self._runtime_authority
+
+        app = scope.get("app")
+        state = getattr(app, "state", None)
+        database_runtime = getattr(state, "database_runtime", None)
+        settings = getattr(state, "settings", None)
+        if database_runtime is None or settings is None:
+            raise RuntimeError("durable idempotency authority is unavailable")
+        self._runtime_authority = HttpIdempotencyAuthority(
+            session_factory=database_runtime.session_factory,
+            encryption_key=getattr(settings, "runtime_secret_encryption_key", None),
+            previous_encryption_key=getattr(settings, "runtime_secret_encryption_key_prev", None),
+        )
+        return self._runtime_authority
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] != "http" or str(scope.get("method", "")).upper() not in _MUTATING_METHODS:
             await self._app(scope, receive, send)
             return
 
-        method = scope.get("method", "").upper()
-        if method not in _MUTATING_METHODS:
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        raw_header = headers.get(_IDEMPOTENCY_HEADER.encode())
+        if raw_header is None:
             await self._app(scope, receive, send)
             return
 
-        # Extract Idempotency-Key header (lowercase comparison per HTTP spec)
-        headers = {k.lower(): v for k, v in scope.get("headers", [])}
-        raw_key = headers.get(_IDEMPOTENCY_HEADER.encode(), None)
-
-        if raw_key is None:
-            # No idempotency key — pass through
-            await self._app(scope, receive, send)
-            return
-
-        raw_idempotency_key = raw_key.decode("utf-8", errors="replace").strip()
-
-        if not _is_valid_uuid(raw_idempotency_key):
-            # Malformed key — reject immediately
-            error_body = b'{"detail":"Idempotency-Key must be a valid UUID v4."}'
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": 400,
-                    "headers": [
-                        (b"content-type", b"application/json"),
-                        (b"content-length", str(len(error_body)).encode()),
-                    ],
-                }
+        raw_key = raw_header.decode("utf-8", errors="replace").strip()
+        if not _is_valid_uuid(raw_key):
+            await self._send_json(
+                scope,
+                receive,
+                send,
+                status_code=400,
+                content={"detail": "Idempotency-Key must be a valid UUID v4."},
             )
-            await send({"type": "http.response.body", "body": error_body, "more_body": False})
             return
 
-        path = str(scope.get("path", ""))
-        receive_for_app = receive
-        body_hash: str | None = None
-        if _requires_body_hash(path):
-            body_bytes = await _read_request_body(receive)
-            body_hash = _hash_request_body(body_bytes)
-            receive_for_app = _replay_receive(body_bytes)
-        scoped_key = _build_scoped_cache_key(scope=scope, raw_key=raw_idempotency_key, body_hash=body_hash)
+        body = await _read_request_body(receive)
+        receive_for_app = _replay_receive(body)
+        operation_key = _build_operation_key(scope=scope, raw_key=raw_key)
+        request_fingerprint = _build_request_fingerprint(scope=scope, body=body)
 
-        # Check store for existing response
-        cached = _store.get(scoped_key)
-        if cached is not None:
-            # Replay the stored response
-            replay_headers = [*cached.headers, (b"idempotency-replayed", b"true")]
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": cached.status_code,
-                    "headers": replay_headers,
-                }
+        try:
+            authority = self._resolve_authority(scope)
+            decision = await asyncio.to_thread(
+                authority.claim,
+                operation_key=operation_key,
+                request_fingerprint=request_fingerprint,
             )
-            await send({"type": "http.response.body", "body": cached.body, "more_body": False})
+        except Exception:
+            logger.exception("idempotency_claim_failed")
+            await self._send_json(
+                scope,
+                receive_for_app,
+                send,
+                status_code=503,
+                content={"detail": {"code": "IDEMPOTENCY_UNAVAILABLE", "message": "Idempotency authority unavailable"}},
+                headers=[(b"retry-after", b"1")],
+            )
             return
 
-        # First request — capture the response
-        captured_status: int = 200
+        if decision.status == "replay":
+            assert decision.response is not None
+            await self._send_replay(send, decision.response)
+            return
+        if decision.status == "payload_mismatch":
+            await self._send_json(
+                scope,
+                receive_for_app,
+                send,
+                status_code=409,
+                content={
+                    "detail": {
+                        "code": "IDEMPOTENCY_KEY_REUSED",
+                        "message": "Idempotency-Key was already used with a different request",
+                    }
+                },
+            )
+            return
+        if decision.status == "in_flight":
+            await self._send_json(
+                scope,
+                receive_for_app,
+                send,
+                status_code=409,
+                content={
+                    "detail": {
+                        "code": "IDEMPOTENCY_IN_PROGRESS",
+                        "message": "An operation with this Idempotency-Key is already in progress",
+                    }
+                },
+                headers=[(b"retry-after", b"1")],
+            )
+            return
+
+        owner_token = decision.owner_token
+        assert owner_token is not None
+        heartbeat = asyncio.create_task(
+            self._heartbeat(authority=authority, operation_key=operation_key, owner_token=owner_token)
+        )
+        try:
+            response = await self._capture_application_response(scope, receive_for_app)
+        except Exception:
+            heartbeat.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat
+            await self._release_best_effort(authority, operation_key, owner_token)
+            raise
+
+        heartbeat.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat
+
+        if _should_store_response(response.status_code):
+            try:
+                completed = await asyncio.to_thread(
+                    authority.complete,
+                    operation_key=operation_key,
+                    owner_token=owner_token,
+                    response=response,
+                )
+            except Exception:
+                logger.exception("idempotency_completion_failed")
+                completed = False
+            if not completed:
+                await self._send_json(
+                    scope,
+                    receive_for_app,
+                    send,
+                    status_code=503,
+                    content={
+                        "detail": {
+                            "code": "IDEMPOTENCY_FINALIZATION_FAILED",
+                            "message": "Operation completed but durable idempotency finalization failed",
+                        }
+                    },
+                    headers=[(b"retry-after", b"1")],
+                )
+                return
+        else:
+            await self._release_best_effort(authority, operation_key, owner_token)
+
+        await self._send_live(send, response)
+
+    async def _capture_application_response(self, scope: Scope, receive: Receive) -> ReplayResponse:
+        captured_status: int | None = None
         captured_headers: list[tuple[bytes, bytes]] = []
-        captured_body_parts: list[bytes] = []
+        body_parts: list[bytes] = []
 
-        async def capturing_send(message: Any) -> None:
+        async def capture(message: Any) -> None:
             nonlocal captured_status, captured_headers
             if message["type"] == "http.response.start":
-                captured_status = message["status"]
+                captured_status = int(message["status"])
                 captured_headers = list(message.get("headers", []))
-                # Add replay marker to live response
-                outgoing_headers = [*captured_headers, (b"idempotency-replayed", b"false")]
-                await send({**message, "headers": outgoing_headers})
             elif message["type"] == "http.response.body":
-                body_chunk = message.get("body", b"")
-                captured_body_parts.append(body_chunk)
-                await send(message)
-                if not message.get("more_body", False) and _should_store_response(captured_status):
-                    # Response complete — store cacheable responses only.
-                    _store.set(
-                        scoped_key,
-                        _StoredResponse(
-                            status_code=captured_status,
-                            headers=captured_headers,
-                            body=b"".join(captured_body_parts),
-                        ),
-                    )
-            else:
-                await send(message)
+                body_parts.append(message.get("body", b""))
 
-        await self._app(scope, receive_for_app, capturing_send)
+        await self._app(scope, receive, capture)
+        if captured_status is None:
+            raise RuntimeError("application returned no HTTP response start")
+        return ReplayResponse(
+            status_code=captured_status,
+            headers=captured_headers,
+            body=b"".join(body_parts),
+        )
+
+    async def _heartbeat(
+        self,
+        *,
+        authority: HttpIdempotencyAuthority | InMemoryHttpIdempotencyAuthority,
+        operation_key: str,
+        owner_token: str,
+    ) -> None:
+        while True:
+            await asyncio.sleep(authority.heartbeat_interval_seconds)
+            try:
+                renewed = await asyncio.to_thread(
+                    authority.renew,
+                    operation_key=operation_key,
+                    owner_token=owner_token,
+                )
+            except Exception:
+                logger.exception("idempotency_heartbeat_failed")
+                return
+            if not renewed:
+                logger.error("idempotency_ownership_lost")
+                return
+
+    async def _release_best_effort(
+        self,
+        authority: HttpIdempotencyAuthority | InMemoryHttpIdempotencyAuthority,
+        operation_key: str,
+        owner_token: str,
+    ) -> None:
+        try:
+            await asyncio.to_thread(authority.release, operation_key=operation_key, owner_token=owner_token)
+        except Exception:
+            logger.exception("idempotency_release_failed")
+
+    @staticmethod
+    async def _send_replay(send: Send, response: ReplayResponse) -> None:
+        headers = [(name, value) for name, value in response.headers if name.lower() != b"idempotency-replayed"]
+        headers.append((b"idempotency-replayed", b"true"))
+        await send({"type": "http.response.start", "status": response.status_code, "headers": headers})
+        await send({"type": "http.response.body", "body": response.body, "more_body": False})
+
+    @staticmethod
+    async def _send_live(send: Send, response: ReplayResponse) -> None:
+        headers = [(name, value) for name, value in response.headers if name.lower() != b"idempotency-replayed"]
+        headers.append((b"idempotency-replayed", b"false"))
+        await send({"type": "http.response.start", "status": response.status_code, "headers": headers})
+        await send({"type": "http.response.body", "body": response.body, "more_body": False})
+
+    @staticmethod
+    async def _send_json(
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        *,
+        status_code: int,
+        content: dict[str, Any],
+        headers: list[tuple[bytes, bytes]] | None = None,
+    ) -> None:
+        response = JSONResponse(status_code=status_code, content=content)
+        if headers:
+            for name, value in headers:
+                response.headers.append(name.decode("latin-1"), value.decode("latin-1"))
+        await response(scope, receive, send)

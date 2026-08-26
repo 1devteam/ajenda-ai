@@ -11,7 +11,7 @@ def test_restored_rls_migration_is_single_current_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0041_restore_tenant_rls"]
+    assert heads == ["0042_http_idempotency"]
     assert len(heads[0]) <= 32
 
 
