@@ -10,6 +10,8 @@ Enforcement contract:
     has reached their monthly task limit, otherwise increments the counter.
   - check_and_record_agent_provisioning: raises QuotaExceededError if the
     fleet would exceed the per-fleet agent limit.
+  - reserve_api_key_capacity: serializes API-key creation per tenant and rejects
+    a projected active-key count above the current plan limit.
   - require_feature: raises FeatureNotAvailableError if the tenant's plan
     does not include the requested feature.
   - check_tenant_active: raises the appropriate error if the tenant is
@@ -22,6 +24,8 @@ Design decisions:
   - Quota checks and counter increments are done in the same transaction as
     the business operation. If the business operation rolls back, the counter
     is also rolled back — no phantom increments.
+  - API-key capacity is a gauge. The tenant row is locked before counting
+    active keys; that lock is the reservation authority until transaction end.
   - The TenantPlan.UNLIMITED sentinel (-1) bypasses all limit checks so that
     enterprise plans never hit artificial ceilings.
 """
@@ -35,9 +39,8 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import get_settings
-from backend.repositories.tenant_repository import (
-    TenantRepository,
-)
+from backend.repositories.api_key_repository import ApiKeyRepository
+from backend.repositories.tenant_repository import TenantRepository
 
 
 class QuotaExceededError(ValueError):
@@ -55,6 +58,10 @@ class QuotaExceededError(ValueError):
             f"Quota exceeded for {field!r}: current={current}, limit={limit} "
             f"(plan={plan!r}). Upgrade your plan to continue."
         )
+
+
+class QuotaConfigurationError(RuntimeError):
+    """Raised when a tenant quota cannot be evaluated safely."""
 
 
 _PENDING_METER_REPORTS_KEY = "pending_meter_reports"
@@ -172,7 +179,7 @@ class QuotaEnforcementService:
         the tenant is suspended between the middleware check and the service
         call (e.g., in a long-running transaction).
         """
-        self._tenants.get_active(tenant_id)  # raises TenantSuspendedError / TenantDeletedError
+        self._tenants.get_active(tenant_id)
 
     # ------------------------------------------------------------------
     # Resource quota checks + counter increments
@@ -187,7 +194,6 @@ class QuotaEnforcementService:
         tenant = self._tenants.get_active(tenant_id)
         plan = self._tenants.get_plan(tenant.plan)
         if plan is None:
-            # Unknown plan — fail open with a warning (don't block the user)
             return
 
         usage = self._tenants.get_or_create_usage(tenant_id)
@@ -214,18 +220,6 @@ class QuotaEnforcementService:
 
         Must be called inside the same transaction as the ExecutionTask.create().
         Raises QuotaExceededError if the limit is reached.
-
-        Args:
-            tenant_id: The tenant to check quota for.
-            count: Number of tasks being created in this call. Defaults to 1.
-                   Use count=N when a single route call enqueues multiple tasks
-                   (e.g., POST /missions/{id}/queue with N planned tasks) to
-                   prevent tenants from bypassing max_tasks_per_month by
-                   batching large missions.
-
-        Raises:
-            ValueError: If count < 1.
-            QuotaExceededError: If the current usage + count would exceed the limit.
         """
         if count < 1:
             raise ValueError(f"count must be >= 1, got {count}")
@@ -255,11 +249,7 @@ class QuotaEnforcementService:
         *,
         agents_requested: int,
     ) -> None:
-        """Check per-fleet agent limit and increment counter atomically.
-
-        Raises QuotaExceededError if provisioning agents_requested agents
-        would exceed the plan's max_agents_per_fleet limit.
-        """
+        """Check per-fleet agent limit and increment counter atomically."""
         tenant = self._tenants.get_active(tenant_id)
         plan = self._tenants.get_plan(tenant.plan)
         if plan is None:
@@ -281,11 +271,52 @@ class QuotaEnforcementService:
         )
         self._report_metered_if_possible(tenant_id, agents_requested, "agents")
 
-    def check_api_key_limit(self, tenant_id: uuid.UUID, *, current_key_count: int) -> None:
-        """Check that the tenant has not exceeded their API key limit.
+    def reserve_api_key_capacity(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        replacing_active_keys: int = 0,
+    ) -> None:
+        """Serialize API-key capacity admission for the current transaction.
 
-        Does not increment any counter (API keys are a gauge, not a rate).
-        Raises QuotaExceededError if the limit is reached.
+        The tenant row is the per-tenant reservation lock. Every production
+        API-key creation path must acquire this lock, evaluate the current plan,
+        count committed active keys, and create/revoke keys before transaction
+        completion. The lock prevents two concurrent creators from both
+        admitting against the same capacity snapshot.
+
+        ``replacing_active_keys`` supports bootstrap promotion: one active
+        bootstrap key is replaced by one operational key in the same
+        transaction, so the projected gauge is unchanged.
+        """
+        if replacing_active_keys < 0:
+            raise ValueError("replacing_active_keys must be >= 0")
+
+        tenant = self._tenants.get_active_for_update(tenant_id)
+        plan = self._tenants.get_plan(tenant.plan)
+        if plan is None:
+            raise QuotaConfigurationError(
+                f"API-key quota plan {tenant.plan!r} is not configured for tenant {tenant_id}"
+            )
+
+        current = ApiKeyRepository(self._session).count_active_for_tenant(tenant_id=str(tenant_id))
+        limit = plan.max_api_keys
+        projected = current + 1 - replacing_active_keys
+        if projected < 0:
+            raise ValueError("replacing_active_keys exceeds projected API-key gauge")
+        if limit != -1 and projected > limit:
+            raise QuotaExceededError(
+                field="api_keys",
+                limit=limit,
+                current=current,
+                plan=tenant.plan,
+            )
+
+    def check_api_key_limit(self, tenant_id: uuid.UUID, *, current_key_count: int) -> None:
+        """Legacy non-serializing API-key limit check.
+
+        Retained for compatibility with non-production callers/tests. Production
+        creation paths must use :meth:`reserve_api_key_capacity`.
         """
         tenant = self._tenants.get_active(tenant_id)
         plan = self._tenants.get_plan(tenant.plan)
@@ -302,11 +333,7 @@ class QuotaEnforcementService:
             )
 
     def check_api_call_quota(self, tenant_id: uuid.UUID) -> None:
-        """Raise if the tenant has reached their monthly API call limit.
-
-        Intended for admission checks before request handlers run. Does not
-        increment usage; pair with :meth:`record_api_call` after success.
-        """
+        """Raise if the tenant has reached their monthly API call limit."""
         if get_settings().api_call_quota_bypassed:
             return
 
@@ -337,12 +364,7 @@ class QuotaEnforcementService:
         self._report_metered_if_possible(tenant_id, 1, "api_calls")
 
     def check_and_record_api_call(self, tenant_id: uuid.UUID) -> None:
-        """Check monthly API call quota and increment counter atomically.
-
-        Intended to be called for authenticated API requests (e.g. from rate
-        limit middleware after allowing the request). Raises QuotaExceededError
-        if the tenant has reached max_monthly_api_calls for the plan.
-        """
+        """Check monthly API call quota and increment counter atomically."""
         self.check_api_call_quota(tenant_id)
         self.record_api_call(tenant_id)
 
@@ -351,11 +373,7 @@ class QuotaEnforcementService:
     # ------------------------------------------------------------------
 
     def require_feature(self, tenant_id: uuid.UUID, feature: str) -> None:
-        """Raise FeatureNotAvailableError if the tenant's plan lacks the feature.
-
-        Use this to gate premium features (e.g., compliance layer, webhooks,
-        custom OIDC providers) behind plan tiers.
-        """
+        """Raise FeatureNotAvailableError if the tenant's plan lacks the feature."""
         from backend.services.feature_flag_service import FeatureFlagService
 
         tenant = self._tenants.get_active(tenant_id)
@@ -425,7 +443,7 @@ class QuotaEnforcementService:
                 )
 
     # ------------------------------------------------------------------
-    # Metering bridge to Stripe (PR3) — best effort, never blocks
+    # Metering bridge to Stripe — best effort, never blocks
     # ------------------------------------------------------------------
 
     def _report_metered_if_possible(self, tenant_id: uuid.UUID, amount: int, metric: str) -> None:
