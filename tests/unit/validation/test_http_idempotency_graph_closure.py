@@ -40,9 +40,10 @@ def test_http_idempotency_is_modeled_as_enforced_durable_authority() -> None:
     assert http_invariant["status"] == "enforced"
     assert http_invariant["applies_to"] == ["state:http-idempotency-key"]
 
-    residual_invariant = invariants["durable-idempotency-ownership"]
-    assert residual_invariant["status"] == "known_violation"
-    assert residual_invariant["applies_to"] == ["state:smtp-send-claim"]
+    smtp_invariant = invariants["durable-idempotency-ownership"]
+    assert smtp_invariant["status"] == "enforced"
+    assert smtp_invariant["applies_to"] == ["state:smtp-send-claim"]
+    assert "state-ownership:smtp-send-claim" not in finding_ids
 
     state_node = nodes["state:http-idempotency-key"]
     assert state_node["source"] == "backend/services/http_idempotency_authority.py"
