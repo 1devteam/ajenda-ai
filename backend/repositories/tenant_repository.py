@@ -52,6 +52,11 @@ class TenantRepository:
         """Return the Tenant row or None if it does not exist."""
         return self._session.get(Tenant, tenant_id)
 
+    def get_for_update(self, tenant_id: uuid.UUID) -> Tenant | None:
+        """Lock one tenant row until the current transaction completes."""
+        stmt = select(Tenant).where(Tenant.id == tenant_id).with_for_update()
+        return self._session.scalars(stmt).first()
+
     def get_active(self, tenant_id: uuid.UUID) -> Tenant:
         """Return the Tenant row, raising if not found, suspended, or deleted.
 
@@ -60,6 +65,17 @@ class TenantRepository:
         defense (the first being TenantContextMiddleware).
         """
         tenant = self.get(tenant_id)
+        if tenant is None:
+            raise TenantNotFoundError(f"Tenant {tenant_id} not found")
+        if tenant.is_deleted():
+            raise TenantDeletedError(f"Tenant {tenant_id} has been deleted")
+        if tenant.is_suspended():
+            raise TenantSuspendedError(f"Tenant {tenant_id} is suspended")
+        return tenant
+
+    def get_active_for_update(self, tenant_id: uuid.UUID) -> Tenant:
+        """Return and lock one active tenant row for serialized mutation admission."""
+        tenant = self.get_for_update(tenant_id)
         if tenant is None:
             raise TenantNotFoundError(f"Tenant {tenant_id} not found")
         if tenant.is_deleted():
