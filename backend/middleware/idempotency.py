@@ -326,22 +326,14 @@ class IdempotencyMiddleware:
 
     @staticmethod
     async def _send_replay(send: Send, response: ReplayResponse) -> None:
-        headers = [
-            (name, value)
-            for name, value in response.headers
-            if name.lower() != b"idempotency-replayed"
-        ]
+        headers = [(name, value) for name, value in response.headers if name.lower() != b"idempotency-replayed"]
         headers.append((b"idempotency-replayed", b"true"))
         await send({"type": "http.response.start", "status": response.status_code, "headers": headers})
         await send({"type": "http.response.body", "body": response.body, "more_body": False})
 
     @staticmethod
     async def _send_live(send: Send, response: ReplayResponse) -> None:
-        headers = [
-            (name, value)
-            for name, value in response.headers
-            if name.lower() != b"idempotency-replayed"
-        ]
+        headers = [(name, value) for name, value in response.headers if name.lower() != b"idempotency-replayed"]
         headers.append((b"idempotency-replayed", b"false"))
         await send({"type": "http.response.start", "status": response.status_code, "headers": headers})
         await send({"type": "http.response.body", "body": response.body, "more_body": False})
