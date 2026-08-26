@@ -22,6 +22,19 @@ class ApiKeyRepository:
         stmt = select(ApiKeyRecordModel).where(ApiKeyRecordModel.key_id == key_id)
         return self._session.scalars(stmt).first()
 
+    def get_unrevoked_bootstrap_for_update(self, key_id: str) -> ApiKeyRecordModel | None:
+        """Lock one unrevoked bootstrap key until transaction completion."""
+        stmt = (
+            select(ApiKeyRecordModel)
+            .where(
+                ApiKeyRecordModel.key_id == key_id,
+                ApiKeyRecordModel.purpose == "bootstrap",
+                ApiKeyRecordModel.revoked.is_(False),
+            )
+            .with_for_update()
+        )
+        return self._session.scalars(stmt).first()
+
     def revoke(self, record: ApiKeyRecordModel) -> ApiKeyRecordModel:
         now = datetime.now(UTC)
         record.revoked = True
