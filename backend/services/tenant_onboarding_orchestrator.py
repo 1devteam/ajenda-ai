@@ -199,10 +199,7 @@ class TenantOnboardingOrchestrator:
             )
             raise InvalidVerificationTokenError("invalid verification code") from exc
 
-        member = self._members.get_owner_by_email_canonical(
-            canonical.canonical,
-            statuses=frozenset({"pending_verification"}),
-        )
+        member = self._members.get_pending_owner_by_email_for_update(canonical.canonical)
         if member is None or member.verification_token_hash is None:
             self._abuse_guard.record_attempt(
                 email_canonical=canonical.canonical,
@@ -285,10 +282,7 @@ class TenantOnboardingOrchestrator:
         canonical = canonicalize_email(email)
         self._abuse_guard.check_resend_email(email_canonical=canonical.canonical)
 
-        member = self._members.get_owner_by_email_canonical(
-            canonical.canonical,
-            statuses=frozenset({"pending_verification"}),
-        )
+        member = self._members.get_pending_owner_by_email_for_update(canonical.canonical)
         if member is None:
             raise MemberNotFoundError("no pending verification found for this email")
 
@@ -320,7 +314,7 @@ class TenantOnboardingOrchestrator:
             raise BootstrapPromotionError("bootstrap key promotion requires an API key principal")
 
         key_repo = ApiKeyRepository(self._session)
-        bootstrap_record = key_repo.get_by_key_id(principal.key_id)
+        bootstrap_record = key_repo.get_by_key_id_for_update(principal.key_id)
         if bootstrap_record is None:
             raise BootstrapPromotionError("bootstrap key not found")
         if bootstrap_record.purpose != "bootstrap":
