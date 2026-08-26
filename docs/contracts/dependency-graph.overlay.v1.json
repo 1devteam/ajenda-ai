@@ -26,9 +26,9 @@
     {"id":"state:redis-task-lease","type":"state_resource","label":"Redis task lease ownership","source":"backend/queue/adapters/redis_adapter.py"},
     {"id":"state:http-idempotency-key","type":"state_resource","label":"HTTP idempotency key ownership","source":"backend/services/http_idempotency_authority.py"},
     {"id":"state:smtp-send-claim","type":"state_resource","label":"Durable SMTP send claim","source":"backend/repositories/email_send_idempotency_repository.py"},
-    {"id":"state:verification-token","type":"state_resource","label":"Email verification token consumption","source":"backend/services/tenant_onboarding_orchestrator.py"},
-    {"id":"state:bootstrap-api-key","type":"state_resource","label":"Bootstrap API-key promotion","source":"backend/services/tenant_onboarding_orchestrator.py"},
-    {"id":"state:customer-refresh-token","type":"state_resource","label":"Customer refresh-token consumption","source":"backend/services/oidc_login_service.py"},
+    {"id":"state:verification-token","type":"state_resource","label":"Email verification token consumption","source":"backend/repositories/tenant_member_repository.py"},
+    {"id":"state:bootstrap-api-key","type":"state_resource","label":"Bootstrap API-key promotion","source":"backend/repositories/api_key_repository.py"},
+    {"id":"state:customer-refresh-token","type":"state_resource","label":"Customer refresh-token consumption","source":"backend/repositories/customer_auth_session_repository.py"},
     {"id":"state:api-key-quota-capacity","type":"state_resource","label":"API-key quota capacity reservation","source":"backend/api/routes/api_keys.py"}
   ],
   "edges": [
@@ -76,11 +76,14 @@
     {"from":"py:backend.repositories.email_send_idempotency_repository","to":"state:smtp-send-claim","type":"claims_once","evidence":"backend/repositories/email_send_idempotency_repository.py"},
     {"from":"state:smtp-send-claim","to":"db:table:email_send_idempotency_receipts","type":"persisted_in","evidence":"backend/repositories/email_send_idempotency_repository.py"},
     {"from":"py:backend.services.tenant_onboarding_orchestrator","to":"state:verification-token","type":"consumes_once","evidence":"backend/services/tenant_onboarding_orchestrator.py"},
-    {"from":"state:verification-token","to":"db:table:tenant_members","type":"persisted_in","evidence":"backend/services/tenant_onboarding_orchestrator.py"},
+    {"from":"py:backend.repositories.tenant_member_repository","to":"state:verification-token","type":"serializes_state","evidence":"backend/repositories/tenant_member_repository.py"},
+    {"from":"state:verification-token","to":"db:table:tenant_members","type":"persisted_in","evidence":"backend/repositories/tenant_member_repository.py"},
     {"from":"py:backend.services.tenant_onboarding_orchestrator","to":"state:bootstrap-api-key","type":"consumes_once","evidence":"backend/services/tenant_onboarding_orchestrator.py"},
-    {"from":"state:bootstrap-api-key","to":"db:table:api_key_records","type":"persisted_in","evidence":"backend/services/tenant_onboarding_orchestrator.py"},
+    {"from":"py:backend.repositories.api_key_repository","to":"state:bootstrap-api-key","type":"serializes_state","evidence":"backend/repositories/api_key_repository.py"},
+    {"from":"state:bootstrap-api-key","to":"db:table:api_key_records","type":"persisted_in","evidence":"backend/repositories/api_key_repository.py"},
     {"from":"py:backend.services.oidc_login_service","to":"state:customer-refresh-token","type":"consumes_once","evidence":"backend/services/oidc_login_service.py"},
-    {"from":"state:customer-refresh-token","to":"db:table:customer_auth_sessions","type":"persisted_in","evidence":"backend/services/oidc_login_service.py"},
+    {"from":"py:backend.repositories.customer_auth_session_repository","to":"state:customer-refresh-token","type":"serializes_state","evidence":"backend/repositories/customer_auth_session_repository.py"},
+    {"from":"state:customer-refresh-token","to":"db:table:customer_auth_sessions","type":"persisted_in","evidence":"backend/repositories/customer_auth_session_repository.py"},
     {"from":"py:backend.api.routes.api_keys","to":"state:api-key-quota-capacity","type":"reserves_capacity","evidence":"backend/api/routes/api_keys.py"},
     {"from":"state:api-key-quota-capacity","to":"db:table:api_key_records","type":"measured_by","evidence":"backend/api/routes/api_keys.py"}
   ],
@@ -99,7 +102,7 @@
     {"id":"lease-owner-integrity","status":"known_violation","rule":"Lease heartbeat, completion, failure, release, recovery, and dead-letter transitions must verify and preserve the current owner; no caller may overwrite or release another owner's lease.","sources":["backend/queue/adapters/redis_adapter.py"],"applies_to":["state:redis-task-lease"]},
     {"id":"durable-idempotency-ownership","status":"known_violation","rule":"Idempotent side effects must establish one durable execution owner before the effect occurs and provide terminal/recovery semantics for abandoned claims; check-then-execute-then-store is insufficient.","sources":["backend/repositories/email_send_idempotency_repository.py"],"applies_to":["state:smtp-send-claim"]},
     {"id":"http-idempotency-ownership","status":"enforced","rule":"Keyed mutating HTTP requests must establish one durable PostgreSQL execution owner before application execution; request identity must reject changed-payload reuse, transient 429/5xx outcomes must release ownership rather than become terminal replays, completed response envelopes must be encrypted at rest, and abandoned claims must be recoverable through owner-checked leases.","sources":["backend/middleware/idempotency.py","backend/services/http_idempotency_authority.py","backend/repositories/http_idempotency_repository.py","alembic/versions/0042_add_http_idempotency_receipts.py"],"applies_to":["state:http-idempotency-key"]},
-    {"id":"single-use-secret-consumption","status":"known_violation","rule":"Verification, bootstrap, and refresh credentials that mint successor authority must be atomically consumed before successor authority is issued.","sources":["backend/services/tenant_onboarding_orchestrator.py","backend/services/oidc_login_service.py"],"applies_to":["state:verification-token","state:bootstrap-api-key","state:customer-refresh-token"]},
+    {"id":"single-use-secret-consumption","status":"enforced","rule":"Verification, bootstrap, and refresh credentials that mint successor authority must be atomically consumed before successor authority is issued.","sources":["backend/services/tenant_onboarding_orchestrator.py","backend/services/oidc_login_service.py","backend/repositories/tenant_member_repository.py","backend/repositories/api_key_repository.py","backend/repositories/customer_auth_session_repository.py","tests/integration/auth/test_single_use_credential_transitions_real.py"],"applies_to":["state:verification-token","state:bootstrap-api-key","state:customer-refresh-token"]},
     {"id":"atomic-quota-reservation","status":"known_violation","rule":"Quota-limited resource creation must reserve or check-and-increment capacity atomically under concurrency rather than count then create in separate steps.","sources":["backend/api/routes/api_keys.py","backend/services/quota_enforcement.py"],"applies_to":["state:api-key-quota-capacity"]}
   ],
   "rls_exempt_tables": [
@@ -128,9 +131,6 @@
   "semantic_findings": [
     {"id":"state-ownership:redis-task-lease","category":"state-ownership","severity":"high","summary":"Redis lease lifecycle does not consistently verify current worker ownership.","evidence":["backend/queue/adapters/redis_adapter.py"],"related_nodes":["state:redis-task-lease"],"blocking":false,"classification":"known_violation"},
     {"id":"state-ownership:smtp-send-claim","category":"state-ownership","severity":"high","summary":"SMTP claiming state has no abandoned-claim recovery/expiry semantics.","evidence":["backend/repositories/email_send_idempotency_repository.py"],"related_nodes":["state:smtp-send-claim"],"blocking":false,"classification":"known_violation"},
-    {"id":"state-ownership:verification-token","category":"state-ownership","severity":"high","summary":"Verification token consumption and bootstrap issuance are not atomic under concurrency.","evidence":["backend/services/tenant_onboarding_orchestrator.py"],"related_nodes":["state:verification-token"],"blocking":false,"classification":"known_violation"},
-    {"id":"state-ownership:bootstrap-api-key","category":"state-ownership","severity":"high","summary":"Bootstrap key promotion is read-check-mint-revoke rather than atomic consume-and-replace.","evidence":["backend/services/tenant_onboarding_orchestrator.py"],"related_nodes":["state:bootstrap-api-key"],"blocking":false,"classification":"known_violation"},
-    {"id":"state-ownership:customer-refresh-token","category":"state-ownership","severity":"high","summary":"Refresh token rotation is read-check-revoke-issue rather than atomic consume-and-rotate.","evidence":["backend/services/oidc_login_service.py"],"related_nodes":["state:customer-refresh-token"],"blocking":false,"classification":"known_violation"},
     {"id":"state-ownership:api-key-quota-capacity","category":"state-ownership","severity":"high","summary":"API-key quota admission counts then creates without atomic capacity reservation.","evidence":["backend/api/routes/api_keys.py"],"related_nodes":["state:api-key-quota-capacity"],"blocking":false,"classification":"known_violation"}
   ],
   "acknowledged_findings": [
@@ -142,9 +142,6 @@
     {"id":"egress-ungoverned:backend.services.verification_delivery","reason":"Frozen GF-08; detector acknowledgement only, not repair evidence.","source":"GF-08"},
     {"id":"state-ownership:redis-task-lease","reason":"Frozen GF-12; modeled as current known violation.","source":"GF-12"},
     {"id":"state-ownership:smtp-send-claim","reason":"Frozen GF-16; modeled as current known violation.","source":"GF-16"},
-    {"id":"state-ownership:verification-token","reason":"Frozen GF-14; modeled as current known violation.","source":"GF-14"},
-    {"id":"state-ownership:bootstrap-api-key","reason":"Frozen GF-22; modeled as current known violation.","source":"GF-22"},
-    {"id":"state-ownership:customer-refresh-token","reason":"Frozen GF-23; modeled as current known violation.","source":"GF-23"},
     {"id":"state-ownership:api-key-quota-capacity","reason":"Frozen GF-30; modeled as current known violation.","source":"GF-30"}
   ]
 }

@@ -70,6 +70,25 @@ class TenantMemberRepository:
         )
         return self._session.execute(stmt).scalar_one_or_none()
 
+    def get_pending_owner_by_email_for_update(self, email_canonical: str) -> TenantMember | None:
+        """Lock one pending owner row until the caller commits or rolls back.
+
+        Verification and resend flows use the same row as the single-use authority.
+        Serializing on that row prevents two concurrent requests from consuming or
+        replacing the same verification authority at once.
+        """
+        stmt = (
+            select(TenantMember)
+            .where(
+                TenantMember.email_canonical == email_canonical,
+                TenantMember.role == "tenant_owner",
+                TenantMember.status == "pending_verification",
+            )
+            .limit(1)
+            .with_for_update()
+        )
+        return self._session.execute(stmt).scalar_one_or_none()
+
     def get_active_owner_for_tenant(self, tenant_id: uuid.UUID) -> TenantMember | None:
         """Return the active tenant_owner membership row for a tenant, if any."""
         stmt = (

@@ -129,14 +129,21 @@ def test_state_ownership_resources_and_invariants_are_first_class() -> None:
         "state:api-key-quota-capacity",
     }
     assert expected_state <= node_ids
+
     for invariant_id in (
         "lease-owner-integrity",
         "durable-idempotency-ownership",
-        "single-use-secret-consumption",
         "atomic-quota-reservation",
     ):
         assert invariants[invariant_id]["status"] == "known_violation"
         assert invariants[invariant_id]["applies_to"]
+
+    assert invariants["single-use-secret-consumption"]["status"] == "enforced"
+    assert invariants["single-use-secret-consumption"]["applies_to"] == [
+        "state:verification-token",
+        "state:bootstrap-api-key",
+        "state:customer-refresh-token",
+    ]
 
 
 def test_semantic_finding_ratchet_has_no_unacknowledged_blockers_at_baseline() -> None:

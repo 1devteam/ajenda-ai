@@ -22,6 +22,11 @@ class ApiKeyRepository:
         stmt = select(ApiKeyRecordModel).where(ApiKeyRecordModel.key_id == key_id)
         return self._session.scalars(stmt).first()
 
+    def get_by_key_id_for_update(self, key_id: str) -> ApiKeyRecordModel | None:
+        """Lock one API-key row until transaction completion."""
+        stmt = select(ApiKeyRecordModel).where(ApiKeyRecordModel.key_id == key_id).with_for_update()
+        return self._session.scalars(stmt).first()
+
     def revoke(self, record: ApiKeyRecordModel) -> ApiKeyRecordModel:
         now = datetime.now(UTC)
         record.revoked = True

@@ -47,6 +47,24 @@ class CustomerAuthSessionRepository:
         stmt = select(CustomerAuthSession).where(CustomerAuthSession.refresh_token_hash == refresh_token_hash)
         return self._session.execute(stmt).scalar_one_or_none()
 
+    def get_active_by_refresh_token_hash_for_update(
+        self,
+        refresh_token_hash: str,
+        *,
+        now: datetime,
+    ) -> CustomerAuthSession | None:
+        """Lock one live refresh session until transaction completion."""
+        stmt = (
+            select(CustomerAuthSession)
+            .where(
+                CustomerAuthSession.refresh_token_hash == refresh_token_hash,
+                CustomerAuthSession.revoked_at.is_(None),
+                CustomerAuthSession.refresh_expires_at > now,
+            )
+            .with_for_update()
+        )
+        return self._session.execute(stmt).scalar_one_or_none()
+
     def revoke(self, record: CustomerAuthSession, *, revoked_at: datetime | None = None) -> CustomerAuthSession:
         record.revoked_at = revoked_at or datetime.now(tz=UTC)
         return record
