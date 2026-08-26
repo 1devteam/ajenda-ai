@@ -438,6 +438,7 @@ class TestTenantUsageReal:
         assert usage_a.tasks_created == 10
         assert usage_b.tasks_created == 0
 
+
 # ---------------------------------------------------------------------------
 # QuotaEnforcementService — against real Postgres + seeded plan data
 # ---------------------------------------------------------------------------
