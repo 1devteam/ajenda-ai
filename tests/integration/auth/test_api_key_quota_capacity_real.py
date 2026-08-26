@@ -4,7 +4,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from backend.db.tenant_session import activate_tenant_session
@@ -115,7 +115,7 @@ def test_real_postgres_revocation_frees_capacity(pg_engine) -> None:
     try:
         activate_tenant_session(session, str(tenant_id))
         active_count = session.scalar(
-            select(__import__("sqlalchemy").func.count())
+            select(func.count())
             .select_from(ApiKeyRecordModel)
             .where(
                 ApiKeyRecordModel.tenant_id == str(tenant_id),
