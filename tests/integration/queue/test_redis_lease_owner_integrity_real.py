@@ -206,6 +206,48 @@ def test_ownerless_dead_letter_path_cannot_steal_live_claim(queue_adapter, redis
     assert redis_client.llen(_dead_letter_key(claimed)) == 1
 
 
+def test_recovery_dead_letter_accepts_recorded_owner_and_rejects_foreign_owner(queue_adapter, redis_client) -> None:
+    claimed = _claim(queue_adapter)
+
+    denied = queue_adapter.move_owned_to_dead_letter(
+        tenant_id=claimed.tenant_id,
+        task_id=claimed.task_id,
+        worker_id="worker-b",
+        reason="foreign recovery",
+    )
+    assert denied.ok is False
+    assert denied.reason == "worker does not own claim"
+    assert redis_client.llen(_processing_key(claimed)) == 1
+    assert redis_client.llen(_dead_letter_key(claimed)) == 0
+    assert redis_client.get(_lease_key(claimed)) == "worker-a"
+
+    moved = queue_adapter.move_owned_to_dead_letter(
+        tenant_id=claimed.tenant_id,
+        task_id=claimed.task_id,
+        worker_id="worker-a",
+        reason="max retries",
+    )
+    assert moved.ok is True
+    assert redis_client.llen(_processing_key(claimed)) == 0
+    assert redis_client.llen(_dead_letter_key(claimed)) == 1
+    assert redis_client.get(_lease_key(claimed)) is None
+
+
+def test_recovery_dead_letter_accepts_missing_redis_owner(queue_adapter, redis_client) -> None:
+    claimed = _claim(queue_adapter)
+    redis_client.delete(_lease_key(claimed))
+
+    moved = queue_adapter.move_owned_to_dead_letter(
+        tenant_id=claimed.tenant_id,
+        task_id=claimed.task_id,
+        worker_id="worker-a",
+        reason="lease ttl elapsed",
+    )
+    assert moved.ok is True
+    assert redis_client.llen(_processing_key(claimed)) == 0
+    assert redis_client.llen(_dead_letter_key(claimed)) == 1
+
+
 def test_existing_claim_cannot_overwrite_foreign_lease_owner(queue_adapter, redis_client) -> None:
     message = _message()
     assert queue_adapter.enqueue_task(message).ok is True
