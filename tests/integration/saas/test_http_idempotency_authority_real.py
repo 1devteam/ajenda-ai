@@ -65,11 +65,14 @@ def test_postgres_completed_receipt_replays_across_authority_instances_and_is_en
         headers=[(b"content-type", b"application/json")],
         body=b'{"access_token":"sensitive-token"}',
     )
-    assert first_authority.complete(
-        operation_key=operation_key,
-        owner_token=claim.owner_token,
-        response=response,
-    ) is True
+    assert (
+        first_authority.complete(
+            operation_key=operation_key,
+            owner_token=claim.owner_token,
+            response=response,
+        )
+        is True
+    )
 
     replay = second_authority.claim(operation_key=operation_key, request_fingerprint=request_fingerprint)
     assert replay.status == "replay"
