@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from backend.app.config import Settings
-from backend.queue.adapters.redis_adapter import RedisQueueAdapter
+from backend.queue.adapters.redis_owner_integrity import OwnerSafeRedisQueueAdapter
 from backend.queue.base import QueueAdapter, QueueMessage, QueueOperationResult
 from backend.queue.local_adapter import LocalQueueAdapter
+
+RedisQueueAdapter = OwnerSafeRedisQueueAdapter
 
 
 def build_queue_adapter(settings: Settings) -> QueueAdapter:
