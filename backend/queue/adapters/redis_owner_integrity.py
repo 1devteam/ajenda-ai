@@ -367,6 +367,83 @@ redis.call("LPUSH", dead_letter_key, envelope)
 return {1, "ok"}
 """
 
+    _DEAD_LETTER_OWNER_SCRIPT = """
+local processing_key = KEYS[1]
+local pending_key = KEYS[2]
+local dead_letter_key = KEYS[3]
+local lease_key = KEYS[4]
+local task_id = ARGV[1]
+local worker_id = ARGV[2]
+local reason = ARGV[3]
+local moved_at = ARGV[4]
+local tenant_id = ARGV[5]
+
+local owner = redis.call("GET", lease_key)
+if owner ~= false and owner ~= worker_id then
+    return {0, "worker does not own claim"}
+end
+
+local function payload_task_id(raw)
+    local ok, payload = pcall(cjson.decode, raw)
+    if not ok or type(payload) ~= "table" or payload["task_id"] == nil then
+        return nil
+    end
+    return tostring(payload["task_id"])
+end
+
+local envelope_payload = nil
+local processing_values = redis.call("LRANGE", processing_key, 0, -1)
+for _, raw in ipairs(processing_values) do
+    if envelope_payload == nil and payload_task_id(raw) == task_id then
+        local removed = redis.call("LREM", processing_key, 1, raw)
+        if removed < 1 then
+            return {0, "processing payload was not removed"}
+        end
+        local ok, payload = pcall(cjson.decode, raw)
+        if not ok or type(payload) ~= "table" then
+            return {0, "processing payload is corrupt"}
+        end
+        envelope_payload = payload
+    end
+end
+
+if envelope_payload == nil then
+    local pending_values = redis.call("LRANGE", pending_key, 0, -1)
+    for _, raw in ipairs(pending_values) do
+        if envelope_payload == nil and payload_task_id(raw) == task_id then
+            local removed = redis.call("LREM", pending_key, 1, raw)
+            if removed < 1 then
+                return {0, "pending payload was not removed"}
+            end
+            local ok, payload = pcall(cjson.decode, raw)
+            if not ok or type(payload) ~= "table" then
+                return {0, "pending payload is corrupt"}
+            end
+            envelope_payload = payload
+        end
+    end
+end
+
+if envelope_payload == nil then
+    envelope_payload = {
+        tenant_id = tenant_id,
+        task_id = task_id,
+        source = "runtime_recovery_without_processing_payload"
+    }
+end
+
+local envelope = cjson.encode({
+    task_id = task_id,
+    worker_id = worker_id,
+    reason = reason,
+    moved_at = moved_at,
+    payload = envelope_payload
+})
+redis.call("LPUSH", dead_letter_key, envelope)
+redis.call("DEL", lease_key)
+return {1, "ok"}
+"""
+
     def claim_task(self, *, tenant_id: str, worker_id: str) -> QueueMessage | None:
         try:
             result = self._execute(
@@ -519,11 +596,7 @@ return {1, "ok"}
             return QueueOperationResult(ok=False, reason=f"recover_task_for_retry failed: {exc}")
 
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
-        """Dead-letter only work with no active Redis owner.
-
-        Worker-owned failure uses fail_task(), which carries the worker identity.
-        This method is reserved for unowned recovery/control-plane cleanup.
-        """
+        """Dead-letter only work with no active Redis owner."""
         try:
             result = self._execute(
                 [
@@ -543,6 +616,36 @@ return {1, "ok"}
             return self._operation_result(result, "dead-letter")
         except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"move_to_dead_letter failed: {exc}")
+
+    def move_owned_to_dead_letter(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        worker_id: str,
+        reason: str,
+    ) -> QueueOperationResult:
+        """Dead-letter expired work when Redis owner is the recorded worker or absent."""
+        try:
+            result = self._execute(
+                [
+                    "EVAL",
+                    self._DEAD_LETTER_OWNER_SCRIPT,
+                    "4",
+                    self._processing_key(tenant_id),
+                    self._pending_key(tenant_id),
+                    self._dead_letter_key(tenant_id),
+                    self._lease_key(tenant_id, task_id),
+                    str(task_id),
+                    worker_id,
+                    reason,
+                    datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                    tenant_id,
+                ]
+            )
+            return self._operation_result(result, "owner dead-letter")
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"move_owned_to_dead_letter failed: {exc}")
 
     @staticmethod
     def _operation_result(result: object, operation: str) -> QueueOperationResult:
