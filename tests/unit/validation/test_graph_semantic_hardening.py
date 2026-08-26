@@ -117,6 +117,7 @@ def test_production_egress_is_inventory_backed_and_known_bypasses_are_visible() 
 def test_state_ownership_resources_and_invariants_are_first_class() -> None:
     graph = _graph()
     nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
     invariants = {item["id"]: item for item in graph["invariants"]}
     finding_ids = {item["id"] for item in graph["semantic_findings"]}
 
@@ -131,18 +132,22 @@ def test_state_ownership_resources_and_invariants_are_first_class() -> None:
     }
     assert expected_state <= nodes.keys()
 
-    for invariant_id in (
-        "durable-idempotency-ownership",
-        "atomic-quota-reservation",
-    ):
-        assert invariants[invariant_id]["status"] == "known_violation"
-        assert invariants[invariant_id]["applies_to"]
+    assert invariants["durable-idempotency-ownership"]["status"] == "enforced"
+    assert invariants["durable-idempotency-ownership"]["applies_to"] == ["state:smtp-send-claim"]
+    assert (
+        "py:backend.repositories.email_send_idempotency_repository",
+        "state:smtp-send-claim",
+        "serializes_state",
+    ) in edges
+    assert "state-ownership:smtp-send-claim" not in finding_ids
+
+    assert invariants["atomic-quota-reservation"]["status"] == "known_violation"
+    assert invariants["atomic-quota-reservation"]["applies_to"] == ["state:api-key-quota-capacity"]
 
     assert invariants["lease-owner-integrity"]["status"] == "enforced"
     assert invariants["lease-owner-integrity"]["applies_to"] == ["state:redis-task-lease"]
     assert nodes["state:redis-task-lease"]["source"] == "backend/queue/adapters/redis_owner_integrity.py"
     assert "state-ownership:redis-task-lease" not in finding_ids
-    assert "state-ownership:smtp-send-claim" in finding_ids
     assert "state-ownership:api-key-quota-capacity" in finding_ids
 
     assert invariants["single-use-secret-consumption"]["status"] == "enforced"
