@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 MIGRATION_PATH = Path("alembic/versions/0043_rebalance_pricing_tier_capacity.py")
 
 
