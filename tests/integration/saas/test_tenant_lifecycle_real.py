@@ -445,10 +445,10 @@ class TestTenantUsageReal:
 
 
 class TestQuotaEnforcementReal:
-    """These tests rely on the plan rows seeded by migration 0006:
-    free:       max_tasks_per_month=100, max_missions_per_month=10
-    starter:    max_tasks_per_month=500, max_missions_per_month=50
-    pro:        max_tasks_per_month=2000, max_missions_per_month=200
+    """These tests rely on the current plan capacities:
+    free:       max_tasks_per_month=500, max_missions_per_month=25
+    starter:    max_tasks_per_month=5000, max_missions_per_month=100
+    pro:        max_tasks_per_month=50000, max_missions_per_month=500
     enterprise: max_tasks_per_month=-1 (unlimited)
     """
 
@@ -461,7 +461,7 @@ class TestQuotaEnforcementReal:
     def test_task_creation_within_limit_succeeds(self, pg_session) -> None:
         tenant_id = self._make_tenant(pg_session, plan="free")
         svc = QuotaEnforcementService(pg_session)
-        # free plan: 100 tasks/month — creating 1 must succeed
+        # free plan: 500 tasks/month — creating 1 must succeed
         svc.check_and_record_task_creation(tenant_id, count=1)
         pg_session.flush()
 
@@ -484,20 +484,20 @@ class TestQuotaEnforcementReal:
         """Exceeding the plan limit must raise QuotaExceededError."""
         tenant_id = self._make_tenant(pg_session, plan="free")
         repo = TenantRepository(pg_session)
-        # Seed usage to 99 — one below the free plan limit of 100
+        # Seed usage to 499 — one below the free plan limit of 500
         repo.get_or_create_usage(tenant_id)
         pg_session.flush()
-        repo.increment_usage(tenant_id, field="tasks_created", amount=99)
+        repo.increment_usage(tenant_id, field="tasks_created", amount=499)
         pg_session.flush()
 
         svc = QuotaEnforcementService(pg_session)
         with pytest.raises(QuotaExceededError) as exc_info:
-            svc.check_and_record_task_creation(tenant_id, count=2)  # 99 + 2 > 100
+            svc.check_and_record_task_creation(tenant_id, count=2)  # 499 + 2 > 500
 
         err = exc_info.value
         assert err.field == "tasks_per_month"
-        assert err.limit == 100
-        assert err.current == 99
+        assert err.limit == 500
+        assert err.current == 499
 
     def test_enterprise_plan_is_unlimited(self, pg_session) -> None:
         """Enterprise plan (limit=-1) must never raise QuotaExceededError."""
@@ -557,6 +557,6 @@ class TestQuotaEnforcementReal:
 
         assert status.tasks_created == 12
         assert status.missions_created == 3
-        assert status.tasks_limit == 100  # free plan
-        assert status.missions_limit == 10  # free plan
+        assert status.tasks_limit == 500  # free plan
+        assert status.missions_limit == 25  # free plan
         assert status.plan == "free"
