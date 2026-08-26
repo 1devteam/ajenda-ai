@@ -172,7 +172,12 @@ def test_dead_lettered_task_is_not_reprocessed_by_claim_path(pg_engine, queue_ad
         assert claimed.task_id == task_id
 
         assert (
-            queue_adapter.move_to_dead_letter(tenant_id=tenant_id, task_id=task_id, reason="integration-proof").ok
+            queue_adapter.move_owned_to_dead_letter(
+                tenant_id=tenant_id,
+                task_id=task_id,
+                worker_id="worker-dead-letter",
+                reason="integration-proof",
+            ).ok
             is True
         )
 

@@ -400,7 +400,7 @@ def test_running_recovery_restores_state_when_dead_letter_move_fails(
 
         return QueueOperationResult(ok=False, reason="redis unavailable during recovery dead-letter")
 
-    monkeypatch.setattr(queue_adapter, "move_to_dead_letter", interrupted_dead_letter)
+    monkeypatch.setattr(queue_adapter, "move_owned_to_dead_letter", interrupted_dead_letter)
 
     recovery_session = session_factory()
     try:
@@ -564,7 +564,7 @@ def test_claimed_recovery_restores_state_when_dead_letter_move_fails(
 
         return QueueOperationResult(ok=False, reason="redis unavailable during claimed recovery dead-letter")
 
-    monkeypatch.setattr(queue_adapter, "move_to_dead_letter", interrupted_dead_letter)
+    monkeypatch.setattr(queue_adapter, "move_owned_to_dead_letter", interrupted_dead_letter)
 
     recovery_session = session_factory()
     try:

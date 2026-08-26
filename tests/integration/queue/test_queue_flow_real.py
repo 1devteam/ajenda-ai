@@ -69,9 +69,10 @@ class TestQueueFlowReal:
         claimed = queue_adapter.claim_task(tenant_id=msg.tenant_id, worker_id="worker-1")
         assert claimed is not None
 
-        result = queue_adapter.move_to_dead_letter(
+        result = queue_adapter.fail_task(
             tenant_id=claimed.tenant_id,
             task_id=claimed.task_id,
+            worker_id="worker-1",
             reason="test_explicit_failure",
         )
         assert result.ok is True

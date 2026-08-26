@@ -3,6 +3,7 @@ import pytest
 from backend.app.config import Settings
 from backend.queue import build_queue_adapter
 from backend.queue.adapters.redis_adapter import RedisQueueAdapter
+from backend.queue.adapters.redis_owner_integrity import OwnerSafeRedisQueueAdapter
 from backend.queue.local_adapter import LocalQueueAdapter
 
 
@@ -27,7 +28,9 @@ def test_redis_adapter_selected_explicitly() -> None:
         port=8000,
         log_json=False,
     )
-    assert isinstance(build_queue_adapter(settings), RedisQueueAdapter)
+    adapter = build_queue_adapter(settings)
+    assert isinstance(adapter, RedisQueueAdapter)
+    assert isinstance(adapter, OwnerSafeRedisQueueAdapter)
 
 
 def test_production_local_adapter_is_rejected() -> None:

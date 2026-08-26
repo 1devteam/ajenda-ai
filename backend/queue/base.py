@@ -98,7 +98,23 @@ class QueueAdapter(abc.ABC):
 
     @abc.abstractmethod
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
+        """Dead-letter work only when no active queue owner must be overridden."""
         raise NotImplementedError
+
+    def move_owned_to_dead_letter(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        worker_id: str,
+        reason: str,
+    ) -> QueueOperationResult:
+        """Dead-letter expired work while proving the last recorded queue owner.
+
+        Queue backends that cannot atomically verify the supplied worker owner
+        must fail closed rather than delegate to the ownerless dead-letter path.
+        """
+        return QueueOperationResult(ok=False, reason="owner-aware dead-letter not supported")
 
     @abc.abstractmethod
     def list_processing(self, *, tenant_id: str) -> list[QueuePayloadInspection]:
