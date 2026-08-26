@@ -40,6 +40,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 from backend.app.config import Settings, get_settings
+from backend.auth.principal import PrincipalType
 from backend.db.tenant_session import activate_tenant_session
 from backend.rate_limit.limiter import RateLimiter, RateLimitKey, RoutePolicy
 from backend.services.quota_enforcement import QuotaExceededError
@@ -114,6 +115,23 @@ def _onboarding_route_policy(path: str, settings: Settings) -> RoutePolicy | Non
     return None
 
 
+def _is_billable_external_api_request(*, principal: object | None, path: str) -> bool:
+    """Return True only for external API-key authenticated customer traffic.
+
+    The authenticated principal is the authority for classification. Browser
+    and product UI sessions resolve to USER principals and therefore never
+    consume the monthly external API-call quota. API-key authentication resolves
+    to a MACHINE principal with a durable key_id. Onboarding remains control
+    plane traffic even when bootstrap promotion is API-key authenticated.
+    """
+    if path.startswith("/v1/onboarding/"):
+        return False
+    return (
+        getattr(principal, "principal_type", None) == PrincipalType.MACHINE
+        and bool(getattr(principal, "key_id", None))
+    )
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, limiter: RateLimiter | None = None) -> None:
         super().__init__(app)
@@ -138,6 +156,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         plan_label = str(plan_slug) if plan_slug else "unknown"
         route_class = _classify_route(request.url.path)
         path = request.url.path
+        billable_api_call = _is_billable_external_api_request(principal=principal, path=path)
         if route_class == "onboarding":
             client_ip_hash = hash_client_ip(extract_client_ip(request))
             key = RateLimitKey(
@@ -184,10 +203,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 headers={"Retry-After": str(decision.retry_after_seconds)},
             )
 
-        # PR5: enforce api_calls quota before handlers run so over-limit tenants
-        # cannot mutate state or queue work before admission is denied.
-        # Non-production may bypass via AJENDA_DEV_BYPASS_API_CALL_QUOTA for mission iteration.
-        if tenant_id and tenant_id != "anonymous" and not settings.api_call_quota_bypassed:
+        # Monthly API-call quota applies only to external API-key authenticated
+        # traffic. Product/browser OIDC traffic remains subject to normal rate
+        # limiting plus its domain-specific mission/task/agent/etc. quotas.
+        if billable_api_call and tenant_id != "anonymous" and not settings.api_call_quota_bypassed:
             quota_response = self._enforce_api_call_quota_admission(request, tenant_id)
             if quota_response is not None:
                 return quota_response
@@ -211,7 +230,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if plan_slug:
             response.headers["X-RateLimit-Plan"] = str(plan_slug)
 
-        if tenant_id and tenant_id != "anonymous" and 200 <= response.status_code < 400:
+        if billable_api_call and tenant_id != "anonymous" and 200 <= response.status_code < 400:
             self._record_api_call_usage(request, tenant_id)
         return response
 
