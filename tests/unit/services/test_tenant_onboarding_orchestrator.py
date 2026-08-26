@@ -132,7 +132,7 @@ def test_complete_verification_issues_bootstrap_key_for_matching_email_and_code(
     member.email_canonical = "owner@example.com"
     member.verification_expires_at = datetime.now(UTC) + timedelta(hours=1)
     member.verification_token_hash = "hash"
-    orchestrator._members.get_owner_by_email_canonical.return_value = member
+    orchestrator._members.get_pending_owner_by_email_for_update.return_value = member
     orchestrator._token_issuer.verify.return_value = True
     orchestrator._api_keys.count_active_keys.return_value = 0
     record = MagicMock(key_id="kid123")
@@ -148,10 +148,7 @@ def test_complete_verification_issues_bootstrap_key_for_matching_email_and_code(
 
     assert result.key_id == "kid123"
     assert result.api_key == "kid123.secret"
-    orchestrator._members.get_owner_by_email_canonical.assert_called_once_with(
-        "owner@example.com",
-        statuses=frozenset({"pending_verification"}),
-    )
+    orchestrator._members.get_pending_owner_by_email_for_update.assert_called_once_with("owner@example.com")
     orchestrator._token_issuer.verify.assert_called_once_with(plaintext="123456", token_hash="hash")
     orchestrator._members.activate_member.assert_called_once()
 
@@ -162,7 +159,7 @@ def test_complete_verification_rejects_expired_code() -> None:
     member.email_canonical = "owner@example.com"
     member.verification_expires_at = datetime.now(UTC) - timedelta(minutes=1)
     member.verification_token_hash = "hash"
-    orchestrator._members.get_owner_by_email_canonical.return_value = member
+    orchestrator._members.get_pending_owner_by_email_for_update.return_value = member
     orchestrator._token_issuer.verify.return_value = True
 
     with pytest.raises(VerificationExpiredError):
@@ -179,7 +176,7 @@ def test_complete_verification_rejects_invalid_code_without_scanning_other_membe
     member.email_canonical = "owner@example.com"
     member.verification_expires_at = datetime.now(UTC) + timedelta(hours=1)
     member.verification_token_hash = "hash"
-    orchestrator._members.get_owner_by_email_canonical.return_value = member
+    orchestrator._members.get_pending_owner_by_email_for_update.return_value = member
     orchestrator._token_issuer.verify.return_value = False
 
     with pytest.raises(InvalidVerificationTokenError):
@@ -194,7 +191,7 @@ def test_complete_verification_rejects_invalid_code_without_scanning_other_membe
 
 def test_complete_verification_rejects_unknown_email_without_hash_scan() -> None:
     orchestrator, _session = _make_orchestrator()
-    orchestrator._members.get_owner_by_email_canonical.return_value = None
+    orchestrator._members.get_pending_owner_by_email_for_update.return_value = None
 
     with pytest.raises(InvalidVerificationTokenError):
         orchestrator.complete_verification(
@@ -230,11 +227,12 @@ def test_promote_bootstrap_key_revokes_bootstrap() -> None:
         patch("backend.services.tenant_onboarding_orchestrator.ApiKeyRepository") as repo_cls,
         patch("backend.services.tenant_onboarding_orchestrator.QuotaEnforcementService") as quota_cls,
     ):
-        repo_cls.return_value.get_by_key_id.return_value = bootstrap_record
+        repo_cls.return_value.get_by_key_id_for_update.return_value = bootstrap_record
         quota_cls.return_value.check_api_key_limit.return_value = None
         orchestrator._get_active_owner_for_tenant = MagicMock(return_value=MagicMock())
         result = orchestrator.promote_bootstrap_key(principal=principal)
 
     assert result.key_id == "op-key"
     assert result.revoked_bootstrap_key_id == "bootstrap-key"
+    repo_cls.return_value.get_by_key_id_for_update.assert_called_once_with("bootstrap-key")
     orchestrator._api_keys.revoke_key.assert_called_once_with(key_id="bootstrap-key")
