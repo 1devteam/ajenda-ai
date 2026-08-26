@@ -1,186 +1,153 @@
 # Preliminary PR Quality Analysis — PR #460 onward
 
-**Status:** exploratory analysis note; not an empirical finding  
-**Analysis snapshot:** through PR #473  
-**Population use:** prospective/process evidence; downstream elapsed-time windows are censoring controls, not the primary definition of quality
+**Status:** exploratory working analysis; not an empirical finding  
+**Production comparison snapshot:** through PR #473  
+**Population reconnaissance snapshot:** through PR #474  
+**Document governance:** revisable working artifact; supersede/rewrite if the population analysis requires it
 
 ## Question
 
-Do Ajenda PRs from the provisional graph-assisted period show a measurable change in PR quality compared with earlier corrective work, and if so, what changed?
+Do Ajenda PRs from the provisional graph-assisted period show a change in engineering quality, and what observable mechanisms might explain that change?
 
-This note does **not** equate PR quality with PR size, commit count, prose length, CI success, or absence of a later PR within an arbitrary number of days. It separates immediately observable engineering/process evidence from realized downstream outcomes.
+This note does **not** define quality by PR size, prose length, CI success, or absence of another PR within an arbitrary elapsed-time window. Fixed 7/14/30/60-day windows are censoring/sensitivity controls only. The companion `multivariate-pr-quality-framework-v0.1.md`, census schema, extraction method, and adjudication queue define the broader analysis.
 
-A companion analysis, `multivariate-pr-quality-framework-v0.1.md`, expands the model across defect mechanism, semantic scope, boundary crossing, invariant coverage, repair-cluster coherence, proof topology, pre-merge interception, residual-defect visibility, corrective propagation topology, and graph maturity.
+## Dimensions used in this preliminary comparison
 
-## Quality dimensions used for this preliminary review
+1. root-defect clarity;
+2. semantic/blast-radius reasoning;
+3. explicit invariant or architecture contract;
+4. scope discipline and non-goals;
+5. proof topology aligned to the failure mode;
+6. architectural closure observability;
+7. pre-merge interception/design supersession;
+8. residual-defect visibility;
+9. realized corrective propagation, semantic fragmentation, severity movement, and rework.
 
-1. **Root-defect clarity** — whether the PR identifies the actual defect mechanism rather than only the symptom.
-2. **Blast-radius reasoning** — whether dependencies, affected runtime paths, boundaries, or connected contracts are explicitly traced.
-3. **Invariant / architecture contract** — whether the PR states the system property that must hold after repair.
-4. **Scope discipline** — whether non-goals and unrelated known defects remain explicit rather than being silently absorbed or claimed closed.
-5. **Proof quality** — whether proof includes adversarial, integration, concurrency, cross-boundary, or fail-closed tests appropriate to the defect.
-6. **Architectural closure evidence** — whether the repair is reconciled against the canonical graph/invariant model and the targeted architectural finding disappears without erasing unrelated findings.
-7. **Pre-merge interception / design supersession** — whether material defects or weaker designs are corrected before reaching `main`.
-8. **Realized outcome quality** — later corrective descendants, cascade depth, semantic fragmentation, time to closure, severity movement, and rework.
-
-The first seven dimensions can be observed contemporaneously. The eighth requires later causal evidence but must not be reduced to a single elapsed-time cutoff.
+The first eight can be observed contemporaneously. The ninth requires causal reconstruction over later history.
 
 ## Cohort handling
 
-### Included production / architecture-process evidence
+### Production / architecture-process evidence reviewed
 
-- #460 — authority-containment correction
-- #465 — password-signup verification correction
-- #468 — semantic graph hardening; instrumentation intervention
-- #469 — RLS/session-boundary correction
-- #470 — post-RLS graph certification
-- #471 — closed-unmerged idempotency repair attempt; retained as process evidence only
-- #472 — durable HTTP idempotency repair
-- #473 — atomic single-use credential-transition repair
+- #460 — authority-containment correction;
+- #465 — password-signup verification correction;
+- #468 — semantic graph hardening / measurement-system intervention;
+- #469 — RLS/session-boundary correction;
+- #470 — post-RLS graph certification;
+- #471 — closed-unmerged idempotency design; process evidence only;
+- #472 — durable HTTP idempotency authority;
+- #473 — atomic single-use credential transitions.
 
 ### Excluded from product-quality comparison
 
-- #461–#464 — Dependabot maintenance PRs; unlike change class
-- #466 — research instrumentation/documentation; excluded by protocol
-- #467 — invalid prospective pilot / protocol execution error; excluded from treatment-effect analysis
+- #461–#464 — dependency-maintenance PRs;
+- #466 — research bootstrap;
+- #467 — invalid prospective pilot/protocol execution error.
 
-## PR-level assessment
+## PR-level preliminary assessment
 
-| PR | Root defect | Blast radius | Invariant | Proof | Graph closure | Scope discipline | Preliminary assessment |
+| PR | Root defect | Semantic scope | Invariant | Proof topology | Graph closure | Scope discipline | Working assessment |
 |---|---|---|---|---|---|---|---|
-| #460 | Strong | Moderate | Moderate | Strong | Not present | Strong | Major improvement in defect description, authorization boundaries, negative scope, and regression proof, but still primarily a conventional multi-surface corrective package rather than machine-reconciled architectural closure. |
-| #465 | Strong | Moderate | Moderate | Strong | Not present | Strong | Strong local-contract repair. However, the post-#465 baseline still contained GF-14 verification-token concurrency. This supports incomplete closure of the broader single-use credential-transition invariant, not a claim that #465 introduced that defect. |
-| #468 | Strong | Strong | Strong | Strong | Instrumentation itself | Strong | Qualitative intervention in the evidence model. It explicitly represents RLS, egress, and state-ownership/concurrency blind spots and prevents acknowledged defects from being mistaken for repaired defects. |
-| #469 | Strong | Strong | Strong | Strong | Strong | Strong | First clear example in this sequence of graph-integrated remediation: migration + runtime session repair are derived from the blast radius, PostgreSQL behavior is tested directly, and graph semantics must show the repaired tables as RLS-complete. |
-| #470 | N/A runtime | Strong | Strong | Strong | Strong | Strong | Closure/provenance PR. It distinguishes an intentional pre-tenant control-plane exception from an unexplained RLS gap while requiring repaired and still-open findings to remain correctly classified. |
-| #471 | Strong | Strong | Strong | Strong planned | Not realized | Strong | Closed unmerged. It targeted GF-13/GF-27 with Redis ownership while leaving GF-25/GF-26/GF-28 separate. Because it never merged, it is process evidence rather than production outcome evidence. |
-| #472 | Strong | Strong | Strong | Very strong | Very strong | Very strong | Root-cause cluster repair rather than independent cache patches. It unifies GF-13/GF-25/GF-26/GF-27 and adjudicates GF-28 under one operation-identity/ownership model, includes 8-way PostgreSQL contention proof, encrypted replay proof, abandoned-claim recovery, and a graph closure ratchet that removes only the targeted finding. |
-| #473 | Strong | Strong | Very strong | Very strong | Very strong | Very strong | Shared-invariant repair across three credential transitions. It reuses existing durable rows as transaction ownership rather than adding parallel coordination, proves exactly-one successor under real PostgreSQL contention, and requires the graph to move three findings from violation to enforced while preserving unrelated defects. |
+| #460 | strong | broad | moderate | strong | absent | strong | Major improvement in authority/ownership reasoning and regression proof, but closure remains implementation/test-centric. |
+| #465 | strong | broad local contract | moderate | strong | absent | strong | Strong ownership-verification repair; later GF-14 shows the broader concurrency/single-use invariant remained open. This is not evidence that #465 introduced GF-14. |
+| #468 | strong | semantic instrumentation | strong | strong | detector intervention | strong | Changes what the graph can observe: RLS, egress, state ownership/concurrency, known-violation visibility, and a semantic ratchet. |
+| #469 | strong | cross-boundary | strong | strong real-DB proof | strong | strong | Migration and raw-session consumers are repaired together; graph closure proves the targeted RLS findings disappear. |
+| #470 | N/A runtime | architecture adjudication | strong | semantic ratchet | strong | strong | Makes an intentional control-plane exception explicit while preserving remaining defects. |
+| #471 | strong | broad | strong | strong planned | not realized | strong | Closed unmerged; narrower/different Redis ownership design. Preserve as pre-merge process evidence. |
+| #472 | strong | clustered root cause | strong | very strong | very strong | very strong | Treats the HTTP idempotency cluster as one durable execution-ownership/operation-identity problem; includes real contention, recovery, encrypted replay and targeted graph closure. |
+| #473 | strong | shared invariant | very strong | very strong | very strong | very strong | Groups GF-14/GF-22/GF-23 under atomic single-use successor-authority semantics and reuses existing durable rows as the locking authority. |
 
-## Observed quality transition
-
-The evidence suggests **two distinct stages**, not one simple before/after switch at #460.
+## Observed transition is staged, not binary
 
 ### Stage A — #460 / #465: stronger conventional corrective PRs
 
-These PRs are materially better specified than many earlier Ajenda corrections:
+These PRs show explicit root defects, broad security/authority consequences, substantial regression proof, explicit non-goals, and merge discipline. Their closure is still primarily demonstrated through implementation tests.
 
-- explicit root defects;
-- explicit security/authority consequences;
-- extensive regression proof;
-- explicit non-goals;
-- deliberate merge discipline.
+### Stage B — #468 onward: semantic observability and graph-integrated closure
 
-But they still prove closure mainly through implementation tests. They do not yet require the architecture model to show that the targeted invariant is restored while unrelated defects remain visible.
+#468 materially expands the measurement model. Subsequent graph-integrated repairs increasingly follow this pattern:
 
-### Stage B — #468 onward: graph-integrated architectural closure
-
-#468 is a maturity point because it explicitly hardens the graph against known blind spots in RLS, egress, and concurrency/state ownership. After that point, #469, #472, and #473 use a stronger repair pattern:
-
-1. identify frozen defect IDs / semantic findings;
-2. identify the shared architectural invariant;
-3. trace the actual dependency/runtime path;
-4. choose a root-level repair mechanism;
-5. add proof at the failure mode's real level (PostgreSQL/RLS/concurrency, not only unit mocks);
-6. update the canonical graph evidence;
-7. require the targeted finding to disappear;
+1. identify a frozen defect/finding cluster;
+2. state the governing invariant;
+3. trace the real dependency/runtime path;
+4. choose an authoritative repair point;
+5. prove the failure at its real execution layer;
+6. reconcile graph evidence;
+7. require targeted findings to disappear;
 8. require unrelated known findings to remain visible;
-9. state explicit non-goals so closure cannot be overclaimed.
+9. state non-goals to prevent overclaiming closure.
 
-That is a qualitatively different definition of "done" from earlier fix + regression-test PRs.
+That is a different definition of `done` from ordinary fix + regression-test closure.
 
-## Important contrast with historical corrective cascades
+## Historical corrective contrast — corrected after population reconnaissance
 
-Earlier Ajenda history contains direct fix-the-fix / incomplete-blast-radius chains such as:
+The full-history reconnaissance already shows why local proof is not equivalent to architectural closure:
 
-- #58 → #59
-- #107 → #108
-- #164 → #165 / #166
-- #168 → #169
-- #369 → #370 → #371 → #372
+- #58 → #59;
+- #107 → #108;
+- #164 → #165 / #166;
+- #168 → #169;
+- **#369 → #370 → #371 → #372 → #373 → #374**.
 
-Those sequences show that passing local proof did not always imply architectural closure. The companion multivariate analysis also shows why **file breadth alone is not sufficient**: #58/#59 and #107/#108 remain within the same tiny file surface, while the defect mechanism is semantic contract/state-ordering mismatch.
+The last chain was previously sampled only through #372. The population scan found that #373 explicitly reports `Codex P2 on #372`, and #374 explicitly reports `Codex P2 on #373`. The working record is therefore revised rather than preserving the earlier truncated representation.
 
-This is process and mechanism evidence, not yet proof that graph assistance reduces downstream cascades.
+The #369 component is particularly useful because the corrective surface contracts while semantic conditions continue to be discovered. It is a candidate case of **semantic fragmentation depth**, not merely a large-PR effect.
 
 ## PR size does not explain the apparent improvement
 
-The graph-integrated PRs are not uniformly smaller:
+The graph-integrated PRs are not uniformly smaller. The stronger candidate mechanism is alignment among:
 
-- #460: 27 files, 28 commits, +825 / -87
-- #465: 24 files, 34 commits, +838 / -572
-- #468: 13 files, 21 commits, +1097 / -400
-- #469: 21 files, 23 commits, +345 / -21
-- #471: 6 files, 8 commits, +447 / -123, unmerged
-- #472: 23 files, 17 commits, +1139 / -216
-- #473: 11 files, 13 commits, +533 / -34
+**semantic reasoning scope → actual architectural blast radius → authoritative repair point → proof scope → observable closure.**
 
-The observed difference is therefore not "smaller PRs are better." The stronger candidate explanation is **better alignment among semantic reasoning scope, actual architectural blast radius, authoritative repair point, and proof scope**. This remains a hypothesis.
+This remains a hypothesis until population-level adjudication and outcome analysis are complete.
 
-## #471 → #472 as process evidence
+## #471 → #472: pre-merge interception as a distinct outcome
 
-#471 and #472 share the same base SHA. #471 was closed unmerged after proposing Redis-backed ownership for GF-13/GF-27 while explicitly deferring GF-25/GF-26/GF-28. #472 instead merged a PostgreSQL-backed durable authority that treats the broader idempotency cluster as one architectural problem.
+#471 and #472 share the same base SHA. #471 was closed unmerged after proposing a narrower/different ownership design. #472 merged a broader PostgreSQL-backed durable authority addressing the shared idempotency cluster.
 
-The observable fact is that the narrower/different design did **not** enter `main`; the broader root-cause package did. This is potentially important evidence of improved pre-merge correction quality. The reason for the redesign must not be attributed to the graph unless contemporaneous review/task evidence explicitly supports that causal claim.
+The defensible observation is that the first design did not enter `main` and the broader design did. Do not attribute the redesign to the graph without contemporaneous causal evidence. Code it as pre-merge architectural broadening/design supersession until adjudicated.
 
-This is why the study must count **pre-merge interception and design supersession**, not only post-merge corrective descendants.
+This is why the study must measure defects intercepted before merge, not only downstream corrective descendants.
 
-## #465 → #473 as incomplete-closure evidence
+## #465 → #473: local closure versus governing-invariant closure
 
-#465 strongly repaired password signup and email verification semantics, but the later frozen baseline still identified GF-14: concurrent verification could consume the same authority before successor bootstrap authority was safely serialized. #473 repairs that concurrency property together with GF-22 and GF-23 under one single-use credential invariant.
+#465 strongly repairs email ownership verification semantics. The later frozen baseline still contains GF-14, showing that concurrent consumption of verification authority remained unresolved. #473 closes that concurrency property together with GF-22/GF-23 under the single-use credential invariant.
 
-This should currently be coded as:
+Working coding rule:
 
-- #465: strong local behavioral/security correction;
-- GF-14 after #465: broader state-transition invariant remained incomplete;
-- #473: later root-level concurrency closure.
+- #465 — local behavioral/security contract strongly repaired;
+- GF-14 after #465 — broader state-transition/concurrency invariant still open;
+- #473 — later root-level concurrency closure.
 
-Do **not** code this as "#465 introduced GF-14" without source history proving introduction.
+Do not code #465 as the introduction of GF-14 without source-history proof.
 
 ## Preliminary interpretation
 
-The strongest current evidence is that PR quality has changed in **architecture reasoning, invariant clustering, proof topology, negative-evidence preservation, and closure observability**, especially after #468.
+Current evidence supports only a process/mechanism proposition:
 
-What is **not** yet established:
+> Post-#468 Ajenda remediation increasingly makes governing invariants, semantic scope, proof topology, residual-defect visibility, and architecture closure explicit and machine-observable.
 
-- lower corrective-descendant rate;
-- lower cascade depth;
-- lower rework ratio;
-- statistically significant improvement attributable to graph assistance.
-
-Elapsed observation time is one limitation, but it is not the analytical center. Other variables can be measured now and should be included in the study.
+It does **not** yet establish a treatment effect on corrective-descendant rate, cascade depth, rework, or defect incidence.
 
 ## Methodological implication
 
-For the prospective analysis, a single binary `pre/post #460` treatment variable is insufficient. Preserve #460 as the preregistered provisional boundary, but also code graph maturity as a time-varying vector. At minimum distinguish:
+Preserve #460 as the preregistered provisional intervention boundary, but model graph capability as a time-varying vector reconstructed from contemporaneous evidence. The graph/tooling sequence #453–#459 and the semantic-hardening step at #468 are analytically important maturity changes.
 
-- initial graph-assisted correction period (#460 onward);
-- semantic-enforcement maturity (#468 onward);
-- graph-integrated remediation with explicit finding closure (#469 onward).
+For every production PR, the full-population extraction should capture:
 
-Any final intervention refinement must be justified from contemporaneous implementation evidence, not from favorable outcome metrics.
-
-## Next reproducible measurement
-
-For every prospective production PR, capture at least:
-
-- defect/change mechanism;
-- requested/change scope;
-- semantic domains and boundaries implicated;
-- graph capabilities available and actually used;
-- graph-predicted blast radius;
-- actual implementation scope;
+- change/defect mechanism;
+- semantic domains and boundaries;
+- graph capabilities available/used;
+- requested scope, predicted blast radius and actual implementation scope;
 - governing invariant(s);
-- repair mechanism / authoritative control point;
-- proof layers selected and exercised;
-- graph findings before/after;
-- targeted findings closed;
+- authoritative repair mechanism;
+- proof layers required/exercised;
+- graph/finding state before and after;
 - unrelated findings preserved;
-- review-discovered corrections before merge;
-- merged vs superseded/abandoned;
-- corrective descendants and causal class;
+- pre-merge corrections/supersession;
+- causal descendants and relationship class;
 - semantic dimensions discovered in later generations;
-- severity movement;
-- elapsed time to later correction as a censoring/secondary outcome variable.
+- severity/boundary movement;
+- elapsed time as a secondary/censoring variable.
 
-Fixed 7/14/30/60-day windows can then be used for sensitivity and right-censoring, but they are **secondary controls inside a multivariate analysis**, not the pillar of the study.
+No composite PR-quality score is authorized at this stage.
