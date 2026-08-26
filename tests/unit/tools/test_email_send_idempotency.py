@@ -1,4 +1,4 @@
-"""Unit tests for SMTP email-send claim-before-send protection."""
+"""Unit tests for owner-safe SMTP claim-before-send protection."""
 
 from __future__ import annotations
 
@@ -28,48 +28,84 @@ from backend.services.tools.schemas import (
 
 
 class _InMemoryIdempotencyRepo:
-    """Stand-in for EmailSendIdempotencyRepository for pure unit tests."""
+    """Owner-aware stand-in for pure unit tests."""
 
     def __init__(self) -> None:
         self.rows: dict[tuple[str, str, str], dict[str, Any]] = {}
 
-    def try_claim(self, *, tenant_id: str, action: str, idempotency_key: str) -> tuple[str, dict[str, Any] | None]:
+    def try_claim_smtp(
+        self,
+        *,
+        tenant_id: str,
+        action: str,
+        idempotency_key: str,
+        owner_token: str,
+        lease_seconds: int = 300,
+    ) -> tuple[str, dict[str, Any] | None]:
+        _ = lease_seconds
         key = (tenant_id, action, idempotency_key)
         existing = self.rows.get(key)
         if existing is None:
-            self.rows[key] = {"status": EMAIL_SEND_CLAIM_STATUS_CLAIMING, "result_payload": None}
+            self.rows[key] = {
+                "status": EMAIL_SEND_CLAIM_STATUS_CLAIMING,
+                "owner": owner_token,
+                "result_payload": None,
+            }
             return "newly_claimed", None
         if existing["status"] == EMAIL_SEND_CLAIM_STATUS_COMPLETED:
             return "replayed", dict(existing["result_payload"] or {})
         return "in_flight", None
 
-    def complete(
+    def fence_smtp_send(
         self,
         *,
         tenant_id: str,
         action: str,
         idempotency_key: str,
-        result_payload: dict[str, Any],
-    ) -> None:
-        key = (tenant_id, action, idempotency_key)
-        self.rows[key] = {
-            "status": EMAIL_SEND_CLAIM_STATUS_COMPLETED,
-            "result_payload": dict(result_payload),
-        }
+        owner_token: str,
+    ) -> bool:
+        row = self.rows.get((tenant_id, action, idempotency_key))
+        if not row or row["status"] != EMAIL_SEND_CLAIM_STATUS_CLAIMING or row["owner"] != owner_token:
+            return False
+        row["status"] = "sending"
+        return True
 
-    def release(
+    def complete_smtp_owned(
         self,
         *,
         tenant_id: str,
         action: str,
         idempotency_key: str,
+        owner_token: str,
+        result_payload: dict[str, Any],
+    ) -> bool:
+        row = self.rows.get((tenant_id, action, idempotency_key))
+        if not row or row["status"] != "sending" or row["owner"] != owner_token:
+            return False
+        row["status"] = EMAIL_SEND_CLAIM_STATUS_COMPLETED
+        row["result_payload"] = dict(result_payload)
+        return True
+
+    def release_smtp_owned(
+        self,
+        *,
+        tenant_id: str,
+        action: str,
+        idempotency_key: str,
+        owner_token: str,
         error_detail: str | None = None,
-    ) -> None:
-        _ = error_detail
-        key = (tenant_id, action, idempotency_key)
-        row = self.rows.get(key)
-        if row and row["status"] == EMAIL_SEND_CLAIM_STATUS_CLAIMING:
-            del self.rows[key]
+    ) -> bool:
+        row = self.rows.get((tenant_id, action, idempotency_key))
+        if not row or row["owner"] != owner_token:
+            return False
+        if row["status"] == EMAIL_SEND_CLAIM_STATUS_CLAIMING:
+            del self.rows[(tenant_id, action, idempotency_key)]
+            return True
+        if row["status"] == "sending":
+            row["status"] = "uncertain"
+            row["error_detail"] = error_detail
+            return True
+        return False
 
 
 def _session_factory_for_repo(repo: _InMemoryIdempotencyRepo):
@@ -107,7 +143,7 @@ def test_claim_requires_session_factory() -> None:
     assert "session_factory" in (result.error or "")
 
 
-def test_claim_complete_replay_flow() -> None:
+def test_claim_fences_then_complete_replays() -> None:
     repo = _InMemoryIdempotencyRepo()
     factory, repo_ctor = _session_factory_for_repo(repo)
 
@@ -122,6 +158,7 @@ def test_claim_complete_replay_flow() -> None:
             idempotency_key="idem-1",
         )
         assert first.decision == "newly_claimed"
+        assert repo.rows[("t1", "gtm.email_send", "idem-1")]["status"] == "sending"
 
         complete_smtp_send(
             session_factory=factory,
@@ -142,7 +179,7 @@ def test_claim_complete_replay_flow() -> None:
         assert second.cached_output["status"] == "sent"
 
 
-def test_in_flight_blocks_second_claim() -> None:
+def test_fenced_claim_blocks_second_claim() -> None:
     repo = _InMemoryIdempotencyRepo()
     factory, repo_ctor = _session_factory_for_repo(repo)
 
@@ -166,7 +203,7 @@ def test_in_flight_blocks_second_claim() -> None:
         assert second.decision == "in_flight"
 
 
-def test_release_allows_reclaim() -> None:
+def test_transport_failure_quarantines_fenced_claim_instead_of_reclaiming() -> None:
     repo = _InMemoryIdempotencyRepo()
     factory, repo_ctor = _session_factory_for_repo(repo)
 
@@ -174,26 +211,29 @@ def test_release_allows_reclaim() -> None:
         "backend.services.tools.email_send_idempotency.EmailSendIdempotencyRepository",
         side_effect=repo_ctor,
     ):
-        claim_smtp_send(
+        claim = claim_smtp_send(
             session_factory=factory,
             tenant_id="t1",
             action="gtm.email_send",
             idempotency_key="idem-3",
         )
+        assert claim.decision == "newly_claimed"
         release_smtp_send(
             session_factory=factory,
             tenant_id="t1",
             action="gtm.email_send",
             idempotency_key="idem-3",
-            error_detail="smtp down",
+            error_detail="connection reset after DATA",
         )
+        assert repo.rows[("t1", "gtm.email_send", "idem-3")]["status"] == "uncertain"
+
         again = claim_smtp_send(
             session_factory=factory,
             tenant_id="t1",
             action="gtm.email_send",
             idempotency_key="idem-3",
         )
-        assert again.decision == "newly_claimed"
+        assert again.decision == "in_flight"
 
 
 def _smtp_context(*, session_factory=None) -> ActionRuntimeContext:
@@ -289,6 +329,55 @@ def test_gtm_email_send_smtp_claims_before_send_and_replays() -> None:
     assert second.output["real"] is True
     assert second.output.get("idempotency_replayed") is True
     assert len(send_calls) == 1
+
+
+def test_gtm_email_send_smtp_transport_exception_never_reclaims() -> None:
+    registry = ActionRegistry()
+    register_gtm_actions(registry)
+    handler = registry.get("gtm.email_send").handler
+    repo = _InMemoryIdempotencyRepo()
+    factory, repo_ctor = _session_factory_for_repo(repo)
+    context = _smtp_context(session_factory=factory)
+
+    with (
+        patch(
+            "backend.services.tools.email_send_idempotency.EmailSendIdempotencyRepository",
+            side_effect=repo_ctor,
+        ),
+        patch("backend.services.tools.gtm_actions.send_via_smtp", side_effect=RuntimeError("socket reset")),
+        patch(
+            "backend.services.tools.gtm_actions.parse_smtp_secret",
+            return_value=SmtpConfig(
+                host="smtp.example.com",
+                port=587,
+                username="sender@example.com",
+                password="secret",
+            ),
+        ),
+    ):
+        first = handler(
+            ToolInvocation(
+                action="gtm.email_send",
+                input={"to": "buyer@example.com", "subject": "Hi", "body": "Body"},
+                idempotency_key="smtp-idem-ambiguous",
+            ),
+            context,
+        )
+        second = handler(
+            ToolInvocation(
+                action="gtm.email_send",
+                input={"to": "buyer@example.com", "subject": "Hi", "body": "Body"},
+                idempotency_key="smtp-idem-ambiguous",
+            ),
+            context,
+        )
+
+    assert first.output["real"] is False
+    assert first.output["status"] == "error"
+    assert repo.rows[(context.tenant_id, "gtm.email_send", "smtp-idem-ambiguous")]["status"] == "uncertain"
+    assert second.output["real"] is False
+    assert second.output["status"] == "error"
+    assert "active or delivery-ambiguous" in second.output["error"]
 
 
 def test_email_send_idempotency_receipt_model_constants() -> None:
