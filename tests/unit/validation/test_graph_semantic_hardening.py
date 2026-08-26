@@ -141,14 +141,20 @@ def test_state_ownership_resources_and_invariants_are_first_class() -> None:
     ) in edges
     assert "state-ownership:smtp-send-claim" not in finding_ids
 
-    assert invariants["atomic-quota-reservation"]["status"] == "known_violation"
+    assert invariants["atomic-quota-reservation"]["status"] == "enforced"
     assert invariants["atomic-quota-reservation"]["applies_to"] == ["state:api-key-quota-capacity"]
+    assert (
+        "py:backend.services.quota_enforcement",
+        "state:api-key-quota-capacity",
+        "serializes_state",
+    ) in edges
+    assert nodes["state:api-key-quota-capacity"]["source"] == "backend/services/quota_enforcement.py"
+    assert "state-ownership:api-key-quota-capacity" not in finding_ids
 
     assert invariants["lease-owner-integrity"]["status"] == "enforced"
     assert invariants["lease-owner-integrity"]["applies_to"] == ["state:redis-task-lease"]
     assert nodes["state:redis-task-lease"]["source"] == "backend/queue/adapters/redis_owner_integrity.py"
     assert "state-ownership:redis-task-lease" not in finding_ids
-    assert "state-ownership:api-key-quota-capacity" in finding_ids
 
     assert invariants["single-use-secret-consumption"]["status"] == "enforced"
     assert invariants["single-use-secret-consumption"]["applies_to"] == [
