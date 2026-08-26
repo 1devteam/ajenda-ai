@@ -2,13 +2,15 @@
 
 **Status:** exploratory analysis note; not an empirical finding  
 **Analysis snapshot:** through PR #473  
-**Population use:** prospective/process evidence only until sufficient downstream observation time exists
+**Population use:** prospective/process evidence; downstream elapsed-time windows are censoring controls, not the primary definition of quality
 
 ## Question
 
 Do Ajenda PRs from the provisional graph-assisted period show a measurable change in PR quality compared with earlier corrective work, and if so, what changed?
 
-This note does **not** equate PR quality with PR size, commit count, prose length, or CI success. It separates immediately observable engineering-process quality from realized downstream outcome quality.
+This note does **not** equate PR quality with PR size, commit count, prose length, CI success, or absence of a later PR within an arbitrary number of days. It separates immediately observable engineering/process evidence from realized downstream outcomes.
+
+A companion analysis, `multivariate-pr-quality-framework-v0.1.md`, expands the model across defect mechanism, semantic scope, boundary crossing, invariant coverage, repair-cluster coherence, proof topology, pre-merge interception, residual-defect visibility, corrective propagation topology, and graph maturity.
 
 ## Quality dimensions used for this preliminary review
 
@@ -18,9 +20,10 @@ This note does **not** equate PR quality with PR size, commit count, prose lengt
 4. **Scope discipline** — whether non-goals and unrelated known defects remain explicit rather than being silently absorbed or claimed closed.
 5. **Proof quality** — whether proof includes adversarial, integration, concurrency, cross-boundary, or fail-closed tests appropriate to the defect.
 6. **Architectural closure evidence** — whether the repair is reconciled against the canonical graph/invariant model and the targeted architectural finding disappears without erasing unrelated findings.
-7. **Realized outcome quality** — later corrective descendants, cascade depth, time to closure, and rework. This dimension cannot yet be fairly scored because the post-#460 cohort is heavily right-censored.
+7. **Pre-merge interception / design supersession** — whether material defects or weaker designs are corrected before reaching `main`.
+8. **Realized outcome quality** — later corrective descendants, cascade depth, semantic fragmentation, time to closure, severity movement, and rework.
 
-The first six dimensions are contemporaneous process/design evidence. The seventh is the outcome measure required for the study's causal claims.
+The first seven dimensions can be observed contemporaneously. The eighth requires later causal evidence but must not be reduced to a single elapsed-time cutoff.
 
 ## Cohort handling
 
@@ -96,9 +99,9 @@ Earlier Ajenda history contains direct fix-the-fix / incomplete-blast-radius cha
 - #168 → #169
 - #369 → #370 → #371 → #372
 
-Those sequences show that passing local proof did not always imply architectural closure. The post-#468 PR pattern attempts to mechanize the missing closure condition rather than relying only on reviewer reasoning.
+Those sequences show that passing local proof did not always imply architectural closure. The companion multivariate analysis also shows why **file breadth alone is not sufficient**: #58/#59 and #107/#108 remain within the same tiny file surface, while the defect mechanism is semantic contract/state-ordering mismatch.
 
-This is **process-quality evidence**, not yet proof that downstream cascades are reduced.
+This is process and mechanism evidence, not yet proof that graph assistance reduces downstream cascades.
 
 ## PR size does not explain the apparent improvement
 
@@ -112,13 +115,15 @@ The graph-integrated PRs are not uniformly smaller:
 - #472: 23 files, 17 commits, +1139 / -216
 - #473: 11 files, 13 commits, +533 / -34
 
-The observed difference is therefore not "smaller PRs are better." The stronger candidate explanation is **better alignment between reasoning scope, actual blast radius, and proof scope**. This remains a hypothesis until the prospective cohort accumulates enough downstream observation time.
+The observed difference is therefore not "smaller PRs are better." The stronger candidate explanation is **better alignment among semantic reasoning scope, actual architectural blast radius, authoritative repair point, and proof scope**. This remains a hypothesis.
 
 ## #471 → #472 as process evidence
 
 #471 and #472 share the same base SHA. #471 was closed unmerged after proposing Redis-backed ownership for GF-13/GF-27 while explicitly deferring GF-25/GF-26/GF-28. #472 instead merged a PostgreSQL-backed durable authority that treats the broader idempotency cluster as one architectural problem.
 
 The observable fact is that the narrower/different design did **not** enter `main`; the broader root-cause package did. This is potentially important evidence of improved pre-merge correction quality. The reason for the redesign must not be attributed to the graph unless contemporaneous review/task evidence explicitly supports that causal claim.
+
+This is why the study must count **pre-merge interception and design supersession**, not only post-merge corrective descendants.
 
 ## #465 → #473 as incomplete-closure evidence
 
@@ -134,21 +139,20 @@ Do **not** code this as "#465 introduced GF-14" without source history proving i
 
 ## Preliminary interpretation
 
-The strongest current evidence is that PR quality has improved in **architecture reasoning and closure discipline**, especially after #468. The post-#468 PRs increasingly define one invariant, derive scope from system relationships, prove the real failure mode, reconcile the graph, and preserve negative evidence.
+The strongest current evidence is that PR quality has changed in **architecture reasoning, invariant clustering, proof topology, negative-evidence preservation, and closure observability**, especially after #468.
 
 What is **not** yet established:
 
 - lower corrective-descendant rate;
 - lower cascade depth;
 - lower rework ratio;
-- shorter time to closure;
 - statistically significant improvement attributable to graph assistance.
 
-The cohort is too recent and right-censored for those outcome claims.
+Elapsed observation time is one limitation, but it is not the analytical center. Other variables can be measured now and should be included in the study.
 
 ## Methodological implication
 
-For the prospective analysis, a single binary `pre/post #460` treatment variable is probably insufficient. Preserve #460 as the preregistered provisional boundary, but also code graph maturity as a time-varying treatment characteristic. At minimum distinguish:
+For the prospective analysis, a single binary `pre/post #460` treatment variable is insufficient. Preserve #460 as the preregistered provisional boundary, but also code graph maturity as a time-varying vector. At minimum distinguish:
 
 - initial graph-assisted correction period (#460 onward);
 - semantic-enforcement maturity (#468 onward);
@@ -158,19 +162,25 @@ Any final intervention refinement must be justified from contemporaneous impleme
 
 ## Next reproducible measurement
 
-For every prospective production PR, capture the same fields before looking at downstream outcomes:
+For every prospective production PR, capture at least:
 
+- defect/change mechanism;
 - requested/change scope;
+- semantic domains and boundaries implicated;
+- graph capabilities available and actually used;
 - graph-predicted blast radius;
 - actual implementation scope;
-- invariant(s) named;
-- proof selected;
-- graph findings before;
-- graph findings after;
+- governing invariant(s);
+- repair mechanism / authoritative control point;
+- proof layers selected and exercised;
+- graph findings before/after;
+- targeted findings closed;
 - unrelated findings preserved;
-- PR size / files / commits;
 - review-discovered corrections before merge;
 - merged vs superseded/abandoned;
-- corrective descendants after fixed observation windows.
+- corrective descendants and causal class;
+- semantic dimensions discovered in later generations;
+- severity movement;
+- elapsed time to later correction as a censoring/secondary outcome variable.
 
-Then compare first-pass architectural completeness and corrective descendants at fixed 7-, 14-, 30-, and 60-day windows, with right-censoring explicitly represented.
+Fixed 7/14/30/60-day windows can then be used for sensitivity and right-censoring, but they are **secondary controls inside a multivariate analysis**, not the pillar of the study.
