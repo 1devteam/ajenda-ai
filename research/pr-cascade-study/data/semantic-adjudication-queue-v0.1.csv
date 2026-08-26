@@ -39,7 +39,7 @@ AQ037,434,435,"#435 explicitly says it fixes a staging fixture on #434 but under
 AQ038,452,453,"#453 says classifier models the PR #452 Google Docs class of failure",true,architecture_instrumentation_after_observation,high,unadjudicated,"PR #453 body","Measurement-system response, not necessarily correction of #452."
 AQ039,453,454,"Classifier followed by canonical graph foundation",true,planned_graph_progression,medium,unadjudicated,"PR #454 body","Negative-control style planned sequence."
 AQ040,454,455,"Canonical graph followed by blast-radius analyzer",true,planned_graph_progression,medium,unadjudicated,"PR #455 body","Graph maturity reconstruction."
-AQ041,455,456,"Blast-radius analyzer followed by graph-aware proof selection",true,planned_graph_progression,medium,unadjudated,"PR #456 body","Graph maturity reconstruction."
+AQ041,455,456,"Blast-radius analyzer followed by graph-aware proof selection",true,planned_graph_progression,medium,unadjudicated,"PR #456 body","Graph maturity reconstruction."
 AQ042,456,457,"Proof selection followed by selective-CI shadow execution",true,planned_graph_progression,medium,unadjudicated,"PR #457 body","Graph maturity reconstruction."
 AQ043,457,458,"Selective-CI shadow followed by graph completeness audit",true,planned_graph_progression,medium,unadjudicated,"PR #458 body","Graph maturity reconstruction."
 AQ044,458,459,"Completeness audit followed by architecture decision manifest",true,planned_graph_progression,medium,unadjudicated,"PR #459 body","Graph maturity reconstruction."
