@@ -204,7 +204,7 @@ def collect_function_graph(
                     source=node_id,
                     target=f"py:{module}",
                     type="defined_in",
-                    evidence=f"{source}:{getattr(function, 'lineno', 1)}",
+                    evidence=source,
                 )
             )
             for target in _called_function_ids(
@@ -221,7 +221,7 @@ def collect_function_graph(
                             source=node_id,
                             target=target,
                             type="calls_function",
-                            evidence=f"{source}:{getattr(function, 'lineno', 1)}",
+                            evidence=source,
                         )
                     )
 
