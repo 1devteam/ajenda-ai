@@ -7,9 +7,7 @@ from pathlib import Path
 VALIDATION_DIR = Path(__file__).resolve().parents[3] / "scripts/validation"
 MODULE_PATH = VALIDATION_DIR / "graph_impact_analysis.py"
 sys.path.insert(0, str(VALIDATION_DIR))
-SPEC = importlib.util.spec_from_file_location(
-    "ajenda_graph_impact_analysis", MODULE_PATH
-)
+SPEC = importlib.util.spec_from_file_location("ajenda_graph_impact_analysis", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
@@ -140,9 +138,7 @@ def test_changed_leaf_includes_its_test_and_all_upstream_consumers() -> None:
 def test_semantic_prerequisite_and_invariant_are_reported() -> None:
     report = MODULE.analyze_impact(_graph(), ["backend/c.py"])
 
-    assert [item["id"] for item in report["dependency_semantic_nodes"]] == [
-        "boundary:x"
-    ]
+    assert [item["id"] for item in report["dependency_semantic_nodes"]] == ["boundary:x"]
     assert [item["id"] for item in report["relevant_invariants"]] == ["x-boundary"]
 
 
@@ -172,9 +168,7 @@ def test_node_level_impact_targets_one_function_and_direct_function_test() -> No
         }
     ]
     assert [item["id"] for item in report["downstream_dependencies"]] == ["py:a"]
-    assert [item["id"] for item in report["impacted_tests"]] == [
-        "test:tests/test_decide.py"
-    ]
+    assert [item["id"] for item in report["impacted_tests"]] == ["test:tests/test_decide.py"]
     assert report["impacted_tests"][0]["coverage_edges"] == ["tests_function"]
 
 
