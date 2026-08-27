@@ -368,6 +368,18 @@ _CLAUSE_SPLIT = re.compile(
     rf"\s*(?:(?:,|;)\s*(?:and\s+)?|\band\b\s*)(?={_CLAUSE_ACTION_START})",
     re.IGNORECASE,
 )
+_CLAUSE_SENTENCE_SPLIT = re.compile(
+    rf"(?<=[.!?])\s+(?={_CLAUSE_ACTION_START})",
+    re.IGNORECASE,
+)
+_COORDINATED_PROHIBITION_START = re.compile(
+    r"^(?:do not|don't|dont|never)\b",
+    re.IGNORECASE,
+)
+_DETAILED_RETURN_DELIVERABLE = re.compile(
+    r"^return\b[^,]*(?:,[^,]+){2,}$",
+    re.IGNORECASE,
+)
 
 
 def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
@@ -767,7 +779,15 @@ def _segment_clauses(text: str, *, protected_spans: list[str] | None = None) -> 
             continue
         working = pattern.sub(placeholder, working, count=1)
         placeholders.append((placeholder, token))
-    parts = [p.strip(" ,.;") for p in _CLAUSE_SPLIT.split(working) if p and p.strip(" ,.;")]
+    parts: list[str] = []
+    for sentence in _CLAUSE_SENTENCE_SPLIT.split(working):
+        sentence = sentence.strip(" ,;")
+        if not sentence:
+            continue
+        if _COORDINATED_PROHIBITION_START.match(sentence):
+            parts.append(sentence.strip(" ,.;"))
+            continue
+        parts.extend(part.strip(" ,.;") for part in _CLAUSE_SPLIT.split(sentence) if part and part.strip(" ,.;"))
     restored: list[str] = []
     for part in parts:
         restored_part = part
@@ -786,6 +806,11 @@ def _classify_clause(
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
+    # A detailed multi-field deliverable list is not represented by the
+    # canonical outcome contract. Do not let field names such as "research"
+    # or "drafts" silently authorize a partial interpretation.
+    if _DETAILED_RETURN_DELIVERABLE.match(clause.strip()):
+        return [], True, False
     # Instructions that explicitly classify source text as untrusted are
     # safety metadata, not an external action request or an unmatched mission
     # clause. Keep them visible to the caller without turning quoted verbs
@@ -883,6 +908,7 @@ def _classify_clause(
             r"\brefund\b",
             r"\bdelete\b",
             r"\bterminate\b",
+            r"\breturn\b",
         ),
     )
     # Bare location/count fragments treated as material when short.
