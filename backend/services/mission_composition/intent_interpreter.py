@@ -1792,8 +1792,8 @@ def interpret_instruction(
             "interpretation_ready": readiness.ready,
             "interpretation_readiness_reasons": list(readiness.reasons),
             # Align ambiguity with readiness when restatement required.
-            "ambiguity": clarifications
-            if clarifications
+            "ambiguity": intent.ambiguity
+            if intent.ambiguity
             else (
                 [
                     _restatement(
