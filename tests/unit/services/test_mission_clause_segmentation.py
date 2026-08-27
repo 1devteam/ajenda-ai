@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from backend.services.mission_composition.intent_interpreter import (
-    _segment_clauses,
-    interpret_instruction,
-)
+from backend.services.mission_composition.intent_interpreter import _segment_clauses, interpret_instruction
 
 
 FAILING_SAAS_MISSION = (
@@ -32,6 +29,21 @@ def test_imperative_chaining_still_creates_independent_clauses() -> None:
     clauses = _segment_clauses("Research prospects, qualify them, and send the approved email.")
 
     assert clauses == ["Research prospects", "qualify them", "send the approved email"]
+
+
+def test_unsupported_external_effect_after_conjunction_stays_fail_closed() -> None:
+    instruction = "Research three roofing companies in Austin and fax each of them a signed purchase order."
+    clauses = _segment_clauses(instruction)
+
+    assert clauses == [
+        "Research three roofing companies in Austin",
+        "fax each of them a signed purchase order",
+    ]
+
+    intent = interpret_instruction(instruction, spelling_enabled=False, fuzzy_enabled=False)
+    assert intent.unmatched_material_clauses
+    assert any("fax" in clause.text.lower() for clause in intent.unmatched_material_clauses)
+    assert any(item.field == "clause_coverage" for item in intent.ambiguity)
 
 
 def test_live_saas_mission_no_longer_fails_clause_coverage() -> None:
