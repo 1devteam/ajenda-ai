@@ -60,11 +60,7 @@ def reconcile_deliverable_coverage(intent: MissionIntent) -> MissionIntent:
             )
         )
 
-    unmatched_clauses = [
-        clause
-        for clause in reconciled_clauses
-        if clause.material and clause.status != "recognized"
-    ]
+    unmatched_clauses = [clause for clause in reconciled_clauses if clause.material and clause.status != "recognized"]
     unmatched_units = [
         unit
         for unit in reconciled_units
@@ -76,11 +72,7 @@ def reconcile_deliverable_coverage(intent: MissionIntent) -> MissionIntent:
     ]
 
     material_total = sum(1 for clause in reconciled_clauses if clause.material)
-    material_ok = sum(
-        1
-        for clause in reconciled_clauses
-        if clause.material and clause.status == "recognized"
-    )
+    material_ok = sum(1 for clause in reconciled_clauses if clause.material and clause.status == "recognized")
     coverage = (material_ok / material_total) if material_total else intent.coverage_score
 
     ambiguity = list(intent.ambiguity)
