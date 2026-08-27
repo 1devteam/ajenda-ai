@@ -45,8 +45,10 @@ class DeliverableProjection(BaseModel):
 
     @property
     def fully_bound(self) -> bool:
-        return bool(self.bindings) and not self.request_unresolved_items and all(
-            binding.status == "bound" for binding in self.bindings
+        return (
+            bool(self.bindings)
+            and not self.request_unresolved_items
+            and all(binding.status == "bound" for binding in self.bindings)
         )
 
     @property
