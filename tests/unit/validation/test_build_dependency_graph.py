@@ -31,6 +31,42 @@ def test_graph_contains_static_semantic_and_test_layers() -> None:
     assert "runtime-secret-boundary" in invariant_ids
 
 
+def test_mission_composition_has_selective_function_layer() -> None:
+    graph = MODULE.build_graph()
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+
+    segment = "fn:backend.services.mission_composition.intent_interpreter:_segment_clauses"
+    classify = "fn:backend.services.mission_composition.intent_interpreter:_classify_clause"
+    interpret = "fn:backend.services.mission_composition.intent_interpreter:interpret_instruction"
+    normalize = "fn:backend.services.mission_composition.interpretation.normalize:normalize_instruction_text"
+
+    assert nodes[segment]["type"] == "python_function"
+    assert nodes[segment]["decision_role"] == "segments_text"
+    assert nodes[classify]["decision_role"] == "classifies_materiality"
+    assert nodes[interpret]["decision_role"] == "interprets_mission"
+    assert nodes[normalize]["decision_role"] == "normalizes_text"
+    assert (
+        segment,
+        "py:backend.services.mission_composition.intent_interpreter",
+        "defined_in",
+    ) in edges
+    assert any(edge[0] == interpret and edge[1] == segment and edge[2] == "calls_function" for edge in edges)
+    assert any(edge[0] == interpret and edge[1] == classify and edge[2] == "calls_function" for edge in edges)
+
+
+def test_direct_function_test_edges_are_supplemental() -> None:
+    graph = MODULE.build_graph()
+    edges = graph["edges"]
+
+    assert any(
+        edge["type"] == "tests_function"
+        and str(edge["to"]).startswith("fn:backend.services.mission_composition.")
+        for edge in edges
+    )
+    assert any(edge["type"] == "tests" for edge in edges)
+
+
 def test_package_relative_re_exports_are_graph_edges() -> None:
     graph = MODULE.build_graph()
     edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
@@ -78,6 +114,8 @@ def test_metrics_cover_graph() -> None:
     assert graph["metrics"]["node_count"] == len(graph["nodes"])
     assert graph["metrics"]["edge_count"] == len(graph["edges"])
     assert graph["metrics"]["edge_counts_by_type"]["tests"] > 0
+    assert graph["metrics"]["edge_counts_by_type"]["calls_function"] > 0
+    assert graph["metrics"]["edge_counts_by_type"]["tests_function"] > 0
     assert isinstance(graph["metrics"]["static_cycles"], list)
     assert graph["metrics"]["top_fan_in"]
     assert graph["metrics"]["top_production_fan_in"]
