@@ -69,7 +69,7 @@ _DELIVERABLE_SENTENCE = re.compile(
     r"\b(?:provide|return|include)\b)(?P<body>[^.!?]{1,1600})",
     re.IGNORECASE,
 )
-_SCORE_RANGE = re.compile(r"\b(?:from\s+)?(?P<minimum>\d{1,2})\s*(?:to|[-–])\s*(?P<maximum>\d{1,2})\b")
+_SCORE_RANGE = re.compile(r"\b(?:from\s+)?(?P<minimum>\d{1,2})\s*(?:to|[-\u2013])\s*(?P<maximum>\d{1,2})\b")
 _TRAILING_PURPOSE = re.compile(r"\s+for\s+(?:review|approval|the\s+user)\s*$", re.IGNORECASE)
 
 _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
@@ -122,11 +122,12 @@ def _field_key(item: str) -> DeliverableFieldKey | None:
 
 def _split_requested_items(body: str) -> list[str]:
     cleaned = _TRAILING_PURPOSE.sub("", body.strip(" ,;:"))
-    return [
-        part.strip(" ,;:")
-        for part in re.split(r"\s*,\s*|\s+and\s+", cleaned, flags=re.IGNORECASE)
-        if part and part.strip(" ,;:")
-    ]
+    items: list[str] = []
+    for part in re.split(r"\s*,\s*|\s+and\s+", cleaned, flags=re.IGNORECASE):
+        normalized = re.sub(r"^(?:and|or)\s+", "", part.strip(" ,;:"), flags=re.IGNORECASE)
+        if normalized:
+            items.append(normalized)
+    return items
 
 
 def extract_deliverable_request(text: str) -> DeliverableRequest | None:
@@ -138,9 +139,7 @@ def extract_deliverable_request(text: str) -> DeliverableRequest | None:
 
     prefix = match.group("prefix")
     body = match.group("body")
-    scope: Literal["per_prospect", "mission"] = (
-        "for each" in prefix.lower() and "per_prospect" or "mission"
-    )
+    scope: Literal["per_prospect", "mission"] = "per_prospect" if "for each" in prefix.lower() else "mission"
 
     fields: list[DeliverableFieldRequirement] = []
     unresolved: list[str] = []
