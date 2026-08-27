@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 from pydantic import ValidationError
 
@@ -16,7 +14,7 @@ SAAS_DELIVERABLE_PROMPT = """Find 10 SaaS companies in Austin, Texas that could 
 For each prospect, provide the company name, website, a short description of what it sells, the evidence used to qualify it, why Ajenda AI may be relevant, and a qualification score from 1 to 5."""
 
 
-def test_interpreter_exposes_typed_deliverable_request_without_weakening_clause_gate() -> None:
+def test_interpreter_exposes_typed_deliverable_request_for_supported_prompt() -> None:
     intent = interpret_instruction(
         SAAS_DELIVERABLE_PROMPT,
         spelling_enabled=False,
@@ -38,11 +36,8 @@ def test_interpreter_exposes_typed_deliverable_request_without_weakening_clause_
     assert request.score_max == 5
     assert request.fully_understood is True
     assert request.grants_execution_authority is False
-
-    # This commit only wires the typed contract into MissionIntent. Clause
-    # accounting remains fail-closed until the next explicit interpreter change.
-    assert intent.interpretation_ready is False
-    assert any(item.field == "clause_coverage" for item in intent.ambiguity)
+    assert intent.interpretation_ready is True
+    assert not any(item.field == "clause_coverage" for item in intent.ambiguity)
 
 
 def test_mission_intent_rejects_forged_deliverable_request() -> None:
