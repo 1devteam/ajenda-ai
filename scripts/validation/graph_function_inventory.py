@@ -83,9 +83,7 @@ def _selected_python_files(repo_root: Path) -> list[Path]:
     root = repo_root / MISSION_COMPOSITION_ROOT
     if not root.exists():
         return []
-    return sorted(
-        path for path in root.rglob("*.py") if "__pycache__" not in path.parts
-    )
+    return sorted(path for path in root.rglob("*.py") if "__pycache__" not in path.parts)
 
 
 def _parse(path: Path) -> ast.Module | None:
@@ -98,11 +96,7 @@ def _parse(path: Path) -> ast.Module | None:
 def _top_level_functions(
     tree: ast.Module,
 ) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
-    return [
-        item
-        for item in tree.body
-        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
-    ]
+    return [item for item in tree.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
 
 def _imported_function_aliases(
@@ -168,9 +162,7 @@ def collect_function_graph(
         parsed[path] = tree
         module_by_path[path] = module
         for function in _top_level_functions(tree):
-            known_functions[(module, function.name)] = _function_id(
-                module, function.name
-            )
+            known_functions[(module, function.name)] = _function_id(module, function.name)
 
     nodes: list[dict[str, object]] = []
     edges: set[FunctionEdge] = set()
@@ -179,12 +171,9 @@ def collect_function_graph(
         module = module_by_path[path]
         source = str(path.relative_to(repo_root)).replace("\\", "/")
         local_functions = {
-            function.name: known_functions[(module, function.name)]
-            for function in _top_level_functions(tree)
+            function.name: known_functions[(module, function.name)] for function in _top_level_functions(tree)
         }
-        direct_imports, module_aliases = _imported_function_aliases(
-            tree, known_functions
-        )
+        direct_imports, module_aliases = _imported_function_aliases(tree, known_functions)
 
         for function in _top_level_functions(tree):
             node_id = known_functions[(module, function.name)]
@@ -260,20 +249,14 @@ def collect_function_test_edges(
         return []
 
     edges: set[FunctionEdge] = set()
-    for path in sorted(
-        path for path in tests_root.rglob("*.py") if "__pycache__" not in path.parts
-    ):
+    for path in sorted(path for path in tests_root.rglob("*.py") if "__pycache__" not in path.parts):
         tree = _parse(path)
         if tree is None:
             continue
         source = str(path.relative_to(repo_root)).replace("\\", "/")
         test_id = f"test:{source}"
         for item in ast.walk(tree):
-            if (
-                not isinstance(item, ast.ImportFrom)
-                or item.level != 0
-                or not item.module
-            ):
+            if not isinstance(item, ast.ImportFrom) or item.level != 0 or not item.module:
                 continue
             for alias in item.names:
                 target = function_ids.get((item.module, alias.name))
