@@ -8,7 +8,6 @@ from backend.services.mission_composition.deliverable_contract import (
 )
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 
-
 SAAS_DELIVERABLE_PROMPT = """Find 10 SaaS companies in Austin, Texas that could be good prospects for Ajenda AI. Research and qualify each company based on what it sells, whether it uses AI or automated software, and whether Ajenda AI could help the company manage those systems safely and consistently.
 
 For each prospect, provide the company name, website, a short description of what it sells, the evidence used to qualify it, why Ajenda AI may be relevant, and a qualification score from 1 to 5."""
