@@ -358,7 +358,16 @@ _FRAGMENT_HINTS = (
     r"^(two|three|four|five|ten)\s*(companies|prospects|leads)?\.?$",
     r"^[A-Za-z][A-Za-z.\-\s]{1,40}$",
 )
-_CLAUSE_SPLIT = re.compile(r"\s*(?:,|\band\b|;)\s*", re.IGNORECASE)
+_CLAUSE_ACTION_START = (
+    r"(?:do not|don't|dont|never|research|find|discover|identify|qualify|score|rank|rate|grade|draft|prepare|"
+    r"send|deliver|dispatch|mail|enrich|collect|gather|return|check|read|search|query|list|show|summarize|"
+    r"look up|schedule|book|create|add|delete|cancel|reschedule|update|remove|move|log|upsert|write|sync|push|"
+    r"save|put|publish|post|share|browse|contact|perform|approve|charge|invoice|fax|wire|transfer|pay|refund|terminate)\b"
+)
+_CLAUSE_SPLIT = re.compile(
+    rf"\s*(?:(?:,|;)\s*(?:and\s+)?|\band\b\s*)(?={_CLAUSE_ACTION_START})",
+    re.IGNORECASE,
+)
 
 
 def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
@@ -737,7 +746,7 @@ def _success_for_outcomes(
 
 
 def _segment_clauses(text: str, *, protected_spans: list[str] | None = None) -> list[str]:
-    """Split on commas/and/semicolons, keeping protected entity spans intact (e.g. Johnson and Johnson)."""
+    """Split only when a separator introduces a new imperative or policy clause."""
 
     working = text
     placeholders: list[tuple[str, str]] = []
