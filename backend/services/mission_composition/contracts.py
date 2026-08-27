@@ -10,9 +10,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-COMPOSITION_SCHEMA_VERSION = 4
+from backend.services.mission_composition.deliverable_contract import (
+    DeliverableRequest,
+    extract_deliverable_request,
+)
+
+COMPOSITION_SCHEMA_VERSION = 5
 JOB_CATALOG_VERSION = "9"
-INTERPRETER_VERSION = "10"
+INTERPRETER_VERSION = "11"
 CAPABILITY_RESOLVER_VERSION = "8"
 
 ProposalStatus = Literal[
@@ -383,6 +388,7 @@ class MissionIntent(BaseModel):
     # Legacy mixed field — kept for compatibility; prefer the split fields above.
     forbidden_outcomes: list[str] = Field(default_factory=list, max_length=30)
     success_criteria: list[SuccessCriterion] = Field(default_factory=list, max_length=20)
+    deliverable_request: DeliverableRequest | None = None
     urgency: str = Field(default="normal", max_length=40)
     approval_preference: str = Field(default="review_before_external_action", max_length=80)
     budget_limits: BudgetLimits | None = None
@@ -441,6 +447,16 @@ class MissionIntent(BaseModel):
         if len(set(normalized)) != len(normalized):
             raise ValueError("list entries must be unique")
         return normalized
+
+    @model_validator(mode="after")
+    def _deliverable_request_matches_raw_instruction(self) -> MissionIntent:
+        derived = extract_deliverable_request(self.raw_instruction) if self.raw_instruction.strip() else None
+        if self.deliverable_request is None:
+            self.deliverable_request = derived
+            return self
+        if derived is None or self.deliverable_request != derived:
+            raise ValueError("deliverable_request must be derived from raw_instruction")
+        return self
 
     def effective_forbidden_actions(self) -> list[str]:
         """Resolver-facing action forbid set (structured only)."""
