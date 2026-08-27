@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from backend.services.mission_composition.intent_interpreter import _segment_clauses, interpret_instruction
+from backend.services.mission_composition.intent_interpreter import (
+    _segment_clauses,
+    interpret_instruction,
+)
 
 
 FAILING_SAAS_MISSION = (
