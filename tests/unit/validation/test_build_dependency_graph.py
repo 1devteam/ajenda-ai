@@ -4,10 +4,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-MODULE_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "scripts/validation/build_dependency_graph.py"
-)
+MODULE_PATH = Path(__file__).resolve().parents[3] / "scripts/validation/build_dependency_graph.py"
 SPEC = importlib.util.spec_from_file_location("ajenda_build_dependency_graph", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -39,19 +36,10 @@ def test_mission_composition_has_selective_function_layer() -> None:
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
 
-    segment = (
-        "fn:backend.services.mission_composition.intent_interpreter:_segment_clauses"
-    )
-    classify = (
-        "fn:backend.services.mission_composition.intent_interpreter:_classify_clause"
-    )
-    interpret = (
-        "fn:backend.services.mission_composition.intent_interpreter:interpret_instruction"
-    )
-    normalize = (
-        "fn:backend.services.mission_composition.interpretation.normalize:"
-        "normalize_instruction_text"
-    )
+    segment = "fn:backend.services.mission_composition.intent_interpreter:_segment_clauses"
+    classify = "fn:backend.services.mission_composition.intent_interpreter:_classify_clause"
+    interpret = "fn:backend.services.mission_composition.intent_interpreter:interpret_instruction"
+    normalize = "fn:backend.services.mission_composition.interpretation.normalize:normalize_instruction_text"
 
     assert nodes[segment]["type"] == "python_function"
     assert nodes[segment]["decision_role"] == "segments_text"
@@ -63,18 +51,8 @@ def test_mission_composition_has_selective_function_layer() -> None:
         "py:backend.services.mission_composition.intent_interpreter",
         "defined_in",
     ) in edges
-    assert any(
-        edge[0] == interpret
-        and edge[1] == segment
-        and edge[2] == "calls_function"
-        for edge in edges
-    )
-    assert any(
-        edge[0] == interpret
-        and edge[1] == classify
-        and edge[2] == "calls_function"
-        for edge in edges
-    )
+    assert any(edge[0] == interpret and edge[1] == segment and edge[2] == "calls_function" for edge in edges)
+    assert any(edge[0] == interpret and edge[1] == classify and edge[2] == "calls_function" for edge in edges)
 
 
 def test_direct_function_test_edges_are_supplemental() -> None:
@@ -82,8 +60,7 @@ def test_direct_function_test_edges_are_supplemental() -> None:
     edges = graph["edges"]
 
     assert any(
-        edge["type"] == "tests_function"
-        and str(edge["to"]).startswith("fn:backend.services.mission_composition.")
+        edge["type"] == "tests_function" and str(edge["to"]).startswith("fn:backend.services.mission_composition.")
         for edge in edges
     )
     assert any(edge["type"] == "tests" for edge in edges)
@@ -118,10 +95,7 @@ def test_test_impact_edges_target_production_modules() -> None:
 
     assert test_edges
     assert all(edge["from"].startswith("test:tests/") for edge in test_edges)
-    assert all(
-        edge["to"].startswith(("py:backend.", "py:services."))
-        for edge in test_edges
-    )
+    assert all(edge["to"].startswith(("py:backend.", "py:services.")) for edge in test_edges)
 
 
 def test_every_edge_endpoint_is_defined() -> None:
