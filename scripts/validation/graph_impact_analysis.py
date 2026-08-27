@@ -52,20 +52,27 @@ def _source_index(graph: dict[str, Any]) -> dict[str, list[str]]:
     return {source: sorted(node_ids) for source, node_ids in index.items()}
 
 
-def _production_edges(graph: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _production_edges(
+    graph: dict[str, Any], nodes: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
     edges: list[dict[str, Any]] = []
     for edge in graph["edges"]:
         source = str(edge["from"])
         target = str(edge["to"])
         if str(edge["type"]) in TEST_EDGE_TYPES:
             continue
-        if nodes[source].get("type") == TEST_NODE_TYPE or nodes[target].get("type") == TEST_NODE_TYPE:
+        if (
+            nodes[source].get("type") == TEST_NODE_TYPE
+            or nodes[target].get("type") == TEST_NODE_TYPE
+        ):
             continue
         edges.append(edge)
     return edges
 
 
-def _adjacency(edges: Iterable[dict[str, Any]], *, reverse: bool) -> dict[str, set[str]]:
+def _adjacency(
+    edges: Iterable[dict[str, Any]], *, reverse: bool
+) -> dict[str, set[str]]:
     adjacency: dict[str, set[str]] = defaultdict(set)
     for edge in edges:
         source = str(edge["from"])
@@ -123,7 +130,9 @@ def _described_nodes(
                 "distance": distance,
             }
         )
-    return sorted(described, key=lambda item: (int(item["distance"]), str(item["id"])))
+    return sorted(
+        described, key=lambda item: (int(item["distance"]), str(item["id"]))
+    )
 
 
 def _impacted_tests(
@@ -153,7 +162,9 @@ def _impacted_tests(
     ]
 
 
-def _semantic_nodes(node_ids: set[str], nodes: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _semantic_nodes(
+    node_ids: set[str], nodes: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
     selected = []
     for node_id in sorted(node_ids):
         node = nodes[node_id]
@@ -219,7 +230,11 @@ def _analyze_starts(
     nodes = _node_map(graph)
     source_index = _source_index(graph)
     changed_nodes = [nodes[node_id] for node_id in changed_node_ids]
-    changed_production = {node_id for node_id in changed_node_ids if nodes[node_id].get("type") != TEST_NODE_TYPE}
+    changed_production = {
+        node_id
+        for node_id in changed_node_ids
+        if nodes[node_id].get("type") != TEST_NODE_TYPE
+    }
 
     production_edges = _production_edges(graph, nodes)
     forward = _adjacency(production_edges, reverse=False)
@@ -256,14 +271,23 @@ def _analyze_starts(
             for node in changed_nodes
         ],
         "unmapped_changed_files": unmapped_changed_files,
-        "upstream_consumers": _described_nodes(upstream_distances, nodes, exclude=changed_production),
-        "downstream_dependencies": _described_nodes(downstream_distances, nodes, exclude=changed_production),
+        "upstream_consumers": _described_nodes(
+            upstream_distances, nodes, exclude=changed_production
+        ),
+        "downstream_dependencies": _described_nodes(
+            downstream_distances, nodes, exclude=changed_production
+        ),
         "impacted_tests": impacted_tests,
         "affected_semantic_nodes": affected_semantic,
         "dependency_semantic_nodes": dependency_semantic,
         "relevant_invariants": invariants,
         "risk_domains": [
-            {"id": profile.id, "title": profile.title, "review": list(profile.review)} for profile in risk_profiles
+            {
+                "id": profile.id,
+                "title": profile.title,
+                "review": list(profile.review),
+            }
+            for profile in risk_profiles
         ],
         "metrics": {
             "changed_file_count": len(changed_files),
@@ -289,7 +313,9 @@ def analyze_impact(
     changed = sorted({_normalize_path(path) for path in changed_files})
     changed_set = set(changed)
     source_index = _source_index(graph)
-    changed_node_ids = sorted({node_id for path in changed for node_id in source_index.get(path, [])})
+    changed_node_ids = sorted(
+        {node_id for path in changed for node_id in source_index.get(path, [])}
+    )
     mapped_sources = {path for path in changed if path in source_index}
     unmapped = sorted(changed_set - mapped_sources)
     return _analyze_starts(
@@ -316,7 +342,8 @@ def analyze_node_impact(
         {
             _normalize_path(str(nodes[node_id]["source"]))
             for node_id in requested
-            if isinstance(nodes[node_id].get("source"), str) and nodes[node_id].get("source")
+            if isinstance(nodes[node_id].get("source"), str)
+            and nodes[node_id].get("source")
         }
     )
     return _analyze_starts(
@@ -345,7 +372,10 @@ def _print_human(report: dict[str, Any]) -> None:
     )
     for node in report["changed_nodes"]:
         role = f" [{node['decision_role']}]" if node.get("decision_role") else ""
-        print(f"CHANGED: {node['id']}{role} ({node.get('source') or node.get('label')})")
+        print(
+            f"CHANGED: {node['id']}{role} "
+            f"({node.get('source') or node.get('label')})"
+        )
     for path in report["unmapped_changed_files"]:
         print(f"UNMAPPED: {path}")
     for invariant in report["relevant_invariants"]:
@@ -355,7 +385,9 @@ def _print_human(report: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Compute Ajenda graph-aware change impact.")
+    parser = argparse.ArgumentParser(
+        description="Compute Ajenda graph-aware change impact."
+    )
     parser.add_argument("--base-ref")
     parser.add_argument("--head-ref")
     parser.add_argument("--changed-file", action="append", default=[])
@@ -369,12 +401,16 @@ def main() -> int:
     if args.max_depth is not None and args.max_depth < 0:
         parser.error("--max-depth must be zero or greater")
     if args.changed_node and (args.changed_file or args.base_ref or args.head_ref):
-        parser.error("--changed-node cannot be combined with changed-file or ref-based discovery")
+        parser.error(
+            "--changed-node cannot be combined with changed-file or ref-based discovery"
+        )
 
     graph = build_graph()
     try:
         if args.changed_node:
-            report = analyze_node_impact(graph, args.changed_node, max_depth=args.max_depth)
+            report = analyze_node_impact(
+                graph, args.changed_node, max_depth=args.max_depth
+            )
         else:
             if args.changed_file:
                 changed = sorted(set(args.changed_file))
