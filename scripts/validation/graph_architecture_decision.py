@@ -12,7 +12,7 @@ from typing import Any
 
 from graph_selective_ci import build_shadow_plan
 
-SUPPORTED_INPUT_SCHEMA_VERSIONS = frozenset({"1.0", "1.1"})
+SUPPORTED_INPUT_SCHEMA_VERSIONS = frozenset({"1.0", "1.1", "1.2"})
 DECISION_SCHEMA_VERSION = "1.1"
 
 

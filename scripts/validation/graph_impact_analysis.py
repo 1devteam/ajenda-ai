@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze changed repository paths against Ajenda's canonical dependency graph.
+"""Analyze changed repository paths or selected graph nodes against Ajenda's canonical dependency graph.
 
 Graph edges use the canonical consumer -> dependency direction. Reverse traversal
 therefore answers "what can this change affect?" while forward traversal answers
@@ -19,7 +19,7 @@ from typing import Any
 from build_dependency_graph import build_graph
 from pr_invariant_classifier import _discover_changes, classify_risk_domains
 
-TEST_EDGE_TYPE = "tests"
+TEST_EDGE_TYPES = frozenset({"tests", "tests_function"})
 TEST_NODE_TYPE = "test_module"
 SEMANTIC_NODE_TYPES = frozenset(
     {
@@ -57,7 +57,7 @@ def _production_edges(graph: dict[str, Any], nodes: dict[str, dict[str, Any]]) -
     for edge in graph["edges"]:
         source = str(edge["from"])
         target = str(edge["to"])
-        if str(edge["type"]) == TEST_EDGE_TYPE:
+        if str(edge["type"]) in TEST_EDGE_TYPES:
             continue
         if nodes[source].get("type") == TEST_NODE_TYPE or nodes[target].get("type") == TEST_NODE_TYPE:
             continue
@@ -119,6 +119,7 @@ def _described_nodes(
                 "type": node.get("type"),
                 "source": node.get("source"),
                 "label": node.get("label"),
+                "decision_role": node.get("decision_role"),
                 "distance": distance,
             }
         )
@@ -131,15 +132,23 @@ def _impacted_tests(
     affected_production: set[str],
 ) -> list[dict[str, Any]]:
     impacted: dict[str, set[str]] = defaultdict(set)
+    edge_kinds: dict[str, set[str]] = defaultdict(set)
     for edge in graph["edges"]:
-        if str(edge["type"]) != TEST_EDGE_TYPE:
+        edge_type = str(edge["type"])
+        if edge_type not in TEST_EDGE_TYPES:
             continue
         source = str(edge["from"])
         target = str(edge["to"])
         if target in affected_production:
             impacted[source].add(target)
+            edge_kinds[source].add(edge_type)
     return [
-        {"id": test_id, "source": nodes[test_id].get("source"), "covers_affected_nodes": sorted(targets)}
+        {
+            "id": test_id,
+            "source": nodes[test_id].get("source"),
+            "covers_affected_nodes": sorted(targets),
+            "coverage_edges": sorted(edge_kinds[test_id]),
+        }
         for test_id, targets in sorted(impacted.items())
     ]
 
@@ -199,21 +208,18 @@ def _relevant_invariants(
     return sorted(relevant, key=lambda item: str(item["id"]))
 
 
-def analyze_impact(
+def _analyze_starts(
     graph: dict[str, Any],
-    changed_files: Iterable[str],
     *,
-    max_depth: int | None = None,
+    changed_files: list[str],
+    changed_node_ids: list[str],
+    unmapped_changed_files: list[str],
+    max_depth: int | None,
 ) -> dict[str, Any]:
-    changed = sorted({_normalize_path(path) for path in changed_files})
-    changed_set = set(changed)
     nodes = _node_map(graph)
     source_index = _source_index(graph)
-    changed_node_ids = sorted({node_id for path in changed for node_id in source_index.get(path, [])})
     changed_nodes = [nodes[node_id] for node_id in changed_node_ids]
     changed_production = {node_id for node_id in changed_node_ids if nodes[node_id].get("type") != TEST_NODE_TYPE}
-    mapped_sources = {path for path in changed if path in source_index}
-    unmapped = sorted(changed_set - mapped_sources)
 
     production_edges = _production_edges(graph, nodes)
     forward = _adjacency(production_edges, reverse=False)
@@ -226,29 +232,30 @@ def analyze_impact(
     context_nodes = affected_production | downstream_ids
     impacted_tests = _impacted_tests(graph, nodes, affected_production)
 
-    risk_profiles = classify_risk_domains(changed)
+    risk_profiles = classify_risk_domains(changed_files)
     invariants = _relevant_invariants(
         graph,
         source_index,
-        changed_files=changed_set,
+        changed_files=set(changed_files),
         context_nodes=context_nodes,
     )
     affected_semantic = _semantic_nodes(affected_production, nodes)
     dependency_semantic = _semantic_nodes(downstream_ids, nodes)
 
     return {
-        "schema_version": "1.1",
-        "changed_files": changed,
+        "schema_version": "1.2",
+        "changed_files": changed_files,
         "changed_nodes": [
             {
                 "id": str(node["id"]),
                 "type": node.get("type"),
                 "source": node.get("source"),
                 "label": node.get("label"),
+                "decision_role": node.get("decision_role"),
             }
             for node in changed_nodes
         ],
-        "unmapped_changed_files": unmapped,
+        "unmapped_changed_files": unmapped_changed_files,
         "upstream_consumers": _described_nodes(upstream_distances, nodes, exclude=changed_production),
         "downstream_dependencies": _described_nodes(downstream_distances, nodes, exclude=changed_production),
         "impacted_tests": impacted_tests,
@@ -256,12 +263,17 @@ def analyze_impact(
         "dependency_semantic_nodes": dependency_semantic,
         "relevant_invariants": invariants,
         "risk_domains": [
-            {"id": profile.id, "title": profile.title, "review": list(profile.review)} for profile in risk_profiles
+            {
+                "id": profile.id,
+                "title": profile.title,
+                "review": list(profile.review),
+            }
+            for profile in risk_profiles
         ],
         "metrics": {
-            "changed_file_count": len(changed),
+            "changed_file_count": len(changed_files),
             "changed_node_count": len(changed_node_ids),
-            "unmapped_changed_file_count": len(unmapped),
+            "unmapped_changed_file_count": len(unmapped_changed_files),
             "upstream_consumer_count": len(upstream_ids),
             "downstream_dependency_count": len(downstream_ids),
             "impacted_test_count": len(impacted_tests),
@@ -271,6 +283,54 @@ def analyze_impact(
             "risk_domain_count": len(risk_profiles),
         },
     }
+
+
+def analyze_impact(
+    graph: dict[str, Any],
+    changed_files: Iterable[str],
+    *,
+    max_depth: int | None = None,
+) -> dict[str, Any]:
+    changed = sorted({_normalize_path(path) for path in changed_files})
+    changed_set = set(changed)
+    source_index = _source_index(graph)
+    changed_node_ids = sorted({node_id for path in changed for node_id in source_index.get(path, [])})
+    mapped_sources = {path for path in changed if path in source_index}
+    unmapped = sorted(changed_set - mapped_sources)
+    return _analyze_starts(
+        graph,
+        changed_files=changed,
+        changed_node_ids=changed_node_ids,
+        unmapped_changed_files=unmapped,
+        max_depth=max_depth,
+    )
+
+
+def analyze_node_impact(
+    graph: dict[str, Any],
+    changed_nodes: Iterable[str],
+    *,
+    max_depth: int | None = None,
+) -> dict[str, Any]:
+    nodes = _node_map(graph)
+    requested = sorted(set(changed_nodes))
+    missing = sorted(node_id for node_id in requested if node_id not in nodes)
+    if missing:
+        raise ValueError(f"Unknown graph node(s): {', '.join(missing)}")
+    changed_files = sorted(
+        {
+            _normalize_path(str(nodes[node_id]["source"]))
+            for node_id in requested
+            if isinstance(nodes[node_id].get("source"), str) and nodes[node_id].get("source")
+        }
+    )
+    return _analyze_starts(
+        graph,
+        changed_files=changed_files,
+        changed_node_ids=requested,
+        unmapped_changed_files=[],
+        max_depth=max_depth,
+    )
 
 
 def _print_human(report: dict[str, Any]) -> None:
@@ -289,7 +349,8 @@ def _print_human(report: dict[str, Any]) -> None:
         f"{metrics['relevant_invariant_count']} relevant invariant(s)"
     )
     for node in report["changed_nodes"]:
-        print(f"CHANGED: {node['id']} ({node.get('source') or node.get('label')})")
+        role = f" [{node['decision_role']}]" if node.get("decision_role") else ""
+        print(f"CHANGED: {node['id']}{role} ({node.get('source') or node.get('label')})")
     for path in report["unmapped_changed_files"]:
         print(f"UNMAPPED: {path}")
     for invariant in report["relevant_invariants"]:
@@ -303,6 +364,7 @@ def main() -> int:
     parser.add_argument("--base-ref")
     parser.add_argument("--head-ref")
     parser.add_argument("--changed-file", action="append", default=[])
+    parser.add_argument("--changed-node", action="append", default=[])
     parser.add_argument("--max-depth", type=int)
     parser.add_argument("--json", action="store_true", dest="as_json")
     parser.add_argument("--output")
@@ -311,15 +373,27 @@ def main() -> int:
         parser.error("--base-ref and --head-ref must be supplied together")
     if args.max_depth is not None and args.max_depth < 0:
         parser.error("--max-depth must be zero or greater")
-    if args.changed_file:
-        changed = sorted(set(args.changed_file))
-    else:
-        try:
-            changed, _ = _discover_changes(args.base_ref, args.head_ref)
-        except RuntimeError as exc:
-            print(f"FAIL: unable to determine changed files: {exc}")
-            return 1
-    report = analyze_impact(build_graph(), changed, max_depth=args.max_depth)
+    if args.changed_node and (args.changed_file or args.base_ref or args.head_ref):
+        parser.error("--changed-node cannot be combined with changed-file or ref-based discovery")
+
+    graph = build_graph()
+    try:
+        if args.changed_node:
+            report = analyze_node_impact(graph, args.changed_node, max_depth=args.max_depth)
+        else:
+            if args.changed_file:
+                changed = sorted(set(args.changed_file))
+            else:
+                try:
+                    changed, _ = _discover_changes(args.base_ref, args.head_ref)
+                except RuntimeError as exc:
+                    print(f"FAIL: unable to determine changed files: {exc}")
+                    return 1
+            report = analyze_impact(graph, changed, max_depth=args.max_depth)
+    except ValueError as exc:
+        print(f"FAIL: {exc}")
+        return 1
+
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:
         output = Path(args.output)

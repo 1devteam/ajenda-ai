@@ -75,6 +75,27 @@ def test_clear_means_architecture_clear_not_merge_authorized():
     assert manifest["decision"]["review_reasons"] == []
 
 
+def test_accepts_function_layer_impact_schema_1_2():
+    impact = _impact()
+    impact["schema_version"] = "1.2"
+    impact["changed_nodes"] = [
+        {
+            "id": "fn:backend.services.mission_composition.intent_interpreter:_classify_clause",
+            "type": "python_function",
+            "source": "backend/services/mission_composition/intent_interpreter.py",
+            "decision_role": "classifies_materiality",
+        }
+    ]
+
+    manifest = build_decision_manifest(impact, _proof(), _completeness())
+
+    assert manifest["decision"]["architecture_disposition"] == "clear"
+    assert manifest["inputs"]["impact_report"]["schema_version"] == "1.2"
+    assert manifest["impact"]["changed_node_ids"] == [
+        "fn:backend.services.mission_composition.intent_interpreter:_classify_clause"
+    ]
+
+
 def test_manual_review_and_runtime_proof_require_review():
     proof = _proof()
     proof["manual_review"] = ["Review policy drift."]

@@ -18,6 +18,7 @@ VALIDATION_DIR = Path(__file__).resolve().parent
 if str(VALIDATION_DIR) not in sys.path:
     sys.path.insert(0, str(VALIDATION_DIR))
 
+from graph_function_inventory import collect_function_graph, collect_function_test_edges  # noqa: E402
 from graph_semantic_inventory import collect_semantic_inventory  # noqa: E402
 
 OVERLAY_PATH = REPO_ROOT / "docs/contracts/dependency-graph.overlay.v1.json"
@@ -267,7 +268,7 @@ def _metrics(node_ids: list[str], edges: list[dict[str, Any]]) -> dict[str, Any]
         fan_out[source] += 1
         fan_in[target] += 1
         edge_types[edge_type] += 1
-        if edge_type != "tests":
+        if edge_type not in {"tests", "tests_function"}:
             production_fan_in[target] += 1
         if edge_type == "imports":
             static_pairs.append((source, target))
@@ -287,11 +288,14 @@ def build_graph() -> dict[str, Any]:
     py_nodes, py_edges = collect_python_graph()
     fe_nodes, fe_edges = collect_frontend_graph()
     test_nodes, test_edges = collect_test_graph()
+    function_nodes, function_edges = collect_function_graph(REPO_ROOT)
+    function_test_edges = collect_function_test_edges(REPO_ROOT, function_nodes)
     semantic_inventory = collect_semantic_inventory(REPO_ROOT, overlay)
 
     nodes: list[dict[str, Any]] = [
         {"id": node.id, "type": node.type, "source": node.source} for node in [*py_nodes, *fe_nodes, *test_nodes]
     ]
+    nodes.extend(function_nodes)
     nodes.extend(overlay.get("nodes", []))
     nodes.extend(semantic_inventory["nodes"])
 
@@ -299,6 +303,8 @@ def build_graph() -> dict[str, Any]:
         {"from": edge.source, "to": edge.target, "type": edge.type, "evidence": edge.evidence}
         for edge in [*py_edges, *fe_edges, *test_edges]
     ]
+    edges.extend(function_edges)
+    edges.extend(function_test_edges)
     edges.extend(overlay.get("edges", []))
     edges.extend(semantic_inventory["edges"])
 
@@ -320,7 +326,7 @@ def build_graph() -> dict[str, Any]:
 
     node_ids = sorted(known_nodes)
     return {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "generated_from": {
             "static": [
                 "backend/**/*.py",
@@ -330,6 +336,7 @@ def build_graph() -> dict[str, Any]:
                 "tests/**/*.py",
                 "alembic/versions/*.py",
             ],
+            "selective_function_layer": ["backend/services/mission_composition/**/*.py"],
             "semantic_overlay": str(OVERLAY_PATH.relative_to(REPO_ROOT)),
         },
         "nodes": sorted(nodes, key=lambda node: str(node["id"])),
