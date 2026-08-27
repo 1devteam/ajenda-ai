@@ -362,7 +362,7 @@ _CLAUSE_ACTION_START = (
     r"(?:do not|don't|dont|never|research|find|discover|identify|qualify|score|rank|rate|grade|draft|prepare|"
     r"send|deliver|dispatch|mail|enrich|collect|gather|return|check|read|search|query|list|show|summarize|"
     r"look up|schedule|book|create|add|delete|cancel|reschedule|update|remove|move|log|upsert|write|sync|push|"
-    r"save|put|publish|post|share|browse|contact|perform)\b"
+    r"save|put|publish|post|share|browse|contact|perform|approve|charge|invoice|fax|wire|transfer|pay|refund|terminate)\b"
 )
 _CLAUSE_SPLIT = re.compile(
     rf"\s*(?:(?:,|;)\s*(?:and\s+)?|\band\b\s*)(?={_CLAUSE_ACTION_START})",
