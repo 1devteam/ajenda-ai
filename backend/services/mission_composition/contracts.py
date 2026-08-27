@@ -358,6 +358,7 @@ def normalize_outcome_token(value: str) -> CanonicalOutcome | None:
         return LEGACY_OUTCOME_ALIASES[underscored.replace("_", " ")]
     return None
 
+
 class MissionIntent(BaseModel):
     """Candidate interpretation of a user instruction. Not an execution grant."""
 
@@ -595,6 +596,7 @@ class IntelligenceEnvelope(BaseModel):
     input_bindings: tuple[dict[str, str], ...] = Field(default=(), max_length=80)
     interpretation_evidence: tuple[dict[str, Any], ...] = Field(default=(), max_length=50)
     authority_class: Literal["declarative", "read_model"] = "read_model"
+
 
 class AllowedActionsProvenance(BaseModel):
     model_config = ConfigDict(extra="forbid")
