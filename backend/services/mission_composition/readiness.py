@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.services.mission_composition.contracts import MissionIntent
+from backend.services.mission_composition.deliverable_coverage import reconcile_deliverable_coverage
 
-READINESS_POLICY_VERSION = "2"
+READINESS_POLICY_VERSION = "3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,7 @@ class InterpretationReadinessResult:
 def evaluate_interpretation_readiness(intent: MissionIntent) -> InterpretationReadinessResult:
     """Deterministic gate: did Ajenda understand the mission?"""
 
+    intent = reconcile_deliverable_coverage(intent)
     reasons: list[str] = []
     min_coverage = 0.99
     min_outcome_conf = 0.7

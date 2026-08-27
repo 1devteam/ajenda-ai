@@ -112,8 +112,8 @@
       "forbidden_outcomes": ["send_outreach", "update_crm", "publish_content"],
       "required_jobs": ["research.discover_prospects", "sales.qualify_prospects", "email.prepare_outreach"],
       "forbidden_actions": ["gtm.email_send", "gtm.crm_upsert", "gtm.social_publish"],
-      "expected_status": "interpretation_failed",
-      "expected_clarification": true
+      "expected_status": "proposal_ready",
+      "expected_clarification": false
     }
   ]
 }

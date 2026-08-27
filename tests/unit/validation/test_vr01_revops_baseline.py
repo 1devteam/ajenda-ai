@@ -38,7 +38,7 @@ def test_vr01_runner_is_non_authoritative_and_passes_declared_expectations(tmp_p
     assert "external_effect_safety" in report["not_measured"]
     by_id = {item["case_id"]: item for item in report["results"]}
     assert by_id["dev-contradiction-007"]["checks"]["clarification"] is True
-    assert by_id["dev-long-context-010"]["observed"]["proposal_status"] == "interpretation_failed"
+    assert by_id["dev-long-context-010"]["observed"]["proposal_status"] == "proposal_ready"
 
 
 def test_held_out_corpus_requires_seal_and_expected_hash(tmp_path: Path) -> None:
