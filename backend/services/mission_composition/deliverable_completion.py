@@ -1,0 +1,192 @@
+"""Evaluate requested deliverables against materialized composition artifacts.
+
+Completion is descriptive only. It does not complete tasks, select jobs, grant
+authority, or materialize artifacts. A task may be completed while its requested
+deliverable remains incomplete.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from backend.services.mission_composition.artifact_schemas import ARTIFACT_SCHEMAS_BY_KEY, CompositionArtifactSchema
+from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
+from backend.services.mission_composition.deliverable_projection import DeliverableProjection
+
+FieldCompletionStatus = Literal["satisfied", "missing_artifact", "invalid_artifact", "unproven"]
+
+
+class MaterializedArtifact(BaseModel):
+    """One artifact payload known to have been produced by runtime."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_key: str = Field(min_length=1, max_length=120)
+    payload: Any
+
+
+class ArtifactValidation(BaseModel):
+    """Structural validation result for one materialized artifact."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_key: str
+    schema_known: bool
+    valid: bool
+    errors: tuple[str, ...] = ()
+    grants_execution_authority: Literal[False] = False
+
+
+class DeliverableFieldCompletion(BaseModel):
+    """Materialization-time status of one requested deliverable field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field_key: DeliverableFieldKey
+    status: FieldCompletionStatus
+    artifact_keys: tuple[str, ...] = ()
+    grants_execution_authority: Literal[False] = False
+
+
+class DeliverableCompletion(BaseModel):
+    """Requested-deliverable completion independent of task/job completion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = 1
+    fields: tuple[DeliverableFieldCompletion, ...] = ()
+    unresolved_request_items: tuple[str, ...] = ()
+    grants_execution_authority: Literal[False] = False
+
+    @property
+    def complete(self) -> bool:
+        return (
+            bool(self.fields)
+            and not self.unresolved_request_items
+            and all(field.status == "satisfied" for field in self.fields)
+        )
+
+
+def _path_field(json_path: str) -> str | None:
+    prefix = "$[]."
+    if not json_path.startswith(prefix):
+        return None
+    field = json_path[len(prefix) :].strip()
+    return field or None
+
+
+def _artifact_has_value(payload: Any) -> bool:
+    if payload is None:
+        return False
+    if isinstance(payload, (str, bytes, list, tuple, dict, set)):
+        return bool(payload)
+    return True
+
+
+def validate_materialized_artifact(artifact: MaterializedArtifact) -> ArtifactValidation:
+    """Validate a materialized payload against the typed schema catalog when one exists."""
+
+    schema = ARTIFACT_SCHEMAS_BY_KEY.get(artifact.artifact_key)
+    if schema is None:
+        return ArtifactValidation(
+            artifact_key=artifact.artifact_key,
+            schema_known=False,
+            valid=False,
+            errors=("no typed artifact schema is declared",),
+        )
+
+    errors = _validate_schema_payload(schema, artifact.payload)
+    return ArtifactValidation(
+        artifact_key=artifact.artifact_key,
+        schema_known=True,
+        valid=not errors,
+        errors=tuple(errors),
+    )
+
+
+def _validate_schema_payload(schema: CompositionArtifactSchema, payload: Any) -> list[str]:
+    errors: list[str] = []
+    per_item_fields = [field for field in schema.fields if field.scope == "per_item"]
+    if per_item_fields:
+        if not isinstance(payload, list):
+            return ["typed per-item artifact payload must be a list"]
+        for index, item in enumerate(payload):
+            if not isinstance(item, dict):
+                errors.append(f"item {index} must be an object")
+                continue
+            for field in per_item_fields:
+                path_field = _path_field(field.json_path)
+                if path_field is None:
+                    errors.append(f"unsupported artifact schema path: {field.json_path}")
+                    continue
+                if field.required_when_item_exists and (path_field not in item or item[path_field] is None):
+                    errors.append(f"item {index} missing required field: {path_field}")
+    return errors
+
+
+def _typed_field_has_value(*, artifact: MaterializedArtifact, field_key: DeliverableFieldKey) -> bool:
+    schema = ARTIFACT_SCHEMAS_BY_KEY.get(artifact.artifact_key)
+    if schema is None or not isinstance(artifact.payload, list) or not artifact.payload:
+        return False
+    matching = [field for field in schema.fields if field.deliverable_field == field_key]
+    if not matching:
+        return False
+    for field in matching:
+        path_field = _path_field(field.json_path)
+        if path_field is None:
+            return False
+        if not all(
+            isinstance(item, dict) and path_field in item and _artifact_has_value(item[path_field])
+            for item in artifact.payload
+        ):
+            return False
+    return True
+
+
+def evaluate_deliverable_completion(
+    projection: DeliverableProjection,
+    artifacts: tuple[MaterializedArtifact, ...] | list[MaterializedArtifact],
+) -> DeliverableCompletion:
+    """Evaluate requested fields without conflating structural binding with runtime completion."""
+
+    artifacts_by_key = {artifact.artifact_key: artifact for artifact in artifacts}
+    validations = {key: validate_materialized_artifact(artifact) for key, artifact in artifacts_by_key.items()}
+    field_results: list[DeliverableFieldCompletion] = []
+
+    for binding in projection.bindings:
+        if binding.status != "bound":
+            status: FieldCompletionStatus = "unproven"
+        elif binding.basis == "whole_artifact_identity":
+            present = [artifacts_by_key[key] for key in binding.artifact_keys if key in artifacts_by_key]
+            status = (
+                "satisfied"
+                if any(_artifact_has_value(artifact.payload) for artifact in present)
+                else "missing_artifact"
+            )
+        elif binding.basis == "typed_artifact_field":
+            present = [artifacts_by_key[key] for key in binding.artifact_keys if key in artifacts_by_key]
+            if not present:
+                status = "missing_artifact"
+            elif any(not validations[artifact.artifact_key].valid for artifact in present):
+                status = "invalid_artifact"
+            elif any(_typed_field_has_value(artifact=artifact, field_key=binding.field_key) for artifact in present):
+                status = "satisfied"
+            else:
+                status = "invalid_artifact"
+        else:
+            status = "unproven"
+
+        field_results.append(
+            DeliverableFieldCompletion(
+                field_key=binding.field_key,
+                status=status,
+                artifact_keys=binding.artifact_keys,
+            )
+        )
+
+    return DeliverableCompletion(
+        fields=tuple(field_results),
+        unresolved_request_items=projection.request_unresolved_items,
+    )
