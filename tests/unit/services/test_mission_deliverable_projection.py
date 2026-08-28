@@ -16,8 +16,10 @@ def test_long_context_projection_does_not_overclaim_report_completion() -> None:
 
     assert by_field["research_summary"].status == "candidate"
     assert by_field["research_summary"].artifact_keys == ("researched_prospects",)
-    assert by_field["qualification_reasons"].status == "candidate"
+    assert by_field["qualification_reasons"].status == "bound"
+    assert by_field["qualification_reasons"].basis == "typed_artifact_field"
     assert by_field["qualification_reasons"].artifact_keys == ("qualified_prospects",)
+    assert by_field["qualification_reasons"].producer_jobs == ("sales.qualify_prospects",)
     assert by_field["sources"].status == "candidate"
     assert by_field["sources"].artifact_keys == ("observed_contacts", "researched_prospects")
 
@@ -28,9 +30,26 @@ def test_long_context_projection_does_not_overclaim_report_completion() -> None:
 
     assert by_field["assumptions"].status == "unresolved"
     assert by_field["limitations"].status == "unresolved"
-    assert projection.candidate_fields == ("research_summary", "qualification_reasons", "sources")
+    assert projection.candidate_fields == ("research_summary", "sources")
     assert projection.unresolved_fields == ("assumptions", "limitations")
     assert projection.fully_bound is False
+    assert projection.grants_execution_authority is False
+
+
+def test_typed_qualification_fields_are_bound_without_claiming_materialization() -> None:
+    projection = project_deliverable_request(
+        _request("Return the company name, qualification reasons, and qualification score.")
+    )
+    by_field = {binding.field_key: binding for binding in projection.bindings}
+
+    assert set(by_field) == {"company_name", "qualification_reasons", "qualification_score"}
+    for field_key in by_field:
+        assert by_field[field_key].status == "bound"
+        assert by_field[field_key].basis == "typed_artifact_field"
+        assert by_field[field_key].artifact_keys == ("qualified_prospects",)
+        assert by_field[field_key].producer_jobs == ("sales.qualify_prospects",)
+        assert by_field[field_key].grants_execution_authority is False
+    assert projection.fully_bound is True
     assert projection.grants_execution_authority is False
 
 
@@ -49,7 +68,8 @@ def test_unknown_request_item_survives_projection_and_keeps_it_incomplete() -> N
     projection = project_deliverable_request(_request("Return the company name, website, and lunar risk index."))
     by_field = {binding.field_key: binding for binding in projection.bindings}
 
-    assert by_field["company_name"].status == "candidate"
+    assert by_field["company_name"].status == "bound"
+    assert by_field["company_name"].basis == "typed_artifact_field"
     assert by_field["website"].status == "candidate"
     assert projection.request_unresolved_items == ("lunar risk index",)
     assert projection.fully_bound is False
