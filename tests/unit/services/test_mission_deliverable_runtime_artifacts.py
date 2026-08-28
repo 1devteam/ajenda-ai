@@ -15,7 +15,6 @@ def _task(*, artifact: str, payload: object, task_id: str = "00000000-0000-0000-
     return ExecutionTask(
         id=uuid.UUID(task_id),
         tenant_id="tenant-1",
-        task_type="tool.invoke",
         status=ExecutionTaskState.COMPLETED.value,
         metadata_json={
             "expected_output_contract": {"artifact": artifact},
