@@ -26,12 +26,19 @@ def test_runtime_state_persists_canonical_request_and_projection_without_authori
     assert state["schema_version"] == 1
     assert state["grants_execution_authority"] is False
     assert state["completion"] is None
-    assert state["request"]["fields"] == [
+    assert [field["field_key"] for field in state["request"]["fields"]] == [
         "company_name",
         "qualification_reasons",
         "qualification_score",
         "drafts",
     ]
+    assert [field["source_text"] for field in state["request"]["fields"]] == [
+        "company name",
+        "qualification reasons",
+        "qualification score",
+        "drafts",
+    ]
+    assert all(field["required"] is True for field in state["request"]["fields"])
     bindings = {item["field_key"]: item for item in state["projection"]["bindings"]}
     assert bindings["company_name"]["status"] == "bound"
     assert bindings["qualification_reasons"]["status"] == "bound"
