@@ -160,7 +160,11 @@ def evaluate_deliverable_completion(
             status: FieldCompletionStatus = "unproven"
         elif binding.basis == "whole_artifact_identity":
             present = [artifacts_by_key[key] for key in binding.artifact_keys if key in artifacts_by_key]
-            status = "satisfied" if any(_artifact_has_value(artifact.payload) for artifact in present) else "missing_artifact"
+            status = (
+                "satisfied"
+                if any(_artifact_has_value(artifact.payload) for artifact in present)
+                else "missing_artifact"
+            )
         elif binding.basis == "typed_artifact_field":
             present = [artifacts_by_key[key] for key in binding.artifact_keys if key in artifacts_by_key]
             if not present:
