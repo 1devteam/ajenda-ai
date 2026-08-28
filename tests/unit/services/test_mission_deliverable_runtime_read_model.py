@@ -65,7 +65,9 @@ def test_refresh_marks_bound_fields_complete_only_after_required_artifacts_mater
     complete_metadata, complete = refresh_deliverable_completion_metadata(metadata, [qualified, drafts])
     assert complete is not None
     assert complete.complete is True
-    complete_state = complete_metadata["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
+    complete_state = complete_metadata["mission_intake"]["context"]["composition"][
+        DELIVERABLE_RUNTIME_STATE_METADATA_KEY
+    ]
     assert complete_state["completion"]["complete"] is True
     assert complete_state["grants_execution_authority"] is False
 
