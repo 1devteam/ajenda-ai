@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import uuid
 
-from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.enums import ExecutionTaskState
 from backend.services.mission_composition.deliverable_runtime_artifacts import (
     collect_materialized_artifacts,
     declared_artifact_key,
