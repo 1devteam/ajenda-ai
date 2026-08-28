@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import uuid
 
-from backend.domain.execution_task import ExecutionTask
 from backend.domain.enums import ExecutionTaskState
+from backend.domain.execution_task import ExecutionTask
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
 from backend.services.mission_composition.deliverable_runtime_read_model import (
     refresh_deliverable_completion_metadata,
@@ -12,7 +12,6 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
 )
-
 
 MISSION_ID = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 
