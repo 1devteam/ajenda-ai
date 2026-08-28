@@ -70,9 +70,7 @@ def test_invalid_typed_artifact_does_not_satisfy_bound_field() -> None:
 
 
 def test_candidate_and_unresolved_fields_remain_incomplete_even_when_jobs_could_complete() -> None:
-    projection = _projection(
-        "Return research, qualification reasons, sources, drafts, assumptions, and limitations."
-    )
+    projection = _projection("Return research, qualification reasons, sources, drafts, assumptions, and limitations.")
     completion = evaluate_deliverable_completion(
         projection,
         [
