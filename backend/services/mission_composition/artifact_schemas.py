@@ -75,9 +75,7 @@ def validate_artifact_schema_catalog() -> None:
         if job is None:
             raise ValueError(f"artifact schema references unknown producer job: {schema.producer_job}")
         if schema.artifact_key not in set(job.produced_outputs):
-            raise ValueError(
-                f"artifact schema {schema.artifact_key} is not a declared output of {schema.producer_job}"
-            )
+            raise ValueError(f"artifact schema {schema.artifact_key} is not a declared output of {schema.producer_job}")
         field_keys = [field.deliverable_field for field in schema.fields]
         if len(field_keys) != len(set(field_keys)):
             raise ValueError(f"artifact schema contains duplicate deliverable fields: {schema.artifact_key}")
