@@ -87,11 +87,12 @@ Across all ten cases, forbidden executable actions remained absent from `allowed
 useful fail-closed evidence, but it does not erase the semantic failures or prove downstream runtime
 safety.
 
-The follow-up semantic slice corrected coordinated CRM/publish negation, send-policy contradiction
-detection, qualification paraphrases, and over-broad HubSpot source matching. The corpus now passes
-10/10. The long-context case remains an intentional `interpretation_failed` result because its
-detailed deliverable clauses are not yet represented by a complete canonical semantic contract;
-helpful refusal is the safe expected behavior until VR-02 closes that gap.
+The follow-up semantic slices corrected coordinated CRM/publish negation, send-policy contradiction
+detection, qualification paraphrases, over-broad HubSpot source matching, and explicit typed
+deliverable-clause accounting. The corpus now passes 10/10, and `dev-long-context-010` now reaches
+`proposal_ready` with its requested deliverable represented structurally. That closes the former
+interpretation gap only; typed artifact continuity, final deliverable completion, held-out quality,
+and production provider safety remain unproven and promotion-blocking.
 
 ## Required corpus structure
 
