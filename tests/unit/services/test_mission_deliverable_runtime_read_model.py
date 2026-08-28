@@ -14,10 +14,16 @@ from backend.services.mission_composition.deliverable_runtime_state import (
 )
 
 
+MISSION_ID = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
+
+
 def _task(*, artifact: str, payload: object, task_id: str) -> ExecutionTask:
     return ExecutionTask(
         id=uuid.UUID(task_id),
         tenant_id="tenant-1",
+        mission_id=MISSION_ID,
+        title="Deliverable runtime read-model test",
+        description="Synthetic completed task for deliverable read-model evaluation.",
         status=ExecutionTaskState.COMPLETED.value,
         metadata_json={
             "expected_output_contract": {"artifact": artifact},
