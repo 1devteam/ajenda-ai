@@ -11,12 +11,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.services.mission_composition.artifact_schemas import ARTIFACT_SCHEMAS_BY_KEY
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey, DeliverableRequest
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
 from backend.services.mission_composition.vertical_know_how import REVOPS_V1_KNOW_HOW, VerticalKnowHowContract
 
 DeliverableBindingStatus = Literal["bound", "candidate", "unresolved"]
-DeliverableBindingBasis = Literal["whole_artifact_identity", "candidate_artifact", "no_declared_artifact"]
+DeliverableBindingBasis = Literal[
+    "typed_artifact_field",
+    "whole_artifact_identity",
+    "candidate_artifact",
+    "no_declared_artifact",
+]
 
 
 class DeliverableFieldBinding(BaseModel):
@@ -91,11 +97,40 @@ def _declared_artifact_producers(contract: VerticalKnowHowContract) -> dict[str,
     return {artifact_key: tuple(job_keys) for artifact_key, job_keys in producers.items()}
 
 
+def _typed_binding(
+    field_key: DeliverableFieldKey,
+    *,
+    producers: dict[str, tuple[str, ...]],
+) -> DeliverableFieldBinding | None:
+    matched_artifacts: list[str] = []
+    matched_jobs: list[str] = []
+    for artifact_key, schema in ARTIFACT_SCHEMAS_BY_KEY.items():
+        if artifact_key not in producers or schema.producer_job not in producers[artifact_key]:
+            continue
+        if not any(field.deliverable_field == field_key for field in schema.fields):
+            continue
+        matched_artifacts.append(artifact_key)
+        matched_jobs.append(schema.producer_job)
+    if not matched_artifacts:
+        return None
+    return DeliverableFieldBinding(
+        field_key=field_key,
+        status="bound",
+        basis="typed_artifact_field",
+        artifact_keys=tuple(matched_artifacts),
+        producer_jobs=tuple(dict.fromkeys(matched_jobs)),
+    )
+
+
 def _binding_for_field(
     field_key: DeliverableFieldKey,
     *,
     producers: dict[str, tuple[str, ...]],
 ) -> DeliverableFieldBinding:
+    typed = _typed_binding(field_key, producers=producers)
+    if typed is not None:
+        return typed
+
     whole_artifacts = tuple(
         artifact_key for artifact_key in _WHOLE_ARTIFACT_BINDINGS.get(field_key, ()) if artifact_key in producers
     )
