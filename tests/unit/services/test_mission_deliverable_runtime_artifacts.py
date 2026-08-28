@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import uuid
 
-from backend.domain.execution_task import ExecutionTask
 from backend.domain.enums import ExecutionTaskState
+from backend.domain.execution_task import ExecutionTask
 from backend.services.mission_composition.deliverable_runtime_artifacts import (
     collect_materialized_artifacts,
     declared_artifact_key,
     materialized_artifact_for_task,
 )
-
 
 MISSION_ID = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 
