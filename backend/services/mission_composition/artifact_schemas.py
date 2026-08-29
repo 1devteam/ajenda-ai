@@ -38,6 +38,45 @@ class CompositionArtifactSchema(BaseModel):
     grants_execution_authority: Literal[False] = False
 
 
+PROSPECT_CANDIDATES_SCHEMA = CompositionArtifactSchema(
+    artifact_key="prospect_candidates",
+    producer_job="research.discover_prospects",
+    fields=(
+        ArtifactFieldProjection(
+            deliverable_field="website",
+            json_path="$[].website",
+            scope="per_item",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="product_description",
+            json_path="$[].product_description",
+            scope="per_item",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="research_summary",
+            json_path="$[].research_summary",
+            scope="per_item",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="sources",
+            json_path="$[].sources",
+            scope="per_item",
+        ),
+    ),
+)
+
+OBSERVED_CONTACTS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="observed_contacts",
+    producer_job="research.observe_sources",
+    fields=(
+        ArtifactFieldProjection(
+            deliverable_field="sources",
+            json_path="$[].sources",
+            scope="per_item",
+        ),
+    ),
+)
+
 QUALIFIED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
     artifact_key="qualified_prospects",
     producer_job="sales.qualify_prospects",
@@ -57,10 +96,22 @@ QUALIFIED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
             json_path="$[].reasons",
             scope="per_item",
         ),
+        ArtifactFieldProjection(
+            deliverable_field="qualification_evidence",
+            json_path="$[].qualification_evidence",
+            scope="per_item",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="ajenda_relevance",
+            json_path="$[].ajenda_relevance",
+            scope="per_item",
+        ),
     ),
 )
 
 ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
+    PROSPECT_CANDIDATES_SCHEMA.artifact_key: PROSPECT_CANDIDATES_SCHEMA,
+    OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA.artifact_key: QUALIFIED_PROSPECTS_SCHEMA,
 }
 
