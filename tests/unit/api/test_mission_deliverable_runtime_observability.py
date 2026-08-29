@@ -101,9 +101,9 @@ def test_observability_projects_pre_evaluation_state_without_authority() -> None
     assert read is not None
     assert read.requested_fields == ("company_name", "website", "drafts")
     assert read.satisfied_fields == ()
-    assert read.missing_fields == ("company_name", "drafts")
+    assert read.missing_fields == ("company_name", "website", "drafts")
     assert read.invalid_fields == ()
-    assert read.unproven_fields == ("website",)
+    assert read.unproven_fields == ()
     assert read.unresolved_items == ("lunar risk index",)
     assert read.complete is False
     assert read.grants_execution_authority is False
@@ -190,9 +190,9 @@ def test_mission_read_exposes_tenant_scoped_deliverable_runtime_state(monkeypatc
         "schema_version": 1,
         "requested_fields": ["company_name", "website", "drafts"],
         "satisfied_fields": [],
-        "missing_fields": ["company_name", "drafts"],
+        "missing_fields": ["company_name", "website", "drafts"],
         "invalid_fields": [],
-        "unproven_fields": ["website"],
+        "unproven_fields": [],
         "unresolved_items": [],
         "complete": False,
         "grants_execution_authority": False,
