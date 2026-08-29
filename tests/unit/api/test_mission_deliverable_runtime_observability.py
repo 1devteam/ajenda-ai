@@ -81,8 +81,15 @@ def _build_app(tenant_id: uuid.UUID) -> FastAPI:
         return await call_next(request)
 
     app.include_router(mission_module.router, prefix="/v1")
-    app.dependency_overrides[get_request_tenant_id] = lambda: tenant_id
-    app.dependency_overrides[get_tenant_db_session] = MagicMock
+
+    def _override_tenant_id() -> uuid.UUID:
+        return tenant_id
+
+    def _override_db() -> MagicMock:
+        return MagicMock()
+
+    app.dependency_overrides[get_request_tenant_id] = _override_tenant_id
+    app.dependency_overrides[get_tenant_db_session] = _override_db
     return app
 
 
