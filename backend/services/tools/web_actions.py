@@ -302,12 +302,39 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         if not extracted:
             unobserved.append({**page_record, "reason": "no_contact_on_page"})
             continue
+
+        raw_sources = prospect.get("sources")
+        sources = [
+            str(source).strip()[:500]
+            for source in (raw_sources if isinstance(raw_sources, list) else [])
+            if isinstance(source, str) and source.strip()
+        ]
+        if snapshot.url and snapshot.url not in sources:
+            sources.append(snapshot.url[:500])
+        research_summary = prospect.get("research_summary")
+        if not isinstance(research_summary, str) or not research_summary.strip():
+            raw_signals = prospect.get("signals")
+            signals = (
+                [str(signal).strip() for signal in raw_signals if isinstance(signal, str) and signal.strip()]
+                if isinstance(raw_signals, list)
+                else []
+            )
+            research_summary = " ".join(signals)
+        product_description = prospect.get("product_description")
+        if not isinstance(product_description, str):
+            product_description = ""
+        website = str(prospect.get("website") or prospect.get("url") or snapshot.url or "").strip()
+
         for item in extracted:
             observed_contacts.append(
                 {
                     **item,
                     "company": prospect.get("company"),
                     "domain": page_record["domain"],
+                    "website": website[:500],
+                    "product_description": product_description.strip()[:1000],
+                    "research_summary": research_summary.strip()[:1000],
+                    "sources": sources,
                     "prospect_id": prospect.get("prospect_id"),
                     "identity_status": identity_status,
                     "identity_evidence_urls": page_record["identity_evidence_urls"],

@@ -381,6 +381,54 @@ def _has_real_contact(lead: dict[str, Any]) -> bool:
     return False
 
 
+def _first_lead_text(*values: Any) -> str:
+    """Return explicit lead text without synthesizing missing facts."""
+
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (list, tuple)):
+            items = [str(item).strip() for item in value if isinstance(item, str) and item.strip()]
+            if items:
+                return "; ".join(items)
+    return ""
+
+
+def _lead_source_references(lead: dict[str, Any]) -> list[str]:
+    """Preserve explicit source references used by qualification."""
+
+    references: list[str] = []
+    raw_sources = lead.get("sources")
+    values: list[Any] = list(raw_sources) if isinstance(raw_sources, (list, tuple)) else []
+    raw_identity_sources = lead.get("identity_evidence_urls")
+    if isinstance(raw_identity_sources, (list, tuple)):
+        values.extend(raw_identity_sources)
+    values.extend((lead.get("source_url"), lead.get("website"), lead.get("url")))
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip()
+        if normalized and normalized not in references:
+            references.append(normalized[:500])
+    return references
+
+
+def _ajenda_relevance(*, lead: dict[str, Any], context: dict[str, Any]) -> str:
+    """Describe relevance only when the inputs contain an automation or intent signal."""
+
+    opportunity = _first_lead_text(
+        lead.get("automation_opportunity"),
+        lead.get("workflow"),
+        context.get("automation_opportunity"),
+    )
+    if opportunity:
+        return f"Ajenda may be relevant to the observed automation opportunity: {opportunity[:500]}."
+    intent = _first_lead_text(lead.get("intent"), context.get("intent"))
+    if intent:
+        return f"Ajenda may be relevant because the observed intent signal identifies a workflow to evaluate: {intent[:500]}."
+    return ""
+
+
 def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: str | None) -> dict[str, Any]:
     lead = _normalize_observed_lead(lead)
     fit_points = 0
@@ -460,10 +508,35 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
                 lead.setdefault(key, value)
         result = _qualify_one(lead, context=payload.context, account_id=payload.account_id)
         company = str(lead.get("company") or lead.get("name") or f"prospect-{index + 1}")[:160]
+        sources = _lead_source_references(lead)
+        website = _first_lead_text(lead.get("website"), lead.get("url"))
+        if not website and lead.get("domain"):
+            website = f"https://{str(lead['domain']).strip()}"
+        product_description = _first_lead_text(
+            lead.get("product_description"),
+            lead.get("description"),
+            lead.get("products_services"),
+        )[:1000]
+        research_summary = _first_lead_text(
+            lead.get("research_summary"),
+            lead.get("signals"),
+            lead.get("research_notes"),
+        )[:1000]
+        qualification_evidence = {
+            "qualification_dimensions": result["qualification_dimensions"],
+            "qualification_reasons": result["reasons"],
+            "source_references": sources,
+        }
         entry = {
             **{k: v for k, v in lead.items() if k not in {"score", "qualified", "reasons"}},
             "prospect_id": str(lead.get("prospect_id") or lead.get("id") or f"qualify:{index}:{company}")[:80],
             "company": company,
+            "website": website[:500],
+            "product_description": product_description,
+            "research_summary": research_summary,
+            "sources": sources,
+            "qualification_evidence": qualification_evidence,
+            "ajenda_relevance": _ajenda_relevance(lead=lead, context=payload.context),
             "score": result["score"],
             "score_10": result["score_10"],
             "qualification_dimensions": result["qualification_dimensions"],

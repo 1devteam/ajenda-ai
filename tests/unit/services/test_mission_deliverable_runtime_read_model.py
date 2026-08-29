@@ -51,7 +51,15 @@ def test_refresh_marks_bound_fields_complete_only_after_required_artifacts_mater
     metadata = _metadata("Return company name, qualification reasons, qualification score, and drafts.")
     qualified = _task(
         artifact="qualified_prospects",
-        payload=[{"company": "Acme", "score": 80, "reasons": ["fit"]}],
+        payload=[
+            {
+                "company": "Acme",
+                "score": 80,
+                "reasons": ["fit"],
+                "qualification_evidence": {"qualification_dimensions": {"business_fit": 10}},
+                "ajenda_relevance": "Ajenda may be relevant to an observed workflow.",
+            }
+        ],
         task_id="00000000-0000-0000-0000-000000000001",
     )
 
@@ -76,7 +84,7 @@ def test_refresh_marks_bound_fields_complete_only_after_required_artifacts_mater
     assert complete_state["grants_execution_authority"] is False
 
 
-def test_refresh_keeps_candidate_field_unproven_even_when_related_artifact_exists() -> None:
+def test_refresh_keeps_bound_field_missing_until_its_artifact_exists() -> None:
     metadata = _metadata("Return website and drafts.")
     drafts = _task(
         artifact="introduction_drafts",
@@ -88,7 +96,7 @@ def test_refresh_keeps_candidate_field_unproven_even_when_related_artifact_exist
     assert completion is not None
     assert completion.complete is False
     statuses = {field.field_key: field.status for field in completion.fields}
-    assert statuses["website"] == "unproven"
+    assert statuses["website"] == "missing_artifact"
     assert statuses["drafts"] == "satisfied"
     state = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
     assert state["completion"]["complete"] is False
