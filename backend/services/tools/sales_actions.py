@@ -428,6 +428,7 @@ def _ajenda_relevance(*, lead: dict[str, Any], context: dict[str, Any]) -> str:
         return f"Ajenda may be relevant because the observed intent signal identifies a workflow to evaluate: {intent[:500]}."
     return ""
 
+
 def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: str | None) -> dict[str, Any]:
     lead = _normalize_observed_lead(lead)
     fit_points = 0
