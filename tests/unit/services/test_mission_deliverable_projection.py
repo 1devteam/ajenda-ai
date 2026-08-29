@@ -14,14 +14,16 @@ def test_long_context_projection_does_not_overclaim_report_completion() -> None:
     projection = project_deliverable_request(_request(LONG_CONTEXT_PROMPT))
     by_field = {binding.field_key: binding for binding in projection.bindings}
 
-    assert by_field["research_summary"].status == "candidate"
-    assert by_field["research_summary"].artifact_keys == ("researched_prospects",)
+    assert by_field["research_summary"].status == "bound"
+    assert by_field["research_summary"].basis == "typed_artifact_field"
+    assert by_field["research_summary"].artifact_keys == ("prospect_candidates",)
     assert by_field["qualification_reasons"].status == "bound"
     assert by_field["qualification_reasons"].basis == "typed_artifact_field"
     assert by_field["qualification_reasons"].artifact_keys == ("qualified_prospects",)
     assert by_field["qualification_reasons"].producer_jobs == ("sales.qualify_prospects",)
-    assert by_field["sources"].status == "candidate"
-    assert by_field["sources"].artifact_keys == ("observed_contacts", "researched_prospects")
+    assert by_field["sources"].status == "bound"
+    assert by_field["sources"].basis == "typed_artifact_field"
+    assert by_field["sources"].artifact_keys == ("prospect_candidates", "observed_contacts")
 
     assert by_field["drafts"].status == "bound"
     assert by_field["drafts"].basis == "whole_artifact_identity"
@@ -30,7 +32,7 @@ def test_long_context_projection_does_not_overclaim_report_completion() -> None:
 
     assert by_field["assumptions"].status == "unresolved"
     assert by_field["limitations"].status == "unresolved"
-    assert projection.candidate_fields == ("research_summary", "sources")
+    assert projection.candidate_fields == ()
     assert projection.unresolved_fields == ("assumptions", "limitations")
     assert projection.fully_bound is False
     assert projection.grants_execution_authority is False
@@ -70,7 +72,30 @@ def test_unknown_request_item_survives_projection_and_keeps_it_incomplete() -> N
 
     assert by_field["company_name"].status == "bound"
     assert by_field["company_name"].basis == "typed_artifact_field"
-    assert by_field["website"].status == "candidate"
+    assert by_field["website"].status == "bound"
+    assert by_field["website"].basis == "typed_artifact_field"
+    assert by_field["website"].artifact_keys == ("prospect_candidates",)
     assert projection.request_unresolved_items == ("lunar risk index",)
     assert projection.fully_bound is False
+    assert projection.grants_execution_authority is False
+
+
+def test_remaining_revops_fields_are_bound_to_typed_artifact_contracts() -> None:
+    projection = project_deliverable_request(
+        _request(
+            "Return the website, product description, qualification evidence, "
+            "Ajenda relevance, research summary, and sources."
+        )
+    )
+    by_field = {binding.field_key: binding for binding in projection.bindings}
+
+    assert by_field["website"].artifact_keys == ("prospect_candidates",)
+    assert by_field["product_description"].artifact_keys == ("prospect_candidates",)
+    assert by_field["qualification_evidence"].artifact_keys == ("qualified_prospects",)
+    assert by_field["ajenda_relevance"].artifact_keys == ("qualified_prospects",)
+    assert by_field["research_summary"].artifact_keys == ("prospect_candidates",)
+    assert by_field["sources"].artifact_keys == ("prospect_candidates", "observed_contacts")
+    assert all(binding.status == "bound" for binding in by_field.values())
+    assert all(binding.basis == "typed_artifact_field" for binding in by_field.values())
+    assert projection.fully_bound is True
     assert projection.grants_execution_authority is False
