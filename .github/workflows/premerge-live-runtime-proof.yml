@@ -1,0 +1,97 @@
+name: Pre-Merge Live Runtime Proof
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: premerge-live-runtime-proof-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  live-runtime-proof:
+    name: Pre-Merge Live Runtime Proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AJENDA_PROOF_TIMEOUT_SECONDS: "120"
+      AJENDA_PROOF_POLL_SECONDS: "2"
+      AJENDA_PROOF_COMPOSE_ENV_FILE: deploy/compose/.env.prod
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v7
+
+      - name: Verify proof script syntax
+        run: bash -n deploy/scripts/live-runtime-proof.sh
+
+      - name: Show Docker versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Write prod-like Compose environment
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          from uuid import uuid4
+
+          env_path = Path("deploy/compose/.env.prod")
+          worker_tenant_id = uuid4()
+          postgres_password = f"ci-{uuid4().hex}"
+          env_path.write_text(
+              "\n".join(
+                  [
+                      f"POSTGRES_PASSWORD={postgres_password}",
+                      f"AJENDA_DATABASE_URL=postgresql+psycopg://ajenda:{postgres_password}@db:5432/ajenda",
+                      "AJENDA_DB_POOL_SIZE=10",
+                      "AJENDA_DB_MAX_OVERFLOW=20",
+                      "AJENDA_DB_POOL_TIMEOUT=30",
+                      "AJENDA_DB_POOL_RECYCLE=1800",
+                      "AJENDA_QUEUE_ADAPTER=redis",
+                      "AJENDA_QUEUE_URL=redis://redis:6379/0",
+                      "AJENDA_ENV=staging",
+                      "AJENDA_LOG_LEVEL=INFO",
+                      "AJENDA_LOG_JSON=false",
+                      "AJENDA_APP_NAME=Ajenda AI Pre-Merge Live Runtime Proof",
+                      "AJENDA_HOST=0.0.0.0",
+                      "AJENDA_PORT=8000",
+                      "AJENDA_OIDC_ISSUER=http://localhost:8080/realms/ajenda",
+                      "AJENDA_OIDC_AUDIENCE=ajenda-api",
+                      "AJENDA_OIDC_JWKS_URI=http://localhost:8080/realms/ajenda/protocol/openid-connect/certs",
+                      f"AJENDA_WORKER_TENANT_ID={worker_tenant_id}",
+                      "AJENDA_RATE_LIMIT_REQUESTS=10000",
+                      "AJENDA_RATE_LIMIT_WINDOW_SECONDS=60",
+                      "AJENDA_REDACT_KEYS=password,secret,token,api_key,authorization,cookie,set-cookie",
+                      "",
+                  ]
+              ),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run live runtime proof
+        run: bash deploy/scripts/live-runtime-proof.sh
+
+      - name: Capture compose diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts/live-runtime-proof
+          docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml ps > artifacts/live-runtime-proof/compose-ps.txt || true
+          docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml logs --no-color --tail=300 > artifacts/live-runtime-proof/compose-logs.txt || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: premerge-live-runtime-proof-diagnostics
+          path: artifacts/live-runtime-proof
+          retention-days: 7
+
+      - name: Stop compose stack
+        if: always()
+        run: docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml down -v --remove-orphans
