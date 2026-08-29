@@ -112,6 +112,10 @@ from backend.services.mission_intake_quality import (
     contains_composition_clarification,
     validate_mission_intake_prompt,
 )
+from backend.services.mission_composition.deliverable_runtime_observability import (
+    DeliverableRuntimeStateRead,
+    build_deliverable_runtime_state_read,
+)
 from backend.services.mission_runtime_projection import (
     supersede_runtime_task_materialization,
 )
@@ -811,6 +815,7 @@ class MissionRead(BaseModel):
     compliance_category: str
     jurisdiction: str
     intake: dict[str, Any]
+    deliverable_runtime_state: DeliverableRuntimeStateRead | None = None
     created_at: str
     updated_at: str
 
@@ -1192,6 +1197,10 @@ def _cancel_superseded_materialized_planned_tasks(
 
 
 def _mission_to_read(mission: Mission) -> MissionRead:
+    try:
+        deliverable_runtime_state = build_deliverable_runtime_state_read(mission.metadata_json)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="mission deliverable runtime state is invalid") from exc
     return MissionRead(
         mission_id=mission.id,
         tenant_id=mission.tenant_id,
@@ -1200,6 +1209,7 @@ def _mission_to_read(mission: Mission) -> MissionRead:
         compliance_category=mission.compliance_category,
         jurisdiction=mission.jurisdiction,
         intake=mission.metadata_json.get(MISSION_INTAKE_METADATA_KEY, {}),
+        deliverable_runtime_state=deliverable_runtime_state,
         created_at=mission.created_at.isoformat(),
         updated_at=mission.updated_at.isoformat(),
     )
