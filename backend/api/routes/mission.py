@@ -106,15 +106,15 @@ from backend.services.mission_bridge.worker_start import (
     worker_start_admission_to_read as _worker_start_admission_to_read,
 )
 from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
+from backend.services.mission_composition.deliverable_runtime_observability import (
+    DeliverableRuntimeStateRead,
+    build_deliverable_runtime_state_read,
+)
 from backend.services.mission_executor import MissionExecutor  # noqa: F401 - legacy test/patch compatibility
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
     contains_composition_clarification,
     validate_mission_intake_prompt,
-)
-from backend.services.mission_composition.deliverable_runtime_observability import (
-    DeliverableRuntimeStateRead,
-    build_deliverable_runtime_state_read,
 )
 from backend.services.mission_runtime_projection import (
     supersede_runtime_task_materialization,
