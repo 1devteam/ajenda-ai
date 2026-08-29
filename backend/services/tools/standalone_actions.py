@@ -229,6 +229,7 @@ def _prospect_from_web_result(item: dict[str, Any], *, index: int) -> dict[str, 
         "url": url or None,
     }
 
+
 def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebResearchInput.model_validate(invocation.input)
     store = resolve_record_store(context)
