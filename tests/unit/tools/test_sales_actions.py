@@ -135,9 +135,7 @@ def test_sales_qualify_accepts_observed_email() -> None:
     assert qualified["product_description"] == "Property restoration services."
     assert qualified["research_summary"] == "NWA Restore It serves restoration customers."
     assert qualified["sources"] == ["https://www.nwarestoreit.com/hazmat-service", "https://www.nwarestoreit.com"]
-    assert qualified["qualification_evidence"]["qualification_dimensions"] == qualified[
-        "qualification_dimensions"
-    ]
+    assert qualified["qualification_evidence"]["qualification_dimensions"] == qualified["qualification_dimensions"]
     assert qualified["qualification_evidence"]["source_references"] == qualified["sources"]
     assert "estimate follow-up" in qualified["ajenda_relevance"]
 
