@@ -119,6 +119,34 @@ def _guess_domain_from_query(query: str, *, company: str | None = None) -> str |
     return None
 
 
+def _first_text(*values: Any) -> str:
+    """Return the first explicit non-empty text value without inventing content."""
+
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (list, tuple)):
+            items = [str(item).strip() for item in value if isinstance(item, str) and item.strip()]
+            if items:
+                return "; ".join(items)
+    return ""
+
+
+def _source_references(*values: Any) -> list[str]:
+    """Normalize explicit source references while preserving first-seen order."""
+
+    references: list[str] = []
+    for value in values:
+        candidates = value if isinstance(value, (list, tuple)) else (value,)
+        for candidate in candidates:
+            if not isinstance(candidate, str):
+                continue
+            normalized = candidate.strip()
+            if normalized and normalized not in references:
+                references.append(normalized[:500])
+    return references
+
+
 def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) -> dict[str, Any]:
     raw_data = record.get("data")
     data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else record
@@ -128,15 +156,40 @@ def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) ->
     )
     domain = data.get("domain") or data.get("website") or record.get("domain")
     domain_str = str(domain).strip() if domain else None
+    website = _first_text(data.get("website"), data.get("url"), record.get("url"))
+    if not website and domain_str:
+        website = f"https://{domain_str}"
+    product_description = _first_text(
+        data.get("product_description"),
+        data.get("description"),
+        data.get("products_services"),
+    )[:1000]
+    research_summary = _first_text(
+        data.get("research_summary"),
+        data.get("summary"),
+        data.get("snippet"),
+        query,
+    )[:1000]
+    record_id = str(record.get("id") or "").strip()
+    sources = _source_references(
+        data.get("sources"),
+        record.get("source_url"),
+        website,
+        f"{source}:{record_id}" if record_id else None,
+    )
     return {
         "prospect_id": str(record.get("id") or f"{source}:{name}")[:80],
         "company": name[:160],
         "domain": domain_str[:160] if domain_str else None,
-        "signals": [str(data.get("summary") or data.get("snippet") or query)[:240]],
+        "website": website[:500],
+        "product_description": product_description,
+        "research_summary": research_summary,
+        "sources": sources,
+        "signals": [research_summary[:240]] if research_summary else [],
         "source": source,
         "real": True,
         "identity_status": "verified" if record.get("id") else "unverified",
-        "identity_evidence_urls": [domain_str] if domain_str else [],
+        "identity_evidence_urls": [website] if website else [],
         "industry": data.get("industry"),
         "location": data.get("location") or data.get("city"),
     }
@@ -144,7 +197,7 @@ def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) ->
 
 def _prospect_from_web_result(item: dict[str, Any], *, index: int) -> dict[str, Any]:
     title = str(item.get("title") or item.get("Text") or f"Result {index + 1}").strip()[:160]
-    snippet = str(item.get("snippet") or item.get("Text") or "").strip()[:240]
+    snippet = str(item.get("snippet") or item.get("Text") or "").strip()[:1000]
     url = str(item.get("url") or item.get("FirstURL") or "").strip()
     domain = None
     if url.startswith("http"):
@@ -155,11 +208,17 @@ def _prospect_from_web_result(item: dict[str, Any], *, index: int) -> dict[str, 
         except Exception:
             domain = None
     company = title.split(" - ")[0].split(" | ")[0].strip()[:160] or title
+    product_description = _first_text(item.get("product_description"), item.get("description"))[:1000]
+    research_summary = _first_text(snippet, title)[:1000]
     return {
         "prospect_id": f"web:{index}:{company}"[:80],
         "company": company,
         "domain": domain,
-        "signals": [s for s in [snippet, url] if s],
+        "website": url[:500],
+        "product_description": product_description,
+        "research_summary": research_summary,
+        "sources": _source_references(url),
+        "signals": [s for s in [research_summary[:240], url] if s],
         "source": "public_search",
         # A search hit is real evidence that a result existed, not proof that
         # the title identifies a company or that the host belongs to it.
@@ -169,7 +228,6 @@ def _prospect_from_web_result(item: dict[str, Any], *, index: int) -> dict[str, 
         "identity_evidence_urls": [url] if url else [],
         "url": url or None,
     }
-
 
 def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebResearchInput.model_validate(invocation.input)
