@@ -25,6 +25,7 @@ from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
 from backend.services.mission_acceptance import evaluate_mission_acceptance
+from backend.services.mission_composition.deliverable_runtime_read_model import refresh_deliverable_completion_metadata
 from backend.services.mission_intake_quality import contains_composition_clarification
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import handler_output_for_task, pending_dependency_keys
@@ -353,6 +354,7 @@ class WorkerRuntimeService:
                 payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
             )
         )
+        self._refresh_deliverable_completion_read_model(task=task)
         self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
         self._session.flush()
         self._session.commit()
@@ -369,6 +371,37 @@ class WorkerRuntimeService:
                 reason=result.reason or "complete rejected",
             )
         return task
+
+    def _refresh_deliverable_completion_read_model(self, *, task: ExecutionTask) -> None:
+        """Refresh non-authoritative deliverable state without blocking task completion."""
+
+        if task.mission_id is None:
+            return
+        try:
+            mission = MissionRepository(self._session).get_for_tenant(
+                mission_id=task.mission_id,
+                tenant_id=task.tenant_id,
+            )
+            if mission is None:
+                return
+            siblings = self._tasks.list_for_mission(task.mission_id)
+            updated_metadata, completion = refresh_deliverable_completion_metadata(
+                dict(mission.metadata_json or {}),
+                siblings,
+            )
+            if completion is None:
+                return
+            mission.metadata_json = updated_metadata
+            self._session.add(mission)
+        except Exception as exc:
+            logger.warning(
+                "deliverable_completion_refresh_skipped",
+                extra={
+                    "mission_id": str(task.mission_id),
+                    "task_id": str(task.id),
+                    "reason": str(exc),
+                },
+            )
 
     def _maybe_rollup_mission_status(self, *, task: ExecutionTask, worker_id: str) -> None:
         """Advance mission status when graph tasks finish (composition path stays planned today)."""

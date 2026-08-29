@@ -43,6 +43,10 @@ from backend.services.mission_composition.contracts import (
     MissionCompositionRecord,
     MissionIntent,
 )
+from backend.services.mission_composition.deliverable_runtime_state import (
+    DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
+    build_deliverable_runtime_state,
+)
 from backend.services.mission_composition.intelligence_envelope import build_intelligence_envelope
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
@@ -637,6 +641,7 @@ class MissionCompositionService:
         except QuotaExceededError as exc:
             raise MissionCompositionError(code="QUOTA_EXCEEDED", message=str(exc)) from exc
 
+        deliverable_runtime_state = build_deliverable_runtime_state(record.intent.deliverable_request)
         intake = build_mission_intake_metadata(
             success_criteria=success_criteria,
             constraints=constraints,
@@ -653,6 +658,11 @@ class MissionCompositionService:
                     "missing_connections": record.missing_connections,
                     "composition_provenance": record.composition_provenance.model_dump(mode="json"),
                     "actor_id": actor_id,
+                    **(
+                        {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: deliverable_runtime_state}
+                        if deliverable_runtime_state is not None
+                        else {}
+                    ),
                     "acceptance_contract": {
                         "candidate_min": record.intent.requested_quantity
                         if "research_prospects" in record.intent.requested_outcomes
@@ -955,6 +965,7 @@ class MissionCompositionService:
             context = (
                 dict(intake_updated.get("context") or {}) if isinstance(intake_updated.get("context"), dict) else {}
             )
+            deliverable_runtime_state = build_deliverable_runtime_state(record.intent.deliverable_request)
             context["composition"] = {
                 "proposal_id": record.proposal_id,
                 "schema_version": record.schema_version,
@@ -965,6 +976,11 @@ class MissionCompositionService:
                 "actor_id": actor_id,
                 "job_assignments": [item.model_dump(mode="json") for item in record.job_assignments],
                 "ability_selections": [item.model_dump(mode="json") for item in record.ability_selections],
+                **(
+                    {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: deliverable_runtime_state}
+                    if deliverable_runtime_state is not None
+                    else {}
+                ),
             }
             intake_updated["context"] = context
             metadata[MISSION_INTAKE_METADATA_KEY] = intake_updated
