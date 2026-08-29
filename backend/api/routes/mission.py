@@ -106,6 +106,10 @@ from backend.services.mission_bridge.worker_start import (
     worker_start_admission_to_read as _worker_start_admission_to_read,
 )
 from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
+from backend.services.mission_composition.deliverable_runtime_observability import (
+    DeliverableRuntimeStateRead,
+    build_deliverable_runtime_state_read,
+)
 from backend.services.mission_executor import MissionExecutor  # noqa: F401 - legacy test/patch compatibility
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
@@ -811,6 +815,7 @@ class MissionRead(BaseModel):
     compliance_category: str
     jurisdiction: str
     intake: dict[str, Any]
+    deliverable_runtime_state: DeliverableRuntimeStateRead | None = None
     created_at: str
     updated_at: str
 
@@ -1192,6 +1197,10 @@ def _cancel_superseded_materialized_planned_tasks(
 
 
 def _mission_to_read(mission: Mission) -> MissionRead:
+    try:
+        deliverable_runtime_state = build_deliverable_runtime_state_read(mission.metadata_json)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="mission deliverable runtime state is invalid") from exc
     return MissionRead(
         mission_id=mission.id,
         tenant_id=mission.tenant_id,
@@ -1200,6 +1209,7 @@ def _mission_to_read(mission: Mission) -> MissionRead:
         compliance_category=mission.compliance_category,
         jurisdiction=mission.jurisdiction,
         intake=mission.metadata_json.get(MISSION_INTAKE_METADATA_KEY, {}),
+        deliverable_runtime_state=deliverable_runtime_state,
         created_at=mission.created_at.isoformat(),
         updated_at=mission.updated_at.isoformat(),
     )
