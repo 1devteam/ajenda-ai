@@ -65,6 +65,10 @@ def test_public_search_candidates_are_unverified_until_identity_is_proven(monkey
     assert candidate["real"] is False
     assert candidate["search_hit_real"] is True
     assert candidate["identity_evidence_urls"] == ["https://directory.example/hvac"]
+    assert candidate["website"] == "https://directory.example/hvac"
+    assert candidate["product_description"] == ""
+    assert candidate["research_summary"] == "A directory result."
+    assert candidate["sources"] == ["https://directory.example/hvac"]
 
 
 def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> None:
