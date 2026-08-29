@@ -93,7 +93,15 @@ def test_observe_contacts_marks_matching_site_verified_and_directory_unverified(
         action="research.observe_contacts",
         input={
             "prospects": [
-                {"company": "Acme HVAC", "domain": "acmehvac.example", "url": matching.url},
+                {
+                    "company": "Acme HVAC",
+                    "domain": "acmehvac.example",
+                    "url": matching.url,
+                    "website": matching.url,
+                    "product_description": "Residential heating and cooling services.",
+                    "research_summary": "Acme HVAC provides heating and cooling services.",
+                    "sources": [matching.url],
+                },
                 {"company": "Acme HVAC Directory", "domain": "directory.example", "url": directory.url},
             ],
             "requested_quantity": 2,
@@ -109,4 +117,9 @@ def test_observe_contacts_marks_matching_site_verified_and_directory_unverified(
     candidates = {item["company"]: item for item in result.output["prospect_candidates"]}
     assert candidates["Acme HVAC"]["identity_status"] == "verified"
     assert candidates["Acme HVAC Directory"]["identity_status"] == "unverified"
-    assert result.output["observed_contacts"][0]["identity_status"] == "verified"
+    observed = result.output["observed_contacts"][0]
+    assert observed["identity_status"] == "verified"
+    assert observed["website"] == matching.url
+    assert observed["product_description"] == "Residential heating and cooling services."
+    assert observed["research_summary"] == "Acme HVAC provides heating and cooling services."
+    assert observed["sources"] == [matching.url]
