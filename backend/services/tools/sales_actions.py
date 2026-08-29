@@ -381,7 +381,6 @@ def _has_real_contact(lead: dict[str, Any]) -> bool:
     return False
 
 
-
 def _first_lead_text(*values: Any) -> str:
     """Return explicit lead text without synthesizing missing facts."""
 
