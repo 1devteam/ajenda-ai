@@ -183,7 +183,7 @@ def test_gtm_email_send_review_block_emits_canonical_attempt_artifact() -> None:
     assert result.output["status"] == "error"
     assert result.output["real"] is False
     assert result.output["sent_messages"][0]["status"] == "error"
-    assert result.output["sent_messages"][0]["artifact_id"] is None
+    assert result.output["sent_messages"][0]["artifact_id"] == "pitch_email-1"
     assert "not approved for send" in result.output["sent_messages"][0]["error"]
 
 
