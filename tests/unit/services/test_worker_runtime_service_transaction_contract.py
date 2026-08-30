@@ -252,6 +252,133 @@ def test_complete_rejects_declared_output_contract_without_handler_output() -> N
     queue.complete_task.assert_not_called()
 
 
+def test_complete_rejects_output_that_does_not_emit_declared_artifact() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    task.metadata_json["expected_output_contract"] = {"artifact": "research_brief"}
+
+    with pytest.raises(ValueError, match="must emit declared artifact 'research_brief'"):
+        service.complete(
+            tenant_id=tenant_id,
+            lease_id=lease.id,
+            worker_id=worker_id,
+            task_output={
+                "handler": "tool.invoke",
+                "status": "completed",
+                "output": {"different_artifact": {"summary": "wrong key"}},
+            },
+        )
+
+    assert task.status == ExecutionTaskState.RUNNING.value
+    assert lease.status == WorkerLeaseState.ACTIVE.value
+    session.flush.assert_not_called()
+    session.commit.assert_not_called()
+    queue.complete_task.assert_not_called()
+
+
+def test_complete_rejects_typed_declared_artifact_with_invalid_schema() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    task.metadata_json["expected_output_contract"] = {"artifact": "prospect_candidates"}
+
+    with pytest.raises(
+        ValueError,
+        match="declared artifact 'prospect_candidates' failed schema validation: "
+        "item 0 missing required field: sources",
+    ):
+        service.complete(
+            tenant_id=tenant_id,
+            lease_id=lease.id,
+            worker_id=worker_id,
+            task_output={
+                "handler": "tool.invoke",
+                "status": "completed",
+                "output": {
+                    "prospect_candidates": [
+                        {
+                            "website": "https://acme.example",
+                            "product_description": "",
+                            "research_summary": "Acme was identified in a public result.",
+                        }
+                    ]
+                },
+            },
+        )
+
+    assert task.status == ExecutionTaskState.RUNNING.value
+    assert lease.status == WorkerLeaseState.ACTIVE.value
+    session.flush.assert_not_called()
+    session.commit.assert_not_called()
+    queue.complete_task.assert_not_called()
+
+
+def test_complete_accepts_typed_declared_artifact_with_valid_schema() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    task.metadata_json["expected_output_contract"] = {"artifact": "prospect_candidates"}
+    task_output = {
+        "handler": "artifact-test",
+        "status": "completed",
+        "output": {
+            "prospect_candidates": [
+                {
+                    "website": "https://acme.example",
+                    "product_description": "",
+                    "research_summary": "Acme was identified in a public result.",
+                    "sources": ["https://acme.example"],
+                }
+            ]
+        },
+    }
+
+    completed = service.complete(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_output=task_output,
+        output_reason="tool action completed",
+    )
+
+    assert completed is task
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    assert task.metadata_json["handler_result"] == task_output
+    assert task.metadata_json["output"] == task_output["output"]
+    session.commit.assert_called_once()
+    queue.complete_task.assert_called_once_with(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        worker_id=worker_id,
+    )
+
+
+def test_complete_accepts_exact_untyped_declared_artifact_payload() -> None:
+    service, _session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    task.metadata_json["expected_output_contract"] = {"artifact": "research_brief"}
+
+    completed = service.complete(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_output={
+            "handler": "artifact-test",
+            "status": "completed",
+            "output": {"research_brief": {"summary": "Verified research."}},
+        },
+    )
+
+    assert completed is task
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    queue.complete_task.assert_called_once()
+
+
 def test_complete_commits_db_when_queue_complete_ack_fails() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value

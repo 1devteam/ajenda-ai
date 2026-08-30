@@ -25,6 +25,10 @@ from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
 from backend.services.mission_acceptance import evaluate_mission_acceptance
+from backend.services.mission_composition.artifact_schemas import (
+    ARTIFACT_SCHEMAS_BY_KEY,
+    validate_artifact_payload,
+)
 from backend.services.mission_composition.deliverable_runtime_read_model import refresh_deliverable_completion_metadata
 from backend.services.mission_intake_quality import contains_composition_clarification
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
@@ -54,12 +58,12 @@ def _task_action_name(task: ExecutionTask) -> str | None:
 
 
 def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[str, Any] | None) -> None:
-    """Require a declared composition output to survive the runtime handoff.
+    """Validate the exact server-declared artifact before task completion.
 
-    Legacy tasks may not carry an output contract and retain their existing
-    completion behavior. Once a graph declares an artifact, a successful
-    completion must include a concrete handler output; evidence persistence
-    remains enforced by the canonical tool evidence bridge below.
+    Legacy tasks without an output contract retain their existing completion
+    behavior. Every declared contract must emit its named artifact. Artifacts
+    with a typed schema must also satisfy that structural schema before runtime
+    may persist a completed task.
     """
 
     metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
@@ -72,8 +76,22 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
     artifact = raw_contract.get("artifact")
     if not isinstance(artifact, str) or not artifact.strip():
         raise ValueError("declared output contract must include a non-empty artifact")
-    if task_output is None or task_output.get("output") is None:
-        raise ValueError(f"completed task must provide output for declared artifact '{artifact.strip()}'")
+    artifact_key = artifact.strip()
+    if task_output is None:
+        raise ValueError(f"completed task must provide output for declared artifact '{artifact_key}'")
+
+    raw_output = task_output.get("output")
+    if not isinstance(raw_output, dict):
+        raise ValueError(f"completed task must provide output for declared artifact '{artifact_key}'")
+    if artifact_key not in raw_output or raw_output[artifact_key] is None:
+        raise ValueError(f"completed task must emit declared artifact '{artifact_key}'")
+
+    schema = ARTIFACT_SCHEMAS_BY_KEY.get(artifact_key)
+    if schema is None:
+        return
+    errors = validate_artifact_payload(schema, raw_output[artifact_key])
+    if errors:
+        raise ValueError(f"declared artifact '{artifact_key}' failed schema validation: {'; '.join(errors)}")
 
 
 def _observe_accept_unmet(siblings: list[ExecutionTask]) -> bool:

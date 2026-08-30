@@ -3,6 +3,7 @@ from backend.services.mission_composition.artifact_schemas import (
     OBSERVED_CONTACTS_SCHEMA,
     PROSPECT_CANDIDATES_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA,
+    validate_artifact_payload,
     validate_artifact_schema_catalog,
 )
 
@@ -70,4 +71,43 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
         "prospect_candidates",
         "observed_contacts",
         "qualified_prospects",
+    )
+
+
+def test_artifact_payload_validation_accepts_empty_and_structurally_complete_rows() -> None:
+    assert validate_artifact_payload(PROSPECT_CANDIDATES_SCHEMA, []) == ()
+    assert (
+        validate_artifact_payload(
+            PROSPECT_CANDIDATES_SCHEMA,
+            [
+                {
+                    "website": "https://acme.example",
+                    "product_description": "",
+                    "research_summary": "Acme was identified in a public result.",
+                    "sources": ["https://acme.example"],
+                }
+            ],
+        )
+        == ()
+    )
+
+
+def test_artifact_payload_validation_reports_all_structural_errors() -> None:
+    assert validate_artifact_payload(PROSPECT_CANDIDATES_SCHEMA, {"website": "https://acme.example"}) == (
+        "typed per-item artifact payload must be a list",
+    )
+    assert validate_artifact_payload(
+        PROSPECT_CANDIDATES_SCHEMA,
+        [
+            "not-an-object",
+            {
+                "website": "https://acme.example",
+                "product_description": None,
+            },
+        ],
+    ) == (
+        "item 0 must be an object",
+        "item 1 missing required field: product_description",
+        "item 1 missing required field: research_summary",
+        "item 1 missing required field: sources",
     )
