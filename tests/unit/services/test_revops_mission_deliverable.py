@@ -512,6 +512,7 @@ def test_assembler_rejects_runtime_projection_drift() -> None:
             now=datetime(2026, 8, 30, 14, 0, tzinfo=UTC),
         )
 
+
 def test_assembler_rejects_cross_tenant_inputs_and_absent_runtime_state() -> None:
     mission = _mission("Return company name.")
     foreign = _artifact_tasks()[2]
