@@ -431,7 +431,6 @@ def test_simulated_effect_is_visible_but_never_reported_as_real_receipt() -> Non
     assert report.effects[0].receipt is None
 
 
-
 def test_deliverable_can_be_complete_when_an_unrelated_task_failed() -> None:
     mission = _mission("Return company name.")
     qualified = _artifact_tasks()[2]
@@ -466,9 +465,7 @@ def test_unresolved_draft_suppresses_final_completion_without_rewriting_artifact
     assert report.completion.artifact_complete is True
     assert report.completion.complete is False
     assert report.prospects[0].drafts[0].review_status == "unresolved"
-    assert report.limitations == (
-        "draft artifact 'pitch_email-draft-1' could not be resolved",
-    )
+    assert report.limitations == ("draft artifact 'pitch_email-draft-1' could not be resolved",)
 
 
 def test_real_effect_without_durable_identifiers_has_missing_receipt() -> None:
@@ -505,9 +502,7 @@ def test_real_effect_without_durable_identifiers_has_missing_receipt() -> None:
 
 def test_assembler_rejects_runtime_projection_drift() -> None:
     mission = _mission("Return company name and website.")
-    state = mission.metadata_json["mission_intake"]["context"]["composition"][
-        DELIVERABLE_RUNTIME_STATE_METADATA_KEY
-    ]
+    state = mission.metadata_json["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
     state["projection"]["bindings"].reverse()
 
     with pytest.raises(ValueError, match="projection does not match"):
