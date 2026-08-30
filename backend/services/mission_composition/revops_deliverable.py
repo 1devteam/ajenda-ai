@@ -12,7 +12,7 @@ import uuid
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -440,7 +440,10 @@ def _draft_read(
             document = {}
     content = document.get("content") if isinstance(document.get("content"), dict) else {}
     raw_status = _nonempty_text(document.get("review_status"))
-    review_status = raw_status if raw_status in _DRAFT_REVIEW_STATUSES else "unresolved"
+    review_status = cast(
+        Literal["pending", "approved", "rejected", "sent", "unresolved"],
+        raw_status if raw_status in _DRAFT_REVIEW_STATUSES else "unresolved",
+    )
     if artifact_id is not None and not document:
         assembly_errors.append(f"draft artifact {artifact_id!r} could not be resolved")
     return RevOpsDraftRead(
@@ -620,19 +623,20 @@ def _task_approval(
                 task_status=task.status,
                 status="invalid",
             )
+        approval_status: Literal["approved", "consumed", "expired", "revoked"]
         if grant.revoked_at is not None:
-            status = "revoked"
+            approval_status = "revoked"
         elif task.status == ExecutionTaskState.COMPLETED.value:
-            status = "consumed"
+            approval_status = "consumed"
         elif now >= grant.expires_at.astimezone(UTC):
-            status = "expired"
+            approval_status = "expired"
         else:
-            status = "approved"
+            approval_status = "approved"
         return RevOpsTaskApprovalRead(
             task_id=task.id,
             action=action,
             task_status=task.status,
-            status=status,
+            status=approval_status,
             grant_id=grant.grant_id,
             approved_by=grant.approved_by,
             expires_at=grant.expires_at,
@@ -809,6 +813,12 @@ def assemble_revops_mission_deliverable(
     state = load_deliverable_runtime_state(_runtime_state_from_metadata(mission.metadata_json))
     if state is None:
         raise ValueError("mission deliverable runtime state is absent")
+    request_fields = tuple(field.field_key for field in state.request.fields)
+    projected_fields = tuple(binding.field_key for binding in state.projection.bindings)
+    if projected_fields != request_fields:
+        raise ValueError("mission deliverable runtime projection does not match its request")
+    if state.projection.request_unresolved_items != state.request.unresolved_items:
+        raise ValueError("mission deliverable runtime unresolved items do not match its request")
 
     assembly_errors: list[str] = []
     collected = collect_materialized_artifacts(list(tasks))
