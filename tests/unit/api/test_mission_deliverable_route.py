@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -178,7 +178,7 @@ def test_route_resolves_current_draft_review_state_through_tenant_scope(monkeypa
     assert draft["review_status"] == "approved"
     assert draft["body"] == "Draft body."
     artifact_reader.assert_called_once_with(
-        route_module.ANY if hasattr(route_module, "ANY") else artifact_reader.call_args.args[0],
+        ANY,
         tenant_id=str(tenant_id),
         artifact_id="pitch_email-1",
     )
