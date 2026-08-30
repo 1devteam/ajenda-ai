@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.domain.execution_task import ExecutionTask
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_repository import MissionRepository
@@ -23,10 +24,10 @@ from backend.services.mission_composition.revops_deliverable import (
 router = APIRouter(prefix="/missions", tags=["missions"])
 
 
-def _draft_artifact_ids(tasks: list[object]) -> tuple[str, ...]:
+def _draft_artifact_ids(tasks: list[ExecutionTask]) -> tuple[str, ...]:
     """Return stable draft IDs from the canonical completed draft artifact."""
 
-    artifacts = collect_materialized_artifacts(tasks)  # type: ignore[arg-type]
+    artifacts = collect_materialized_artifacts(tasks)
     drafts = next(
         (artifact for artifact in artifacts if artifact.artifact_key == "introduction_drafts"),
         None,
