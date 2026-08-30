@@ -1,13 +1,14 @@
-"""Typed composition artifact schemas for deliverable projection.
+"""Typed composition artifact schemas and structural payload validation.
 
 Schemas describe the fields an artifact contract guarantees when that artifact is
-materialized. They do not select jobs, validate runtime execution, grant authority,
-or claim that an artifact has actually been produced.
+materialized. The shared validator is used by runtime completion and the descriptive
+deliverable read model. Schemas do not select jobs, grant execution authority, or
+claim that an artifact has actually been produced.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -114,6 +115,36 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA.artifact_key: QUALIFIED_PROSPECTS_SCHEMA,
 }
+
+
+def _path_field(json_path: str) -> str | None:
+    prefix = "$[]."
+    if not json_path.startswith(prefix):
+        return None
+    field = json_path[len(prefix) :].strip()
+    return field or None
+
+
+def validate_artifact_payload(schema: CompositionArtifactSchema, payload: Any) -> tuple[str, ...]:
+    """Validate one emitted artifact payload against its declared structural schema."""
+
+    errors: list[str] = []
+    per_item_fields = [field for field in schema.fields if field.scope == "per_item"]
+    if per_item_fields:
+        if not isinstance(payload, list):
+            return ("typed per-item artifact payload must be a list",)
+        for index, item in enumerate(payload):
+            if not isinstance(item, dict):
+                errors.append(f"item {index} must be an object")
+                continue
+            for field in per_item_fields:
+                path_field = _path_field(field.json_path)
+                if path_field is None:
+                    errors.append(f"unsupported artifact schema path: {field.json_path}")
+                    continue
+                if field.required_when_item_exists and (path_field not in item or item[path_field] is None):
+                    errors.append(f"item {index} missing required field: {path_field}")
+    return tuple(errors)
 
 
 def validate_artifact_schema_catalog() -> None:
