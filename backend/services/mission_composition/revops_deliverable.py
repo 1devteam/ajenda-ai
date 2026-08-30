@@ -436,7 +436,8 @@ def _draft_read(
         if document_mission_id is not None and document_mission_id != str(mission.id):
             assembly_errors.append(f"draft artifact {artifact_id!r} is not owned by the assembled mission")
             document = {}
-    content = document.get("content") if isinstance(document.get("content"), dict) else {}
+    raw_content = document.get("content")
+    content: Mapping[str, Any] = raw_content if isinstance(raw_content, dict) else {}
     raw_status = _nonempty_text(document.get("review_status"))
     review_status = cast(
         Literal["pending", "approved", "rejected", "sent", "unresolved"],
