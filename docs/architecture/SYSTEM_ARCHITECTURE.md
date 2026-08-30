@@ -195,6 +195,28 @@ HTTP 410 after permission validation. Their compatibility services are fail-clos
 Only `WorkerLoop`/`WorkerRuntimeService` may claim, start, and dispatch queued work; GET readbacks
 remain available for historical metadata.
 
+### 5.1 RevOps mission deliverable read path
+
+`GET /v1/missions/{mission_id}/deliverable` assembles a tenant-owned RevOps report without
+mutating runtime state or granting execution authority. The route loads the mission, execution
+tasks, draft documents, evidence, and outcome reviews through tenant-scoped repositories. The
+assembler accepts only completed, declared artifacts, validates typed artifact contracts, and
+recomputes deliverable completeness independently from task status.
+
+```mermaid
+flowchart TD
+    A["Tenant-scoped mission read"] --> B["Completed declared artifacts"]
+    B --> C["Typed artifact validation"]
+    C --> D["RevOps report assembly"]
+    D --> E["Completion, approvals, effects, receipts, evidence"]
+```
+
+The report keeps `task_state.all_succeeded` separate from
+`completion.artifact_complete` and final `completion.complete`. Unresolved drafts, conflicting
+identity fields, invalid artifacts, missing real-effect receipt identifiers, and persisted
+request/projection drift remain visible or fail closed. A missing runtime deliverable state returns
+HTTP 404; invalid or inconsistent state returns HTTP 409.
+
 ---
 
 ## 6. End-to-end paid customer loop (staging-ready)
@@ -259,7 +281,7 @@ Onboarding routes use IP-keyed rate limits and body-hash idempotency when `AJEND
 | `/v1/crm/*` | tenant | Light CRM over `tenant_internal_records` (pipeline, records, suggestions) |
 | `/v1/review-queue/*` | tenant | Draft/artifact review approve/reject queue |
 | `/v1/api-keys/*` | tenant | Key lifecycle |
-| `/v1/missions/*`, `/v1/tasks/*` | tenant | Mission/task queue authority |
+| `/v1/missions/*`, `/v1/tasks/*` | tenant | Mission/task queue authority plus read-only assembled RevOps deliverable |
 | `/v1/workforce/*`, `/v1/branches/*` | tenant | Fleet and branch management |
 | `/v1/runtime/*`, `/v1/operations/*` | tenant | Governor and ops controls |
 | `/v1/capabilities/*`, `/v1/capability-adapters/*` | tenant | Declaration contracts |
@@ -325,6 +347,7 @@ Root (unversioned): `/health`, `/readiness`
 | Stripe webhook | contract, integration (`test_stripe_webhook_real.py`) |
 | SaaS lifecycle | integration (`test_tenant_lifecycle_real.py`) |
 | Runtime / queue | extensive integration under `tests/integration/runtime/` |
+| RevOps deliverable assembly | tenant-scoped API, typed assembly, completion independence, approval/effect/receipt failure paths |
 | Paid customer E2E | `test_paid_customer_loop_real.py`, `paid-customer-loop-staging-proof.sh` |
 | Live runtime proof (CI) | `.github/workflows/ci.yml` on `main` push → `deploy/scripts/live-runtime-proof.sh` |
 | Brain / internal CRM | migration `0033`, `tenant_internal_records`, brain capstone proof script |
