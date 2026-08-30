@@ -431,6 +431,92 @@ def test_simulated_effect_is_visible_but_never_reported_as_real_receipt() -> Non
     assert report.effects[0].receipt is None
 
 
+
+def test_deliverable_can_be_complete_when_an_unrelated_task_failed() -> None:
+    mission = _mission("Return company name.")
+    qualified = _artifact_tasks()[2]
+    failed = _task(
+        task_id=5,
+        artifact="sent_messages",
+        payload=[],
+        status=ExecutionTaskState.FAILED.value,
+    )
+
+    report = assemble_revops_mission_deliverable(
+        mission=mission,
+        tasks=[qualified, failed],
+        now=datetime(2026, 8, 30, 14, 0, tzinfo=UTC),
+    )
+
+    assert report.completion.complete is True
+    assert report.task_state.all_terminal is True
+    assert report.task_state.all_succeeded is False
+
+
+def test_unresolved_draft_suppresses_final_completion_without_rewriting_artifact_completion() -> None:
+    mission = _mission("Return drafts.")
+    draft_task = _artifact_tasks()[3]
+
+    report = assemble_revops_mission_deliverable(
+        mission=mission,
+        tasks=[draft_task],
+        now=datetime(2026, 8, 30, 14, 0, tzinfo=UTC),
+    )
+
+    assert report.completion.artifact_complete is True
+    assert report.completion.complete is False
+    assert report.prospects[0].drafts[0].review_status == "unresolved"
+    assert report.limitations == (
+        "draft artifact 'pitch_email-draft-1' could not be resolved",
+    )
+
+
+def test_real_effect_without_durable_identifiers_has_missing_receipt() -> None:
+    mission = _mission("Return company name.")
+    qualified = _artifact_tasks()[2]
+    effect = _task(
+        task_id=5,
+        artifact="sent_messages",
+        payload=[{"status": "sent", "real": True}],
+        handler_fields={
+            "handler": "tool.invoke",
+            "action": "gtm.email_send",
+            "provider": "external_email",
+            "side_effect_class": "external_send",
+            "output": {
+                "sent_messages": [{"status": "sent", "real": True}],
+                "status": "sent",
+                "real": True,
+                "provider": "gmail_api",
+            },
+        },
+    )
+
+    report = assemble_revops_mission_deliverable(
+        mission=mission,
+        tasks=[qualified, effect],
+        now=datetime(2026, 8, 30, 14, 0, tzinfo=UTC),
+    )
+
+    assert report.effects[0].real is True
+    assert report.effects[0].receipt_status == "missing"
+    assert report.effects[0].receipt is None
+
+
+def test_assembler_rejects_runtime_projection_drift() -> None:
+    mission = _mission("Return company name and website.")
+    state = mission.metadata_json["mission_intake"]["context"]["composition"][
+        DELIVERABLE_RUNTIME_STATE_METADATA_KEY
+    ]
+    state["projection"]["bindings"].reverse()
+
+    with pytest.raises(ValueError, match="projection does not match"):
+        assemble_revops_mission_deliverable(
+            mission=mission,
+            tasks=[],
+            now=datetime(2026, 8, 30, 14, 0, tzinfo=UTC),
+        )
+
 def test_assembler_rejects_cross_tenant_inputs_and_absent_runtime_state() -> None:
     mission = _mission("Return company name.")
     foreign = _artifact_tasks()[2]
