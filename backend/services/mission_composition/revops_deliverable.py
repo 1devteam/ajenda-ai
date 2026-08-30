@@ -325,9 +325,7 @@ def _validated_artifacts(
         if artifact.artifact_key in ARTIFACT_SCHEMAS_BY_KEY:
             validation = validate_materialized_artifact(artifact)
             if not validation.valid:
-                assembly_errors.append(
-                    f"artifact {artifact.artifact_key!r} is invalid: {'; '.join(validation.errors)}"
-                )
+                assembly_errors.append(f"artifact {artifact.artifact_key!r} is invalid: {'; '.join(validation.errors)}")
                 continue
         validated[artifact.artifact_key] = artifact
     return validated
@@ -593,7 +591,9 @@ def _task_approval(
     metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
     constraints = metadata.get("execution_constraints")
     raw_grant = constraints.get("side_effect_authorization") if isinstance(constraints, dict) else None
-    relevant = task.requires_human_review or task.status == ExecutionTaskState.PENDING_REVIEW.value or raw_grant is not None
+    relevant = (
+        task.requires_human_review or task.status == ExecutionTaskState.PENDING_REVIEW.value or raw_grant is not None
+    )
     if not relevant:
         return None
 
