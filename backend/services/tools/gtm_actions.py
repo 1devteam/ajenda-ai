@@ -385,6 +385,9 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
     def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         inp = GtmEmailSendInput.model_validate(inv.input)
+        requested_artifact_id = (
+            inp.artifact_id or str(inp.context.get("artifact_id", "") or "").strip() or None
+        )
         try:
             to, subject, body_text, artifact_id = _resolve_send_content(inv, ctx, inp)
         except ValueError as exc:
@@ -396,6 +399,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 "real": False,
                 "error": str(exc),
                 "context": inp.context,
+                "artifact_id": requested_artifact_id,
             }
             blocked_output["sent_messages"] = _sent_message_rows(blocked_output)
             return ActionResult(
