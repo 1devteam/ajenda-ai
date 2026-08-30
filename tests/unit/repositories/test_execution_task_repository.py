@@ -71,9 +71,10 @@ def test_list_for_mission_for_tenant_enforces_both_scope_keys() -> None:
 
     assert result == [task]
     statement = session.scalars.call_args.args[0]
-    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
-    assert "execution_tasks.mission_id" in compiled
-    assert "execution_tasks.tenant_id" in compiled
-    assert str(mission_id) in compiled
-    assert tenant_id in compiled
-    assert "ORDER BY execution_tasks.created_at ASC, execution_tasks.id ASC" in compiled
+    compiled = statement.compile()
+    sql = str(compiled)
+    assert "execution_tasks.mission_id" in sql
+    assert "execution_tasks.tenant_id" in sql
+    assert mission_id in compiled.params.values()
+    assert tenant_id in compiled.params.values()
+    assert "ORDER BY execution_tasks.created_at ASC, execution_tasks.id ASC" in sql
