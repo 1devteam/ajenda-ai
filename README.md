@@ -46,6 +46,7 @@ flowchart LR
 | Google Calendar / Contacts connectors | Implemented — separate OAuth connect; external actions never silently simulate in production |
 | Credentials / Connections UI | Implemented at `/credentials` and `/connections` (OAuth-first Google cards) |
 | Mission composition engine | Implemented — plain language → structured `MissionIntent` → jobs → proposal; restatement on incomplete input |
+| RevOps mission deliverable | Implemented — tenant-scoped read-only assembly at `GET /v1/missions/{mission_id}/deliverable`; task success remains independent from artifact-backed completion |
 | Governed vertical operations | Implemented — `/v1/vertical-ops/*` template planning and bounded queue admission; Phase C templates remain plan-only |
 | Stripe billing API | Implemented — checkout, portal (`billing:manage`), signed webhook with dedup |
 | Ability runtime API | Implemented — task launch, proofs, feature/quota gates |
@@ -432,6 +433,9 @@ uvicorn backend.main:app --reload
 ```bash
 # Unit / non-integration tests
 python -m pytest -m "not integration"
+
+# Focused, effect-free RevOps deliverable proof
+bash scripts/dev/revops-deliverable-local-proof.sh
 
 # Integration tests (requires Docker; fixtures start isolated Postgres + Redis with Testcontainers)
 python -m pytest -m integration
