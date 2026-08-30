@@ -48,6 +48,24 @@ class ExecutionTaskRepository:
         stmt = select(ExecutionTask).where(ExecutionTask.mission_id == mission_id)
         return list(self._session.scalars(stmt))
 
+    def list_for_mission_for_tenant(
+        self,
+        *,
+        mission_id: uuid.UUID,
+        tenant_id: str,
+    ) -> list[ExecutionTask]:
+        """List mission tasks without relying on globally unique mission identity for tenancy."""
+
+        stmt = (
+            select(ExecutionTask)
+            .where(
+                ExecutionTask.mission_id == mission_id,
+                ExecutionTask.tenant_id == tenant_id,
+            )
+            .order_by(ExecutionTask.created_at.asc(), ExecutionTask.id.asc())
+        )
+        return list(self._session.scalars(stmt))
+
     def cancel_planned_by_ids_for_mission(
         self, *, tenant_id: str, mission_id: uuid.UUID, task_ids: list[uuid.UUID]
     ) -> list[ExecutionTask]:
