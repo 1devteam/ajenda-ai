@@ -145,6 +145,48 @@ def test_gtm_email_send_simulated_when_no_credential() -> None:
     assert result.side_effect_class.value == "external_send"
 
 
+def test_gtm_email_send_review_block_emits_canonical_attempt_artifact() -> None:
+    from backend.services.tools.action_registry import ActionRegistry
+    from backend.services.tools.gtm_actions import register_gtm_actions
+
+    registry = ActionRegistry()
+    register_gtm_actions(registry)
+    handler = registry.get("gtm.email_send").handler
+    session = MagicMock()
+    context = _context()
+    context.session_factory = lambda: session
+
+    with patch(
+        "backend.services.tools.gtm_actions.read_artifact",
+        return_value={
+            "review_status": "pending",
+            "content": {
+                "to": "user@example.com",
+                "subject": "Hello",
+                "body": "Hi",
+            },
+        },
+    ):
+        result = handler(
+            ToolInvocation(
+                action="gtm.email_send",
+                input={
+                    "to": "user@example.com",
+                    "subject": "Hello",
+                    "body": "Hi",
+                    "artifact_id": "pitch_email-1",
+                },
+            ),
+            context,
+        )
+
+    assert result.output["status"] == "error"
+    assert result.output["real"] is False
+    assert result.output["sent_messages"][0]["status"] == "error"
+    assert result.output["sent_messages"][0]["artifact_id"] is None
+    assert "not approved for send" in result.output["sent_messages"][0]["error"]
+
+
 def test_gtm_email_send_uses_network_egress_for_real_send() -> None:
     from backend.services.tools.action_registry import ActionRegistry
     from backend.services.tools.gtm_actions import register_gtm_actions
