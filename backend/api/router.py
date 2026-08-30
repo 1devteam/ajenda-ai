@@ -62,8 +62,8 @@ from backend.api.routes.health import router as health_router
 from backend.api.routes.light_crm import router as light_crm_router
 from backend.api.routes.mission import router as mission_router
 from backend.api.routes.mission_brief import router as mission_brief_router
-from backend.api.routes.mission_deliverable import router as mission_deliverable_router
 from backend.api.routes.mission_composition import router as mission_composition_router
+from backend.api.routes.mission_deliverable import router as mission_deliverable_router
 from backend.api.routes.observability import router as observability_router
 from backend.api.routes.operations import router as operations_router
 from backend.api.routes.outcome_review import router as outcome_review_router
