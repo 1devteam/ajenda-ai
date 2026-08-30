@@ -62,6 +62,7 @@ from backend.api.routes.health import router as health_router
 from backend.api.routes.light_crm import router as light_crm_router
 from backend.api.routes.mission import router as mission_router
 from backend.api.routes.mission_brief import router as mission_brief_router
+from backend.api.routes.mission_deliverable import router as mission_deliverable_router
 from backend.api.routes.mission_composition import router as mission_composition_router
 from backend.api.routes.observability import router as observability_router
 from backend.api.routes.operations import router as operations_router
@@ -113,6 +114,7 @@ def build_api_router() -> APIRouter:
     # Composition routes share /v1/missions prefix; mount before mission_router so
     # static paths like /compose are not captured by /{mission_id}.
     v1.include_router(mission_composition_router)  # /v1/missions/compose, /proposals/*
+    v1.include_router(mission_deliverable_router)  # /v1/missions/{mission_id}/deliverable
     v1.include_router(mission_router)  # /v1/missions/*
     v1.include_router(task_router)  # /v1/tasks/*
     v1.include_router(workforce_router)  # /v1/workforces/*
