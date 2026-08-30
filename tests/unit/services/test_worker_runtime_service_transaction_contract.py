@@ -321,7 +321,7 @@ def test_complete_accepts_typed_declared_artifact_with_valid_schema() -> None:
     queue.complete_task.return_value = QueueOperationResult(ok=True)
     task.metadata_json["expected_output_contract"] = {"artifact": "prospect_candidates"}
     task_output = {
-        "handler": "tool.invoke",
+        "handler": "artifact-test",
         "status": "completed",
         "output": {
             "prospect_candidates": [
@@ -368,7 +368,7 @@ def test_complete_accepts_exact_untyped_declared_artifact_payload() -> None:
         lease_id=lease.id,
         worker_id=worker_id,
         task_output={
-            "handler": "tool.invoke",
+            "handler": "artifact-test",
             "status": "completed",
             "output": {"research_brief": {"summary": "Verified research."}},
         },
