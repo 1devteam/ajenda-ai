@@ -131,6 +131,17 @@ def test_gtm_email_send_simulated_when_no_credential() -> None:
 
     assert result.output["real"] is False
     assert result.output["status"] == "simulated"
+    assert result.output["sent_messages"] == [
+        {
+            "to": "user@example.com",
+            "subject": "Hello",
+            "artifact_id": None,
+            "status": "simulated",
+            "real": False,
+            "provider": None,
+            "reason": "no_runtime_credential",
+        }
+    ]
     assert result.side_effect_class.value == "external_send"
 
 
@@ -178,6 +189,9 @@ def test_gtm_email_send_uses_network_egress_for_real_send() -> None:
     assert "raw" in request_kwargs["json_body"]
     assert result.output["real"] is True
     assert result.output["provider"] == "gmail_api"
+    assert result.output["provider_message_id"] == "msg-1"
+    assert result.output["sent_messages"][0]["provider_message_id"] == "msg-1"
+    assert "body" not in result.output["sent_messages"][0]
 
 
 def test_gtm_email_send_uses_runtime_credential_material() -> None:
@@ -416,6 +430,7 @@ def test_gtm_email_send_propagates_idempotency_key_to_provider() -> None:
 
     assert authority.request.call_args.kwargs["headers"]["Idempotency-Key"] == "idem-gmail-1"
     assert result.output["idempotency_key"] == "idem-gmail-1"
+    assert result.output["sent_messages"][0]["idempotency_key"] == "idem-gmail-1"
 
 
 @patch("backend.services.light_crm.workflow.complete_internal_crm_upsert")
