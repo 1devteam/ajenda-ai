@@ -24,6 +24,10 @@ TEST_NODE_TYPE = "test_module"
 SEMANTIC_NODE_TYPES = frozenset(
     {
         "runtime",
+        "business_job",
+        "runtime_artifact",
+        "runtime_input",
+        "runtime_action",
         "security_boundary",
         "external_service",
         "database_table",
