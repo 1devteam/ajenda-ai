@@ -84,11 +84,7 @@ def _parse(path: Path) -> ast.Module:
 
 def _function(tree: ast.AST, name: str) -> ast.FunctionDef | None:
     return next(
-        (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == name
-        ),
+        (node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == name),
         None,
     )
 
@@ -135,8 +131,10 @@ def _path_from_input_path(path: str) -> tuple[str, ...]:
 
 
 def _is_empty_container(node: ast.AST) -> bool:
-    return isinstance(node, (ast.Dict, ast.List, ast.Set, ast.Tuple)) and not getattr(node, "elts", None) and not getattr(
-        node, "keys", None
+    return (
+        isinstance(node, (ast.Dict, ast.List, ast.Set, ast.Tuple))
+        and not getattr(node, "elts", None)
+        and not getattr(node, "keys", None)
     )
 
 
@@ -502,9 +500,7 @@ def _print_human(report: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Adjudicate GRAFT runtime binding and typed-consumption findings."
-    )
+    parser = argparse.ArgumentParser(description="Adjudicate GRAFT runtime binding and typed-consumption findings.")
     parser.add_argument("--graph")
     parser.add_argument("--output")
     parser.add_argument("--json", action="store_true", dest="as_json")

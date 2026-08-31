@@ -203,18 +203,12 @@ def _execute_binding_statements(
     return False, None
 
 
-def compiler_binding_path(
-    *, repo_root: Path, action_name: str, artifact: str
-) -> BindingResolution:
+def compiler_binding_path(*, repo_root: Path, action_name: str, artifact: str) -> BindingResolution:
     """Statically evaluate the authoritative plan-time binding function."""
 
     tree = _parse(repo_root / PLAN_COMPILER_PATH)
     function = next(
-        (
-            item
-            for item in tree.body
-            if isinstance(item, ast.FunctionDef) and item.name == "_binding_input_path"
-        ),
+        (item for item in tree.body if isinstance(item, ast.FunctionDef) and item.name == "_binding_input_path"),
         None,
     )
     if function is None:
@@ -241,11 +235,7 @@ def _action_input_models(repo_root: Path) -> dict[str, InputModelRecord]:
                 continue
             action = _literal_string(_keyword(node, "name"))
             model_node = _keyword(node, "input_model")
-            model_name = (
-                (_call_name(model_node) or "").rsplit(".", 1)[-1]
-                if model_node is not None
-                else ""
-            )
+            model_name = (_call_name(model_node) or "").rsplit(".", 1)[-1] if model_node is not None else ""
             if not action or not model_name:
                 continue
             record = InputModelRecord(model_name=model_name, action_source=source)
@@ -267,10 +257,7 @@ def _extra_policy(class_node: ast.ClassDef) -> str | None:
         else:
             targets = [statement.target]
             value = statement.value
-        if not any(
-            isinstance(target, ast.Name) and target.id == "model_config"
-            for target in targets
-        ):
+        if not any(isinstance(target, ast.Name) and target.id == "model_config" for target in targets):
             continue
         if not isinstance(value, ast.Call) or _constructor_name(value) != "ConfigDict":
             continue
@@ -293,14 +280,9 @@ def _model_shapes(repo_root: Path) -> dict[str, ModelShape]:
             fields = {
                 statement.target.id
                 for statement in node.body
-                if isinstance(statement, ast.AnnAssign)
-                and isinstance(statement.target, ast.Name)
+                if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
             }
-            bases = tuple(
-                name.rsplit(".", 1)[-1]
-                for base in node.bases
-                if (name := _call_name(base)) is not None
-            )
+            bases = tuple(name.rsplit(".", 1)[-1] for base in node.bases if (name := _call_name(base)) is not None)
             shapes[node.name] = ModelShape(
                 name=node.name,
                 source=source,
@@ -562,9 +544,7 @@ def _binding_witness(
     }
 
 
-def adjudicate_runtime_binding_candidates(
-    graph: dict[str, Any], *, repo_root: Path = REPO_ROOT
-) -> dict[str, Any]:
+def adjudicate_runtime_binding_candidates(graph: dict[str, Any], *, repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     nodes = _node_map(graph)
     edges_by_source = _edge_index(graph)
     action_models = _action_input_models(repo_root)
@@ -787,9 +767,7 @@ def _print_human(report: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Adjudicate GRAFT runtime artifact-binding findings."
-    )
+    parser = argparse.ArgumentParser(description="Adjudicate GRAFT runtime artifact-binding findings.")
     parser.add_argument("--graph")
     parser.add_argument("--output")
     parser.add_argument("--json", action="store_true", dest="as_json")

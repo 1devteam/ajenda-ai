@@ -22,9 +22,7 @@ def _results() -> dict[str, dict[str, object]]:
 def test_real_controls_require_typed_behavioral_consumption() -> None:
     results = _results()
 
-    email = results[
-        "runtime-binding-gap:email.deliver_outreach:gtm.email_send:introduction_drafts"
-    ]
+    email = results["runtime-binding-gap:email.deliver_outreach:gtm.email_send:introduction_drafts"]
     assert email["result"] == "SATISFIED"
     assert email["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE"
     assert email["consumption"]["status"] == "consumed"
@@ -52,9 +50,7 @@ def test_existing_missing_and_schema_rejected_violations_remain_violations() -> 
     knowledge = results[
         "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
     ]
-    web = results[
-        "runtime-binding-gap:sales.research_context:web.research:prospect_candidates"
-    ]
+    web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
 
     assert knowledge["result"] == "VIOLATED"
     assert knowledge["binding_disposition"] == "MISSING_WHEN_APPLICABLE"

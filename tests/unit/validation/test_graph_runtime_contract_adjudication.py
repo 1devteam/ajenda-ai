@@ -58,9 +58,7 @@ def test_current_binding_candidates_are_self_adjudicated() -> None:
     assert knowledge["binding_disposition"] == "MISSING_WHEN_APPLICABLE"
     assert knowledge["applicability"]["state"] == "always_when_job_selected"
 
-    web = results[
-        "runtime-binding-gap:sales.research_context:web.research:prospect_candidates"
-    ]
+    web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
     assert web["result"] == "VIOLATED"
     assert web["binding_disposition"] == "SCHEMA_REJECTED_WHEN_APPLICABLE"
     assert web["applicability"]["state"] == "conditional"
@@ -79,9 +77,7 @@ def test_current_binding_candidates_are_self_adjudicated() -> None:
 
 def test_conditional_results_preserve_predicates_without_claiming_activation() -> None:
     results = _results()
-    crm = results[
-        "runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:prospect_candidates"
-    ]
+    crm = results["runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:prospect_candidates"]
 
     assert crm["applicability"] == {
         "state": "conditional",
@@ -120,9 +116,7 @@ def test_plan_time_binding_cannot_be_masked_by_runtime_fallback() -> None:
 
     report = adjudicate_runtime_binding_candidates(graph, repo_root=REPO_ROOT)
     results = {str(item["finding_id"]): item for item in report["results"]}
-    web = results[
-        "runtime-binding-gap:sales.research_context:web.research:prospect_candidates"
-    ]
+    web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
 
     assert web["result"] == "VIOLATED"
     assert web["binding"]["phase"] == "plan_compile"
@@ -186,8 +180,7 @@ def test_unknown_action_schema_fails_to_indeterminate_not_violation() -> None:
     synthetic = next(
         item
         for item in report["results"]
-        if item["finding_id"]
-        == "runtime-binding-gap:synthetic.consumer:synthetic.unknown:synthetic_artifact"
+        if item["finding_id"] == "runtime-binding-gap:synthetic.consumer:synthetic.unknown:synthetic_artifact"
     )
 
     assert synthetic["result"] == "INDETERMINATE"
