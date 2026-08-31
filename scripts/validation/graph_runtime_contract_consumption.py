@@ -33,6 +33,8 @@ if str(VALIDATION_DIR) not in sys.path:
 from build_dependency_graph import build_graph  # noqa: E402
 from graph_runtime_contract_adjudication import (  # noqa: E402
     REPO_ROOT as ADJUDICATOR_REPO_ROOT,
+)
+from graph_runtime_contract_adjudication import (  # noqa: E402
     _call_name,
     _constructor_name,
     _eval_condition,
