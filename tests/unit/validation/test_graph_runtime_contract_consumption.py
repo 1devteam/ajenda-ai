@@ -124,6 +124,19 @@ def handler(bound):
     return context.get('require_external_crm')
 """
     )
+    root_keys_tree = ast.parse(
+        """
+def handler(bound):
+    return 'context' in bound.keys()
+"""
+    )
+    parent_keys_tree = ast.parse(
+        """
+def handler(bound):
+    context = bound.get('context') or {}
+    return 'prospect_candidates' in context.keys()
+"""
+    )
 
     target = ("context", "prospect_candidates")
     consumed = _function_consumption(
@@ -144,10 +157,24 @@ def handler(bound):
         target_path=target,
         explicit_roots={"bound"},
     )
+    root_keys = _function_consumption(
+        function=root_keys_tree.body[0],
+        source="synthetic",
+        target_path=target,
+        explicit_roots={"bound"},
+    )
+    parent_keys = _function_consumption(
+        function=parent_keys_tree.body[0],
+        source="synthetic",
+        target_path=target,
+        explicit_roots={"bound"},
+    )
 
     assert consumed.status == "consumed"
     assert escaped.status == "indeterminate"
     assert unused.status == "unconsumed"
+    assert root_keys.status == "unconsumed"
+    assert parent_keys.status == "indeterminate"
 
 
 def test_final_report_is_non_enforcing_and_closes_current_control_set() -> None:
