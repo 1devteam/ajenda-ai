@@ -1,0 +1,43 @@
+name: PR 502 final one-shot formatter
+
+on:
+  push:
+    branches: [feat/graft-runtime-binding-adjudication]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/graft-runtime-binding-adjudication
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install matching Ruff
+        run: pip install ruff==0.16.5
+      - name: Format flagged PR 502 files
+        run: |
+          ruff format \
+            scripts/validation/graph_runtime_contract_consumption.py \
+            tests/unit/validation/test_graph_runtime_contract_consumption.py
+          ruff check \
+            scripts/validation/graph_runtime_contract_consumption.py \
+            tests/unit/validation/test_graph_runtime_contract_consumption.py
+      - name: Commit formatting and remove formatter
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/pr502-format-final-once.yml
+          git add \
+            scripts/validation/graph_runtime_contract_consumption.py \
+            tests/unit/validation/test_graph_runtime_contract_consumption.py
+          git diff --cached --check
+          git commit -m 'style(graph): finalize adjudication formatting'
+          git push origin HEAD:feat/graft-runtime-binding-adjudication
