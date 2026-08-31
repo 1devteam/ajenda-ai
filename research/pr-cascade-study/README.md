@@ -27,9 +27,20 @@ The following artifacts are exploratory evidence records, not findings:
 - `data/pr-460-496-observation-ledger-v0.1.csv` — row-level working classification for PRs #460–#496. Relationship and causal fields remain provisional until source-backed adjudication.
 - `analysis/pre-450-comparator-review-v0.1.md` — calibration review containing both planned pre-#450 slicing and explicit corrective descendants, including the #369→#374 chain.
 - `data/pre-450-comparator-ledger-v0.1.csv` — relationship-level comparator ledger for currently verified pre-#450 cases.
-- `analysis/prospective-revops-graph-evaluation-observation-v0.1.md` — prospective methodological note preserving a current RevOps/graph-evaluation framing concern before the next correction is completed. It is not evidence for or against graph value.
+- `analysis/prospective-revops-graph-evaluation-observation-v0.1.md` — prospective methodological note preserving the RevOps/graph-evaluation framing concern before the later graph-assisted diagnosis. It is intentionally retained unchanged as the pre-diagnosis record.
+- `analysis/revops-runtime-graph-diagnosis-evidence-v0.1.md` — chronological post-observation record of the evaluator self-correction, later seven-task mission state, five graph-assisted diagnostic claims, independent repository verification, alternative explanations, non-findings, and required repair/replay evidence.
+- `data/revops-runtime-graph-diagnosis-ledger-v0.1.csv` — claim-level verification ledger separating source-reported runtime facts, independently verified static mechanisms, unresolved causal claims, graph-schema candidates, and right-censored study outcomes.
 
-These files deliberately separate repository-observable evidence, working classification, uncertainty, and later causal adjudication.
+These files deliberately separate repository-observable evidence, source-reported runtime evidence, working classification, uncertainty, and later causal adjudication.
+
+## RevOps graph-evaluation chronology control
+
+The RevOps evidence is split into two records on purpose:
+
+1. `prospective-revops-graph-evaluation-observation-v0.1.md` preserves what was known and what was *not* known when only the early mission output was available and the evaluator prematurely framed the issue as not graph-related.
+2. `revops-runtime-graph-diagnosis-evidence-v0.1.md` preserves the later mission state and graph/code diagnosis after additional execution evidence became available.
+
+The second record must not be back-projected into the first. This separation is required to prevent hindsight contamination when evaluating whether graph use changed reasoning scope, repair scope, or proof selection.
 
 ## Historical analysis provenance
 
