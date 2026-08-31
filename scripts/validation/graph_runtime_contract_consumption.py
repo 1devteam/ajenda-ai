@@ -160,6 +160,18 @@ def _expr_alias_path(node: ast.AST, aliases: dict[str, tuple[str, ...]]) -> tupl
             key = _literal_string(node.args[0]) if node.args else None
             return None if base is None or key is None else (*base, key)
         return None
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+        resolved_paths: list[tuple[str, ...]] = []
+        for value in node.values:
+            path = _expr_alias_path(value, aliases)
+            if path is not None:
+                resolved_paths.append(path)
+                continue
+            if _is_empty_container(value) or isinstance(value, ast.Constant):
+                continue
+            return None
+        if resolved_paths and all(path == resolved_paths[0] for path in resolved_paths):
+            return resolved_paths[0]
     if isinstance(node, ast.IfExp):
         body = _expr_alias_path(node.body, aliases)
         other = _expr_alias_path(node.orelse, aliases)
@@ -289,10 +301,22 @@ def _specializers_for_action(repo_root: Path, action_name: str) -> tuple[list[st
     selected: list[str] = []
     fully_resolved = True
 
+    def specializer_names(statement: ast.AST) -> list[str]:
+        names: list[str] = []
+        for node in ast.walk(statement):
+            if not isinstance(node, ast.Call):
+                continue
+            name = (_call_name(node.func) or "").rsplit(".", 1)[-1]
+            if name.startswith("_specialize_") and name not in names:
+                names.append(name)
+        return names
+
     def visit(statements: list[ast.stmt]) -> None:
         nonlocal fully_resolved
         for statement in statements:
             if isinstance(statement, ast.If):
+                if not specializer_names(statement):
+                    continue
                 decision = _eval_condition(statement.test, {"action_name": action_name})
                 if decision is True:
                     visit(statement.body)
@@ -301,11 +325,8 @@ def _specializers_for_action(repo_root: Path, action_name: str) -> tuple[list[st
                 else:
                     fully_resolved = False
                 continue
-            for node in ast.walk(statement):
-                if not isinstance(node, ast.Call):
-                    continue
-                name = (_call_name(node.func) or "").rsplit(".", 1)[-1]
-                if name.startswith("_specialize_") and name not in selected:
+            for name in specializer_names(statement):
+                if name not in selected:
                     selected.append(name)
 
     visit(function.body)
