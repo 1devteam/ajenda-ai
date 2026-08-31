@@ -32,16 +32,19 @@ The following artifacts are exploratory evidence records, not findings:
 - `data/revops-runtime-graph-diagnosis-ledger-v0.1.csv` — claim-level verification ledger separating source-reported runtime facts, verified static mechanisms, unresolved causal claims, graph-schema candidates, and right-censored study outcomes.
 - `analysis/independent-canonical-graph-evaluation-v0.1.md` — independent evaluator pass using the exact successful PR #496 canonical graph workflow artifact rather than the implementing LLM's description of its graph inspection. Records exact graph metrics/vocabulary, reproduces graph-native blast radius, distinguishes graph-native evidence from source-derived mechanisms, identifies additional optionality/job-routing and proof-obligation gaps, and scores the diagnostic-phase graph contribution without treating it as a treatment finding.
 - `data/independent-canonical-graph-evaluation-ledger-v0.1.csv` — structured independent claim ledger with confirmed, contradicted, unsupported, unresolved, and working-classification states.
+- `analysis/graph-use-provenance-method-comparison-v0.1.md` — post-self-report comparison of the implementing/evaluating LLM's actual graph procedure versus the independent exact-canonical procedure. Separates graph provenance, seed strategy, traversal depth, investigation order, graph-native evidence, graph-guided source findings, and remaining attribution uncertainty.
+- `data/graph-use-provenance-method-comparison-ledger-v0.1.csv` — structured methodological comparison, including working graph-exposure classifications and unresolved provenance claims.
 
-These files deliberately separate repository-observable evidence, source-reported runtime evidence, graph-artifact evidence, working classification, uncertainty, and later causal adjudication.
+These files deliberately separate repository-observable evidence, source-reported runtime evidence, graph-artifact evidence, source-reported methodological evidence, working classification, uncertainty, and later causal adjudication.
 
 ## RevOps graph-evaluation chronology control
 
-The RevOps evidence is split into three records on purpose:
+The RevOps evidence is split into four records on purpose:
 
 1. `prospective-revops-graph-evaluation-observation-v0.1.md` preserves what was known and what was *not* known when only the early mission output was available and the evaluator prematurely framed the issue as not graph-related.
 2. `revops-runtime-graph-diagnosis-evidence-v0.1.md` preserves the later mission state and the implementing/evaluating LLM's graph/code diagnosis after additional execution evidence became available.
 3. `independent-canonical-graph-evaluation-v0.1.md` independently downloads and evaluates the exact PR #496 canonical graph artifact and then inspects graph-selected/contextual source/tests. It does not assume that the other evaluator's claimed graph contribution is correct.
+4. `graph-use-provenance-method-comparison-v0.1.md` preserves the later methodological self-report describing what the implementing/evaluating LLM actually queried and compares that procedure to the independent pass without rewriting either earlier record.
 
 Later records must not be back-projected into earlier records. This separation is required to prevent hindsight contamination when evaluating whether graph use changed reasoning scope, repair scope, or proof selection.
 
@@ -55,7 +58,25 @@ The independent graph review is pinned to:
 - artifact digest reported by GitHub: `sha256:c4d4b7b407523628c02bda9423c3e36b3fee03c75586d556210d6acd0330b206`
 - exact graph size: 1,265 nodes / 3,818 edges
 
-The other evaluator's reported 1,239-node / 3,717-edge graph is retained as its own reported observation but is not substituted for the frozen canonical artifact.
+The implementing/evaluating LLM now explicitly reports that its 1,239-node / 3,717-edge graph was an unprovenanced scratch artifact and that it did not run Ajenda's graph generator or official graph-analysis CLI. That self-report is retained as methodological evidence; it is not substituted for the frozen canonical artifact.
+
+## Graph-exposure coding note
+
+The current RevOps incident demonstrates that `graph_used=true/false` is too coarse for later analysis. The evidence packet therefore preserves dimensions including:
+
+- provenance verified;
+- target commit matched;
+- canonical artifact/generator used;
+- traversal depth;
+- seed strategy;
+- invariant inspection;
+- proof selection;
+- completeness/architecture-decision use;
+- graph-guided source/test inspection;
+- graph-native runtime-causality availability;
+- implementation decision changes attributable to graph evidence.
+
+This coding model is a methodological control, not a post-hoc attempt to favor either graph-positive or graph-negative outcomes.
 
 ## Historical analysis provenance
 
