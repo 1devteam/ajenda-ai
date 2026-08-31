@@ -446,9 +446,7 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
 
     for job in jobs:
         key = str(job["job_key"])
-        required_artifacts = {
-            input_key for input_key in job["required_inputs"] if input_key in produced_outputs
-        }
+        required_artifacts = {input_key for input_key in job["required_inputs"] if input_key in produced_outputs}
         for input_key in job["required_inputs"]:
             if input_key in produced_outputs:
                 target = f"artifact:{input_key}"
