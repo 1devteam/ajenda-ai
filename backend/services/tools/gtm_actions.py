@@ -143,23 +143,6 @@ def _provider_body(body: dict[str, Any], inv: ToolInvocation) -> dict[str, Any]:
     return body
 
 
-def _sent_message_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Project a privacy-bounded canonical artifact for the send attempt."""
-
-    row: dict[str, Any] = {
-        "to": payload.get("to"),
-        "subject": payload.get("subject"),
-        "artifact_id": payload.get("artifact_id"),
-        "status": payload.get("status"),
-        "real": payload.get("real") is True,
-        "provider": payload.get("provider"),
-    }
-    for key in ("idempotency_key", "provider_message_id", "idempotency_replayed", "error", "reason"):
-        if payload.get(key) is not None:
-            row[key] = payload[key]
-    return [row]
-
-
 def _make_evidence(
     action: str,
     provider: str,
@@ -385,7 +368,6 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
 
     def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
         inp = GtmEmailSendInput.model_validate(inv.input)
-        requested_artifact_id = inp.artifact_id or str(inp.context.get("artifact_id", "") or "").strip() or None
         try:
             to, subject, body_text, artifact_id = _resolve_send_content(inv, ctx, inp)
         except ValueError as exc:
@@ -397,9 +379,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 "real": False,
                 "error": str(exc),
                 "context": inp.context,
-                "artifact_id": requested_artifact_id,
             }
-            blocked_output["sent_messages"] = _sent_message_rows(blocked_output)
             return ActionResult(
                 action=inv.action,
                 provider="external_email",
@@ -543,13 +523,6 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                         sent["status"] = "sent"
                         sent["real"] = True
                         sent["provider"] = "gmail_api"
-                        try:
-                            response_payload = json.loads(resp.body_text or "{}")
-                        except json.JSONDecodeError:
-                            response_payload = {}
-                        provider_message_id = response_payload.get("id")
-                        if isinstance(provider_message_id, str) and provider_message_id.strip():
-                            sent["provider_message_id"] = provider_message_id.strip()
                     else:
                         sent["status"] = "error"
                         sent["real"] = False
@@ -565,7 +538,6 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             sent,
             reason="runtime_credential_missing_or_send_not_executed",
         )
-        sent["sent_messages"] = _sent_message_rows(sent)
 
         if ctx.session_factory is not None and (
             (sent.get("real") and artifact_id) or sent.get("status") in {"sent", "simulated"}

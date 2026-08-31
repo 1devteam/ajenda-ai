@@ -131,60 +131,7 @@ def test_gtm_email_send_simulated_when_no_credential() -> None:
 
     assert result.output["real"] is False
     assert result.output["status"] == "simulated"
-    assert result.output["sent_messages"] == [
-        {
-            "to": "user@example.com",
-            "subject": "Hello",
-            "artifact_id": None,
-            "status": "simulated",
-            "real": False,
-            "provider": None,
-            "reason": "no_runtime_credential",
-        }
-    ]
     assert result.side_effect_class.value == "external_send"
-
-
-def test_gtm_email_send_review_block_emits_canonical_attempt_artifact() -> None:
-    from backend.services.tools.action_registry import ActionRegistry
-    from backend.services.tools.gtm_actions import register_gtm_actions
-
-    registry = ActionRegistry()
-    register_gtm_actions(registry)
-    handler = registry.get("gtm.email_send").handler
-    session = MagicMock()
-    context = _context()
-    context.session_factory = lambda: session
-
-    with patch(
-        "backend.services.tools.gtm_actions.read_artifact",
-        return_value={
-            "review_status": "pending",
-            "content": {
-                "to": "user@example.com",
-                "subject": "Hello",
-                "body": "Hi",
-            },
-        },
-    ):
-        result = handler(
-            ToolInvocation(
-                action="gtm.email_send",
-                input={
-                    "to": "user@example.com",
-                    "subject": "Hello",
-                    "body": "Hi",
-                    "artifact_id": "pitch_email-1",
-                },
-            ),
-            context,
-        )
-
-    assert result.output["status"] == "error"
-    assert result.output["real"] is False
-    assert result.output["sent_messages"][0]["status"] == "error"
-    assert result.output["sent_messages"][0]["artifact_id"] == "pitch_email-1"
-    assert "not approved for send" in result.output["sent_messages"][0]["error"]
 
 
 def test_gtm_email_send_uses_network_egress_for_real_send() -> None:
@@ -231,9 +178,6 @@ def test_gtm_email_send_uses_network_egress_for_real_send() -> None:
     assert "raw" in request_kwargs["json_body"]
     assert result.output["real"] is True
     assert result.output["provider"] == "gmail_api"
-    assert result.output["provider_message_id"] == "msg-1"
-    assert result.output["sent_messages"][0]["provider_message_id"] == "msg-1"
-    assert "body" not in result.output["sent_messages"][0]
 
 
 def test_gtm_email_send_uses_runtime_credential_material() -> None:
@@ -472,7 +416,6 @@ def test_gtm_email_send_propagates_idempotency_key_to_provider() -> None:
 
     assert authority.request.call_args.kwargs["headers"]["Idempotency-Key"] == "idem-gmail-1"
     assert result.output["idempotency_key"] == "idem-gmail-1"
-    assert result.output["sent_messages"][0]["idempotency_key"] == "idem-gmail-1"
 
 
 @patch("backend.services.light_crm.workflow.complete_internal_crm_upsert")

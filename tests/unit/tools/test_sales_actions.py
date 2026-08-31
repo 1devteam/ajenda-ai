@@ -116,11 +116,6 @@ def test_sales_qualify_accepts_observed_email() -> None:
                         "kind": "email",
                         "value": "hello@nwarestoreit.com",
                         "source_url": "https://www.nwarestoreit.com/hazmat-service",
-                        "website": "https://www.nwarestoreit.com",
-                        "product_description": "Property restoration services.",
-                        "research_summary": "NWA Restore It serves restoration customers.",
-                        "sources": ["https://www.nwarestoreit.com/hazmat-service"],
-                        "automation_opportunity": "estimate follow-up",
                         "real": True,
                     }
                 ]
@@ -129,15 +124,7 @@ def test_sales_qualify_accepts_observed_email() -> None:
         _context(),
     )
     assert result.output["qualified"] is True
-    qualified = result.output["qualified_prospects"][0]
-    assert qualified["email"] == "hello@nwarestoreit.com"
-    assert qualified["website"] == "https://www.nwarestoreit.com"
-    assert qualified["product_description"] == "Property restoration services."
-    assert qualified["research_summary"] == "NWA Restore It serves restoration customers."
-    assert qualified["sources"] == ["https://www.nwarestoreit.com/hazmat-service", "https://www.nwarestoreit.com"]
-    assert qualified["qualification_evidence"]["qualification_dimensions"] == qualified["qualification_dimensions"]
-    assert qualified["qualification_evidence"]["source_references"] == qualified["sources"]
-    assert "estimate follow-up" in qualified["ajenda_relevance"]
+    assert result.output["qualified_prospects"][0]["email"] == "hello@nwarestoreit.com"
 
 
 def test_sales_qualify_exposes_mission_dimensions_and_rejects_unverified_identity() -> None:

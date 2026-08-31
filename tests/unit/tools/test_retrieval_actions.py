@@ -53,8 +53,7 @@ def test_retrieval_hybrid_search_returns_real_brain_output_without_mock_memories
     assert result.output["real"] is True
     assert result.output["plugin_required"] is False
     assert result.output["source"] == "ajenda_brain"
-    assert result.output["memory_hits"] == result.output["memories"]
-    memory_ids = {item["id"] for item in result.output["memory_hits"]}
+    memory_ids = {item["id"] for item in result.output["memories"]}
     assert "mem1" not in memory_ids
     assert "mem2" not in memory_ids
     assert "emc-1" in memory_ids or "emc-2" in memory_ids or "acct-1" in memory_ids

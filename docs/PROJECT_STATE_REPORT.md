@@ -1,6 +1,6 @@
 # Ajenda AI — Project State Report
 
-**Date:** August 30, 2026
+**Date:** August 1, 2026
 **Branch:** `main`  
 **Alembic head:** `0038_knowledge_retrieval`
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
@@ -35,7 +35,6 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - GTM actions behind `gtm` feature (pro/enterprise)
 - Multi-tenant workers (`AJENDA_WORKER_TENANT_MODE=multi`, ADR-0004)
 - Live runtime proof on `main`: echo task, `gtm.lead_enrich`, brain capstone slice
-- Read-only RevOps mission deliverable assembly at `GET /v1/missions/{mission_id}/deliverable`: typed artifacts, independently recomputed completion, approvals, effects, receipts, and evidence
 
 ### 2.2 Tenant isolation and auth
 
@@ -108,7 +107,6 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 | Live secrets in K8s/Compose prod | Resend + Stripe live keys are template placeholders until deploy |
 | Stranger-ready on prod hostnames | Staging proof uses localhost + exposed verification token |
 | Plugin lane in default CI | Live HubSpot/Gmail/Salesforce proof requires opt-in env + tokens |
-| RevOps V1 full vertical proof | The final read model exists; real instruction-to-runtime-to-provider-effect closure still requires a canonical end-to-end proof |
 
 ---
 

@@ -13,20 +13,6 @@ def _projection(text: str):
     return project_deliverable_request(request)
 
 
-def _qualified_row() -> dict[str, object]:
-    return {
-        "company": "Acme HVAC",
-        "score": 84,
-        "reasons": ["five employees verified", "Phoenix HVAC fit"],
-        "qualification_evidence": {
-            "qualification_dimensions": {"business_fit": 10},
-            "qualification_reasons": ["five employees verified", "Phoenix HVAC fit"],
-            "source_references": ["https://acme.example"],
-        },
-        "ajenda_relevance": "Ajenda may be relevant to the observed estimate follow-up workflow.",
-    }
-
-
 def test_typed_and_whole_artifact_fields_complete_only_after_materialization() -> None:
     projection = _projection("Return company name, qualification reasons, qualification score, and drafts.")
 
@@ -44,7 +30,13 @@ def test_typed_and_whole_artifact_fields_complete_only_after_materialization() -
         [
             MaterializedArtifact(
                 artifact_key="qualified_prospects",
-                payload=[_qualified_row()],
+                payload=[
+                    {
+                        "company": "Acme HVAC",
+                        "score": 84,
+                        "reasons": ["five employees verified", "Phoenix HVAC fit"],
+                    }
+                ],
             ),
             MaterializedArtifact(
                 artifact_key="introduction_drafts",
@@ -62,14 +54,7 @@ def test_invalid_typed_artifact_does_not_satisfy_bound_field() -> None:
     projection = _projection("Return company name and qualification reasons.")
     artifact = MaterializedArtifact(
         artifact_key="qualified_prospects",
-        payload=[
-            {
-                "company": "Acme HVAC",
-                "score": 84,
-                "qualification_evidence": {"qualification_dimensions": {"business_fit": 10}},
-                "ajenda_relevance": "Ajenda may be relevant to an observed workflow.",
-            }
-        ],
+        payload=[{"company": "Acme HVAC", "score": 84}],
     )
 
     validation = validate_materialized_artifact(artifact)
@@ -84,18 +69,22 @@ def test_invalid_typed_artifact_does_not_satisfy_bound_field() -> None:
     assert completion.complete is False
 
 
-def test_bound_fields_remain_incomplete_when_required_artifacts_are_missing() -> None:
+def test_candidate_and_unresolved_fields_remain_incomplete_even_when_jobs_could_complete() -> None:
     projection = _projection("Return research, qualification reasons, sources, drafts, assumptions, and limitations.")
     completion = evaluate_deliverable_completion(
         projection,
         [
             MaterializedArtifact(
                 artifact_key="qualified_prospects",
-                payload=[_qualified_row()],
+                payload=[{"company": "Acme HVAC", "score": 84, "reasons": ["fit"]}],
             ),
             MaterializedArtifact(
                 artifact_key="introduction_drafts",
                 payload=[{"draft": "Hello Acme HVAC"}],
+            ),
+            MaterializedArtifact(
+                artifact_key="researched_prospects",
+                payload=[{"company": "Acme HVAC", "summary": "research exists"}],
             ),
         ],
     )
@@ -103,67 +92,10 @@ def test_bound_fields_remain_incomplete_when_required_artifacts_are_missing() ->
 
     assert by_field["qualification_reasons"] == "satisfied"
     assert by_field["drafts"] == "satisfied"
-    assert by_field["research_summary"] == "missing_artifact"
-    assert by_field["sources"] == "missing_artifact"
+    assert by_field["research_summary"] == "unproven"
+    assert by_field["sources"] == "unproven"
     assert by_field["assumptions"] == "unproven"
     assert by_field["limitations"] == "unproven"
-    assert completion.complete is False
-
-
-def test_remaining_revops_fields_require_valid_materialized_values() -> None:
-    projection = _projection(
-        "Return the website, product description, qualification evidence, "
-        "Ajenda relevance, research summary, and sources."
-    )
-    completion = evaluate_deliverable_completion(
-        projection,
-        [
-            MaterializedArtifact(
-                artifact_key="prospect_candidates",
-                payload=[
-                    {
-                        "website": "https://acme.example",
-                        "product_description": "Residential HVAC installation and service.",
-                        "research_summary": "Acme serves residential customers in Phoenix.",
-                        "sources": ["https://acme.example"],
-                    }
-                ],
-            ),
-            MaterializedArtifact(
-                artifact_key="observed_contacts",
-                payload=[{"sources": ["https://acme.example/contact"]}],
-            ),
-            MaterializedArtifact(
-                artifact_key="qualified_prospects",
-                payload=[_qualified_row()],
-            ),
-        ],
-    )
-
-    assert completion.complete is True
-    assert all(field.status == "satisfied" for field in completion.fields)
-    assert completion.grants_execution_authority is False
-
-
-def test_empty_explicit_field_remains_incomplete_without_invalidating_artifact_shape() -> None:
-    projection = _projection("Return product description.")
-    artifact = MaterializedArtifact(
-        artifact_key="prospect_candidates",
-        payload=[
-            {
-                "website": "https://acme.example",
-                "product_description": "",
-                "research_summary": "A public result identified Acme.",
-                "sources": ["https://acme.example"],
-            }
-        ],
-    )
-
-    validation = validate_materialized_artifact(artifact)
-    completion = evaluate_deliverable_completion(projection, [artifact])
-
-    assert validation.valid is True
-    assert completion.fields[0].status == "invalid_artifact"
     assert completion.complete is False
 
 
@@ -174,7 +106,7 @@ def test_unknown_requested_item_keeps_completion_false() -> None:
         [
             MaterializedArtifact(
                 artifact_key="qualified_prospects",
-                payload=[_qualified_row()],
+                payload=[{"company": "Acme HVAC", "score": 84, "reasons": ["fit"]}],
             )
         ],
     )

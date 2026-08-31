@@ -11,10 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.services.mission_composition.artifact_schemas import (
-    ARTIFACT_SCHEMAS_BY_KEY,
-    validate_artifact_payload,
-)
+from backend.services.mission_composition.artifact_schemas import ARTIFACT_SCHEMAS_BY_KEY, CompositionArtifactSchema
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.deliverable_projection import DeliverableProjection
 
@@ -100,13 +97,33 @@ def validate_materialized_artifact(artifact: MaterializedArtifact) -> ArtifactVa
             errors=("no typed artifact schema is declared",),
         )
 
-    errors = validate_artifact_payload(schema, artifact.payload)
+    errors = _validate_schema_payload(schema, artifact.payload)
     return ArtifactValidation(
         artifact_key=artifact.artifact_key,
         schema_known=True,
         valid=not errors,
         errors=tuple(errors),
     )
+
+
+def _validate_schema_payload(schema: CompositionArtifactSchema, payload: Any) -> list[str]:
+    errors: list[str] = []
+    per_item_fields = [field for field in schema.fields if field.scope == "per_item"]
+    if per_item_fields:
+        if not isinstance(payload, list):
+            return ["typed per-item artifact payload must be a list"]
+        for index, item in enumerate(payload):
+            if not isinstance(item, dict):
+                errors.append(f"item {index} must be an object")
+                continue
+            for field in per_item_fields:
+                path_field = _path_field(field.json_path)
+                if path_field is None:
+                    errors.append(f"unsupported artifact schema path: {field.json_path}")
+                    continue
+                if field.required_when_item_exists and (path_field not in item or item[path_field] is None):
+                    errors.append(f"item {index} missing required field: {path_field}")
+    return errors
 
 
 def _typed_field_has_value(*, artifact: MaterializedArtifact, field_key: DeliverableFieldKey) -> bool:

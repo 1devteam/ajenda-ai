@@ -9,10 +9,8 @@
 
 The selected Revenue Operations workflow has useful runtime-bound components, but current code does
 not prove an outcome-complete vertical. Research, qualification, enrichment, drafting, optional
-email delivery, and optional CRM update actions exist. Typed artifact continuity and a read-only
-mission-level RevOps assembler now exist, including independent deliverable completion and
-approval/effect/receipt projection. Canonical end-to-end orchestration, held-out quality, real
-provider reconciliation, and release proof remain incomplete.
+email delivery, and optional CRM update actions exist. Their orchestration, artifact continuity,
+independent authorization, held-out quality, and end-to-end release proof remain incomplete.
 
 No release-readiness score is assigned. The initial development run against the baseline revision
 passed 6 of 10 cases. The corrective semantic slice now passes all 10 declared development
@@ -93,9 +91,8 @@ The follow-up semantic slices corrected coordinated CRM/publish negation, send-p
 detection, qualification paraphrases, over-broad HubSpot source matching, and explicit typed
 deliverable-clause accounting. The corpus now passes 10/10, and `dev-long-context-010` now reaches
 `proposal_ready` with its requested deliverable represented structurally. That closes the former
-interpretation gap only. Typed artifact continuity and mission-level deliverable assembly are now
-unit-proven, but canonical runtime completion, held-out quality, and production provider safety
-remain unproven and promotion-blocking.
+interpretation gap only; typed artifact continuity, final deliverable completion, held-out quality,
+and production provider safety remain unproven and promotion-blocking.
 
 ## Required corpus structure
 

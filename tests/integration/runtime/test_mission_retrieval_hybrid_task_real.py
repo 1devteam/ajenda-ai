@@ -296,8 +296,7 @@ def test_mission_materializes_queues_and_executes_retrieval_hybrid_task(
         assert output["real"] is True
         assert output["plugin_required"] is False
         assert output["source"] == "ajenda_brain"
-        assert output["memory_hits"] == output["memories"]
-        memory_ids = {str(item.get("id")) for item in output.get("memory_hits", [])}
+        memory_ids = {str(item.get("id")) for item in output.get("memories", [])}
         assert "mem1" not in memory_ids
         assert "mem2" not in memory_ids
         assert "mission-retrieval-chunk" in memory_ids

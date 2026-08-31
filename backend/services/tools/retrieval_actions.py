@@ -219,9 +219,6 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
 
     output = {
         "query": payload_input.query,
-        # Canonical artifact contract for retrieval task graphs. Keep
-        # ``memories`` as the established consumer-facing compatibility field.
-        "memory_hits": memories,
         "memories": memories,
         "filters": payload_input.filters,
         "retrieval_contracts": contract_summaries,
