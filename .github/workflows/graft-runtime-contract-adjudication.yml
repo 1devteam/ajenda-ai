@@ -1,0 +1,40 @@
+name: Architecture — GRAFT Runtime Contract Adjudication
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adjudicate-runtime-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install validation dependency
+        run: pip install pytest
+
+      - name: Prove adjudicator controls
+        run: pytest -q tests/unit/validation/test_graph_runtime_contract_adjudication.py
+
+      - name: Build adjudication report
+        run: |
+          mkdir -p artifacts
+          python scripts/validation/graph_runtime_contract_adjudication.py \
+            --output artifacts/graft-runtime-contract-adjudication.json
+
+      - name: Upload adjudication evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: graft-runtime-contract-adjudication
+          path: artifacts/graft-runtime-contract-adjudication.json
