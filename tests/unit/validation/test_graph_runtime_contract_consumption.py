@@ -39,9 +39,9 @@ def test_real_controls_require_typed_behavioral_consumption() -> None:
         "runtime-binding-gap:sales.research_context:sales.research:prospect_candidates",
     ):
         item = results[finding_id]
-        assert item["result"] == "VIOLATED"
-        assert item["binding_disposition"] == "UNCONSUMED_WHEN_APPLICABLE"
-        assert item["consumption"]["status"] == "unconsumed"
+        assert item["result"] == "VIOLATED", item
+        assert item["binding_disposition"] == "UNCONSUMED_WHEN_APPLICABLE", item
+        assert item["consumption"]["status"] == "unconsumed", item
 
 
 def test_existing_missing_and_schema_rejected_violations_remain_violations() -> None:
