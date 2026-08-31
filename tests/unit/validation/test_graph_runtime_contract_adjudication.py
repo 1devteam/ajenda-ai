@@ -1,6 +1,6 @@
+import sys
 from copy import deepcopy
 from pathlib import Path
-import sys
 
 VALIDATION_DIR = Path(__file__).resolve().parents[3] / "scripts" / "validation"
 if str(VALIDATION_DIR) not in sys.path:
