@@ -1,0 +1,11 @@
+parent_pr,child_pr,parent_merged,child_merged,working_relation,evidence_grade_current,explicit_textual_basis,mechanism,planned_in_parent,notes
+58,59,true,true,direct_late_review_correction,high,"59 states regression tests for late Codex feedback from PR 58","handler output contract semantics",false,"focused two-file parent; child narrows statuses and serializability scope"
+107,108,true,true,direct_diagnostic_correction,high,"108 states 107 checked lease status after transitioning it to EXPIRED","diagnostic state-observation ordering",false,"runtime recovery behavior unchanged; diagnostic correctness only"
+164,165,true,true,planned_dependency,high,"164 states route migration belongs in next clean slice; 165 says it closes that follow-up blocker","RLS tenant-session route migration",true,"do not count as corrective rework by adjacency"
+164,166,true,true,direct_corrective_descendant,high,"166 states audit_events was left outside RLS policy creating a gap after 164","tenant isolation / RLS coverage omission",false,"same parent has both planned child and corrective child"
+168,169,true,true,direct_corrective_descendant,high,"169 states 168 allowed jurisdiction-specific early returns to bypass marketing opt-out check","policy ordering / control flow",false,"small targeted child after scoped foundation"
+369,370,true,true,direct_review_correction,high,"370 states follow-up for Codex review on 369 and enumerates four findings","side-effect classification; action input; data merge; truth-state semantics",false,"first generation of deep outreach/world-state correction chain"
+370,371,true,true,direct_review_correction,high,"371 states Addresses Codex P2 on 370","artifact/context to email-send binding",false,"corrective surface narrows"
+371,372,true,true,direct_review_correction,high,"372 states Codex P1 on 371","external-send recipient validity / placeholder fail-closed",false,"external-effect safety boundary"
+372,373,true,true,direct_review_correction,high,"373 states Codex P2 on 372","reserved TLD recipient rejection",false,"additional semantic condition after previous recipient gate"
+373,374,true,true,direct_review_correction,high,"374 states Codex P2 on 373","reserved single-label domain rejection",false,"fifth corrective generation after 369"
