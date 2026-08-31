@@ -3,18 +3,19 @@
 
 This inventory is intentionally static and dependency-light so the architecture graph
 can be generated before application dependencies are installed. It parses the
-canonical mission-composition BusinessJob catalog and exposes the semantic topology
-that module imports alone cannot express:
+canonical mission-composition BusinessJob catalog and runtime binding source to expose
+semantic topology that module imports alone cannot express:
 
 - business jobs;
 - produced runtime artifacts;
 - externally supplied job inputs;
 - candidate runtime actions and their discoverable handler modules;
-- typed hard, conditional, and optional job dependencies.
+- typed hard, conditional, and optional job dependencies;
+- runtime artifact-to-action binding paths.
 
 Graph direction follows the canonical consumer -> dependency convention. A job
 therefore points to inputs/actions/dependency jobs, while an artifact points to the
-job(s) that produce it.
+job(s) that produce it and an action points to artifacts bound into its input.
 """
 
 from __future__ import annotations
@@ -25,6 +26,8 @@ from pathlib import Path
 from typing import Any
 
 JOB_CATALOG_PATH = Path("backend/services/mission_composition/job_catalog.py")
+ACTION_INPUT_SEED_PATH = Path("backend/services/mission_composition/action_inputs.py")
+RUNTIME_BINDING_PATH = Path("backend/services/tools/mission_input_binding.py")
 ACTION_IMPLEMENTATION_ROOT = Path("backend/services/tools")
 ALLOWED_DEPENDENCY_KINDS = frozenset({"hard", "conditional", "optional"})
 
@@ -157,6 +160,150 @@ def _action_sources(repo_root: Path, actions: set[str]) -> dict[str, tuple[str, 
     return {action: tuple(sorted(sources)) for action, sources in matches.items()}
 
 
+def _action_names_from_test(node: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for item in ast.walk(node):
+        if not isinstance(item, ast.Compare) or len(item.ops) != 1 or len(item.comparators) != 1:
+            continue
+        if not isinstance(item.left, ast.Name) or item.left.id != "action_name":
+            continue
+        values = _literal_strings(item.comparators[0])
+        if isinstance(item.ops[0], ast.Eq) and len(values) == 1:
+            names.update(values)
+        elif isinstance(item.ops[0], ast.In):
+            names.update(values)
+    return names
+
+
+def _dependency_hints_from_test(node: ast.AST) -> set[str]:
+    hints: set[str] = set()
+    for item in ast.walk(node):
+        if not isinstance(item, ast.Compare) or len(item.ops) != 1 or len(item.comparators) != 1:
+            continue
+        if not isinstance(item.ops[0], ast.In):
+            continue
+        value = _literal_string(item.left)
+        target = item.comparators[0]
+        if value and isinstance(target, ast.Name) and target.id == "dep":
+            hints.add(value)
+    return hints
+
+
+def _binding_append(call: ast.Call) -> dict[str, str] | None:
+    if not isinstance(call.func, ast.Attribute) or call.func.attr != "append":
+        return None
+    if not isinstance(call.func.value, ast.Name) or call.func.value.id != "specs":
+        return None
+    if len(call.args) != 1 or not isinstance(call.args[0], ast.Dict):
+        return None
+    raw: dict[str, str] = {}
+    for key_node, value_node in zip(call.args[0].keys, call.args[0].values, strict=True):
+        key = _literal_string(key_node)
+        value = _literal_string(value_node)
+        if key and value:
+            raw[key] = value
+    output_path = raw.get("output_path")
+    input_path = raw.get("input_path")
+    if not output_path or not input_path:
+        return None
+    return {"output_path": output_path, "input_path": input_path}
+
+
+def _artifact_from_output_path(path: str) -> str | None:
+    raw = path.strip()
+    if not raw.startswith("$."):
+        return None
+    first = raw[2:].split(".", 1)[0]
+    first = first.split("[", 1)[0].strip()
+    return first or None
+
+
+def _binding_specs(tree: ast.Module) -> list[dict[str, Any]]:
+    function = next(
+        (
+            item
+            for item in tree.body
+            if isinstance(item, ast.FunctionDef) and item.name == "default_bindings_for_action"
+        ),
+        None,
+    )
+    if function is None:
+        return []
+
+    result: list[dict[str, Any]] = []
+
+    def visit(
+        statements: list[ast.stmt],
+        *,
+        action_context: set[str],
+        dependency_context: set[str],
+    ) -> None:
+        for statement in statements:
+            if isinstance(statement, ast.If):
+                local_actions = _action_names_from_test(statement.test)
+                body_actions = local_actions or action_context
+                body_hints = dependency_context | _dependency_hints_from_test(statement.test)
+                visit(statement.body, action_context=body_actions, dependency_context=body_hints)
+                visit(
+                    statement.orelse,
+                    action_context=action_context,
+                    dependency_context=dependency_context,
+                )
+                continue
+            if isinstance(statement, (ast.For, ast.While)):
+                visit(
+                    statement.body,
+                    action_context=action_context,
+                    dependency_context=dependency_context,
+                )
+                visit(
+                    statement.orelse,
+                    action_context=action_context,
+                    dependency_context=dependency_context,
+                )
+                continue
+            for item in ast.walk(statement):
+                if not isinstance(item, ast.Call):
+                    continue
+                binding = _binding_append(item)
+                if binding is None or not action_context:
+                    continue
+                artifact = _artifact_from_output_path(binding["output_path"])
+                if artifact is None:
+                    continue
+                for action_name in sorted(action_context):
+                    result.append(
+                        {
+                            "action_name": action_name,
+                            "artifact": artifact,
+                            "output_path": binding["output_path"],
+                            "input_path": binding["input_path"],
+                            "dependency_hints": sorted(dependency_context),
+                        }
+                    )
+
+    visit(function.body, action_context=set(), dependency_context=set())
+    unique: dict[tuple[str, str, str, str, tuple[str, ...]], dict[str, Any]] = {}
+    for item in result:
+        key = (
+            str(item["action_name"]),
+            str(item["artifact"]),
+            str(item["output_path"]),
+            str(item["input_path"]),
+            tuple(str(value) for value in item["dependency_hints"]),
+        )
+        unique[key] = item
+    return [unique[key] for key in sorted(unique)]
+
+
+def _actions_seeded_in_source(tree: ast.Module, actions: set[str]) -> set[str]:
+    return {
+        item.value
+        for item in ast.walk(tree)
+        if isinstance(item, ast.Constant) and isinstance(item.value, str) and item.value in actions
+    }
+
+
 def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
     """Return nodes, edges, and validation findings for canonical job contracts."""
 
@@ -180,6 +327,10 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
     }
     actions = {action for job in jobs for action in job["candidate_actions"] if isinstance(action, str) and action}
     action_sources = _action_sources(repo_root, actions)
+    binding_source = str(RUNTIME_BINDING_PATH).replace("\\", "/")
+    binding_specs = _binding_specs(_parse(repo_root / RUNTIME_BINDING_PATH))
+    seed_source = str(ACTION_INPUT_SEED_PATH).replace("\\", "/")
+    seeded_actions = _actions_seeded_in_source(_parse(repo_root / ACTION_INPUT_SEED_PATH), actions)
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -264,9 +415,40 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
                     "evidence": source,
                 }
             )
+        if action in seeded_actions:
+            edges.append(
+                {
+                    "from": f"action:{action}",
+                    "to": "py:backend.services.mission_composition.action_inputs",
+                    "type": "seeded_by",
+                    "evidence": seed_source,
+                }
+            )
+
+    binding_artifacts: dict[str, set[str]] = defaultdict(set)
+    for spec in binding_specs:
+        action = str(spec["action_name"])
+        artifact = str(spec["artifact"])
+        if action not in actions or artifact not in produced_outputs:
+            continue
+        binding_artifacts[action].add(artifact)
+        edge: dict[str, Any] = {
+            "from": f"action:{action}",
+            "to": f"artifact:{artifact}",
+            "type": "binds_artifact",
+            "evidence": binding_source,
+            "output_path": spec["output_path"],
+            "input_path": spec["input_path"],
+        }
+        if spec["dependency_hints"]:
+            edge["dependency_hints"] = spec["dependency_hints"]
+        edges.append(edge)
 
     for job in jobs:
         key = str(job["job_key"])
+        required_artifacts = {
+            input_key for input_key in job["required_inputs"] if input_key in produced_outputs
+        }
         for input_key in job["required_inputs"]:
             if input_key in produced_outputs:
                 target = f"artifact:{input_key}"
@@ -292,13 +474,30 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
                     "evidence": catalog_source,
                 }
             )
+            missing_bindings = sorted(required_artifacts - binding_artifacts.get(action, set()))
+            for artifact in missing_bindings:
+                findings.append(
+                    {
+                        "id": f"runtime-binding-gap:{key}:{action}:{artifact}",
+                        "category": "runtime-contract",
+                        "severity": "high",
+                        "summary": (
+                            f"Business job {key} requires artifact {artifact}, but candidate action {action} "
+                            "has no source-derived runtime binding for that artifact."
+                        ),
+                        "evidence": [catalog_source, binding_source],
+                        "related_nodes": [f"job:{key}", f"action:{action}", f"artifact:{artifact}"],
+                        "blocking": False,
+                        "classification": "binding_coverage_gap",
+                    }
+                )
 
         typed_targets: set[str] = set()
         for dependency in job["dependencies"]:
             target = str(dependency["job_key"])
             typed_targets.add(target)
             kind = str(dependency["kind"])
-            edge: dict[str, Any] = {
+            edge = {
                 "from": f"job:{key}",
                 "to": f"job:{target}",
                 "type": f"depends_on_{kind}",
@@ -375,5 +574,9 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
             "external_input_count": len(external_inputs),
             "action_count": len(actions),
             "typed_dependency_count": sum(len(job["dependencies"]) for job in jobs),
+            "binding_edge_count": sum(len(artifacts) for artifacts in binding_artifacts.values()),
+            "binding_gap_count": sum(
+                1 for finding in findings if finding.get("classification") == "binding_coverage_gap"
+            ),
         },
     }
