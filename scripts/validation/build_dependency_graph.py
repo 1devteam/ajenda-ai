@@ -19,7 +19,7 @@ if str(VALIDATION_DIR) not in sys.path:
     sys.path.insert(0, str(VALIDATION_DIR))
 
 from graph_function_inventory import collect_function_graph, collect_function_test_edges  # noqa: E402
-from graph_runtime_contract_inventory import collect_runtime_contract_inventory  # noqa: E402
+from graph_runtime_contract_inventory import JOB_CATALOG_PATH, collect_runtime_contract_inventory  # noqa: E402
 from graph_semantic_inventory import collect_semantic_inventory  # noqa: E402
 
 OVERLAY_PATH = REPO_ROOT / "docs/contracts/dependency-graph.overlay.v1.json"
