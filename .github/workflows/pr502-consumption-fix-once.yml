@@ -1,0 +1,56 @@
+name: PR 502 one-shot consumption analyzer fix
+
+on:
+  push:
+    branches: [feat/graft-runtime-binding-adjudication]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/graft-runtime-binding-adjudication
+          fetch-depth: 0
+      - name: Narrow root keys escape rule
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/validation/graph_runtime_contract_consumption.py')
+          text = path.read_text()
+          old = '''        receiver = node.func.value if isinstance(node.func, ast.Attribute) else None
+          if receiver is not None:
+              receiver_path = _expr_alias_path(receiver, aliases)
+              if receiver_path is not None and _is_prefix(receiver_path, target_path):
+                  escapes.add(receiver_path)
+          '''
+          new = '''        receiver = node.func.value if isinstance(node.func, ast.Attribute) else None
+          if receiver is not None:
+              receiver_path = _expr_alias_path(receiver, aliases)
+              if receiver_path is not None and _is_prefix(receiver_path, target_path):
+                  keys_above_target_parent = (
+                      isinstance(node.func, ast.Attribute)
+                      and node.func.attr == "keys"
+                      and len(receiver_path) + 1 < len(target_path)
+                  )
+                  if not keys_above_target_parent:
+                      escapes.add(receiver_path)
+          '''
+          if old not in text:
+              raise SystemExit('expected receiver escape block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Remove one-shot workflow and commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/pr502-consumption-fix-once.yml
+          git add scripts/validation/graph_runtime_contract_consumption.py
+          git diff --cached --check
+          git commit -m 'fix(graph): distinguish key introspection from value escape'
+          git push origin HEAD:feat/graft-runtime-binding-adjudication
