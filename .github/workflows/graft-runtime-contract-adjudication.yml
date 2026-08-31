@@ -25,12 +25,15 @@ jobs:
         run: pip install pytest
 
       - name: Prove adjudicator controls
-        run: pytest -q tests/unit/validation/test_graph_runtime_contract_adjudication.py
+        run: |
+          pytest -q \
+            tests/unit/validation/test_graph_runtime_contract_adjudication.py \
+            tests/unit/validation/test_graph_runtime_contract_consumption.py
 
       - name: Build adjudication report
         run: |
           mkdir -p artifacts
-          python scripts/validation/graph_runtime_contract_adjudication.py \
+          python scripts/validation/graph_runtime_contract_consumption.py \
             --output artifacts/graft-runtime-contract-adjudication.json
 
       - name: Upload adjudication evidence
