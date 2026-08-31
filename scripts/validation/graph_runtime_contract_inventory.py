@@ -176,17 +176,9 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
         raise ValueError(f"BusinessJob catalog defines duplicate job keys: {', '.join(sorted(duplicates))}")
 
     produced_outputs = {
-        output
-        for job in jobs
-        for output in job["produced_outputs"]
-        if isinstance(output, str) and output
+        output for job in jobs for output in job["produced_outputs"] if isinstance(output, str) and output
     }
-    actions = {
-        action
-        for job in jobs
-        for action in job["candidate_actions"]
-        if isinstance(action, str) and action
-    }
+    actions = {action for job in jobs for action in job["candidate_actions"] if isinstance(action, str) and action}
     action_sources = _action_sources(repo_root, actions)
 
     nodes: list[dict[str, Any]] = []
@@ -216,11 +208,7 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
         )
 
     for artifact in sorted(produced_outputs):
-        producers = sorted(
-            str(job["job_key"])
-            for job in jobs
-            if artifact in job["produced_outputs"]
-        )
+        producers = sorted(str(job["job_key"]) for job in jobs if artifact in job["produced_outputs"])
         nodes.append(
             {
                 "id": f"artifact:{artifact}",
@@ -241,12 +229,7 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
             )
 
     external_inputs = sorted(
-        {
-            input_key
-            for job in jobs
-            for input_key in job["required_inputs"]
-            if input_key not in produced_outputs
-        }
+        {input_key for job in jobs for input_key in job["required_inputs"] if input_key not in produced_outputs}
     )
     for input_key in external_inputs:
         nodes.append(
