@@ -72,7 +72,7 @@ def test_artifact_flow_uses_consumer_to_dependency_direction() -> None:
     ) in edges
 
 
-def test_action_nodes_link_to_discoverable_handler_modules() -> None:
+def test_action_nodes_link_to_discoverable_handler_modules_and_seed_source() -> None:
     inventory = _inventory()
     nodes = {node["id"]: node for node in inventory["nodes"]}
     edges = {(edge["from"], edge["to"], edge["type"]) for edge in inventory["edges"]}
@@ -84,12 +84,49 @@ def test_action_nodes_link_to_discoverable_handler_modules() -> None:
         "py:backend.services.tools.knowledge_actions",
         "implemented_in",
     ) in edges
+    assert (
+        "action:knowledge.retrieve_current",
+        "py:backend.services.mission_composition.action_inputs",
+        "seeded_by",
+    ) in edges
 
 
-def test_current_catalog_has_no_runtime_contract_inventory_violations() -> None:
+def test_inventory_exposes_source_derived_runtime_artifact_bindings() -> None:
+    inventory = _inventory()
+    binding_edges = [edge for edge in inventory["edges"] if edge["type"] == "binds_artifact"]
+    indexed = {(edge["from"], edge["to"]): edge for edge in binding_edges}
+
+    assert indexed[("action:sales.qualify", "artifact:observed_contacts")]["input_path"] == "$.input.prospects"
+    assert indexed[("action:sales.qualify", "artifact:prospect_candidates")]["input_path"] == "$.input.prospects"
+    assert indexed[("action:gtm.lead_enrich", "artifact:qualified_prospects")]["input_path"] == "$.input.prospects"
+    assert indexed[("action:decision.recommend_next_action", "artifact:observed_contacts")]["input_path"] == (
+        "$.input.context.observed_contacts"
+    )
+
+
+def test_inventory_surfaces_required_artifact_without_action_binding_as_gap() -> None:
+    inventory = _inventory()
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in inventory["edges"]}
+    findings = {finding["id"]: finding for finding in inventory["findings"]}
+
+    assert (
+        "action:knowledge.retrieve_current",
+        "artifact:observed_contacts",
+        "binds_artifact",
+    ) not in edges
+    finding_id = (
+        "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
+    )
+    assert findings[finding_id]["classification"] == "binding_coverage_gap"
+    assert findings[finding_id]["blocking"] is False
+
+
+def test_current_catalog_has_no_blocking_runtime_contract_inventory_violations() -> None:
     inventory = _inventory()
 
-    assert inventory["findings"] == []
+    assert [finding for finding in inventory["findings"] if finding["blocking"]] == []
     assert inventory["metrics"]["job_count"] > 0
     assert inventory["metrics"]["artifact_count"] > 0
     assert inventory["metrics"]["typed_dependency_count"] > 0
+    assert inventory["metrics"]["binding_edge_count"] > 0
+    assert inventory["metrics"]["binding_gap_count"] > 0
