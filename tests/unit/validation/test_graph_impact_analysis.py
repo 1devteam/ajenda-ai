@@ -142,6 +142,33 @@ def test_semantic_prerequisite_and_invariant_are_reported() -> None:
     assert [item["id"] for item in report["relevant_invariants"]] == ["x-boundary"]
 
 
+def test_runtime_contract_nodes_are_reported_as_semantic() -> None:
+    graph = _graph()
+    graph["nodes"].append(
+        {
+            "id": "job:runtime-contract",
+            "type": "business_job",
+            "source": "backend/job_catalog.py",
+            "label": "Runtime contract",
+        }
+    )
+    graph["edges"].append(
+        {
+            "from": "py:c",
+            "to": "job:runtime-contract",
+            "type": "declares",
+            "evidence": "backend/c.py",
+        }
+    )
+
+    report = MODULE.analyze_impact(graph, ["backend/c.py"])
+
+    assert {item["id"] for item in report["dependency_semantic_nodes"]} == {
+        "boundary:x",
+        "job:runtime-contract",
+    }
+
+
 def test_unmapped_paths_are_preserved_for_review() -> None:
     report = MODULE.analyze_impact(_graph(), ["README.md"])
 
