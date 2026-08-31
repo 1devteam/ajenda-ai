@@ -63,9 +63,17 @@ def test_real_controls_require_typed_behavioral_consumption() -> None:
     ):
         item = results[finding_id]
         diagnostic = _consumption_debug(item)
+        consumption = item["consumption"]
+        assert consumption["specializer_control_resolved"] is True, diagnostic
+        indeterminate = [
+            evidence
+            for evidence in diagnostic["evidence"]
+            if evidence["status"] == "indeterminate"
+        ]
+        assert not indeterminate, indeterminate
         assert item["result"] == "VIOLATED", diagnostic
         assert item["binding_disposition"] == "UNCONSUMED_WHEN_APPLICABLE", diagnostic
-        assert item["consumption"]["status"] == "unconsumed", diagnostic
+        assert consumption["status"] == "unconsumed", diagnostic
 
 
 def test_existing_missing_and_schema_rejected_violations_remain_violations() -> None:
