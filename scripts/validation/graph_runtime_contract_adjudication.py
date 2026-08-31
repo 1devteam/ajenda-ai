@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Adjudicate GRAFT runtime binding candidates with source-backed witnesses.
+"""Adjudicate GRAFT runtime artifact-binding candidates with source-backed witnesses.
 
-This layer consumes the canonical graph's runtime-contract findings and reconciles
-all currently authoritative static binding paths before assigning one of three
-results:
+This layer consumes the canonical graph's runtime-contract candidates and reconciles
+Ajenda's authoritative static binding paths before assigning one of three results:
 
-- SATISFIED: the binding obligation is not runtime-applicable, or a source-backed
-  binding reaches an accepted action input field.
-- VIOLATED: the obligation is runtime-applicable and either no binding exists for
-  the declared producer dependency or the compiler binds into a field forbidden by
-  the registered action input model.
+- SATISFIED: the runtime obligation is inactive, or the binding is structurally
+  compatible whenever its dependency becomes applicable.
+- VIOLATED: a binding obligation has a source-backed structural defect whenever its
+  dependency becomes applicable.
 - INDETERMINATE: source truth is insufficient to prove either state.
 
-The result is intentionally about the *artifact binding obligation*. It does not
-claim that downstream business semantics, data quality, or mission success are
-proven by a valid binding alone.
+Applicability is recorded separately. A conditional dependency can therefore be
+VIOLATED *when applicable* without claiming that a particular mission activates it.
+A mission-specific applicability decision requires an instantiated GRAFT slice with
+that mission's structured intent/world-state.
+
+The result is intentionally limited to artifact binding. It does not prove data
+quality, downstream viability, mission completion, or business correctness.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ if str(VALIDATION_DIR) not in sys.path:
 from build_dependency_graph import build_graph  # noqa: E402
 
 PLAN_COMPILER_PATH = Path("backend/services/mission_composition/plan_compiler.py")
+RUNTIME_BINDING_PATH = Path("backend/services/tools/mission_input_binding.py")
 TOOLS_ROOT = Path("backend/services/tools")
 BINDING_FINDING_CLASS = "binding_coverage_gap"
 RESULTS = frozenset({"SATISFIED", "VIOLATED", "INDETERMINATE"})
@@ -203,6 +206,8 @@ def _execute_binding_statements(
 def compiler_binding_path(
     *, repo_root: Path, action_name: str, artifact: str
 ) -> BindingResolution:
+    """Statically evaluate the authoritative plan-time binding function."""
+
     tree = _parse(repo_root / PLAN_COMPILER_PATH)
     function = next(
         (
@@ -416,16 +421,19 @@ def _producer_dependency(
     artifact = nodes.get(artifact_id, {})
     producers = artifact.get("producers") or []
     producer_ids = {f"job:{item}" for item in producers if isinstance(item, str)}
+    matches: list[dict[str, Any]] = []
     for edge in edges_by_source.get(job_id, []):
         if str(edge.get("to")) not in producer_ids:
             continue
         edge_type = str(edge.get("type") or "")
         if edge_type.startswith("depends_on_"):
-            return edge
+            matches.append(edge)
+    if len(matches) == 1:
+        return matches[0]
     return None
 
 
-def _existing_binding(
+def _fallback_binding(
     *,
     action_id: str,
     artifact_id: str,
@@ -435,6 +443,123 @@ def _existing_binding(
         if edge.get("type") == "binds_artifact" and str(edge.get("to")) == artifact_id:
             return edge
     return None
+
+
+def _applicability(*, job: dict[str, Any], dependency: dict[str, Any] | None) -> dict[str, Any]:
+    """Describe static applicability without pretending an uninstantiated condition is active."""
+
+    if job.get("maturity") != "runtime_bound":
+        return {
+            "state": "inactive",
+            "decision": "static",
+            "reason": "job is not runtime_bound",
+        }
+    if dependency is None:
+        return {
+            "state": "unresolved",
+            "decision": "static",
+            "reason": "a unique producer dependency was not established",
+        }
+    edge_type = str(dependency.get("type") or "")
+    kind = edge_type.removeprefix("depends_on_") if edge_type.startswith("depends_on_") else edge_type
+    if kind in {"hard", "legacy"}:
+        return {
+            "state": "always_when_job_selected",
+            "decision": "static",
+            "dependency_kind": kind,
+            "reason": "producer dependency is mandatory whenever the consumer job is selected",
+        }
+    if kind == "conditional":
+        return {
+            "state": "conditional",
+            "decision": "requires_instantiated_inputs",
+            "dependency_kind": kind,
+            "required_when_missing": list(dependency.get("required_when_missing") or []),
+            "satisfied_by": list(dependency.get("satisfied_by") or []),
+            "reason": "activation depends on the instantiated intent/world-state satisfiers",
+        }
+    if kind == "optional":
+        return {
+            "state": "conditional_on_co_selection",
+            "decision": "requires_instantiated_plan",
+            "dependency_kind": kind,
+            "reason": "optional producer is not automatically expanded but may be independently co-selected",
+        }
+    return {
+        "state": "unresolved",
+        "decision": "static",
+        "dependency_kind": kind,
+        "reason": "dependency kind is not understood by this adjudicator",
+    }
+
+
+def _finding_sources(finding: dict[str, Any]) -> set[str]:
+    evidence = finding.get("evidence", [])
+    if not isinstance(evidence, list):
+        return set()
+    return {str(item) for item in evidence if item}
+
+
+def _binding_witness(
+    *,
+    repo_root: Path,
+    action_name: str,
+    artifact_name: str,
+    fallback: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Resolve plan-time binding first; fallback cannot silently override explicit metadata.
+
+    `mission_input_binding._binding_specs_from_metadata` consumes non-empty explicit
+    `input_bindings` before considering fallback defaults. A fallback-only path is
+    therefore not enough to prove satisfaction when plan-time resolution is unknown
+    or explicitly omits this artifact: whether fallback runs depends on the complete
+    instantiated step's metadata.
+    """
+
+    compiler = compiler_binding_path(
+        repo_root=repo_root,
+        action_name=action_name,
+        artifact=artifact_name,
+    )
+    compiler_source = str(PLAN_COMPILER_PATH).replace("\\", "/")
+    fallback_source = str(RUNTIME_BINDING_PATH).replace("\\", "/")
+
+    if not compiler.resolved:
+        return {
+            "status": "indeterminate",
+            "plan_compile": {"resolved": False, "source": compiler_source},
+            "runtime_fallback": fallback,
+            "reason": "plan-time binding logic could not be statically resolved",
+            "witness_sources": [compiler_source, fallback_source],
+        }
+    if compiler.path is not None:
+        return {
+            "status": "bound",
+            "phase": "plan_compile",
+            "input_path": compiler.path,
+            "output_path": f"$.{artifact_name}",
+            "source": compiler_source,
+            "runtime_fallback": fallback,
+            "witness_sources": [compiler_source, fallback_source],
+        }
+    if fallback is not None:
+        return {
+            "status": "indeterminate",
+            "plan_compile": {"resolved": True, "input_path": None, "source": compiler_source},
+            "runtime_fallback": fallback,
+            "reason": (
+                "compiler omits this artifact while fallback exists; fallback executes only when the "
+                "complete explicit input_bindings list is absent, which requires an instantiated plan"
+            ),
+            "witness_sources": [compiler_source, fallback_source],
+        }
+    return {
+        "status": "missing",
+        "plan_compile": {"resolved": True, "input_path": None, "source": compiler_source},
+        "runtime_fallback": None,
+        "reason": "compiler emits no binding and no runtime fallback binding exists",
+        "witness_sources": [compiler_source, fallback_source],
+    }
 
 
 def adjudicate_runtime_binding_candidates(
@@ -455,25 +580,31 @@ def adjudicate_runtime_binding_candidates(
                 {
                     "finding_id": finding.get("id"),
                     "result": "INDETERMINATE",
-                    "reason": "binding candidate does not identify exactly job/action/artifact nodes",
+                    "binding_disposition": "UNRESOLVED",
+                    "applicability": {
+                        "state": "unresolved",
+                        "decision": "static",
+                        "reason": "candidate does not identify exactly job/action/artifact nodes",
+                    },
+                    "reason": "binding candidate shape is incomplete",
                 }
             )
             continue
+
         job_id, action_id, artifact_id = related
         job = nodes.get(job_id, {})
         action = nodes.get(action_id, {})
         artifact = nodes.get(artifact_id, {})
         action_name = str(action.get("label") or action_id.removeprefix("action:"))
-        artifact_name = str(
-            artifact.get("label") or artifact_id.removeprefix("artifact:")
-        )
+        artifact_name = str(artifact.get("label") or artifact_id.removeprefix("artifact:"))
         dependency = _producer_dependency(
             job_id=job_id,
             artifact_id=artifact_id,
             nodes=nodes,
             edges_by_source=edges_by_source,
         )
-        evidence = finding.get("evidence", [])
+        applicability = _applicability(job=job, dependency=dependency)
+        witness_sources = _finding_sources(finding)
         base: dict[str, Any] = {
             "finding_id": finding.get("id"),
             "job": job_id.removeprefix("job:"),
@@ -481,128 +612,135 @@ def adjudicate_runtime_binding_candidates(
             "artifact": artifact_name,
             "job_maturity": job.get("maturity"),
             "dependency": dependency,
-            "witness_sources": sorted(
-                {str(item) for item in evidence if item}
-                if isinstance(evidence, list)
-                else set()
-            ),
+            "applicability": applicability,
         }
 
-        if job.get("maturity") != "runtime_bound":
+        if applicability["state"] == "inactive":
             results.append(
                 {
                     **base,
                     "result": "SATISFIED",
-                    "applicability": False,
-                    "reason": "job is not runtime_bound, so no runtime artifact-binding obligation is active",
+                    "binding_disposition": "NOT_APPLICABLE",
+                    "witness_sources": sorted(witness_sources),
+                    "reason": "no runtime artifact-binding obligation is active for a non-runtime job",
                 }
             )
             continue
-
-        existing = _existing_binding(
-            action_id=action_id,
-            artifact_id=artifact_id,
-            edges_by_source=edges_by_source,
-        )
-        compiler = compiler_binding_path(
-            repo_root=repo_root,
-            action_name=action_name,
-            artifact=artifact_name,
-        )
-        binding: dict[str, Any] | None = None
-        if existing is not None:
-            binding = {
-                "source": existing.get("evidence"),
-                "phase": "runtime_fallback",
-                "input_path": existing.get("input_path"),
-                "output_path": existing.get("output_path"),
-            }
-        elif compiler.resolved and compiler.path is not None:
-            binding = {
-                "source": str(PLAN_COMPILER_PATH).replace("\\", "/"),
-                "phase": "plan_compile",
-                "input_path": compiler.path,
-                "output_path": f"$.{artifact_name}",
-            }
-
-        if binding is not None and isinstance(binding.get("input_path"), str):
-            schema = _schema_acceptance(
-                action_name=action_name,
-                input_path=str(binding["input_path"]),
-                action_models=action_models,
-                shapes=shapes,
-            )
-            witness_sources = set(base["witness_sources"])
-            source = binding.get("source")
-            if isinstance(source, str) and source:
-                witness_sources.add(source)
-            if isinstance(schema.get("input_model_source"), str):
-                witness_sources.add(str(schema["input_model_source"]))
-            if schema["status"] == "accepted":
-                results.append(
-                    {
-                        **base,
-                        "result": "SATISFIED",
-                        "applicability": True,
-                        "binding": binding,
-                        "schema": schema,
-                        "witness_sources": sorted(witness_sources),
-                        "reason": "source-backed binding reaches a field accepted by the registered action input model",
-                    }
-                )
-                continue
-            if schema["status"] == "rejected":
-                results.append(
-                    {
-                        **base,
-                        "result": "VIOLATED",
-                        "applicability": True,
-                        "binding": binding,
-                        "schema": schema,
-                        "witness_sources": sorted(witness_sources),
-                        "reason": "compiler/runtime binding targets a field rejected by the registered action input model",
-                    }
-                )
-                continue
+        if applicability["state"] == "unresolved":
             results.append(
                 {
                     **base,
                     "result": "INDETERMINATE",
-                    "applicability": True,
-                    "binding": binding,
-                    "schema": schema,
+                    "binding_disposition": "UNRESOLVED",
                     "witness_sources": sorted(witness_sources),
-                    "reason": "binding exists but schema acceptance cannot be proven statically",
+                    "reason": "producer-dependency applicability could not be established",
                 }
             )
             continue
 
-        if compiler.resolved and compiler.path is None and dependency is not None:
-            dependency_kind = str(dependency.get("type") or "").removeprefix(
-                "depends_on_"
+        fallback = _fallback_binding(
+            action_id=action_id,
+            artifact_id=artifact_id,
+            edges_by_source=edges_by_source,
+        )
+        binding = _binding_witness(
+            repo_root=repo_root,
+            action_name=action_name,
+            artifact_name=artifact_name,
+            fallback=fallback,
+        )
+        witness_sources.update(str(item) for item in binding.get("witness_sources", []) if item)
+
+        if binding["status"] == "indeterminate":
+            results.append(
+                {
+                    **base,
+                    "result": "INDETERMINATE",
+                    "binding_disposition": "UNRESOLVED",
+                    "binding": binding,
+                    "witness_sources": sorted(witness_sources),
+                    "reason": str(binding["reason"]),
+                }
             )
+            continue
+        if binding["status"] == "missing":
+            conditional = applicability["state"] not in {"always_when_job_selected"}
             results.append(
                 {
                     **base,
                     "result": "VIOLATED",
-                    "applicability": True,
-                    "compiler_binding": None,
-                    "dependency_kind": dependency_kind,
-                    "witness_sources": sorted(
-                        set(base["witness_sources"])
-                        | {str(PLAN_COMPILER_PATH).replace("\\", "/")}
+                    "binding_disposition": "MISSING_WHEN_APPLICABLE",
+                    "binding": binding,
+                    "witness_sources": sorted(witness_sources),
+                    "reason": (
+                        "applicable producer path has no source-backed artifact binding"
+                        + (" when its activation condition is met" if conditional else "")
                     ),
-                    "reason": "declared producer dependency can require the artifact, but compiler explicitly emits no binding",
                 }
             )
             continue
 
+        input_path = binding.get("input_path")
+        if not isinstance(input_path, str):
+            results.append(
+                {
+                    **base,
+                    "result": "INDETERMINATE",
+                    "binding_disposition": "UNRESOLVED",
+                    "binding": binding,
+                    "witness_sources": sorted(witness_sources),
+                    "reason": "resolved binding does not expose a statically checkable input path",
+                }
+            )
+            continue
+
+        schema = _schema_acceptance(
+            action_name=action_name,
+            input_path=input_path,
+            action_models=action_models,
+            shapes=shapes,
+        )
+        if isinstance(schema.get("input_model_source"), str):
+            witness_sources.add(str(schema["input_model_source"]))
+        if schema["status"] == "accepted":
+            results.append(
+                {
+                    **base,
+                    "result": "SATISFIED",
+                    "binding_disposition": "COMPATIBLE_WHEN_APPLICABLE",
+                    "binding": binding,
+                    "schema": schema,
+                    "witness_sources": sorted(witness_sources),
+                    "reason": "source-backed binding reaches a field accepted by the registered action input model",
+                }
+            )
+            continue
+        if schema["status"] == "rejected":
+            conditional = applicability["state"] not in {"always_when_job_selected"}
+            results.append(
+                {
+                    **base,
+                    "result": "VIOLATED",
+                    "binding_disposition": "SCHEMA_REJECTED_WHEN_APPLICABLE",
+                    "binding": binding,
+                    "schema": schema,
+                    "witness_sources": sorted(witness_sources),
+                    "reason": (
+                        "binding targets a field rejected by the registered action input model"
+                        + (" when its activation condition is met" if conditional else "")
+                    ),
+                }
+            )
+            continue
         results.append(
             {
                 **base,
                 "result": "INDETERMINATE",
-                "applicability": True,
-                "reason": "no complete source-backed binding or violation witness could be established",
+                "binding_disposition": "UNRESOLVED",
+                "binding": binding,
+                "schema": schema,
+                "witness_sources": sorted(witness_sources),
+                "reason": "binding exists but schema acceptance cannot be proven statically",
             }
         )
 
@@ -610,7 +748,7 @@ def adjudicate_runtime_binding_candidates(
     for item in results:
         counts[str(item["result"])] += 1
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "scope": "runtime-artifact-binding-obligations",
         "graph_schema_version": graph.get("schema_version"),
         "results": sorted(results, key=lambda item: str(item.get("finding_id"))),
@@ -622,7 +760,11 @@ def adjudicate_runtime_binding_candidates(
         },
         "policy": {
             "enforcement": "disabled",
-            "note": "Adjudication evidence only; no result is an automatic merge gate in schema 1.0.",
+            "applicability_instantiation": "required-for-conditional-enforcement",
+            "note": (
+                "Adjudication evidence only. Conditional results describe structural disposition when "
+                "their predicate activates; they do not claim a specific mission activates that path."
+            ),
         },
     }
 
@@ -637,7 +779,11 @@ def _print_human(report: dict[str, Any]) -> None:
         f"{metrics['indeterminate_count']} indeterminate"
     )
     for item in report["results"]:
-        print(f"{item['result']}: {item['finding_id']} — {item['reason']}")
+        applicability = item.get("applicability", {}).get("state", "unresolved")
+        print(
+            f"{item['result']}: {item['finding_id']} "
+            f"[{applicability}; {item.get('binding_disposition')}] — {item['reason']}"
+        )
 
 
 def main() -> int:
