@@ -268,7 +268,13 @@ def _function_consumption(
         if receiver is not None:
             receiver_path = _expr_alias_path(receiver, aliases)
             if receiver_path is not None and _is_prefix(receiver_path, target_path):
-                escapes.add(receiver_path)
+                keys_above_target_parent = (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "keys"
+                    and len(receiver_path) + 1 < len(target_path)
+                )
+                if not keys_above_target_parent:
+                    escapes.add(receiver_path)
 
         for argument in [*node.args, *(keyword.value for keyword in node.keywords)]:
             path = _expr_alias_path(argument, aliases)
