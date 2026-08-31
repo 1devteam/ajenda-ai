@@ -11,7 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "lucide-react": "^1.31.0",
+    "lucide-react": "^1.35.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "8.3.0"
@@ -19,16 +19,16 @@
   "devDependencies": {
     "@tailwindcss/container-queries": "^0.1.1",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.5.4",
     "jsdom": "^26.1.0",
     "postcss": "^8.5.26",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.8.0",
-    "vite": "^8.2.1",
+    "vite": "^8.2.2",
     "vitest": "^3.2.4",
-    "wrangler": "^4.123.0"
+    "wrangler": "^4.127.0"
   },
   "overrides": {
     "esbuild": "^0.28.1",
