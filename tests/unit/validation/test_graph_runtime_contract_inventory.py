@@ -36,20 +36,17 @@ def test_inventory_preserves_dependency_kinds_and_conditions() -> None:
     hard = next(
         edge
         for edge in edges
-        if edge["from"] == "job:intelligence.retrieve_knowledge"
-        and edge["to"] == "job:research.observe_sources"
+        if edge["from"] == "job:intelligence.retrieve_knowledge" and edge["to"] == "job:research.observe_sources"
     )
     optional = next(
         edge
         for edge in edges
-        if edge["from"] == "job:intelligence.advise_next"
-        and edge["to"] == "job:intelligence.retrieve_knowledge"
+        if edge["from"] == "job:intelligence.advise_next" and edge["to"] == "job:intelligence.retrieve_knowledge"
     )
     conditional = next(
         edge
         for edge in edges
-        if edge["from"] == "job:research.observe_sources"
-        and edge["to"] == "job:research.discover_prospects"
+        if edge["from"] == "job:research.observe_sources" and edge["to"] == "job:research.discover_prospects"
     )
 
     assert hard["type"] == "depends_on_hard"
