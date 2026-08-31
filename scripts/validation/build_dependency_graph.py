@@ -19,6 +19,7 @@ if str(VALIDATION_DIR) not in sys.path:
     sys.path.insert(0, str(VALIDATION_DIR))
 
 from graph_function_inventory import collect_function_graph, collect_function_test_edges  # noqa: E402
+from graph_runtime_contract_inventory import JOB_CATALOG_PATH, collect_runtime_contract_inventory  # noqa: E402
 from graph_semantic_inventory import collect_semantic_inventory  # noqa: E402
 
 OVERLAY_PATH = REPO_ROOT / "docs/contracts/dependency-graph.overlay.v1.json"
@@ -291,6 +292,7 @@ def build_graph() -> dict[str, Any]:
     function_nodes, function_edges = collect_function_graph(REPO_ROOT)
     function_test_edges = collect_function_test_edges(REPO_ROOT, function_nodes)
     semantic_inventory = collect_semantic_inventory(REPO_ROOT, overlay)
+    runtime_contract_inventory = collect_runtime_contract_inventory(REPO_ROOT)
 
     nodes: list[dict[str, Any]] = [
         {"id": node.id, "type": node.type, "source": node.source} for node in [*py_nodes, *fe_nodes, *test_nodes]
@@ -298,6 +300,7 @@ def build_graph() -> dict[str, Any]:
     nodes.extend(function_nodes)
     nodes.extend(overlay.get("nodes", []))
     nodes.extend(semantic_inventory["nodes"])
+    nodes.extend(runtime_contract_inventory["nodes"])
 
     edges: list[dict[str, Any]] = [
         {"from": edge.source, "to": edge.target, "type": edge.type, "evidence": edge.evidence}
@@ -307,6 +310,7 @@ def build_graph() -> dict[str, Any]:
     edges.extend(function_test_edges)
     edges.extend(overlay.get("edges", []))
     edges.extend(semantic_inventory["edges"])
+    edges.extend(runtime_contract_inventory["edges"])
 
     node_ids_seen = [str(node["id"]) for node in nodes]
     duplicates = sorted(node_id for node_id, count in Counter(node_ids_seen).items() if count > 1)
@@ -326,7 +330,7 @@ def build_graph() -> dict[str, Any]:
 
     node_ids = sorted(known_nodes)
     return {
-        "schema_version": "1.2",
+        "schema_version": "1.3",
         "generated_from": {
             "static": [
                 "backend/**/*.py",
@@ -337,12 +341,18 @@ def build_graph() -> dict[str, Any]:
                 "alembic/versions/*.py",
             ],
             "selective_function_layer": ["backend/services/mission_composition/**/*.py"],
+            "runtime_contract_catalog": str(JOB_CATALOG_PATH),
+            "runtime_action_implementations": "backend/services/tools/**/*.py",
             "semantic_overlay": str(OVERLAY_PATH.relative_to(REPO_ROOT)),
         },
         "nodes": sorted(nodes, key=lambda node: str(node["id"])),
         "edges": sorted(edges, key=lambda edge: (str(edge["from"]), str(edge["to"]), str(edge["type"]))),
         "invariants": overlay.get("invariants", []),
-        "semantic_findings": semantic_inventory["findings"],
+        "semantic_findings": sorted(
+            [*semantic_inventory["findings"], *runtime_contract_inventory["findings"]],
+            key=lambda item: str(item["id"]),
+        ),
+        "runtime_contract_metrics": runtime_contract_inventory["metrics"],
         "metrics": _metrics(node_ids, edges),
     }
 
