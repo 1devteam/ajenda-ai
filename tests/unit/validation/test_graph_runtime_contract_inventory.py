@@ -114,9 +114,7 @@ def test_inventory_surfaces_required_artifact_without_action_binding_as_gap() ->
         "artifact:observed_contacts",
         "binds_artifact",
     ) not in edges
-    finding_id = (
-        "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
-    )
+    finding_id = "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
     assert findings[finding_id]["classification"] == "binding_coverage_gap"
     assert findings[finding_id]["blocking"] is False
 
