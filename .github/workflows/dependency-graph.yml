@@ -11,6 +11,7 @@ on:
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
       - "scripts/validation/graph_semantic_inventory.py"
+      - "scripts/validation/graph_runtime_contract_inventory.py"
       - "scripts/validation/graph_impact_analysis.py"
       - "scripts/validation/graph_proof_selection.py"
       - "scripts/validation/graph_completeness_audit.py"
@@ -19,6 +20,7 @@ on:
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
       - "tests/unit/validation/test_graph_semantic_hardening.py"
+      - "tests/unit/validation/test_graph_runtime_contract_inventory.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
       - "tests/unit/validation/test_graph_proof_selection.py"
       - "tests/unit/validation/test_graph_completeness_audit.py"
@@ -35,6 +37,7 @@ on:
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
       - "scripts/validation/graph_semantic_inventory.py"
+      - "scripts/validation/graph_runtime_contract_inventory.py"
       - "scripts/validation/graph_impact_analysis.py"
       - "scripts/validation/graph_proof_selection.py"
       - "scripts/validation/graph_completeness_audit.py"
@@ -43,6 +46,7 @@ on:
       - "scripts/validation/pr_invariant_classifier.py"
       - "tests/unit/validation/test_build_dependency_graph.py"
       - "tests/unit/validation/test_graph_semantic_hardening.py"
+      - "tests/unit/validation/test_graph_runtime_contract_inventory.py"
       - "tests/unit/validation/test_graph_impact_analysis.py"
       - "tests/unit/validation/test_graph_proof_selection.py"
       - "tests/unit/validation/test_graph_completeness_audit.py"
@@ -75,11 +79,12 @@ jobs:
       - name: Build graph
         run: python scripts/validation/build_dependency_graph.py
 
-      - name: Prove graph generator, semantic inventory, impact traversal, proof selection, selective compatibility, completeness audit, and decision composition
+      - name: Prove graph generator, semantic inventories, impact traversal, proof selection, selective compatibility, completeness audit, and decision composition
         run: >-
           pytest -q
           tests/unit/validation/test_build_dependency_graph.py
           tests/unit/validation/test_graph_semantic_hardening.py
+          tests/unit/validation/test_graph_runtime_contract_inventory.py
           tests/unit/validation/test_graph_impact_analysis.py
           tests/unit/validation/test_graph_proof_selection.py
           tests/unit/validation/test_graph_completeness_audit.py
