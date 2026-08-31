@@ -19,6 +19,29 @@ def _results() -> dict[str, dict[str, object]]:
     return {str(item["finding_id"]): item for item in report["results"]}
 
 
+def _consumption_debug(item: dict[str, object]) -> dict[str, object]:
+    consumption = item.get("consumption")
+    if not isinstance(consumption, dict):
+        return {"consumption": consumption}
+    raw_evidence = consumption.get("evidence")
+    evidence = raw_evidence if isinstance(raw_evidence, list) else []
+    return {
+        "status": consumption.get("status"),
+        "reason": consumption.get("reason"),
+        "specializer_control_resolved": consumption.get("specializer_control_resolved"),
+        "evidence": [
+            {
+                "function": row.get("function"),
+                "status": row.get("status"),
+                "reads": row.get("reads"),
+                "ambiguous_escapes": row.get("ambiguous_escapes"),
+            }
+            for row in evidence
+            if isinstance(row, dict)
+        ],
+    }
+
+
 def test_real_controls_require_typed_behavioral_consumption() -> None:
     results = _results()
 
@@ -39,9 +62,10 @@ def test_real_controls_require_typed_behavioral_consumption() -> None:
         "runtime-binding-gap:sales.research_context:sales.research:prospect_candidates",
     ):
         item = results[finding_id]
-        assert item["result"] == "VIOLATED", item
-        assert item["binding_disposition"] == "UNCONSUMED_WHEN_APPLICABLE", item
-        assert item["consumption"]["status"] == "unconsumed", item
+        diagnostic = _consumption_debug(item)
+        assert item["result"] == "VIOLATED", diagnostic
+        assert item["binding_disposition"] == "UNCONSUMED_WHEN_APPLICABLE", diagnostic
+        assert item["consumption"]["status"] == "unconsumed", diagnostic
 
 
 def test_existing_missing_and_schema_rejected_violations_remain_violations() -> None:
