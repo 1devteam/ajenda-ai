@@ -31,13 +31,14 @@ def test_binding_disposition_is_preserved_while_selection_applicability_is_added
     crm = results["runtime-binding-gap:sales.research_context:crm.research:prospect_candidates"]
     web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
 
-    assert primary["result"] == "VIOLATED"
-    assert primary["binding_disposition"] == "UNCONSUMED_WHEN_APPLICABLE"
+    assert primary["result"] == "SATISFIED"
+    assert primary["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE"
     assert primary["action_selection"]["normal_role"] == "primary"
     assert primary["action_selection"]["normal_position"] == 0
     assert primary["action_selection"]["decision"] == "requires_instantiated_resolver_state"
 
-    assert crm["result"] == "VIOLATED"
+    assert crm["result"] == "SATISFIED"
+    assert crm["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE"
     assert crm["action_selection"]["normal_role"] == "fallback"
     assert crm["action_selection"]["normal_position"] == 1
     assert crm["action_selection"]["prior_actions"] == ["sales.research"]
@@ -109,11 +110,11 @@ def test_selection_report_is_non_enforcing_and_preserves_binding_counts() -> Non
     assert report["policy"]["action_selection_instantiation"] == "required-for-enforcement"
     assert report["metrics"] == {
         "candidate_count": 9,
-        "satisfied_count": 6,
-        "violated_count": 3,
+        "satisfied_count": 8,
+        "violated_count": 1,
         "indeterminate_count": 0,
-        "violated_primary_action_count": 1,
-        "violated_fallback_action_count": 2,
+        "violated_primary_action_count": 0,
+        "violated_fallback_action_count": 1,
         "unresolved_action_selection_count": 0,
         "resolver_catalog_drift_count": 1,
     }

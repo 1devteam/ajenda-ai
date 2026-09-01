@@ -73,6 +73,9 @@ def test_real_controls_require_typed_behavioral_consumption() -> None:
             if evidence["status"] == "consumed"
         ), diagnostic
 
+    # sales.research and its crm.research alias share one typed handler. The
+    # product now consumes bound prospect_candidates and emits researched_prospects,
+    # so both real findings remain as explicit closure controls.
     for finding_id in (
         "runtime-binding-gap:sales.research_context:crm.research:prospect_candidates",
         "runtime-binding-gap:sales.research_context:sales.research:prospect_candidates",
@@ -81,11 +84,14 @@ def test_real_controls_require_typed_behavioral_consumption() -> None:
         diagnostic = _consumption_debug(item)
         consumption = item["consumption"]
         assert consumption["specializer_control_resolved"] is True, diagnostic
-        indeterminate = [evidence for evidence in diagnostic["evidence"] if evidence["status"] == "indeterminate"]
-        assert not indeterminate, indeterminate
-        assert item["result"] == "VIOLATED", diagnostic
-        assert item["binding_disposition"] == "UNCONSUMED_WHEN_APPLICABLE", diagnostic
-        assert consumption["status"] == "unconsumed", diagnostic
+        assert item["result"] == "SATISFIED", diagnostic
+        assert item["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE", diagnostic
+        assert consumption["status"] == "consumed", diagnostic
+        assert any(
+            evidence["function"] == "sales_research"
+            for evidence in consumption["evidence"]
+            if evidence["status"] == "consumed"
+        ), diagnostic
 
 
 def test_repaired_knowledge_gap_is_absent_and_schema_rejected_violation_remains() -> None:
@@ -234,7 +240,7 @@ def test_final_report_is_non_enforcing_and_closes_current_control_set() -> None:
     assert report["policy"]["typed_consumption_required"] is True
     assert report["metrics"] == {
         "candidate_count": 9,
-        "satisfied_count": 6,
-        "violated_count": 3,
+        "satisfied_count": 8,
+        "violated_count": 1,
         "indeterminate_count": 0,
     }

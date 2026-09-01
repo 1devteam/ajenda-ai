@@ -4,6 +4,8 @@ import uuid
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from backend.services.knowledge import ContextConditionState, SourceConditionObservation
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.tools.action_registry import ActionRegistry, get_default_action_registry
@@ -276,6 +278,67 @@ def test_sales_log_activity_preserves_record_write_payload_shape() -> None:
         "note": "called buyer",
         "channel": "phone",
     }
+
+
+def test_sales_research_consumes_bound_prospect_candidates() -> None:
+    from backend.services.plugins.crm_client import CrmSearchResult
+
+    client = MagicMock()
+    client.search.side_effect = [
+        CrmSearchResult(
+            results=[{"id": "crm-alpha", "company": "Alpha Roofing"}],
+            count=1,
+            source="ajenda_brain",
+            real=True,
+        ),
+        CrmSearchResult(
+            results=[{"id": "crm-beta", "company": "Beta Roofing"}],
+            count=1,
+            source="ajenda_brain",
+            real=True,
+        ),
+    ]
+    registry = get_default_action_registry(rebuild=True)
+    handler = registry.get("sales.research").handler
+    invocation = ToolInvocation(
+        action="sales.research",
+        input={
+            "lead": {"company": "roofing companies (Austin)"},
+            "context": {
+                "prospect_candidates": [
+                    {"prospect_id": "p1", "company": "Alpha Roofing", "domain": "alpha.example"},
+                    {"prospect_id": "p2", "company": "Beta Roofing", "domain": "beta.example"},
+                ]
+            },
+        },
+    )
+
+    with patch("backend.services.tools.sales_actions.default_crm_client", return_value=client):
+        result = handler(invocation, _context())
+
+    assert client.search.call_count == 2
+    assert client.search.call_args_list[0].kwargs["company"] == "Alpha Roofing"
+    assert client.search.call_args_list[0].kwargs["domain"] == "alpha.example"
+    assert client.search.call_args_list[1].kwargs["company"] == "Beta Roofing"
+    assert [item["prospect_id"] for item in result.output["researched_prospects"]] == ["p1", "p2"]
+    assert result.output["researched_prospects"][0]["crm_matches"][0]["id"] == "crm-alpha"
+    assert result.output["researched_prospects"][1]["crm_matches"][0]["id"] == "crm-beta"
+    assert [item["id"] for item in result.output["crm_matches"]] == ["crm-alpha", "crm-beta"]
+    assert result.records_inspected == ["crm-alpha", "crm-beta"]
+
+
+def test_sales_research_bound_prospect_refuses_tenant_profile_substitution() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    handler = registry.get("sales.research").handler
+
+    with pytest.raises(ValueError, match="refusing tenant-profile substitution"):
+        handler(
+            ToolInvocation(
+                action="sales.research",
+                input={"context": {"prospect_candidates": [{"prospect_id": "p1"}]}},
+            ),
+            _context(),
+        )
 
 
 def test_sales_research_credentialed_uses_external_read_path() -> None:
