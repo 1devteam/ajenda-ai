@@ -101,10 +101,7 @@ def test_repaired_knowledge_and_false_web_fallback_findings_are_absent() -> None
         "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
         not in results
     )
-    assert (
-        "runtime-binding-gap:sales.research_context:web.research:prospect_candidates"
-        not in results
-    )
+    assert "runtime-binding-gap:sales.research_context:web.research:prospect_candidates" not in results
 
 
 def test_consumption_pipeline_preserves_synthetic_missing_binding_violation() -> None:
