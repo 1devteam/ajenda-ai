@@ -250,4 +250,3 @@ def test_incomplete_mission_brief_reports_deterministic_blocking_fields() -> Non
     assert result.readiness.ready_for_mission_create is False
     assert result.readiness.blocking_fields == ["objective", "success_criteria"]
     assert result.readiness.recommendations == ["evidence_expectations"]
-
