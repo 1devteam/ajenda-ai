@@ -43,10 +43,7 @@ def test_binding_disposition_is_preserved_while_selection_applicability_is_added
     assert crm["action_selection"]["prior_actions"] == ["sales.research"]
     assert crm["action_selection"]["connection_hint"]["integration"] == "hubspot"
 
-    assert (
-        "runtime-binding-gap:sales.research_context:web.research:prospect_candidates"
-        not in results
-    )
+    assert "runtime-binding-gap:sales.research_context:web.research:prospect_candidates" not in results
 
 
 def test_crm_pipeline_closure_is_primary_and_connection_conditioned() -> None:
