@@ -24,5 +24,3 @@ def test_canonical_graph_integrates_resolver_selection_topology() -> None:
     assert "selection:sales.research_context:web.search" not in nodes
     assert "resolver-catalog-action-drift:sales.research_context:web.search" not in findings
     assert graph["runtime_action_selection_metrics"]["resolver_only_pair_count"] == 0
-
-
