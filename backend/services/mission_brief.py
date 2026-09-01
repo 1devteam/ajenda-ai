@@ -790,12 +790,8 @@ def build_mission_brief(
     }
     brief = {key: value for key, value in brief.items() if value not in (None, [], {})}
 
-    blocking_fields = list(
-        dict.fromkeys(item.field for item in missing if item.severity == "required")
-    )
-    recommendations = list(
-        dict.fromkeys(item.field for item in missing if item.severity == "recommended")
-    )
+    blocking_fields = list(dict.fromkeys(item.field for item in missing if item.severity == "required"))
+    recommendations = list(dict.fromkeys(item.field for item in missing if item.severity == "recommended"))
     readiness = MissionBriefReadiness(
         state="blocked" if blocking_fields else "ready",
         ready_for_mission_create=not blocking_fields,
