@@ -127,6 +127,7 @@ def test_mission_brief_draft_does_not_call_runtime_or_mutation_repositories() ->
     queue_all.assert_not_called()
     dispatch.assert_not_called()
 
+
 def test_mission_brief_draft_reports_required_blockers_without_creating_state() -> None:
     app = _build_app()
     with patch.object(mission_brief_module, "BusinessProfileRepository", _FakeBusinessProfileRepository):
