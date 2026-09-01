@@ -31,6 +31,7 @@
     "wrangler": "^4.123.0"
   },
   "overrides": {
+    "browserslist": "4.28.7",
     "esbuild": "^0.28.1",
     "sharp": "^0.35.3",
     "undici": "7.29.0"
