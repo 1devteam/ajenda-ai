@@ -56,11 +56,10 @@ def test_current_binding_candidates_are_self_adjudicated() -> None:
         not in results
     )
 
-    web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
-    assert web["result"] == "VIOLATED"
-    assert web["binding_disposition"] == "SCHEMA_REJECTED_WHEN_APPLICABLE"
-    assert web["applicability"]["state"] == "conditional"
-    assert web["applicability"]["decision"] == "requires_instantiated_inputs"
+    assert (
+        "runtime-binding-gap:sales.research_context:web.research:prospect_candidates"
+        not in results
+    )
 
     for finding_id in (
         "runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:prospect_candidates",
@@ -143,23 +142,23 @@ def test_plan_time_binding_cannot_be_masked_by_runtime_fallback() -> None:
     graph = deepcopy(build_graph())
     graph["edges"].append(
         {
-            "from": "action:web.research",
+            "from": "action:gtm.crm_upsert",
             "to": "artifact:prospect_candidates",
             "type": "binds_artifact",
             "evidence": "synthetic-fallback-control",
             "output_path": "$.prospect_candidates",
-            "input_path": "$.input.query",
+            "input_path": "$.input.data.prospect_candidates",
         }
     )
 
     report = adjudicate_runtime_binding_candidates(graph, repo_root=REPO_ROOT)
     results = {str(item["finding_id"]): item for item in report["results"]}
-    web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
+    crm = results["runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:prospect_candidates"]
 
-    assert web["result"] == "VIOLATED"
-    assert web["binding"]["phase"] == "plan_compile"
-    assert web["binding"]["input_path"] == "$.input.context.prospect_candidates"
-    assert web["binding"]["runtime_fallback"]["input_path"] == "$.input.query"
+    assert crm["result"] == "SATISFIED"
+    assert crm["binding"]["phase"] == "plan_compile"
+    assert crm["binding"]["input_path"] == "$.input.context.prospect_candidates"
+    assert crm["binding"]["runtime_fallback"]["input_path"] == "$.input.data.prospect_candidates"
 
 
 def test_unknown_action_schema_fails_to_indeterminate_not_violation() -> None:
@@ -233,8 +232,8 @@ def test_adjudication_remains_non_enforcing_and_complete_for_current_controls() 
     assert report["policy"]["enforcement"] == "disabled"
     assert report["policy"]["applicability_instantiation"] == "required-for-conditional-enforcement"
     assert report["metrics"] == {
-        "candidate_count": 9,
+        "candidate_count": 8,
         "satisfied_count": 8,
-        "violated_count": 1,
+        "violated_count": 0,
         "indeterminate_count": 0,
     }

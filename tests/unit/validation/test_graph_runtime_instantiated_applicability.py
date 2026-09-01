@@ -75,25 +75,24 @@ def test_c3_primary_ready_prevents_fallback_activation(graph: dict[str, object])
     assert results[SALES_CRM]["instantiated_applicability"] == "NOT_APPLICABLE"
 
 
-def test_c4_rejected_prior_actions_and_ready_web_selects_remaining_violation(graph: dict[str, object]) -> None:
+def test_c4_rejected_primary_and_ready_crm_selects_healthy_fallback(graph: dict[str, object]) -> None:
     context = {
         "selected_job_keys": ["sales.research_context"],
         "available_inputs": [],
         "action_states": {
             "sales.research_context": {
                 "sales.research": "rejected",
-                "crm.research": "rejected",
-                "web.research": "ready",
+                "crm.research": "ready",
             }
         },
         "connected_integrations": ["hubspot"],
     }
-    item = _results(_report(graph, context))[SALES_WEB]
+    item = _results(_report(graph, context))[SALES_CRM]
 
-    assert item["instantiated_result"] == "VIOLATED"
+    assert item["instantiated_result"] == "SATISFIED"
     assert item["instantiated_applicability"] == "ACTIVE"
-    assert item["repair_authorized"] is True
-    assert item["instantiated_witness"]["action_selection"]["selected_action"] == "web.research"
+    assert item["repair_authorized"] is False
+    assert item["instantiated_witness"]["action_selection"]["selected_action"] == "crm.research"
 
 
 def test_c5_alternate_satisfier_deactivates_conditional_dependency(graph: dict[str, object]) -> None:
@@ -115,13 +114,14 @@ def test_c6_missing_required_input_activates_conditional_dependency(graph: dict[
     context = {
         "selected_job_keys": ["sales.research_context"],
         "available_inputs": [],
-        "selected_actions": {"sales.research_context": "web.research"},
+        "selected_actions": {"sales.research_context": "crm.research"},
+        "connected_integrations": ["hubspot"],
     }
-    item = _results(_report(graph, context))[SALES_WEB]
+    item = _results(_report(graph, context))[SALES_CRM]
 
     assert item["instantiated_witness"]["dependency_applicability"]["state"] == "ACTIVE"
-    assert item["instantiated_result"] == "VIOLATED"
-    assert item["repair_authorized"] is True
+    assert item["instantiated_result"] == "SATISFIED"
+    assert item["repair_authorized"] is False
 
 
 def test_c7_unknown_satisfier_state_remains_indeterminate(graph: dict[str, object]) -> None:
@@ -152,18 +152,10 @@ def test_c8_connection_constrained_action_requires_connection_evidence(graph: di
     assert connected["repair_authorized"] is False
 
 
-def test_c9_static_disposition_is_preserved_when_instance_is_not_applicable(graph: dict[str, object]) -> None:
-    context = {
-        "selected_job_keys": ["sales.research_context"],
-        "available_inputs": [],
-        "action_states": {"sales.research_context": {"sales.research": "ready"}},
-    }
-    item = _results(_report(graph, context))[SALES_WEB]
+def test_c9_false_web_fallback_is_absent_from_static_findings(graph: dict[str, object]) -> None:
+    results = _results(_report(graph, {"selected_job_keys": ["sales.research_context"], "available_inputs": []}))
 
-    assert item["static_result"] == "VIOLATED"
-    assert item["binding_disposition"] == "SCHEMA_REJECTED_WHEN_APPLICABLE"
-    assert item["instantiated_result"] == "INDETERMINATE"
-    assert item["instantiated_applicability"] == "NOT_APPLICABLE"
+    assert SALES_WEB not in results
 
 
 def test_c10_action_observation_alone_does_not_prove_business_job_identity(graph: dict[str, object]) -> None:

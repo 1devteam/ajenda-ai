@@ -29,7 +29,6 @@ def test_binding_disposition_is_preserved_while_selection_applicability_is_added
 
     primary = results["runtime-binding-gap:sales.research_context:sales.research:prospect_candidates"]
     crm = results["runtime-binding-gap:sales.research_context:crm.research:prospect_candidates"]
-    web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
 
     assert primary["result"] == "SATISFIED"
     assert primary["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE"
@@ -44,11 +43,10 @@ def test_binding_disposition_is_preserved_while_selection_applicability_is_added
     assert crm["action_selection"]["prior_actions"] == ["sales.research"]
     assert crm["action_selection"]["connection_hint"]["integration"] == "hubspot"
 
-    assert web["result"] == "VIOLATED"
-    assert web["binding_disposition"] == "SCHEMA_REJECTED_WHEN_APPLICABLE"
-    assert web["action_selection"]["normal_role"] == "fallback"
-    assert web["action_selection"]["normal_position"] == 2
-    assert web["action_selection"]["prior_actions"] == ["sales.research", "crm.research"]
+    assert (
+        "runtime-binding-gap:sales.research_context:web.research:prospect_candidates"
+        not in results
+    )
 
 
 def test_crm_pipeline_closure_is_primary_and_connection_conditioned() -> None:
@@ -76,14 +74,11 @@ def test_catalog_only_binding_controls_remain_inactive() -> None:
         assert item["action_selection"]["state"] == "inactive"
 
 
-def test_independent_adjudicator_detects_resolver_catalog_drift() -> None:
+def test_current_sales_research_context_resolver_matches_catalog() -> None:
     report = _report()
     findings = {item["id"]: item for item in report["resolver_catalog_findings"]}
 
-    drift = findings["resolver-catalog-action-drift:sales.research_context:web.search"]
-    assert drift["status"] == "confirmed_source_drift"
-    assert drift["normal_role"] == "fallback"
-    assert drift["normal_position"] == 3
+    assert "resolver-catalog-action-drift:sales.research_context:web.search" not in findings
 
 
 def test_synthetic_drift_control_does_not_depend_on_graph_inventory_parser() -> None:
@@ -109,12 +104,12 @@ def test_selection_report_is_non_enforcing_and_preserves_binding_counts() -> Non
     assert report["policy"]["enforcement"] == "disabled"
     assert report["policy"]["action_selection_instantiation"] == "required-for-enforcement"
     assert report["metrics"] == {
-        "candidate_count": 9,
+        "candidate_count": 8,
         "satisfied_count": 8,
-        "violated_count": 1,
+        "violated_count": 0,
         "indeterminate_count": 0,
         "violated_primary_action_count": 0,
-        "violated_fallback_action_count": 1,
+        "violated_fallback_action_count": 0,
         "unresolved_action_selection_count": 0,
-        "resolver_catalog_drift_count": 1,
+        "resolver_catalog_drift_count": 0,
     }

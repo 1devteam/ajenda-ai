@@ -21,48 +21,25 @@ def _inventory() -> dict[str, object]:
 def test_inventory_preserves_catalog_and_resolver_as_distinct_authorities() -> None:
     inventory = _inventory()
     nodes = {node["id"]: node for node in inventory["nodes"]}
-    edges = {(edge["from"], edge["to"], edge["type"]) for edge in inventory["edges"]}
 
     sales = nodes["selection:sales.research_context:sales.research"]
     crm = nodes["selection:sales.research_context:crm.research"]
-    web = nodes["selection:sales.research_context:web.research"]
-    web_search = nodes["selection:sales.research_context:web.search"]
 
     assert sales["normal_position"] == 0
     assert sales["normal_role"] == "primary"
     assert crm["normal_position"] == 1
     assert crm["normal_role"] == "fallback"
     assert crm["prior_actions"] == ["sales.research"]
-    assert web["normal_position"] == 2
-    assert web["prior_actions"] == ["sales.research", "crm.research"]
-    assert web_search["normal_position"] == 3
-    assert web_search["catalog_declared"] is False
-
-    assert (
-        "job:sales.research_context",
-        "selection:sales.research_context:web.search",
-        "resolver_selection",
-    ) in edges
-    assert (
-        "selection:sales.research_context:web.search",
-        "action:web.search",
-        "selects_action",
-    ) in edges
+    assert "selection:sales.research_context:web.research" not in nodes
+    assert "selection:sales.research_context:web.search" not in nodes
 
 
-def test_inventory_surfaces_resolver_catalog_action_drift() -> None:
+def test_current_inventory_has_no_sales_context_resolver_catalog_drift() -> None:
     inventory = _inventory()
     findings = {finding["id"]: finding for finding in inventory["findings"]}
 
-    drift = findings["resolver-catalog-action-drift:sales.research_context:web.search"]
-    assert drift["classification"] == "resolver_catalog_action_drift"
-    assert drift["blocking"] is False
-    assert drift["related_nodes"] == [
-        "job:sales.research_context",
-        "selection:sales.research_context:web.search",
-        "action:web.search",
-    ]
-    assert inventory["metrics"]["resolver_only_pair_count"] == 1
+    assert "resolver-catalog-action-drift:sales.research_context:web.search" not in findings
+    assert inventory["metrics"]["resolver_only_pair_count"] == 0
 
 
 def test_inventory_preserves_source_specific_selection_override() -> None:

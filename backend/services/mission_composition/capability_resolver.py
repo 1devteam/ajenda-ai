@@ -33,7 +33,7 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "intelligence.retrieve_knowledge": ("knowledge.retrieve_current",),
     "intelligence.retrieve_business_profile": ("retrieval.hybrid_search",),
     "intelligence.advise_next": ("decision.recommend_next_action",),
-    "sales.research_context": ("sales.research", "crm.research", "web.research", "web.search"),
+    "sales.research_context": ("sales.research", "crm.research"),
     "sales.qualify_prospects": ("sales.qualify", "sales.score_lead"),
     "gtm.enrich_contacts": ("gtm.lead_enrich",),
     "email.prepare_outreach": ("gtm.email_draft", "sales.draft_followup"),
