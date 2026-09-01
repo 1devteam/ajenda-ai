@@ -1,5 +1,6 @@
 import ast
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 VALIDATION_DIR = Path(__file__).resolve().parents[3] / "scripts" / "validation"
@@ -72,18 +73,55 @@ def test_real_controls_require_typed_behavioral_consumption() -> None:
         assert consumption["status"] == "unconsumed", diagnostic
 
 
-def test_existing_missing_and_schema_rejected_violations_remain_violations() -> None:
+def test_repaired_knowledge_gap_is_absent_and_schema_rejected_violation_remains() -> None:
     results = _results()
 
-    knowledge = results[
+    assert (
         "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
-    ]
+        not in results
+    )
     web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
-
-    assert knowledge["result"] == "VIOLATED"
-    assert knowledge["binding_disposition"] == "MISSING_WHEN_APPLICABLE"
     assert web["result"] == "VIOLATED"
     assert web["binding_disposition"] == "SCHEMA_REJECTED_WHEN_APPLICABLE"
+
+
+def test_consumption_pipeline_preserves_synthetic_missing_binding_violation() -> None:
+    graph = deepcopy(build_graph())
+    graph["nodes"].append(
+        {
+            "id": "job:synthetic.knowledge_consumer",
+            "type": "business_job",
+            "label": "Synthetic knowledge consumer",
+            "job_key": "synthetic.knowledge_consumer",
+            "maturity": "runtime_bound",
+        }
+    )
+    graph["edges"].append(
+        {
+            "from": "job:synthetic.knowledge_consumer",
+            "to": "job:research.observe_sources",
+            "type": "depends_on_hard",
+            "evidence": "synthetic-consumption-missing-binding-control",
+        }
+    )
+    finding_id = "runtime-binding-gap:synthetic.knowledge_consumer:knowledge.retrieve_current:observed_contacts"
+    graph["semantic_findings"].append(
+        {
+            "id": finding_id,
+            "classification": "binding_coverage_gap",
+            "evidence": ["synthetic-consumption-missing-binding-control"],
+            "related_nodes": [
+                "job:synthetic.knowledge_consumer",
+                "action:knowledge.retrieve_current",
+                "artifact:observed_contacts",
+            ],
+        }
+    )
+
+    report = adjudicate_runtime_contracts_with_consumption(graph, repo_root=REPO_ROOT)
+    result = next(item for item in report["results"] if item["finding_id"] == finding_id)
+    assert result["result"] == "VIOLATED"
+    assert result["binding_disposition"] == "MISSING_WHEN_APPLICABLE"
 
 
 def test_non_runtime_controls_remain_not_applicable() -> None:
@@ -180,8 +218,8 @@ def test_final_report_is_non_enforcing_and_closes_current_control_set() -> None:
     assert report["policy"]["enforcement"] == "disabled"
     assert report["policy"]["typed_consumption_required"] is True
     assert report["metrics"] == {
-        "candidate_count": 10,
+        "candidate_count": 9,
         "satisfied_count": 4,
-        "violated_count": 6,
+        "violated_count": 5,
         "indeterminate_count": 0,
     }

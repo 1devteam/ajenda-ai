@@ -61,7 +61,7 @@ def test_artifact_flow_uses_consumer_to_dependency_direction() -> None:
     edges = {(edge["from"], edge["to"], edge["type"]) for edge in inventory["edges"]}
 
     assert (
-        "job:intelligence.retrieve_knowledge",
+        "job:intelligence.advise_next",
         "artifact:observed_contacts",
         "requires_artifact",
     ) in edges
@@ -104,17 +104,64 @@ def test_inventory_exposes_source_derived_runtime_artifact_bindings() -> None:
     )
 
 
-def test_inventory_surfaces_required_artifact_without_action_binding_as_gap() -> None:
+def test_repaired_knowledge_job_no_longer_claims_observed_contacts_artifact_input() -> None:
     inventory = _inventory()
     edges = {(edge["from"], edge["to"], edge["type"]) for edge in inventory["edges"]}
     findings = {finding["id"]: finding for finding in inventory["findings"]}
 
     assert (
-        "action:knowledge.retrieve_current",
+        "job:intelligence.retrieve_knowledge",
         "artifact:observed_contacts",
-        "binds_artifact",
+        "requires_artifact",
     ) not in edges
-    finding_id = "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
+    assert (
+        "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
+        not in findings
+    )
+
+
+def test_inventory_negative_control_surfaces_missing_required_artifact_binding(tmp_path: Path) -> None:
+    catalog = tmp_path / MODULE.JOB_CATALOG_PATH
+    seeds = tmp_path / MODULE.ACTION_INPUT_SEED_PATH
+    bindings = tmp_path / MODULE.RUNTIME_BINDING_PATH
+    tool_source = tmp_path / MODULE.ACTION_IMPLEMENTATION_ROOT / "synthetic_action.py"
+    for path in (catalog, seeds, bindings, tool_source):
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    catalog.write_text(
+        """
+JOBS = (
+    BusinessJob(
+        job_key="synthetic.producer",
+        display_name="Synthetic producer",
+        vertical_role="vertical.test",
+        produced_outputs=("synthetic_artifact",),
+        maturity="runtime_bound",
+    ),
+    BusinessJob(
+        job_key="synthetic.consumer",
+        display_name="Synthetic consumer",
+        vertical_role="vertical.test",
+        required_inputs=("synthetic_artifact",),
+        candidate_actions=("synthetic.consume",),
+        maturity="runtime_bound",
+        dependencies=(JobDependency(job_key="synthetic.producer", kind="hard"),),
+    ),
+)
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    seeds.write_text('ACTION = "synthetic.consume"\n', encoding="utf-8")
+    bindings.write_text(
+        "def default_bindings_for_action(action_name, dependencies):\n    return []\n",
+        encoding="utf-8",
+    )
+    tool_source.write_text('ACTION = "synthetic.consume"\n', encoding="utf-8")
+
+    inventory = MODULE.collect_runtime_contract_inventory(tmp_path)
+    findings = {finding["id"]: finding for finding in inventory["findings"]}
+    finding_id = "runtime-binding-gap:synthetic.consumer:synthetic.consume:synthetic_artifact"
     assert findings[finding_id]["classification"] == "binding_coverage_gap"
     assert findings[finding_id]["blocking"] is False
 

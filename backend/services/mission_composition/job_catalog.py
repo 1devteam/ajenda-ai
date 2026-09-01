@@ -50,8 +50,12 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         job_key="intelligence.retrieve_knowledge",
         display_name="Retrieve current knowledge",
         vertical_role="vertical.research",
-        supported_outcomes=("observe_contacts",),
-        required_inputs=("observed_contacts",),
+        # Optional decision support is planner/know-how selectable, not a
+        # deterministic requirement of the observe_contacts outcome.
+        supported_outcomes=(),
+        # knowledge.retrieve_current builds a semantic query from MissionIntent;
+        # it does not consume the concrete observed_contacts runtime artifact.
+        required_inputs=(),
         produced_outputs=("retrieved_knowledge",),
         candidate_actions=("knowledge.retrieve_current",),
         risk_level="low",
@@ -83,7 +87,8 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         job_key="intelligence.advise_next",
         display_name="Recommend next action",
         vertical_role="vertical.research",
-        supported_outcomes=("observe_contacts",),
+        # The governed RevOps know-how owns this as optional decision support.
+        supported_outcomes=(),
         required_inputs=("observed_contacts",),
         produced_outputs=("recommendation",),
         candidate_actions=("decision.recommend_next_action",),
