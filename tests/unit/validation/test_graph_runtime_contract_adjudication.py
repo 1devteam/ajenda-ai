@@ -51,12 +51,10 @@ def test_compiler_binding_witnesses_are_source_derived() -> None:
 def test_current_binding_candidates_are_self_adjudicated() -> None:
     results = _results()
 
-    knowledge = results[
+    assert (
         "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
-    ]
-    assert knowledge["result"] == "VIOLATED"
-    assert knowledge["binding_disposition"] == "MISSING_WHEN_APPLICABLE"
-    assert knowledge["applicability"]["state"] == "always_when_job_selected"
+        not in results
+    )
 
     web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
     assert web["result"] == "VIOLATED"
@@ -73,6 +71,46 @@ def test_current_binding_candidates_are_self_adjudicated() -> None:
     ):
         assert results[finding_id]["result"] == "SATISFIED"
         assert results[finding_id]["binding_disposition"] == "COMPATIBLE_WHEN_APPLICABLE"
+
+
+def test_synthetic_missing_binding_remains_a_proven_violation() -> None:
+    graph = deepcopy(build_graph())
+    graph["nodes"].append(
+        {
+            "id": "job:synthetic.knowledge_consumer",
+            "type": "business_job",
+            "label": "Synthetic knowledge consumer",
+            "job_key": "synthetic.knowledge_consumer",
+            "maturity": "runtime_bound",
+        }
+    )
+    graph["edges"].append(
+        {
+            "from": "job:synthetic.knowledge_consumer",
+            "to": "job:research.observe_sources",
+            "type": "depends_on_hard",
+            "evidence": "synthetic-missing-binding-control",
+        }
+    )
+    finding_id = "runtime-binding-gap:synthetic.knowledge_consumer:knowledge.retrieve_current:observed_contacts"
+    graph["semantic_findings"].append(
+        {
+            "id": finding_id,
+            "classification": "binding_coverage_gap",
+            "evidence": ["synthetic-missing-binding-control"],
+            "related_nodes": [
+                "job:synthetic.knowledge_consumer",
+                "action:knowledge.retrieve_current",
+                "artifact:observed_contacts",
+            ],
+        }
+    )
+
+    report = adjudicate_runtime_binding_candidates(graph, repo_root=REPO_ROOT)
+    result = next(item for item in report["results"] if item["finding_id"] == finding_id)
+    assert result["result"] == "VIOLATED"
+    assert result["binding_disposition"] == "MISSING_WHEN_APPLICABLE"
+    assert result["applicability"]["state"] == "always_when_job_selected"
 
 
 def test_conditional_results_preserve_predicates_without_claiming_activation() -> None:
@@ -195,8 +233,8 @@ def test_adjudication_remains_non_enforcing_and_complete_for_current_controls() 
     assert report["policy"]["enforcement"] == "disabled"
     assert report["policy"]["applicability_instantiation"] == "required-for-conditional-enforcement"
     assert report["metrics"] == {
-        "candidate_count": 10,
+        "candidate_count": 9,
         "satisfied_count": 8,
-        "violated_count": 2,
+        "violated_count": 1,
         "indeterminate_count": 0,
     }

@@ -42,17 +42,17 @@ jobs:
     verified_state: partial
     gaps: [no_canonical_outcome, crm_research_has_no_direct_ability_manifest]
   - job_key: intelligence.retrieve_knowledge
-    outcomes: [observe_contacts]
+    outcomes: []
     role: vertical.research
-    inputs: [observed_contacts]
+    inputs: []
     outputs: [retrieved_knowledge]
     credential_policy: none
     actions: [knowledge.retrieve_current]
     templates: []
     verified_state: partial
-    gaps: [shares_observe_contacts_outcome, not_present_in_vertical_template, vertical_production_proof_missing]
+    gaps: [optional_decision_support_only, not_present_in_vertical_template, vertical_production_proof_missing]
   - job_key: intelligence.advise_next
-    outcomes: [observe_contacts]
+    outcomes: []
     role: vertical.research
     inputs: [observed_contacts]
     outputs: [recommendation]
@@ -60,7 +60,7 @@ jobs:
     actions: [decision.recommend_next_action]
     templates: []
     verified_state: partial
-    gaps: [shares_observe_contacts_outcome, not_present_in_vertical_template, vertical_quality_unmeasured]
+    gaps: [optional_decision_support_only, not_present_in_vertical_template, vertical_quality_unmeasured]
   - job_key: sales.qualify_prospects
     outcomes: [qualify_prospects]
     role: vertical.sales

@@ -64,6 +64,38 @@ def test_valid_structured_proposal_is_non_authoritative() -> None:
     assert proposal.grants_execution_authority is False
 
 
+def test_optional_decision_support_can_be_added_without_being_deterministically_required() -> None:
+    proposal = _proposal(
+        objective="Observe contacts and optionally add decision support.",
+        jobs=(
+            PlannerJobProposal(job_key="research.discover_prospects", reason="Research requested."),
+            PlannerJobProposal(
+                job_key="research.observe_sources",
+                depends_on=("research.discover_prospects",),
+                reason="Observed contacts requested.",
+            ),
+            PlannerJobProposal(
+                job_key="intelligence.retrieve_knowledge",
+                depends_on=("research.observe_sources",),
+                reason="Optional current-knowledge support.",
+            ),
+            PlannerJobProposal(
+                job_key="intelligence.advise_next",
+                depends_on=("research.observe_sources", "intelligence.retrieve_knowledge"),
+                reason="Optional recommendation support.",
+            ),
+        ),
+        artifact_bindings=(),
+    )
+
+    validate_planner_proposal(
+        proposal,
+        know_how=REVOPS_V1_KNOW_HOW,
+        expected_material_clause_ids={"c1", "c2"},
+        required_job_keys={"research.discover_prospects", "research.observe_sources"},
+    )
+
+
 def test_parser_rejects_prose_and_extra_fields() -> None:
     with pytest.raises(ValueError, match="invalid JSON"):
         parse_planner_json("```json\n{}\n```")

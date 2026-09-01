@@ -1,4 +1,4 @@
-"""Contact-info asks compile to observe, not simulated enrich."""
+"""Contact-info asks compile to observe; decision support remains optional."""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ def test_fixture_contact_info_compiles_to_observe_not_enrich() -> None:
     keys = {job.job_key for job in jobs}
     assert "research.discover_prospects" in keys
     assert "research.observe_sources" in keys
-    assert "intelligence.retrieve_knowledge" in keys
-    assert "intelligence.advise_next" in keys
+    assert "intelligence.retrieve_knowledge" not in keys
+    assert "intelligence.advise_next" not in keys
     assert "gtm.enrich_contacts" not in keys
     assert "sales.qualify_prospects" not in keys
 
@@ -35,8 +35,8 @@ def test_fixture_contact_info_compiles_to_observe_not_enrich() -> None:
     actions = [step.action_name for step in steps]
     assert "web.research" in actions
     assert "research.observe_contacts" in actions
-    assert "knowledge.retrieve_current" in actions
-    assert "decision.recommend_next_action" in actions
+    assert "knowledge.retrieve_current" not in actions
+    assert "decision.recommend_next_action" not in actions
     assert "gtm.lead_enrich" not in actions
     assert "sales.qualify" not in actions
     assert "gtm.email_send" not in actions
