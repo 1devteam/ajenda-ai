@@ -142,4 +142,3 @@ def test_mission_brief_draft_reports_required_blockers_without_creating_state() 
         "blocking_fields": ["objective", "success_criteria"],
         "recommendations": [],
     }
-
