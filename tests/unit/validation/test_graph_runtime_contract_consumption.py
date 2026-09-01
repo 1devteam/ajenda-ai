@@ -94,16 +94,14 @@ def test_real_controls_require_typed_behavioral_consumption() -> None:
         ), diagnostic
 
 
-def test_repaired_knowledge_gap_is_absent_and_schema_rejected_violation_remains() -> None:
+def test_repaired_knowledge_and_false_web_fallback_findings_are_absent() -> None:
     results = _results()
 
     assert (
         "runtime-binding-gap:intelligence.retrieve_knowledge:knowledge.retrieve_current:observed_contacts"
         not in results
     )
-    web = results["runtime-binding-gap:sales.research_context:web.research:prospect_candidates"]
-    assert web["result"] == "VIOLATED"
-    assert web["binding_disposition"] == "SCHEMA_REJECTED_WHEN_APPLICABLE"
+    assert "runtime-binding-gap:sales.research_context:web.research:prospect_candidates" not in results
 
 
 def test_consumption_pipeline_preserves_synthetic_missing_binding_violation() -> None:
@@ -239,8 +237,8 @@ def test_final_report_is_non_enforcing_and_closes_current_control_set() -> None:
     assert report["policy"]["enforcement"] == "disabled"
     assert report["policy"]["typed_consumption_required"] is True
     assert report["metrics"] == {
-        "candidate_count": 9,
+        "candidate_count": 8,
         "satisfied_count": 8,
-        "violated_count": 1,
+        "violated_count": 0,
         "indeterminate_count": 0,
     }
