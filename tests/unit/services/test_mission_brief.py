@@ -220,3 +220,34 @@ def test_profile_scalar_text_defaults_are_bounded_before_echoing() -> None:
     assert result.mission_create_prefill["compliance_category"] == "operational"
     assert result.mission_create_prefill["jurisdiction"] == "US-ALL"
     assert all(huge_value != conflict.business_profile_default for conflict in result.conflicts)
+
+
+def test_complete_mission_brief_is_ready_despite_non_blocking_recommendations() -> None:
+    result = build_mission_brief(
+        tenant_id="tenant-a",
+        profile=None,
+        request=MissionBriefRequest(
+            current_intent={
+                "objective": "Research qualified buyers",
+                "success_criteria": ["Return five sourced accounts"],
+            }
+        ),
+    )
+
+    assert result.readiness.state == "ready"
+    assert result.readiness.ready_for_mission_create is True
+    assert result.readiness.blocking_fields == []
+    assert result.readiness.recommendations == ["evidence_expectations"]
+
+
+def test_incomplete_mission_brief_reports_deterministic_blocking_fields() -> None:
+    result = build_mission_brief(
+        tenant_id="tenant-a",
+        profile=None,
+        request=MissionBriefRequest(current_intent={}),
+    )
+
+    assert result.readiness.state == "blocked"
+    assert result.readiness.ready_for_mission_create is False
+    assert result.readiness.blocking_fields == ["objective", "success_criteria"]
+    assert result.readiness.recommendations == ["evidence_expectations"]

@@ -71,6 +71,12 @@ def test_mission_brief_draft_is_read_only_and_uses_business_profile_context() ->
     assert data["brief"]["profile_context"]["business_name"] == "Ajenda"
     assert data["mission_create_prefill"]["allowed_tools"] == ["crm"]
     assert data["mission_create_prefill"]["context"]["request_context"] == {"entrypoint": "chat"}
+    assert data["readiness"] == {
+        "state": "ready",
+        "ready_for_mission_create": True,
+        "blocking_fields": [],
+        "recommendations": [],
+    }
     assert data["authority_flags"] == {
         "authority_class": "read_model",
         "read_only": True,
@@ -120,3 +126,20 @@ def test_mission_brief_draft_does_not_call_runtime_or_mutation_repositories() ->
     task_add.assert_not_called()
     queue_all.assert_not_called()
     dispatch.assert_not_called()
+
+
+def test_mission_brief_draft_reports_required_blockers_without_creating_state() -> None:
+    app = _build_app()
+    with patch.object(mission_brief_module, "BusinessProfileRepository", _FakeBusinessProfileRepository):
+        response = TestClient(app).post(
+            "/v1/mission-brief/draft",
+            json={"current_intent": {}},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["readiness"] == {
+        "state": "blocked",
+        "ready_for_mission_create": False,
+        "blocking_fields": ["objective", "success_criteria"],
+        "recommendations": [],
+    }

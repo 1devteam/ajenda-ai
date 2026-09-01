@@ -411,6 +411,15 @@ def _mission_create_constraints(
     ]
 
 
+class MissionBriefReadiness(BaseModel):
+    """Deterministic readiness summary for explicit MissionCreate review."""
+
+    state: Literal["ready", "blocked"]
+    ready_for_mission_create: bool
+    blocking_fields: list[str]
+    recommendations: list[str]
+
+
 class MissionBriefRead(BaseModel):
     schema_version: int
     tenant_id: str
@@ -418,6 +427,7 @@ class MissionBriefRead(BaseModel):
     brief: dict[str, Any]
     missing_information: list[MissionBriefMissingInformation]
     mission_create_prefill: dict[str, Any]
+    readiness: MissionBriefReadiness
     provenance: list[MissionBriefProvenance]
     conflicts: list[MissionBriefConflict]
     authority_flags: MissionBriefAuthorityFlags
@@ -780,6 +790,15 @@ def build_mission_brief(
     }
     brief = {key: value for key, value in brief.items() if value not in (None, [], {})}
 
+    blocking_fields = list(dict.fromkeys(item.field for item in missing if item.severity == "required"))
+    recommendations = list(dict.fromkeys(item.field for item in missing if item.severity == "recommended"))
+    readiness = MissionBriefReadiness(
+        state="blocked" if blocking_fields else "ready",
+        ready_for_mission_create=not blocking_fields,
+        blocking_fields=blocking_fields,
+        recommendations=recommendations,
+    )
+
     return MissionBriefRead(
         schema_version=MISSION_BRIEF_SCHEMA_VERSION,
         tenant_id=tenant_id,
@@ -787,6 +806,7 @@ def build_mission_brief(
         brief=brief,
         missing_information=missing,
         mission_create_prefill=mission_create_prefill,
+        readiness=readiness,
         provenance=provenance,
         conflicts=conflicts,
         authority_flags=MissionBriefAuthorityFlags(),
