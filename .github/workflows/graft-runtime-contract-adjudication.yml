@@ -29,7 +29,8 @@ jobs:
           pytest -q \
             tests/unit/validation/test_graph_runtime_contract_adjudication.py \
             tests/unit/validation/test_graph_runtime_contract_consumption.py \
-            tests/unit/validation/test_graph_runtime_action_selection_adjudication.py
+            tests/unit/validation/test_graph_runtime_action_selection_adjudication.py \
+            tests/unit/validation/test_graph_runtime_instantiated_applicability.py
 
       - name: Build adjudication report
         run: |
@@ -42,6 +43,13 @@ jobs:
           python scripts/validation/graph_runtime_action_selection_adjudication.py \
             --output artifacts/graft-runtime-action-selection-adjudication.json
 
+      - name: Build uninstantiated applicability report
+        env:
+          GRAFT_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python scripts/validation/graph_runtime_instantiated_applicability.py \
+            --output artifacts/graft-runtime-instantiated-applicability.json
+
       - name: Upload adjudication evidence
         uses: actions/upload-artifact@v4
         with:
@@ -49,3 +57,4 @@ jobs:
           path: |
             artifacts/graft-runtime-contract-adjudication.json
             artifacts/graft-runtime-action-selection-adjudication.json
+            artifacts/graft-runtime-instantiated-applicability.json
