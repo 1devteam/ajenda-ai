@@ -213,95 +213,150 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
 
 def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = SalesLeadInput.model_validate(invocation.input)
-    account_id = payload.account_id or str(payload.lead.get("account_id", ""))
-    related = []
-    if account_id:
-        account = _provider(context).read_record(
-            tenant_id=context.tenant_id, record_type="account", record_id=account_id
-        )
-        if account:
-            related.append(account)
-
     context_map = payload.context if isinstance(payload.context, dict) else {}
+    bound_prospects = [dict(item) for item in (context_map.get("prospect_candidates") or []) if isinstance(item, dict)]
+    targets = bound_prospects or [dict(payload.lead)]
     require_external_crm = bool(context_map.get("require_external_crm"))
 
     cred: RuntimeCredentialMaterial | dict[str, Any] | None = context.runtime_credentials.get(
         "sales.research"
     ) or context.runtime_credentials.get("crm.research")
-    company, domain = default_company_and_domain(
-        context=context,
-        company=str(payload.lead.get("company", "") or ""),
-        domain=str(payload.lead.get("domain", "") or "") or None,
-    )
-    search = default_crm_client().search(
-        context=context,
-        company=company,
-        domain=domain,
-        credential=cred,
-        invocation=invocation,
-        action_name="sales.research",
-    )
-
-    use_external = is_live_external_crm_result(
-        source=search.source,
-        real=search.real,
-        error=search.error,
-    )
-    provider = "ajenda_brain"
     attempted_external = invocation.credential_reference is not None or cred is not None
-    side_effect_class = (
-        SideEffectClass.EXTERNAL_READ if invocation.credential_reference is not None else SideEffectClass.INTERNAL_READ
-    )
-    external_attempt_failed = bool(attempted_external and search.error)
 
-    # Explicit HubSpot / CRM-read missions must not silently complete on brain fallback.
-    if require_external_crm:
-        if search.error:
-            raise ValueError(
-                f"HubSpot CRM read failed and internal brain fallback is disabled for this mission: {search.error}"
+    researched_prospects: list[dict[str, Any]] = []
+    related_records: list[dict[str, Any]] = []
+    crm_matches: list[dict[str, Any]] = []
+    research_notes: list[str] = []
+    inspected: list[str] = []
+    sources: list[str] = []
+    status_codes: list[int] = []
+    any_external = False
+    any_external_attempt_failed = False
+
+    for target in targets:
+        account_id = str(target.get("account_id") or (payload.account_id if not bound_prospects else "") or "")
+        related: list[dict[str, Any]] = []
+        if account_id:
+            account = _provider(context).read_record(
+                tenant_id=context.tenant_id, record_type="account", record_id=account_id
             )
-        if not use_external:
-            raise ValueError(
-                "HubSpot CRM read required external records but no live HubSpot result was returned; "
-                "refusing Ajenda-brain fallback for explicit CRM read"
+            if account:
+                related.append(account)
+
+        if bound_prospects:
+            # Bound prospect identity is authoritative for this job. Never fall back
+            # to the tenant business profile when researching an upstream prospect.
+            company = str(target.get("company") or target.get("name") or "").strip()
+            domain = str(target.get("domain") or "").strip() or None
+            if not company and not domain:
+                raise ValueError(
+                    "sales.research requires each bound prospect to provide company/name or domain; "
+                    "refusing tenant-profile substitution"
+                )
+        else:
+            company, domain = default_company_and_domain(
+                context=context,
+                company=str(target.get("company", "") or ""),
+                domain=str(target.get("domain", "") or "") or None,
             )
 
-    research_notes = (
-        [f"external CRM plugin search via {search.source} (count={search.count})"]
-        if use_external
-        else [f"Ajenda central brain search (count={search.count})"]
-    )
-    if external_attempt_failed:
-        research_notes.append(f"external attempt failed: {search.error}; used internal brain fallback")
+        search = default_crm_client().search(
+            context=context,
+            company=company,
+            domain=domain or "",
+            credential=cred,
+            invocation=invocation,
+            action_name="sales.research",
+        )
+        use_external = is_live_external_crm_result(
+            source=search.source,
+            real=search.real,
+            error=search.error,
+        )
+        external_attempt_failed = bool(attempted_external and search.error)
 
-    output = {
-        "lead": payload.lead,
-        "related_records": related,
-        "crm_matches": search.results,
+        # Explicit HubSpot / CRM-read missions must not silently complete on brain fallback.
+        if require_external_crm:
+            if search.error:
+                raise ValueError(
+                    f"HubSpot CRM read failed and internal brain fallback is disabled for this mission: {search.error}"
+                )
+            if not use_external:
+                raise ValueError(
+                    "HubSpot CRM read required external records but no live HubSpot result was returned; "
+                    "refusing Ajenda-brain fallback for explicit CRM read"
+                )
+
+        notes = (
+            [f"external CRM plugin search via {search.source} (count={search.count})"]
+            if use_external
+            else [f"Ajenda central brain search (count={search.count})"]
+        )
+        if external_attempt_failed:
+            notes.append(f"external attempt failed: {search.error}; used internal brain fallback")
+
+        researched = {
+            **target,
+            "crm_matches": search.results,
+            "research_notes": notes,
+            "research_source": search.source,
+            "research_real": True,
+            "plugin_required": use_external,
+            "hybrid_mode": external_attempt_failed,
+        }
+        if related:
+            researched["related_records"] = related
+        if search.status_code is not None:
+            researched["research_status_code"] = search.status_code
+            status_codes.append(search.status_code)
+        researched_prospects.append(researched)
+
+        related_records.extend(related)
+        crm_matches.extend(item for item in search.results if isinstance(item, dict))
+        research_notes.extend(notes)
+        sources.append(search.source)
+        any_external = any_external or use_external
+        any_external_attempt_failed = any_external_attempt_failed or external_attempt_failed
+        inspected.extend(str(item["id"]) for item in related if item.get("id"))
+        inspected.extend(str(item["id"]) for item in search.results if isinstance(item, dict) and item.get("id"))
+
+    # Keep the direct-action response shape while adding the declared multi-prospect
+    # artifact for sales.research_context. Existing single-lead callers remain valid.
+    first_target = targets[0] if targets else {}
+    unique_sources = list(dict.fromkeys(sources))
+    output: dict[str, Any] = {
+        "lead": first_target,
+        "related_records": related_records,
+        "crm_matches": crm_matches,
         "research_notes": research_notes,
+        "researched_prospects": researched_prospects,
         "real": True,
-        "plugin_required": use_external,
-        "source": search.source,
-        "hybrid_mode": external_attempt_failed,
+        "plugin_required": any_external,
+        "source": unique_sources[0] if len(unique_sources) == 1 else "mixed",
+        "hybrid_mode": any_external_attempt_failed,
     }
-    if external_attempt_failed:
+    if any_external_attempt_failed:
         output["external_attempt_failed"] = True
-    if use_external and cred is not None:
+    if any_external and cred is not None:
         output["credential_reference"] = {
             "provider": getattr(getattr(cred, "reference", None), "provider", None)
             if not isinstance(cred, dict)
             else cred.get("provider"),
         }
-        if search.status_code is not None:
-            output["real_response"] = {"status_code": search.status_code}
+        if len(status_codes) == 1:
+            output["real_response"] = {"status_code": status_codes[0]}
         if invocation.idempotency_key:
             output["idempotency_key"] = invocation.idempotency_key
 
-    inspected = [str(item["id"]) for item in related if "id" in item]
-    inspected.extend(str(item["id"]) for item in search.results if isinstance(item, dict) and item.get("id"))
-    summary = f"Researched lead with {len(related)} related record(s) and {search.count} CRM match(es)." + (
-        " via external plugin" if use_external else " via Ajenda brain"
+    inspected = list(dict.fromkeys(inspected))
+    provider = "ajenda_brain"
+    side_effect_class = (
+        SideEffectClass.EXTERNAL_READ if invocation.credential_reference is not None else SideEffectClass.INTERNAL_READ
     )
+    summary = f"Researched {len(researched_prospects)} prospect(s) with {len(crm_matches)} CRM match(es)." + (
+        " via external plugin" if any_external else " via Ajenda brain"
+    )
+    confidence = 0.9 if any_external else 0.85
     return ActionResult(
         action="sales.research",
         provider=provider,
@@ -316,12 +371,12 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
                 payload=output,
                 inspected=inspected,
                 side_effect_class=side_effect_class,
-                confidence=0.9 if use_external else 0.85,
+                confidence=confidence,
             )
         ],
         records_inspected=inspected,
         summary=summary,
-        confidence=0.9 if use_external else 0.85,
+        confidence=confidence,
     )
 
 
