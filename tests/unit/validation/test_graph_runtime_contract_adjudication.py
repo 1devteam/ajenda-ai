@@ -56,10 +56,7 @@ def test_current_binding_candidates_are_self_adjudicated() -> None:
         not in results
     )
 
-    assert (
-        "runtime-binding-gap:sales.research_context:web.research:prospect_candidates"
-        not in results
-    )
+    assert "runtime-binding-gap:sales.research_context:web.research:prospect_candidates" not in results
 
     for finding_id in (
         "runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:prospect_candidates",
