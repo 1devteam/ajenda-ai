@@ -56,9 +56,24 @@ def test_real_controls_require_typed_behavioral_consumption() -> None:
         if evidence["status"] == "consumed"
     )
 
+    # CRM pipeline artifacts were previously real-system violation controls. The
+    # product repair now consumes both bound context paths, so retain them as
+    # explicit closure controls rather than deleting the finding class.
+    for artifact in ("prospect_candidates", "qualified_prospects"):
+        item = results[f"runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:{artifact}"]
+        diagnostic = _consumption_debug(item)
+        consumption = item["consumption"]
+        assert consumption["specializer_control_resolved"] is True, diagnostic
+        assert item["result"] == "SATISFIED", diagnostic
+        assert item["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE", diagnostic
+        assert consumption["status"] == "consumed", diagnostic
+        assert any(
+            evidence["function"] == "crm_upsert_handler"
+            for evidence in consumption["evidence"]
+            if evidence["status"] == "consumed"
+        ), diagnostic
+
     for finding_id in (
-        "runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:prospect_candidates",
-        "runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:qualified_prospects",
         "runtime-binding-gap:sales.research_context:crm.research:prospect_candidates",
         "runtime-binding-gap:sales.research_context:sales.research:prospect_candidates",
     ):
@@ -219,7 +234,7 @@ def test_final_report_is_non_enforcing_and_closes_current_control_set() -> None:
     assert report["policy"]["typed_consumption_required"] is True
     assert report["metrics"] == {
         "candidate_count": 9,
-        "satisfied_count": 4,
-        "violated_count": 5,
+        "satisfied_count": 6,
+        "violated_count": 3,
         "indeterminate_count": 0,
     }

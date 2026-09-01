@@ -50,12 +50,13 @@ def test_binding_disposition_is_preserved_while_selection_applicability_is_added
     assert web["action_selection"]["prior_actions"] == ["sales.research", "crm.research"]
 
 
-def test_crm_pipeline_violations_are_primary_but_connection_conditioned() -> None:
+def test_crm_pipeline_closure_is_primary_and_connection_conditioned() -> None:
     results = _results()
     for artifact in ("prospect_candidates", "qualified_prospects"):
         item = results[f"runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:{artifact}"]
         selection = item["action_selection"]
-        assert item["result"] == "VIOLATED"
+        assert item["result"] == "SATISFIED"
+        assert item["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE"
         assert selection["normal_role"] == "primary"
         assert selection["connection_hint"]["integration"] == "hubspot"
         assert "required connection is available" in selection["requirements"]
@@ -108,10 +109,10 @@ def test_selection_report_is_non_enforcing_and_preserves_binding_counts() -> Non
     assert report["policy"]["action_selection_instantiation"] == "required-for-enforcement"
     assert report["metrics"] == {
         "candidate_count": 9,
-        "satisfied_count": 4,
-        "violated_count": 5,
+        "satisfied_count": 6,
+        "violated_count": 3,
         "indeterminate_count": 0,
-        "violated_primary_action_count": 3,
+        "violated_primary_action_count": 1,
         "violated_fallback_action_count": 2,
         "unresolved_action_selection_count": 0,
         "resolver_catalog_drift_count": 1,

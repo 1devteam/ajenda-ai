@@ -144,8 +144,10 @@ def test_c8_connection_constrained_action_requires_connection_evidence(graph: di
 
     assert missing["instantiated_result"] == "INDETERMINATE"
     assert missing["repair_authorized"] is False
-    assert connected["instantiated_result"] == "VIOLATED"
-    assert connected["repair_authorized"] is True
+    assert connected["static_result"] == "SATISFIED"
+    assert connected["instantiated_result"] == "SATISFIED"
+    assert connected["instantiated_applicability"] == "ACTIVE"
+    assert connected["repair_authorized"] is False
 
 
 def test_c9_static_disposition_is_preserved_when_instance_is_not_applicable(graph: dict[str, object]) -> None:
@@ -181,8 +183,10 @@ def test_direct_selected_action_still_requires_connection_state(graph: dict[str,
     resolved = _results(_report(graph, {**context, "connected_credential_ids": ["hubspot-crm"]}))[CRM_PROSPECT]
 
     assert unresolved["instantiated_result"] == "INDETERMINATE"
-    assert resolved["instantiated_result"] == "VIOLATED"
-    assert resolved["repair_authorized"] is True
+    assert resolved["static_result"] == "SATISFIED"
+    assert resolved["instantiated_result"] == "SATISFIED"
+    assert resolved["instantiated_applicability"] == "ACTIVE"
+    assert resolved["repair_authorized"] is False
 
 
 def test_report_is_non_enforcing_and_generic_context_authorizes_no_runtime_repair(graph: dict[str, object]) -> None:
