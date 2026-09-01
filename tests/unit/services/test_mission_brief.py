@@ -221,6 +221,7 @@ def test_profile_scalar_text_defaults_are_bounded_before_echoing() -> None:
     assert result.mission_create_prefill["jurisdiction"] == "US-ALL"
     assert all(huge_value != conflict.business_profile_default for conflict in result.conflicts)
 
+
 def test_complete_mission_brief_is_ready_despite_non_blocking_recommendations() -> None:
     result = build_mission_brief(
         tenant_id="tenant-a",
