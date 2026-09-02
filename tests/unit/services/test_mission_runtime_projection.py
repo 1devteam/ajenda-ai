@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+from backend.services.mission_bridge.read_models import RuntimeTaskPreviewItem
 from backend.services.mission_runtime_projection import (
     build_execution_task_payload,
     build_runtime_task_materialization_metadata,
@@ -74,6 +75,75 @@ def test_runtime_projection_preserves_canonical_output_contract() -> None:
     projected = build_runtime_task_preview_items(mission_id=mission_id, readiness=readiness)
 
     assert projected[0]["payload_preview"]["expected_output_contract"] == {"artifact": "research_brief"}
+
+
+def test_preview_validation_preserves_compiler_input_bindings_for_materialization() -> None:
+    mission_id = uuid.uuid4()
+    readiness = SimpleNamespace(
+        graph_reference={
+            "graph_version": 1,
+            "graph_fingerprint": "sha256:graph",
+            "nodes": [
+                {
+                    "key": "research",
+                    "name": "Research",
+                    "intended_task_type": "tool.invoke",
+                    "input_contract": {
+                        "tool_invocation": {
+                            "schema_version": 1,
+                            "action": "web.research",
+                            "input": {"query": "competitors"},
+                        }
+                    },
+                },
+                {
+                    "key": "synthesize",
+                    "name": "Synthesize",
+                    "intended_task_type": "tool.invoke",
+                    "input_contract": {
+                        "tool_invocation": {
+                            "schema_version": 1,
+                            "action": "research.synthesize_report",
+                            "input": {"objective": "Compare competitors", "prospects": [], "binding_required": True},
+                        }
+                    },
+                    "metadata": {
+                        "input_bindings": [
+                            {
+                                "from_step": "research",
+                                "output_path": "$.prospect_candidates",
+                                "to_step": "synthesize",
+                                "input_path": "$.input.prospects",
+                            }
+                        ]
+                    },
+                },
+            ],
+            "edges": [{"from_node_key": "research", "to_node_key": "synthesize"}],
+        },
+        materialization_reference={"materialization_version": 1},
+        admission_reference={
+            "admission_version": 1,
+            "selected_nodes": [
+                {"node_key": "research", "runtime_task_type": "tool.invoke"},
+                {"node_key": "synthesize", "runtime_task_type": "tool.invoke"},
+            ],
+        },
+    )
+
+    projected = build_runtime_task_preview_items(mission_id=mission_id, readiness=readiness)
+    validated = RuntimeTaskPreviewItem.model_validate(projected[1])
+    payload = build_execution_task_payload(validated)
+
+    assert payload["dependency_keys"] == ["research"]
+    assert payload["input_bindings"] == [
+        {
+            "from_step": "research",
+            "output_path": "$.prospect_candidates",
+            "to_step": "synthesize",
+            "input_path": "$.input.prospects",
+        }
+    ]
 
 
 def test_execution_task_payload_extends_preview_envelope_with_trace_references() -> None:

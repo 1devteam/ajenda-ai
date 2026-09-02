@@ -161,6 +161,41 @@ def test_bind_fails_closed_when_required_and_empty() -> None:
     assert "binding_required" in str(excinfo.value).lower() or "no upstream" in str(excinfo.value).lower()
 
 
+def test_research_report_binding_fails_closed_when_upstream_candidates_are_empty() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    research = _task(
+        node_key="ability-web-research",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={"prospect_candidates": []},
+    )
+    synthesis = _task(
+        node_key="ability-research-synthesize_report",
+        status=ExecutionTaskState.RUNNING.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=["ability-web-research"],
+        tool_input={"objective": "Compare competitors", "prospects": [], "binding_required": True},
+        input_bindings=[
+            {
+                "from_step": "ability-web-research",
+                "output_path": "$.prospect_candidates",
+                "input_path": "$.input.prospects",
+            }
+        ],
+    )
+    synthesis.metadata_json["tool_invocation"]["action"] = "research.synthesize_report"
+
+    with pytest.raises(Exception, match=r"binding_required|no upstream"):
+        apply_input_bindings(
+            tool_input=synthesis.metadata_json["tool_invocation"]["input"],
+            task=synthesis,
+            mission_tasks=[research, synthesis],
+        )
+
+
 def test_bind_prospects_into_record_write_data_remains_schema_valid() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())

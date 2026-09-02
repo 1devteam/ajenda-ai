@@ -56,6 +56,9 @@ class RuntimeTaskPreviewPayload(BaseModel):
     input_contract: dict[str, Any]
     expected_output_contract: dict[str, Any]
     execution_constraints: dict[str, Any]
+    # Preserve compiler-authored dependency bindings through preview validation
+    # so materialized ExecutionTasks can rebind upstream artifacts under lease.
+    input_bindings: list[dict[str, str]] = Field(default_factory=list)
 
 
 class RuntimeTaskPreviewItem(BaseModel):

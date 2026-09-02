@@ -2865,6 +2865,7 @@ def test_runtime_task_preview_is_deterministic_and_preserves_selected_node_order
         "input_contract": {"requires": "signal_summary"},
         "expected_output_contract": {"artifact": "recommendation_set"},
         "execution_constraints": {"no_customer_contact": True},
+        "input_bindings": [],
     }
     assert body["runtime_authority"] == {
         "creates_execution_tasks": False,

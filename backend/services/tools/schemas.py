@@ -184,6 +184,7 @@ class ResearchReportInput(BaseModel):
 
     objective: str = Field(min_length=1, max_length=1000)
     prospects: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    binding_required: bool = False
 
 
 class FollowupDraftInput(BaseModel):

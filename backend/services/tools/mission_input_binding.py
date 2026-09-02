@@ -420,9 +420,12 @@ def apply_input_bindings(
             }
         )
 
-    # Specialize email_draft / send from bound prospects and/or introduction drafts.
     action_name = _action_name_from_metadata(metadata)
-    bound = _specialize_outreach_input(bound)
+    # Specialize outreach inputs only for schemas that define the derived
+    # context fields. ResearchReportInput is deliberately strict and should
+    # receive only its declared objective/prospects/binding_required fields.
+    if action_name != "research.synthesize_report":
+        bound = _specialize_outreach_input(bound)
     if action_name == "gtm.email_send":
         bound = _specialize_email_send_input(bound)
     if action_name == "decision.recommend_next_action":
@@ -527,6 +530,7 @@ def action_needs_prospect_world(metadata: dict[str, Any]) -> bool:
         "gtm.email_send",
         "sales.draft_followup",
         "research.observe_contacts",
+        "research.synthesize_report",
     }
 
 

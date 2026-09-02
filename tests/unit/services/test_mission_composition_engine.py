@@ -160,6 +160,15 @@ def test_detailed_report_deliverable_materializes_synthesis_node() -> None:
         if node["metadata"]["action"] == "research.synthesize_report"
     )
     assert synthesis["output_contract"] == {"artifact": "research_report"}
+    assert synthesis["input_contract"]["tool_invocation"]["input"]["binding_required"] is True
+    assert synthesis["metadata"]["input_bindings"] == [
+        {
+            "from_step": "ability-web-research",
+            "output_path": "$.prospect_candidates",
+            "to_step": "ability-research-synthesize_report",
+            "input_path": "$.input.prospects",
+        }
+    ]
     assert record.task_graph_preview["edges"]
     assert record.composition_provenance.know_how_id == "revops.gtm-crm-communications"
     assert record.composition_provenance.know_how_version == "2.0.0"

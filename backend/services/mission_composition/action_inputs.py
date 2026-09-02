@@ -525,7 +525,14 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
     if action_name == "web.search":
         return {"query": _compact_research_query(intent)[:400], "limit": limit}
     if action_name == "research.synthesize_report":
-        return {"objective": intent.objective[:1000], "prospects": []}
+        return {
+            "objective": intent.objective[:1000],
+            "prospects": [],
+            # A synthesis node is only selected when the graph includes the
+            # upstream research job. Never report synthetic success if that
+            # dependency artifact is absent at runtime.
+            "binding_required": True,
+        }
     if action_name == "knowledge.retrieve_current":
         return {
             "query": {
