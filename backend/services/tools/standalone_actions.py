@@ -13,6 +13,7 @@ from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
     EvidenceItem,
+    ResearchReportInput,
     SideEffectClass,
     ToolInvocation,
     WebResearchInput,
@@ -470,7 +471,67 @@ def _web_research_side_effect(invocation: ToolInvocation) -> SideEffectClass:
     return SideEffectClass.INTERNAL_READ
 
 
+def research_synthesize_report(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    """Synthesize an evidence-bounded comparison from upstream research results."""
+    payload = ResearchReportInput.model_validate(invocation.input)
+    rows: list[dict[str, Any]] = []
+    source_urls: list[str] = []
+    for item in payload.prospects:
+        sources = [str(value) for value in item.get("sources", []) if value]
+        source_urls.extend(sources)
+        rows.append(
+            {
+                "company": str(item.get("company") or "Unverified result"),
+                "website": item.get("website") or item.get("url"),
+                "summary": str(item.get("research_summary") or "No supported summary available."),
+                "product_description": str(item.get("product_description") or ""),
+                "identity_status": str(item.get("identity_status") or "unverified"),
+                "sources": sources,
+            }
+        )
+    limitations = [] if rows else ["No upstream research candidates were available for synthesis."]
+    if any(row["identity_status"] != "verified" for row in rows):
+        limitations.append("One or more result identities remain unverified search candidates.")
+    report = {
+        "objective": payload.objective,
+        "comparison": rows,
+        "source_urls": sorted(set(source_urls)),
+        "evidence_gaps": limitations,
+        "candidate_count": len(rows),
+    }
+    summary = f"Synthesized an evidence-bounded research report from {len(rows)} candidate(s)."
+    return ActionResult(
+        action=invocation.action,
+        provider="ajenda_brain",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+        output={"research_report": report},
+        evidence=[
+            _evidence(
+                context=context,
+                action=invocation.action,
+                provider="ajenda_brain",
+                summary=summary,
+                payload={"research_report": report},
+                inspected=[],
+                side_effect_class=SideEffectClass.INTERNAL_READ,
+            )
+        ],
+        summary=summary,
+        confidence=0.82 if rows else 0.35,
+        limitations=limitations,
+    )
+
+
 def register_standalone_actions(registry: ActionRegistry) -> None:
+    registry.register(
+        ActionDefinition(
+            name="research.synthesize_report",
+            handler=research_synthesize_report,
+            provider="ajenda_brain",
+            input_model=ResearchReportInput,
+            side_effect_class=SideEffectClass.INTERNAL_READ,
+        )
+    )
     registry.register(
         ActionDefinition(
             name="web.research",

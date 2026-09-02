@@ -179,6 +179,13 @@ class SalesLeadInput(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class ResearchReportInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    objective: str = Field(min_length=1, max_length=1000)
+    prospects: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+
+
 class FollowupDraftInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

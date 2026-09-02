@@ -7,6 +7,7 @@ import pytest
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
 from backend.services.mission_composition.job_catalog import get_business_job, list_business_jobs
 from backend.services.mission_composition.plan_compiler import (
     compile_planned_steps,
@@ -124,11 +125,53 @@ def test_negated_crm_records_are_not_misread_as_hubspot_read() -> None:
     assert intent.send_policy.mode == "forbid"
 
 
+def test_negated_contact_anyone_does_not_route_contacts_vocabulary() -> None:
+    intent = interpret_instruction(
+        "Research five competitors of Ajenda AI and produce a comparison report. "
+        "Do not contact anyone, modify external systems, or publish content."
+    )
+
+    assert "read_contacts" not in intent.requested_outcomes
+
+
 def test_negated_connector_read_does_not_authorize_read_or_fuzzy_email() -> None:
     intent = interpret_instruction("Do not read CRM records. Send the approved email now.")
     assert intent.requested_outcomes == ["send_outreach"]
     assert "read_crm" not in intent.requested_outcomes
     assert "read_email" not in intent.requested_outcomes
+
+
+def test_detailed_report_deliverable_materializes_synthesis_node() -> None:
+    intent = interpret_instruction(
+        "Research five competitors of Ajenda AI. Produce a comparison table, highlight three opportunities, "
+        "and identify evidence gaps."
+    )
+
+    assert intent.interpretation_ready
+    assert "synthesize_research_report" in intent.requested_outcomes
+
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction=intent.raw_instruction,
+    )
+    synthesis = next(
+        node
+        for node in record.task_graph_preview["nodes"]
+        if node["metadata"]["action"] == "research.synthesize_report"
+    )
+    assert synthesis["output_contract"] == {"artifact": "research_report"}
+    assert record.task_graph_preview["edges"]
+    assert record.composition_provenance.know_how_id == "revops.gtm-crm-communications"
+    assert record.composition_provenance.know_how_version == "2.0.0"
+    assert record.composition_provenance.grants_execution_authority is False
+
+
+def test_long_objective_is_preserved_without_lossy_truncation() -> None:
+    instruction = "Research competitors and provide evidence. " + "Include verified details. " * 30
+    intent = interpret_instruction(instruction)
+
+    assert intent.objective == normalize_instruction_text(instruction).normalized
+    assert not intent.objective.endswith("...")
 
 
 def test_send_contradiction_across_sentences_fails_closed() -> None:

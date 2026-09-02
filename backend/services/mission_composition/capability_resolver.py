@@ -30,6 +30,7 @@ from backend.services.tools.schemas import SideEffectClass
 _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "research.discover_prospects": ("web.research", "sales.research", "web.search", "web.page_read", "crm.research"),
     "research.observe_sources": ("research.observe_contacts",),
+    "research.synthesize_report": ("research.synthesize_report",),
     "intelligence.retrieve_knowledge": ("knowledge.retrieve_current",),
     "intelligence.retrieve_business_profile": ("retrieval.hybrid_search",),
     "intelligence.advise_next": ("decision.recommend_next_action",),

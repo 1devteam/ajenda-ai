@@ -29,6 +29,7 @@ from backend.services.mission_composition.contracts import (
     SuccessCriterion,
     TargetEntity,
 )
+from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
 from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
 
@@ -360,7 +361,7 @@ _FRAGMENT_HINTS = (
 )
 _CLAUSE_ACTION_START = (
     r"(?:do not|don't|dont|never|research|find|discover|identify|qualify|score|rank|rate|grade|draft|prepare|"
-    r"send|deliver|dispatch|mail|enrich|collect|gather|return|check|read|search|query|list|show|summarize|"
+    r"send|deliver|dispatch|mail|enrich|collect|gather|return|produce|provide|check|read|search|query|list|show|summarize|"
     r"look up|schedule|book|create|add|delete|cancel|reschedule|update|remove|move|log|upsert|write|sync|push|"
     r"save|put|publish|post|share|browse|contact|perform|approve|charge|invoice|fax|wire|transfer|pay|refund|terminate)\b"
 )
@@ -377,7 +378,16 @@ _COORDINATED_PROHIBITION_START = re.compile(
     re.IGNORECASE,
 )
 _DETAILED_RETURN_DELIVERABLE = re.compile(
-    r"^return\b[^,]*(?:,[^,]+){2,}$",
+    r"^(?:return|produce|provide|create)\b.*(?:comparison\s+table|report\b|highlight\b|evidence\s+gaps?)",
+    re.IGNORECASE,
+)
+_REPORT_SYNTHESIS_CLAUSE = re.compile(
+    r"^(?:(?:return|produce|provide|create)\b.*(?:comparison\s+table|report\b)|"
+    r"highlight\b.*opportunit|identify\b.*evidence\s+gaps?)",
+    re.IGNORECASE,
+)
+_REPORT_SYNTHESIS_REQUEST = re.compile(
+    r"\b(?:comparison\s+table|research\s+report|evidence\s+gaps?|highlight\b.*opportunit)",
     re.IGNORECASE,
 )
 
@@ -655,6 +665,13 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "synthesize_research_report" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="A research_report artifact compares the observed candidates and identifies evidence gaps",
+                measurable=True,
+            )
+        )
     if "observe_contacts" in outcomes:
         success.append(
             SuccessCriterion(
@@ -809,7 +826,14 @@ def _classify_clause(
     # A detailed multi-field deliverable list is not represented by the
     # canonical outcome contract. Do not let field names such as "research"
     # or "drafts" silently authorize a partial interpretation.
-    if _DETAILED_RETURN_DELIVERABLE.match(clause.strip()):
+    if not profile_mission and _REPORT_SYNTHESIS_CLAUSE.match(clause.strip()):
+        return ["synthesize_research_report"], True, True
+    if not profile_mission and _DETAILED_RETURN_DELIVERABLE.match(clause.strip()):
+        return [], True, False
+    clause_deliverable = extract_deliverable_request(clause)
+    if clause_deliverable is not None and clause_deliverable.fully_understood:
+        # Leave typed field lists unmatched here so the dedicated deliverable
+        # coverage layer can account them as deliverables, not action outcomes.
         return [], True, False
     # Instructions that explicitly classify source text as untrusted are
     # safety metadata, not an external action request or an unmatched mission
@@ -868,7 +892,11 @@ def _classify_clause(
     if _contains_any(lower, _GITHUB_READ_PATTERNS):
         outcomes.append("read_github")
     # Contacts read only when not a CRM write ("add/save to contacts").
-    if _contains_any(lower, _CONTACTS_READ_PATTERNS) and not _contains_any(lower, _CRM_UPDATE_PATTERNS):
+    if (
+        _contains_any(lower, _CONTACTS_READ_PATTERNS)
+        and not _contains_any(lower, _CRM_UPDATE_PATTERNS)
+        and not _contains_any(lower, _NO_EXTERNAL_ACTION_PATTERNS)
+    ):
         outcomes.append("read_contacts")
     if _contains_any(lower, _DRAFT_PATTERNS):
         outcomes.append("prepare_outreach")
@@ -1012,6 +1040,7 @@ def interpret_instruction(
     wants_research = _contains_any(lower, _RESEARCH_PATTERNS) and (
         not connector_read or explicit_prospect_research or hubspot_as_research_source
     )
+    wants_research_report = _REPORT_SYNTHESIS_REQUEST.search(text) is not None
     # "Research companies in X from HubSpot" is market discovery using CRM as a source,
     # not a pure HubSpot record-read mission.
     if wants_research and hubspot_as_research_source and explicit_prospect_research:
@@ -1029,7 +1058,11 @@ def interpret_instruction(
     # Wave A operator reads — fail closed against publish/write collisions.
     wants_linkedin_read = _contains_any(lower, _LINKEDIN_READ_PATTERNS) and not wants_publish
     wants_github_read = _contains_any(lower, _GITHUB_READ_PATTERNS)
-    wants_contacts_read = _contains_any(lower, _CONTACTS_READ_PATTERNS) and not wants_crm
+    wants_contacts_read = (
+        _contains_any(lower, _CONTACTS_READ_PATTERNS)
+        and not wants_crm
+        and not _contains_any(lower, _NO_EXTERNAL_ACTION_PATTERNS)
+    )
 
     outcomes: list[CanonicalOutcome] = []
     if wants_business_profile:
@@ -1056,6 +1089,18 @@ def interpret_instruction(
                 rule_id="alias.research",
             )
         )
+    if wants_research_report:
+        outcomes.append("synthesize_research_report")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.synthesize_research_report",
+                source="explicit",
+                source_text=text[:240],
+                normalized_value="synthesize_research_report",
+                confidence=0.95,
+                rule_id="deliverable.research_report",
+            )
+        )
     if wants_qualify:
         outcomes.append("qualify_prospects")
         evidence.append(
@@ -1073,6 +1118,8 @@ def interpret_instruction(
         # Phrase/pattern matching is intentionally broad for legacy connector
         # wording, but a negated CRM clause must never create a read_crm outcome.
         if vocab_hit.outcome == "read_crm" and not wants_crm_read:
+            continue
+        if vocab_hit.outcome == "read_contacts" and not wants_contacts_read:
             continue
         if vocab_hit.outcome not in outcomes:
             outcomes.append(vocab_hit.outcome)
@@ -1694,7 +1741,7 @@ def interpret_instruction(
 
     # Keep the user's instruction as objective by default. Only rewrite when we have a
     # concrete target label — never "the requested market" which becomes a useless search query.
-    objective = text if len(text) <= 500 else text[:497] + "..."
+    objective = text
     if (
         "research_prospects" in outcomes
         and "prepare_outreach" in outcomes

@@ -19,7 +19,7 @@ from backend.services.operating_charter import default_operating_charter
 
 def test_versions_bumped_for_wave_a() -> None:
     assert JOB_CATALOG_VERSION == "10"
-    assert INTERPRETER_VERSION == "11"
+    assert INTERPRETER_VERSION == "12"
     assert CAPABILITY_RESOLVER_VERSION == "8"
 
 
@@ -146,6 +146,16 @@ def test_add_to_contacts_still_update_crm_not_contacts_read() -> None:
     intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
     assert "update_crm" in intent.requested_outcomes
     assert "read_contacts" not in intent.requested_outcomes
+
+
+def test_negated_contact_anyone_does_not_select_google_contacts() -> None:
+    intent = interpret_instruction(
+        "Research five competitors using public sources only. Do not contact anyone or modify external systems."
+    )
+
+    assert "research_prospects" in intent.requested_outcomes
+    assert "read_contacts" not in intent.requested_outcomes
+    assert "ops.google_contacts_read" not in {job.job_key for job in route_jobs_for_intent(intent)}
 
 
 def test_wave_a_jobs_are_runtime_bound() -> None:

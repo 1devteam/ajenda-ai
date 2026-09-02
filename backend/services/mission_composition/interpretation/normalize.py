@@ -13,6 +13,7 @@ from backend.services.mission_composition.interpretation.spelling import (
 _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _WS_RE = re.compile(r"\s+")
+_MARKDOWN_QUOTE_PREFIX_RE = re.compile(r"(?m)^\s*>\s?")
 
 
 @dataclass(slots=True)
@@ -36,9 +37,12 @@ def normalize_instruction_text(
 
     original = instruction
     text = instruction.strip()
+    text, quote_prefix_count = _MARKDOWN_QUOTE_PREFIX_RE.subn("", text)
     text = _WS_RE.sub(" ", text)
 
     components: list[str] = ["regex_core", "normalize_whitespace"]
+    if quote_prefix_count:
+        components.append("strip_markdown_quote_prefix")
     protected: list[tuple[str, str]] = []
 
     def _protect(match: re.Match[str]) -> str:

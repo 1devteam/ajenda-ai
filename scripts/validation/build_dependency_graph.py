@@ -375,6 +375,16 @@ def build_graph() -> dict[str, Any]:
     }
 
 
+def _display_path(path: Path) -> str:
+    """Render repository paths compactly without rejecting external artifacts."""
+
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(resolved)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build Ajenda's canonical dependency graph")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
@@ -385,16 +395,16 @@ def main() -> int:
     output = Path(args.output)
     if args.check:
         if not output.exists():
-            print(f"FAIL: canonical graph is missing: {output.relative_to(REPO_ROOT)}")
+            print(f"FAIL: canonical graph is missing: {_display_path(output)}")
             return 1
         if output.read_text(encoding="utf-8") != rendered:
-            print(f"FAIL: canonical graph is stale: {output.relative_to(REPO_ROOT)}")
+            print(f"FAIL: canonical graph is stale: {_display_path(output)}")
             return 1
         print("PASS: canonical dependency graph is current")
         return 0
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rendered, encoding="utf-8")
-    print(f"Wrote {output.relative_to(REPO_ROOT)}")
+    print(f"Wrote {_display_path(output)}")
     print(f"Nodes: {graph['metrics']['node_count']}; edges: {graph['metrics']['edge_count']}")
     return 0
 

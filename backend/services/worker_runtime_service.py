@@ -616,6 +616,8 @@ class WorkerRuntimeService:
                 payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
             )
         )
+        self._refresh_deliverable_completion_read_model(task=task)
+        self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
         self._session.flush()
         self._session.commit()
 

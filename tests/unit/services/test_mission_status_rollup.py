@@ -90,6 +90,40 @@ def test_rollup_marks_running_when_siblings_open() -> None:
     assert mission.status == MissionState.RUNNING.value
 
 
+def test_rollup_marks_mission_failed_when_all_tasks_terminal_and_one_failed() -> None:
+    tenant_id = "tenant-1"
+    mission_id = uuid.uuid4()
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="research",
+        status=MissionState.RUNNING.value,
+        metadata_json={},
+    )
+    mission.id = mission_id
+    completed = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.COMPLETED.value,
+    )
+    failed = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.FAILED.value,
+    )
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[completed, failed])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch(
+        "backend.services.worker_runtime_service.MissionRepository",
+        return_value=repo,
+    ):
+        service._maybe_rollup_mission_status(task=failed, worker_id="worker-1")
+
+    assert mission.status == MissionState.FAILED.value
+
+
 def test_rollup_fails_when_observe_accept_unmet() -> None:
     tenant_id = "tenant-1"
     mission_id = uuid.uuid4()

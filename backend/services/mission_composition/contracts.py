@@ -17,7 +17,7 @@ from backend.services.mission_composition.deliverable_contract import (
 
 COMPOSITION_SCHEMA_VERSION = 5
 JOB_CATALOG_VERSION = "10"
-INTERPRETER_VERSION = "11"
+INTERPRETER_VERSION = "12"
 CAPABILITY_RESOLVER_VERSION = "8"
 
 ProposalStatus = Literal[
@@ -77,6 +77,7 @@ CanonicalOutcome = Literal[
     "read_github",
     "read_contacts",
     "read_business_profile",
+    "synthesize_research_report",
 ]
 
 CANONICAL_OUTCOMES: frozenset[str] = frozenset(
@@ -97,6 +98,7 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
         "read_github",
         "read_contacts",
         "read_business_profile",
+        "synthesize_research_report",
     }
 )
 

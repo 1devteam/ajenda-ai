@@ -237,8 +237,8 @@ def test_final_report_is_non_enforcing_and_closes_current_control_set() -> None:
     assert report["policy"]["enforcement"] == "disabled"
     assert report["policy"]["typed_consumption_required"] is True
     assert report["metrics"] == {
-        "candidate_count": 8,
-        "satisfied_count": 8,
+        "candidate_count": 9,
+        "satisfied_count": 9,
         "violated_count": 0,
         "indeterminate_count": 0,
     }

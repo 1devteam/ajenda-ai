@@ -56,6 +56,8 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         "research.observe_contacts",
     }:
         return "$.input.prospects"
+    if action_name == "research.synthesize_report":
+        return "$.input.prospects"
     if action_name == "decision.recommend_next_action":
         if output_name == "observed_contacts":
             return "$.input.context.observed_contacts"

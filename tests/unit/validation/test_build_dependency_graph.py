@@ -137,3 +137,11 @@ def test_invariant_statuses_are_explicit() -> None:
         assert invariant["status"] in allowed
         assert invariant["rule"].strip()
         assert invariant["sources"]
+
+
+def test_display_path_accepts_repository_and_external_outputs(tmp_path: Path) -> None:
+    repository_output = MODULE.REPO_ROOT / "artifacts" / "graph.json"
+    external_output = tmp_path / "graph.json"
+
+    assert MODULE._display_path(repository_output) == "artifacts/graph.json"
+    assert MODULE._display_path(external_output) == str(external_output.resolve())

@@ -28,6 +28,14 @@ def test_normalize_preserves_urls_and_emails() -> None:
     assert "competitors" in result.normalized.lower()
 
 
+def test_normalize_strips_markdown_quote_prefixes_without_losing_text() -> None:
+    raw = "> Research competitors.\n  > Use public sources only."
+    result = normalize_instruction_text(raw, spelling_enabled=False)
+
+    assert result.normalized == "Research competitors. Use public sources only."
+    assert "strip_markdown_quote_prefix" in result.components_active
+
+
 def test_interpreter_records_spelling_component() -> None:
     intent = interpret_instruction(
         "research roofing companies in austin identify three competors",

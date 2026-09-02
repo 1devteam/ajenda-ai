@@ -524,6 +524,8 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         }
     if action_name == "web.search":
         return {"query": _compact_research_query(intent)[:400], "limit": limit}
+    if action_name == "research.synthesize_report":
+        return {"objective": intent.objective[:1000], "prospects": []}
     if action_name == "knowledge.retrieve_current":
         return {
             "query": {

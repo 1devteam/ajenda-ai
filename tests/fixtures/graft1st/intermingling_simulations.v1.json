@@ -1,0 +1,62 @@
+{
+  "suite_id": "gtm-crm-communications-intermingling",
+  "schema_version": 1,
+  "contract_package_version": "2.0.0",
+  "scenarios": [
+    {
+      "scenario_id": "SIM-001",
+      "title": "Research and Facebook lead converge on one company identity",
+      "steps": [
+        {"step_id": "discover", "node_key": "research.discover", "depends_on": [], "state_access": [{"resource_key": "source:web:company-a", "mode": "read"}], "expected_status": "satisfied", "expected_reason": "Public sources are observed."},
+        {"step_id": "receive_social", "node_key": "social.receive_event", "depends_on": [], "state_access": [{"resource_key": "event:meta:lead-1", "mode": "claim"}], "expected_status": "satisfied", "expected_reason": "The event is claimed once."},
+        {"step_id": "extract", "node_key": "research.extract_claims", "depends_on": ["discover"], "state_access": [{"resource_key": "artifact:claims:company-a", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "Claims retain source provenance."},
+        {"step_id": "observe_social", "node_key": "social.observe", "depends_on": ["receive_social"], "state_access": [{"resource_key": "artifact:social:lead-1", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "The lead remains an observation."},
+        {"step_id": "resolve", "node_key": "identity.resolve_company", "depends_on": ["extract", "observe_social"], "state_access": [{"resource_key": "entity:company-a", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "One join owns canonical identity."},
+        {"step_id": "plan_crm", "node_key": "crm.reconcile", "depends_on": ["resolve"], "state_access": [{"resource_key": "entity:company-a", "mode": "read"}, {"resource_key": "crm-plan:company-a", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "Planning does not imply mutation."}
+      ],
+      "terminal_assertions": ["Articles remain sources.", "The event is consumed once.", "Only identity resolution writes canonical identity.", "CRM mutation is not implied."]
+    },
+    {
+      "scenario_id": "SIM-002",
+      "title": "Inbound caller and CRM observation yield uncertain identity",
+      "steps": [
+        {"step_id": "receive_call", "node_key": "phone.receive_event", "depends_on": [], "state_access": [{"resource_key": "event:phone:call-1", "mode": "claim"}], "expected_status": "satisfied", "expected_reason": "The callback is verified and claimed."},
+        {"step_id": "observe_crm", "node_key": "crm.observe", "depends_on": [], "state_access": [{"resource_key": "provider-crm:possible-contact", "mode": "read"}], "expected_status": "satisfied", "expected_reason": "CRM data remains an observation."},
+        {"step_id": "resolve_caller", "node_key": "identity.resolve_person", "depends_on": ["receive_call", "observe_crm"], "state_access": [{"resource_key": "entity:caller-1", "mode": "write"}], "expected_status": "indeterminate", "expected_reason": "Phone number evidence is insufficient."},
+        {"step_id": "receptionist", "node_key": "phone.run_receptionist", "depends_on": ["resolve_caller"], "state_access": [{"resource_key": "session:call-1", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "Only public information is disclosed."}
+      ],
+      "terminal_assertions": ["Identity uncertainty remains visible.", "No private CRM field is disclosed.", "Escalation can complete the call."]
+    },
+    {
+      "scenario_id": "SIM-003",
+      "title": "Approved social post loses credentials before dispatch",
+      "steps": [
+        {"step_id": "draft", "node_key": "engagement.draft", "depends_on": [], "state_access": [{"resource_key": "draft:social-1", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "Drafting has no external effect."},
+        {"step_id": "authorize", "node_key": "communication.authorize", "depends_on": ["draft"], "state_access": [{"resource_key": "authorization:social-1", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "Approval binds the payload."},
+        {"step_id": "preflight", "node_key": "credential.preflight", "depends_on": ["authorize"], "state_access": [{"resource_key": "credential:meta:account-1", "mode": "read"}], "expected_status": "violated", "expected_reason": "Revocation blocks dispatch."}
+      ],
+      "terminal_assertions": ["No publish node is admitted.", "Approval does not replace credentials.", "No receipt is fabricated."]
+    },
+    {
+      "scenario_id": "SIM-004",
+      "title": "Call outcome and CRM update serialize through reconciliation",
+      "steps": [
+        {"step_id": "finalize_call", "node_key": "phone.finalize", "depends_on": [], "state_access": [{"resource_key": "call-outcome:call-2", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "Call outcome is an observation."},
+        {"step_id": "observe_crm", "node_key": "crm.observe", "depends_on": [], "state_access": [{"resource_key": "crm-record:contact-2", "mode": "read"}], "expected_status": "satisfied", "expected_reason": "Current provider version is observed."},
+        {"step_id": "plan", "node_key": "crm.reconcile", "depends_on": ["finalize_call", "observe_crm"], "state_access": [{"resource_key": "crm-plan:contact-2", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "A single plan joins both observations."},
+        {"step_id": "mutate", "node_key": "crm.mutate", "depends_on": ["plan"], "state_access": [{"resource_key": "crm-record:contact-2", "mode": "write"}], "expected_status": "satisfied", "expected_reason": "Mutation follows planning."},
+        {"step_id": "verify", "node_key": "crm.verify_effect", "depends_on": ["mutate"], "state_access": [{"resource_key": "crm-record:contact-2", "mode": "read"}], "expected_status": "satisfied", "expected_reason": "Read-back precedes completion."}
+      ],
+      "terminal_assertions": ["Phone cannot write CRM directly.", "Mutation follows observation and planning.", "Effect claims require read-back."]
+    },
+    {
+      "scenario_id": "SIM-005",
+      "title": "Terminal research tasks with invalid report do not complete mission",
+      "steps": [
+        {"step_id": "report", "node_key": "research.synthesize_report", "depends_on": [], "state_access": [{"resource_key": "artifact:report:mission-5", "mode": "write"}], "expected_status": "violated", "expected_reason": "Evidence-gap fields are missing."},
+        {"step_id": "reconcile", "node_key": "mission.reconcile", "depends_on": ["report"], "state_access": [{"resource_key": "mission:mission-5", "mode": "write"}], "expected_status": "violated", "expected_reason": "Task terminality cannot override artifact invalidity."}
+      ],
+      "terminal_assertions": ["Task terminality is true.", "Artifact completeness is false.", "Mission completion is false with reason."]
+    }
+  ]
+}

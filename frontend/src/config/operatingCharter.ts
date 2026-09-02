@@ -22,6 +22,7 @@ export const DEFAULT_OPERATING_CHARTER: OperatingCharter = {
     "web.search",
     "web.page_read",
     "research.observe_contacts",
+    "research.synthesize_report",
     "knowledge.retrieve_current",
     "decision.recommend_next_action",
     "web.browser_session",

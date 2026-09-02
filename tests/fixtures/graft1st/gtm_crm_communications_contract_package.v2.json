@@ -1,0 +1,446 @@
+{
+  "package_id": "revops.gtm-crm-communications",
+  "package_version": "2.0.0",
+  "authority_class": "declarative",
+  "grants_execution_authority": false,
+  "nodes": [
+    {
+      "node_key": "mission.interpret",
+      "owner": "mission_composition",
+      "implementation_status": "extend",
+      "accepts": [],
+      "produces": ["InterpretedMissionIntent"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "vertical.select",
+      "owner": "vertical_know_how",
+      "implementation_status": "extend",
+      "accepts": ["InterpretedMissionIntent"],
+      "produces": ["VerticalSelection"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "graph.compile",
+      "owner": "mission_compiler",
+      "implementation_status": "extend",
+      "accepts": ["VerticalSelection"],
+      "produces": ["CanonicalMissionGraph"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "graph.adjudicate",
+      "owner": "graft_admission",
+      "implementation_status": "active_worktree",
+      "accepts": ["CanonicalMissionGraph", "CredentialPreflightReport"],
+      "produces": ["GraphAdmissionReport"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "credential.preflight",
+      "owner": "credential_service",
+      "implementation_status": "active_worktree",
+      "accepts": [],
+      "produces": ["CredentialPreflightReport"],
+      "side_effect_class": "internal_read",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "task.materialize",
+      "owner": "mission_runtime_materializer",
+      "implementation_status": "current",
+      "accepts": ["GraphAdmissionReport"],
+      "produces": ["ExecutionTaskSet"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "research.discover",
+      "owner": "research_domain",
+      "implementation_status": "extend",
+      "accepts": [],
+      "produces": ["SourceRecordSet"],
+      "side_effect_class": "external_read",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "research.extract_claims",
+      "owner": "research_domain",
+      "implementation_status": "new",
+      "accepts": ["SourceRecordSet"],
+      "produces": ["ObservedClaimSet"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "identity.resolve_company",
+      "owner": "identity_domain",
+      "implementation_status": "new",
+      "accepts": ["ObservedClaimSet"],
+      "produces": ["ResolvedCompanySet"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "identity.resolve_person",
+      "owner": "identity_domain",
+      "implementation_status": "new",
+      "accepts": ["PersonIdentityObservationSet"],
+      "produces": ["ResolvedPersonSet"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "evidence.corroborate",
+      "owner": "evidence_domain",
+      "implementation_status": "new",
+      "accepts": ["ResolvedCompanySet"],
+      "produces": ["CorroborationBundle"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "sales.qualify",
+      "owner": "qualification_domain",
+      "implementation_status": "extend",
+      "accepts": ["CorroborationBundle"],
+      "produces": ["QualificationAssessmentSet"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "research.synthesize_report",
+      "owner": "research_domain",
+      "implementation_status": "active_worktree",
+      "accepts": ["QualificationAssessmentSet"],
+      "produces": ["ResearchReport"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "crm.observe",
+      "owner": "crm_domain",
+      "implementation_status": "extend",
+      "accepts": ["CRMObservationRequest"],
+      "produces": ["CRMObservation"],
+      "side_effect_class": "external_read",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "crm.reconcile",
+      "owner": "crm_domain",
+      "implementation_status": "new",
+      "accepts": ["CRMDesiredState", "CRMObservation", "ResolvedCompanySet", "ResolvedPersonSet"],
+      "produces": ["CRMReconciliationPlan"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "crm.mutate",
+      "owner": "crm_domain",
+      "implementation_status": "extend",
+      "accepts": ["CRMReconciliationPlan", "SideEffectAuthorization"],
+      "produces": ["CRMMutationResult"],
+      "side_effect_class": "external_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "crm.verify_effect",
+      "owner": "crm_domain",
+      "implementation_status": "new",
+      "accepts": ["CRMMutationResult"],
+      "produces": ["CRMReadbackResult", "EffectReceipt"],
+      "side_effect_class": "external_read",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "engagement.plan",
+      "owner": "engagement_domain",
+      "implementation_status": "new",
+      "accepts": ["QualificationAssessmentSet"],
+      "produces": ["EngagementPlan"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "engagement.draft",
+      "owner": "engagement_domain",
+      "implementation_status": "extend",
+      "accepts": ["EngagementPlan"],
+      "produces": ["EngagementDraft"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "communication.authorize",
+      "owner": "governance_domain",
+      "implementation_status": "extend",
+      "accepts": ["EngagementDraft", "EffectRequest"],
+      "produces": ["SideEffectAuthorization"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "phone.receive_event",
+      "owner": "phone_domain",
+      "implementation_status": "new",
+      "accepts": ["VerifiedProviderCallback"],
+      "produces": ["CallEvent"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "phone.run_receptionist",
+      "owner": "phone_domain",
+      "implementation_status": "new",
+      "accepts": ["CallEvent", "ReceptionistPolicy"],
+      "produces": ["ConversationTurnSet", "CallDisposition"],
+      "side_effect_class": "external_send",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "phone.transfer",
+      "owner": "phone_domain",
+      "implementation_status": "new",
+      "accepts": ["TransferRequest", "SideEffectAuthorization"],
+      "produces": ["TransferResult"],
+      "side_effect_class": "external_send",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "phone.initiate_outbound",
+      "owner": "phone_domain",
+      "implementation_status": "new",
+      "accepts": ["OutboundCallRequest", "ConsentDecision", "SideEffectAuthorization"],
+      "produces": ["CallInitiationResult"],
+      "side_effect_class": "external_send",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "phone.finalize",
+      "owner": "phone_domain",
+      "implementation_status": "new",
+      "accepts": ["CallDisposition", "ProviderCallStatus"],
+      "produces": ["CallOutcome", "TranscriptArtifact"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "social.receive_event",
+      "owner": "social_domain",
+      "implementation_status": "new",
+      "accepts": ["VerifiedProviderCallback"],
+      "produces": ["SocialEvent"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "social.observe",
+      "owner": "social_domain",
+      "implementation_status": "new",
+      "accepts": ["SocialEvent", "SocialObservationRequest"],
+      "produces": ["SocialObservationSet", "PersonIdentityObservationSet"],
+      "side_effect_class": "external_read",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "social.moderate",
+      "owner": "social_domain",
+      "implementation_status": "new",
+      "accepts": ["SocialObservationSet"],
+      "produces": ["ModerationDecision"],
+      "side_effect_class": "none",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "social.reply",
+      "owner": "social_domain",
+      "implementation_status": "new",
+      "accepts": ["EngagementDraft", "SideEffectAuthorization"],
+      "produces": ["PublicationResult"],
+      "side_effect_class": "external_send",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "social.publish",
+      "owner": "social_domain",
+      "implementation_status": "new",
+      "accepts": ["EngagementDraft", "SideEffectAuthorization"],
+      "produces": ["PublicationResult"],
+      "side_effect_class": "external_publish",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "social.verify_effect",
+      "owner": "social_domain",
+      "implementation_status": "new",
+      "accepts": ["PublicationResult"],
+      "produces": ["PublicationReadback", "EffectReceipt"],
+      "side_effect_class": "external_read",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "attribution.observe",
+      "owner": "attribution_domain",
+      "implementation_status": "new",
+      "accepts": ["EffectReceipt", "CallOutcome", "SocialObservationSet"],
+      "produces": ["AttributionEventSet"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "mission.reconcile",
+      "owner": "mission_runtime",
+      "implementation_status": "extend",
+      "accepts": ["ResearchReport", "EffectReceipt", "AttributionEventSet"],
+      "produces": ["MissionReconciliationResult"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "outcome.review",
+      "owner": "outcome_domain",
+      "implementation_status": "extend",
+      "accepts": ["MissionReconciliationResult"],
+      "produces": ["OutcomeReview"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    },
+    {
+      "node_key": "knowledge.qualify",
+      "owner": "knowledge_domain",
+      "implementation_status": "extend",
+      "accepts": ["OutcomeReview"],
+      "produces": ["QualifiedKnowledgeArtifact"],
+      "side_effect_class": "internal_write",
+      "grants_execution_authority": false
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "E01",
+      "consumer_node_key": "vertical.select",
+      "dependency_node_key": "mission.interpret",
+      "artifact_type": "InterpretedMissionIntent",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "hard",
+      "semantics": "requires",
+      "applicability_predicate": null,
+      "adjudication_requirement": "All material clauses are structurally represented."
+    },
+    {
+      "edge_id": "E02",
+      "consumer_node_key": "graph.compile",
+      "dependency_node_key": "vertical.select",
+      "artifact_type": "VerticalSelection",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "hard",
+      "semantics": "requires",
+      "applicability_predicate": null,
+      "adjudication_requirement": "The selected know-how version exists."
+    },
+    {
+      "edge_id": "E03",
+      "consumer_node_key": "graph.adjudicate",
+      "dependency_node_key": "graph.compile",
+      "artifact_type": "CanonicalMissionGraph",
+      "artifact_schema_version": "2.0.0",
+      "dependency_kind": "hard",
+      "semantics": "validates",
+      "applicability_predicate": null,
+      "adjudication_requirement": "Graph schema, authority candidates, and bindings are valid."
+    },
+    {
+      "edge_id": "E04",
+      "consumer_node_key": "graph.adjudicate",
+      "dependency_node_key": "credential.preflight",
+      "artifact_type": "CredentialPreflightReport",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "conditional",
+      "semantics": "validates",
+      "applicability_predicate": "A selected node declares a required provider credential.",
+      "adjudication_requirement": "Credential resolves, matches tenant, decrypts, and is usable."
+    },
+    {
+      "edge_id": "E05",
+      "consumer_node_key": "task.materialize",
+      "dependency_node_key": "graph.adjudicate",
+      "artifact_type": "GraphAdmissionReport",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "hard",
+      "semantics": "requires",
+      "applicability_predicate": null,
+      "adjudication_requirement": "All hard nodes are admitted and blockers are visible."
+    },
+    {
+      "edge_id": "E06",
+      "consumer_node_key": "research.extract_claims",
+      "dependency_node_key": "research.discover",
+      "artifact_type": "SourceRecordSet",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "hard",
+      "semantics": "requires",
+      "applicability_predicate": null,
+      "adjudication_requirement": "Sources are real and access mode is declared."
+    },
+    {
+      "edge_id": "E07",
+      "consumer_node_key": "identity.resolve_company",
+      "dependency_node_key": "research.extract_claims",
+      "artifact_type": "ObservedClaimSet",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "hard",
+      "semantics": "requires",
+      "applicability_predicate": null,
+      "adjudication_requirement": "Identity-bearing claims retain source provenance."
+    },
+    {
+      "edge_id": "E08",
+      "consumer_node_key": "evidence.corroborate",
+      "dependency_node_key": "identity.resolve_company",
+      "artifact_type": "ResolvedCompanySet",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "hard",
+      "semantics": "requires",
+      "applicability_predicate": null,
+      "adjudication_requirement": "Every candidate has accepted or explicitly uncertain identity."
+    },
+    {
+      "edge_id": "E09",
+      "consumer_node_key": "sales.qualify",
+      "dependency_node_key": "evidence.corroborate",
+      "artifact_type": "CorroborationBundle",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "hard",
+      "semantics": "requires",
+      "applicability_predicate": null,
+      "adjudication_requirement": "Rubric fields trace to claims and gaps."
+    },
+    {
+      "edge_id": "E10",
+      "consumer_node_key": "research.synthesize_report",
+      "dependency_node_key": "sales.qualify",
+      "artifact_type": "QualificationAssessmentSet",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "hard",
+      "semantics": "requires",
+      "applicability_predicate": null,
+      "adjudication_requirement": "Requested candidate count and evidence gaps are represented."
+    },
+    {
+      "edge_id": "E11",
+      "consumer_node_key": "mission.reconcile",
+      "dependency_node_key": "research.synthesize_report",
+      "artifact_type": "ResearchReport",
+      "artifact_schema_version": "1.0.0",
+      "dependency_kind": "hard",
+      "semantics": "reconciles",
+      "applicability_predicate": null,
+      "adjudication_requirement": "Artifact validates independently of task terminality."
+    }
+  ]
+}

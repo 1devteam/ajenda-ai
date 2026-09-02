@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from backend.services.mission_composition.contracts import CompositionProvenance
 from backend.services.mission_composition.vertical_know_how import (
     REVOPS_V1_KNOW_HOW,
+    REVOPS_V2_KNOW_HOW,
     DeliverableField,
     KnowHowBudget,
     KnowHowStage,
@@ -31,6 +32,17 @@ def test_revops_know_how_is_declarative_versioned_and_promotion_blocked() -> Non
 
 def test_revops_know_how_resolves_runtime_actions_and_schemas() -> None:
     validate_know_how_runtime_references(REVOPS_V1_KNOW_HOW)
+    validate_know_how_runtime_references(REVOPS_V2_KNOW_HOW)
+
+
+def test_revops_v2_is_linked_to_frozen_graft1st_contract_and_report() -> None:
+    assert REVOPS_V2_KNOW_HOW.authority_class == "declarative"
+    assert REVOPS_V2_KNOW_HOW.grants_execution_authority is False
+    assert REVOPS_V2_KNOW_HOW.promotion_status == "blocked_pending_owner_thresholds"
+    assert REVOPS_V2_KNOW_HOW.graft1st_contract_package_id == "revops.gtm-crm-communications"
+    assert REVOPS_V2_KNOW_HOW.graft1st_contract_package_version == "2.0.0"
+    assert "synthesize_research_report" in REVOPS_V2_KNOW_HOW.supported_outcomes
+    assert any(field.field_key == "research_report" for field in REVOPS_V2_KNOW_HOW.deliverable_fields)
 
 
 def test_revops_know_how_fails_closed_when_runtime_action_is_unavailable() -> None:
@@ -48,6 +60,13 @@ def test_know_how_version_lookup_fails_closed() -> None:
         )
         is REVOPS_V1_KNOW_HOW
     )
+    assert (
+        get_vertical_know_how(
+            know_how_id=REVOPS_V2_KNOW_HOW.know_how_id,
+            know_how_version=REVOPS_V2_KNOW_HOW.know_how_version,
+        )
+        is REVOPS_V2_KNOW_HOW
+    )
     with pytest.raises(ValueError, match="unknown or unavailable"):
         get_vertical_know_how(know_how_id=REVOPS_V1_KNOW_HOW.know_how_id, know_how_version="2.0.0")
 
@@ -59,8 +78,16 @@ def test_composition_provenance_rejects_partial_know_how_reference() -> None:
 
 def test_know_how_selection_is_bounded_to_revops_outcomes() -> None:
     assert select_vertical_know_how(["research_prospects", "prepare_outreach"]) is REVOPS_V1_KNOW_HOW
+    assert select_vertical_know_how(["research_prospects", "synthesize_research_report"]) is REVOPS_V2_KNOW_HOW
     assert select_vertical_know_how(["publish_content"]) is None
     assert select_vertical_know_how(["research_prospects", "publish_content"]) is None
+
+
+def test_graft1st_package_reference_must_be_complete() -> None:
+    payload = REVOPS_V2_KNOW_HOW.model_dump(mode="python")
+    payload["graft1st_contract_package_version"] = None
+    with pytest.raises(ValidationError, match="requires both id and version"):
+        VerticalKnowHowContract.model_validate(payload)
 
 
 def test_eligible_know_how_requires_owner_approved_budget() -> None:

@@ -30,7 +30,8 @@ jobs:
             tests/unit/validation/test_graph_runtime_contract_adjudication.py \
             tests/unit/validation/test_graph_runtime_contract_consumption.py \
             tests/unit/validation/test_graph_runtime_action_selection_adjudication.py \
-            tests/unit/validation/test_graph_runtime_instantiated_applicability.py
+            tests/unit/validation/test_graph_runtime_instantiated_applicability.py \
+            tests/unit/validation/test_graph_mission_instance_integrity.py
 
       - name: Build adjudication report
         run: |

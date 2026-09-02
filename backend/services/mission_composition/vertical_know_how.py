@@ -16,6 +16,10 @@ from backend.services.mission_composition.contracts import CanonicalOutcome
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
 from backend.services.tools.action_registry import ActionRegistry, get_default_action_registry
 from backend.services.tools.schemas import SideEffectClass
+from backend.services.vertical_ops.graft1st_contracts import (
+    GRAFT1ST_CONTRACT_PACKAGE_ID,
+    GRAFT1ST_CONTRACT_PACKAGE_VERSION,
+)
 
 REVOPS_KNOW_HOW_SCHEMA_VERSION = 1
 
@@ -65,6 +69,12 @@ class VerticalKnowHowContract(BaseModel):
     connectors: tuple[str, ...] = Field(default=(), max_length=20)
     prohibited_actions: tuple[str, ...] = Field(default=(), max_length=40)
     budget: KnowHowBudget | None = None
+    graft1st_contract_package_id: str | None = Field(default=None, min_length=1, max_length=160)
+    graft1st_contract_package_version: str | None = Field(
+        default=None,
+        pattern=r"^[1-9]\d*\.\d+\.\d+$",
+        max_length=40,
+    )
 
     @model_validator(mode="after")
     def validate_shape(self) -> VerticalKnowHowContract:
@@ -106,6 +116,9 @@ class VerticalKnowHowContract(BaseModel):
             raise ValueError(f"know-how references unknown connectors: {sorted(unknown_connectors)}")
         if self.promotion_status == "eligible" and self.budget is None:
             raise ValueError("eligible know-how requires an owner-approved budget")
+        package_fields = (self.graft1st_contract_package_id, self.graft1st_contract_package_version)
+        if any(package_fields) and not all(package_fields):
+            raise ValueError("G.R.A.F.T.1st contract package reference requires both id and version")
         return self
 
 
@@ -227,8 +240,36 @@ REVOPS_V1_KNOW_HOW = VerticalKnowHowContract(
     budget=None,
 )
 
+REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
+    know_how_id="revops.gtm-crm-communications",
+    know_how_version="2.0.0",
+    promotion_status="blocked_pending_owner_thresholds",
+    supported_outcomes=(*REVOPS_V1_KNOW_HOW.supported_outcomes, "synthesize_research_report"),
+    stages=(
+        *REVOPS_V1_KNOW_HOW.stages,
+        KnowHowStage(
+            stage_key="research_report",
+            job_keys=("research.synthesize_report",),
+            depends_on=("research",),
+        ),
+    ),
+    deliverable_fields=(
+        *REVOPS_V1_KNOW_HOW.deliverable_fields,
+        DeliverableField(
+            field_key="research_report",
+            produced_by_jobs=("research.synthesize_report",),
+        ),
+    ),
+    connectors=REVOPS_V1_KNOW_HOW.connectors,
+    prohibited_actions=REVOPS_V1_KNOW_HOW.prohibited_actions,
+    budget=None,
+    graft1st_contract_package_id=GRAFT1ST_CONTRACT_PACKAGE_ID,
+    graft1st_contract_package_version=GRAFT1ST_CONTRACT_PACKAGE_VERSION,
+)
+
 VERTICAL_KNOW_HOW_BY_ID_VERSION: dict[tuple[str, str], VerticalKnowHowContract] = {
     (REVOPS_V1_KNOW_HOW.know_how_id, REVOPS_V1_KNOW_HOW.know_how_version): REVOPS_V1_KNOW_HOW,
+    (REVOPS_V2_KNOW_HOW.know_how_id, REVOPS_V2_KNOW_HOW.know_how_version): REVOPS_V2_KNOW_HOW,
 }
 
 
@@ -243,6 +284,9 @@ def select_vertical_know_how(outcomes: list[str]) -> VerticalKnowHowContract | N
     """Select only when every requested outcome belongs to the bounded RevOps contract."""
 
     requested = set(outcomes)
+    v2_supported = {str(item) for item in REVOPS_V2_KNOW_HOW.supported_outcomes}
+    if "synthesize_research_report" in requested and requested <= v2_supported:
+        return REVOPS_V2_KNOW_HOW
     supported = {str(item) for item in REVOPS_V1_KNOW_HOW.supported_outcomes}
     if requested and requested <= supported:
         return REVOPS_V1_KNOW_HOW

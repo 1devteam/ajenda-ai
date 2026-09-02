@@ -111,6 +111,7 @@ from backend.services.mission_composition.deliverable_runtime_observability impo
     build_deliverable_runtime_state_read,
 )
 from backend.services.mission_executor import MissionExecutor  # noqa: F401 - legacy test/patch compatibility
+from backend.services.mission_graph_integrity import evaluate_admission_integrity
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
     contains_composition_clarification,
@@ -2243,6 +2244,18 @@ def admit_mission_graph_to_runtime(
     ]
     if rejected_reviews:
         raise HTTPException(status_code=400, detail="rejected outcome review blocks runtime admission")
+
+    graft_report = evaluate_admission_integrity(
+        session=db,
+        tenant_id=tenant_id_str,
+        instruction=mission.objective,
+        task_graph=task_graph,
+    )
+    if graft_report["status"] != "clear":
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "GRAFT runtime admission blocked", "graft": graft_report},
+        )
 
     admitted_by = _server_admitted_by(request=request, body_admitted_by=body.admitted_by)
     node_selections = list(body.selected_nodes)

@@ -2281,6 +2281,41 @@ def test_runtime_admission_rejects_rejected_outcome_review() -> None:
     mission_repo.update_metadata.assert_not_called()
 
 
+def test_runtime_admission_runs_graft_before_auto_provisioning_authority() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    mission = _mission_with_runtime_admission_layers(tenant_id=tenant_id, mission_id=mission_id)
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    outcome_repo = MagicMock()
+    outcome_repo.list_for_mission.return_value = []
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch(
+            "backend.api.routes.mission.evaluate_admission_integrity",
+            return_value={
+                "schema_version": "1.0",
+                "status": "blocked",
+                "findings": [{"code": "mission_credential.not_decryptable", "severity": "blocking"}],
+            },
+        ),
+        patch("backend.api.routes.mission.provision_bridge_runtime_authority") as provision,
+    ):
+        response = client.post(
+            f"/v1/missions/{mission_id}/runtime-admission",
+            json={"admission_status": "validated", "selected_nodes": [], "auto_provision_authority": True},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["message"] == "GRAFT runtime admission blocked"
+    provision.assert_not_called()
+    mission_repo.update_metadata.assert_not_called()
+
+
 def test_runtime_admission_does_not_create_execution_task_rows() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
