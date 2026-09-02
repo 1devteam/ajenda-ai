@@ -4,6 +4,7 @@ import DisclaimerModal from "../components/DisclaimerModal";
 import {
   getAccountMe,
   approveReviewQueueItem,
+  cancelTask,
   getBrainCapabilityCheck,
   getTaskStatus,
   launchProof,
@@ -635,6 +636,18 @@ export default function TasksPage() {
         sessionReady={Boolean(session)}
         loading={loading !== null}
         onTaskIdChange={setActiveTaskId}
+        onCancel={async () => {
+          if (!session || !activeTaskId) return;
+          setLoading("Stopping task");
+          try {
+            await cancelTask(session, activeTaskId);
+            setTaskStatus(await getTaskStatus(session, activeTaskId));
+          } catch (err) {
+            setError(err);
+          } finally {
+            setLoading(null);
+          }
+        }}
         onRefresh={async () => {
           if (!session || !activeTaskId) return;
           setLoading("Refreshing task");

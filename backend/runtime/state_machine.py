@@ -87,9 +87,9 @@ class StateMachine:
     }
 
     _TASK_ALLOWED: ClassVar[dict[str, set[str]]] = {
-        "planned": {"queued", "pending_review", "cancelled"},
-        "queued": {"claimed", "cancelled"},
-        "claimed": {"queued", "running", "cancelled", "dead_lettered"},
+        "planned": {"queued", "pending_review", "cancelled", "blocked"},
+        "queued": {"claimed", "cancelled", "blocked"},
+        "claimed": {"queued", "running", "cancelled", "blocked", "dead_lettered"},
         "running": {"blocked", "completed", "failed", "recovering"},
         # recovering: transient state entered when a worker crashes mid-execution.
         # The runtime_maintainer transitions stale running tasks into recovering

@@ -123,6 +123,7 @@ from backend.services.mission_runtime_projection import (
 from backend.services.mission_runtime_queue_admission_service import MissionRuntimeQueueAdmissionService
 from backend.services.mission_runtime_task_materialization_service import MissionRuntimeTaskMaterializationService
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaEnforcementService, QuotaExceededError
+from backend.services.worker_runtime_service import WorkerRuntimeService
 
 RuntimeReadinessStatus = _mission_bridge_read_models.RuntimeReadinessStatus
 RuntimeReadinessCheckStatus = _mission_bridge_read_models.RuntimeReadinessCheckStatus
@@ -2876,6 +2877,31 @@ def queue_mission(
         "pending_review_task_ids": admission["pending_review_task_ids"],
         "denied_tasks": admission["denied_tasks"],
     }
+
+
+class MissionCancelRequest(BaseModel):
+    reason: str = Field(default="Stopped by operator", min_length=1, max_length=500)
+
+
+@router.post("/{mission_id}/cancel")
+def cancel_mission(
+    mission_id: UUID,
+    body: MissionCancelRequest,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
+) -> dict[str, Any]:
+    """Stop a mission and terminalize cancellable graph work."""
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
+    principal = getattr(request.state, "principal", None)
+    actor = str(getattr(principal, "subject_id", "operator"))
+    try:
+        return WorkerRuntimeService(db, queue).cancel_mission(
+            tenant_id=str(tenant_id), mission_id=mission_id, actor=actor, reason=body.reason.strip()
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 # Contract-test patch targets for mission_bridge re-exports.

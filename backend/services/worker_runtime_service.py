@@ -316,6 +316,23 @@ class WorkerRuntimeService:
         task = self._get_task_for_lease(lease)
         if task.status != ExecutionTaskState.RUNNING.value:
             raise ValueError("task is not running")
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        if metadata.get("cancel_requested"):
+            transition_task(task, ExecutionTaskState.CANCELLED)
+            self._transition_lease_to_released(lease)
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    category="worker",
+                    action="task_cancelled_after_request",
+                    actor=worker_id,
+                    details=f"Cancelled task {task.id} after a stop request; handler output was not committed.",
+                    payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
+                )
+            )
+            self._commit_session()
+            return task
         _validate_declared_output_contract(task, task_output)
 
         transition_task(task, ExecutionTaskState.COMPLETED)
@@ -390,6 +407,9 @@ class WorkerRuntimeService:
             )
         return task
 
+    def _commit_session(self) -> None:
+        self._session.commit()
+
     def _refresh_deliverable_completion_read_model(self, *, task: ExecutionTask) -> None:
         """Refresh non-authoritative deliverable state without blocking task completion."""
 
@@ -450,6 +470,43 @@ class WorkerRuntimeService:
             ExecutionTaskState.DEAD_LETTERED.value,
             ExecutionTaskState.BLOCKED.value,
         }
+        # A failed graph node makes every still-open dependent node impossible.
+        # Terminalize those descendants now so missions cannot remain running
+        # forever behind queued dependency deferrals.
+        failed_node_keys = {
+            str((item.metadata_json or {}).get("graph_node_key"))
+            for item in siblings
+            if item.status in failedish
+            and isinstance(item.metadata_json, dict)
+            and isinstance(item.metadata_json.get("graph_node_key"), str)
+        }
+        if failed_node_keys:
+            changed = False
+            for item in siblings:
+                if item.status not in {
+                    ExecutionTaskState.PLANNED.value,
+                    ExecutionTaskState.QUEUED.value,
+                    ExecutionTaskState.CLAIMED.value,
+                }:
+                    continue
+                deps = (item.metadata_json or {}).get("dependency_keys", [])
+                if not isinstance(deps, list) or not failed_node_keys.intersection(str(dep) for dep in deps):
+                    continue
+                transition_task(item, ExecutionTaskState.BLOCKED)
+                item.metadata_json = {
+                    **(item.metadata_json if isinstance(item.metadata_json, dict) else {}),
+                    "blocked_by_dependency_failure": sorted(failed_node_keys.intersection(str(dep) for dep in deps)),
+                    "failure": {"code": "DEPENDENCY_FAILED", "retryable": False},
+                }
+                self._session.add(item)
+                changed = True
+            if changed:
+                self._session.flush()
+                # Re-run the same reconciliation so failures propagate through
+                # more than one graph edge (A→B→C) in a single worker event.
+                self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
+                return
+
         try:
             if open_tasks:
                 # First successful completion while others remain → running.
@@ -530,6 +587,85 @@ class WorkerRuntimeService:
                 },
             )
 
+    def cancel_task(self, *, tenant_id: str, task_id: uuid.UUID, actor: str, reason: str) -> ExecutionTask:
+        task = self._tasks.get_for_tenant(task_id=task_id, tenant_id=tenant_id)
+        if task is None:
+            raise ValueError("task not found for tenant")
+        if task.status in _TERMINAL_TASK_STATES:
+            return task
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        if task.status in {ExecutionTaskState.RUNNING.value, ExecutionTaskState.CLAIMED.value}:
+            task.metadata_json = {
+                **metadata,
+                "cancel_requested": True,
+                "cancel_requested_at": datetime.now(UTC).isoformat(),
+                "cancel_reason": reason,
+            }
+            action = "task_cancellation_requested"
+        else:
+            transition_task(task, ExecutionTaskState.CANCELLED)
+            task.metadata_json = {**metadata, "cancel_reason": reason}
+            action = "task_cancelled"
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="worker",
+                action=action,
+                actor=actor,
+                details=reason,
+                payload_json={"task_id": str(task.id), "status": task.status},
+            )
+        )
+        self._maybe_rollup_mission_status(task=task, worker_id=actor)
+        self._session.commit()
+        return task
+
+    def cancel_mission(self, *, tenant_id: str, mission_id: uuid.UUID, actor: str, reason: str) -> dict[str, Any]:
+        mission = MissionRepository(self._session).lock_for_tenant(mission_id=mission_id, tenant_id=tenant_id)
+        if mission is None:
+            raise ValueError("mission not found for tenant")
+        tasks = self._tasks.list_for_mission_for_tenant(mission_id=mission_id, tenant_id=tenant_id)
+        cancelled = requested = 0
+        for task in tasks:
+            if task.status in _TERMINAL_TASK_STATES:
+                continue
+            self.cancel_task(tenant_id=tenant_id, task_id=task.id, actor=actor, reason=reason)
+            if task.status == ExecutionTaskState.CANCELLED.value:
+                cancelled += 1
+            else:
+                requested += 1
+        if mission.status not in {
+            MissionState.COMPLETED.value,
+            MissionState.FAILED.value,
+            MissionState.CANCELLED.value,
+            MissionState.ARCHIVED.value,
+        }:
+            transition_mission(mission, MissionState.CANCELLED)
+            mission.metadata_json = {
+                **(mission.metadata_json if isinstance(mission.metadata_json, dict) else {}),
+                "cancel_reason": reason,
+                "cancelled_at": datetime.now(UTC).isoformat(),
+            }
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=mission_id,
+                    category="mission",
+                    action="mission_cancelled",
+                    actor=actor,
+                    details=reason,
+                    payload_json={"cancelled_tasks": cancelled, "cancellation_requested_tasks": requested},
+                )
+            )
+        self._session.commit()
+        return {
+            "mission_id": str(mission_id),
+            "status": mission.status,
+            "cancelled_tasks": cancelled,
+            "cancellation_requested_tasks": requested,
+        }
+
     def block_completion_failure(
         self,
         *,
@@ -603,6 +739,15 @@ class WorkerRuntimeService:
             raise ValueError("task is not fail-eligible")
 
         transition_task(task, ExecutionTaskState.FAILED)
+        task.metadata_json = {
+            **(task.metadata_json if isinstance(task.metadata_json, dict) else {}),
+            "failure": {
+                "code": "HANDLER_FAILED",
+                "message": reason,
+                "retryable": True,
+                "failed_at": datetime.now(UTC).isoformat(),
+            },
+        }
         self._transition_lease_to_released(lease)
         lease.heartbeat_at = datetime.now(UTC)
         self._audit.append(

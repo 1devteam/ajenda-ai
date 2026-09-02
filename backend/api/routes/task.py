@@ -4,6 +4,7 @@ import uuid as _uuid
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.api.errors import quota_exceeded_http
@@ -15,8 +16,13 @@ from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
+from backend.services.worker_runtime_service import WorkerRuntimeService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+class TaskCancelRequest(BaseModel):
+    reason: str = Field(default="Stopped by operator", min_length=1, max_length=500)
 
 
 @router.post("/{task_id}/queue")
@@ -56,3 +62,30 @@ def queue_task(
         raise HTTPException(status_code=400, detail=result.reason or "task queue rejected")
 
     return {"task_id": str(result.task_id), "state": result.state}
+
+
+@router.post("/{task_id}/cancel")
+def cancel_task(
+    task_id: UUID,
+    body: TaskCancelRequest,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
+) -> dict[str, object]:
+    """Stop a planned/queued task or request cancellation for running work."""
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
+    principal = getattr(request.state, "principal", None)
+    actor = str(getattr(principal, "subject_id", "operator"))
+    try:
+        task = WorkerRuntimeService(db, queue).cancel_task(
+            tenant_id=str(tenant_id), task_id=task_id, actor=actor, reason=body.reason.strip()
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "task_id": str(task.id),
+        "mission_id": str(task.mission_id),
+        "status": task.status,
+        "cancellation_requested": bool((task.metadata_json or {}).get("cancel_requested")),
+    }

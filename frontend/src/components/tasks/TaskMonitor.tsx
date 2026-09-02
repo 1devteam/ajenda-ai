@@ -9,6 +9,7 @@ type TaskMonitorProps = {
   loading: boolean;
   onTaskIdChange: (taskId: string) => void;
   onRefresh: () => void;
+  onCancel: () => void;
 };
 
 export default function TaskMonitor({
@@ -19,6 +20,7 @@ export default function TaskMonitor({
   loading,
   onTaskIdChange,
   onRefresh,
+  onCancel,
 }: TaskMonitorProps) {
   return (
     <section className="panel">
@@ -35,6 +37,13 @@ export default function TaskMonitor({
           disabled={!sessionReady || !activeTaskId || loading}
         >
           Refresh
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={!sessionReady || !activeTaskId || loading || ["completed", "failed", "cancelled", "blocked", "dead_lettered"].includes(taskStatus?.status ?? "")}
+        >
+          Stop task
         </button>
       </div>
 
@@ -54,6 +63,8 @@ export default function TaskMonitor({
                 mission_id: taskStatus.mission_id,
                 action: taskStatus.action,
                 status: taskStatus.status,
+                failure: taskStatus.metadata_json?.failure ?? null,
+                cancel_requested: taskStatus.metadata_json?.cancel_requested ?? false,
               })}
             </pre>
           </div>

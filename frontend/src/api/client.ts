@@ -1078,6 +1078,32 @@ export async function getTaskStatus(
   );
 }
 
+export async function cancelTask(
+  caller: AuthedCaller,
+  taskId: string,
+  reason = "Stopped by operator",
+): Promise<{ task_id: string; mission_id: string; status: string; cancellation_requested: boolean }> {
+  return withAuthedRuntime(caller, (config) =>
+    request(`/v1/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }, runtimeOptions(config)),
+  );
+}
+
+export async function cancelMission(
+  caller: AuthedCaller,
+  missionId: string,
+  reason = "Stopped by operator",
+): Promise<{ mission_id: string; status: string; cancelled_tasks: number; cancellation_requested_tasks: number }> {
+  return withAuthedRuntime(caller, (config) =>
+    request(`/v1/missions/${encodeURIComponent(missionId)}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }, runtimeOptions(config)),
+  );
+}
+
 export async function createCheckout(
   caller: AuthedCaller,
   plan: "starter" | "pro",
