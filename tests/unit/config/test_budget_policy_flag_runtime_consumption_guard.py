@@ -9,6 +9,7 @@ IGNORED_PATH_PREFIXES = (
     ".mypy_cache/",
     ".pytest_cache/",
     ".ruff_cache/",
+    "backups/",
     "build/",
     "dist/",
     "htmlcov/",

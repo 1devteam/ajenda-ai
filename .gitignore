@@ -86,6 +86,8 @@ deploy/compose/.env.staging
 # Database / local state
 *.sqlite
 *.sqlite3
+# Recovery dumps and pre-rotation environment snapshots are local/private.
+backups/
 
 # Docker / local volumes
 postgres_data/

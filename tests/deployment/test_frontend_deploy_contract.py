@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 COMPOSE_FILE = Path("deploy/compose/docker-compose.prod.yml")
+DEV_COMPOSE_FILE = Path("docker-compose.yml")
 FRONTEND_DOCKERFILE = Path("deploy/docker/frontend.Dockerfile")
 COMPOSE_NGINX = Path("deploy/nginx/frontend.compose.conf")
 K8S_NGINX = Path("deploy/nginx/frontend.k8s.conf")
@@ -30,6 +31,13 @@ def test_compose_declares_frontend_service() -> None:
     assert '"8080:80"' in compose or "8080:80" in compose
 
 
+def test_dev_compose_declares_frontend_service() -> None:
+    compose = _read(DEV_COMPOSE_FILE)
+    assert "frontend:" in compose
+    assert "deploy/docker/frontend.Dockerfile" in compose
+    assert '"8080:80"' in compose or "8080:80" in compose
+
+
 def test_frontend_dockerfile_builds_vite_app_and_serves_with_nginx() -> None:
     dockerfile = _read(FRONTEND_DOCKERFILE)
     assert "npm run build" in dockerfile
@@ -44,7 +52,9 @@ def test_frontend_dockerfile_builds_vite_app_and_serves_with_nginx() -> None:
 def test_compose_nginx_proxies_api_paths() -> None:
     nginx = _read(COMPOSE_NGINX)
     assert "location /v1/" in nginx
-    assert "proxy_pass http://api:8000" in nginx
+    assert "resolver 127.0.0.11" in nginx
+    assert "set $api_upstream http://api:8000" in nginx
+    assert "proxy_pass $api_upstream" in nginx
     assert "proxy_set_header Authorization" in nginx
     assert "proxy_set_header X-Tenant-Id" in nginx
     assert "try_files $uri $uri/ /index.html" in nginx

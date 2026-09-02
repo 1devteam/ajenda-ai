@@ -1,4 +1,22 @@
 services:
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/docker/frontend.Dockerfile
+      args:
+        NGINX_CONF: deploy/nginx/frontend.compose.conf
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -6,6 +24,9 @@ services:
     env_file:
       - .env
     environment:
+      # API and worker are separate processes, so the in-memory queue is invalid here.
+      AJENDA_QUEUE_ADAPTER: redis
+      AJENDA_QUEUE_URL: redis://redis:6379/0
       AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST: hubspot-crm-ingress
       AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS: "true"
       AJENDA_NETWORK_EGRESS_TLS_VERIFY: "false"
@@ -19,6 +40,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "/app/deploy/scripts/readinesscheck.sh"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   worker:
     build:
@@ -27,6 +54,11 @@ services:
     env_file:
       - .env
     environment:
+      # Multi-tenant scheduling discovers active tenants instead of polling a stale ID.
+      AJENDA_QUEUE_ADAPTER: redis
+      AJENDA_QUEUE_URL: redis://redis:6379/0
+      AJENDA_WORKER_TENANT_MODE: multi
+      AJENDA_WORKER_TENANT_REFRESH_SECONDS: "30"
       AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST: hubspot-crm-ingress
       AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS: "true"
       AJENDA_NETWORK_EGRESS_TLS_VERIFY: "false"
