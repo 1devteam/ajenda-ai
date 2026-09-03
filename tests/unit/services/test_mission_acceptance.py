@@ -49,3 +49,29 @@ def test_acceptance_counts_drafts_across_fanout_output() -> None:
 
     assert met is True
     assert reasons == []
+
+
+def test_acceptance_requires_research_report_opportunities() -> None:
+    task = _task({"research_report": {"comparison": [], "market_opportunities": [{"title": "one"}]}})
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[task],
+        contract={"research_report_required": True, "market_opportunities_min": 3},
+    )
+
+    assert met is False
+    assert "market opportunities" in " ".join(reasons)
+
+    complete = _task(
+        {
+            "research_report": {
+                "comparison": [],
+                "market_opportunities": [{"title": "one"}, {"title": "two"}, {"title": "three"}],
+            }
+        }
+    )
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[complete],
+        contract={"research_report_required": True, "market_opportunities_min": 3},
+    )
+    assert met is True
+    assert reasons == []

@@ -42,6 +42,12 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
     qualified = unique_records("qualified_prospects")
     drafts = unique_records("introduction_drafts")
 
+    reports: list[dict[str, Any]] = []
+    for output in outputs:
+        report = output.get("research_report")
+        if isinstance(report, dict):
+            reports.append(report)
+
     candidate_min = int(contract.get("candidate_min", 0) or 0)
     if len(candidates) < candidate_min:
         reasons.append(f"required at least {candidate_min} prospect candidates, produced {len(candidates)}")
@@ -62,5 +68,21 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
     draft_min = int(contract.get("draft_min", 0) or 0)
     if len(drafts) < draft_min:
         reasons.append(f"required at least {draft_min} outreach drafts, produced {len(drafts)}")
+
+    report_required = bool(contract.get("research_report_required", False))
+    opportunity_min = int(contract.get("market_opportunities_min", 0) or 0)
+    if report_required and not reports:
+        reasons.append("required a research_report artifact, produced 0")
+    if opportunity_min:
+        opportunities = [
+            item
+            for report in reports
+            for item in report.get("market_opportunities", [])
+            if isinstance(item, dict) and str(item.get("title") or "").strip()
+        ]
+        if len(opportunities) < opportunity_min:
+            reasons.append(
+                f"required at least {opportunity_min} market opportunities in research_report, produced {len(opportunities)}"
+            )
 
     return not reasons, reasons

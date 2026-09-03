@@ -673,6 +673,10 @@ class MissionCompositionService:
                         "draft_min": record.intent.requested_quantity
                         if "prepare_outreach" in record.intent.requested_outcomes
                         else 0,
+                        "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
+                        "market_opportunities_min": 3
+                        if "synthesize_research_report" in record.intent.requested_outcomes
+                        else 0,
                         "score_threshold_10": 7,
                         "require_verified_identity": "qualify_prospects" in record.intent.requested_outcomes,
                     },
