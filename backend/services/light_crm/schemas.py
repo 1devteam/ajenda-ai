@@ -76,6 +76,11 @@ def _normalize_common_fields(record: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tags, list) or any(not isinstance(tag, str) or not tag.strip() for tag in tags):
         raise ValueError("tags must be a list of non-empty strings")
     record["tags"] = sorted({tag.strip().lower() for tag in tags})
+    owner_id = record.get("owner_id")
+    if owner_id is not None and (not isinstance(owner_id, str) or not owner_id.strip()):
+        raise ValueError("owner_id must be a non-empty string when provided")
+    if isinstance(owner_id, str):
+        record["owner_id"] = owner_id.strip()
     lifecycle_stage = record.get("lifecycle_stage")
     if lifecycle_stage is not None:
         if not isinstance(lifecycle_stage, str) or lifecycle_stage.strip().lower() not in CANONICAL_LIFECYCLE_STAGES:
@@ -89,6 +94,7 @@ def enrich_contact_data(data: dict[str, Any]) -> dict[str, Any]:
     record.setdefault("crm_schema_version", CRM_SCHEMA_VERSION)
     record.setdefault("custom_fields", {})
     record.setdefault("tags", [])
+    record.setdefault("source", "ajenda")
     email = normalize_email(record.get("email"))
     if email:
         record["email"] = email
@@ -109,6 +115,7 @@ def enrich_account_data(data: dict[str, Any]) -> dict[str, Any]:
     record.setdefault("crm_schema_version", CRM_SCHEMA_VERSION)
     record.setdefault("custom_fields", {})
     record.setdefault("tags", [])
+    record.setdefault("source", "ajenda")
     domain = normalize_domain(record.get("domain") or record.get("website"))
     if domain:
         record["domain"] = domain
@@ -123,6 +130,7 @@ def enrich_opportunity_data(data: dict[str, Any]) -> dict[str, Any]:
     record.setdefault("crm_schema_version", CRM_SCHEMA_VERSION)
     record.setdefault("custom_fields", {})
     record.setdefault("tags", [])
+    record.setdefault("source", "ajenda")
     stage = normalize_stage(record.get("stage")) or DEFAULT_OPPORTUNITY_STAGE
     record["stage"] = stage
     if not record.get("name"):

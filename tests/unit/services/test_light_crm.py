@@ -18,6 +18,13 @@ def test_enrich_contact_adds_universal_crm_envelope() -> None:
     assert record["custom_fields"] == {}
     assert record["tags"] == ["roofing"]
     assert record["email"] == "ops@example.com"
+    assert record["source"] == "ajenda"
+
+
+def test_enrich_contact_normalizes_owner_id() -> None:
+    record = enrich_contact_data({"owner_id": "  operator-1  "})
+
+    assert record["owner_id"] == "operator-1"
 
 
 def test_enrich_contact_rejects_malformed_extension_fields() -> None:
