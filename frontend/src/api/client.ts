@@ -20,6 +20,7 @@ import type {
   CrmPipelineResponse,
   CrmRecordItem,
   CrmRecordListResponse,
+  CrmRelationshipResponse,
   CrmSuggestionsResponse,
   CrmTimelineResponse,
   ReviewQueueListResponse,
@@ -1208,6 +1209,17 @@ export async function getCrmTimeline(
       {},
       runtimeOptions(config),
     ),
+  );
+}
+
+export async function getCrmRelationships(
+  caller: AuthedCaller,
+  recordType: string,
+  recordId: string,
+): Promise<CrmRelationshipResponse> {
+  const params = new URLSearchParams({ record_type: recordType, record_id: recordId });
+  return withAuthedRuntime(caller, (config) =>
+    request<CrmRelationshipResponse>(`/v1/crm/relationships?${params.toString()}`, {}, runtimeOptions(config)),
   );
 }
 

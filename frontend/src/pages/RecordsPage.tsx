@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
   getCrmPipeline,
+  getCrmRelationships,
   getCrmTimeline,
   listCrmRecords,
   listCrmSuggestions,
@@ -12,6 +13,7 @@ import PageHeader from "../components/ui/PageHeader";
 import type {
   CrmPipelineResponse,
   CrmRecordItem,
+  CrmRelationshipResponse,
   CrmSuggestion,
   CrmTimelineResponse,
 } from "../types";
@@ -64,6 +66,7 @@ export default function RecordsPage() {
   const [suggestions, setSuggestions] = useState<CrmSuggestion[]>([]);
   const [selected, setSelected] = useState<CrmRecordItem | null>(null);
   const [timeline, setTimeline] = useState<CrmTimelineResponse | null>(null);
+  const [relationships, setRelationships] = useState<CrmRelationshipResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
 
@@ -101,14 +104,19 @@ export default function RecordsPage() {
   useEffect(() => {
     if (!session || !selected) {
       setTimeline(null);
+      setRelationships(null);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const response = await getCrmTimeline(session, selected.record_type, selected.id);
+        const [response, relationshipResponse] = await Promise.all([
+          getCrmTimeline(session, selected.record_type, selected.id),
+          getCrmRelationships(session, selected.record_type, selected.id),
+        ]);
         if (!cancelled) {
           setTimeline(response);
+          setRelationships(relationshipResponse);
         }
       } catch (err) {
         if (!cancelled) {
@@ -244,6 +252,25 @@ export default function RecordsPage() {
                   {selected.record_type} · {selected.id}
                 </p>
                 <pre className="code-block">{JSON.stringify(selected.data, null, 2)}</pre>
+                <h3>Relationships</h3>
+                {relationships && relationships.items.length > 0 ? (
+                  <ul className="timeline-list">
+                    {relationships.items.map((item, index) => {
+                      const outgoing = item.from_type === selected.record_type && item.from_id === selected.id;
+                      return (
+                        <li key={String(item.id || index)}>
+                          <strong>{String(item.relationship_type || "related")}</strong>
+                          <span>
+                            {outgoing ? "→" : "←"} {String(outgoing ? item.to_type : item.from_type)} · {String(outgoing ? item.to_id : item.from_id)}
+                          </span>
+                          <span className="muted">{String(item.source || "ajenda")}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="muted">No linked records yet.</p>
+                )}
                 <h3>Timeline</h3>
                 {timeline && timeline.items.length > 0 ? (
                   <ul className="timeline-list">

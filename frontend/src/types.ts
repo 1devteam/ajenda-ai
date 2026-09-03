@@ -713,6 +713,13 @@ export interface CrmTimelineResponse {
   total: number;
 }
 
+export interface CrmRelationshipResponse {
+  record_type: string;
+  record_id: string;
+  items: Array<Record<string, unknown>>;
+  total: number;
+}
+
 export interface CrmPipelineStage {
   stage: string;
   count: number;

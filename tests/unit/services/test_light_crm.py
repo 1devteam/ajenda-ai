@@ -88,6 +88,52 @@ def test_link_records_rejects_missing_tenant_record(mock_repo_cls: MagicMock) ->
 
 
 @patch("backend.services.light_crm.records.TenantInternalRecordRepository")
+def test_list_relationships_for_record_filters_edges(mock_repo_cls: MagicMock) -> None:
+    repo = MagicMock()
+    mock_repo_cls.return_value = repo
+    repo.search_records.return_value = [
+        {
+            "id": "relationship-1",
+            "from_type": "account",
+            "from_id": "acct-1",
+            "to_type": "contact",
+            "to_id": "contact-1",
+        },
+        {
+            "id": "relationship-2",
+            "from_type": "account",
+            "from_id": "acct-2",
+            "to_type": "contact",
+            "to_id": "contact-2",
+        },
+    ]
+    crm = LightCrmRecordService(session=MagicMock())
+
+    result = crm.list_relationships_for_record(tenant_id="tenant-1", record_type="contact", record_id="contact-1")
+
+    assert [item["id"] for item in result] == ["relationship-1"]
+    repo.search_records.assert_called_once_with(
+        tenant_id="tenant-1", record_type="relationship", query="contact-1", limit=50
+    )
+
+
+@patch("backend.services.light_crm.records.TenantInternalRecordRepository")
+def test_duplicate_candidates_are_proposals_only(mock_repo_cls: MagicMock) -> None:
+    repo = MagicMock()
+    mock_repo_cls.return_value = repo
+    repo.read_record.return_value = {"id": "contact-1", "email": "Ops@Example.com"}
+    repo.search_records.return_value = [{"id": "contact-2", "email": "ops@example.com"}]
+    crm = LightCrmRecordService(session=MagicMock())
+
+    result = crm.find_duplicate_candidates(tenant_id="tenant-1", record_type="contact", record_id="contact-1")
+
+    assert result == [
+        {"record": {"id": "contact-2", "email": "ops@example.com"}, "match_fields": ["email"], "review_required": True}
+    ]
+    repo.write_record.assert_not_called()
+
+
+@patch("backend.services.light_crm.records.TenantInternalRecordRepository")
 def test_opportunity_stage_transition_logs_auditable_activity(mock_repo_cls: MagicMock) -> None:
     repo = MagicMock()
     mock_repo_cls.return_value = repo

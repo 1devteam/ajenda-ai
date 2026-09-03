@@ -132,6 +132,63 @@ class LightCrmRecordService:
             },
         )
 
+    def list_relationships_for_record(
+        self, *, tenant_id: str, record_type: str, record_id: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Return tenant-owned relationship edges touching a CRM record."""
+        rows = self._repo.search_records(
+            tenant_id=tenant_id,
+            record_type="relationship",
+            query=record_id,
+            limit=limit,
+        )
+        return [
+            row
+            for row in rows
+            if (row.get("from_type") == record_type and row.get("from_id") == record_id)
+            or (row.get("to_type") == record_type and row.get("to_id") == record_id)
+        ]
+
+    def find_duplicate_candidates(
+        self, *, tenant_id: str, record_type: str, record_id: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """Suggest possible duplicates without merging or mutating records."""
+        target = self.read_record(tenant_id=tenant_id, record_type=record_type, record_id=record_id)
+        if target is None or record_type not in {"contact", "account"}:
+            return []
+        keys: dict[str, str] = {}
+        if record_type == "contact" and target.get("email"):
+            normalized_email = normalize_email(target.get("email"))
+            if normalized_email:
+                keys["email"] = normalized_email
+        if record_type == "account":
+            if target.get("domain"):
+                normalized_domain = normalize_domain(target.get("domain"))
+                if normalized_domain:
+                    keys["domain"] = normalized_domain
+            if target.get("name"):
+                keys["name"] = str(target["name"]).strip().lower()
+        if not any(keys.values()):
+            return []
+        candidates = self._repo.search_records(tenant_id=tenant_id, record_type=record_type, query="", limit=50)
+        proposals: list[dict[str, Any]] = []
+        for candidate in candidates:
+            candidate_id = str(candidate.get("id") or "")
+            if not candidate_id or candidate_id == record_id:
+                continue
+            matches: list[str] = []
+            if "email" in keys and normalize_email(candidate.get("email")) == keys["email"]:
+                matches.append("email")
+            if "domain" in keys and normalize_domain(candidate.get("domain")) == keys["domain"]:
+                matches.append("domain")
+            if "name" in keys and str(candidate.get("name") or "").strip().lower() == keys["name"]:
+                matches.append("name")
+            if matches:
+                proposals.append({"record": candidate, "match_fields": matches, "review_required": True})
+            if len(proposals) >= limit:
+                break
+        return proposals
+
     def ensure_opportunity_for_contact(
         self,
         *,

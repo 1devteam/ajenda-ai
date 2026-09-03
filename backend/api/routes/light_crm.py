@@ -229,6 +229,36 @@ def create_relationship(
     return CrmRecordItem(id=str(saved["id"]), record_type="relationship", data=saved)
 
 
+@router.get("/relationships")
+def list_relationships(
+    request: Request,
+    record_type: CrmRecordType = Query(...),
+    record_id: str = Query(..., min_length=1, max_length=160),
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+) -> dict[str, Any]:
+    require_route_permission(request=request, db=session, permission=Permission.EXECUTION_VIEW, tenant_id=tenant_id)
+    items = LightCrmRecordService(session=session).list_relationships_for_record(
+        tenant_id=str(tenant_id), record_type=record_type, record_id=record_id.strip()
+    )
+    return {"record_type": record_type, "record_id": record_id.strip(), "items": items, "total": len(items)}
+
+
+@router.get("/duplicates")
+def list_duplicate_candidates(
+    request: Request,
+    record_type: Literal["account", "contact"] = Query(...),
+    record_id: str = Query(..., min_length=1, max_length=160),
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+) -> dict[str, Any]:
+    require_route_permission(request=request, db=session, permission=Permission.EXECUTION_VIEW, tenant_id=tenant_id)
+    items = LightCrmRecordService(session=session).find_duplicate_candidates(
+        tenant_id=str(tenant_id), record_type=record_type, record_id=record_id.strip()
+    )
+    return {"record_type": record_type, "record_id": record_id.strip(), "items": items, "total": len(items)}
+
+
 @router.get("/pipeline", response_model=CrmPipelineResponse)
 def get_pipeline(
     request: Request,
