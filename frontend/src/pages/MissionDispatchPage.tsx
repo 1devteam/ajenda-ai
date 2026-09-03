@@ -97,7 +97,9 @@ function stepStatusFor(
     case "materialize":
       return completeness.has_materialization ? "complete" : "pending";
     case "authority":
-      return extras.authorities ? "complete" : "pending";
+      // Full-pipeline execution provisions bridge authority as part of server-owned
+      // runtime admission; do not require a manual UI provision response to turn green.
+      return extras.authorities || completeness.has_runtime_admission ? "complete" : "pending";
     case "admit":
       return completeness.has_runtime_admission ? "complete" : "pending";
     case "readiness":
