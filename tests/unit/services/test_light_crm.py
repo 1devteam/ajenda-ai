@@ -37,6 +37,57 @@ def test_enrich_contact_rejects_malformed_extension_fields() -> None:
 
 
 @patch("backend.services.light_crm.records.TenantInternalRecordRepository")
+def test_link_records_is_idempotent_and_tenant_scoped(mock_repo_cls: MagicMock) -> None:
+    repo = MagicMock()
+    mock_repo_cls.return_value = repo
+    repo.read_record.return_value = {"id": "present"}
+    repo.write_record.return_value = {"id": "relationship-abc", "relationship_type": "primary_contact"}
+    crm = LightCrmRecordService(session=MagicMock())
+
+    first = crm.link_records(
+        tenant_id="tenant-1",
+        from_type="account",
+        from_id="acct-1",
+        relationship_type="Primary Contact",
+        to_type="contact",
+        to_id="contact-1",
+    )
+    second = crm.link_records(
+        tenant_id="tenant-1",
+        from_type="account",
+        from_id="acct-1",
+        relationship_type="Primary Contact",
+        to_type="contact",
+        to_id="contact-1",
+    )
+
+    assert first == second
+    assert repo.write_record.call_args.kwargs["record_id"] == repo.write_record.call_args.kwargs["data"]["id"]
+
+
+@patch("backend.services.light_crm.records.TenantInternalRecordRepository")
+def test_link_records_rejects_missing_tenant_record(mock_repo_cls: MagicMock) -> None:
+    repo = MagicMock()
+    mock_repo_cls.return_value = repo
+    repo.read_record.return_value = None
+    crm = LightCrmRecordService(session=MagicMock())
+
+    try:
+        crm.link_records(
+            tenant_id="tenant-1",
+            from_type="account",
+            from_id="acct-1",
+            relationship_type="owns",
+            to_type="contact",
+            to_id="contact-1",
+        )
+    except ValueError as exc:
+        assert str(exc) == "from record not found for tenant"
+    else:
+        raise AssertionError("foreign or missing records must fail closed")
+
+
+@patch("backend.services.light_crm.records.TenantInternalRecordRepository")
 def test_identity_upsert_contact_dedupes_by_email(mock_repo_cls: MagicMock) -> None:
     repo = MagicMock()
     mock_repo_cls.return_value = repo

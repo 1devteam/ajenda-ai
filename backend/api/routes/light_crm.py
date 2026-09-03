@@ -17,7 +17,7 @@ from backend.services.tools.record_types import SUPPORTED_RECORD_TYPES
 
 router = APIRouter(prefix="/crm", tags=["crm"])
 
-CrmRecordType = Literal["account", "contact", "opportunity", "activity", "task"]
+CrmRecordType = Literal["account", "contact", "opportunity", "activity", "task", "document", "relationship"]
 
 
 class CrmRecordItem(BaseModel):
@@ -67,6 +67,17 @@ class CrmRecordWriteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class CrmRelationshipWriteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    from_type: CrmRecordType
+    from_id: str = Field(min_length=1, max_length=160)
+    relationship_type: str = Field(min_length=2, max_length=80)
+    to_type: CrmRecordType
+    to_id: str = Field(min_length=1, max_length=160)
+    source: str = Field(default="ajenda", min_length=1, max_length=120)
 
 
 @router.get("/records", response_model=CrmRecordListResponse)
@@ -192,6 +203,30 @@ def upsert_record(
         commit=True,
     )
     return CrmRecordItem(id=str(saved.get("id") or record_id), record_type=record_type, data=saved)
+
+
+@router.post("/relationships", response_model=CrmRecordItem)
+def create_relationship(
+    body: CrmRelationshipWriteRequest,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+) -> CrmRecordItem:
+    require_route_permission(request=request, db=session, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
+    try:
+        saved = LightCrmRecordService(session=session).link_records(
+            tenant_id=str(tenant_id),
+            from_type=body.from_type,
+            from_id=body.from_id.strip(),
+            relationship_type=body.relationship_type,
+            to_type=body.to_type,
+            to_id=body.to_id.strip(),
+            source=body.source,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    session.commit()
+    return CrmRecordItem(id=str(saved["id"]), record_type="relationship", data=saved)
 
 
 @router.get("/pipeline", response_model=CrmPipelineResponse)

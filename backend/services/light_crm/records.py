@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import re
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -81,6 +84,51 @@ class LightCrmRecordService:
             record_type="activity",
             record_id=activity_id,
             data={**payload, "id": activity_id},
+        )
+
+    def link_records(
+        self,
+        *,
+        tenant_id: str,
+        from_type: str,
+        from_id: str,
+        relationship_type: str,
+        to_type: str,
+        to_id: str,
+        source: str = "ajenda",
+    ) -> dict[str, Any]:
+        """Create an idempotent, tenant-owned relationship between CRM records."""
+        normalized_from = from_type.strip().lower()
+        normalized_to = to_type.strip().lower()
+        normalized_relationship = relationship_type.strip().lower().replace(" ", "_")
+        if not re.fullmatch(r"[a-z][a-z0-9_:-]{1,79}", normalized_relationship):
+            raise ValueError("relationship_type must use lowercase identifier characters")
+        if normalized_from == normalized_to and from_id == to_id:
+            raise ValueError("a CRM record cannot relate to itself")
+        if self.read_record(tenant_id=tenant_id, record_type=normalized_from, record_id=from_id) is None:
+            raise ValueError("from record not found for tenant")
+        if self.read_record(tenant_id=tenant_id, record_type=normalized_to, record_id=to_id) is None:
+            raise ValueError("to record not found for tenant")
+        relationship_id = (
+            "relationship-"
+            + hashlib.sha256(
+                f"{normalized_from}:{from_id}:{normalized_relationship}:{normalized_to}:{to_id}".encode()
+            ).hexdigest()[:24]
+        )
+        return self._repo.write_record(
+            tenant_id=tenant_id,
+            record_type="relationship",
+            record_id=relationship_id,
+            data={
+                "id": relationship_id,
+                "from_type": normalized_from,
+                "from_id": from_id,
+                "relationship_type": normalized_relationship,
+                "to_type": normalized_to,
+                "to_id": to_id,
+                "source": source.strip() or "ajenda",
+                "created_at": datetime.now(UTC).isoformat(),
+            },
         )
 
     def ensure_opportunity_for_contact(
