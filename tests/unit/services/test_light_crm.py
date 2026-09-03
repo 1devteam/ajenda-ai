@@ -88,6 +88,31 @@ def test_link_records_rejects_missing_tenant_record(mock_repo_cls: MagicMock) ->
 
 
 @patch("backend.services.light_crm.records.TenantInternalRecordRepository")
+def test_opportunity_stage_transition_logs_auditable_activity(mock_repo_cls: MagicMock) -> None:
+    repo = MagicMock()
+    mock_repo_cls.return_value = repo
+    repo.find_record_id_by_field.return_value = "opportunity-1"
+    repo.read_record.return_value = {"id": "opportunity-1", "stage": "qualified"}
+    repo.write_record.side_effect = [
+        {"id": "opportunity-1", "stage": "proposal"},
+        {"id": "activity-1", "type": "stage_changed"},
+    ]
+    crm = LightCrmRecordService(session=MagicMock())
+
+    saved = crm.identity_upsert(
+        tenant_id="tenant-1",
+        record_type="opportunity",
+        data={"id": "opportunity-1", "stage": "proposal"},
+    )
+
+    assert saved["stage"] == "proposal"
+    assert repo.write_record.call_count == 2
+    activity_payload = repo.write_record.call_args_list[1].kwargs["data"]
+    assert activity_payload["type"] == "stage_changed"
+    assert activity_payload["metadata"] == {"from": "qualified", "to": "proposal"}
+
+
+@patch("backend.services.light_crm.records.TenantInternalRecordRepository")
 def test_identity_upsert_contact_dedupes_by_email(mock_repo_cls: MagicMock) -> None:
     repo = MagicMock()
     mock_repo_cls.return_value = repo

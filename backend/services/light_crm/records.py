@@ -12,6 +12,7 @@ from backend.repositories.tenant_internal_record_repository import TenantInterna
 from backend.services.light_crm.schemas import (
     DEFAULT_OPPORTUNITY_STAGE,
     PIPELINE_STAGES,
+    activity_payload,
     enrich_account_data,
     enrich_contact_data,
     enrich_opportunity_data,
@@ -226,12 +227,33 @@ class LightCrmRecordService:
             )
             if matches:
                 record_id = str(matches[0].get("id"))
-        return self._repo.write_record(
+        previous = (
+            self._repo.read_record(tenant_id=tenant_id, record_type="opportunity", record_id=record_id)
+            if record_id
+            else None
+        )
+        saved = self._repo.write_record(
             tenant_id=tenant_id,
             record_type="opportunity",
             record_id=record_id,
             data=record,
         )
+        previous_stage = str(previous.get("stage") or "") if previous else ""
+        next_stage = str(saved.get("stage") or "")
+        if previous_stage and previous_stage != next_stage:
+            self.log_activity(
+                tenant_id=tenant_id,
+                payload=activity_payload(
+                    activity_type="stage_changed",
+                    subject=f"Stage moved to {next_stage}",
+                    body=f"Opportunity stage changed from {previous_stage} to {next_stage}.",
+                    related_type="opportunity",
+                    related_id=str(saved["id"]),
+                    source_action="crm.opportunity_stage_transition",
+                    metadata={"from": previous_stage, "to": next_stage},
+                ),
+            )
+        return saved
 
     def _resolve_account_for_contact(self, *, tenant_id: str, record: dict[str, Any]) -> dict[str, Any] | None:
         domain = normalize_domain(record.get("domain"))
