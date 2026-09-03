@@ -3,12 +3,30 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from backend.services.light_crm.records import LightCrmRecordService
-from backend.services.light_crm.schemas import normalize_email
+from backend.services.light_crm.schemas import enrich_contact_data, normalize_email
 from backend.services.light_crm.workflow import on_crm_upsert_completed, on_draft_approved
 
 
 def test_normalize_email_lowercases() -> None:
     assert normalize_email("Ops@Example.COM") == "ops@example.com"
+
+
+def test_enrich_contact_adds_universal_crm_envelope() -> None:
+    record = enrich_contact_data({"email": "Ops@Example.COM", "tags": ["Roofing", "roofing"]})
+
+    assert record["crm_schema_version"] == 1
+    assert record["custom_fields"] == {}
+    assert record["tags"] == ["roofing"]
+    assert record["email"] == "ops@example.com"
+
+
+def test_enrich_contact_rejects_malformed_extension_fields() -> None:
+    try:
+        enrich_contact_data({"custom_fields": ["not-an-object"]})
+    except ValueError as exc:
+        assert str(exc) == "custom_fields must be an object"
+    else:
+        raise AssertionError("malformed custom_fields must fail closed")
 
 
 @patch("backend.services.light_crm.records.TenantInternalRecordRepository")
