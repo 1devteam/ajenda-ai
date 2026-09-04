@@ -700,6 +700,10 @@ export interface CrmRecordItem {
   data: Record<string, unknown>;
 }
 
+export interface CrmRecordWriteRequest {
+  data: Record<string, unknown>;
+}
+
 export interface CrmRecordListResponse {
   record_type: string;
   items: CrmRecordItem[];

@@ -340,7 +340,7 @@ Root (unversioned): `/health`, `/readiness`
 | Customer routes | `/signup`, `/verify-email`, `/promote`, `/dashboard`, `/billing`, `/tasks` |
 | Dev route | `/dev` — Runtime Ability Console (ability-runtime + billing test buttons) |
 | Auth model | sessionStorage session (bootstrap vs operational API keys + tenant id) |
-| API integration | onboarding, account, billing, ability-runtime |
+| API integration | onboarding, account, billing, ability-runtime, CRM records/pipeline/relationships/timelines, authorized record edits |
 | Compose deploy | `:8080`, nginx proxies `/v1`, `/health`, `/readiness` to API |
 | K8s deploy | `ajenda-frontend` + ingress `/` → frontend; image `ghcr.io/<org>/<repo>-frontend:<version>` |
 
