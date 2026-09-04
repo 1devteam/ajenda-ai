@@ -6,6 +6,7 @@ import {
   getCrmTimeline,
   listCrmRecords,
   listCrmSuggestions,
+  upsertCrmRecord,
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
@@ -69,6 +70,9 @@ export default function RecordsPage() {
   const [relationships, setRelationships] = useState<CrmRelationshipResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editFields, setEditFields] = useState({ name: "", email: "", stage: "", ownerId: "", tags: "" });
 
   const loadRecords = useCallback(async () => {
     if (!session) {
@@ -107,6 +111,14 @@ export default function RecordsPage() {
       setRelationships(null);
       return;
     }
+    setEditing(false);
+    setEditFields({
+      name: String(selected.data.name || selected.data.company || ""),
+      email: String(selected.data.email || ""),
+      stage: String(selected.data.stage || ""),
+      ownerId: String(selected.data.owner_id || ""),
+      tags: Array.isArray(selected.data.tags) ? selected.data.tags.map(String).join(", ") : "",
+    });
     let cancelled = false;
     void (async () => {
       try {
@@ -129,6 +141,39 @@ export default function RecordsPage() {
       cancelled = true;
     };
   }, [session, selected]);
+
+  const saveSelected = useCallback(async () => {
+    if (!session || !selected) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const data = { ...selected.data };
+      if (editFields.name.trim()) data.name = editFields.name.trim();
+      else delete data.name;
+      if (selected.record_type === "contact") {
+        if (editFields.email.trim()) data.email = editFields.email.trim();
+        else delete data.email;
+      }
+      if (selected.record_type === "opportunity") {
+        if (editFields.stage.trim()) data.stage = editFields.stage.trim();
+        else delete data.stage;
+      }
+      if (editFields.ownerId.trim()) data.owner_id = editFields.ownerId.trim();
+      else delete data.owner_id;
+      data.tags = editFields.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+      const saved = await upsertCrmRecord(session, selected.record_type, selected.id, { data });
+      setSelected(saved);
+      setEditing(false);
+      await loadRecords();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSaving(false);
+    }
+  }, [editFields, loadRecords, selected, session]);
 
   const pipelineTotal = useMemo(
     () => pipeline?.stages.reduce((sum, stage) => sum + stage.count, 0) ?? 0,
@@ -251,6 +296,61 @@ export default function RecordsPage() {
                 <p className="muted">
                   {selected.record_type} · {selected.id}
                 </p>
+                <div className="inline-controls">
+                  <button type="button" className="button secondary" onClick={() => setEditing((value) => !value)}>
+                    {editing ? "Cancel edit" : "Edit record"}
+                  </button>
+                  {editing ? (
+                    <button type="button" className="button" disabled={saving} onClick={() => void saveSelected()}>
+                      {saving ? "Saving…" : "Save record"}
+                    </button>
+                  ) : null}
+                </div>
+                {editing ? (
+                  <div className="form-grid">
+                    <label>
+                      Name / company
+                      <input
+                        value={editFields.name}
+                        onChange={(event) => setEditFields((fields) => ({ ...fields, name: event.target.value }))}
+                      />
+                    </label>
+                    {selected.record_type === "contact" ? (
+                      <label>
+                        Email
+                        <input
+                          type="email"
+                          value={editFields.email}
+                          onChange={(event) => setEditFields((fields) => ({ ...fields, email: event.target.value }))}
+                        />
+                      </label>
+                    ) : null}
+                    {selected.record_type === "opportunity" ? (
+                      <label>
+                        Stage
+                        <input
+                          value={editFields.stage}
+                          onChange={(event) => setEditFields((fields) => ({ ...fields, stage: event.target.value }))}
+                        />
+                      </label>
+                    ) : null}
+                    <label>
+                      Owner ID
+                      <input
+                        value={editFields.ownerId}
+                        onChange={(event) => setEditFields((fields) => ({ ...fields, ownerId: event.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Tags
+                      <input
+                        value={editFields.tags}
+                        placeholder="comma, separated"
+                        onChange={(event) => setEditFields((fields) => ({ ...fields, tags: event.target.value }))}
+                      />
+                    </label>
+                  </div>
+                ) : null}
                 <pre className="code-block">{JSON.stringify(selected.data, null, 2)}</pre>
                 <h3>Relationships</h3>
                 {relationships && relationships.items.length > 0 ? (

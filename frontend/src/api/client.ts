@@ -20,6 +20,7 @@ import type {
   CrmPipelineResponse,
   CrmRecordItem,
   CrmRecordListResponse,
+  CrmRecordWriteRequest,
   CrmRelationshipResponse,
   CrmSuggestionsResponse,
   CrmTimelineResponse,
@@ -1193,6 +1194,21 @@ export async function getCrmRecord(
     request<CrmRecordItem>(
       `/v1/crm/records/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}`,
       {},
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function upsertCrmRecord(
+  caller: AuthedCaller,
+  recordType: string,
+  recordId: string,
+  data: CrmRecordWriteRequest,
+): Promise<CrmRecordItem> {
+  return withAuthedRuntime(caller, (config) =>
+    request<CrmRecordItem>(
+      `/v1/crm/records/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}`,
+      { method: "PUT", body: JSON.stringify(data) },
       runtimeOptions(config),
     ),
   );
