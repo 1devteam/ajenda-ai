@@ -201,6 +201,8 @@ invocation hash before execution. See
 [Mission Runtime Authorization and Binding Analysis](MISSION_RUNTIME_AUTHORIZATION_BINDING_ANALYSIS.md).
 The code-aligned CRM surface, target ingestion path, and remaining completion gaps are tracked in
 [Internal CRM Completion Map](INTERNAL_CRM_COMPLETION_MAP.md).
+The composed-mission contract-to-runtime boundaries and missing orchestration edge are mapped in
+[Composed Mission Implementation Map](COMPOSED_MISSION_IMPLEMENTATION_MAP.md).
 
 ### 5.1 RevOps mission deliverable read path
 
