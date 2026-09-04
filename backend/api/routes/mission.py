@@ -1989,6 +1989,22 @@ class MissionCompileResponse(BaseModel):
     next_steps: list[str] = Field(default_factory=list)
 
 
+class MissionLaunchResponse(BaseModel):
+    """Receipt for the explicit compile-to-queue mission launch orchestration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mission_id: UUID
+    compile_status: str
+    graph_materialized: bool
+    runtime_admitted: bool
+    runtime_tasks_materialized: int
+    queued_task_ids: list[str]
+    pending_review_task_ids: list[str]
+    blockers: list[dict[str, Any]] = Field(default_factory=list)
+    idempotency_key: str | None = None
+
+
 @router.post("/{mission_id}/compile", response_model=MissionCompileResponse)
 def compile_mission(
     mission_id: UUID,
@@ -2037,6 +2053,76 @@ def compile_mission(
             status = 422
         raise HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message}) from exc
     return MissionCompileResponse.model_validate(result)
+
+
+@router.post("/{mission_id}/launch", response_model=MissionLaunchResponse)
+def launch_mission(
+    mission_id: UUID,
+    request: Request,
+    body: dict[str, Any] | None = None,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+    queue: QueueAdapter = Depends(get_queue_adapter),
+) -> MissionLaunchResponse:
+    """Explicitly orchestrate compile, admission, task materialization, and queue admission.
+
+    Each stage remains independently callable for review/recovery. This endpoint only
+    composes those existing authorities and never dispatches workers directly.
+    """
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
+    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
+    require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
+
+    from backend.services.mission_composition.service import MissionCompositionService
+
+    payload = body or {}
+    idempotency_key = request.headers.get("Idempotency-Key") or payload.get("idempotency_key")
+    if idempotency_key is not None:
+        idempotency_key = str(idempotency_key).strip() or None
+    compile_result = MissionCompositionService(db).compile_for_mission(
+        tenant_id=str(tenant_id),
+        mission_id=mission_id,
+        instruction=payload.get("instruction") if isinstance(payload.get("instruction"), str) else None,
+        persist=True,
+        source="mission_launch",
+        actor_id=request.headers.get("x-ajenda-actor"),
+    )
+    if compile_result.get("compile_status") != "ready":
+        raise HTTPException(status_code=422, detail={"code": "COMPILE_NOT_READY", "compile": compile_result})
+
+    # Compile persists the server-owned graph materialization. Runtime admission
+    # provisions bridge authority and records the graph-to-runtime receipt.
+    admit_mission_graph_to_runtime(
+        mission_id=mission_id,
+        body=RuntimeAdmissionWrite(),
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+    )
+    materialized = materialize_mission_runtime_tasks(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+    )
+    admission = _admit_mission_runtime_queue(mission_id=mission_id, tenant_id=tenant_id, db=db, queue=queue)
+    blockers_raw = admission.get("blockers")
+    queued_raw = admission.get("queued_task_ids")
+    pending_raw = admission.get("pending_review_task_ids")
+    blockers = list(blockers_raw) if isinstance(blockers_raw, list) else []
+    queued_task_ids = [str(item) for item in queued_raw] if isinstance(queued_raw, list) else []
+    pending_review_task_ids = [str(item) for item in pending_raw] if isinstance(pending_raw, list) else []
+    return MissionLaunchResponse(
+        mission_id=mission_id,
+        compile_status=str(compile_result.get("compile_status") or "unknown"),
+        graph_materialized=True,
+        runtime_admitted=True,
+        runtime_tasks_materialized=len(getattr(materialized, "created_execution_task_ids", []) or []),
+        queued_task_ids=queued_task_ids,
+        pending_review_task_ids=pending_review_task_ids,
+        blockers=blockers,
+        idempotency_key=idempotency_key,
+    )
 
 
 @router.post("/{mission_id}/materialize-graph", response_model=GraphMaterializationRead)
