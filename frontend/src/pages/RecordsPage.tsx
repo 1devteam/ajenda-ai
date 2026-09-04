@@ -62,6 +62,7 @@ export default function RecordsPage() {
   const [tab, setTab] = useState<CrmTab>("contact");
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
+  const [page, setPage] = useState(0);
   const [records, setRecords] = useState<CrmRecordItem[]>([]);
   const [pipeline, setPipeline] = useState<CrmPipelineResponse | null>(null);
   const [suggestions, setSuggestions] = useState<CrmSuggestion[]>([]);
@@ -91,6 +92,7 @@ export default function RecordsPage() {
           query: query.trim() || undefined,
           stage: tab === "opportunity" && stageFilter ? stageFilter : undefined,
           limit: 30,
+          offset: page * 30,
         }),
         getCrmPipeline(session),
         listCrmSuggestions(session),
@@ -103,7 +105,7 @@ export default function RecordsPage() {
     } finally {
       setLoading(false);
     }
-  }, [session, tab, query, stageFilter]);
+  }, [session, tab, query, stageFilter, page]);
 
   useEffect(() => {
     void loadRecords();
@@ -288,6 +290,16 @@ export default function RecordsPage() {
           </div>
         </section>
       ) : null}
+
+      <div className="inline-controls">
+        <button type="button" className="button secondary" disabled={page === 0 || loading} onClick={() => setPage((value) => value - 1)}>
+          Previous
+        </button>
+        <span className="muted">Page {page + 1}{records.length === 30 ? " · more available" : ""}</span>
+        <button type="button" className="button secondary" disabled={loading || records.length < 30} onClick={() => setPage((value) => value + 1)}>
+          Next
+        </button>
+      </div>
 
       <section className="panel">
         <div className="inline-controls">
