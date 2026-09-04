@@ -23,8 +23,8 @@ def test_dependabot_scans_frontend_npm_dependency_graph() -> None:
     assert "- frontend" in content
 
 
-def test_ci_gates_frontend_install_audit_and_build() -> None:
-    """CI must fail closed on frontend dependency or build regressions."""
+def test_ci_gates_frontend_install_and_build() -> None:
+    """The fast PR CI gate must fail closed on frontend install or build regressions."""
     content = CI_WORKFLOW.read_text(encoding="utf-8")
 
     assert "frontend-build:" in content
@@ -34,7 +34,6 @@ def test_ci_gates_frontend_install_audit_and_build() -> None:
     assert "cache-dependency-path: frontend/package-lock.json" in content
     assert "working-directory: frontend" in content
     assert "npm ci" in content
-    assert "npm audit" in content
     assert "npm run build" in content
 
 

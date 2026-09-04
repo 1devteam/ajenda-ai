@@ -8,7 +8,7 @@ That graph must be treated as a release-gated supply-chain surface, not an opera
 This bundle adds:
 
 - Dependabot npm monitoring for `/frontend`
-- CI frontend dependency install, audit, and production build
+- CI frontend dependency install and production build
 - scheduled/manual/PR security workflow npm audit coverage
 - deployment contract tests proving those gates remain wired
 
@@ -31,7 +31,7 @@ The frontend gate is additive and fails closed when the frontend dependency grap
 Required validation:
 
 - frontend `npm ci`
-- frontend `npm audit`
+- frontend `npm audit` (dedicated security workflow)
 - frontend `npm run build`
 - deployment contract tests for CI/security/Dependabot wiring
 - existing Python lint, type, contract, migration, and test gates
