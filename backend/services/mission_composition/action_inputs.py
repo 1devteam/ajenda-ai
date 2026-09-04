@@ -852,8 +852,14 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         }
     if action_name == "record.write":
         return {
-            "record_type": "account",
-            "data": {"name": company_label, "industry": industry, "location": location},
+            "record_type": "contact",
+            "data": {},
+            "context": {
+                "source": "mission_composition",
+                "binding_required": True,
+                "prospect_candidates": [],
+                "observed_contacts": [],
+            },
         }
 
     if action_name == "linkedin.profile_read":

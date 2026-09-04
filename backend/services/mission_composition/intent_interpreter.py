@@ -117,6 +117,7 @@ _ENRICH_PATTERNS = (
     r"\benrich (?:the )?(?:leads?|contacts?|prospects?)\b",
 )
 _OBSERVE_CONTACT_PATTERNS = (
+    r"observe (?:public )?contact evidence",
     r"contact details",
     r"contact info(?:rmation)?",
     r"collect (?:contact|email|phone)",
@@ -208,6 +209,7 @@ _CALENDAR_MUTATION_PATTERNS = (
 )
 # Mutation verbs only — naming HubSpot/CRM as a read source must not imply upsert.
 _CRM_UPDATE_PATTERNS = (
+    r"\bpersist (?:them|it|these|those|each|the\s+(?:prospects?|leads?|companies))?\s*(?:to|into|in)\s+(?:the\s+)?(?:ajenda\s+)?(?:internal\s+)?crm\b",
     r"\bupdate (?:the )?(?:crm|pipeline|hubspot)\b",
     r"\blog (?:to |in |into )?(?:the )?crm\b",
     r"\blogs? (?:activity|to crm)\b",
@@ -223,6 +225,11 @@ _CRM_UPDATE_PATTERNS = (
     r"\bput (?:them|it|these|those)\s+(?:in|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\bcreate (?:crm )?(?:records?|contacts?)\b",
     r"\b(?:modify|change|edit) (?:the )?(?:crm|hubspot|pipeline|records?)\b",
+)
+_INTERNAL_CRM_PATTERNS = (
+    r"\bajenda(?:'s)?\s+(?:internal\s+)?crm\b",
+    r"\binternal\s+(?:ajenda\s+)?crm\b",
+    r"\bajenda\s+(?:internal\s+)?records?\b",
 )
 _CRM_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\s+add\b.{0,40}\bcontacts?\b",
@@ -735,6 +742,13 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "persist_internal_crm" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Every Ajenda internal CRM prospect record is persisted and verified by readback",
+                measurable=True,
+            )
+        )
     if "read_linkedin" in outcomes:
         success.append(
             SuccessCriterion(
@@ -846,11 +860,13 @@ def _classify_clause(
     if profile_read or (profile_mission and _contains_any(lower, _BUSINESS_PROFILE_DELIVERABLE_PATTERNS)):
         outcomes.append("read_business_profile")
     email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
+    internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
         lower, _CRM_NEGATION_PATTERNS
     )
     crm_read = (
         _contains_any(lower, _CRM_READ_PATTERNS)
+        and not internal_crm_requested
         and not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS)
         and not crm_write_requested
         and not _contains_any(lower, _CRM_NEGATION_PATTERNS)
@@ -905,7 +921,7 @@ def _classify_clause(
     if _contains_any(lower, _CALENDAR_PATTERNS):
         outcomes.append("read_calendar")
     if _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(lower, _CRM_NEGATION_PATTERNS):
-        outcomes.append("update_crm")
+        outcomes.append("persist_internal_crm" if internal_crm_requested else "update_crm")
     if _contains_any(lower, _PUBLISH_PATTERNS) and not _contains_any(lower, _PUBLISH_NEGATION_PATTERNS):
         outcomes.append("publish_content")
     # Ability vocabulary: map short clauses like "score them" before marking unmatched.
@@ -1020,12 +1036,14 @@ def interpret_instruction(
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
+    internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
     explicit_hubspot_record_read = bool(re.search(r"\buse\s+(?:the\s+)?(?:hubspot|crm)\s+records?\b", lower))
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
         lower, _CRM_NEGATION_PATTERNS
     )
     wants_crm_read = (
         (explicit_hubspot_record_read or _contains_any(lower, _CRM_READ_PATTERNS))
+        and not internal_crm_requested
         and not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS)
         and not crm_write_requested
         and (explicit_hubspot_record_read or not _contains_any(lower, _CRM_NEGATION_PATTERNS))
@@ -1052,6 +1070,7 @@ def interpret_instruction(
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
     no_crm = _contains_any(lower, _CRM_NEGATION_PATTERNS)
     wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm
+    wants_internal_crm = wants_crm and internal_crm_requested
     no_publish = _contains_any(lower, _PUBLISH_NEGATION_PATTERNS)
     wants_publish = _contains_any(lower, _PUBLISH_PATTERNS) and not no_publish
     publish_result_based = _PUBLISH_RESULT_BASED.search(lower) is not None
@@ -1258,7 +1277,9 @@ def interpret_instruction(
         )
 
     if wants_crm:
-        outcomes.append("update_crm")
+        if wants_internal_crm:
+            outcomes = [item for item in outcomes if item != "update_crm"]
+        outcomes.append("persist_internal_crm" if wants_internal_crm else "update_crm")
     if wants_publish:
         outcomes.append("publish_content")
 
@@ -1351,9 +1372,12 @@ def interpret_instruction(
         )
     if no_crm:
         forbidden.append("gtm.crm_upsert")
+        forbidden.append("record.write")
         constraints.append("Do not write contacts or CRM records")
         if "update_crm" in outcomes:
             outcomes = [o for o in outcomes if o != "update_crm"]
+        if "persist_internal_crm" in outcomes:
+            outcomes = [o for o in outcomes if o != "persist_internal_crm"]
     if no_publish:
         forbidden.append("gtm.social_publish")
         constraints.append("Do not publish or post to social channels")

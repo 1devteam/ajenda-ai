@@ -75,3 +75,26 @@ def test_acceptance_requires_research_report_opportunities() -> None:
     )
     assert met is True
     assert reasons == []
+
+
+def test_acceptance_requires_internal_crm_readback_evidence() -> None:
+    persisted_only = _task({"internal_crm_records": [{"id": "contact-1", "company": "Acme"}]})
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[persisted_only],
+        contract={"internal_crm_records_min": 1, "internal_crm_readback_required": True},
+    )
+    assert met is False
+    assert "read-back evidence" in " ".join(reasons)
+
+    verified = _task(
+        {
+            "internal_crm_records": [{"id": "contact-1", "company": "Acme"}],
+            "crm_readback_records": [{"record_id": "contact-1", "verified": True}],
+        }
+    )
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[verified],
+        contract={"internal_crm_records_min": 1, "internal_crm_readback_required": True},
+    )
+    assert met is True
+    assert reasons == []

@@ -31,6 +31,7 @@ def evaluate_interpretation_readiness(intent: MissionIntent) -> InterpretationRe
         in {
             "send_outreach",
             "update_crm",
+            "persist_internal_crm",
             "publish_content",
             "read_email",
             "read_crm",

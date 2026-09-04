@@ -184,6 +184,7 @@ REVOPS_V1_KNOW_HOW = VerticalKnowHowContract(
         "read_crm",
         "send_outreach",
         "update_crm",
+        "persist_internal_crm",
     ),
     stages=(
         KnowHowStage(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -180,8 +181,14 @@ def on_crm_upsert_completed(
     if not record_id:
         return {"logged": False, "reason": "missing_record_id"}
 
-    crm.log_activity(
+    activity_id = None
+    if task_id:
+        activity_id = (
+            "activity-crm-" + hashlib.sha256(f"{task_id}:{record_type}:{record_id}:upserted".encode()).hexdigest()[:20]
+        )
+    activity = crm.log_activity(
         tenant_id=tenant_id,
+        activity_id=activity_id,
         payload=activity_payload(
             activity_type="record_upserted",
             subject=f"{record_type} upserted",
@@ -228,7 +235,12 @@ def on_crm_upsert_completed(
                 ),
             )
 
-    return {"logged": True, "record_id": record_id, "opportunity_id": opportunity_id}
+    return {
+        "logged": True,
+        "record_id": record_id,
+        "activity_id": activity.get("id"),
+        "opportunity_id": opportunity_id,
+    }
 
 
 def workflow_suggestions(*, session: Session, tenant_id: str) -> list[dict[str, Any]]:

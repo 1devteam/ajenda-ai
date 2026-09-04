@@ -246,6 +246,49 @@ def test_record_write_is_observable_by_read() -> None:
     assert read_result.output["record"]["name"] == "New Contact"
 
 
+def test_internal_crm_record_write_is_idempotent_and_readback_verified() -> None:
+    from backend.services.tools.local_records import reset_default_local_record_provider
+
+    reset_default_local_record_provider()
+    registry = get_default_action_registry(rebuild=True)
+    context = _context()
+    invocation = ToolInvocation(
+        action="record.write",
+        input={
+            "record_type": "contact",
+            "context": {
+                "prospect_candidates": [
+                    {"prospect_id": "prospect-1", "company": "Acme Roofing", "domain": "acme.test"}
+                ],
+                "observed_contacts": [
+                    {"prospect_id": "prospect-1", "email": "owner@acme.test", "source_url": "https://acme.test"}
+                ],
+            },
+        },
+    )
+
+    first = registry.invoke(invocation, context)
+    second = registry.invoke(invocation, context)
+
+    assert first.output["internal_crm_records"][0]["operation"] == "created"
+    assert second.output["internal_crm_records"][0]["operation"] == "unchanged"
+    assert first.records_changed == second.records_changed
+    assert second.output["readback_verified_count"] == 1
+    assert second.output["crm_readback_records"][0]["verified"] is True
+
+
+def test_internal_crm_record_write_rejects_tenant_mismatch() -> None:
+    context = _context()
+    with pytest.raises(ValueError, match="must match the runtime tenant"):
+        get_default_action_registry(rebuild=True).invoke(
+            ToolInvocation(
+                action="record.write",
+                input={"record_type": "contact", "tenant_id": "another-tenant", "data": {"name": "Acme"}},
+            ),
+            context,
+        )
+
+
 def test_sales_log_activity_preserves_record_write_payload_shape() -> None:
     from backend.services.tools.local_records import reset_default_local_record_provider
 

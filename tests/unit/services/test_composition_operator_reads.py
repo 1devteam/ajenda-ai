@@ -18,9 +18,9 @@ from backend.services.operating_charter import default_operating_charter
 
 
 def test_versions_bumped_for_wave_a() -> None:
-    assert JOB_CATALOG_VERSION == "10"
-    assert INTERPRETER_VERSION == "12"
-    assert CAPABILITY_RESOLVER_VERSION == "8"
+    assert JOB_CATALOG_VERSION == "11"
+    assert INTERPRETER_VERSION == "13"
+    assert CAPABILITY_RESOLVER_VERSION == "9"
 
 
 def test_linkedin_profile_read_composes_to_connection_required() -> None:

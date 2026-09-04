@@ -80,6 +80,12 @@ Ability rollout may require a non-secret `credential_reference`, but the referen
 
 `webhook.dispatch` requires an event id and dispatch attempt metadata so retries can be correlated without silently duplicating sends. Recipient-side readback remains deferred to provider-specific verification and this contract does not activate durable third-party webhook clients beyond the existing governed dispatch path.
 
+### Record write idempotency
+
+<a id="record-write-idempotency"></a>
+
+Internal CRM composition writes derive each contact record ID from the normalized prospect identity. Replaying the same tenant-scoped input targets the same record, compares the stored payload, and emits an `unchanged` operation after a successful read-back instead of creating a duplicate.
+
 ### gtm.email_send idempotency
 
 <a id="gtm-email-send-idempotency"></a>

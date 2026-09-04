@@ -10,7 +10,7 @@ import pytest
 from backend.domain.enums import ExecutionTaskState
 from backend.queue.base import QueueOperationResult
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.tools.schemas import side_effect_authorized
+from backend.services.tools.schemas import side_effect_authorized, tool_invocation_sha256
 
 
 def _allowed_decision() -> SimpleNamespace:
@@ -224,6 +224,124 @@ def test_side_effect_task_requires_review_then_approval_issues_exact_action_gran
         tenant_id=tenant_id,
         task_id=task.id,
     )
+
+
+def test_side_effect_approval_binds_dependency_outputs_before_hashing_and_queueing() -> None:
+    tenant_id = str(uuid.uuid4())
+    mission_id = uuid.uuid4()
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PENDING_REVIEW.value)
+    task.mission_id = mission_id
+    task.metadata_json = {
+        "task_type": "tool.invoke",
+        "graph_node_key": "ability-record-write",
+        "dependency_keys": ["ability-web-research", "ability-research-observe_contacts"],
+        "input_bindings": [
+            {
+                "from_step": "ability-web-research",
+                "output_path": "$.prospect_candidates",
+                "input_path": "$.input.context.prospect_candidates",
+            },
+            {
+                "from_step": "ability-research-observe_contacts",
+                "output_path": "$.observed_contacts",
+                "input_path": "$.input.context.observed_contacts",
+            },
+        ],
+        "tool_invocation": {
+            "schema_version": 1,
+            "action": "record.write",
+            "input": {
+                "record_type": "contact",
+                "data": {},
+                "context": {
+                    "binding_required": True,
+                    "prospect_candidates": [],
+                    "observed_contacts": [],
+                },
+            },
+        },
+    }
+    prospect = {"prospect_id": "prospect-1", "company": "Acme Roofing", "domain": "acme.test"}
+    contact = {"prospect_id": "prospect-1", "email": "owner@acme.test"}
+    upstream_research = _task(tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    upstream_research.mission_id = mission_id
+    upstream_research.metadata_json = {
+        "graph_node_key": "ability-web-research",
+        "handler_result": {"output": {"prospect_candidates": [prospect]}},
+    }
+    upstream_contacts = _task(tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    upstream_contacts.mission_id = mission_id
+    upstream_contacts.metadata_json = {
+        "graph_node_key": "ability-research-observe_contacts",
+        "handler_result": {"output": {"observed_contacts": [contact]}},
+    }
+    queue = MagicMock()
+    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+    coordinator._tasks.list_for_mission_for_tenant.return_value = [
+        upstream_research,
+        upstream_contacts,
+        task,
+    ]
+
+    result = coordinator.approve_review_and_queue(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        actor="admin:user-123",
+        approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    assert result.ok is True
+    invocation = task.metadata_json["tool_invocation"]
+    assert invocation["input"]["context"]["prospect_candidates"] == [prospect]
+    assert invocation["input"]["context"]["observed_contacts"] == [contact]
+    grant = task.metadata_json["execution_constraints"]["side_effect_authorization"]
+    assert grant["invocation_sha256"] == tool_invocation_sha256(invocation)
+    assert side_effect_authorized(
+        task.metadata_json,
+        "record.write",
+        tenant_id=tenant_id,
+        task_id=task.id,
+    )
+    assert queue.enqueue_task.call_args.args[0].payload["tool_invocation"] == invocation
+
+
+def test_side_effect_approval_fails_closed_before_dependencies_complete() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PENDING_REVIEW.value)
+    task.metadata_json = {
+        "task_type": "tool.invoke",
+        "dependency_keys": ["ability-web-research"],
+        "input_bindings": [
+            {
+                "from_step": "ability-web-research",
+                "output_path": "$.prospect_candidates",
+                "input_path": "$.input.context.prospect_candidates",
+            }
+        ],
+        "tool_invocation": {
+            "schema_version": 1,
+            "action": "record.write",
+            "input": {"record_type": "contact", "data": {}, "context": {"prospect_candidates": []}},
+        },
+    }
+    coordinator = _coordinator_with_task(task=task)
+    coordinator._tasks.list_for_mission_for_tenant.return_value = [task]
+
+    with pytest.raises(
+        ValueError,
+        match="side-effect approval input binding failed: ability dependencies not complete",
+    ):
+        coordinator.approve_review_and_queue(
+            tenant_id=tenant_id,
+            task_id=task.id,
+            actor="admin:user-123",
+            approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+
+    assert task.status == ExecutionTaskState.PENDING_REVIEW.value
+    assert "execution_constraints" not in task.metadata_json
+    coordinator._queue.enqueue_task.assert_not_called()
 
 
 def test_composition_issued_grant_does_not_bypass_side_effect_review() -> None:

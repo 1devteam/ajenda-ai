@@ -677,6 +677,10 @@ class MissionCompositionService:
                         "market_opportunities_min": 3
                         if "synthesize_research_report" in record.intent.requested_outcomes
                         else 0,
+                        "internal_crm_records_min": record.intent.requested_quantity
+                        if "persist_internal_crm" in record.intent.requested_outcomes
+                        else 0,
+                        "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
                         "score_threshold_10": 7,
                         "require_verified_identity": "qualify_prospects" in record.intent.requested_outcomes,
                     },

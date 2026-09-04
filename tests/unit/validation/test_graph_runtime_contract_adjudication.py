@@ -229,8 +229,8 @@ def test_adjudication_remains_non_enforcing_and_complete_for_current_controls() 
     assert report["policy"]["enforcement"] == "disabled"
     assert report["policy"]["applicability_instantiation"] == "required-for-conditional-enforcement"
     assert report["metrics"] == {
-        "candidate_count": 9,
-        "satisfied_count": 9,
+        "candidate_count": 11,
+        "satisfied_count": 11,
         "violated_count": 0,
         "indeterminate_count": 0,
     }

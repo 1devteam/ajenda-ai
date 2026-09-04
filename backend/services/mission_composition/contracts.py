@@ -15,10 +15,10 @@ from backend.services.mission_composition.deliverable_contract import (
     extract_deliverable_request,
 )
 
-COMPOSITION_SCHEMA_VERSION = 5
-JOB_CATALOG_VERSION = "10"
-INTERPRETER_VERSION = "12"
-CAPABILITY_RESOLVER_VERSION = "8"
+COMPOSITION_SCHEMA_VERSION = 6
+JOB_CATALOG_VERSION = "11"
+INTERPRETER_VERSION = "13"
+CAPABILITY_RESOLVER_VERSION = "9"
 
 ProposalStatus = Literal[
     "interpretation_failed",
@@ -68,6 +68,7 @@ CanonicalOutcome = Literal[
     "prepare_outreach",
     "send_outreach",
     "update_crm",
+    "persist_internal_crm",
     "publish_content",
     "read_calendar",
     "read_email",
@@ -89,6 +90,7 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
         "prepare_outreach",
         "send_outreach",
         "update_crm",
+        "persist_internal_crm",
         "publish_content",
         "read_calendar",
         "read_email",
@@ -144,6 +146,8 @@ LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "add to contacts": "update_crm",
     "save to contacts": "update_crm",
     "add contacts": "update_crm",
+    "persist to ajenda internal crm": "persist_internal_crm",
+    "save to ajenda internal crm": "persist_internal_crm",
     "calendar briefing": "read_calendar",
     "read calendar": "read_calendar",
     "schedule review": "read_calendar",

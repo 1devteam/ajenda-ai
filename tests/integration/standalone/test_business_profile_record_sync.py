@@ -143,3 +143,91 @@ def test_profile_synced_records_are_discoverable_via_hybrid_search(pg_engine) ->
     )
     provenance = result.evidence[0].provenance
     assert provenance.get("business_context", {}).get("business_name") == "Cedar Creek Landscaping"
+
+
+def test_internal_crm_write_is_durable_idempotent_and_tenant_scoped(pg_engine) -> None:
+    tenant_id = f"tenant-internal-crm-{uuid.uuid4().hex[:8]}"
+    other_tenant_id = f"tenant-internal-crm-{uuid.uuid4().hex[:8]}"
+    session_factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    context = ActionRuntimeContext(
+        tenant_id=tenant_id,
+        task_id=uuid.uuid4(),
+        mission_id=uuid.uuid4(),
+        worker_id="worker-internal-crm",
+        lease_id=str(uuid.uuid4()),
+        session_factory=session_factory,
+    )
+    invocation = ToolInvocation(
+        action="record.write",
+        input={
+            "record_type": "contact",
+            "context": {
+                "prospect_candidates": [
+                    {"prospect_id": "durable-prospect-1", "company": "Durable Roofing", "domain": "durable.test"}
+                ],
+                "observed_contacts": [
+                    {
+                        "prospect_id": "durable-prospect-1",
+                        "email": "owner@durable.test",
+                        "source_url": "https://durable.test/contact",
+                    }
+                ],
+            },
+        },
+    )
+    registry = get_default_action_registry(rebuild=True)
+
+    first = registry.invoke(invocation, context)
+    second = registry.invoke(invocation, context)
+    record_id = first.records_changed[0]
+
+    assert first.output["internal_crm_records"][0]["operation"] == "created"
+    assert second.output["internal_crm_records"][0]["operation"] == "unchanged"
+    assert second.output["crm_readback_records"][0]["verified"] is True
+    projection = second.output["crm_projection_records"][0]
+    assert projection["contact_id"] == record_id
+    assert projection["account_id"]
+    assert projection["opportunity_id"]
+    assert len(projection["activity_ids"]) == 1
+
+    verify = session_factory()
+    try:
+        activate_tenant_session(verify, tenant_id)
+        repo = TenantInternalRecordRepository(verify)
+        own = repo.read_record(
+            tenant_id=tenant_id, record_type="contact", record_id=record_id
+        )
+        account = repo.read_record(
+            tenant_id=tenant_id,
+            record_type="account",
+            record_id=str(own.get("account_id")) if own else "",
+        )
+        opportunities = repo.search_records(
+            tenant_id=tenant_id,
+            record_type="opportunity",
+            filters={"contact_id": record_id},
+            limit=10,
+        )
+        activities = repo.list_activities_for_record(
+            tenant_id=tenant_id,
+            related_type="contact",
+            related_id=record_id,
+            limit=10,
+        )
+    finally:
+        verify.close()
+    other = session_factory()
+    try:
+        activate_tenant_session(other, other_tenant_id)
+        foreign = TenantInternalRecordRepository(other).read_record(
+            tenant_id=other_tenant_id, record_type="contact", record_id=record_id
+        )
+    finally:
+        other.close()
+
+    assert own is not None and own["company"] == "Durable Roofing"
+    assert own["lifecycle_stage"] == "observed"
+    assert account is not None and account["name"] == "Durable Roofing"
+    assert len(opportunities) == 1
+    assert len(activities) == 1
+    assert foreign is None

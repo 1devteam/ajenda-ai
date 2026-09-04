@@ -101,8 +101,8 @@ def test_selection_report_is_non_enforcing_and_preserves_binding_counts() -> Non
     assert report["policy"]["enforcement"] == "disabled"
     assert report["policy"]["action_selection_instantiation"] == "required-for-enforcement"
     assert report["metrics"] == {
-        "candidate_count": 9,
-        "satisfied_count": 9,
+        "candidate_count": 11,
+        "satisfied_count": 11,
         "violated_count": 0,
         "indeterminate_count": 0,
         "violated_primary_action_count": 0,

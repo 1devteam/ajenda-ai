@@ -85,4 +85,23 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
                 f"required at least {opportunity_min} market opportunities in research_report, produced {len(opportunities)}"
             )
 
+    crm_records = unique_records("internal_crm_records")
+    crm_min = int(contract.get("internal_crm_records_min", 0) or 0)
+    if len(crm_records) < crm_min:
+        reasons.append(f"required at least {crm_min} persisted internal CRM records, produced {len(crm_records)}")
+    if contract.get("internal_crm_readback_required"):
+        verified_ids = {
+            str(item.get("record_id"))
+            for output in outputs
+            for item in output.get("crm_readback_records", [])
+            if isinstance(item, dict) and item.get("verified") is True and item.get("record_id")
+        }
+        persisted_ids = {str(item.get("id")) for item in crm_records if item.get("id")}
+        missing_readback = sorted(persisted_ids - verified_ids)
+        if not persisted_ids or missing_readback:
+            reasons.append(
+                "required verified internal CRM read-back evidence for every persisted record; "
+                f"missing {len(missing_readback) if persisted_ids else crm_min}"
+            )
+
     return not reasons, reasons

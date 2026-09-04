@@ -195,6 +195,13 @@ HTTP 410 after permission validation. Their compatibility services are fail-clos
 Only `WorkerLoop`/`WorkerRuntimeService` may claim, start, and dispatch queued work; GET readbacks
 remain available for historical metadata.
 
+For graph-bound side effects, the coordinator resolves completed dependency outputs before issuing
+the payload-bound V2 approval grant. The worker deterministically rebinds and validates the exact
+invocation hash before execution. See
+[Mission Runtime Authorization and Binding Analysis](MISSION_RUNTIME_AUTHORIZATION_BINDING_ANALYSIS.md).
+The code-aligned CRM surface, target ingestion path, and remaining completion gaps are tracked in
+[Internal CRM Completion Map](INTERNAL_CRM_COMPLETION_MAP.md).
+
 ### 5.1 RevOps mission deliverable read path
 
 `GET /v1/missions/{mission_id}/deliverable` assembles a tenant-owned RevOps report without

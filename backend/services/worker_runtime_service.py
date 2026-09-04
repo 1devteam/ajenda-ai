@@ -94,8 +94,8 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
         raise ValueError(f"declared artifact '{artifact_key}' failed schema validation: {'; '.join(errors)}")
 
 
-def _observe_accept_unmet(siblings: list[ExecutionTask]) -> bool:
-    """True when an observe-contacts task finished without meeting the requested count."""
+def _observe_acceptance_reasons(siblings: list[ExecutionTask]) -> list[str]:
+    """Describe incomplete contact coverage without redefining execution success."""
 
     for item in siblings:
         if _task_action_name(item) != "research.observe_contacts":
@@ -104,9 +104,11 @@ def _observe_accept_unmet(siblings: list[ExecutionTask]) -> bool:
             continue
         output = handler_output_for_task(item)
         if output.get("accept_met") is True:
-            return False
-        return True
-    return False
+            return []
+        observed = int(output.get("observed_count", 0) or 0)
+        requested = int(output.get("requested_quantity", 0) or 0)
+        return [f"requested {requested} observed contacts, produced {observed}"]
+    return []
 
 
 def _mission_acceptance_contract(mission: Any) -> dict[str, Any]:
@@ -532,14 +534,27 @@ class WorkerRuntimeService:
 
             # All graph tasks terminal.
             any_failed = any(item.status in failedish for item in siblings)
-            accept_unmet = _observe_accept_unmet(siblings)
+            acceptance_reasons = _observe_acceptance_reasons(siblings)
             acceptance_contract = _mission_acceptance_contract(mission)
-            acceptance_met, acceptance_reasons = evaluate_mission_acceptance(
+            contract_met, contract_reasons = evaluate_mission_acceptance(
                 tasks=siblings,
                 contract=acceptance_contract,
             )
+            for reason in contract_reasons:
+                if reason not in acceptance_reasons:
+                    acceptance_reasons.append(reason)
+            acceptance_met = contract_met and not acceptance_reasons
+            acceptance_status = "met" if acceptance_met else "partially_met"
+            mission.metadata_json = {
+                **(mission.metadata_json if isinstance(mission.metadata_json, dict) else {}),
+                "acceptance": {
+                    "status": acceptance_status,
+                    "reasons": acceptance_reasons,
+                    "evaluated_at": datetime.now(UTC).isoformat(),
+                    "task_count": len(siblings),
+                },
+            }
             if not acceptance_met:
-                accept_unmet = True
                 self._audit.append(
                     AuditEvent(
                         tenant_id=task.tenant_id,
@@ -548,10 +563,17 @@ class WorkerRuntimeService:
                         action="mission_acceptance_unmet",
                         actor=worker_id,
                         details="; ".join(acceptance_reasons),
-                        payload_json={"reasons": acceptance_reasons, "contract": acceptance_contract},
+                        payload_json={
+                            "status": acceptance_status,
+                            "reasons": acceptance_reasons,
+                            "contract": acceptance_contract,
+                        },
                     )
                 )
-            target = MissionState.FAILED if any_failed or accept_unmet else MissionState.COMPLETED
+            # Mission state reports runtime execution. Deliverable quality is
+            # recorded independently above so partial evidence does not erase a
+            # successfully executed, persisted, and read-back-verified result.
+            target = MissionState.FAILED if any_failed else MissionState.COMPLETED
             if mission.status != MissionState.RUNNING.value:
                 # Hop through running when coming from planned/queued so state machine stays honest.
                 if mission.status in {
@@ -574,6 +596,7 @@ class WorkerRuntimeService:
                         "task_id": str(task.id),
                         "task_count": len(siblings),
                         "mission_status": target.value,
+                        "acceptance_status": acceptance_status,
                     },
                 )
             )

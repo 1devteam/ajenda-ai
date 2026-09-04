@@ -166,6 +166,8 @@ class RecordWriteInput(BaseModel):
     record_type: str = Field(min_length=1, max_length=80)
     record_id: str | None = Field(default=None, max_length=160)
     data: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class SalesLeadInput(BaseModel):

@@ -124,7 +124,7 @@ def test_rollup_marks_mission_failed_when_all_tasks_terminal_and_one_failed() ->
     assert mission.status == MissionState.FAILED.value
 
 
-def test_rollup_fails_when_observe_accept_unmet() -> None:
+def test_rollup_completes_with_partial_acceptance_when_observe_accept_unmet() -> None:
     tenant_id = "tenant-1"
     mission_id = uuid.uuid4()
     mission = Mission(
@@ -157,7 +157,15 @@ def test_rollup_fails_when_observe_accept_unmet() -> None:
         return_value=repo,
     ):
         service._maybe_rollup_mission_status(task=observe, worker_id="worker-1")
-    assert mission.status == MissionState.FAILED.value
+    assert mission.status == MissionState.COMPLETED.value
+    assert mission.metadata_json["acceptance"]["status"] == "partially_met"
+    assert mission.metadata_json["acceptance"]["reasons"] == ["requested 5 observed contacts, produced 0"]
+    acceptance_event = next(
+        call.args[0]
+        for call in service._audit.append.call_args_list
+        if call.args[0].action == "mission_acceptance_unmet"
+    )
+    assert acceptance_event.payload_json["status"] == "partially_met"
 
 
 def test_rollup_completes_when_observe_accept_met() -> None:
@@ -188,3 +196,5 @@ def test_rollup_completes_when_observe_accept_met() -> None:
     ):
         service._maybe_rollup_mission_status(task=observe, worker_id="worker-1")
     assert mission.status == MissionState.COMPLETED.value
+    assert mission.metadata_json["acceptance"]["status"] == "met"
+    assert mission.metadata_json["acceptance"]["reasons"] == []

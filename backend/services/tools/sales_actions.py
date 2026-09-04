@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime
 from typing import Any
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.services.business_context_resolver import default_company_and_domain
 from backend.services.knowledge.knowledge_applicability import SourceConditionObservation
+from backend.services.light_crm.records import LightCrmRecordService
+from backend.services.light_crm.workflow import complete_internal_crm_upsert
 from backend.services.ontology.evidence_lineage import (
     EvidenceLineage,
     EvidenceLineageResolution,
@@ -175,6 +180,154 @@ def record_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> Ac
 
 def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = RecordWriteInput.model_validate(invocation.input)
+    if payload.tenant_id is not None and payload.tenant_id != context.tenant_id:
+        raise ValueError("record.write tenant_id must match the runtime tenant")
+
+    prospects = [dict(item) for item in payload.context.get("prospect_candidates", []) if isinstance(item, dict)]
+    observed_contacts = [dict(item) for item in payload.context.get("observed_contacts", []) if isinstance(item, dict)]
+    if prospects:
+        persisted: list[dict[str, Any]] = []
+        readback: list[dict[str, Any]] = []
+        projections: list[dict[str, Any]] = []
+        session = context.session_factory() if callable(context.session_factory) else None
+        provider = None if session is not None else _provider(context)
+        try:
+            if session is not None:
+                activate_tenant_session(session, context.tenant_id)
+            for prospect in prospects:
+                identity = str(
+                    prospect.get("prospect_id")
+                    or prospect.get("domain")
+                    or prospect.get("company")
+                    or prospect.get("name")
+                    or ""
+                ).strip()
+                if not identity:
+                    raise ValueError("record.write internal CRM prospect requires a stable identity")
+                canonical_identity = identity.casefold()
+                record_id = f"contact-ajenda-{hashlib.sha256(canonical_identity.encode()).hexdigest()[:20]}"
+                matching_contacts = [
+                    item
+                    for item in observed_contacts
+                    if canonical_identity
+                    in {
+                        str(item.get("prospect_id") or "").strip().casefold(),
+                        str(item.get("domain") or "").strip().casefold(),
+                        str(item.get("company") or item.get("name") or "").strip().casefold(),
+                    }
+                ]
+                record_data = {
+                    **prospect,
+                    "id": record_id,
+                    "source": "mission_composition",
+                    "canonical_identity": canonical_identity,
+                    "lifecycle_stage": "observed",
+                    "observed_contacts": matching_contacts,
+                }
+                store = LightCrmRecordService(session=session) if session is not None else None
+                read_store = store if store is not None else provider
+                assert read_store is not None
+                existing = read_store.read_record(
+                    tenant_id=context.tenant_id, record_type=payload.record_type, record_id=record_id
+                )
+                if session is not None:
+                    written = complete_internal_crm_upsert(
+                        session=session,
+                        tenant_id=context.tenant_id,
+                        record_type=payload.record_type,
+                        data=record_data,
+                        mission_id=str(context.mission_id) if context.mission_id else None,
+                        task_id=str(context.task_id),
+                        commit=False,
+                    )
+                    crm = LightCrmRecordService(session=session)
+                    opportunities = crm.list_records(
+                        tenant_id=context.tenant_id,
+                        record_type="opportunity",
+                        filters={"contact_id": record_id},
+                        limit=1,
+                    )
+                    timeline = crm.list_timeline(
+                        tenant_id=context.tenant_id,
+                        record_type=payload.record_type,
+                        record_id=record_id,
+                        limit=10,
+                    )
+                    projections.append(
+                        {
+                            "contact_id": record_id,
+                            "account_id": written.get("account_id"),
+                            "opportunity_id": opportunities[0].get("id") if opportunities else None,
+                            "activity_ids": [item.get("id") for item in timeline if item.get("id")],
+                        }
+                    )
+                else:
+                    assert provider is not None
+                    written = provider.write_record(
+                        tenant_id=context.tenant_id,
+                        record_type=payload.record_type,
+                        record_id=record_id,
+                        data=record_data,
+                    )
+                verified = read_store.read_record(
+                    tenant_id=context.tenant_id, record_type=payload.record_type, record_id=record_id
+                )
+                if verified != written:
+                    raise ValueError(f"record.write read-back verification failed for {record_id}")
+                operation = "unchanged" if existing == written else ("updated" if existing else "created")
+                persisted.append({**written, "operation": operation})
+                readback.append(
+                    {
+                        "record_type": payload.record_type,
+                        "record_id": record_id,
+                        "verified": True,
+                        "content_sha256": hashlib.sha256(
+                            json.dumps(verified, sort_keys=True, separators=(",", ":")).encode()
+                        ).hexdigest(),
+                    }
+                )
+            if session is not None:
+                session.commit()
+        except Exception:
+            if session is not None:
+                session.rollback()
+            raise
+        finally:
+            if session is not None:
+                session.close()
+        changed = [str(item["id"]) for item in persisted]
+        output = {
+            "internal_crm_records": persisted,
+            "crm_readback_records": readback,
+            "persisted_count": len(persisted),
+            "readback_verified_count": len(readback),
+            "crm_projection_records": projections,
+            "executed_at": datetime.now(UTC).isoformat(),
+        }
+        summary = f"Persisted and read-back verified {len(persisted)} Ajenda internal CRM record(s)."
+        return ActionResult(
+            action="record.write",
+            provider="local_records",
+            side_effect_class=SideEffectClass.INTERNAL_WRITE,
+            output=output,
+            evidence=[
+                _evidence(
+                    context=context,
+                    action="record.write",
+                    provider="local_records",
+                    summary=summary,
+                    payload=output,
+                    inspected=changed,
+                    changed=changed,
+                    side_effect_class=SideEffectClass.INTERNAL_WRITE,
+                )
+            ],
+            records_inspected=changed,
+            records_changed=changed,
+            summary=summary,
+            confidence=1.0,
+        )
+
     record = _provider(context).write_record(
         tenant_id=context.tenant_id,
         record_type=payload.record_type,

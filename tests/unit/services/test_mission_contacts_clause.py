@@ -59,3 +59,42 @@ def test_add_to_contacts_depends_on_discovery_and_binds() -> None:
     payload = build_action_input(action_name="gtm.crm_upsert", intent=intent)
     assert payload["data"]["company"] == "pending.binding.company"
     assert payload["context"]["binding_required"] is True
+
+
+def test_ajenda_internal_crm_uses_distinct_job_and_record_write_graph() -> None:
+    from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
+    from backend.services.mission_composition.plan_compiler import compile_planned_steps
+    from backend.services.operating_charter import default_operating_charter
+
+    intent = interpret_instruction(
+        "Research three roofing companies in Austin, observe public contact evidence, "
+        "persist the prospects to Ajenda internal CRM, then read back every saved record."
+    )
+    assert "persist_internal_crm" in intent.requested_outcomes
+    assert "update_crm" not in intent.requested_outcomes
+    assert "read_crm" not in intent.requested_outcomes
+
+    jobs = route_jobs_for_intent(intent)
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    internal = next(item for item in selections if item.job_key == "crm.internal_persistence")
+    assert internal.action_name == "record.write"
+    assert internal.readiness == "ready"
+    assert not any(item["provider"] == "hubspot" for item in missing)
+
+    steps = compile_planned_steps(selections, intent=intent)
+    persist = next(item for item in steps if item.job_key == "crm.internal_persistence")
+    assert set(persist.depends_on) == {"ability-web-research", "ability-research-observe_contacts"}
+    assert {binding["input_path"] for binding in persist.input_bindings} == {
+        "$.input.context.prospect_candidates",
+        "$.input.context.observed_contacts",
+    }
+
+
+def test_explicit_hubspot_crm_write_still_selects_hubspot_upsert() -> None:
+    from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
+
+    intent = interpret_instruction("Research three roofing companies and save them to HubSpot CRM.")
+    selections, _ = resolve_jobs(route_jobs_for_intent(intent), intent=intent, connected_integrations={"hubspot"})
+    external = next(item for item in selections if item.job_key == "crm.pipeline_maintenance")
+    assert external.action_name == "gtm.crm_upsert"
+    assert external.connection_provider == "hubspot"

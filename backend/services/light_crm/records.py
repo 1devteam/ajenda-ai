@@ -78,13 +78,14 @@ class LightCrmRecordService:
         *,
         tenant_id: str,
         payload: dict[str, Any],
+        activity_id: str | None = None,
     ) -> dict[str, Any]:
-        activity_id = f"activity-{uuid.uuid4().hex[:12]}"
+        final_id = activity_id or f"activity-{uuid.uuid4().hex[:12]}"
         return self._repo.write_record(
             tenant_id=tenant_id,
             record_type="activity",
-            record_id=activity_id,
-            data={**payload, "id": activity_id},
+            record_id=final_id,
+            data={**payload, "id": final_id},
         )
 
     def link_records(
@@ -224,14 +225,16 @@ class LightCrmRecordService:
     def _upsert_contact(self, *, tenant_id: str, data: dict[str, Any]) -> dict[str, Any]:
         record = enrich_contact_data(data)
         email = normalize_email(record.get("email"))
-        record_id = None
+        record_id = record.get("id") if isinstance(record.get("id"), str) else None
         if email:
-            record_id = self.find_record_id_by_field(
+            matched_id = self.find_record_id_by_field(
                 tenant_id=tenant_id,
                 record_type="contact",
                 field="email",
                 value=email,
             )
+            if matched_id:
+                record_id = matched_id
         account_id = record.get("account_id")
         if not account_id:
             account = self._resolve_account_for_contact(tenant_id=tenant_id, record=record)
@@ -246,15 +249,17 @@ class LightCrmRecordService:
 
     def _upsert_account(self, *, tenant_id: str, data: dict[str, Any]) -> dict[str, Any]:
         record = enrich_account_data(data)
-        record_id = None
+        record_id = record.get("id") if isinstance(record.get("id"), str) else None
         domain = normalize_domain(record.get("domain"))
         if domain:
-            record_id = self.find_record_id_by_field(
+            matched_id = self.find_record_id_by_field(
                 tenant_id=tenant_id,
                 record_type="account",
                 field="domain",
                 value=domain,
             )
+            if matched_id:
+                record_id = matched_id
         if record_id is None:
             name = str(record.get("name") or "").strip()
             if name:

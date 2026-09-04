@@ -177,6 +177,23 @@ def test_identity_upsert_contact_dedupes_by_email(mock_repo_cls: MagicMock) -> N
     assert repo.write_record.call_args.kwargs["record_id"] == "contact-7"
 
 
+@patch("backend.services.light_crm.records.TenantInternalRecordRepository")
+def test_identity_upsert_contact_preserves_explicit_id_without_email(mock_repo_cls: MagicMock) -> None:
+    repo = MagicMock()
+    mock_repo_cls.return_value = repo
+    repo.write_record.return_value = {"id": "contact-stable", "company": "Stable Roofing"}
+
+    crm = LightCrmRecordService(session=MagicMock())
+    saved = crm.identity_upsert(
+        tenant_id="tenant-1",
+        record_type="contact",
+        data={"id": "contact-stable", "company": "Stable Roofing"},
+    )
+
+    assert saved["id"] == "contact-stable"
+    assert repo.write_record.call_args.kwargs["record_id"] == "contact-stable"
+
+
 @patch("backend.services.light_crm.workflow.LightCrmRecordService")
 def test_on_draft_approved_logs_activity(mock_crm_cls: MagicMock) -> None:
     crm = MagicMock()
@@ -212,3 +229,25 @@ def test_on_crm_upsert_completed_creates_opportunity_for_contact(mock_crm_cls: M
     assert result["logged"] is True
     assert result["opportunity_id"] == "opportunity-1"
     crm.log_activity.assert_called_once()
+
+
+@patch("backend.services.light_crm.workflow.LightCrmRecordService")
+def test_crm_upsert_activity_is_idempotent_for_runtime_task(mock_crm_cls: MagicMock) -> None:
+    crm = MagicMock()
+    mock_crm_cls.return_value = crm
+    crm.log_activity.return_value = {"id": "activity-stable"}
+    crm.ensure_opportunity_for_contact.return_value = None
+
+    result = on_crm_upsert_completed(
+        session=MagicMock(),
+        tenant_id="tenant-1",
+        record_type="contact",
+        record={"id": "contact-1"},
+        mission_id="mission-1",
+        task_id="task-1",
+    )
+
+    assert result["activity_id"] == "activity-stable"
+    activity_id = crm.log_activity.call_args.kwargs["activity_id"]
+    assert activity_id.startswith("activity-crm-")
+    assert len(activity_id) == len("activity-crm-") + 20

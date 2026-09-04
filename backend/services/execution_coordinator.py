@@ -19,6 +19,11 @@ from backend.runtime.transitions import transition_task
 from backend.services.policy_guardian import PolicyGuardian
 from backend.services.runtime_governor import RuntimeGovernor
 from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.mission_input_binding import (
+    DependencyNotReadyError,
+    InputBindingError,
+    apply_input_bindings,
+)
 from backend.services.tools.schemas import ToolInvocation, side_effect_authorized, tool_invocation_sha256
 
 logger = logging.getLogger("ajenda.execution_coordinator")
@@ -198,6 +203,14 @@ class ExecutionCoordinator:
                 raise ValueError("pending-review tool task has no valid action to approve") from exc
             constraints = dict(metadata.get("execution_constraints") or {})
             if action.side_effect_for(parsed_invocation).has_side_effect:
+                parsed_invocation, binding_audit = self._bind_side_effect_invocation_for_approval(
+                    task=task,
+                    metadata=metadata,
+                    invocation=parsed_invocation,
+                )
+                metadata["tool_invocation"] = parsed_invocation.model_dump(mode="json")
+                if binding_audit is not None:
+                    metadata["input_binding_audit"] = binding_audit
                 approved_at = datetime.now(UTC)
                 if approval_expires_at is None or approval_expires_at.tzinfo is None:
                     raise ValueError("side-effect approval requires a timezone-aware expiry")
@@ -259,6 +272,44 @@ class ExecutionCoordinator:
         )
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status)
+
+    def _bind_side_effect_invocation_for_approval(
+        self,
+        *,
+        task: ExecutionTask,
+        metadata: dict[str, object],
+        invocation: ToolInvocation,
+    ) -> tuple[ToolInvocation, dict[str, object] | None]:
+        """Finalize graph-bound inputs before issuing a payload-bound grant.
+
+        Dependency-produced values are part of the authorized payload. Approving
+        the composition seed and binding later would correctly invalidate the V2
+        invocation hash at worker promotion. The coordinator is the grant owner,
+        so it binds from tenant-scoped durable sibling outputs before hashing.
+        """
+
+        raw_dependencies = metadata.get("dependency_keys")
+        raw_bindings = metadata.get("input_bindings")
+        has_dependencies = isinstance(raw_dependencies, list) and bool(raw_dependencies)
+        has_bindings = isinstance(raw_bindings, list) and bool(raw_bindings)
+        if task.mission_id is None or (not has_dependencies and not has_bindings):
+            return invocation, None
+
+        mission_tasks = self._tasks.list_for_mission_for_tenant(
+            mission_id=task.mission_id,
+            tenant_id=task.tenant_id,
+        )
+        try:
+            bound_input, audit = apply_input_bindings(
+                tool_input=invocation.input,
+                task=task,
+                mission_tasks=mission_tasks,
+            )
+        except (DependencyNotReadyError, InputBindingError) as exc:
+            raise ValueError(f"side-effect approval input binding failed: {exc}") from exc
+
+        rebound = invocation.model_copy(update={"input": bound_input})
+        return rebound, audit
 
     def mark_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> CoordinationResult:
         task = self._require_task(task_id=task_id, tenant_id=tenant_id)

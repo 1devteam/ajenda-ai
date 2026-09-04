@@ -42,6 +42,7 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "email.read_messages": ("gtm.email_check",),
     "crm.read_records": ("sales.research",),
     "crm.query_salesforce": ("salesforce.soql_read",),
+    "crm.internal_persistence": ("record.write",),
     "crm.pipeline_maintenance": ("gtm.crm_upsert",),
     "ops.calendar_briefing": ("google_calendar.events_read",),
     "ops.linkedin_profile_read": ("linkedin.profile_read",),
