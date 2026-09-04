@@ -194,9 +194,7 @@ def test_internal_crm_write_is_durable_idempotent_and_tenant_scoped(pg_engine) -
     try:
         activate_tenant_session(verify, tenant_id)
         repo = TenantInternalRecordRepository(verify)
-        own = repo.read_record(
-            tenant_id=tenant_id, record_type="contact", record_id=record_id
-        )
+        own = repo.read_record(tenant_id=tenant_id, record_type="contact", record_id=record_id)
         account = repo.read_record(
             tenant_id=tenant_id,
             record_type="account",
