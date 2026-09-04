@@ -31,7 +31,7 @@ The durable store and light-CRM service already support tenant-scoped accounts, 
 | Priority | Gap | Existing evidence | Completion condition |
 |---|---|---|---|
 | P0 | Mission execution and outcome quality were collapsed into one status | A 3-record, fully verified write was marked failed when contact coverage was 2/3 | Mission is `completed`; durable acceptance is `partially_met` with exact reasons |
-| P0 | Mission `record.write` persists raw contacts outside the canonical light-CRM workflow | Runtime proof created contact rows, while workflow-owned account/opportunity/timeline hooks are separate | Mission ingestion uses one idempotent canonical workflow and proves contact, account, opportunity, activity, and readback results |
+| P0 | Mission `record.write` persisted raw contacts outside the canonical light-CRM workflow | Earlier runtime proof created contact rows with empty `account_id` and no mission-linked activities | **Resolved:** mission ingestion now uses one idempotent canonical workflow and runtime proof shows 3 contacts, 3 linked accounts, 3 opportunities, 3 deterministic activities, and readback |
 | P1 | Record UI is primarily read-only and exposes raw JSON for detail | `RecordsPage` has search/detail but no user-facing editor | Authorized create/edit, stage change, assignment, tags, notes, and follow-up controls are usable and tested |
 | P1 | Pagination/count semantics are incomplete | API `total` is only the returned page length; repository limit is 50 | Cursor/page contract and true tenant-scoped totals exist |
 | P1 | Duplicate handling only proposes candidates | Read-only duplicate endpoint | Reviewed merge preserves lineage, relationships, and rollback evidence |
@@ -66,3 +66,21 @@ sequenceDiagram
 - CRM completion is proven by readback; task completion alone is insufficient.
 - Missing enrichment remains an explicit evidence gap and never becomes invented contact data.
 - Runtime execution status and deliverable acceptance remain separately observable.
+
+## P0 runtime proof
+
+Mission `7c011cb8-53e6-4eea-8e90-78d6cedd9730` produced the following durable topology after human approval:
+
+```mermaid
+flowchart LR
+    R["research: 3 candidates"] --> W["record.write: completed"]
+    W --> C["3 contacts"]
+    W --> A["3 linked accounts"]
+    W --> O["3 opportunities"]
+    W --> T["3 deterministic activities"]
+    C --> RB["3/3 contact readbacks verified"]
+    O --> RB2["3/3 opportunity projections"]
+    T --> RB3["replay-safe timeline evidence"]
+```
+
+The mission completed execution while recording `acceptance.status=partially_met` for the separately measured contact-evidence gap (`2` observed contacts of `3` prospects).
