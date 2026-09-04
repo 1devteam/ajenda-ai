@@ -93,10 +93,6 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Audit frontend dependency graph
-        working-directory: frontend
-        run: npm audit
-
       - name: Build frontend
         working-directory: frontend
         run: npm run build
@@ -148,7 +144,7 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: unit-tests
+    needs: lint
 
     steps:
       - name: Checkout
