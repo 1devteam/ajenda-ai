@@ -88,6 +88,7 @@ def list_records(
     stage: str | None = Query(default=None),
     account_id: str | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=50),
+    offset: int = Query(default=0, ge=0, le=100000),
     tenant_id: uuid.UUID = Depends(get_request_tenant_id),
     session: Session = Depends(get_tenant_db_session),
 ) -> CrmRecordListResponse:
@@ -113,6 +114,7 @@ def list_records(
         query=query,
         filters=filters or None,
         limit=limit,
+        offset=offset,
     )
     items = [
         CrmRecordItem(
@@ -123,7 +125,8 @@ def list_records(
         for row in rows
         if row.get("id")
     ]
-    return CrmRecordListResponse(record_type=record_type, items=items, total=len(items))
+    total = crm.count_records(tenant_id=str(tenant_id), record_type=record_type, query=query, filters=filters or None)
+    return CrmRecordListResponse(record_type=record_type, items=items, total=total)
 
 
 @router.get("/records/{record_type}/{record_id}", response_model=CrmRecordItem)

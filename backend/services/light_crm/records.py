@@ -367,6 +367,7 @@ class LightCrmRecordService:
         query: str = "",
         filters: dict[str, Any] | None = None,
         limit: int = 25,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         self._repo.seed_defaults_if_empty(tenant_id=tenant_id)
         return self._repo.search_records(
@@ -375,7 +376,18 @@ class LightCrmRecordService:
             query=query,
             filters=filters,
             limit=limit,
+            offset=offset,
         )
+
+    def count_records(
+        self,
+        *,
+        tenant_id: str,
+        record_type: str,
+        query: str = "",
+        filters: dict[str, Any] | None = None,
+    ) -> int:
+        return self._repo.count_records(tenant_id=tenant_id, record_type=record_type, query=query, filters=filters)
 
     def pipeline_summary(self, *, tenant_id: str) -> list[dict[str, Any]]:
         opportunities = self.list_records(tenant_id=tenant_id, record_type="opportunity", limit=50)

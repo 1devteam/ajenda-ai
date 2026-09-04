@@ -25,9 +25,10 @@ class TenantInternalRecordRepository:
         query: str = "",
         filters: dict[str, Any] | None = None,
         limit: int = 10,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         self._validate_record_type(record_type)
-        if limit < 1 or limit > 50:
+        if limit < 1 or limit > 50 or offset < 0:
             raise ValueError("limit must be between 1 and 50")
 
         stmt = select(TenantInternalRecord).where(
@@ -44,7 +45,11 @@ class TenantInternalRecordRepository:
                     TenantInternalRecord.record_id.ilike(pattern),
                 )
             )
-        rows = list(self._session.scalars(stmt.order_by(TenantInternalRecord.updated_at.desc()).limit(limit * 3)).all())
+        rows = list(
+            self._session.scalars(
+                stmt.order_by(TenantInternalRecord.updated_at.desc()).limit((limit + offset) * 3)
+            ).all()
+        )
         matches: list[dict[str, Any]] = []
         filters = filters or {}
         for row in rows:
@@ -53,9 +58,31 @@ class TenantInternalRecordRepository:
             if any(record.get(key) != value for key, value in filters.items()):
                 continue
             matches.append(record)
-            if len(matches) >= limit:
-                break
-        return matches
+        return matches[offset : offset + limit]
+
+    def count_records(
+        self,
+        *,
+        tenant_id: str,
+        record_type: str,
+        query: str = "",
+        filters: dict[str, Any] | None = None,
+    ) -> int:
+        self._validate_record_type(record_type)
+        stmt = select(TenantInternalRecord).where(
+            TenantInternalRecord.tenant_id == tenant_id,
+            TenantInternalRecord.record_type == record_type,
+            TenantInternalRecord.deleted.is_(False),
+        )
+        normalized_query = query.lower().strip()
+        if normalized_query:
+            pattern = f"%{normalized_query}%"
+            stmt = stmt.where(
+                or_(TenantInternalRecord.search_text.ilike(pattern), TenantInternalRecord.record_id.ilike(pattern))
+            )
+        filters = filters or {}
+        rows = self._session.scalars(stmt).all()
+        return sum(1 for row in rows if not any(dict(row.data_json).get(k) != v for k, v in filters.items()))
 
     def find_record_id_by_field(
         self,

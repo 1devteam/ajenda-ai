@@ -1165,6 +1165,7 @@ export async function listCrmRecords(
     stage?: string;
     accountId?: string;
     limit?: number;
+    offset?: number;
   },
 ): Promise<CrmRecordListResponse> {
   const params = new URLSearchParams({ record_type: options.recordType });
@@ -1179,6 +1180,9 @@ export async function listCrmRecords(
   }
   if (options.limit) {
     params.set("limit", String(options.limit));
+  }
+  if (options.offset) {
+    params.set("offset", String(options.offset));
   }
   return withAuthedRuntime(caller, (config) =>
     request<CrmRecordListResponse>(`/v1/crm/records?${params}`, {}, runtimeOptions(config)),
