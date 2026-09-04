@@ -73,6 +73,10 @@ export default function RecordsPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editFields, setEditFields] = useState({ name: "", email: "", stage: "", ownerId: "", tags: "" });
+  const [noteBody, setNoteBody] = useState("");
+  const [followUpTitle, setFollowUpTitle] = useState("");
+  const [followUpDueAt, setFollowUpDueAt] = useState("");
+  const [actionSaving, setActionSaving] = useState(false);
 
   const loadRecords = useCallback(async () => {
     if (!session) {
@@ -174,6 +178,57 @@ export default function RecordsPage() {
       setSaving(false);
     }
   }, [editFields, loadRecords, selected, session]);
+
+  const createFollowUp = useCallback(async () => {
+    if (!session || !selected || !followUpTitle.trim()) return;
+    setActionSaving(true);
+    setError(null);
+    try {
+      await upsertCrmRecord(session, "task", crypto.randomUUID(), {
+        data: {
+          title: followUpTitle.trim(),
+          status: "open",
+          due_at: followUpDueAt ? new Date(followUpDueAt).toISOString() : undefined,
+          related_type: selected.record_type,
+          related_id: selected.id,
+          source: "crm.operator",
+        },
+      });
+      setFollowUpTitle("");
+      setFollowUpDueAt("");
+      const response = await getCrmTimeline(session, selected.record_type, selected.id);
+      setTimeline(response);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setActionSaving(false);
+    }
+  }, [followUpDueAt, followUpTitle, selected, session]);
+
+  const createNote = useCallback(async () => {
+    if (!session || !selected || !noteBody.trim()) return;
+    setActionSaving(true);
+    setError(null);
+    try {
+      await upsertCrmRecord(session, "activity", crypto.randomUUID(), {
+        data: {
+          activity_type: "note",
+          subject: "Operator note",
+          body: noteBody.trim(),
+          related_type: selected.record_type,
+          related_id: selected.id,
+          source: "crm.operator",
+        },
+      });
+      setNoteBody("");
+      const response = await getCrmTimeline(session, selected.record_type, selected.id);
+      setTimeline(response);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setActionSaving(false);
+    }
+  }, [noteBody, selected, session]);
 
   const pipelineTotal = useMemo(
     () => pipeline?.stages.reduce((sum, stage) => sum + stage.count, 0) ?? 0,
@@ -351,6 +406,45 @@ export default function RecordsPage() {
                     </label>
                   </div>
                 ) : null}
+                <div className="card-grid two-up">
+                  <section className="nested-panel">
+                    <h3>Add note</h3>
+                    <textarea
+                      value={noteBody}
+                      placeholder="Capture context for the next operator"
+                      onChange={(event) => setNoteBody(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={actionSaving || !noteBody.trim()}
+                      onClick={() => void createNote()}
+                    >
+                      {actionSaving ? "Saving…" : "Save note"}
+                    </button>
+                  </section>
+                  <section className="nested-panel">
+                    <h3>Create follow-up</h3>
+                    <input
+                      value={followUpTitle}
+                      placeholder="Follow-up task"
+                      onChange={(event) => setFollowUpTitle(event.target.value)}
+                    />
+                    <input
+                      type="datetime-local"
+                      value={followUpDueAt}
+                      onChange={(event) => setFollowUpDueAt(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={actionSaving || !followUpTitle.trim()}
+                      onClick={() => void createFollowUp()}
+                    >
+                      {actionSaving ? "Saving…" : "Create task"}
+                    </button>
+                  </section>
+                </div>
                 <pre className="code-block">{JSON.stringify(selected.data, null, 2)}</pre>
                 <h3>Relationships</h3>
                 {relationships && relationships.items.length > 0 ? (

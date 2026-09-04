@@ -549,6 +549,26 @@ pre {
   gap: 0.5rem;
 }
 
+.nested-panel {
+  display: grid;
+  gap: 0.65rem;
+  align-content: start;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.nested-panel h3 {
+  margin: 0;
+}
+
+.nested-panel textarea {
+  min-height: 6rem;
+  font-family: inherit;
+  font-size: inherit;
+}
+
 .staging-signin {
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 0.85rem;
