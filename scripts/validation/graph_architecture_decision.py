@@ -201,6 +201,11 @@ def build_decision_manifest(
             "warnings": sorted(set(warnings)),
         },
         "inputs": {
+            "canonical_graph": {
+                "artifact": "docs/architecture/dependency-graph.v1.json",
+                "sha256": str(impact.get("graph_sha256") or ""),
+            },
+            "comparison": impact.get("comparison", {}),
             "impact_report": {
                 "artifact": "artifacts/graph-impact-report.json",
                 "schema_version": str(impact.get("schema_version")),

@@ -33,6 +33,7 @@ from graph_semantic_inventory import collect_semantic_inventory
 OVERLAY_PATH = REPO_ROOT / "docs/contracts/dependency-graph.overlay.v1.json"
 DEFAULT_OUTPUT = REPO_ROOT / "docs/architecture/dependency-graph.v1.json"
 PRODUCTION_PYTHON_ROOTS = (REPO_ROOT / "backend", REPO_ROOT / "services")
+GRAPH_TOOLING_PYTHON_ROOT = REPO_ROOT / "scripts" / "validation"
 INTERNAL_PYTHON_PREFIXES = ("backend", "services")
 FRONTEND_IMPORT_RE = re.compile(r"(?:import|export)\s+(?:[^'\"]+?\s+from\s+)?['\"]([^'\"]+)['\"]")
 
@@ -122,6 +123,13 @@ def _production_python_modules() -> dict[Path, str]:
     return {path: _python_module_for_path(path) for path in files}
 
 
+def _graph_tooling_python_modules() -> dict[Path, str]:
+    if not GRAPH_TOOLING_PYTHON_ROOT.exists():
+        return {}
+    files = sorted(path for path in GRAPH_TOOLING_PYTHON_ROOT.rglob("*.py") if "__pycache__" not in path.parts)
+    return {path: _python_module_for_path(path) for path in files}
+
+
 def collect_python_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
     module_by_path = _production_python_modules()
     modules = set(module_by_path.values())
@@ -137,6 +145,32 @@ def collect_python_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
                     StaticEdge(
                         source=f"py:{module}",
                         target=f"py:{target}",
+                        type="imports",
+                        evidence=str(path.relative_to(REPO_ROOT)),
+                    )
+                )
+    return nodes, sorted(edges, key=lambda edge: (edge.source, edge.target, edge.type))
+
+
+def collect_graph_tooling_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
+    modules = _graph_tooling_python_modules()
+    names = set(modules.values())
+    nodes = [
+        StaticNode(
+            id=f"graph-tool:{module}",
+            type="graph_tooling_module",
+            source=str(path.relative_to(REPO_ROOT)),
+        )
+        for path, module in modules.items()
+    ]
+    edges: set[StaticEdge] = set()
+    for path, module in modules.items():
+        for target in _python_imports(path, module, names):
+            if target != module:
+                edges.add(
+                    StaticEdge(
+                        source=f"graph-tool:{module}",
+                        target=f"graph-tool:{target}",
                         type="imports",
                         evidence=str(path.relative_to(REPO_ROOT)),
                     )
@@ -295,6 +329,7 @@ def _metrics(node_ids: list[str], edges: list[dict[str, Any]]) -> dict[str, Any]
 def build_graph() -> dict[str, Any]:
     overlay = json.loads(OVERLAY_PATH.read_text(encoding="utf-8"))
     py_nodes, py_edges = collect_python_graph()
+    tooling_nodes, tooling_edges = collect_graph_tooling_graph()
     fe_nodes, fe_edges = collect_frontend_graph()
     test_nodes, test_edges = collect_test_graph()
     function_nodes, function_edges = collect_function_graph(REPO_ROOT)
@@ -304,7 +339,8 @@ def build_graph() -> dict[str, Any]:
     runtime_action_selection_inventory = collect_runtime_action_selection_inventory(REPO_ROOT)
 
     nodes: list[dict[str, Any]] = [
-        {"id": node.id, "type": node.type, "source": node.source} for node in [*py_nodes, *fe_nodes, *test_nodes]
+        {"id": node.id, "type": node.type, "source": node.source}
+        for node in [*py_nodes, *tooling_nodes, *fe_nodes, *test_nodes]
     ]
     nodes.extend(function_nodes)
     nodes.extend(overlay.get("nodes", []))
@@ -315,7 +351,7 @@ def build_graph() -> dict[str, Any]:
 
     edges: list[dict[str, Any]] = [
         {"from": edge.source, "to": edge.target, "type": edge.type, "evidence": edge.evidence}
-        for edge in [*py_edges, *fe_edges, *test_edges]
+        for edge in [*py_edges, *tooling_edges, *fe_edges, *test_edges]
     ]
     edges.extend(function_edges)
     edges.extend(function_test_edges)

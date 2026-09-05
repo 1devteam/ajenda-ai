@@ -9,6 +9,7 @@ therefore answers "what can this change affect?" while forward traversal answers
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections import defaultdict, deque
@@ -398,6 +399,21 @@ def main() -> int:
     except ValueError as exc:
         print(f"FAIL: {exc}")
         return 1
+
+    graph_bytes = json.dumps(graph, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    report["graph_sha256"] = hashlib.sha256(graph_bytes).hexdigest()
+    report["comparison"] = {
+        "base_ref": args.base_ref,
+        "head_ref": args.head_ref,
+        "mode": "git-range" if args.base_ref and args.head_ref else "explicit-or-working-tree",
+        "delta": {
+            "changed_files": report["metrics"]["changed_file_count"],
+            "changed_nodes": report["metrics"]["changed_node_count"],
+            "unmapped_changed_files": report["metrics"]["unmapped_changed_file_count"],
+            "impacted_tests": report["metrics"]["impacted_test_count"],
+            "relevant_invariants": report["metrics"]["relevant_invariant_count"],
+        },
+    }
 
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:
