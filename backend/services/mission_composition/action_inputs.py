@@ -858,6 +858,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 "source": "mission_composition",
                 "binding_required": True,
                 "prospect_candidates": [],
+                "qualified_prospects": [],
                 "observed_contacts": [],
             },
         }

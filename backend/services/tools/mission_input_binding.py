@@ -287,8 +287,78 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                         "input_path": "$.input.prospects",
                     }
                 )
+        elif action_name in {"sales.research", "crm.research"} and (
+            "discover" in dep or "research" in dep or "web" in dep
+        ):
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.prospect_candidates",
+                    "input_path": "$.input.context.prospect_candidates",
+                }
+            )
+        elif action_name == "research.synthesize_report" and (
+            "discover" in dep or "research" in dep or "web" in dep
+        ):
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.prospect_candidates",
+                    "input_path": "$.input.prospects",
+                }
+            )
+        elif action_name == "record.write":
+            if "observe" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.observed_contacts",
+                        "input_path": "$.input.context.observed_contacts",
+                    }
+                )
+            elif "qualif" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.qualified_prospects",
+                        "input_path": "$.input.context.qualified_prospects",
+                    }
+                )
+            elif "discover" in dep or "research" in dep or "web" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.prospect_candidates",
+                        "input_path": "$.input.context.prospect_candidates",
+                    }
+                )
+        elif action_name == "gtm.crm_upsert":
+            if "qualif" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.qualified_prospects",
+                        "input_path": "$.input.context.qualified_prospects",
+                    }
+                )
+            elif "discover" in dep or "research" in dep or "web" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.prospect_candidates",
+                        "input_path": "$.input.context.prospect_candidates",
+                    }
+                )
         elif action_name in {"gtm.email_draft", "gtm.email_send", "sales.draft_followup"}:
-            if "lead_enrich" in dep or "enrich" in dep:
+            if action_name == "gtm.email_send" and ("prepare" in dep or "draft" in dep):
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.introduction_drafts",
+                        "input_path": "$.input.context.introduction_drafts",
+                    }
+                )
+            elif "lead_enrich" in dep or "enrich" in dep:
                 specs.append(
                     {
                         "from_step": dep,

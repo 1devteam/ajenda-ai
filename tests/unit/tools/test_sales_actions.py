@@ -257,7 +257,8 @@ def test_internal_crm_record_write_is_idempotent_and_readback_verified() -> None
         input={
             "record_type": "contact",
             "context": {
-                "prospect_candidates": [
+                "source": "mission_composition",
+                "qualified_prospects": [
                     {"prospect_id": "prospect-1", "company": "Acme Roofing", "domain": "acme.test"}
                 ],
                 "observed_contacts": [
@@ -275,6 +276,25 @@ def test_internal_crm_record_write_is_idempotent_and_readback_verified() -> None
     assert first.records_changed == second.records_changed
     assert second.output["readback_verified_count"] == 1
     assert second.output["crm_readback_records"][0]["verified"] is True
+
+
+def test_internal_crm_record_write_rejects_unqualified_candidates() -> None:
+    context = _context()
+    with pytest.raises(ValueError, match="requires at least one qualified prospect"):
+        get_default_action_registry(rebuild=True).invoke(
+            ToolInvocation(
+                action="record.write",
+                input={
+                    "record_type": "contact",
+                    "context": {
+                        "source": "mission_composition",
+                        "prospect_candidates": [{"prospect_id": "raw-1", "company": "Unqualified"}],
+                        "qualified_prospects": [],
+                    },
+                },
+            ),
+            context,
+        )
 
 
 def test_internal_crm_record_write_rejects_tenant_mismatch() -> None:

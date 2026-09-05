@@ -183,7 +183,13 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     if payload.tenant_id is not None and payload.tenant_id != context.tenant_id:
         raise ValueError("record.write tenant_id must match the runtime tenant")
 
-    prospects = [dict(item) for item in payload.context.get("prospect_candidates", []) if isinstance(item, dict)]
+    composition_context = payload.context.get("source") == "mission_composition"
+    if composition_context:
+        prospects = [dict(item) for item in payload.context.get("qualified_prospects", []) if isinstance(item, dict)]
+        if not prospects:
+            raise ValueError("record.write requires at least one qualified prospect")
+    else:
+        prospects = [dict(item) for item in payload.context.get("prospect_candidates", []) if isinstance(item, dict)]
     observed_contacts = [dict(item) for item in payload.context.get("observed_contacts", []) if isinstance(item, dict)]
     if prospects:
         persisted: list[dict[str, Any]] = []

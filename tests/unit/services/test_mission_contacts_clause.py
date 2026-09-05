@@ -83,9 +83,13 @@ def test_ajenda_internal_crm_uses_distinct_job_and_record_write_graph() -> None:
 
     steps = compile_planned_steps(selections, intent=intent)
     persist = next(item for item in steps if item.job_key == "crm.internal_persistence")
-    assert set(persist.depends_on) == {"ability-web-research", "ability-research-observe_contacts"}
+    assert set(persist.depends_on) == {
+        "ability-web-research",
+        "ability-research-observe_contacts",
+        "ability-sales-qualify",
+    }
     assert {binding["input_path"] for binding in persist.input_bindings} == {
-        "$.input.context.prospect_candidates",
+        "$.input.context.qualified_prospects",
         "$.input.context.observed_contacts",
     }
 
