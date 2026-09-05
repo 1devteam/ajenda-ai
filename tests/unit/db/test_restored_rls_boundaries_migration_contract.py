@@ -11,8 +11,24 @@ def test_restored_rls_migration_is_single_current_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0043_pricing_tier_capacity"]
+    assert heads == ["0045_stripe_revenue_payload"]
     assert len(heads[0]) <= 32
+
+
+def test_composition_and_onboarding_rls_migration_covers_all_graph_findings() -> None:
+    migration = Path("alembic/versions/0044_restore_composition_onboarding_rls.py").read_text(encoding="utf-8")
+    for table in (
+        "email_send_idempotency_receipts",
+        "member_onboarding_preferences",
+        "mission_composition_proposals",
+        "tenant_onboarding_states",
+    ):
+        assert table in migration
+    assert "ENABLE ROW LEVEL SECURITY" in migration
+    assert "FORCE ROW LEVEL SECURITY" in migration
+    assert "CREATE POLICY tenant_isolation" in migration
+    assert "CREATE POLICY admin_bypass" in migration
+    assert "current_setting('app.current_tenant_id', true)" in migration
 
 
 def test_restored_rls_migration_covers_usage_and_webhook_tables() -> None:

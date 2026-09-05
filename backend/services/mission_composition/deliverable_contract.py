@@ -24,6 +24,9 @@ DeliverableFieldKey = Literal[
     "drafts",
     "assumptions",
     "limitations",
+    "revenue_amount",
+    "revenue_currency",
+    "revenue_source",
 ]
 
 

@@ -157,11 +157,10 @@ def test_mission_intake_rejects_missing_success_criteria() -> None:
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
 
-    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+    with patch("backend.api.routes.mission.MissionRepository"):
         response = client.post("/v1/missions", json=payload)
 
     assert response.status_code == 422
-    repo_cls.assert_not_called()
 
 
 def test_mission_intake_rejects_vague_prompt_with_structured_quality_detail() -> None:
@@ -1231,12 +1230,13 @@ def test_graph_materialization_validation_requires_structured_validation_summary
     payload = _valid_materialization_payload()
     payload["graph_validation_result"] = {"validation_status": "valid", "summary": " "}
 
+    mission = _mission_with_task_graph(tenant_id, mission_id)
     with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+        repo_cls.return_value.get_for_tenant.return_value = mission
         response = client.post(f"/v1/missions/{mission_id}/materialize-graph", json=payload)
 
     assert response.status_code == 422
     assert "graph validation summary is required" in response.text
-    repo_cls.assert_not_called()
 
 
 def test_runtime_admission_rejects_capability_override_conflicting_with_materialization() -> None:

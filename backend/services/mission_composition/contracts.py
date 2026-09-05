@@ -79,6 +79,9 @@ CanonicalOutcome = Literal[
     "read_contacts",
     "read_business_profile",
     "synthesize_research_report",
+    "read_revenue",
+    "prepare_reconciliation",
+    "prepare_invoice_drafts",
 ]
 
 CANONICAL_OUTCOMES: frozenset[str] = frozenset(
@@ -101,12 +104,20 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
         "read_contacts",
         "read_business_profile",
         "synthesize_research_report",
+        "read_revenue",
+        "prepare_reconciliation",
+        "prepare_invoice_drafts",
     }
 )
 
 # Legacy phrase → canonical ID (compatibility for in-flight records / older tests).
 LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "research prospects": "research_prospects",
+    "read revenue": "read_revenue",
+    "revenue reconciliation": "prepare_reconciliation",
+    "prepare reconciliation": "prepare_reconciliation",
+    "invoice drafts": "prepare_invoice_drafts",
+    "prepare invoice drafts": "prepare_invoice_drafts",
     "discover companies": "research_prospects",
     "find leads": "research_prospects",
     "prospect discovery": "research_prospects",

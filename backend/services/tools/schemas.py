@@ -153,6 +153,24 @@ class RecordSearchInput(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
 
 
+class FinanceRevenueSyncInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    limit: int = Field(default=100, ge=1, le=500)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class FinanceReconciliationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revenue_records: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class FinanceInvoiceDraftInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revenue_records: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
 class RecordReadInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

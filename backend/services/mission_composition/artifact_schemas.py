@@ -110,10 +110,21 @@ QUALIFIED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+REVENUE_RECORDS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="revenue_records",
+    producer_job="accounting.read_revenue",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="revenue_amount", json_path="$[].amount", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="revenue_currency", json_path="$[].currency", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="revenue_source", json_path="$[].source", scope="per_item"),
+    ),
+)
+
 ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     PROSPECT_CANDIDATES_SCHEMA.artifact_key: PROSPECT_CANDIDATES_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA.artifact_key: QUALIFIED_PROSPECTS_SCHEMA,
+    REVENUE_RECORDS_SCHEMA.artifact_key: REVENUE_RECORDS_SCHEMA,
 }
 
 

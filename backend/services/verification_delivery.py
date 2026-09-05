@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Protocol, runtime_checkable
 from urllib.parse import urlencode
 
-import httpx
-
 from backend.app.config import Settings
+from backend.services.network_egress import NetworkEgressAuthority, get_default_network_egress_authority
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +93,12 @@ class ResendVerificationDelivery:
         api_key: str,
         email_from: str,
         timeout_seconds: float = 10.0,
+        network_egress_authority: NetworkEgressAuthority | None = None,
     ) -> None:
         self._api_key = api_key
         self._email_from = email_from
         self._timeout_seconds = timeout_seconds
+        self._network_egress_authority = network_egress_authority or get_default_network_egress_authority()
 
     def send_signup_verification(
         self,
@@ -125,13 +127,21 @@ class ResendVerificationDelivery:
             "Content-Type": "application/json",
         }
         try:
-            with httpx.Client(timeout=self._timeout_seconds) as client:
-                response = client.post("https://api.resend.com/emails", json=payload, headers=headers)
-                response.raise_for_status()
-        except httpx.HTTPError as exc:
+            _, response = self._network_egress_authority.request(
+                method="POST",
+                url="https://api.resend.com/emails",
+                json_body=payload,
+                headers=headers,
+                timeout_seconds=self._timeout_seconds,
+                allowed_hosts=["api.resend.com"],
+                action_name="verification.resend",
+                response_text_limit=16_384,
+            )
+        except Exception as exc:
             raise DeliveryError("verification email delivery failed") from exc
-
-        body = response.json()
+        if response.status_code >= 400:
+            raise DeliveryError("verification email delivery failed")
+        body = json.loads(response.body_text)
         message_id = str(body.get("id") or "")
         if not message_id:
             raise DeliveryError("verification email delivery returned no message id")
@@ -155,6 +165,7 @@ def verification_delivery_from_settings(settings: Settings) -> VerificationDeliv
             api_key=settings.resend_api_key,
             email_from=settings.email_from,
             timeout_seconds=settings.email_delivery_timeout_seconds,
+            network_egress_authority=get_default_network_egress_authority(),
         )
     if provider == "noop":
         return NoopVerificationDelivery()

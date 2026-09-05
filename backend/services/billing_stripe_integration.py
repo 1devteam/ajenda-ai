@@ -82,6 +82,26 @@ def _normalize_stripe_object(obj: object) -> dict[str, Any]:
     )
 
 
+def _revenue_payload(event_type: str, obj: dict[str, Any]) -> dict[str, Any] | None:
+    if event_type not in ("invoice.paid", "invoice.payment_succeeded"):
+        return None
+    raw_metadata = obj.get("metadata")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+    return {
+        "event_type": event_type,
+        "object_id": str(obj.get("id", "")),
+        "customer_id": obj.get("customer"),
+        "amount_paid": obj.get("amount_paid"),
+        "amount_due": obj.get("amount_due"),
+        "currency": obj.get("currency"),
+        "status": obj.get("status"),
+        "created": obj.get("created"),
+        "period_start": obj.get("period_start"),
+        "period_end": obj.get("period_end"),
+        "tenant_id": metadata.get("tenant_id"),
+    }
+
+
 def _build_plan_price_map() -> dict[str, str]:
     """Build the plan → Stripe Price ID mapping from current Settings.
 
@@ -322,7 +342,9 @@ class StripeBillingService:
         event_type: str = str(event["type"])
         data_object = _normalize_stripe_object(event["data"]["object"])
 
-        if not self._webhook_events.try_record_event(event_id=event_id, event_type=event_type):
+        if not self._webhook_events.try_record_event(
+            event_id=event_id, event_type=event_type, payload_json=_revenue_payload(event_type, data_object)
+        ):
             logger.info("Duplicate Stripe webhook event %s — skipping.", event_id)
             return StripeWebhookResult(
                 event_id=event_id,
@@ -354,10 +376,24 @@ class StripeBillingService:
             return self._sync_subscription(data_object)
         if event_type == "customer.subscription.deleted":
             return self._handle_subscription_deleted(data_object)
+        if event_type in ("invoice.paid", "invoice.payment_succeeded"):
+            return self._resolve_invoice_tenant(data_object)
         if event_type == "invoice.payment_failed":
             return self._handle_payment_failed(data_object)
         logger.debug("Ignoring unhandled Stripe event type: %s", event_type)
         return "ignored", f"unhandled event type {event_type}", None
+
+    def _resolve_invoice_tenant(self, obj: dict) -> tuple[str, str | None, uuid.UUID | None]:  # type: ignore[type-arg]
+        tenant_id_str = _resolve_tenant_id_from_metadata(obj)
+        if not tenant_id_str:
+            return "skipped", "invoice missing tenant_id in metadata", None
+        try:
+            tenant_id = UUID(tenant_id_str)
+        except ValueError:
+            return "skipped", "invoice has invalid tenant_id", None
+        if self._tenant_repo.get(tenant_id) is None:
+            return "skipped", "invoice references unknown tenant", tenant_id
+        return "applied", "settled invoice receipt recorded", tenant_id
 
     def _sync_subscription(self, obj: dict) -> tuple[str, str | None, uuid.UUID | None]:  # type: ignore[type-arg]
         """Sync a Stripe subscription or checkout object into the Tenant plan."""

@@ -390,10 +390,11 @@ def _catalog_only_binding(
     readback_deferred_reason: str | None = None,
     requires_human_review: bool = True,
     credential_required: bool = True,
+    runtime_bound: bool = False,
 ) -> VerticalRoleBinding:
     return VerticalRoleBinding(
         action_name=action_name,
-        binding_status=RoleBindingStatus.CATALOG_ONLY,
+        binding_status=RoleBindingStatus.RUNTIME_BOUND if runtime_bound else RoleBindingStatus.CATALOG_ONLY,
         capability_name=capability_name,
         capability_version="1",
         adapter_name=adapter_name,
@@ -412,7 +413,7 @@ def _catalog_only_binding(
         requires_human_review=requires_human_review,
         enabled_by_default=False,
         credential_required=credential_required,
-        deferred_reason=deferred_reason,
+        deferred_reason=None if runtime_bound else deferred_reason,
     )
 
 
@@ -803,8 +804,33 @@ VERTICAL_OPS_PACK = VerticalRolePack(
                     approval_required=True,
                     idempotency_required=False,
                     requires_human_review=True,
-                    credential_required=True,
                     readback_deferred_reason="No write surface for read-sync binding.",
+                    runtime_bound=True,
+                    credential_required=False,
+                ),
+                _catalog_only_binding(
+                    action_name="vertical.finance.prepare_reconciliation",
+                    capability_name="vertical_finance",
+                    adapter_name="billing-reconciliation",
+                    side_effect_class=SideEffectClass.INTERNAL_READ,
+                    risk_level=AbilityRiskLevel.MEDIUM,
+                    required_permissions=(Permission.BILLING_MANAGE.value, Permission.EXECUTION_QUEUE.value),
+                    evidence_expectations=("stripe_events", "revenue_snapshot"),
+                    deferred_reason="Runtime-bound local reconciliation over verified Stripe receipts.",
+                    runtime_bound=True,
+                    credential_required=False,
+                ),
+                _catalog_only_binding(
+                    action_name="vertical.finance.prepare_invoice_drafts",
+                    capability_name="vertical_finance",
+                    adapter_name="billing-invoice-drafts",
+                    side_effect_class=SideEffectClass.INTERNAL_READ,
+                    risk_level=AbilityRiskLevel.MEDIUM,
+                    required_permissions=(Permission.BILLING_MANAGE.value, Permission.EXECUTION_QUEUE.value),
+                    evidence_expectations=("stripe_events", "revenue_snapshot"),
+                    deferred_reason="Runtime-bound draft-only projection; no external send.",
+                    runtime_bound=True,
+                    credential_required=False,
                 ),
                 _catalog_only_binding(
                     action_name="vertical.finance.mutate",

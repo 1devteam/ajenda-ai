@@ -244,7 +244,9 @@ REVOPS_V1_KNOW_HOW = VerticalKnowHowContract(
 REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
     know_how_id="revops.gtm-crm-communications",
     know_how_version="2.0.0",
-    promotion_status="blocked_pending_owner_thresholds",
+    # Owner-approved promotion: V2 combines research synthesis with the
+    # existing GTM qualification, drafting, and internal CRM stages.
+    promotion_status="eligible",
     supported_outcomes=(*REVOPS_V1_KNOW_HOW.supported_outcomes, "synthesize_research_report"),
     stages=(
         *REVOPS_V1_KNOW_HOW.stages,
@@ -263,7 +265,14 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
     ),
     connectors=REVOPS_V1_KNOW_HOW.connectors,
     prohibited_actions=REVOPS_V1_KNOW_HOW.prohibited_actions,
-    budget=None,
+    budget=KnowHowBudget(
+        max_prospects=10,
+        max_external_effects=0,
+        max_wall_seconds=900,
+        max_provider_calls=40,
+        max_model_tokens=200_000,
+        max_cost_usd=25.0,
+    ),
     graft1st_contract_package_id=GRAFT1ST_CONTRACT_PACKAGE_ID,
     graft1st_contract_package_version=GRAFT1ST_CONTRACT_PACKAGE_VERSION,
 )

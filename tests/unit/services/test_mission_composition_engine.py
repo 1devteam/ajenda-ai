@@ -57,6 +57,27 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     assert "identify" not in intent.target_entities[0].location.lower()
 
 
+def test_interpreter_preserves_software_rnd_target_and_profile_context() -> None:
+    instruction = (
+        "Use 1DevTeam's approved business profile to research software and R&D developer companies in Austin, "
+        "qualify prospects, and prepare drafts without sending messages."
+    )
+    intent = interpret_instruction(instruction, profile_context={"company": "1DevTeam", "product": "Ajenda-AI"})
+    assert intent.interpretation_ready
+    assert intent.target_entities
+    assert intent.target_entities[0].industry.lower() == "software and r&d developer"
+    assert intent.target_entities[0].location.lower() == "austin"
+    assert "business_profile" in intent.context_requirements
+    assert not intent.unmatched_material_clauses
+
+
+def test_interpreter_maps_approved_prospect_save_to_crm_write() -> None:
+    intent = interpret_instruction(
+        "Research software companies in Austin, qualify prospects, and save only approved prospects to the CRM."
+    )
+    assert "update_crm" in intent.requested_outcomes
+
+
 def test_interpreter_routes_governed_ajenda_profile_brief_to_internal_memory_only() -> None:
     instruction = (
         "Search Ajenda's approved business profile and governed internal memory. "
@@ -281,8 +302,14 @@ def test_job_catalog_routes_canonical_ids_only() -> None:
     for job in list_business_jobs(maturity="runtime_bound"):
         for outcome in job.supported_outcomes:
             assert " " not in outcome
-    accounting = list_business_jobs(maturity="catalog_only")
-    assert any(job.job_key.startswith("accounting.") for job in accounting)
+    accounting = {
+        job.job_key for job in list_business_jobs(maturity="runtime_bound") if job.job_key.startswith("accounting.")
+    }
+    assert {
+        "accounting.read_revenue",
+        "accounting.prepare_reconciliation",
+        "accounting.prepare_invoice_drafts",
+    } <= accounting
     assert get_business_job("sales.qualify_prospects").candidate_actions
 
 
@@ -471,6 +498,23 @@ def test_hubspot_named_as_source_does_not_route_crm_write() -> None:
     intent = interpret_instruction("Research five roofing companies in Austin from HubSpot CRM records.")
     assert "research_prospects" in intent.requested_outcomes
     assert "update_crm" not in intent.requested_outcomes
+
+
+def test_direct_crm_record_read_does_not_route_web_discovery() -> None:
+    intent = interpret_instruction(
+        "Read approved CRM records for roofing prospects in Austin, summarize the strongest qualification signals."
+    )
+    assert "read_crm" in intent.requested_outcomes
+    assert "research_prospects" not in intent.requested_outcomes
+    assert "hubspot_source" in intent.context_requirements
+    assert intent.target_entities[0].name == "roofing prospects in Austin"
+
+
+def test_crm_record_for_extracts_named_company() -> None:
+    intent = interpret_instruction(
+        "Read the approved HubSpot CRM record for Acme Roofing and produce a research report."
+    )
+    assert intent.target_entities[0].name == "Acme Roofing"
 
 
 def test_linkedin_as_research_source_does_not_require_publish() -> None:

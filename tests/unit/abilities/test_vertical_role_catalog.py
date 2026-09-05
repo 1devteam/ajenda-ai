@@ -171,7 +171,7 @@ def test_catalog_only_bindings_have_deferred_reasons_and_are_disabled() -> None:
 
 
 def test_phase_c_high_risk_roles_remain_catalog_only() -> None:
-    for role_key in ("vertical.ads", "vertical.code", "vertical.finance"):
+    for role_key in ("vertical.ads", "vertical.code"):
         role = get_vertical_role(role_key)
         assert all(binding.binding_status is RoleBindingStatus.CATALOG_ONLY for binding in role.bindings)
 

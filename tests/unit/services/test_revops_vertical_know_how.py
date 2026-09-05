@@ -38,7 +38,7 @@ def test_revops_know_how_resolves_runtime_actions_and_schemas() -> None:
 def test_revops_v2_is_linked_to_frozen_graft1st_contract_and_report() -> None:
     assert REVOPS_V2_KNOW_HOW.authority_class == "declarative"
     assert REVOPS_V2_KNOW_HOW.grants_execution_authority is False
-    assert REVOPS_V2_KNOW_HOW.promotion_status == "blocked_pending_owner_thresholds"
+    assert REVOPS_V2_KNOW_HOW.promotion_status == "eligible"
     assert REVOPS_V2_KNOW_HOW.graft1st_contract_package_id == "revops.gtm-crm-communications"
     assert REVOPS_V2_KNOW_HOW.graft1st_contract_package_version == "2.0.0"
     assert "synthesize_research_report" in REVOPS_V2_KNOW_HOW.supported_outcomes

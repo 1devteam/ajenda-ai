@@ -10,6 +10,8 @@ from backend.services.capability_adapter_compatibility import (
     CapabilityAdapterDeclaration,
     validate_capability_adapter_compatibility,
 )
+from backend.services.tools.capability_validation import _adapter_authorizes_side_effect_class
+from backend.services.tools.schemas import SideEffectClass
 
 
 def _capability(**overrides: object) -> SimpleNamespace:
@@ -47,6 +49,13 @@ def test_compatible_adapter_declaration_passes_without_side_effects() -> None:
     adapter = _adapter(capability_id=capability_id)
 
     validate_capability_adapter_compatibility(capability=capability, adapter=adapter)
+
+
+def test_read_only_adapter_authorizes_internal_read_tool_action() -> None:
+    assert _adapter_authorizes_side_effect_class(
+        classification="read_only",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+    )
 
 
 def test_supported_task_types_must_be_declared_by_capability() -> None:

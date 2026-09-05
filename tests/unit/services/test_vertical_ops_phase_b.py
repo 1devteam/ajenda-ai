@@ -50,6 +50,7 @@ def test_phase_b_templates_cover_research_email_social() -> None:
         "vertical.research.v1",
         "vertical.email.v1",
         "vertical.social.v1",
+        "vertical.finance.v1",
     }
     # Full catalog includes Phase C as well.
     all_ids = {template.template_id for template in VERTICAL_MISSION_TEMPLATES}

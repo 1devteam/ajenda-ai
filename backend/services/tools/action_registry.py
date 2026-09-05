@@ -234,6 +234,7 @@ def build_default_action_registry() -> ActionRegistry:
     from backend.services.tools.calendar_actions import register_calendar_actions
     from backend.services.tools.decision_actions import register_decision_actions
     from backend.services.tools.document_actions import register_document_actions
+    from backend.services.tools.finance_actions import register_finance_actions
     from backend.services.tools.github_actions import register_github_actions
     from backend.services.tools.google_calendar_actions import register_google_calendar_actions
     from backend.services.tools.gtm_actions import register_gtm_actions
@@ -260,6 +261,7 @@ def build_default_action_registry() -> ActionRegistry:
     register_calendar_actions(registry)
     register_gtm_actions(registry)
     register_document_actions(registry)
+    register_finance_actions(registry)
     register_retrieval_actions(registry)
     register_standalone_actions(registry)
     register_web_actions(registry)

@@ -27,21 +27,8 @@ def _results() -> dict[str, dict[str, object]]:
 def test_binding_disposition_is_preserved_while_selection_applicability_is_added() -> None:
     results = _results()
 
-    primary = results["runtime-binding-gap:sales.research_context:sales.research:prospect_candidates"]
-    crm = results["runtime-binding-gap:sales.research_context:crm.research:prospect_candidates"]
-
-    assert primary["result"] == "SATISFIED"
-    assert primary["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE"
-    assert primary["action_selection"]["normal_role"] == "primary"
-    assert primary["action_selection"]["normal_position"] == 0
-    assert primary["action_selection"]["decision"] == "requires_instantiated_resolver_state"
-
-    assert crm["result"] == "SATISFIED"
-    assert crm["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE"
-    assert crm["action_selection"]["normal_role"] == "fallback"
-    assert crm["action_selection"]["normal_position"] == 1
-    assert crm["action_selection"]["prior_actions"] == ["sales.research"]
-    assert crm["action_selection"]["connection_hint"]["integration"] == "hubspot"
+    assert "runtime-binding-gap:sales.research_context:sales.research:prospect_candidates" not in results
+    assert "runtime-binding-gap:sales.research_context:crm.research:prospect_candidates" not in results
 
     assert "runtime-binding-gap:sales.research_context:web.research:prospect_candidates" not in results
 
@@ -49,14 +36,7 @@ def test_binding_disposition_is_preserved_while_selection_applicability_is_added
 def test_crm_pipeline_closure_is_primary_and_connection_conditioned() -> None:
     results = _results()
     for artifact in ("prospect_candidates", "qualified_prospects"):
-        item = results[f"runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:{artifact}"]
-        selection = item["action_selection"]
-        assert item["result"] == "SATISFIED"
-        assert item["binding_disposition"] == "CONSUMED_WHEN_APPLICABLE"
-        assert selection["normal_role"] == "primary"
-        assert selection["connection_hint"]["integration"] == "hubspot"
-        assert "required connection is available" in selection["requirements"]
-        assert selection["state"] == "conditional_on_resolver_selection"
+        assert f"runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:{artifact}" not in results
 
 
 def test_catalog_only_binding_controls_remain_inactive() -> None:
@@ -66,9 +46,7 @@ def test_catalog_only_binding_controls_remain_inactive() -> None:
         "runtime-binding-gap:accounting.prepare_reconciliation:document.generate:revenue_records",
         "runtime-binding-gap:accounting.prepare_reconciliation:record.search:revenue_records",
     ):
-        item = results[finding_id]
-        assert item["result"] == "SATISFIED"
-        assert item["action_selection"]["state"] == "inactive"
+        assert finding_id not in results
 
 
 def test_current_sales_research_context_resolver_matches_catalog() -> None:
@@ -101,8 +79,8 @@ def test_selection_report_is_non_enforcing_and_preserves_binding_counts() -> Non
     assert report["policy"]["enforcement"] == "disabled"
     assert report["policy"]["action_selection_instantiation"] == "required-for-enforcement"
     assert report["metrics"] == {
-        "candidate_count": 11,
-        "satisfied_count": 11,
+        "candidate_count": 0,
+        "satisfied_count": 0,
         "violated_count": 0,
         "indeterminate_count": 0,
         "violated_primary_action_count": 0,

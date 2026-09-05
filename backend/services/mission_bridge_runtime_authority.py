@@ -96,6 +96,13 @@ def _effective_side_effect_for_bridge(
         resolved = definition.side_effect_for(invocation)
     except Exception:
         resolved = definition.side_effect_class
+    # Composition stores credential authority beside the tool input in the
+    # graph contract. Reconstruct the resolver's external-read decision from
+    # the explicit CRM context before persisting the bridge adapter class.
+    if action_name in {"sales.research", "crm.research"}:
+        context = tool_input.get("context") if isinstance(tool_input, dict) else None
+        if isinstance(context, dict) and context.get("require_external_crm") is True:
+            resolved = SideEffectClass.EXTERNAL_READ
     # Prefer the stronger of default vs resolved so adapters remain valid for both modes.
     if _SIDE_EFFECT_RANK.get(resolved, 0) >= _SIDE_EFFECT_RANK.get(definition.side_effect_class, 0):
         return resolved

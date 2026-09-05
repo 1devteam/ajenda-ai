@@ -46,6 +46,9 @@ export const DEFAULT_OPERATING_CHARTER: OperatingCharter = {
     "gtm.email_check",
     "google_calendar.events_read",
     "calendar.read",
+    "vertical.finance.sync_revenue",
+    "vertical.finance.prepare_reconciliation",
+    "vertical.finance.prepare_invoice_drafts",
   ],
   may_perform: [
     "gtm.crm_upsert",

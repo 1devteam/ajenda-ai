@@ -297,9 +297,7 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "input_path": "$.input.context.prospect_candidates",
                 }
             )
-        elif action_name == "research.synthesize_report" and (
-            "discover" in dep or "research" in dep or "web" in dep
-        ):
+        elif action_name == "research.synthesize_report" and ("discover" in dep or "research" in dep or "web" in dep):
             specs.append(
                 {
                     "from_step": dep,

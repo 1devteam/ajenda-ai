@@ -42,6 +42,9 @@ DEFAULT_MAY_PREPARE: tuple[str, ...] = (
     "gtm.email_check",
     "google_calendar.events_read",
     "calendar.read",
+    "vertical.finance.sync_revenue",
+    "vertical.finance.prepare_reconciliation",
+    "vertical.finance.prepare_invoice_drafts",
 )
 
 DEFAULT_MAY_PERFORM: tuple[str, ...] = (

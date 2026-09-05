@@ -78,8 +78,7 @@ def test_phase_c_apply_attaches_plan_without_execution_tasks() -> None:
 
 def test_phase_c_queue_fails_closed() -> None:
     service = VerticalOpsTemplateService()
-    with pytest.raises(ValueError, match="plan-only"):
-        service.ensure_runtime_queue_allowed(template_id="vertical.finance.v1")
+    service.ensure_runtime_queue_allowed(template_id="vertical.finance.v1")
 
     session = MagicMock()
     queue = MagicMock()
@@ -99,22 +98,12 @@ def test_phase_c_queue_fails_closed() -> None:
         )
 
 
-def test_phase_c_finance_optional_mutate_requires_sync_dependency() -> None:
+def test_phase_b_finance_sync_is_runtime_queueable() -> None:
     service = VerticalOpsTemplateService()
-    with pytest.raises(ValueError, match="required dependencies"):
-        service.build_bundle(
-            template_id="vertical.finance.v1",
-            selected_step_keys=("finance-mutate",),
-        )
-    bundle = service.build_bundle(
-        template_id="vertical.finance.v1",
-        selected_step_keys=("finance-sync", "finance-mutate"),
-    )
-    assert [node["node_key"] for node in bundle.task_graph["nodes"]] == [
-        "finance-sync",
-        "finance-mutate",
-    ]
-    assert bundle.planned_tasks == ()
+    bundle = service.build_bundle(template_id="vertical.finance.v1")
+    assert bundle.phase == "B"
+    assert bundle.allows_runtime_queue is True
+    assert [node["node_key"] for node in bundle.task_graph["nodes"]] == ["finance-sync"]
 
 
 def test_get_phase_c_template() -> None:

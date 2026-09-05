@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import JSON, DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -40,6 +40,7 @@ class StripeWebhookEvent(Base):
         comment="processing | applied | skipped | ignored | duplicate",
     )
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # type: ignore[type-arg]
     processed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -177,6 +177,11 @@ def _validate_runtime_promotion_authority(
 def _adapter_authorizes_side_effect_class(*, classification: str, side_effect_class: SideEffectClass) -> bool:
     if classification == side_effect_class.value:
         return True
+    # Bridge adapters persist the canonical read-only declaration as
+    # ``read_only`` while tool actions use the finer-grained ``internal_read``
+    # enum. Treat the adapter declaration as an exact authority equivalent.
+    if classification == "read_only" and side_effect_class == SideEffectClass.INTERNAL_READ:
+        return True
     if classification in {"internal_side_effect", "idempotent_write", "non_idempotent_write"}:
         return side_effect_class.value.startswith("internal_")
     if classification == "external_side_effect":

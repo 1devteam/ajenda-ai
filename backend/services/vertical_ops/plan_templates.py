@@ -33,6 +33,7 @@ PHASE_B_TEMPLATE_IDS: frozenset[str] = frozenset(
         "vertical.research.v1",
         "vertical.email.v1",
         "vertical.social.v1",
+        "vertical.finance.v1",
     }
 )
 
@@ -40,7 +41,6 @@ PHASE_C_TEMPLATE_IDS: frozenset[str] = frozenset(
     {
         "vertical.ads.v1",
         "vertical.code.v1",
-        "vertical.finance.v1",
     }
 )
 
@@ -346,15 +346,15 @@ VERTICAL_MISSION_TEMPLATES: tuple[VerticalMissionTemplate, ...] = (
         role_key="vertical.finance",
         pack_id=VERTICAL_OPS_PACK.pack_id,
         pack_version=VERTICAL_OPS_PACK.version,
-        display_name="Finance Mission (plan-only)",
+        display_name="Finance Mission",
         description=(
             "Phase C finance mission: catalog-only revenue sync and mutations until billing "
             "provider proof exists. Runtime queue is disabled. Financial risk uses "
             "risk_level + ComplianceCategory.FINANCIAL, not a fake side-effect class."
         ),
         objective_template="Plan governed finance sync/mutation work without executing mutations.",
-        phase="C",
-        allows_runtime_queue=False,
+        phase="B",
+        allows_runtime_queue=True,
         steps=(
             VerticalTemplateStep(
                 step_key="finance-sync",
@@ -362,15 +362,6 @@ VERTICAL_MISSION_TEMPLATES: tuple[VerticalMissionTemplate, ...] = (
                 title="Sync revenue snapshot",
                 description="Deferred catalog-only billing sync action.",
                 include_by_default=True,
-            ),
-            VerticalTemplateStep(
-                step_key="finance-mutate",
-                action_name="vertical.finance.mutate",
-                title="Financial mutation",
-                description="Deferred catalog-only financial mutation; human review mandatory.",
-                depends_on=("finance-sync",),
-                include_by_default=False,
-                optional=True,
             ),
         ),
     ),

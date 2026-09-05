@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-import httpx
+import json
+from urllib.parse import urlparse
 
 from backend.app.config import Settings
 from backend.services.llm.contracts import LlmGenerateRequest, LlmGenerateResult
+from backend.services.network_egress import NetworkEgressAuthority, get_default_network_egress_authority
 
 
 class OpenAiCompatibleLlm:
-    def __init__(self, *, settings: Settings) -> None:
+    def __init__(self, *, settings: Settings, network_egress_authority: NetworkEgressAuthority | None = None) -> None:
         self._settings = settings
+        self._network_egress_authority = network_egress_authority or get_default_network_egress_authority()
 
     def generate(self, request: LlmGenerateRequest) -> LlmGenerateResult:
         api_key = str(self._settings.llm_api_key or "").strip()
@@ -31,10 +34,23 @@ class OpenAiCompatibleLlm:
             "Content-Type": "application/json",
         }
         timeout = float(self._settings.llm_timeout_seconds)
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-            response.raise_for_status()
-            body = response.json()
+        parsed = urlparse(base_url)
+        host = parsed.hostname
+        if not host:
+            raise ValueError("LLM base URL must include a hostname")
+        _, response = self._network_egress_authority.request(
+            method="POST",
+            url=f"{base_url}/chat/completions",
+            headers=headers,
+            json_body=payload,
+            timeout_seconds=timeout,
+            allowed_hosts=[host],
+            action_name="llm.openai_compatible",
+            response_text_limit=131_072,
+        )
+        if response.status_code >= 400:
+            raise ValueError(f"LLM request failed with status {response.status_code}")
+        body = json.loads(response.body_text)
 
         choices = body.get("choices")
         if not isinstance(choices, list) or not choices:

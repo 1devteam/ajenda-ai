@@ -13,7 +13,7 @@ def test_customer_auth_migration_is_current_head_and_short_revision_id() -> None
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0043_pricing_tier_capacity"]
+    assert heads == ["0045_stripe_revenue_payload"]
     assert len(heads[0]) <= 32
 
 

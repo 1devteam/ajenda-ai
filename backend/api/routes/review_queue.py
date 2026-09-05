@@ -125,9 +125,7 @@ def list_pending_tasks(
         permission=Permission.EXECUTION_VIEW,
         tenant_id=tenant_id,
     )
-    tasks = ExecutionTaskRepository(session).list_pending_review_for_tenant(
-        tenant_id=str(tenant_id), limit=limit
-    )
+    tasks = ExecutionTaskRepository(session).list_pending_review_for_tenant(tenant_id=str(tenant_id), limit=limit)
     items = [
         PendingTaskReviewItem(
             task_id=str(task.id),

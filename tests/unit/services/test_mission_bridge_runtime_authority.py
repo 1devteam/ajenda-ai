@@ -11,8 +11,11 @@ from backend.domain.mission import MISSION_TASK_GRAPH_METADATA_KEY
 from backend.services.mission_bridge_runtime_authority import (
     _action_from_graph_node,
     _bridge_capability_name,
+    _effective_side_effect_for_bridge,
     provision_bridge_runtime_authority,
 )
+from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.schemas import SideEffectClass
 
 pytestmark = pytest.mark.unit
 
@@ -28,6 +31,18 @@ def test_action_from_graph_node_reads_tool_invocation_action() -> None:
 
 def test_bridge_capability_name_is_deterministic() -> None:
     assert _bridge_capability_name("gtm.lead_enrich") == "bridge_gtm_lead_enrich"
+
+
+def test_crm_bridge_persists_external_read_for_explicit_crm_context() -> None:
+    definition = get_default_action_registry(rebuild=True).get("sales.research")
+    assert (
+        _effective_side_effect_for_bridge(
+            definition=definition,
+            action_name="sales.research",
+            tool_input={"context": {"require_external_crm": True}},
+        )
+        == SideEffectClass.EXTERNAL_READ
+    )
 
 
 def test_provision_bridge_runtime_authority_requires_task_graph() -> None:

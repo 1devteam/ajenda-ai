@@ -472,6 +472,11 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
                     "evidence": catalog_source,
                 }
             )
+            # Catalog-only jobs are intentionally not runtime-selectable. Their
+            # unimplemented artifact bindings are product backlog, not runtime
+            # contract violations, and must not inflate runtime proof scope.
+            if str(job.get("maturity") or "") == "catalog_only":
+                continue
             missing_bindings = sorted(required_artifacts - binding_artifacts.get(action, set()))
             for artifact in missing_bindings:
                 findings.append(

@@ -75,6 +75,7 @@ _SEND_CONTRADICTION_PATTERNS = (
 )
 _DRAFT_PATTERNS = (
     r"\bdraft\b",
+    r"\bdrafts\b",
     r"introduction",
     r"outreach",
     r"personalized",
@@ -103,6 +104,14 @@ _RESEARCH_PATTERNS = (
     r"prospects",
     r"competitors?",
     r"competors?",
+)
+# A direct record-read request must not be mistaken for market discovery merely
+# because the records are scoped to prospects or a market.  Source-qualified
+# research ("research ... from CRM") remains distinct and is handled below.
+_DIRECT_CRM_RECORD_READ = re.compile(
+    r"\b(?:read|review|inspect|list|query|summari[sz]e)\b"
+    r"[^.!?]{0,80}\b(?:approved\s+)?(?:hubspot\s+)?crm\s+records?\b",
+    re.IGNORECASE,
 )
 _LOCATION_TRAILING_STOP = re.compile(
     r"\s+\b(?:"
@@ -177,6 +186,12 @@ _HUBSPOT_COMPANY_BEFORE = re.compile(
     r"\s+(?:in|on|from)\s+(?:hubspot|(?:the\s+)?crm)\b",
     re.IGNORECASE,
 )
+_HUBSPOT_COMPANY_RECORD_FOR = re.compile(
+    r"\b(?:crm\s+)?records?\s+(?:for|about|on)\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
+    r"(?=$|[,;.]|\s+\band\b|\s+\bthen\b)",
+    re.IGNORECASE,
+)
 # Read-oriented calendar only. Imperative "schedule a meeting" is not events_read.
 _CALENDAR_PATTERNS = (
     r"\bcalend[ae]r\b",
@@ -210,6 +225,7 @@ _CALENDAR_MUTATION_PATTERNS = (
 # Mutation verbs only — naming HubSpot/CRM as a read source must not imply upsert.
 _CRM_UPDATE_PATTERNS = (
     r"\bpersist (?:them|it|these|those|each|the\s+(?:prospects?|leads?|companies))?\s*(?:to|into|in)\s+(?:the\s+)?(?:ajenda\s+)?(?:internal\s+)?crm\b",
+    r"\bpersist\s+(?:only\s+)?(?:approved\s+)?(?:the\s+)?(?:prospects?|leads?|companies|records?)\s+(?:to|into|in)\s+(?:the\s+)?(?:ajenda\s+)?(?:internal\s+)?crm\b",
     r"\bupdate (?:the )?(?:crm|pipeline|hubspot)\b",
     r"\blog (?:to |in |into )?(?:the )?crm\b",
     r"\blogs? (?:activity|to crm)\b",
@@ -219,6 +235,7 @@ _CRM_UPDATE_PATTERNS = (
     r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
     r"\badd (?:them|it|these|those|each|leads?|prospects?|companies)?\s*(?:to|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\bsave (?:them|it|these|those|each|leads?|prospects?)?\s*(?:to|into|in)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\bsave\s+(?:only\s+)?(?:approved\s+)?(?:the\s+)?(?:prospects?|leads?|companies|records?)\s+(?:to|into|in)\s+(?:the\s+)?(?:ajenda\s+)?(?:internal\s+)?crm\b",
     r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
@@ -251,6 +268,13 @@ _BUSINESS_PROFILE_READ_PATTERNS = (
     r"\b(?:search|read|retrieve|look up|find|summarize)\b[^.!?]{0,72}\b(?:approved )?business profile\b",
     r"\b(?:search|read|retrieve|look up|find|summarize)\b[^.!?]{0,72}\bgoverned internal memory\b",
     r"\b(?:company facts|who (?:is|are) ajenda|ajenda(?:'s|s) products and services)\b",
+)
+# A profile used as mission context is not itself a profile-read deliverable.
+# Keep this clause recognized so composition does not silently drop the
+# operator's declared company/product authority.
+_BUSINESS_PROFILE_CONTEXT_PATTERNS = (
+    r"\buse\s+(?:the\s+)?(?:approved\s+)?(?:business|company)\s+profile\b",
+    r"\b(?:company|business)\s+profile\s+(?:for|of)\s+[A-Za-z0-9][^.;!?]{0,80}",
 )
 _BUSINESS_PROFILE_DELIVERABLE_PATTERNS = (
     r"\bproducts?\b",
@@ -304,6 +328,12 @@ _DATE_SPAN = re.compile(
 _INDUSTRY_LOCATION = re.compile(
     r"(?:^|[\s,;:])(?P<industry>[A-Za-z][A-Za-z\-/]{1,40}(?:\s+[A-Za-z][A-Za-z\-/]{1,40}){0,3})"
     r"\s+companies\s+in\s+(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
+    r"(?=$|[\s,;.:]|\band\b)",
+    re.IGNORECASE,
+)
+_SOFTWARE_RND_LOCATION = re.compile(
+    r"\b(?P<industry>software\s+and\s+r&d\s+developer)\s+companies\s+in\s+"
+    r"(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
     r"(?=$|[\s,;.:]|\band\b)",
     re.IGNORECASE,
 )
@@ -520,7 +550,7 @@ def _extract_competitors_of(text: str) -> list[TargetEntity]:
 
 
 def _extract_industry_location_entities(text: str) -> list[TargetEntity]:
-    match = _INDUSTRY_LOCATION.search(text)
+    match = _SOFTWARE_RND_LOCATION.search(text) or _INDUSTRY_LOCATION.search(text)
     if match is None:
         return []
     industry_tokens = [token for token in match.group("industry").strip().split() if token]
@@ -576,7 +606,11 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
 def _extract_connector_company(text: str) -> list[TargetEntity]:
     """Extract an explicit company target for a HubSpot/CRM read."""
 
-    match = _HUBSPOT_COMPANY_AFTER.search(text) or _HUBSPOT_COMPANY_BEFORE.search(text)
+    match = (
+        _HUBSPOT_COMPANY_AFTER.search(text)
+        or _HUBSPOT_COMPANY_BEFORE.search(text)
+        or _HUBSPOT_COMPANY_RECORD_FOR.search(text)
+    )
     if match is None:
         return []
     name = match.group("name").strip(" ,.;:")
@@ -711,6 +745,27 @@ def _success_for_outcomes(
         success.append(
             SuccessCriterion(
                 description="Requested calendar results are returned with provider evidence",
+                measurable=True,
+            )
+        )
+    if "read_revenue" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Settled Stripe revenue records are returned with verified webhook evidence",
+                measurable=True,
+            )
+        )
+    if "prepare_reconciliation" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="A reconciliation package reports settled record count, totals, and currencies",
+                measurable=True,
+            )
+        )
+    if "prepare_invoice_drafts" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="Invoice drafts are prepared for each settled revenue record and remain unsent",
                 measurable=True,
             )
         )
@@ -857,6 +912,7 @@ def _classify_clause(
         return [], False, True
     outcomes: list[CanonicalOutcome] = []
     profile_read = _contains_any(lower, _BUSINESS_PROFILE_READ_PATTERNS)
+    profile_context = _contains_any(lower, _BUSINESS_PROFILE_CONTEXT_PATTERNS)
     if profile_read or (profile_mission and _contains_any(lower, _BUSINESS_PROFILE_DELIVERABLE_PATTERNS)):
         outcomes.append("read_business_profile")
     email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
@@ -955,6 +1011,9 @@ def _classify_clause(
             r"\breturn\b",
         ),
     )
+    if profile_context:
+        material = True
+        recognized = True
     # Bare location/count fragments treated as material when short.
     if not material and (re.search(r"\b\d+\b", lower) or len(clause.split()) <= 4):
         material = True
@@ -1033,6 +1092,7 @@ def interpret_instruction(
     ) and not conditional_send
     wants_send = _contains_unnegated_send(lower) and not conditional_send
     wants_business_profile = _contains_any(lower, _BUSINESS_PROFILE_READ_PATTERNS)
+    uses_business_profile = _contains_any(lower, _BUSINESS_PROFILE_CONTEXT_PATTERNS)
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
@@ -1055,8 +1115,20 @@ def interpret_instruction(
         re.search(r"\bfrom\s+(?:hubspot|(?:the\s+)?crm)\b", lower)
         or re.search(r"\bcompanies\b.{0,80}\b(?:hubspot|crm)\s+records?\b", lower)
     )
-    wants_research = _contains_any(lower, _RESEARCH_PATTERNS) and (
-        not connector_read or explicit_prospect_research or hubspot_as_research_source
+    direct_crm_record_read = _DIRECT_CRM_RECORD_READ.search(lower) is not None
+    explicit_qualification_request = bool(re.search(r"\b(?:qualify|score|rank|rate|grade)\b", lower))
+    if direct_crm_record_read and not explicit_qualification_request:
+        wants_qualify = False
+    # Direct CRM-record requests require the CRM authority as their source of
+    # truth.  This prevents resolver fallback to public web discovery when the
+    # adapter cannot represent an unsupported CRM scope (for example a market
+    # wide location filter).
+    if direct_crm_record_read and "hubspot_source" not in context_requirements:
+        context_requirements.append("hubspot_source")
+    wants_research = (
+        _contains_any(lower, _RESEARCH_PATTERNS)
+        and not direct_crm_record_read
+        and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
     )
     wants_research_report = _REPORT_SYNTHESIS_REQUEST.search(text) is not None
     # "Research companies in X from HubSpot" is market discovery using CRM as a source,
@@ -1120,7 +1192,7 @@ def interpret_instruction(
                 rule_id="deliverable.research_report",
             )
         )
-    if wants_qualify:
+    if wants_qualify and not (direct_crm_record_read and not explicit_qualification_request):
         outcomes.append("qualify_prospects")
         evidence.append(
             _evidence(
@@ -1137,6 +1209,8 @@ def interpret_instruction(
         # Phrase/pattern matching is intentionally broad for legacy connector
         # wording, but a negated CRM clause must never create a read_crm outcome.
         if vocab_hit.outcome == "read_crm" and not wants_crm_read:
+            continue
+        if vocab_hit.outcome == "qualify_prospects" and direct_crm_record_read and not explicit_qualification_request:
             continue
         if vocab_hit.outcome == "read_contacts" and not wants_contacts_read:
             continue
@@ -1299,6 +1373,12 @@ def interpret_instruction(
     # Optional fuzzy candidates only for unresolved outcome language (never ability select).
     # Use set[str] so mypy accepts the fuzzy helper signature (not a Literal union set).
     fuzzy_already: set[str] = {str(item) for item in outcomes}
+    # Explicit draft language is already handled by the deterministic draft
+    # patterns; prevent fuzzy matching from misclassifying "prepare drafts" as
+    # the unrelated accounting outcome "prepare invoice drafts".
+    if wants_draft:
+        fuzzy_already.add("prepare_outreach")
+        fuzzy_already.add("prepare_invoice_drafts")
     if calendar_write_requested and not calendar_read_intent:
         # Do not let fuzzy re-introduce read_calendar from "my calendar" / "schedule" aliases.
         fuzzy_already.add("read_calendar")
@@ -1584,6 +1664,8 @@ def interpret_instruction(
     material_ok = sum(1 for c in clause_models if c.material and c.status == "recognized")
     coverage = (material_ok / material_total) if material_total else (1.0 if outcomes else 0.0)
 
+    if "prepare_invoice_drafts" in outcomes:
+        outcomes[:] = [item for item in outcomes if item != "prepare_outreach"]
     success = _success_for_outcomes(
         outcomes=outcomes,
         quantity=quantity,
@@ -1762,10 +1844,20 @@ def interpret_instruction(
 
     if profile_context.get("company") or profile_context.get("business_name"):
         context_requirements.append("business_profile")
+    if uses_business_profile and "business_profile" not in context_requirements:
+        context_requirements.append("business_profile")
 
     # Keep the user's instruction as objective by default. Only rewrite when we have a
     # concrete target label — never "the requested market" which becomes a useless search query.
     objective = text
+    if "read_revenue" in outcomes or "prepare_reconciliation" in outcomes:
+        objective = f"{text} for this tenant"
+    if "prepare_invoice_drafts" in outcomes:
+        outcomes[:] = [
+            item
+            for item in outcomes
+            if item not in {"prepare_outreach", "research_prospects", "qualify_prospects", "enrich_contacts"}
+        ]
     if (
         "research_prospects" in outcomes
         and "prepare_outreach" in outcomes
