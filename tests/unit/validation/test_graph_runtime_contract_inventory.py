@@ -174,4 +174,4 @@ def test_current_catalog_has_no_blocking_runtime_contract_inventory_violations()
     assert inventory["metrics"]["artifact_count"] > 0
     assert inventory["metrics"]["typed_dependency_count"] > 0
     assert inventory["metrics"]["binding_edge_count"] > 0
-    assert inventory["metrics"]["binding_gap_count"] > 0
+    assert inventory["metrics"]["binding_gap_count"] == 0
