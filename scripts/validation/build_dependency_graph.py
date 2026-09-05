@@ -34,6 +34,7 @@ OVERLAY_PATH = REPO_ROOT / "docs/contracts/dependency-graph.overlay.v1.json"
 DEFAULT_OUTPUT = REPO_ROOT / "docs/architecture/dependency-graph.v1.json"
 PRODUCTION_PYTHON_ROOTS = (REPO_ROOT / "backend", REPO_ROOT / "services")
 GRAPH_TOOLING_PYTHON_ROOT = REPO_ROOT / "scripts" / "validation"
+GRAPH_TOOLING_WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
 INTERNAL_PYTHON_PREFIXES = ("backend", "services")
 FRONTEND_IMPORT_RE = re.compile(r"(?:import|export)\s+(?:[^'\"]+?\s+from\s+)?['\"]([^'\"]+)['\"]")
 
@@ -176,6 +177,19 @@ def collect_graph_tooling_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
                     )
                 )
     return nodes, sorted(edges, key=lambda edge: (edge.source, edge.target, edge.type))
+
+
+def collect_graph_tooling_workflow_nodes() -> list[StaticNode]:
+    if not GRAPH_TOOLING_WORKFLOW_ROOT.exists():
+        return []
+    return [
+        StaticNode(
+            id=f"graph-tool:workflow:{path.name}",
+            type="graph_tooling_workflow",
+            source=str(path.relative_to(REPO_ROOT)),
+        )
+        for path in sorted(GRAPH_TOOLING_WORKFLOW_ROOT.glob("*.y*ml"))
+    ]
 
 
 def collect_test_graph() -> tuple[list[StaticNode], list[StaticEdge]]:
@@ -330,6 +344,7 @@ def build_graph() -> dict[str, Any]:
     overlay = json.loads(OVERLAY_PATH.read_text(encoding="utf-8"))
     py_nodes, py_edges = collect_python_graph()
     tooling_nodes, tooling_edges = collect_graph_tooling_graph()
+    tooling_workflow_nodes = collect_graph_tooling_workflow_nodes()
     fe_nodes, fe_edges = collect_frontend_graph()
     test_nodes, test_edges = collect_test_graph()
     function_nodes, function_edges = collect_function_graph(REPO_ROOT)
@@ -340,7 +355,7 @@ def build_graph() -> dict[str, Any]:
 
     nodes: list[dict[str, Any]] = [
         {"id": node.id, "type": node.type, "source": node.source}
-        for node in [*py_nodes, *tooling_nodes, *fe_nodes, *test_nodes]
+        for node in [*py_nodes, *tooling_nodes, *tooling_workflow_nodes, *fe_nodes, *test_nodes]
     ]
     nodes.extend(function_nodes)
     nodes.extend(overlay.get("nodes", []))
