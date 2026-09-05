@@ -462,6 +462,8 @@ ACCOUNTING_JOBS: tuple[BusinessJob, ...] = (
         maturity="runtime_bound",
         credential_policy="optional",
         evidence_requirements=("document_artifact",),
+        dependencies=(JobDependency(job_key="accounting.read_revenue", kind="hard"),),
+        depends_on_jobs=("accounting.read_revenue",),
     ),
     BusinessJob(
         job_key="accounting.prepare_invoice_drafts",
@@ -475,6 +477,8 @@ ACCOUNTING_JOBS: tuple[BusinessJob, ...] = (
         maturity="runtime_bound",
         credential_policy="none",
         evidence_requirements=("document_artifact",),
+        dependencies=(JobDependency(job_key="accounting.read_revenue", kind="hard"),),
+        depends_on_jobs=("accounting.read_revenue",),
     ),
 )
 

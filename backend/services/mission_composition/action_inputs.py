@@ -862,6 +862,8 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 "observed_contacts": [],
             },
         }
+    if action_name in {"vertical.finance.prepare_reconciliation", "vertical.finance.prepare_invoice_drafts"}:
+        return {"revenue_records": [], "context": {"binding_required": True, "binding_source": "upstream_revenue_records"}}
 
     if action_name == "linkedin.profile_read":
         # Optional profile_id from target entity attributes or name; default = authenticated user.
