@@ -1016,6 +1016,28 @@ export async function listReviewQueue(
   );
 }
 
+export async function listPendingTaskApprovals(caller: AuthedCaller): Promise<ReviewQueueListResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<ReviewQueueListResponse>("/v1/review-queue/tasks?limit=50", {}, runtimeOptions(config)),
+  );
+}
+
+export async function approveTaskReview(
+  caller: AuthedCaller,
+  taskId: string,
+): Promise<{ task_id: string; status: string }> {
+  return withAuthedRuntime(caller, (config) =>
+    request<{ task_id: string; status: string }>(
+      `/v1/review-queue/tasks/${encodeURIComponent(taskId)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ approval_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString() }),
+      },
+      runtimeOptions(config),
+    ),
+  );
+}
+
 export async function approveReviewQueueItem(
   caller: AuthedCaller,
   artifactId: string,

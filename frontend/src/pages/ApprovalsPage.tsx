@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { approveReviewQueueItem, listReviewQueue } from "../api/client";
+import { approveReviewQueueItem, approveTaskReview, listPendingTaskApprovals, listReviewQueue } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
 import PageHeader from "../components/ui/PageHeader";
@@ -23,10 +23,15 @@ export default function ApprovalsPage() {
     setLoading(true);
     setError(null);
     try {
-      const pending = await listReviewQueue(session, { status: "pending", limit: 50 });
-      setQueue(pending.items);
-      if (!selectedId && pending.items[0]?.artifact_id) {
-        setSelectedId(pending.items[0].artifact_id);
+      const [pending, taskApprovals] = await Promise.all([
+        listReviewQueue(session, { status: "pending", limit: 50 }),
+        listPendingTaskApprovals(session),
+      ]);
+      const tasks = taskApprovals.items.map((item) => ({ ...item, approval_kind: "task" as const, artifact_id: item.task_id ?? item.artifact_id }));
+      const combined = [...pending.items, ...tasks];
+      setQueue(combined);
+      if (!selectedId && combined[0]?.artifact_id) {
+        setSelectedId(combined[0].artifact_id);
       }
     } catch (err) {
       setError(err);
@@ -48,7 +53,12 @@ export default function ApprovalsPage() {
     setActionLoading(true);
     setError(null);
     try {
-      await approveReviewQueueItem(session, artifactId);
+      const item = queue.find((candidate) => candidate.artifact_id === artifactId);
+      if (item?.approval_kind === "task") {
+        await approveTaskReview(session, artifactId);
+      } else {
+        await approveReviewQueueItem(session, artifactId);
+      }
       setQueue((current) => current.filter((item) => item.artifact_id !== artifactId));
       setSelectedId("");
     } catch (err) {

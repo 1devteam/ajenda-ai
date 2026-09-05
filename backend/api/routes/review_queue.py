@@ -39,6 +39,21 @@ class ReviewQueueListResponse(BaseModel):
     total: int
 
 
+class PendingTaskReviewItem(BaseModel):
+    task_id: str
+    mission_id: str
+    artifact_type: str
+    review_status: str
+    content: dict[str, Any]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+
+
+class PendingTaskReviewListResponse(BaseModel):
+    items: list[PendingTaskReviewItem]
+    total: int
+
+
 class ReviewDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -94,6 +109,42 @@ def list_queue(
     rows = list_review_queue(session, tenant_id=str(tenant_id), status=status, limit=limit)
     items = [_to_item(row, artifact_id="", default_status=status) for row in rows]
     return ReviewQueueListResponse(items=items, total=len(items))
+
+
+@router.get("/tasks", response_model=PendingTaskReviewListResponse)
+def list_pending_tasks(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+) -> PendingTaskReviewListResponse:
+    """Expose approval-gated execution tasks alongside document artifacts."""
+    require_route_permission(
+        request=request,
+        db=session,
+        permission=Permission.EXECUTION_VIEW,
+        tenant_id=tenant_id,
+    )
+    tasks = ExecutionTaskRepository(session).list_pending_review_for_tenant(
+        tenant_id=str(tenant_id), limit=limit
+    )
+    items = [
+        PendingTaskReviewItem(
+            task_id=str(task.id),
+            mission_id=str(task.mission_id),
+            artifact_type="execution_task",
+            review_status="pending_review",
+            content={"title": task.title, "description": task.description},
+            metadata={
+                "action": (task.metadata_json or {}).get("tool_invocation", {}).get("action"),
+                "approval_reason": (task.metadata_json or {}).get("approval_reason"),
+                "requires_human_review": task.requires_human_review,
+            },
+            created_at=task.created_at.isoformat() if task.created_at else None,
+        )
+        for task in tasks
+    ]
+    return PendingTaskReviewListResponse(items=items, total=len(items))
 
 
 @router.get("/{artifact_id}", response_model=ReviewQueueItem)

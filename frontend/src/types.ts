@@ -314,6 +314,7 @@ export interface ReviewQueueItem {
   task_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  approval_kind?: "artifact" | "task";
 }
 
 export interface ReviewQueueListResponse {

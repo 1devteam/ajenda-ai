@@ -66,6 +66,19 @@ class ExecutionTaskRepository:
         )
         return list(self._session.scalars(stmt))
 
+    def list_pending_review_for_tenant(self, *, tenant_id: str, limit: int = 50) -> list[ExecutionTask]:
+        stmt = (
+            select(ExecutionTask)
+            .where(
+                ExecutionTask.tenant_id == tenant_id,
+                ExecutionTask.status == ExecutionTaskState.PENDING_REVIEW.value,
+                ExecutionTask.requires_human_review.is_(True),
+            )
+            .order_by(ExecutionTask.created_at.asc(), ExecutionTask.id.asc())
+            .limit(limit)
+        )
+        return list(self._session.scalars(stmt))
+
     def cancel_planned_by_ids_for_mission(
         self, *, tenant_id: str, mission_id: uuid.UUID, task_ids: list[uuid.UUID]
     ) -> list[ExecutionTask]:
