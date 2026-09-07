@@ -713,6 +713,13 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "verify_runtime_controls" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="A runtime_control_verification_package classifies each requested control and includes redacted local evidence",
+                measurable=True,
+            )
+        )
     if "observe_contacts" in outcomes:
         success.append(
             SuccessCriterion(
@@ -1637,6 +1644,13 @@ def interpret_instruction(
             profile_mission=wants_business_profile,
             external_action_forbidden=_contains_any(lower, _NO_EXTERNAL_ACTION_PATTERNS),
         )
+        if "verify_runtime_controls" in outcomes and re.search(
+            r"\b(?:check|verify|evidence|runtime|network|secure|private|retry|audit|local)\b",
+            clause_text,
+            flags=re.IGNORECASE,
+        ):
+            recognized = True
+            material = True
         # Non-material filler: short politeness without risk keywords.
         if not material and len(clause_text.split()) <= 3:
             status = "non_material"

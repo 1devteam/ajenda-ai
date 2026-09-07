@@ -82,6 +82,7 @@ CanonicalOutcome = Literal[
     "read_revenue",
     "prepare_reconciliation",
     "prepare_invoice_drafts",
+    "verify_runtime_controls",
 ]
 
 CANONICAL_OUTCOMES: frozenset[str] = frozenset(
@@ -107,6 +108,7 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
         "read_revenue",
         "prepare_reconciliation",
         "prepare_invoice_drafts",
+        "verify_runtime_controls",
     }
 )
 

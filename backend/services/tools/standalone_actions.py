@@ -14,6 +14,7 @@ from backend.services.tools.schemas import (
     ActionRuntimeContext,
     EvidenceItem,
     ResearchReportInput,
+    RuntimeControlVerificationInput,
     SideEffectClass,
     ToolInvocation,
     WebResearchInput,
@@ -543,7 +544,18 @@ def research_synthesize_report(invocation: ToolInvocation, context: ActionRuntim
     )
 
 
+def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    """Produce a local-only control review; never opens a network connection."""
+    payload = RuntimeControlVerificationInput.model_validate(invocation.input)
+    supplied = {str(item.get("control")): item for item in payload.evidence if item.get("control")}
+    controls = [{"control": control, "status": str(supplied.get(control, {}).get("status", "unverified")), "evidence": supplied.get(control, {}).get("evidence", [])} for control in payload.controls]
+    report = {"objective": payload.objective, "controls": controls, "external_actions_performed": False, "credentials_used": False}
+    summary = f"Produced local-only runtime control review for {len(controls)} control(s)."
+    return ActionResult(action=invocation.action, provider="ajenda_brain", side_effect_class=SideEffectClass.INTERNAL_READ, output={"runtime_control_verification_package": report}, evidence=[_evidence(context=context, action=invocation.action, provider="ajenda_brain", summary=summary, payload=report, side_effect_class=SideEffectClass.INTERNAL_READ)], summary=summary, confidence=0.6 if supplied else 0.35, limitations=["Runtime controls without supplied local evidence remain unverified."])
+
+
 def register_standalone_actions(registry: ActionRegistry) -> None:
+    registry.register(ActionDefinition(name="runtime.verify_controls", handler=runtime_verify_controls, provider="ajenda_brain", input_model=RuntimeControlVerificationInput, side_effect_class=SideEffectClass.INTERNAL_READ))
     registry.register(
         ActionDefinition(
             name="research.synthesize_report",

@@ -14,6 +14,10 @@ from backend.services.mission_composition.contracts import CanonicalOutcome
 
 # Extra phrase aliases merged into LEGACY_OUTCOME_ALIASES consumers via lookup.
 ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
+    "audit outbound operations": "verify_runtime_controls",
+    "verify runtime controls": "verify_runtime_controls",
+    "verify outbound controls": "verify_runtime_controls",
+    "prepare an engineering review package": "verify_runtime_controls",
     # Qualify / score / rank family
     "score them": "qualify_prospects",
     "score it": "qualify_prospects",
@@ -85,6 +89,7 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
 
 # Regex patterns that map a clause/window to a canonical outcome (deterministic).
 OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
+    (r"\b(?:audit|verify|review)\b.{0,80}\b(?:outbound|egress|runtime)\b", "verify_runtime_controls"),
     (r"\b(?:prepare|create|produce)\b[^.!?]{0,48}\binvoice\s+drafts?\b", "prepare_invoice_drafts"),
     (r"\b(?:read|check|show|list|fetch)\b[^.!?]{0,48}\b(?:stripe|revenue|invoices?)\b", "read_revenue"),
     (r"\b(?:prepare|create|produce)\b[^.!?]{0,48}\b(?:revenue\s+)?reconciliation\b", "prepare_reconciliation"),
