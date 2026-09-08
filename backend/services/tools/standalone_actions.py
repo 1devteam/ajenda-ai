@@ -350,6 +350,16 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                     if contact.get(key):
                         prospect[key] = contact[key]
                 prospect["contact_name"] = contact.get("name")
+            else:
+                # Local fixtures may be represented as a single account record
+                # with contact fields (rather than a separate contact row).
+                # Preserve those fields so the read-only fixture path does not
+                # manufacture an uncontactable prospect.
+                for key in ("email", "phone", "role"):
+                    if record.get(key):
+                        prospect[key] = record[key]
+                if record.get("contact_name"):
+                    prospect["contact_name"] = record["contact_name"]
         key = prospect["company"].lower()
         if key in seen_companies:
             continue
