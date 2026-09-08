@@ -177,6 +177,7 @@ class RuntimeControlVerificationInput(BaseModel):
     objective: str = Field(default="Verify local runtime controls", min_length=1, max_length=500)
     controls: tuple[str, ...] = Field(default=("network_authority", "https_only", "private_address_rejection", "destination_policy", "retry_idempotency"), max_length=20)
     evidence: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    context: dict[str, Any] = Field(default_factory=dict)
 
 
 class RecordReadInput(BaseModel):

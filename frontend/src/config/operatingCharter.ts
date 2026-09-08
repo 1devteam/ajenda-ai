@@ -49,6 +49,7 @@ export const DEFAULT_OPERATING_CHARTER: OperatingCharter = {
     "vertical.finance.sync_revenue",
     "vertical.finance.prepare_reconciliation",
     "vertical.finance.prepare_invoice_drafts",
+    "runtime.verify_controls",
   ],
   may_perform: [
     "gtm.crm_upsert",
@@ -94,6 +95,10 @@ export const PREPARE_ACTION_OPTIONS = [
   { action: "gtm.email_check", label: "Check inbox (Gmail)" },
   { action: "google_calendar.events_read", label: "Google Calendar read" },
   { action: "calendar.read", label: "Local calendar read proof" },
+  { action: "vertical.finance.sync_revenue", label: "Sync revenue records" },
+  { action: "vertical.finance.prepare_reconciliation", label: "Prepare reconciliation" },
+  { action: "vertical.finance.prepare_invoice_drafts", label: "Prepare invoice drafts" },
+  { action: "runtime.verify_controls", label: "Verify runtime controls" },
 ] as const;
 
 export const PERFORM_ACTION_OPTIONS = [
