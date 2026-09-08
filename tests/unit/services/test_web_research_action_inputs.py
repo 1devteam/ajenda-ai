@@ -33,3 +33,12 @@ def test_market_research_query_prefers_industry_location() -> None:
     assert "roofing" in query
     assert "austin" in query
     assert not query.startswith("find five")
+
+
+def test_local_fixture_constraint_disables_public_search() -> None:
+    intent = interpret_instruction(
+        "Find five software companies in Austin and collect contacts using local fixture data only."
+    )
+    payload = build_action_input(action_name="web.research", intent=intent)
+    assert payload["local_fixture_only"] is True
+    assert payload["include_public_search"] is False

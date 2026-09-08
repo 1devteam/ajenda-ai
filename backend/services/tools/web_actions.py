@@ -237,6 +237,67 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         if len(pages) >= limit:
             break
         url = prospect_source_url(prospect)
+        if payload.local_fixture_only:
+            fixture_contacts: list[dict[str, object]] = []
+            for key, kind in (
+                ("email", "email"),
+                ("phone", "phone"),
+                ("contact_email", "email"),
+                ("contact_phone", "phone"),
+            ):
+                value = prospect.get(key)
+                if isinstance(value, str) and value.strip():
+                    fixture_contacts.append(
+                        {
+                            "kind": kind,
+                            "value": value.strip(),
+                            "source_url": f"fixture://{prospect.get('prospect_id') or prospect.get('company')}",
+                            "real": True,
+                            "via": "local_fixture",
+                        }
+                    )
+            if not fixture_contacts:
+                unobserved.append(
+                    {
+                        "company": prospect.get("company"),
+                        "reason": "no_contact_in_local_fixture",
+                        "prospect_id": prospect.get("prospect_id"),
+                    }
+                )
+                continue
+            source_url = str(fixture_contacts[0]["source_url"])
+            pages.append(
+                {
+                    "url": source_url,
+                    "real": True,
+                    "status_code": None,
+                    "title": prospect.get("company"),
+                    "error": None,
+                    "company": prospect.get("company"),
+                    "domain": prospect.get("domain"),
+                    "identity_status": "verified",
+                    "source_reliability": "local_fixture",
+                    "identity_evidence_urls": [],
+                }
+            )
+            for item in fixture_contacts:
+                observed_contacts.append(
+                    {
+                        **item,
+                        "company": prospect.get("company"),
+                        "domain": prospect.get("domain"),
+                        "website": str(prospect.get("website") or prospect.get("url") or ""),
+                        "product_description": str(prospect.get("product_description") or ""),
+                        "research_summary": str(prospect.get("research_summary") or ""),
+                        "sources": prospect.get("sources") if isinstance(prospect.get("sources"), list) else [],
+                        "prospect_id": prospect.get("prospect_id"),
+                        "identity_status": "verified",
+                        "identity_evidence_urls": [],
+                        "contact_role_status": "verified" if prospect.get("role") else "unverified",
+                        "contact_role_evidence": "bound prospect role" if prospect.get("role") else None,
+                    }
+                )
+            continue
         if url is None:
             unobserved.append(
                 {

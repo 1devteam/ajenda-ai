@@ -361,6 +361,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "web_result_count": len(web_results),
         "web_snippet": web_snippet,
         "include_public_search": payload.include_public_search,
+        "local_fixture_only": payload.local_fixture_only,
         "public_search_real": public_search_real,
         "search_error": search_error,
         "access_mode": "public_search" if payload.include_public_search else "internal_research",

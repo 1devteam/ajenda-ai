@@ -514,12 +514,16 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
         # handler can use an explicit host from the query if present.
         if scrape_intent and extracted_company and not domain:
             fetch_public_page = True
+        local_fixture_only = bool(
+            re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", source, re.IGNORECASE)
+        )
         return {
             "query": research_query[:400],
             "company": extracted_company,
             "domain": domain,
             "fetch_public_page": fetch_public_page,
-            "include_public_search": True,
+            "include_public_search": not local_fixture_only,
+            "local_fixture_only": local_fixture_only,
             "limit": limit,
         }
     if action_name == "web.search":
@@ -571,11 +575,15 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             },
         }
     if action_name == "research.observe_contacts":
+        local_fixture_only = bool(
+            re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", intent.objective, re.IGNORECASE)
+        )
         return {
             "prospects": [],
             "requested_quantity": limit,
             "timeout_seconds": 8.0,
             "binding_required": True,
+            "local_fixture_only": local_fixture_only,
             "context": {
                 "binding_required": True,
                 "binding_source": "upstream_prospect_candidates",
