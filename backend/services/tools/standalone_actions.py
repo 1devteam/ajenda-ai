@@ -321,7 +321,19 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
 
     prospect_candidates: list[dict[str, Any]] = []
     seen_companies: set[str] = set()
-    for record in internal_matches + list(crm_search.results or []):
+    candidate_records = (
+        [
+            record
+            for record in internal_matches
+            if isinstance(record, dict)
+            and (
+                record.get("source") == "local_fixture" or str(record.get("id") or "").startswith("fixture-austin-dev-")
+            )
+        ]
+        if payload.local_fixture_only
+        else internal_matches + list(crm_search.results or [])
+    )
+    for record in candidate_records:
         if not isinstance(record, dict):
             continue
         prospect = _prospect_from_record(record, source="internal_record", query=payload.query)
