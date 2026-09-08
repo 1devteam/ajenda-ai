@@ -261,7 +261,7 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                     )
                     projections.append(
                         {
-                            "contact_id": record_id,
+                            "contact_id": str(written.get("id") or record_id),
                             "account_id": written.get("account_id"),
                             "opportunity_id": opportunities[0].get("id") if opportunities else None,
                             "activity_ids": [item.get("id") for item in timeline if item.get("id")],
@@ -276,7 +276,9 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                         data=record_data,
                     )
                 verified = read_store.read_record(
-                    tenant_id=context.tenant_id, record_type=payload.record_type, record_id=record_id
+                    tenant_id=context.tenant_id,
+                    record_type=payload.record_type,
+                    record_id=str(written.get("id") or record_id),
                 )
                 if verified != written:
                     raise ValueError(f"record.write read-back verification failed for {record_id}")
@@ -285,7 +287,7 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 readback.append(
                     {
                         "record_type": payload.record_type,
-                        "record_id": record_id,
+                        "record_id": str(written.get("id") or record_id),
                         "verified": True,
                         "content_sha256": hashlib.sha256(
                             json.dumps(verified, sort_keys=True, separators=(",", ":")).encode()
