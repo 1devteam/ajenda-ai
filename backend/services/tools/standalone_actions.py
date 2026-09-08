@@ -608,7 +608,41 @@ def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeCo
         local_passed = bool(checks) and all(item.get("status") == "passed" for item in checks if isinstance(item, dict) and "status" in item)
         status = "proven" if local_passed else str(supplied_item.get("status", "unverified"))
         controls.append({"control": control, "status": status, "evidence": checks})
-    report = {"objective": payload.objective, "controls": controls, "external_actions_performed": False, "credentials_used": False}
+    unproven = [item for item in controls if item["status"] != "proven"]
+    report = {
+        "objective": payload.objective,
+        "controls": controls,
+        "evidence_table": [
+            {"control": item["control"], "classification": item["status"], "evidence": item["evidence"]}
+            for item in controls
+        ],
+        "failed_or_unverified": [
+            {
+                "control": item["control"],
+                "classification": item["status"],
+                "source_refs": ["backend/services/tools/standalone_actions.py:549-613"],
+            }
+            for item in unproven
+        ],
+        "proof_manifest": {
+            "redacted": True,
+            "credentials_used": False,
+            "external_actions_performed": False,
+            "network_calls_performed": False,
+            "evidence_types": ["local_fixture_probe", "source_reference"],
+        },
+        "remediation_queue": [
+            {
+                "priority": "high" if item["control"] in {"network_authority", "private_address_rejection"} else "medium",
+                "control": item["control"],
+                "blast_radius": "all outbound provider/webhook operations",
+                "reason": "Control lacks a passing local proof result.",
+            }
+            for item in unproven
+        ],
+        "external_actions_performed": False,
+        "credentials_used": False,
+    }
     summary = f"Produced local-only runtime control review for {len(controls)} control(s)."
     return ActionResult(action=invocation.action, provider="ajenda_brain", side_effect_class=SideEffectClass.INTERNAL_READ, output={"runtime_control_verification_package": report}, evidence=[_evidence(context=context, action=invocation.action, provider="ajenda_brain", summary=summary, payload=report, side_effect_class=SideEffectClass.INTERNAL_READ)], summary=summary, confidence=0.6 if supplied else 0.35, limitations=["Runtime controls without supplied local evidence remain unverified."])
 
