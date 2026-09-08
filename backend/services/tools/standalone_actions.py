@@ -20,6 +20,7 @@ from backend.services.tools.schemas import (
     WebResearchInput,
     WebSearchInput,
 )
+from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
 
 
 def _evidence(
@@ -548,7 +549,49 @@ def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeCo
     """Produce a local-only control review; never opens a network connection."""
     payload = RuntimeControlVerificationInput.model_validate(invocation.input)
     supplied = {str(item.get("control")): item for item in payload.evidence if item.get("control")}
-    controls = [{"control": control, "status": str(supplied.get(control, {}).get("status", "unverified")), "evidence": supplied.get(control, {}).get("evidence", [])} for control in payload.controls]
+    local_evidence: dict[str, list[dict[str, Any]]] = {}
+    authority = get_default_network_egress_authority()
+
+    def probe(control: str, name: str, passed: bool, detail: str) -> None:
+        local_evidence.setdefault(control, []).append(
+            {
+                "check": name,
+                "status": "passed" if passed else "failed",
+                "detail": detail,
+                "source_refs": ["backend/services/network_egress.py", "tests/unit/tools/test_http_actions.py"],
+            }
+        )
+
+    # These probes only parse/validate literal URLs; they never perform I/O.
+    try:
+        authority.vet_https_url("https://8.8.8.8/", action_name="runtime.verify_controls")
+        probe("network_authority", "shared_authority_resolution", True, "NetworkEgressAuthority accepted the vetted destination")
+        probe("https_only", "https_scheme", True, "HTTPS URL accepted")
+    except NetworkEgressError as exc:
+        probe("network_authority", "shared_authority_resolution", False, str(exc))
+        probe("https_only", "https_scheme", False, str(exc))
+    try:
+        authority.vet_https_url("http://8.8.8.8/", action_name="runtime.verify_controls")
+        probe("https_only", "http_rejection", False, "HTTP URL was accepted")
+    except NetworkEgressError:
+        probe("https_only", "http_rejection", True, "HTTP URL rejected")
+    try:
+        authority.vet_https_url("https://127.0.0.1/", action_name="runtime.verify_controls")
+        probe("private_address_rejection", "loopback_rejection", False, "Loopback address was accepted")
+    except NetworkEgressError:
+        probe("private_address_rejection", "loopback_rejection", True, "Loopback address rejected")
+    try:
+        authority.vet_https_url("https://8.8.8.8/", allowed_hosts=["example.test"], action_name="runtime.verify_controls")
+        probe("destination_policy", "allowed_host_rejection", False, "Destination outside policy was accepted")
+    except NetworkEgressError:
+        probe("destination_policy", "allowed_host_rejection", True, "Destination outside policy rejected")
+    controls = []
+    for control in payload.controls:
+        supplied_item = supplied.get(control, {})
+        checks = [*local_evidence.get(control, []), *(supplied_item.get("evidence", []) if isinstance(supplied_item.get("evidence", []), list) else [])]
+        local_passed = bool(checks) and all(item.get("status") == "passed" for item in checks if isinstance(item, dict) and "status" in item)
+        status = "proven" if local_passed else str(supplied_item.get("status", "unverified"))
+        controls.append({"control": control, "status": status, "evidence": checks})
     report = {"objective": payload.objective, "controls": controls, "external_actions_performed": False, "credentials_used": False}
     summary = f"Produced local-only runtime control review for {len(controls)} control(s)."
     return ActionResult(action=invocation.action, provider="ajenda_brain", side_effect_class=SideEffectClass.INTERNAL_READ, output={"runtime_control_verification_package": report}, evidence=[_evidence(context=context, action=invocation.action, provider="ajenda_brain", summary=summary, payload=report, side_effect_class=SideEffectClass.INTERNAL_READ)], summary=summary, confidence=0.6 if supplied else 0.35, limitations=["Runtime controls without supplied local evidence remain unverified."])
