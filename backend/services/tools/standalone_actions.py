@@ -6,7 +6,9 @@ from typing import Any
 
 from backend.services.business_context_resolver import default_company_and_domain, resolve_business_context
 from backend.services.internet import fetch_public_page, public_search, search_bundle_as_legacy_dict
+from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client
+from backend.services.retry_policy import RetryPolicy
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.record_store import record_store_limitations, resolve_record_store
 from backend.services.tools.schemas import (
@@ -20,8 +22,6 @@ from backend.services.tools.schemas import (
     WebResearchInput,
     WebSearchInput,
 )
-from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
-from backend.services.retry_policy import RetryPolicy
 
 
 def _evidence(
@@ -566,7 +566,12 @@ def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeCo
     # These probes only parse/validate literal URLs; they never perform I/O.
     try:
         authority.vet_https_url("https://8.8.8.8/", action_name="runtime.verify_controls")
-        probe("network_authority", "shared_authority_resolution", True, "NetworkEgressAuthority accepted the vetted destination")
+        probe(
+            "network_authority",
+            "shared_authority_resolution",
+            True,
+            "NetworkEgressAuthority accepted the vetted destination",
+        )
         probe("https_only", "https_scheme", True, "HTTPS URL accepted")
     except NetworkEgressError as exc:
         probe("network_authority", "shared_authority_resolution", False, str(exc))
@@ -582,7 +587,9 @@ def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeCo
     except NetworkEgressError:
         probe("private_address_rejection", "loopback_rejection", True, "Loopback address rejected")
     try:
-        authority.vet_https_url("https://8.8.8.8/", allowed_hosts=["example.test"], action_name="runtime.verify_controls")
+        authority.vet_https_url(
+            "https://8.8.8.8/", allowed_hosts=["example.test"], action_name="runtime.verify_controls"
+        )
         probe("destination_policy", "allowed_host_rejection", False, "Destination outside policy was accepted")
     except NetworkEgressError:
         probe("destination_policy", "allowed_host_rejection", True, "Destination outside policy rejected")
@@ -598,14 +605,23 @@ def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeCo
             "check": "retry_limit_and_duplicate_key_suppression",
             "status": "passed" if retry_passed else "failed",
             "detail": "Retry policy terminates at the configured limit and a repeated event key is suppressed in the local fixture",
-            "source_refs": ["backend/services/retry_policy.py", "backend/services/tools/webhook_actions.py", "tests/contract/runtime/test_retry_behavior.py"],
+            "source_refs": [
+                "backend/services/retry_policy.py",
+                "backend/services/tools/webhook_actions.py",
+                "tests/contract/runtime/test_retry_behavior.py",
+            ],
         }
     )
     controls = []
     for control in payload.controls:
         supplied_item = supplied.get(control, {})
-        checks = [*local_evidence.get(control, []), *(supplied_item.get("evidence", []) if isinstance(supplied_item.get("evidence", []), list) else [])]
-        local_passed = bool(checks) and all(item.get("status") == "passed" for item in checks if isinstance(item, dict) and "status" in item)
+        checks = [
+            *local_evidence.get(control, []),
+            *(supplied_item.get("evidence", []) if isinstance(supplied_item.get("evidence", []), list) else []),
+        ]
+        local_passed = bool(checks) and all(
+            item.get("status") == "passed" for item in checks if isinstance(item, dict) and "status" in item
+        )
         status = "proven" if local_passed else str(supplied_item.get("status", "unverified"))
         controls.append({"control": control, "status": status, "evidence": checks})
     unproven = [item for item in controls if item["status"] != "proven"]
@@ -633,7 +649,9 @@ def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeCo
         },
         "remediation_queue": [
             {
-                "priority": "high" if item["control"] in {"network_authority", "private_address_rejection"} else "medium",
+                "priority": "high"
+                if item["control"] in {"network_authority", "private_address_rejection"}
+                else "medium",
                 "control": item["control"],
                 "blast_radius": "all outbound provider/webhook operations",
                 "reason": "Control lacks a passing local proof result.",
@@ -644,11 +662,37 @@ def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeCo
         "credentials_used": False,
     }
     summary = f"Produced local-only runtime control review for {len(controls)} control(s)."
-    return ActionResult(action=invocation.action, provider="ajenda_brain", side_effect_class=SideEffectClass.INTERNAL_READ, output={"runtime_control_verification_package": report}, evidence=[_evidence(context=context, action=invocation.action, provider="ajenda_brain", summary=summary, payload=report, side_effect_class=SideEffectClass.INTERNAL_READ)], summary=summary, confidence=0.6 if supplied else 0.35, limitations=["Runtime controls without supplied local evidence remain unverified."])
+    return ActionResult(
+        action=invocation.action,
+        provider="ajenda_brain",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+        output={"runtime_control_verification_package": report},
+        evidence=[
+            _evidence(
+                context=context,
+                action=invocation.action,
+                provider="ajenda_brain",
+                summary=summary,
+                payload=report,
+                side_effect_class=SideEffectClass.INTERNAL_READ,
+            )
+        ],
+        summary=summary,
+        confidence=0.6 if supplied else 0.35,
+        limitations=["Runtime controls without supplied local evidence remain unverified."],
+    )
 
 
 def register_standalone_actions(registry: ActionRegistry) -> None:
-    registry.register(ActionDefinition(name="runtime.verify_controls", handler=runtime_verify_controls, provider="ajenda_brain", input_model=RuntimeControlVerificationInput, side_effect_class=SideEffectClass.INTERNAL_READ))
+    registry.register(
+        ActionDefinition(
+            name="runtime.verify_controls",
+            handler=runtime_verify_controls,
+            provider="ajenda_brain",
+            input_model=RuntimeControlVerificationInput,
+            side_effect_class=SideEffectClass.INTERNAL_READ,
+        )
+    )
     registry.register(
         ActionDefinition(
             name="research.synthesize_report",
