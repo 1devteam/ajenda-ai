@@ -1182,7 +1182,7 @@ export async function upsertBusinessProfileFact(
 export async function listCrmRecords(
   caller: AuthedCaller,
   options: {
-    recordType: "account" | "contact" | "opportunity" | "activity" | "task";
+    recordType: "account" | "contact" | "opportunity" | "activity" | "task" | "document";
     query?: string;
     stage?: string;
     accountId?: string;

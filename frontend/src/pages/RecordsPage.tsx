@@ -20,12 +20,13 @@ import type {
 } from "../types";
 
 
-type CrmTab = "contact" | "account" | "opportunity" | "task";
+type CrmTab = "contact" | "account" | "opportunity" | "activity" | "task";
 
 const TABS: Array<{ id: CrmTab; label: string }> = [
   { id: "contact", label: "Contacts" },
   { id: "account", label: "Companies" },
   { id: "opportunity", label: "Deals" },
+  { id: "activity", label: "Activities" },
   { id: "task", label: "Tasks" },
 ];
 
