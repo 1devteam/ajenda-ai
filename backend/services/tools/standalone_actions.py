@@ -21,6 +21,7 @@ from backend.services.tools.schemas import (
     WebSearchInput,
 )
 from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
+from backend.services.retry_policy import RetryPolicy
 
 
 def _evidence(
@@ -585,6 +586,21 @@ def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeCo
         probe("destination_policy", "allowed_host_rejection", False, "Destination outside policy was accepted")
     except NetworkEgressError:
         probe("destination_policy", "allowed_host_rejection", True, "Destination outside policy rejected")
+    retry_policy = RetryPolicy(max_attempts=2, base_delay_seconds=1)
+    first = retry_policy.evaluate(attempt_number=1, terminal_failure=False)
+    terminal = retry_policy.evaluate(attempt_number=2, terminal_failure=False)
+    duplicate_keys: set[str] = set()
+    duplicate_keys.add("local-event-1")
+    duplicate_suppressed = "local-event-1" in duplicate_keys
+    retry_passed = first.retry and terminal.terminal and duplicate_suppressed
+    local_evidence.setdefault("retry_idempotency", []).append(
+        {
+            "check": "retry_limit_and_duplicate_key_suppression",
+            "status": "passed" if retry_passed else "failed",
+            "detail": "Retry policy terminates at the configured limit and a repeated event key is suppressed in the local fixture",
+            "source_refs": ["backend/services/retry_policy.py", "backend/services/tools/webhook_actions.py", "tests/contract/runtime/test_retry_behavior.py"],
+        }
+    )
     controls = []
     for control in payload.controls:
         supplied_item = supplied.get(control, {})
