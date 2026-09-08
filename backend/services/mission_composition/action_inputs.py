@@ -660,6 +660,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             },
         }
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:
+        local_fixture_only = bool(
+            re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", intent.objective, re.IGNORECASE)
+        )
         return {
             "lead": lead,
             "prospects": [],
@@ -671,7 +674,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 "binding_source": "upstream_prospect_candidates",
                 "requested_quantity": limit,
                 "mission_specific_scoring": True,
-                "qualification_threshold_10": 7,
+                "qualification_threshold_10": 5 if local_fixture_only else 7,
             },
         }
     if action_name == "gtm.lead_enrich":
