@@ -310,14 +310,34 @@ export default function CredentialsPage() {
   }, [session?.tenantId, session?.apiKey, session?.accessToken]);
 
   useEffect(() => {
-    if (!session) {
-      return;
-    }
     const callback = OAUTH_CALLBACKS[location.pathname];
     if (!callback) {
       return;
     }
     const params = new URLSearchParams(location.search);
+    // Popup windows do not share sessionStorage with the authenticated opener.
+    // Forward the one-time authorization result; the opener performs the exchange
+    // with its own tenant session and the callback never handles credentials.
+    if (!session) {
+      const code = params.get("code");
+      const state = params.get("state");
+      const oauthError = params.get("error");
+      if (window.opener && (code && state || oauthError)) {
+        window.opener.postMessage(
+          {
+            type: "ajenda.connector.oauth.callback",
+            integration: callback.integration,
+            code,
+            state,
+            error: oauthError,
+            error_description: params.get("error_description"),
+          },
+          window.location.origin,
+        );
+        window.close();
+      }
+      return;
+    }
     const oauthError = params.get("error");
     if (oauthError) {
       const description = params.get("error_description")?.trim();

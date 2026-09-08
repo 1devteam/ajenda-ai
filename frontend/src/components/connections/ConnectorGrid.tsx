@@ -4,6 +4,10 @@ import {
   getGoogleCalendarOAuthAuthorizeUrl,
   getGoogleContactsOAuthAuthorizeUrl,
   getGoogleDocsOAuthAuthorizeUrl,
+  connectGmailOAuth,
+  connectGoogleCalendarOAuth,
+  connectGoogleContactsOAuth,
+  connectGoogleDocsOAuth,
   listProviderCredentials,
   revokeProviderCredential,
 } from "../../api/client";
@@ -26,6 +30,7 @@ export default function ConnectorGrid({ session, onboarding }: ConnectorGridProp
   const [error, setError] = useState<unknown>(null);
   const [message, setMessage] = useState("");
   const popupRef = useRef<Window | null>(null);
+  const oauthExchangeInFlight = useRef(new Set<string>());
   const canManage = onboarding?.can_manage_connections ?? true;
 
   const refresh = useCallback(async () => {
@@ -54,7 +59,43 @@ export default function ConnectorGrid({ session, onboarding }: ConnectorGridProp
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || !event.data || event.data.type !== "ajenda.connector.oauth.complete") return;
+      if (event.origin !== window.location.origin || event.source !== popupRef.current || !event.data) return;
+      if (event.data.type === "ajenda.connector.oauth.callback") {
+        const integration = event.data.integration as ConnectorId;
+        const code = typeof event.data.code === "string" ? event.data.code : "";
+        const state = typeof event.data.state === "string" ? event.data.state : "";
+        const connector = CONNECTORS.find((item) => item.id === integration);
+        if (!connector) return;
+        if (event.data.error || !code || !state) {
+          popupRef.current?.close();
+          popupRef.current = null;
+          setBusy(null);
+          setMessage("Permission wasn't granted. The connector is still disconnected.");
+          return;
+        }
+        const exchangeKey = `${integration}:${state}`;
+        if (oauthExchangeInFlight.current.has(exchangeKey)) return;
+        oauthExchangeInFlight.current.add(exchangeKey);
+        void (async () => {
+          try {
+            if (integration === "gmail") await connectGmailOAuth(session, { code, state, credential_id: connector.credentialId });
+            else if (integration === "google_calendar") await connectGoogleCalendarOAuth(session, { code, state, credential_id: connector.credentialId });
+            else if (integration === "google_contacts") await connectGoogleContactsOAuth(session, { code, state, credential_id: connector.credentialId });
+            else if (integration === "google_docs") await connectGoogleDocsOAuth(session, { code, state, credential_id: connector.credentialId });
+            setMessage(`${connector.name} connected.`);
+            await refresh();
+          } catch (err) {
+            setError(err);
+          } finally {
+            oauthExchangeInFlight.current.delete(exchangeKey);
+            popupRef.current?.close();
+            popupRef.current = null;
+            setBusy(null);
+          }
+        })();
+        return;
+      }
+      if (event.data.type !== "ajenda.connector.oauth.complete") return;
       const integration = event.data.integration as ConnectorId;
       if (CONNECTORS.some((connector) => connector.id === integration)) {
         setBusy(null);

@@ -68,14 +68,15 @@ export default function App() {
             <Route path="/credentials" element={<CredentialsPage />} />
             <Route path="/connections" element={<CredentialsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/credentials/gmail/callback" element={<CredentialsPage />} />
-            <Route path="/credentials/linkedin/callback" element={<CredentialsPage />} />
-            <Route path="/credentials/salesforce/callback" element={<CredentialsPage />} />
-            <Route path="/credentials/google-calendar/callback" element={<CredentialsPage />} />
-            <Route path="/credentials/google-contacts/callback" element={<CredentialsPage />} />
-            <Route path="/credentials/google-docs/callback" element={<CredentialsPage />} />
-            <Route path="/credentials/github/callback" element={<CredentialsPage />} />
           </Route>
+          {/* Connector OAuth callbacks must be reachable without the opener's sessionStorage. */}
+          <Route path="/credentials/gmail/callback" element={<CredentialsPage />} />
+          <Route path="/credentials/linkedin/callback" element={<CredentialsPage />} />
+          <Route path="/credentials/salesforce/callback" element={<CredentialsPage />} />
+          <Route path="/credentials/google-calendar/callback" element={<CredentialsPage />} />
+          <Route path="/credentials/google-contacts/callback" element={<CredentialsPage />} />
+          <Route path="/credentials/google-docs/callback" element={<CredentialsPage />} />
+          <Route path="/credentials/github/callback" element={<CredentialsPage />} />
           <Route path="/dev" element={<DevConsolePage />} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
