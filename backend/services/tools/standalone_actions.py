@@ -325,6 +325,19 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         if not isinstance(record, dict):
             continue
         prospect = _prospect_from_record(record, source="internal_record", query=payload.query)
+        if payload.local_fixture_only:
+            fixture_contacts = store.search_records(
+                tenant_id=context.tenant_id,
+                record_type="contact",
+                filters={"account_id": str(record.get("id") or "")},
+                limit=1,
+            )
+            if fixture_contacts:
+                contact = fixture_contacts[0]
+                for key in ("email", "phone", "role"):
+                    if contact.get(key):
+                        prospect[key] = contact[key]
+                prospect["contact_name"] = contact.get("name")
         key = prospect["company"].lower()
         if key in seen_companies:
             continue
