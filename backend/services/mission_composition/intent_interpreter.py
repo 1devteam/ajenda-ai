@@ -235,12 +235,15 @@ _CRM_UPDATE_PATTERNS = (
     r"\bpush (?:to |into )?(?:the )?(?:crm|hubspot|contacts?)\b",
     r"\badd (?:them|it|these|those|each|leads?|prospects?|companies)?\s*(?:to|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\bsave (?:them|it|these|those|each|leads?|prospects?)?\s*(?:to|into|in)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
+    r"\bsave\s+(?:each|the)?\s*(?:company|companies|account|accounts)\b",
     r"\bsave\s+(?:only\s+)?(?:approved\s+)?(?:the\s+)?(?:prospects?|leads?|companies|records?)\s+(?:to|into|in)\s+(?:the\s+)?(?:ajenda\s+)?(?:internal\s+)?crm\b",
     r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
     r"\bput (?:them|it|these|those)\s+(?:in|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\bcreate (?:crm )?(?:records?|contacts?)\b",
+    r"\b(?:create|add|open)\s+(?:a\s+)?(?:deal|opportunit(?:y|ies))(?:\s+record)?\b",
+    r"\b(?:create|link|assign)\s+(?:a\s+)?(?:deal|opportunit(?:y|ies))\b",
     r"\b(?:modify|change|edit) (?:the )?(?:crm|hubspot|pipeline|records?)\b",
 )
 _INTERNAL_CRM_PATTERNS = (
@@ -328,7 +331,7 @@ _DATE_SPAN = re.compile(
 _INDUSTRY_LOCATION = re.compile(
     r"(?:^|[\s,;:])(?P<industry>[A-Za-z][A-Za-z\-/]{1,40}(?:\s+[A-Za-z][A-Za-z\-/]{1,40}){0,3})"
     r"\s+companies\s+in\s+(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
-    r"(?=$|[\s,;.:]|\band\b)",
+    r"(?=$|[\s,;.:]|\band\b|\bcomparable\s+to\b)",
     re.IGNORECASE,
 )
 _SOFTWARE_RND_LOCATION = re.compile(

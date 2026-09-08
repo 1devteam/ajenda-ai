@@ -29,6 +29,21 @@ def test_save_to_crm_contacts_phrase() -> None:
     assert intent.send_policy.mode == "forbid"
 
 
+def test_market_scope_allows_comparison_qualifier_and_deal_records() -> None:
+    intent = interpret_instruction(
+        "Find five software development companies in Austin, Texas comparable to 1devteam, "
+        "qualify them, save each company and contact in Ajenda internal CRM, and create a deal record for each."
+    )
+    assert "research_prospects" in intent.requested_outcomes
+    assert "qualify_prospects" in intent.requested_outcomes
+    assert "persist_internal_crm" in intent.requested_outcomes
+    assert intent.target_entities
+    assert intent.target_entities[0].industry == "software development"
+    assert intent.target_entities[0].location == "Austin"
+    assert intent.unmatched_material_clauses == []
+    assert not any(item.field == "target_scope" for item in intent.ambiguity)
+
+
 def test_do_not_add_to_contacts_suppresses_crm_write() -> None:
     intent = interpret_instruction("Find three roofing companies in Austin, but don't add them to contacts")
     assert "research_prospects" in intent.requested_outcomes
