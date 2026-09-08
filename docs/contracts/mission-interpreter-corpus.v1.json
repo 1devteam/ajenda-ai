@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "description": "Representative plain-language mission contracts for deterministic interpreter proof.",
+  "cases": [
+    {
+      "id": "crm-persistence-basic",
+      "instruction": "Find five roofing companies in Austin, qualify them, collect contact info, and save them to HubSpot CRM contacts. Do not send emails.",
+      "expected_outcomes": ["research_prospects", "qualify_prospects", "observe_contacts", "update_crm"],
+      "quantity": 5,
+      "target": {"industry": "roofing", "location": "Austin"},
+      "send_policy": "forbid"
+    },
+    {
+      "id": "crm-deal-records",
+      "instruction": "Find five software development companies in Austin, Texas comparable to 1devteam, qualify them, save each company and contact in Ajenda internal CRM, and create a deal record for each.",
+      "expected_outcomes": ["research_prospects", "qualify_prospects", "observe_contacts", "persist_internal_crm"],
+      "quantity": 5,
+      "target": {"industry": "software development", "location": "Austin"},
+      "send_policy": "unknown"
+    },
+    {
+      "id": "draft-without-send",
+      "instruction": "Find three roofing companies in Austin, qualify them, and prepare personalized outreach drafts without sending messages.",
+      "expected_outcomes": ["research_prospects", "qualify_prospects", "prepare_outreach"],
+      "quantity": 3,
+      "target": {"industry": "roofing", "location": "Austin"},
+      "send_policy": "forbid"
+    },
+    {
+      "id": "internal-crm-readback",
+      "instruction": "Research three roofing companies in Austin, observe public contact evidence, persist the prospects to Ajenda internal CRM, then read back every saved record.",
+      "expected_outcomes": ["research_prospects", "observe_contacts", "qualify_prospects", "persist_internal_crm"],
+      "quantity": 3,
+      "target": {"industry": "roofing", "location": "Austin"},
+      "send_policy": "unknown"
+    }
+  ]
+}
