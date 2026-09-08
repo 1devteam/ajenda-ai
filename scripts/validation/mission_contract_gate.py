@@ -39,6 +39,8 @@ def _check_case(case: dict[str, Any]) -> dict[str, Any]:
                 actual = getattr(entity, field, None)
                 if expected and actual != expected:
                     failures.append(f"target.{field} expected={expected!r} actual={actual!r}")
+        if len(intent.target_entities) != 1:
+            failures.append(f"target entity count expected=1 actual={len(intent.target_entities)}")
     expected_policy = case.get("send_policy")
     if expected_policy and intent.send_policy.mode != expected_policy:
         failures.append(f"send_policy expected={expected_policy!r} actual={intent.send_policy.mode!r}")

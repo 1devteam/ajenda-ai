@@ -242,7 +242,8 @@ _CRM_UPDATE_PATTERNS = (
     # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
     r"\bput (?:them|it|these|those)\s+(?:in|into)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\bcreate (?:crm )?(?:records?|contacts?)\b",
-    r"\b(?:create|add|open)\s+(?:a\s+)?(?:deal|opportunit(?:y|ies))(?:\s+record)?\b",
+    r"\b(?:create|add)\s+(?:a\s+)?(?:deal|opportunit(?:y|ies))(?:\s+record)?\b",
+    r"\bopen\s+(?:a\s+)?(?:new|fresh)\s+(?:deal|opportunit(?:y|ies))(?:\s+record)?\b",
     r"\b(?:create|link|assign)\s+(?:a\s+)?(?:deal|opportunit(?:y|ies))\b",
     r"\b(?:modify|change|edit) (?:the )?(?:crm|hubspot|pipeline|records?)\b",
 )
@@ -600,8 +601,6 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     entities.extend(_extract_industry_location_entities(text))
     # Connector company targets (HubSpot for Acme) — only when no market target already.
     if not entities:
-        entities.extend(_extract_connector_company(text))
-    elif not any(e.name for e in entities):
         entities.extend(_extract_connector_company(text))
     return entities
 
