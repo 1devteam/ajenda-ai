@@ -226,6 +226,7 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                     **prospect,
                     "id": record_id,
                     "source": "mission_composition",
+                    "workflow_context": str(payload.context.get("workflow_context") or "crm"),
                     "canonical_identity": canonical_identity,
                     "lifecycle_stage": "observed",
                     "observed_contacts": matching_contacts,

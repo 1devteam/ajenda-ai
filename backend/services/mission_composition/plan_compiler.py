@@ -133,7 +133,11 @@ def compile_planned_steps(
 
         tool_input: dict[str, Any] = {}
         if intent is not None:
-            tool_input = build_action_input(action_name=selection.action_name, intent=intent)
+            tool_input = build_action_input(
+                action_name=selection.action_name,
+                intent=intent,
+                vertical_role=selection.vertical_role,
+            )
             definition = get_default_action_registry().get(selection.action_name)
             if definition.input_model is not None:
                 # Validate the same payload shape the runtime registry will

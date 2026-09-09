@@ -21,6 +21,7 @@ import type {
 
 
 type CrmTab = "contact" | "account" | "opportunity" | "activity" | "task";
+type WorkflowView = "all" | "crm" | "gtm" | "vertical";
 
 const TABS: Array<{ id: CrmTab; label: string }> = [
   { id: "contact", label: "Contacts" },
@@ -61,6 +62,7 @@ function recordMeta(item: CrmRecordItem): string {
 export default function RecordsPage() {
   const { session } = useAuth();
   const [tab, setTab] = useState<CrmTab>("contact");
+  const [workflowView, setWorkflowView] = useState<WorkflowView>("all");
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [page, setPage] = useState(0);
@@ -237,6 +239,12 @@ export default function RecordsPage() {
     () => pipeline?.stages.reduce((sum, stage) => sum + stage.count, 0) ?? 0,
     [pipeline],
   );
+  const visibleRecords = useMemo(
+    () => workflowView === "all"
+      ? records
+      : records.filter((item) => String(item.data.workflow_context || "crm") === workflowView),
+    [records, workflowView],
+  );
 
   return (
     <main>
@@ -304,6 +312,22 @@ export default function RecordsPage() {
 
       <section className="panel">
         <div className="inline-controls">
+          {(["all", "crm", "gtm", "vertical"] as const).map((view) => (
+            <button
+              key={view}
+              type="button"
+              className={workflowView === view ? "button" : "button secondary"}
+              onClick={() => {
+                setWorkflowView(view);
+                setSelected(null);
+              }}
+            >
+              {view === "all" ? "All workflows" : view.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        <div className="inline-controls">
           {TABS.map((item) => (
             <button
               key={item.id}
@@ -343,8 +367,8 @@ export default function RecordsPage() {
         <div className="records-layout">
           <div className="records-list">
             {loading ? <p>Loading records…</p> : null}
-            {!loading && records.length === 0 ? <p className="muted">No records found.</p> : null}
-            {records.map((item) => (
+            {!loading && visibleRecords.length === 0 ? <p className="muted">No records found.</p> : null}
+            {visibleRecords.map((item) => (
               <button
                 key={item.id}
                 type="button"

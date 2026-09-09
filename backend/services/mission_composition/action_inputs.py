@@ -460,7 +460,7 @@ def _salesforce_soql(intent: MissionIntent) -> str:
     return soql
 
 
-def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any]:
+def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role: str | None = None) -> dict[str, Any]:
     """Return a schema-valid-enough input payload for the action.
 
     Downstream steps may still rebind outputs via input_bindings; this ensures
@@ -862,6 +862,10 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
             },
         }
     if action_name == "record.write":
+        role = (vertical_role or "").strip().lower()
+        workflow_context = "gtm" if role in {"vertical.gtm", "vertical.sales", "vertical.email"} else (
+            "vertical" if role.startswith("vertical.") else "crm"
+        )
         return {
             "record_type": "contact",
             "data": {},
@@ -871,6 +875,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, 
                 "prospect_candidates": [],
                 "qualified_prospects": [],
                 "observed_contacts": [],
+                "workflow_context": workflow_context,
             },
         }
     if action_name in {"vertical.finance.prepare_reconciliation", "vertical.finance.prepare_invoice_drafts"}:
