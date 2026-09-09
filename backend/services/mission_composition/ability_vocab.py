@@ -53,6 +53,14 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "prepare outreach drafts": "prepare_outreach",
     "draft outreach": "prepare_outreach",
     "write introductions": "prepare_outreach",
+    # CRM/GTM/vertical operator language
+    "merge records": "update_crm",
+    "advance opportunity": "update_crm",
+    "advance the deal": "update_crm",
+    "review pipeline": "update_crm",
+    "segment accounts": "qualify_prospects",
+    "prepare sequence": "prepare_outreach",
+    "vertical research": "research_prospects",
     # Connector reads
     "check gmail": "read_email",
     "check my inbox": "read_email",
